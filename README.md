@@ -170,15 +170,15 @@ model make it: turn the Live Reviewer on, or keep such text out of the agent's r
 | Codex CLI and Codex Desktop | Gateway: `openai_base_url` in `~/.codex/config.toml` | ChatGPT, or an API key |
 | OpenCode | Gateway: each provider's `baseURL` | API keys (Anthropic, OpenAI, OpenRouter) |
 | Gemini CLI | Gateway: `latet gemini` sets `GOOGLE_GEMINI_BASE_URL` and `GOOGLE_VERTEX_BASE_URL` | A Gemini API key, or Vertex AI |
-| Hermes Agent, OpenClaw, Goose, OpenHands, and any agent that takes an OpenAI-compatible base URL | Gateway: its base URL set to Latet ([autonomous agents](https://docs.latet.ai/agents/autonomous-agents/)) | An OpenAI or OpenRouter API key |
+| Hermes Agent, OpenClaw, Goose, OpenHands, and any agent that takes an OpenAI-compatible base URL | Gateway: its base URL set to Latet ([autonomous agents](https://docs.latet.ai/agents/autonomous-agents/)) | An OpenAI or OpenRouter API key; Hermes Agent, ChatGPT too |
 | Scripts and SDKs: the OpenAI, Anthropic and Google GenAI SDKs, LangChain, LangGraph, AutoGen, CrewAI, Aider, etc. | Gateway: `latet run <command>` points `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` at Latet | API keys |
 | GitHub Copilot (VS Code chat, Copilot CLI), JetBrains Junie CLI and AI Assistant, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush | Gateway: the tool's own base URL or custom endpoint set to Latet ([other tools](https://docs.latet.ai/agents/other-tools/)); Copilot's inline suggestions are not covered | API keys |
 
-Through the gateway, requests reach OpenAI (and ChatGPT, for Codex), OpenRouter (Claude, Gemini and
-hundreds of other models), Anthropic's API, and Google's Gemini API and Vertex AI. Not covered:
-Claude Desktop's Chat and Cowork signed in to Claude, cloud sessions (they run on the provider's
-infrastructure), and Cursor, Windsurf, Antigravity, Jules, Kiro, Warp and the ChatGPT app, whose
-requests leave from the vendor's servers
+Through the gateway, requests reach OpenAI (and ChatGPT, for Codex and Hermes Agent), OpenRouter
+(Claude, Gemini and hundreds of other models), Anthropic's API, and Google's Gemini API and Vertex AI.
+Not covered: Claude Desktop's Chat and Cowork signed in to Claude, cloud sessions (they run on the
+provider's infrastructure), and Cursor, Windsurf, Antigravity, Jules, Kiro, Warp and the ChatGPT app,
+whose requests leave from the vendor's servers
 ([what Latet cannot protect](https://docs.latet.ai/agents/other-tools/#what-latet-cannot-protect)).
 
 - **Client mode**, for Claude Code: the plugin masks inside Claude Code, before the request is

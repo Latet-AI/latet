@@ -22,13 +22,15 @@ change these agents' files: the settings below are all it takes.
 
 A Claude Pro or Max subscription works in Claude Code only, as Anthropic's terms say, so these
 agents use an API key: they reach Claude models through OpenRouter, or with an Anthropic API key.
-The key passes through Latet to the provider and is never logged or shown in the dashboard.
+The key passes through Latet to the provider and is never logged or shown in the dashboard. Hermes
+Agent signed in with ChatGPT needs no key: it goes through Latet with that sign-in, as Codex does
+([below](#signed-in-with-chatgpt)).
 
 ## Hermes Agent
 
 Hermes reads its model and endpoint from `config.yaml` in its folder: `~/.hermes` on macOS and
-Linux, `%LOCALAPPDATA%\hermes` on Windows (`HERMES_HOME` sets another). Point a custom provider
-at Latet:
+Linux, `%LOCALAPPDATA%\hermes` on Windows (`HERMES_HOME` sets another). With an API key, point a
+custom provider at Latet:
 
 ```yaml title="config.yaml"
 model:
@@ -41,6 +43,33 @@ model:
 `hermes model` sets the same interactively. `OPENAI_BASE_URL` in the environment is not enough:
 Hermes honours it only for its `openai-api` provider, so `latet run hermes` would not route a
 custom provider.
+
+### Signed in with ChatGPT
+
+Hermes signed in with your ChatGPT account (its `openai-codex` provider) goes through Latet at the
+address Codex uses. Add one line to `.env` in Hermes's folder:
+
+```sh title="~/.hermes/.env"
+HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
+```
+
+Hermes reads the file again by itself: its next message goes through Latet. The variable moves
+every request Hermes sends with that sign-in: the conversation, and the work it hands the same
+model on the side, such as a session's title, the summary of a long context, or the reading of an
+image or a web page. It comes before `model.base_url` in `config.yaml`, which you can leave as it
+is.
+
+- **A Latet 0.9.3 or earlier** gives Hermes back the surrogates in place of the real values: upgrade
+  Latet first (`latet upgrade`).
+- **A fallback provider with a `base_url` of its own** keeps that address: in `fallback_providers`,
+  set Latet's address there too, or remove the line. Otherwise a request that falls back to it goes
+  to ChatGPT with nothing masked.
+- If Latet is not running, Hermes cannot reach the model. That is deliberate: nothing goes out
+  unmasked.
+- In the dashboard, Hermes's requests are listed under Codex or under another agent: Hermes names
+  itself only to ChatGPT's own address.
+
+Tested live: Hermes Agent signed in with ChatGPT.
 
 ## OpenClaw
 

@@ -31,7 +31,7 @@ latet status
 latet start
 ```
 
-`latet status` stampa `running: Latet 0.9.3 on 127.0.0.1:5283 (masking), pid 12345` se il daemon
+`latet status` stampa `running: Latet 0.9.4 on 127.0.0.1:5283 (masking), pid 12345` se il daemon
 è in esecuzione, altrimenti `not running`. Se invece vuoi smettere di usare Latet, esegui prima
 `latet global-uninstall`: riporta i tuoi agenti com'erano. Vedi
 [Disinstallazione](../getting-started/uninstall/).
@@ -482,7 +482,9 @@ per byte. Vedi [Claude Code](../agents/claude-code/#abbonamenti-pro-e-max).
 No. Anthropic consente di usare un abbonamento in Claude Code e nelle sue app, e Latet non lo presta
 a nient'altro. Gli agenti autonomi passano dal gateway con una chiave API: una chiave OpenAI o
 OpenRouter (OpenRouter offre anche i modelli Claude), o una chiave API di Anthropic. Vedi
-[Hermes Agent, OpenClaw e altri agenti](../agents/autonomous-agents/).
+[Hermes Agent, OpenClaw e altri agenti](../agents/autonomous-agents/). Hermes Agent con l'accesso
+tramite ChatGPT è un altro discorso: passa da Latet con quell'accesso, vedi
+[Accesso con ChatGPT](../agents/autonomous-agents/#accesso-con-chatgpt).
 
 ### Perché Latet non riscrive semplicemente il traffico di Claude Code?
 

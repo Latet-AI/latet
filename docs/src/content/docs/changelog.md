@@ -11,6 +11,16 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.4 (2026-10-23)
+
+- Hermes Agent signed in with ChatGPT goes through Latet, at the address Codex uses:
+  `HERMES_CODEX_BASE_URL` in Hermes's `.env`. See
+  [Hermes Agent](../agents/autonomous-agents/).
+- Fixed: an answer that named no Content-Type went back to the agent unrestored. ChatGPT's Codex
+  backend answers so a request that streams and accepts JSON, as Hermes Agent's do, and Hermes read
+  the surrogates in place of the real values. Such an answer to a request that streams is now read as a
+  stream: restored, and shown in the dashboard.
+
 ## 0.9.3 (2026-10-22)
 
 - Fixed: on Ubuntu, Debian and Fedora, `latet doctor` warned every person that `~/.local` and

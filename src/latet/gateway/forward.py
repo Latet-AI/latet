@@ -358,17 +358,20 @@ class Forwarder:
         if redirected(response.status_code, response.headers):  # neither followed nor passed on
             return await self._redirected(response, exchange, request.method, path, upstream, prepared, outcome)
 
+        # An answer that names no Content-Type is read as the stream its request asked for: ChatGPT's Codex backend
+        # answers so a request that streams and accepts JSON (Hermes Agent's), and its events would go on unrestored.
+        content_type = response.headers.get("content-type") or (
+            "text/event-stream" if prepared is not None and prepared.stream else ""
+        )
         transform = None
         if prepared is not None and prepared.mode == REWRITE and response.status_code < 400 and self.mediator:
             transform = self.mediator.response_transform(
-                prepared, response.headers.get("content-type", ""), response.headers.get("content-encoding")
+                prepared, content_type, response.headers.get("content-encoding")
             )
         # What the model writes in an answer passed on as it came (Claude Code's), read before each chunk goes on.
         written: Callable[[bytes | None], Awaitable[None]] | None = None
         if prepared is not None and prepared.session is not None and response.status_code < 400 and self.mediator:
-            capture = self.mediator.written(
-                prepared, response.headers.get("content-type", ""), response.headers.get("content-encoding")
-            )
+            capture = self.mediator.written(prepared, content_type, response.headers.get("content-encoding"))
             if capture is not None:
                 written = partial(self.mediator.read_written, capture, prepared.session)
         drop = RESPONSE_DROP | ({"content-encoding"} if transform is not None else frozenset())
@@ -381,9 +384,7 @@ class Forwarder:
             outcome.response_headers = forwardable(response.headers.multi_items(), RESPONSE_DROP)
             if prepared is not None and prepared.protocol in _RECORDED:
                 seen = outcome.capture = ResponseCapture(
-                    prepared.protocol,
-                    response.headers.get("content-type", ""),
-                    response.headers.get("content-encoding"),
+                    prepared.protocol, content_type, response.headers.get("content-encoding")
                 )
         if transform is not None and not transform.streams:
             whole = _Whole(response, exchange, seen, response_headers)

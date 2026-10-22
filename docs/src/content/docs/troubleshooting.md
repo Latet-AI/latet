@@ -31,7 +31,7 @@ latet status
 latet start
 ```
 
-`latet status` prints `running: Latet 0.9.3 on 127.0.0.1:5283 (masking), pid 12345`, or
+`latet status` prints `running: Latet 0.9.4 on 127.0.0.1:5283 (masking), pid 12345`, or
 `not running`. If you want to stop using Latet instead, run `latet global-uninstall` first: it reverts your
 agents. See [Uninstall](../getting-started/uninstall/).
 
@@ -461,7 +461,9 @@ its own login, the plugin masks inside it, and the daemon forwards each request 
 No. Anthropic allows a subscription in Claude Code and its own apps, and Latet does not lend it to
 anything else. Autonomous agents go through the gateway with an API key: an OpenAI or OpenRouter key
 (OpenRouter serves Claude models too), or an Anthropic API key. See
-[Hermes Agent, OpenClaw and other agents](../agents/autonomous-agents/).
+[Hermes Agent, OpenClaw and other agents](../agents/autonomous-agents/). Hermes Agent signed in with
+ChatGPT is another matter: it goes through Latet with that sign-in, see
+[Signed in with ChatGPT](../agents/autonomous-agents/#signed-in-with-chatgpt).
 
 ### Why doesn't Latet just rewrite Claude Code's traffic?
 
