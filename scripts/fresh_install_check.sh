@@ -19,11 +19,21 @@ LATET_SOURCE="latet[ner,ocr] @ file://$wheel" LATET_NO_MODIFY_PATH=1 UV_NO_MODIF
 PATH="$HOME/.local/bin:$PATH"
 export PATH
 latet --help >/dev/null
-latet start
+if ! latet start; then
+    find "$HOME" \( -name daemon.log -o -name daemon.out \) -type f 2>/dev/null | while read -r log; do
+        echo "== $log"
+        tail -n 60 "$log"
+    done
+    exit 1
+fi
 latet status
 latet doctor >"$HOME/doctor.txt" 2>&1 || true
 cat "$HOME/doctor.txt"
 grep -q '^\[OK  \] Masking self-test' "$HOME/doctor.txt"
 grep -q '^\[OK  \] Names: ' "$HOME/doctor.txt"  # the ner extra installed: what it needs next is its model
+if grep -q '^\[WARN\] Data folder' "$HOME/doctor.txt"; then  # Ubuntu's `~/.local` is 0775, its group the person's own
+    echo "doctor warns of a data folder on a computer as it comes" >&2
+    exit 1
+fi
 latet stop
 echo "Installed, started, masked and stopped on a computer that had neither uv nor Python."

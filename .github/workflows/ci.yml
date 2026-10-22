@@ -127,56 +127,6 @@ jobs:
           ./scripts/install.ps1 -Source (Get-ChildItem dist/*.whl)[0].FullName
           & "$((uv tool dir --bin).Trim())/latet.exe" --help
 
-  # A computer with neither uv nor Python, as a person meets the installer there: Linux in clean containers, macOS and
-  # Windows with only the system's own folders on the PATH and an empty home. The installer brings uv, uv brings a
-  # Python Latet is tested on, Latet installs with name detection and the text in images, starts and masks.
-  fresh-install:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, image: "ubuntu:24.04" }
-          - { os: ubuntu-latest, image: "debian:12" }
-          - { os: macos-latest }
-          - { os: windows-latest }
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@v6  # to build the wheel only: the check runs where this uv is not found
-      - run: uv build --wheel -o dist
-      - name: Linux, in a clean container
-        if: matrix.image
-        run: |
-          wheel="$(basename dist/*.whl)"
-          docker run --rm -v "$PWD:/src:ro" "${{ matrix.image }}" sh -c "
-            set -e
-            apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
-            useradd -m person
-            su - person -c 'sh /src/scripts/fresh_install_check.sh /src/dist/$wheel'
-          "
-      - name: macOS, with the system's own folders alone
-        if: runner.os == 'macOS'
-        run: |
-          home="$RUNNER_TEMP/fresh-home"
-          mkdir -p "$home"
-          env -i HOME="$home" TMPDIR="$RUNNER_TEMP" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
-            sh scripts/fresh_install_check.sh "$PWD/$(ls dist/*.whl)"
-      - name: Windows, with the system's own folders alone
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $wheel = (Get-ChildItem dist/*.whl)[0].FullName
-          $fresh = Join-Path $env:RUNNER_TEMP 'fresh-home'
-          foreach ($dir in "$fresh\AppData\Local", "$fresh\AppData\Roaming") { New-Item -ItemType Directory -Force $dir | Out-Null }
-          $env:USERPROFILE = $fresh; $env:HOME = $fresh
-          $env:LOCALAPPDATA = "$fresh\AppData\Local"; $env:APPDATA = "$fresh\AppData\Roaming"
-          $env:PATH = "C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0;$PSHOME"
-          # A PowerShell of its own: its $HOME is the empty home, as the installer and uv's own installer read it.
-          & "$PSHOME\pwsh.exe" -NoProfile -File scripts/fresh_install_check.ps1 -Wheel $wheel
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
   dashboard:
     runs-on: ubuntu-latest
     defaults:

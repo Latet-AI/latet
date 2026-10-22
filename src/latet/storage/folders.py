@@ -27,6 +27,7 @@ import re
 import stat
 import sys
 import unicodedata
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -266,6 +267,29 @@ def namespace_refusal(
     return f"{reason}: {chosen}" if chosen else reason
 
 
+def _group_holds_alone(gid: int, me: Any, members: Sequence[str], accounts: Iterable[Any]) -> bool:
+    """Whether group ``gid`` holds account ``me`` alone: it is that account's own group (``pw_gid``), no other account
+    is listed in it, and no other account has it as its own. Ubuntu, Debian and Fedora give each account one."""
+    if me.pw_gid != gid or any(member != me.pw_name for member in members):
+        return False
+    return not any(account.pw_gid == gid and account.pw_uid != me.pw_uid for account in accounts)
+
+
+@functools.cache
+def _group_is_mine_alone(gid: int) -> bool:
+    """``_group_holds_alone`` for this account, read from the system's accounts and groups; any doubt (no such
+    account or group, a lookup that fails) is no. Kept for the process: an account's groups change rarely."""
+    if sys.platform == "win32":
+        return False
+    try:
+        import grp
+        import pwd
+
+        return _group_holds_alone(gid, pwd.getpwuid(os.getuid()), grp.getgrgid(gid).gr_mem, pwd.getpwall())
+    except (ImportError, KeyError, OSError):
+        return False
+
+
 def _namespace_verdict(
     folder: Path, found: os.stat_result, *, private: bool = False, trust: bool = True
 ) -> tuple[str, str, str] | None:
@@ -280,7 +304,12 @@ def _namespace_verdict(
                 "what is in it",
                 _OWN,
             )
-        if found.st_mode & 0o022 and not found.st_mode & stat.S_ISVTX:
+        if (
+            found.st_mode & 0o022
+            and not found.st_mode & stat.S_ISVTX
+            # A group that holds this account alone may write: nobody else can (Ubuntu's `~/.local` is 0775).
+            and (found.st_mode & 0o002 or not _group_is_mine_alone(found.st_gid))
+        ):
             return (
                 CHANGEABLE,
                 f"{folder} can be changed by its group or by other users (mode {stat.S_IMODE(found.st_mode):04o})",

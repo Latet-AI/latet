@@ -252,6 +252,40 @@ def test_posix_namespace_metadata_classification_is_explicitly_simulated(compute
     assert (folders.namespace_folder_problem(computer, found) is None) is allowed
 
 
+ME = SimpleNamespace(pw_name="person", pw_uid=10001, pw_gid=10001)
+SOMEONE = SimpleNamespace(pw_name="someone", pw_uid=10002, pw_gid=10002)
+
+
+@pytest.mark.parametrize(
+    ("gid", "members", "accounts", "alone"),
+    [
+        (10001, [], [ME, SOMEONE], True),  # Ubuntu's, Debian's, Fedora's own group of each account
+        (10001, ["person"], [ME], True),  # listed as its own member too
+        (10001, ["someone"], [ME, SOMEONE], False),  # another member
+        (10001, [], [ME, SimpleNamespace(pw_name="other", pw_uid=10003, pw_gid=10001)], False),  # another's group
+        (20, [], [ME, SOMEONE], False),  # not the account's own group (macOS's staff, a shared group)
+    ],
+    ids=["own-group", "own-group-listing-itself", "another-member", "another-accounts-primary-group", "not-its-own"],
+)
+def test_a_group_is_the_accounts_alone_only_when_nobody_else_is_in_it(gid, members, accounts, alone):
+    assert folders._group_holds_alone(gid, ME, members, accounts) is alone
+
+
+@pytest.mark.parametrize(
+    ("mode", "gid", "allowed"),
+    [(0o775, 10001, True), (0o775, 100, False), (0o777, 10001, False), (0o757, 10001, False)],
+    ids=["group-writable-own-group", "group-writable-shared-group", "anyone-writable", "others-writable"],
+)
+def test_a_folder_its_own_group_may_write_is_changed_by_nobody_else(computer, monkeypatch, mode, gid, allowed):
+    """Ubuntu makes `~/.local` 0775 for an account whose group is its own: `latet doctor` warned of it to every person
+    there, though nobody else may write in it."""
+    monkeypatch.setattr(folders, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(folders, "os", SimpleNamespace(getuid=lambda: 10001))
+    monkeypatch.setattr(folders, "_group_is_mine_alone", lambda group: group == 10001)
+    found = SimpleNamespace(st_uid=10001, st_gid=gid, st_mode=stat.S_IFDIR | mode)
+    assert (folders.namespace_folder_problem(computer, found) is None) is allowed
+
+
 def test_relative_store_path_keeps_each_actual_component_before_parent_traversal(computer, monkeypatch):
     prefix = computer / "relative-prefix"
     prefix.mkdir(mode=0o700)
