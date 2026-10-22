@@ -55,7 +55,9 @@ jobs:
         shell: pwsh
         run: |
           $wheel = (Get-ChildItem dist/*.whl)[0].FullName
-          $fresh = Join-Path $env:RUNNER_TEMP 'fresh-home'
+          # Beside the runner's own profile on C:, as a person's: the runner's D: belongs to NETWORK SERVICE, which Latet
+          # rightly refuses for a data folder.
+          $fresh = Join-Path $env:USERPROFILE 'fresh-home'
           foreach ($dir in "$fresh\AppData\Local", "$fresh\AppData\Roaming") { New-Item -ItemType Directory -Force $dir | Out-Null }
           $env:USERPROFILE = $fresh; $env:HOME = $fresh
           $env:LOCALAPPDATA = "$fresh\AppData\Local"; $env:APPDATA = "$fresh\AppData\Roaming"
