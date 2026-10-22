@@ -38,6 +38,11 @@ latet opencode
 latet opencode run "add the payments key from .env to config/local.toml"
 ```
 
+**OpenCode Desktop** reads the same global configuration: `latet agents apply opencode` (or
+`latet global-install`) routes it once you restart the app, while `latet opencode` starts the
+command-line OpenCode only. `latet agents revert opencode` takes Latet's addresses away again and
+leaves the rest of the file as it is.
+
 ## Limits
 
 - **Only these three providers are routed.** A model from any other provider (Amazon Bedrock or

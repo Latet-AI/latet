@@ -604,6 +604,7 @@ def test_a_parent_of_the_data_folder_checked_as_the_folder_itself_is_refused(com
 
 @POSIX
 def test_on_posix_a_parent_its_group_may_write_is_warned_in_local_mode_and_refused_connected(computer, monkeypatch):
+    monkeypatch.setattr(folders, "_group_is_mine_alone", lambda gid: False)  # a group other accounts are in
     shared = computer / "shared"
     shared.mkdir()
     shared.chmod(0o775)

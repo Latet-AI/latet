@@ -708,6 +708,22 @@ class Codex:
         return "partial" if any(here in text for text in texts.values()) else "not applied"
 
 
+def _opencode_desktop_paths(platform: str, local: str | None, home: Path) -> list[Path]:
+    """Where OpenCode Desktop's installer puts the app: on Windows in the person's programs folder, on macOS among the
+    applications. None looked for elsewhere."""
+    if platform == "win32":
+        return [Path(local) / "Programs" / "@opencode-aidesktop" / "OpenCode.exe"] if local else []
+    if platform == "darwin":
+        return [Path("/Applications/OpenCode.app"), home / "Applications" / "OpenCode.app"]
+    return []
+
+
+def _opencode_desktop() -> Path | None:
+    """OpenCode Desktop on this computer, or None."""
+    paths = _opencode_desktop_paths(sys.platform, os.environ.get("LOCALAPPDATA"), Path.home())
+    return next((path for path in paths if path.exists()), None)
+
+
 class OpenCode:
     id = "opencode"
     name = "OpenCode"
@@ -725,9 +741,14 @@ class OpenCode:
 
     def detect(self) -> AgentInfo:
         exe = shutil.which("opencode")
-        info = AgentInfo(
-            self.id, self.name, exe is not None, _version("opencode") if exe else None, str(self.config_path())
-        )
+        app = None if exe else _opencode_desktop()  # the app reads the same configuration as the command line
+        version = _version("opencode") if exe else ("desktop app" if app else None)
+        info = AgentInfo(self.id, self.name, exe is not None or app is not None, version, str(self.config_path()))
+        if app is not None:
+            info.notes.append(
+                "OpenCode Desktop reads this configuration: `latet agents apply opencode` routes it once the app is "
+                "restarted; `latet opencode` starts the command-line OpenCode only."
+            )
         info.notes.append(
             "API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (planned for v1.1)."
         )

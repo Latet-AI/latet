@@ -1,11 +1,12 @@
 import json
 import shutil
 import tomllib
+from pathlib import Path
 
 import pytest
 
 from latet import wrappers
-from latet.integrations import jsonc
+from latet.integrations import agents, jsonc
 from latet.integrations.agents import ClaudeCode, ClaudeOptions, Codex, OpenCode
 from latet.integrations.routes import ROUTE_VARS
 
@@ -85,6 +86,32 @@ def test_opencode_apply_keeps_comments_and_reverts(isolated):
     assert opencode.status() == "applied"
     opencode.revert()
     assert path.read_bytes() == OPENCODE_JSONC.encode()
+
+
+def test_opencode_desktop_is_found_where_its_installer_puts_it(tmp_path):
+    local, home = tmp_path / "local", tmp_path / "home"
+    assert agents._opencode_desktop_paths("win32", str(local), home) == [
+        local / "Programs" / "@opencode-aidesktop" / "OpenCode.exe"
+    ]
+    assert agents._opencode_desktop_paths("darwin", None, home) == [
+        Path("/Applications/OpenCode.app"),
+        home / "Applications" / "OpenCode.app",
+    ]
+    assert agents._opencode_desktop_paths("linux", None, home) == []
+
+
+def test_opencode_desktop_alone_counts_as_opencode_installed(isolated, monkeypatch):
+    """OpenCode Desktop reads the same global configuration as the command line: `latet agents status`, `doctor` and
+    `global-install` said it was not installed when the `opencode` command was not there."""
+    app = isolated / "OpenCode.exe"
+    app.write_bytes(b"")
+    monkeypatch.setattr(agents.shutil, "which", lambda name: None)
+    monkeypatch.setattr(agents, "_opencode_desktop", lambda: app)
+    info = OpenCode().detect()
+    assert info.installed and info.version == "desktop app"
+    assert any("OpenCode Desktop" in note and "latet opencode" in note for note in info.notes)
+    monkeypatch.setattr(agents, "_opencode_desktop", lambda: None)
+    assert not OpenCode().detect().installed
 
 
 @pytest.mark.e2e
