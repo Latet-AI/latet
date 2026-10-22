@@ -202,13 +202,19 @@ def restore(
 
 def _restored_config(raw: bytes | None, remaps: list[str]) -> Any:
     """The backup's settings for this machine: its port, its identity added, no paths of the other one."""
+    import yaml
     from pydantic import ValidationError
 
-    from latet.config import Config, config_path, detect_identity, in_container, load_yaml
+    from latet.config import Config, _yaml_error_at, config_path, detect_identity, in_container, load_yaml
     from latet.projects import norm_path
 
+    text = ""
     try:
-        config = Config.model_validate(load_yaml(raw.decode("utf-8")) or {} if raw else {})
+        text = raw.decode("utf-8") if raw else ""
+        config = Config.model_validate(load_yaml(text) or {})
+    except yaml.YAMLError as exc:  # where, never what: PyYAML's words quote the line
+        typer.secho(f"Nothing was restored: its settings are not valid YAML{_yaml_error_at(exc, text)}.", fg="red")
+        raise typer.Exit(1) from None
     except (ValueError, ValidationError) as exc:
         typer.secho(f"Nothing was restored: its settings cannot be read ({exc}).", fg="red")
         raise typer.Exit(1) from None

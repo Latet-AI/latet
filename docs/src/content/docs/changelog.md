@@ -11,6 +11,22 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.5 (2026-10-23)
+
+- Fixed: on Windows, `latet server install` refused the folder it installs to, `C:\ProgramData\Latet`, on
+  every stock Windows ("The service directory has an unsafe ancestor"). Windows lets every account add files
+  to `C:\ProgramData`, which deletes, renames or replaces nothing in it: Latet now accepts that, and still
+  refuses a parent folder whose contents others may delete, rename or take over.
+- Fixed: on Windows, `latet server install` found `C:\ProgramData` through the environment it ran in, so an
+  installer run with `SystemDrive` changed found no service folder, or another one. It now reads it from the
+  registry, on the drive Windows runs from.
+- Fixed: a date, a time or a number that cannot exist (`2024-13-45`, an offset of a whole day, a number of
+  5,000 digits) in `config.yaml`, a server's settings, a rules file or a backup stopped Latet with a Python
+  traceback. It is now said as a mistake in the YAML, with its line and column, never quoted.
+- Two server tests of how long the event loop waits allow a quarter of a second, which a busy computer needs,
+  well under the six tenths the loop waited before the work moved off it, and a test of the dashboard's vault
+  pages no longer depends on Windows's clock, which moves in steps of about 16 ms.
+
 ## 0.9.4 (2026-10-23)
 
 - Hermes Agent signed in with ChatGPT goes through Latet, at the address Codex uses:

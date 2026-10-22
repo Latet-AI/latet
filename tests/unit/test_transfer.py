@@ -241,6 +241,10 @@ def test_what_cannot_be_read():
         read_rules("latet_rules: 99\n")
     with pytest.raises(RulesError, match="aliases"):
         read_rules("a: &x [1]\nterms: *x\n")
+    for value in ("2024-13-45", "7" * 5000):  # a date no calendar has, a number Python will not read
+        with pytest.raises(RulesError, match="not valid YAML: a date, a time or a number out of range") as refused:
+            read_rules(f"terms:\n  - value: {value}\n")
+        assert value not in str(refused.value)
     with pytest.raises(RulesError, match="mapping"):
         read_rules("- a\n- b\n")
     with pytest.raises(RulesError, match="MB"):

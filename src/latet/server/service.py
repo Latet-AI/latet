@@ -11,6 +11,7 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -33,8 +34,14 @@ _SERVICE_DIGEST = hashlib.sha1(SERVICE_NAME.upper().encode("utf-16-le"), usedfor
 SERVICE_SID = "S-1-5-80-" + "-".join(str(int.from_bytes(_SERVICE_DIGEST[n : n + 4], "little")) for n in range(0, 20, 4))
 FULL, READ_EXECUTE, MODIFY = 0x1F01FF, 0x1200A9, 0x1301BF
 _NAMESPACE_SAFE = 0xA01200AD  # Read/traverse and add-subdirectory, never replacement or delete-child.
+# What others may also hold on a parent folder, as BUILTIN\Users does on a stock C:\ProgramData: add a file (0x2),
+# write its extended attributes (0x10) and attributes (0x100). None deletes, renames or replaces what is in it, which
+# takes DELETE on the child or FILE_DELETE_CHILD on the parent.
+_ADDS_ON_A_PARENT = 0x2 | 0x10 | 0x100
 _READ_ONLY = 0xA01200A9
 _MOST_ENTRIES = 10_000
+_PROFILE_LIST = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
+_SYSTEM_DRIVE = re.compile("%systemdrive%", re.IGNORECASE)
 SECRET_SETTINGS = (
     "master_key_file",
     "database_password_file",
@@ -89,15 +96,42 @@ def _system_directory() -> PureWindowsPath:
 def windows_folder() -> Path:
     if sys.platform != "win32":
         return Path("C:/ProgramData/Latet")
-    from ctypes import wintypes
+    return Path(_program_data_from(_registered_program_data(), _system_directory().drive)) / "Latet"
 
-    shell = ctypes.WinDLL("shell32", use_last_error=True)
-    shell.SHGetFolderPathW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR]
-    shell.SHGetFolderPathW.restype = ctypes.c_long
-    buffer = ctypes.create_unicode_buffer(260)
-    if shell.SHGetFolderPathW(None, 0x23, None, 0, buffer) != 0:  # CSIDL_COMMON_APPDATA, from the OS, not environment.
-        raise InstallError("The Windows service directory cannot be determined.")
-    return Path(buffer.value) / "Latet"
+
+def _registered_program_data() -> str | None:
+    r"""ProfileList's ProgramData as the registry holds it (``%SystemDrive%\ProgramData``), its variables not expanded:
+    never %ProgramData% or %SystemDrive%, which whoever runs the installer can set, nor SHGetFolderPathW, which expands
+    %SystemDrive% from this process's environment. None where there is none."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    try:
+        access = winreg.KEY_READ | winreg.KEY_WOW64_64KEY
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _PROFILE_LIST, 0, access) as key:
+            value, kind = winreg.QueryValueEx(key, "ProgramData")
+    except OSError:
+        return None
+    return value if kind in (winreg.REG_SZ, winreg.REG_EXPAND_SZ) and isinstance(value, str) else None
+
+
+def _program_data_from(value: str | None, drive: str) -> PureWindowsPath:
+    """ProfileList's ``value`` with %SystemDrive% as ``drive``, the drive Windows runs from (GetSystemDirectoryW);
+    ``drive``'s ProgramData when there is no value, or one that holds another variable or is not a whole path on a
+    drive."""
+    default = PureWindowsPath(f"{drive}/ProgramData")
+    if value is None:
+        return default
+    expanded = _SYSTEM_DRIVE.sub(lambda _: drive, value)
+    folder = PureWindowsPath(expanded)
+    if "%" in expanded or not _a_drive(folder.drive) or not folder.is_absolute():
+        return default
+    return folder
+
+
+def _a_drive(drive: str) -> bool:
+    return len(drive) == 2 and drive[1] == ":" and drive[0].isascii() and drive[0].isalpha()
 
 
 def homes(kind: str) -> list[Path]:
@@ -355,7 +389,7 @@ def _windows_trust(metadata: WindowsSecurity, *, namespace: bool, writable: bool
         trusted.add(SERVICE_SID)
     if metadata.owner not in trusted:
         return "machine path has an untrusted owner"
-    safe = _NAMESPACE_SAFE if namespace else _READ_ONLY
+    safe = (_NAMESPACE_SAFE | _ADDS_ON_A_PARENT) if namespace else _READ_ONLY
     for entry in metadata.entries:
         if entry.kind not in (0, 1) or not entry.sid or entry.flags & ~0x1F:
             return "machine path access metadata cannot be read"

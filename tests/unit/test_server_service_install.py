@@ -8,7 +8,7 @@ import stat
 import subprocess
 import sys
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -75,6 +75,73 @@ def test_service_acl_refuses_incomplete_foreign_or_ambiguous_metadata(service, d
 def test_acl_text_localized_names_and_unreadable_metadata_never_authorize(service):
     for value in ("", "BUILTIN\\Administrators:(F)", "Administratoren:(F)", None):
         assert service.acl_problem(value, "unused") is not None
+
+
+USERS, CREATOR_OWNER = "S-1-5-32-545", "S-1-3-0"
+
+
+def _program_data(service, *extra):
+    r"""C:\ProgramData as a stock Windows keeps it: Users may read and traverse it, and add files and folders to it,
+    whose creators own them."""
+    return service.WindowsSecurity(
+        service.SYSTEM,
+        False,
+        (
+            service.WindowsACE(service.SYSTEM, service.FULL, 3),
+            service.WindowsACE(service.ADMINISTRATORS, service.FULL, 3),
+            service.WindowsACE(CREATOR_OWNER, service.FULL, 11),  # its children's, not its own
+            service.WindowsACE(USERS, service.READ_EXECUTE, 3),
+            service.WindowsACE(USERS, 0x116, 2),  # add a file, write extended attributes and attributes
+            *extra,
+        ),
+        True,
+    )
+
+
+def test_the_service_folder_under_a_stock_program_data_has_no_unsafe_ancestor(service, tmp_path, monkeypatch):
+    (tmp_path / "ProgramData").mkdir()
+    monkeypatch.setattr(service, "platform", lambda: "windows")
+    monkeypatch.setattr(service, "windows_security", lambda path: _program_data(service))
+    assert service._namespace_problem(tmp_path / "ProgramData" / "Latet") is None
+
+
+# Delete a child, delete, change who may, take ownership, write in general, everything.
+@pytest.mark.parametrize("right", [0x40, 0x10000, 0x40000, 0x80000, 0x40000000, 0x10000000])
+def test_an_ancestor_others_may_empty_rename_or_take_is_unsafe(service, right):
+    found = _program_data(service, service.WindowsACE(USERS, right, 2))
+    assert service._windows_trust(found, namespace=True) == "machine path can be changed by another account"
+
+
+def test_what_others_may_add_to_an_ancestor_they_may_not_do_to_the_path_itself(service):
+    assert service._windows_trust(_program_data(service), namespace=False) is not None
+
+
+@pytest.mark.parametrize(
+    ("registered", "drive", "folder"),
+    [
+        (r"%SystemDrive%\ProgramData", "C:", "C:/ProgramData"),
+        (r"%systemdrive%\ProgramData", "D:", "D:/ProgramData"),
+        (r"E:\Shared\ProgramData", "C:", "E:/Shared/ProgramData"),
+        (None, "C:", "C:/ProgramData"),
+        ("%ProgramData%", "C:", "C:/ProgramData"),  # another variable, which the person sets
+        ("ProgramData", "C:", "C:/ProgramData"),  # not a whole path
+        (r"\\server\share\ProgramData", "C:", "C:/ProgramData"),  # not on a drive of the computer
+    ],
+)
+def test_program_data_is_where_the_registry_keeps_it_on_windows_own_drive(service, registered, drive, folder):
+    assert service._program_data_from(registered, drive) == PureWindowsPath(folder)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows's own registry and system folder")
+def test_the_service_folder_follows_no_variable_of_the_installer(service):
+    """SHGetFolderPathW expands %SystemDrive% from the process's environment: an installer run with it changed put the
+    service folder elsewhere, or found none."""
+    moved = {**os.environ, "SystemDrive": "Z:", "ProgramData": r"Z:\elsewhere", "ALLUSERSPROFILE": r"Z:\elsewhere"}
+    found = subprocess.run(
+        [sys.executable, "-c", "from latet.server.service import windows_folder; print(windows_folder())"],
+        env=moved, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert found.stdout.strip() == str(Path(f"{service._system_directory().drive}/ProgramData/Latet")), found.stderr
 
 
 def test_secret_file_metadata_does_not_read_the_contents(service, tmp_path, monkeypatch):

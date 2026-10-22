@@ -236,6 +236,9 @@ NOT_YAML = {
     "a character YAML refuses": ("terms:\n  - value: Mercury\x00Labs\n", 2, 19),
     "an alias": ("other: *Mercury_Labs\n", 1, 8),
     "a tag": ("terms: !!python/object:os.system Mercury Labs\n", 1, 8),
+    "a date no calendar has": ("terms:\n  - value: Mercury Labs\nsince: 2024-13-45\n", 3, 8),
+    "a time a whole day off": ("terms:\n  - value: Mercury Labs\nsince: 2024-01-01 10:00:00 +24:00\n", 3, 8),
+    "a number of 5,000 digits": ("terms:\n  - value: Mercury Labs\nlimit: " + "7" * 5000 + "\n", 3, 8),
 }
 
 
