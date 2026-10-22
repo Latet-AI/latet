@@ -1,0 +1,1322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.latet.ai/config.schema.json",
+  "$defs": {
+    "AutoModeReview": {
+      "additionalProperties": false,
+      "description": "Which identity details may reach Claude Code's auto mode reviewer.\n\n`block` and `allow-identity` stand for every detail blocked or allowed, and are written back that\nway, so files written before the per-detail form keep their meaning and their look.",
+      "properties": {
+        "user_name": {
+          "default": "block",
+          "description": "Your OS user name, which the reviewer is told as its *User identity*. `surrogate` gives Claude Code your user name's surrogate instead (in `USERNAME` and `USER`), so the reviewer sees the same fake name as the model.",
+          "enum": [
+            "block",
+            "allow",
+            "surrogate"
+          ],
+          "title": "User Name",
+          "type": "string"
+        },
+        "paths": {
+          "default": "block",
+          "description": "Your user folder's name in the paths of your home and working directories.",
+          "enum": [
+            "block",
+            "allow"
+          ],
+          "title": "Paths",
+          "type": "string"
+        },
+        "host_name": {
+          "default": "block",
+          "description": "This machine's host name.",
+          "enum": [
+            "block",
+            "allow"
+          ],
+          "title": "Host Name",
+          "type": "string"
+        },
+        "git_author": {
+          "default": "block",
+          "description": "Your name and email, as in your git author.",
+          "enum": [
+            "block",
+            "allow"
+          ],
+          "title": "Git Author",
+          "type": "string"
+        }
+      },
+      "title": "AutoModeReview",
+      "type": "object"
+    },
+    "Destination": {
+      "additionalProperties": false,
+      "description": "Where an agent's requests go after Latet, besides the providers it knows: your company's gateway,\nAzure OpenAI, Microsoft Foundry. Requests to `http://127.0.0.1:5283/<name>/...` go to `url`.",
+      "properties": {
+        "name": {
+          "description": "Its route: lowercase letters, digits and dashes (`llm-acme-com`), and none of Latet's own (`anthropic`, `openai`, `chatgpt`, `openrouter`, `gemini`, `bedrock`, `vertex`, `backend-api`).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "description": "The address requests go to, such as `https://llm.acme.com`: https outside your local network, no user, password or query in it.",
+          "title": "Url",
+          "type": "string"
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "enum": [
+                "claude",
+                "codex"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The agent whose settings Latet read it from; not set: written by you.",
+          "title": "Agent"
+        }
+      },
+      "required": [
+        "name",
+        "url"
+      ],
+      "title": "Destination",
+      "type": "object"
+    },
+    "FieldRule": {
+      "additionalProperties": false,
+      "description": "A rule for the values of one field: a column of a table, a JSON key or path, the key of `key=value`.",
+      "properties": {
+        "name": {
+          "description": "The field: a column name, a JSON key or path (`items[].sku`), or the key of `key=value`; `*` matches any characters, and case does not matter.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The type its values are masked as (`FIELD` when not set).",
+          "title": "Type"
+        },
+        "mask": {
+          "default": true,
+          "description": "`false` keeps its values in clear in strict data mode (only in your own settings).",
+          "title": "Mask",
+          "type": "boolean"
+        },
+        "secret": {
+          "default": false,
+          "description": "Its values are secrets: one in clear blocks the request.",
+          "title": "Secret",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "FieldRule",
+      "type": "object"
+    },
+    "IdentityConfig": {
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Mask this machine's identity (detected each time Latet starts, when the fields below are empty).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Older single-name form of `usernames`.",
+          "title": "Username"
+        },
+        "usernames": {
+          "description": "OS user names, masked inside home paths.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Usernames",
+          "type": "array"
+        },
+        "hostname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "This machine's host name.",
+          "title": "Hostname"
+        },
+        "hostnames": {
+          "description": "Other host names of yours, masked as `hostname` is (on a Latet server, each of your computers').",
+          "items": {
+            "type": "string"
+          },
+          "title": "Hostnames",
+          "type": "array"
+        },
+        "full_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Your name, as in your git author.",
+          "title": "Full Name"
+        },
+        "emails": {
+          "description": "Your email addresses, as in your git author.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Emails",
+          "type": "array"
+        }
+      },
+      "title": "IdentityConfig",
+      "type": "object"
+    },
+    "LiveReview": {
+      "additionalProperties": false,
+      "description": "The Live Reviewer: you approve, in the dashboard, every new text before it leaves.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Every new text waits for your approval in the dashboard: you confirm it, or mask more first.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "kinds": {
+          "description": "What waits for you: by default everything the model did not write (your prompts and attachments, its instructions, what its tools fetch).",
+          "items": {
+            "enum": [
+              "user_text",
+              "attachment",
+              "system",
+              "tool_result",
+              "tool_input",
+              "tool_description",
+              "image_text"
+            ],
+            "type": "string"
+          },
+          "title": "Kinds",
+          "type": "array"
+        },
+        "auto_approve_clean": {
+          "default": false,
+          "description": "Send without asking a text in which neither Latet nor the local reviewer found anything.",
+          "title": "Auto Approve Clean",
+          "type": "boolean"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "minimum": 10,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long a text waits for you; when the time is up it is not sent (not set: until you answer).",
+          "title": "Timeout S"
+        }
+      },
+      "title": "LiveReview",
+      "type": "object"
+    },
+    "LlmReview": {
+      "additionalProperties": false,
+      "description": "The local reviewer: a language model on your own server reads what the detectors left in clear.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Ask the local reviewer.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "url": {
+          "default": "http://127.0.0.1:8080/v1",
+          "description": "Its OpenAI-compatible server (llama.cpp, Ollama, LM Studio): on this machine, or on another machine of yours with `remote: true`.",
+          "title": "Url",
+          "type": "string"
+        },
+        "remote": {
+          "default": false,
+          "description": "The server is yours, on another machine: Latet sends it the original texts. Outside your local network its address must be https.",
+          "title": "Remote",
+          "type": "boolean"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The model's id on the server (not set: the first it lists).",
+          "title": "Model"
+        },
+        "api_key_env": {
+          "default": "LATET_LLM_API_KEY",
+          "description": "The environment variable holding the server's API key, if any. Without it, the key saved from the dashboard or with `latet llm key` is used (kept in the operating system's credential store).",
+          "title": "Api Key Env",
+          "type": "string"
+        },
+        "api_key_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Or a file holding the key (the key itself never goes in this file).",
+          "title": "Api Key File"
+        },
+        "inline": {
+          "description": "What is reviewed before it leaves: by default everything the model did not write (your prompts and attachments, its instructions, what its tools fetch).",
+          "items": {
+            "enum": [
+              "user_text",
+              "attachment",
+              "system",
+              "tool_result",
+              "tool_input",
+              "tool_description",
+              "image_text"
+            ],
+            "type": "string"
+          },
+          "title": "Inline",
+          "type": "array"
+        },
+        "budget_ms": {
+          "anyOf": [
+            {
+              "minimum": 500,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long a request may wait for its review (not set: as long as it takes).",
+          "title": "Budget Ms"
+        },
+        "on_failure": {
+          "default": "stop",
+          "description": "When a review cannot be done (the server is off, too slow for `budget_ms`, or its answer is not to be trusted): `stop` the request, or `send` it masked as the detectors did.",
+          "enum": [
+            "stop",
+            "send"
+          ],
+          "title": "On Failure",
+          "type": "string"
+        },
+        "background": {
+          "default": true,
+          "description": "Review after it is sent what is not reviewed before: what it finds is masked from the next request on.",
+          "title": "Background",
+          "type": "boolean"
+        },
+        "slots": {
+          "anyOf": [
+            {
+              "maximum": 4,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reviews the server runs side by side (not set: what llama.cpp says, or 1).",
+          "title": "Slots"
+        },
+        "block": {
+          "default": false,
+          "description": "Let the reviewer stop a request whose text must not leave even masked (a whole medical record).",
+          "title": "Block",
+          "type": "boolean"
+        },
+        "auto_mask": {
+          "description": "Categories it masks by itself; the others are shown in the dashboard as suggestions.",
+          "items": {
+            "enum": [
+              "person",
+              "address",
+              "phone",
+              "email",
+              "id",
+              "health",
+              "sensitive",
+              "financial",
+              "secret",
+              "org",
+              "confidential"
+            ],
+            "type": "string"
+          },
+          "title": "Auto Mask",
+          "type": "array"
+        },
+        "chunk_chars": {
+          "default": 7000,
+          "description": "Long texts are reviewed in pieces of about this many characters, 16,384 at most: the longest value Latet keeps, so that what the reviewer finds in a piece is always kept. A larger setting is read as 16,384.",
+          "maximum": 16384,
+          "minimum": 1000,
+          "title": "Chunk Chars",
+          "type": "integer"
+        },
+        "certificate": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The SHA-256 fingerprint of the server's certificate you trust, for a self-signed one on another machine of yours: `latet llm trust`, or *Trust it* in the dashboard. Only that certificate is accepted.",
+          "title": "Certificate"
+        },
+        "images": {
+          "default": false,
+          "description": "Show the reviewer the images too, with the text read in them (its model must see images: llama.cpp with `--mmproj`). It finds what text recognition missed; a value it sees but Latet cannot place in the image withholds the image.",
+          "title": "Images",
+          "type": "boolean"
+        },
+        "guidance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Your guidance, added after Latet's own instructions to the reviewer: what else is confidential in your work, or what to leave alone (at most 2000 characters). It applies to the texts reviewed from then on. It is sent to the reviewer's server with every review: describe kinds of values, and keep the confidential ones themselves in `terms`.",
+          "title": "Guidance"
+        }
+      },
+      "title": "LlmReview",
+      "type": "object"
+    },
+    "Policy": {
+      "enum": [
+        "mask",
+        "redact",
+        "allow"
+      ],
+      "title": "Policy",
+      "type": "string"
+    },
+    "Profile": {
+      "enum": [
+        "balanced",
+        "max",
+        "secrets"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "ProjectEntry": {
+      "additionalProperties": false,
+      "description": "Your own settings for one project: they stay in your config.yaml, out of the repository.",
+      "properties": {
+        "profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Profile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The profile in this project."
+        },
+        "pii": {
+          "description": "Personal-data types to detect, besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Pii",
+          "type": "array"
+        },
+        "id_regions": {
+          "description": "Countries whose national ID and tax numbers to recognise, besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Id Regions",
+          "type": "array"
+        },
+        "phone_regions": {
+          "description": "Countries whose phone numbers to recognise without a prefix, besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Phone Regions",
+          "type": "array"
+        },
+        "include_private_ips": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Also mask private IP addresses.",
+          "title": "Include Private Ips"
+        },
+        "ner": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "off"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Local name and address detection.",
+          "title": "Ner"
+        },
+        "terms": {
+          "description": "Values to always mask in this project.",
+          "items": {
+            "$ref": "#/$defs/TermConfig"
+          },
+          "title": "Terms",
+          "type": "array"
+        },
+        "recognizers": {
+          "description": "Recognizers for this project (a name already in use turns the entry off).",
+          "items": {
+            "$ref": "#/$defs/Recognizer"
+          },
+          "title": "Recognizers",
+          "type": "array"
+        },
+        "allow_values": {
+          "description": "Values never to mask in this project.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allow Values",
+          "type": "array"
+        },
+        "allow_patterns": {
+          "description": "Regular expressions (RE2) of values never to mask in this project.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allow Patterns",
+          "type": "array"
+        },
+        "policies": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Policy"
+          },
+          "description": "Per type: `mask`, `redact` or `allow`.",
+          "title": "Policies",
+          "type": "object"
+        },
+        "disabled_secret_rules": {
+          "description": "gitleaks rule ids to turn off in this project.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Disabled Secret Rules",
+          "type": "array"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "enum": [
+                "normal",
+                "strict"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`strict` masks every value of tool outputs that are tables, JSON or `key=value`.",
+          "title": "Data"
+        },
+        "data_tools": {
+          "description": "The tools strict data mode covers (`*` patterns), besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Tools",
+          "type": "array"
+        },
+        "data_files": {
+          "description": "The files strict data mode covers when a tool reads them (path patterns such as `*.json`), besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Files",
+          "type": "array"
+        },
+        "data_hosts": {
+          "description": "The web addresses strict data mode covers (host patterns such as `*.salesforce.com`), besides the global ones.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Hosts",
+          "type": "array"
+        },
+        "fields": {
+          "description": "Rules for the values of single fields.",
+          "items": {
+            "$ref": "#/$defs/FieldRule"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "dump_guard": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Withhold a tool output with more personal values than this (0: never).",
+          "title": "Dump Guard"
+        },
+        "images": {
+          "anyOf": [
+            {
+              "enum": [
+                "allow",
+                "mask",
+                "block"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`mask` sends images only with their text read and masked, `block` sends no images or documents.",
+          "title": "Images"
+        },
+        "ocr": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "off"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reading the text in images.",
+          "title": "Ocr"
+        },
+        "llm_review": {
+          "anyOf": [
+            {
+              "enum": [
+                "off",
+                "background",
+                "inline"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How much the local reviewer reads here, when it is on: `off`, `background` or `inline`.",
+          "title": "Llm Review"
+        },
+        "live_review": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether new texts wait for your approval in the dashboard in this project.",
+          "title": "Live Review"
+        },
+        "review_images": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the local reviewer is shown the images in this project. Yours alone: a repository file cannot set it.",
+          "title": "Review Images"
+        },
+        "review_guidance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Your guidance to the local reviewer for this project, added after your global `llm_review.guidance` (at most 2000 characters). Yours alone: a repository file cannot set it.",
+          "title": "Review Guidance"
+        },
+        "path": {
+          "description": "The project's folder; its subfolders are part of it.",
+          "title": "Path",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`false` turns Latet off in this project: nothing is masked or blocked, and surrogates already in a conversation are still restored.",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ProjectEntry",
+      "type": "object"
+    },
+    "TermConfig": {
+      "properties": {
+        "value": {
+          "description": "The text to mask wherever it appears: a client, a project code name, a domain. It needs a letter or a digit.",
+          "title": "Value",
+          "type": "string"
+        },
+        "type": {
+          "default": "CUSTOM",
+          "description": "The label shown for it, such as CLIENT or PROJECT.",
+          "title": "Type",
+          "type": "string"
+        },
+        "case_sensitive": {
+          "default": false,
+          "description": "Match the exact case only.",
+          "title": "Case Sensitive",
+          "type": "boolean"
+        },
+        "whole_word": {
+          "default": true,
+          "description": "Match whole words only (not inside longer words).",
+          "title": "Whole Word",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TermConfig",
+      "type": "object"
+    },
+    "ContextSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "words": {
+          "description": "Words that must be near the value (any case).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Words",
+          "type": "array"
+        },
+        "acronyms": {
+          "description": "Words that count in this exact case only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Acronyms",
+          "type": "array"
+        },
+        "window": {
+          "default": 48,
+          "description": "How many characters before the value to look.",
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Window",
+          "type": "integer"
+        },
+        "header": {
+          "default": true,
+          "description": "Also look in the column header of a CSV, TSV or Markdown table.",
+          "title": "Header",
+          "type": "boolean"
+        }
+      },
+      "title": "ContextSpec",
+      "type": "object"
+    },
+    "Examples": {
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "description": "Invented texts the rule must find a value in.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Match",
+          "type": "array"
+        },
+        "no_match": {
+          "description": "Invented texts the rule must leave alone.",
+          "items": {
+            "type": "string"
+          },
+          "title": "No Match",
+          "type": "array"
+        }
+      },
+      "title": "Examples",
+      "type": "object"
+    },
+    "KeepSurrogate": {
+      "additionalProperties": false,
+      "properties": {
+        "keep": {
+          "description": "Characters kept from the start of the value (a prefix).",
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Keep",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "keep"
+      ],
+      "title": "KeepSurrogate",
+      "type": "object"
+    },
+    "WeightedChecksum": {
+      "additionalProperties": false,
+      "description": "Each digit times its weight (weights repeat from the left), summed, modulo ``modulus``.",
+      "properties": {
+        "algorithm": {
+          "const": "weighted",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "weights": {
+          "description": "One weight per digit, repeated from the left.",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Weights",
+          "type": "array"
+        },
+        "modulus": {
+          "description": "The sum is taken modulo this.",
+          "minimum": 2,
+          "title": "Modulus",
+          "type": "integer"
+        },
+        "remainder": {
+          "default": 0,
+          "description": "What the sum modulo `modulus` must be.",
+          "minimum": 0,
+          "title": "Remainder",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "algorithm",
+        "weights",
+        "modulus"
+      ],
+      "title": "WeightedChecksum",
+      "type": "object"
+    },
+    "Recognizer": {
+      "additionalProperties": false,
+      "description": "One recognizer, as written under ``recognizers:``.",
+      "properties": {
+        "name": {
+          "description": "Lower case letters, digits and hyphens; unique.",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The type shown for it, in capitals; the name in capitals when not set.",
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+          "title": "Type"
+        },
+        "description": {
+          "default": "",
+          "description": "What it finds, in words.",
+          "title": "Description",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "An RE2 regular expression. A group named `value` picks the part to mask.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Pattern",
+          "type": "string"
+        },
+        "checksum": {
+          "anyOf": [
+            {
+              "enum": [
+                "luhn",
+                "iban",
+                "mod97-10",
+                "mod11-10",
+                "ean",
+                "verhoeff",
+                "damm"
+              ]
+            },
+            {
+              "$ref": "#/$defs/WeightedChecksum"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Check digits the value must pass: luhn, iban, mod97-10, mod11-10, ean, verhoeff, damm, or a weighted sum.",
+          "title": "Checksum"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keywords that must be near the value."
+        },
+        "examples": {
+          "$ref": "#/$defs/Examples",
+          "description": "Invented examples, checked on every load."
+        },
+        "class": {
+          "default": "custom",
+          "description": "`custom`, or `secret` to treat it like a password (never let through, blocks a request).",
+          "enum": [
+            "custom",
+            "secret"
+          ],
+          "title": "Class",
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Policy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`mask`, `redact` or `allow`; `policies` wins."
+        },
+        "surrogate": {
+          "anyOf": [
+            {
+              "const": "shape",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/KeepSurrogate"
+            }
+          ],
+          "default": "shape",
+          "description": "`shape` (same length and kinds of characters), or `{keep: N}`.",
+          "title": "Surrogate"
+        },
+        "min_length": {
+          "default": 1,
+          "description": "Shorter values are skipped.",
+          "minimum": 1,
+          "title": "Min Length",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`false` keeps the rule in the file, turned off.",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "pattern"
+      ],
+      "title": "RecognizerSpec",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "profile": {
+      "$ref": "#/$defs/Profile",
+      "default": "balanced",
+      "description": "Protection profile: `balanced`, `max` or `secrets`."
+    },
+    "port": {
+      "default": 5283,
+      "description": "Local port of the daemon (it listens on 127.0.0.1 only).",
+      "title": "Port",
+      "type": "integer"
+    },
+    "phone_regions": {
+      "description": "Countries whose phone numbers are recognised without an international prefix.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Phone Regions",
+      "type": "array"
+    },
+    "id_regions": {
+      "description": "Countries whose national ID and tax numbers are recognised (the `max` profile: all of them): `BE`, `CA`, `CH`, `DE`, `ES`, `FI`, `FR`, `GB`, `IT`, `LV`, `NL`, `PL`, `PT`, `SE`, `US`. VAT numbers of 30 European countries are recognised whatever this says.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Id Regions",
+      "type": "array"
+    },
+    "pii": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Personal-data types to detect; not set means the base types and the ID numbers of `id_regions`, and a list is used as it is.",
+      "title": "Pii"
+    },
+    "include_private_ips": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Also mask private IP addresses (10.x, 192.168.x...); on in `max` by default.",
+      "title": "Include Private Ips"
+    },
+    "disabled_secret_rules": {
+      "description": "gitleaks rule ids to turn off, such as `generic-api-key`.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Disabled Secret Rules",
+      "type": "array"
+    },
+    "terms": {
+      "description": "Your own values to always mask.",
+      "items": {
+        "$ref": "#/$defs/TermConfig"
+      },
+      "title": "Terms",
+      "type": "array"
+    },
+    "recognizers": {
+      "description": "Your own recognizers: a pattern, check digits and keywords for each (see below). An entry with a mistake is turned off and reported, and kept as it is.",
+      "items": {
+        "$ref": "#/$defs/Recognizer"
+      },
+      "title": "Recognizers",
+      "type": "array"
+    },
+    "allow_values": {
+      "description": "Values never to mask (not sensitive).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Allow Values",
+      "type": "array"
+    },
+    "allow_patterns": {
+      "description": "Regular expressions (RE2) of values never to mask.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Allow Patterns",
+      "type": "array"
+    },
+    "policies": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Policy"
+      },
+      "description": "Per type: `mask` (reversible surrogate), `redact` (one way, never restored) or `allow`.",
+      "title": "Policies",
+      "type": "object"
+    },
+    "identity": {
+      "$ref": "#/$defs/IdentityConfig",
+      "description": "This machine's identity."
+    },
+    "capture_dir": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Debugging only: write raw exchanges (credentials redacted) to this directory.",
+      "title": "Capture Dir"
+    },
+    "history": {
+      "default": "full",
+      "description": "What the dashboard keeps of each exchange: `full` (masked text and answers), `metadata` (counts, timings, flags; no text) or `off`.",
+      "enum": [
+        "full",
+        "metadata",
+        "off"
+      ],
+      "title": "History",
+      "type": "string"
+    },
+    "retention_days": {
+      "default": 14,
+      "description": "Days the dashboard history is kept.",
+      "maximum": 365,
+      "minimum": 1,
+      "title": "Retention Days",
+      "type": "integer"
+    },
+    "auto_mode_review": {
+      "description": "Claude Code's auto mode reviewer is sent your OS user name and the paths of your home and working directories, plus any host name or git author in your CLAUDE.md or in the action. A review that would carry a blocked detail is stopped, and auto mode cannot approve that action: Claude Code refuses it as if its reviewer were unavailable. `block` blocks every detail, `allow-identity` lets every detail through, and the keys below choose one by one. Secrets and personal data never reach the reviewer.",
+      "default": "block",
+      "anyOf": [
+        {
+          "enum": [
+            "block",
+            "allow-identity"
+          ]
+        },
+        {
+          "$ref": "#/$defs/AutoModeReview"
+        }
+      ]
+    },
+    "ner": {
+      "default": "auto",
+      "description": "Local name and address detection: `auto` uses it once installed (`latet ner install`), `off` never does.",
+      "enum": [
+        "auto",
+        "off"
+      ],
+      "title": "Ner",
+      "type": "string"
+    },
+    "ocr": {
+      "default": "auto",
+      "description": "The text in images: `auto` reads it once the models are installed (`latet ocr install`) and masks what it finds, `off` never does (images are then sent as they are, and flagged).",
+      "enum": [
+        "auto",
+        "off"
+      ],
+      "title": "Ocr",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "enum": [
+            "normal",
+            "strict"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "`strict` masks every value of tool outputs that are tables (psql, CSV, TSV, markdown, HTML, a browser's snapshot), JSON or `key=value`, column and key names aside; fields set `mask: false` stay in clear. Outputs of tools that read files are left alone unless `data_files` names the file, and so are web search results and pages (public content, not your data) unless `data_tools` names their tool or `data_hosts` their address. Not set: the profile decides, `strict` with `max` and `normal` with the others.",
+      "title": "Data"
+    },
+    "data_tools": {
+      "description": "The tools and MCP servers strict data mode covers (`*` patterns, such as `mcp__postgres__*`); empty: every tool but those that read files.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Tools",
+      "type": "array"
+    },
+    "data_files": {
+      "description": "The files strict data mode covers when a tool reads them: path patterns such as `*.json`, `**/*.csv`, `exports/**` or `.env*` (`*` for any characters, in any case; a pattern without a slash names a file by its name). Each value is found by the file's format: JSON, tables, `.env` and properties, YAML. A markdown file only when a pattern names markdown (`*.md`), and then only its tables. A file named is data whether strict data mode is on or off.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Files",
+      "type": "array"
+    },
+    "data_hosts": {
+      "description": "The web addresses strict data mode covers when a web tool fetches them: host patterns such as `api.internal.example.com` or `*.salesforce.com`. An address named is data whether strict data mode is on or off.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Hosts",
+      "type": "array"
+    },
+    "fields": {
+      "description": "Rules for the values of single fields of tables, JSON and `key=value`.",
+      "items": {
+        "$ref": "#/$defs/FieldRule"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "dump_guard": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Withhold a tool output that holds more personal values (e-mails, phone numbers, names, ID numbers...) than this: the model is told why instead. Not set or 0: never.",
+      "title": "Dump Guard"
+    },
+    "images": {
+      "default": "allow",
+      "description": "`allow` sends images, with their text masked once the text recognition models are installed (`latet ocr install`); `mask` sends only images whose text was read and masked, and no documents; `block` sends no images or documents. The max profile sends none either, unless this says `mask`.",
+      "enum": [
+        "allow",
+        "mask",
+        "block"
+      ],
+      "title": "Images",
+      "type": "string"
+    },
+    "llm_review": {
+      "$ref": "#/$defs/LlmReview",
+      "description": "The local reviewer: a language model on your own server that reads what the detectors left in clear (see below)."
+    },
+    "live_review": {
+      "$ref": "#/$defs/LiveReview",
+      "description": "The Live Reviewer: every new text waits for your approval in the dashboard (see below)."
+    },
+    "projects": {
+      "description": "Your own settings for single projects, on top of these and of the project's `latet.yaml` (see below).",
+      "items": {
+        "$ref": "#/$defs/ProjectEntry"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "upstreams": {
+      "description": "Where agents' requests go after Latet, besides Anthropic, OpenAI and OpenRouter: your company's gateway, Azure OpenAI, Microsoft Foundry. `latet claude`, `latet codex` and `global-install` add the ones they read from your agents' settings (see below).",
+      "items": {
+        "$ref": "#/$defs/Destination"
+      },
+      "title": "Upstreams",
+      "type": "array"
+    }
+  },
+  "title": "Latet configuration (config.yaml)",
+  "type": "object"
+}

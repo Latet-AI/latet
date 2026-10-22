@@ -1,0 +1,29 @@
+title: Der Live-Prüfer
+learn:
+- Wie eine Anfrage auf Sie warten kann, bevor sie gesendet wird
+- Wie Sie einen Wert, den keine Regel kennen kann, von Hand maskieren
+- Was Freigeben, Alle wartenden freigeben und Nicht senden bewirken
+steps:
+- title: Eine Anfrage wartet auf Sie
+  explain: 'Wenn der Live-Prüfer eingeschaltet ist, wartet die Anfrage unter Freigaben auf Sie, bevor sie gesendet wird. Latet maskiert die E-Mail-Adresse, aber nichts sagt ihm, dass {{value:name}} zur Kundschaft gehört: Diese Sandbox hat keine Namenserkennung. Wählen Sie den Namen aus, wählen Sie Personen, und geben Sie dann frei: Das Modell erhält dafür einen Ersatzwert, und der Name kommt in den Tresor und ist von da an maskiert. Nicht senden würde die Anfrage stoppen.'
+  prompt: entwirf eine Antwort an {{value:name}}, ihr wurde doppelt abgebucht. ihre Adresse ist {{value:email}}
+  button: Senden
+  says:
+  - Ich entwerfe die Antwort.
+  hint: Wählen Sie {{value:name}} im Text aus, wählen Sie Personen, und geben Sie dann frei.
+  otherwise:
+    in_clear: 'Sie haben die Anfrage unverändert freigegeben, daher hat das Modell {{value:name}} im Klartext erhalten: Latet hat nur die E-Mail-Adresse maskiert. In der Sandbox hat nichts Ihren Rechner verlassen, denn das Modell ist simuliert; ein echtes hätte den Namen jetzt. Beginnen Sie neu, um es noch einmal zu versuchen, und maskieren Sie den Namen, bevor Sie freigeben.'
+    part_in_clear: 'Ein Teil des Namens ist im Klartext geblieben, und das Modell hat ihn unverändert erhalten. Beginnen Sie neu, um es noch einmal zu versuchen: Wählen Sie den ganzen Namen aus, {{value:name}}, und geben Sie dann frei.'
+    not_sent: 'Sie haben Nicht senden gewählt: Die Anfrage wurde nicht gesendet, das Modell hat nichts erhalten, und der Agent wurde darüber informiert. Latet zeigt, warum sie gestoppt wurde. Beginnen Sie neu, um es noch einmal zu versuchen: Maskieren Sie den Namen, und geben Sie dann frei.'
+  turns:
+    draft:
+      text: 'Entwurf: Guten Tag {{received:WHO}}, es tut uns leid, dass Ihnen doppelt abgebucht wurde; die Rückerstattung ist unterwegs. Schick ihn an {{received:MAIL}}.'
+end:
+  learned:
+  - Wenn der Live-Prüfer eingeschaltet ist, wartet jeder neue Text unter Freigaben auf Sie, bevor er gesendet wird.
+  - Ein Wert, den Sie von Hand maskieren, kommt in den Tresor und wird von da an überall maskiert.
+  - Freigeben sendet die Anfrage so, wie sie angezeigt wird; Alle wartenden freigeben sendet alles Wartende so, wie Latet es maskiert hat; Nicht senden stoppt sie.
+  where:
+  - Was auf Sie wartet, unter Freigaben
+  - 'Für den echten Einsatz einschalten, unter Regeln: für alle Projekte oder für eines'
+  - Die Anfrage, wie sie gesendet wurde

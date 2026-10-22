@@ -1,0 +1,36 @@
+---
+// Starlight's footer, with the line the home page's footer has too: who runs the site (the VAT number, which
+// Italian law wants on the site), and the privacy policy and legal notice, which live on latet.ai and cover
+// these pages as well. The name and VAT number are a copy of the latet-site repository's src/data/legal.ts.
+import Default from '@astrojs/starlight/components/Footer.astro';
+import legal from '../data/legal.json';
+
+const locale = Astro.locals.starlightRoute.locale;
+const home = `https://latet.ai${locale ? `/${locale}` : ''}`;
+---
+
+<Default><slot /></Default>
+<p class="latet-legal">
+	© {legal.year} {legal.name} · {Astro.locals.t('latet.footer.vat', { vat: legal.vat })} ·
+	<a href={`${home}/privacy/`}>{Astro.locals.t('latet.footer.privacy')}</a> ·
+	<a href={`${home}/legal/`}>{Astro.locals.t('latet.footer.legal')}</a> ·
+	<a href={`${home}/`}>latet.ai</a>
+</p>
+
+<style>
+	.latet-legal {
+		margin-top: 2rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--sl-color-hairline-light);
+		font-size: var(--sl-text-xs);
+		color: var(--sl-color-gray-3);
+	}
+
+	.latet-legal a {
+		color: var(--sl-color-gray-3);
+	}
+
+	.latet-legal a:hover {
+		color: var(--sl-color-white);
+	}
+</style>

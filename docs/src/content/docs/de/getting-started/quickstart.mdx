@@ -1,0 +1,190 @@
+---
+title: Schnellstart
+description: Probieren Sie Latet mit einem harmlosen Canary-Wert aus, ohne Einstellungen Ihrer Agenten zu ändern, und schalten Sie es dann für jede Sitzung ein.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet muss die Einstellungen Ihrer Agenten nicht ändern, damit Sie es ausprobieren können. Sehen Sie
+es zuerst in einer Sitzung bei der Arbeit, mit einem erfundenen Schlüssel; schalten Sie es dann für
+jede Sitzung ein, wenn Sie so weit sind.
+
+## Ausprobieren, ohne etwas zu ändern
+
+<Steps>
+
+1. **Installieren Sie Latet** [mit einem einzigen Befehl](../installation/#installation-mit-einem-befehl): Das
+   Installationsskript installiert die neueste Version von GitHub und ändert keine Einstellungen
+   Ihrer Agenten. Öffnen Sie unter macOS und Linux zuerst ein neues Terminal. Laden Sie dann die
+   Modelle herunter, die Namen finden und den Text in Bildern lesen, als
+   [empfohlene Einrichtung vom ersten Tag an](../installation/#empfohlen-namen-und-bilder-vom-ersten-tag-an):
+   `latet ner install` und `latet ocr install`.
+
+2. **Sehen Sie es bei der Arbeit.** Neu bei Latet? `latet tutorial` zeigt es in etwa 30 Minuten bei
+   der Arbeit, in Ihrem Browser: ein simulierter Agent und ein simuliertes Modell, das echte Latet
+   dazwischen, und erfundene Daten. Nichts verlässt Ihren Rechner, und keine Ihrer Einstellungen
+   ändert sich. Siehe [Tutorial](../tutorial/).
+
+3. **Legen Sie einen Canary-Wert an.** Erstellen Sie in einem Testordner eine Datei `.env` mit einem
+   erfundenen Schlüssel:
+
+   ```sh title=".env"
+   DEMO_API_KEY=demo_7Hq2LmX9pR4tV8nB3cK6
+   ```
+
+4. **Starten Sie Ihren Agenten über Latet, nur für diese Sitzung.** In diesem Ordner:
+
+   ```sh
+   latet claude                 # Claude Code, with the plugin and the verify-only daemon
+   latet codex                  # or the Codex CLI
+   latet opencode               # or OpenCode, API-key providers
+   latet gemini                 # or Gemini CLI, with an API key or Vertex AI
+   ```
+
+   Der Wrapper startet den Daemon und gibt dem Agenten, was er braucht, nur für diese Sitzung. Keine
+   Einstellung des Agenten ändert sich: Wenn die Sitzung endet, arbeitet der Agent wie zuvor. Alle
+   anderen Argumente werden durchgereicht, wie in `latet claude --resume`.
+
+   Bitten Sie dann den Agenten: *"Lies `.env` und kopiere den Schlüssel in `config.local.json`."*
+
+5. **Prüfen Sie das Ergebnis.**
+
+   - Führen Sie `latet dashboard` aus, und öffnen Sie die neueste Anfrage auf der Seite **Live**. Wo
+     der Inhalt Ihrer `.env` stand, hat der Anbieter einen Ersatzwert im selben Format erhalten, zum
+     Beispiel `demo_9Tz6ZsM0aB8uA6vS8gA0`, gekennzeichnet als `ASSIGNED_SECRET`. Ihr Ersatzwert wird
+     ein anderer sein: Ersatzwerte werden aus einem Schlüssel abgeleitet, der auf Ihrem Rechner
+     erzeugt wurde.
+   - `config.local.json` auf der Festplatte enthält den echten Schlüssel,
+     `demo_7Hq2LmX9pR4tV8nB3cK6`, weil Latet ihn lokal wieder eingesetzt hat, bevor das Tool des
+     Agenten die Datei geschrieben hat.
+   - Auch die Antwort des Agenten auf Ihrem Bildschirm zeigt den echten Schlüssel. Eine Ausnahme: Im
+     Print-Modus von Claude Code (`claude -p`) behält die ausgegebene Antwort den Ersatzwert. Siehe
+     [Claude Code](../../agents/claude-code/#grenzen).
+
+</Steps>
+
+Ein allein gestartetes `claude` läuft nicht über Latet: Das tut nur der Wrapper, bis Sie
+`latet global-install` ausführen.
+
+## Für jede Sitzung einschalten
+
+<Steps>
+
+1. **Leiten Sie Ihre Agenten dauerhaft über Latet.**
+
+   ```sh
+   latet global-install
+   ```
+
+   Der Befehl zeigt alles, was er ändern würde, und fragt dann einmal nach:
+
+   - **Jeder Agent, den er findet** (Claude Code, Codex, OpenCode), über Latet geleitet: das
+     Latet-Plugin in jeder Sitzung von Claude Code, die anderen auf den lokalen Daemon ausgerichtet.
+     Die Einstellungen jedes Agenten werden zuerst gesichert.
+   - **Autostart bei der Anmeldung**: Der Daemon startet, wenn Sie sich anmelden.
+   - **Profil**: `balanced` oder das von Ihnen festgelegte, und die Länder, deren nationale
+     Identifikations- und Steuernummern es erkennt: Ihr eigenes Land, wenn es zu den 15 gehört, die
+     Latet kennt, dazu die Vereinigten Staaten und das Vereinigte Königreich; andernfalls Italien,
+     die Vereinigten Staaten und das Vereinigte Königreich. Umsatzsteuer-Identifikationsnummern
+     werden für die 27 EU-Länder, das Vereinigte Königreich, die Schweiz und Norwegen erkannt. Siehe
+     [Profile und Richtlinien](../../concepts/profiles/).
+   - **Ihre Identität**: Ihre Benutzernamen im Betriebssystem, Ihr Hostname und Ihr
+     Git-Autor, maskiert. Latet erkennt sie bei jedem Start, daher wird auch eine neue
+     Git-E-Mail-Adresse maskiert.
+   - **Prüfer des Auto-Modus**: Ihr Benutzername im Betriebssystem und Ihre Pfade, die kein Plugin
+     maskieren kann, bleiben lokal, wenn der Auto-Modus von Claude Code seinen Prüfer fragt; der
+     Auto-Modus kann Aktionen dann nicht von sich aus genehmigen. Auf der Seite **Regeln** des
+     Dashboards lassen sie sich einzeln durchlassen.
+   - **Namen und Anschriften**: das lokale Modell, das Namen und Anschriften findet (etwa 1,6 GB),
+     heruntergeladen mit `--ner`, falls Sie es noch nicht heruntergeladen haben.
+   - **Text in Bildern**: die Modelle für die Texterkennung (etwa 31 MB), heruntergeladen mit
+     `--ocr`, falls Sie sie noch nicht heruntergeladen haben.
+   - **Port**: der Port, auf dem der Daemon lauscht: 5283 oder der nächste freie, falls ein anderes
+     Programm ihn belegt (Ihre Agenten werden ebenfalls umgestellt).
+
+   Er sagt auch, wie Sie alles wieder entfernen: `latet global-uninstall`. Optionen ändern die
+   Standardwerte, etwa `--agents claude --no-autostart`; `--yes` wendet alles an, ohne zu fragen.
+
+2. **Starten Sie Ihre Agenten neu**, damit sie die neue Konfiguration übernehmen. Ab jetzt läuft
+   jede Sitzung über Latet, im Terminal und in der IDE.
+
+3. **Prüfen Sie, ob alles richtig verbunden ist.**
+
+   ```sh
+   latet doctor
+   ```
+
+   Bei einer funktionierenden Einrichtung beginnt jede Zeile mit `OK`:
+
+   ```text
+   [OK  ] Daemon: running on 127.0.0.1:5283, masking
+   [OK  ] Plugin bridge: token accepted
+   [OK  ] Start at login: installed
+   [OK  ] Masking self-test: 3 values masked and restored (balanced profile)
+   [OK  ] Claude Code: 2.1.291 (Claude Code) - applied
+   ```
+
+   Eine Zeile mit `WARN` oder `FAIL` nennt den Befehl, der das Problem behebt.
+
+</Steps>
+
+`latet agents apply codex` (oder `claude`, `opencode`) leitet einen einzelnen Agenten über Latet:
+Führen Sie den Befehl für einen Agenten aus, den Sie später installieren. Ohne Namen leitet er jeden
+installierten Agenten.
+
+`latet global-install` richtet Claude Code, Codex und OpenCode ein. Die anderen Tools bekommen die
+Adresse von Latet auf einem dieser anderen Wege:
+
+| Wie | Tools | Wie lange |
+| --- | --- | --- |
+| `latet global-install` richtet es ein | Claude Code, Codex, OpenCode | Dauerhaft |
+| Sie stellen es einmal in den eigenen Einstellungen des Tools ein | GitHub Copilot in VS Code und in den JetBrains-IDEs, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands | Dauerhaft, solange diese Einstellungen es so vorsehen; die Einstellungen eines Projekts können Kilo Code, Junie CLI oder Continue woandershin leiten |
+| Nur Umgebungsvariablen | Gemini CLI, Qwen Code, Aider, Ihre Skripte und SDKs | Für jeden Befehl, den Sie mit `latet run` starten, oder für eine Shell mit `latet env` |
+| Sie setzen seine Variablen in Ihrer Shell | Die GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL` und die anderen) | Für jede Shell, die sie setzt |
+
+**Gemini CLI ist im globalen Modus nicht verfügbar.** Starten Sie es mit `latet gemini`: Es liest
+seine Adresse nur aus der Umgebung und aus einer einzigen `.env`-Datei, und die `.env` eines Projekts
+würde eine dauerhafte Einstellung kommentarlos verdecken. Siehe
+[Gemini CLI und Google GenAI](../../agents/gemini/).
+
+Für Ihre eigenen Skripte und SDKs setzt `latet run` die Variablen `OPENAI_BASE_URL`,
+`ANTHROPIC_BASE_URL` und `GOOGLE_GEMINI_BASE_URL` für einen einzelnen Befehl:
+`latet run python report.py`. Siehe
+[OpenAI-kompatibel und OpenRouter](../../agents/openai-compatible/). Autonome Agenten wie Hermes
+Agent und OpenClaw erhalten die Adresse von Latet in ihren eigenen Einstellungen: siehe
+[Autonome Agenten](../../agents/autonomous-agents/). Das gilt auch für GitHub Copilot, Junie und AI
+Assistant von JetBrains, Zed, Cline, Continue und andere Tools: siehe
+[GitHub Copilot, JetBrains, Zed und andere Tools](../../agents/other-tools/).
+
+## Alles rückgängig machen
+
+```sh
+latet global-uninstall
+```
+
+Der Befehl stellt jeden Agenten Byte für Byte wieder her, entfernt den Autostart bei der Anmeldung
+und beendet den Daemon. Ihre Regeln bleiben in `config.yaml`, für `latet claude`. Tools, die Sie in
+ihren eigenen Einstellungen auf Latet gerichtet haben, behalten seine Adresse: Stellen Sie ihre
+eigene wieder ein. Siehe [Deinstallation](../uninstall/).
+
+<Aside type="tip">
+	Um jederzeit genau zu sehen, was beim Modell angekommen ist, führen Sie `latet dashboard` aus. Die
+	[Anleitung zum Dashboard](../../dashboard/) erklärt jede Seite.
+</Aside>
+
+## Nächste Schritte
+
+- [Funktionsweise](../../concepts/how-it-works/): was mit dem Schlüssel geschieht, Schritt für
+  Schritt.
+- [Was geschützt ist und was nicht](../../concepts/protection-scope/): Machen Sie sich mit den
+  Grenzen vertraut, bevor Sie sich darauf verlassen.
+- [Projekte](../../concepts/projects/): eine `latet.yaml` mit den eigenen Begriffen und Formaten
+  eines Projekts, geteilt über sein Repository.
+- [Produktionsdaten](../../concepts/production-data/): für Agenten, die Datenbanken und Logs lesen.
+- [Lokaler Prüfer](../../concepts/llm-review/): Ihr eigenes Sprachmodell, das jeden Text liest,
+  bevor er den Rechner verlässt.
+- Anleitungen für die Agenten: [Claude Code](../../agents/claude-code/),
+  [Codex](../../agents/codex/), [OpenCode](../../agents/opencode/),
+  [autonome Agenten](../../agents/autonomous-agents/),
+  [OpenAI-kompatibel und OpenRouter](../../agents/openai-compatible/),
+  [GitHub Copilot, JetBrains, Zed und andere Tools](../../agents/other-tools/).

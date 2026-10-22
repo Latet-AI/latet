@@ -1,0 +1,2266 @@
+{
+  "deployment": {
+    "verifyNote": "Im Client-Modus lässt das Plugin für Claude Code die Werte vom verbundenen Latet-Server aus dem Tresor Ihres Bereichs wieder einsetzen und gibt sie dann an Claude Code zurück. Hier rekonstruiert Latet sie zum Vergleich aus demselben Tresor.",
+    "liveDescription": "Anfragen, die Ihre verbundenen Agenten über den Latet-Server senden, in Echtzeit. Öffnen Sie eine, um die aufgezeichnete Anfrage und ihr Ergebnis auf dem geschützten Weg zum Anbieter zu prüfen.",
+    "sessionNewNote": "Zeigt die erstmals gesendeten Blöcke jeder aufgezeichneten Anfrage, die der Latet-Server empfangen hat.",
+    "requestNotSentDetail": "Diese Anfrage wurde auf dem geschützten Weg zum Anbieter nicht weitergeleitet. Der aufgezeichnete Text enthält die Werte, die sie gestoppt haben. Er wird im Serververlauf dieser Identität für die eingestellte Aufbewahrungsdauer verschlüsselt gespeichert; diese Ansicht zeigt ihn in Ihrem Browser an.",
+    "requestNotSentText": "Diese Anfrage wurde auf dem geschützten Weg zum Anbieter nicht weitergeleitet. Der aufgezeichnete Text wird im Serververlauf dieser Identität für die eingestellte Aufbewahrungsdauer verschlüsselt gespeichert; diese Ansicht zeigt ihn in Ihrem Browser an.",
+    "hostNameHelp": "Der vom verbundenen Agenten gemeldete Hostname, wenn er in dessen CLAUDE.md oder in der Aktion vorkommt.",
+    "recognizerUnsupported": "Dieses Formular kann diesen Erkenner nicht bearbeiten, weil er nicht unterstützte Schlüssel enthält.",
+    "nerInactive": "Auf dem Latet-Server installiert, aber nicht aktiv. Bitten Sie die Serveradministration, die Namenserkennung zu prüfen.",
+    "projectNoFile": "In dieser Serveransicht ist keine Repository-Datei verfügbar.",
+    "projectRepoReadOnly": "Diese Repository-Einstellungen wurden vom verbundenen Agenten übermittelt. Diese Serveransicht kann keine Dateien auf jenem Computer lesen, erstellen oder ändern.",
+    "stoppedHelp": "Latet hat diese geschützte Anfrage gestoppt, bevor der Wert im Klartext an den Modellanbieter weitergeleitet wurde. Klicken Sie darauf, um ihn zu prüfen oder als Nicht sensibel zu markieren.",
+    "stopped": "Gestoppt, bevor dieser Wert im geschützten Modell-/Anbieterpfad im Klartext weitergeleitet wurde.",
+    "statsBlockedHelp": "Geschützte Anfragen vor der Weiterleitung an den Modellanbieter gestoppt",
+    "profileBalanced": "Geheimnisse, eigene Begriffe, personenbezogene Daten (E-Mails, Telefonnummern, IBANs, codice fiscale, partita IVA, Karten) und die diesem Serverbereich übermittelte Identität. Die Voreinstellung für die Arbeit am Code.",
+    "nerDescription": "Wenn das Modell verfügbar ist, kann die Namenserkennung auf dem Latet-Server Personennamen und Anschriften finden, die Muster nicht erkennen.",
+    "nerToggleHelp": "Verwendet das Namenserkennungsmodell des Servers, wenn es verfügbar ist. Die Administration installiert und wartet es.",
+    "reviewerDescription": "Der administrativ eingerichtete Prüfdienst kann Originaltext lesen, den die Detektoren vor der Weiterleitung an den Modellanbieter im Klartext ließen. Er kann Maskierungen hinzufügen, aber nie entfernen.",
+    "ocrOn": "Die Texterkennung läuft bei Verfügbarkeit auf dem Latet-Server und deckt erkannte Werte mit Ersatzwerten ab.",
+    "reviewBlock": "Diese Angaben dem Prüfer vorenthalten (Voreinstellung)",
+    "reviewBlockHelp": "Latet stoppt diese Prüfanfragen des Auto-Modus vor der Weiterleitung an den Prüfer. Claude Code behandelt ihn als nicht verfügbar, verweigert diese Aktionen und fragt Sie nicht. Bereits von Latet empfangene Daten werden nicht gelöscht.",
+    "imagesHelp": "Bilder werden auf dem Latet-Server verarbeitet; die Administration stellt die Texterkennung bereit. Senden umgeht keine aktive Serverprüfung, die ungelesene Bilder ablehnt. Nur maskiert verlangt lesbare, maskierte Bilder und schließt PDFs aus. Nicht senden schließt Bilder und PDFs aus. Andere Serverprüfungen gelten weiterhin.",
+    "destinationsHelp": "Von verbundenen Agenten gemeldete oder auf dem Server eingerichtete Ziele. Eine Registrierung ist keine Prüfung installierter Agenten oder ihrer aktuellen Einstellungen.",
+    "destinationInUse": "Als registriert gemeldet",
+    "destinationUnused": "Keine aktuelle Registrierung gemeldet",
+    "destinationsEmpty": "Hier werden keine zusätzlichen Ziele gemeldet. Das bestätigt nicht die Weiterleitung jedes verbundenen Agenten.",
+    "integrationsCli": "Auf jedem verbundenen Rechner prüfen diese Befehle die Verbindung und richten seine Agenten für die Nutzung von Latet ein.",
+    "tagline": "Datenschutz-Firewall auf dem Server",
+    "unknownTagline": "Datenschutz-Firewall",
+    "pending": "Die Angaben zum Dienst konnten nicht geladen werden. Versuchen Sie die Verbindung erneut, um sie zu laden.",
+    "ocrUnavailable": "Die Texterkennung ist auf dem Latet-Server nicht verfügbar. Bitten Sie die Serveradministration, die Laufzeitumgebung und das Modell zu prüfen.",
+    "nerUnavailable": "Die Namenserkennung ist auf dem Latet-Server nicht verfügbar. Bitten Sie die Serveradministration, die Laufzeitumgebung und das Modell zu prüfen.",
+    "historyClear": "Jeder aufgezeichnete Austausch im Serververlauf dieser Identität wird gelöscht. Der Tresor bleibt erhalten, sodass Maskieren und Wiedereinsetzen wie bisher weiterlaufen. Dies kann nicht rückgängig gemacht werden.",
+    "identityHelp": "Von verbundenen Rechnern übermittelte Identität: Benutzernamen in Pfaden, Hostnamen sowie Git-Namen und E-Mail-Adressen.",
+    "reviewerHelp": "Vom administrativ eingerichteten lokalen Prüfer gefunden. Er kann Originaltext lesen, den die Detektoren im Klartext ließen. Eine gestrichelte Linie kennzeichnet eine Einschätzung, keinen Mustertreffer.",
+    "nerHelp": "Vom Namenserkennungsmodell auf dem Latet-Server gefunden: Namen, Straßenadressen und Städte. Eine gestrichelte Linie kennzeichnet eine Einschätzung, keinen Mustertreffer.",
+    "outboundKind": "Anbieter- oder externes Tool",
+    "blockedHelp": "Latet hat diese geschützte Anfrage vor der Weiterleitung an den Modellanbieter gestoppt. Das beschreibt keinen anderen Netzwerkverkehr.",
+    "imageHelp": "Ein Bild wurde auf dem Latet-Server gelesen ({{detail}}). Maskiert: Erkannte Werte wurden mit Ersatzwerten abgedeckt. Zurückgehalten: Es konnte nicht gelesen werden und wurde aus der Modellanfrage ausgeschlossen.",
+    "outboundHelp": "Ein Anbieter- oder externes Tool erhielt oder hätte einen Ersatzwert erhalten. Es handelt mit dem Ersatzwert, nicht dem Original. Beliebiger Tool-Verkehr wird dadurch nicht geprüft.",
+    "uninspectedHelp": "Ein Teil dieser Anfrage wurde nicht geprüft ({{detail}}). Das Flag allein beweist keine Weiterleitung. Eine aktive Serverprüfung lehnt ungelesene Bilder ab; eine umgeschriebene Anfrage kann sie zurückhalten. Aufrufe bei ausgeschaltetem Schutz folgen ihrer eigenen Richtlinie.",
+    "pluginHelp": "Der unterstützte Ablauf des Claude-Code-Plugins hat diese Modellanfrage gestoppt. Text kann Latet bereits über den Helfer oder die Bridge erreicht haben; das bedeutet nicht, dass kein Netzwerkverkehr stattfand.",
+    "reviewHappened": "Claude Code bat seinen Prüfer des Auto-Modus um die Bewertung einer Aktion. Die Anfrage enthielt {{details}} vom verbundenen Agenten, die Ihre Regeln diesem Prüfer vorenthalten. Sie wurde daher nicht an ihn weitergeleitet.",
+    "notForwarded": "Diese geschützte Anfrage wurde nicht an den Modellanbieter weitergeleitet. Das beschreibt keinen anderen Netzwerkverkehr und löscht keine bereits von Latet empfangenen Daten.",
+    "imagesTodo": "Entfernen Sie den ungelesenen Anhang oder bitten Sie die Serveradministration, die Texterkennung zu prüfen. Ihre Bildrichtlinie kann eine aktive Serverprüfung nicht dazu bringen, ein Bild weiterzuleiten, das sie nicht lesen konnte.",
+    "doctorTodo": "Führen Sie latet doctor auf dem verbundenen Rechner aus, um seine Verbindung zu prüfen. Bitten Sie die Serveradministration, einen Serverfehler zu untersuchen.",
+    "imagesHappened": "Ihre Bildrichtlinie verlangt lesbare, maskierte Bilder. Latet konnte {{what}} nicht lesen: Verfügbarkeit, Kapazität, Zeitgrenzen oder das Eingabeformat können dies verhindern.",
+    "reviewerHappened": "Ihre Regeln verlangen, dass der eingerichtete lokale Prüfer neuen Text prüft. Sein Dienst konnte keine vertrauenswürdige Prüfung abschließen oder verlangte, diese Anfrage zu stoppen.",
+    "reviewerTodo": "Bitten Sie die Serveradministration, den Prüfdienst zu prüfen. Ihre eigene Richtlinie bleibt unter Regeln; Endpunkt, Modell, Zertifikat und Schlüssel legt die Administration fest.",
+    "outboundHappened": "Das Modell bat {{tools}}, von Latet ersetzte {{types}} zu verwenden. Dieses Anbieter- oder externe Tool hätte mit dem Ersatzwert gehandelt: nach einer anderen Person gesucht, die falsche Seite geöffnet oder eine erfundene Adresse verwendet.",
+    "outboundTodo": "Nur wenn das Original an diesen Anbieter oder dieses externe Tool gesendet werden darf, markieren Sie es als Nicht sensibel und bitten Sie das Modell, es erneut zu versuchen. Lassen Sie es andernfalls maskiert.",
+    "outboundRanTitle": "{{tools}} verwendete einen Ersatzwert",
+    "outboundRanMeant": "Was das Tool fand oder tat, betrifft den Ersatzwert, nicht das Original; die Antwort kann es dem echten Wert zuordnen. Dieser Aufruf verwendete den Ersatzwert. Das ist keine Aussage über anderen Netzwerkverkehr.",
+    "flowLabel": "Aufgezeichneter Weg durch Latet",
+    "flowBlocks_one": "{{count}} aufgezeichneter Block",
+    "flowBlocks_other": "{{count}} aufgezeichnete Blöcke",
+    "original": "Original aus dem Identitätsspeicher",
+    "vault": "Originale und Ersatzwerte dieser Identität werden auf dem Latet-Server verschlüsselt aufbewahrt. Berechtigte Dashboard-Ansichten können Originale an diesen Browser übermitteln. Beim Löschen des Verlaufs bleibt der Tresor erhalten.",
+    "integrations": "Registrierte Ziele und Verbindungsprüfungen für diesen Serverbereich. Der Server durchsucht keine installierten Agenten auf verbundenen Rechnern.",
+    "reviewerEnabled": "Die Administration richtet diesen Prüfdienst ein. Wenn ausgewählt, kann er Originaltext lesen, den die Detektoren im Klartext ließen.",
+    "tutorial": "Starten Sie auf Ihrem Rechner ein separates lokales Tutorial. Es verwendet eine Sandbox mit simuliertem Agenten und Modell; Ihr Serverbereich bleibt davon getrennt. In einem Terminal auf diesem Rechner:"
+  },
+  "app": {
+    "name": "Latet",
+    "tagline": "Lokale Privacy-Firewall",
+    "skipToContent": "Zum Inhalt springen"
+  },
+  "nav": {
+    "label": "Hauptnavigation",
+    "live": "Live",
+    "approvals": "Freigaben",
+    "waiting_one": "{{count}} wartet auf Ihre Freigabe",
+    "waiting_other": "{{count}} warten auf Ihre Freigabe",
+    "sessions": "Sitzungen",
+    "stats": "Statistik",
+    "vault": "Tresor",
+    "rules": "Regeln",
+    "playground": "Testbereich",
+    "integrations": "Geschützte Agenten",
+    "tutorial": "Tutorial",
+    "sections": "Auf dieser Seite"
+  },
+  "shell": {
+    "recording": "Zeichnet Austausche auf",
+    "notRecording": "Zeichnet nicht auf",
+    "profile": "Profil: {{profile}}",
+    "address": "127.0.0.1:{{port}}",
+    "version": "Latet {{version}}",
+    "mock": "Beispieldaten",
+    "mockHint": "Dieses Dashboard läuft mit eingebauten Beispieldaten, nicht mit einem Daemon.",
+    "unreachable": "Daemon antwortet nicht",
+    "unreachableServer": "Server antwortet nicht",
+    "server": "Server {{host}}",
+    "signedIn": "Angemeldet als {{name}}",
+    "signOut": "Abmelden"
+  },
+  "theme": {
+    "label": "Farbschema",
+    "system": "Wie das System",
+    "light": "Hell",
+    "dark": "Dunkel"
+  },
+  "language": {
+    "label": "Sprache"
+  },
+  "docs": {
+    "page": "Dokumentation",
+    "section": "Dokumentation: {{section}}",
+    "why": "Warum",
+    "whyAbout": "Warum: {{about}}"
+  },
+  "common": {
+    "loading": "Wird geladen…",
+    "retry": "Erneut versuchen",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "close": "Schließen",
+    "dismiss": "Ausblenden",
+    "cancel": "Abbrechen",
+    "none": "–",
+    "yes": "Ja",
+    "no": "Nein",
+    "more_one": "+{{count}} weiterer",
+    "more_other": "+{{count}} weitere"
+  },
+  "tabs": {
+    "unsaved": "Ungespeicherte Änderungen"
+  },
+  "errors": {
+    "title": "Diese Seite konnte nicht geladen werden",
+    "network": "Latet antwortet nicht. Prüfen Sie mit `latet status`, ob der Daemon läuft, oder starten Sie ihn mit `latet start`.",
+    "networkServer": "Latet antwortet nicht. Prüfen Sie die Verbindung und versuchen Sie es erneut. Bleibt der Dienst unerreichbar, wenden Sie sich an die für diesen Latet-Dienst zuständige Person.",
+    "unauthorized": "Ihre Dashboard-Sitzung ist abgelaufen. Führen Sie `latet dashboard` aus, um eine neue zu öffnen.",
+    "http": "Der Daemon hat mit {{status}} geantwortet: {{message}}",
+    "httpServer": "Der Latet-Server hat mit {{status}} geantwortet: {{message}}",
+    "unexpected": "Etwas Unerwartetes ist passiert: {{message}}",
+    "settingsStale": "Ihre Einstellungen haben sich geändert, nachdem diese Seite sie gelesen hat, daher wurde Ihre Änderung nicht gespeichert. Nehmen Sie sie an Ihren Einstellungen, wie sie jetzt sind, erneut vor.",
+    "settingsTooLarge": "Diese Einstellungen sind größer, als der Server für eine Person speichert, daher wurde nichts gespeichert. Entfernen Sie einige Begriffe oder andere Einträge und speichern Sie erneut.",
+    "settingsTermsTooLong": "Diese Einstellungen enthalten einen zu langen Begriff, daher wurde nichts gespeichert. Kürzen oder entfernen Sie ihn und speichern Sie erneut.",
+    "settingsTooManyRules": "Diese Einstellungen enthalten mehr Erkenner, Feldregeln oder Muster der Zulassungsliste, als der Server für eine Person speichert, die Ihrer Projekte mitgezählt, daher wurde nichts gespeichert. Entfernen Sie einige davon und speichern Sie erneut.",
+    "settingsUnavailable": "Der Server konnte Ihre Einstellungen gerade nicht speichern, daher hat sich nichts geändert. Versuchen Sie es gleich noch einmal.",
+    "settingsChangeWaits": "Eine Änderung Ihrer Einstellungen wartet auf Ihre Freigabe, daher wurde nichts gespeichert. Geben Sie sie frei oder machen Sie sie rückgängig, und nehmen Sie Ihre Änderung dann erneut vor.",
+    "repositoriesUnchecked": "Latet konnte gerade nicht alle Repositorys lesen, die es gesehen hat (eines liegt vielleicht auf einer Netzwerkfreigabe, die nicht antwortet, oder in einer Datei, die es nicht lesen darf), daher hat sich nichts geändert. Versuchen Sie es erneut, sobald sie sich lesen lassen.",
+    "repoFileUnreadable": "Die latet.yaml dieses Projekts ist keine normale Datei oder größer, als die Datei eines Projekts sein darf, daher wurde nichts darüber gespeichert. Korrigieren Sie sie im Ordner des Projekts, und laden Sie die Seite dann neu.",
+    "repoFileUnavailable": "Die latet.yaml dieses Projekts lässt sich gerade nicht lesen, daher wurde nichts darüber gespeichert. Versuchen Sie es gleich noch einmal.",
+    "settingsSavedChangePending": "Ihre Einstellungen wurden gespeichert, aber die ausstehende Änderung konnte nicht aktualisiert werden. Aktualisieren Sie das Dashboard, bevor Sie weitere Änderungen vornehmen.",
+    "settingsTooManyProjects": "Diese Einstellungen nennen mehr Projekte, als der Server für eine Person speichert, daher wurde nichts gespeichert. Entfernen Sie Ihre Einstellungen für einige Projekte und speichern Sie erneut.",
+    "settingsDropsShared": "Damit würde entfernt, was auf diesem Server für alle festgelegt ist ({{items}}), daher wurde nichts gespeichert. Nur die Administratoren des Servers können es entfernen.",
+    "dropped": {
+      "upstreams_one": "{{count}} Ziel",
+      "upstreams_other": "{{count}} Ziele"
+    },
+    "destinationRefused": "{{url}}: Ein eigenes Ziel auf diesem Server braucht eine verwendbare Adresse, die über https erreicht wird und weder zum Server selbst noch in sein Netzwerk führt. Ein Ziel, das im Klartext oder im Netzwerk erreicht wird, können seine Administratoren für alle festlegen.",
+    "reviewerKeyServer": "{{setting}}: Auf einem Server legt keine Einstellung fest, woher der Schlüssel des lokalen Prüfers gelesen wird. Der Server gibt ihn, wie seine Administratoren ihn festlegen."
+  },
+  "auth": {
+    "title": "Öffnen Sie das Dashboard über Ihr Terminal",
+    "body": "Das Dashboard öffnet sich nur über einen Einmal-Link, damit keine andere Seite und kein anderes Programm auf diesem Rechner es lesen kann. Dieser Befehl meldet Sie an und öffnet es:",
+    "otherBrowser": "Um es in einem anderen Browser zu öffnen, lassen Sie sich stattdessen den Link ausgeben:",
+    "expired": "Dieser Link ist abgelaufen oder wurde bereits verwendet. Jeder Link funktioniert einmal, zwei Minuten lang.",
+    "why": "Sitzungen enden nach 12 Stunden ohne Nutzung. Das Dashboard ist nur unter 127.0.0.1 erreichbar.",
+    "tutorialTitle": "Starten Sie das Tutorial erneut über Ihr Terminal",
+    "tutorialBody": "Das Tutorial öffnet sich nur über einen Einmal-Link, und dieser ist abgelaufen oder wurde bereits verwendet. Drücken Sie Strg+C im Terminal, in dem das Tutorial läuft, und starten Sie es dann erneut:",
+    "tutorialWhy": "Das Tutorial ist eine Sandbox auf diesem Rechner. Nichts darin gehört Ihnen, und sie wird gelöscht, wenn das Tutorial endet.",
+    "serverBody": "Dieses Dashboard liegt auf einem Latet-Server und öffnet sich nur über einen Einmal-Link, der für Sie erstellt wird. Auf einem mit dem Server verbundenen Rechner meldet dieser Befehl Sie an und öffnet es:",
+    "serverWhy": "Sitzungen enden nach 12 Stunden ohne Nutzung. Jede Person hat auf dem Server ihr eigenes Dashboard.",
+    "serverExpired": "Dieser Link hat Sie nicht angemeldet: Er wurde bereits verwendet, ist älter als zwei Minuten, oder er wurde von einer Seite einer anderen Website geöffnet, die niemanden anmeldet. Jeder Link funktioniert einmal, zwei Minuten lang.",
+    "limited": "Von dieser Adresse wurden zu viele Anmeldelinks ausprobiert: Warten Sie eine Minute und öffnen Sie Ihren Link dann erneut.",
+    "busy": "Der Server ist ausgelastet und konnte Sie nicht anmelden: Versuchen Sie es gleich noch einmal."
+  },
+  "shared": {
+    "title": "Auf diesem Server für alle festgelegt"
+  },
+  "agents": {
+    "claude-code": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "gemini-cli": "Gemini CLI",
+    "tutorial-agent": "Tutorial Agent",
+    "other": "Anderer Client"
+  },
+  "modes": {
+    "rewrite": {
+      "label": "Umschreiben",
+      "help": "Gateway-Modus. Latet hat sensible Werte vor dem Weiterleiten durch Ersatzwerte ersetzt und die Originale in der Antwort wieder eingesetzt."
+    },
+    "verify": {
+      "label": "Prüfen",
+      "help": "Client-Modus, für Claude Code. Das Plugin hat die Werte in Claude Code maskiert; Latet hat die Anfrage geprüft und sie dann unverändert weitergeleitet oder blockiert."
+    },
+    "passthrough": {
+      "label": "Durchleiten",
+      "help": "Nicht gelesen. Latet versteht diese Route oder diesen Body nicht, daher wurde die Anfrage unverändert weitergeleitet."
+    }
+  },
+  "classes": {
+    "SECRET": {
+      "label": "Geheimnis",
+      "help": "Zugangsdaten: API-Schlüssel, Tokens, Passwörter, private Schlüssel, Verbindungszeichenfolgen."
+    },
+    "PII": {
+      "label": "Personenbezogene Daten",
+      "help": "Daten über Personen: E-Mail-Adressen, Telefonnummern, IBANs, codice fiscale, partita IVA, Kartennummern."
+    },
+    "IDENTITY": {
+      "label": "Identität",
+      "help": "Die Identität dieses Rechners: Ihr Benutzername in Pfaden, der Hostname, Ihr Name und Ihre E-Mail-Adresse in Git."
+    },
+    "CUSTOM": {
+      "label": "Ihre Begriffe und Formate",
+      "help": "Ein Begriff aus Ihrer eigenen Liste (Kundennamen, Codenamen von Projekten, interne Domains) oder ein Wert, den einer Ihrer Erkenner gefunden hat."
+    },
+    "LLM": {
+      "label": "Lokaler Prüfer",
+      "help": "Gefunden von Ihrem lokalen Prüfer, einem Sprachmodell auf Ihrem eigenen Server, das liest, was die Detektoren im Klartext gelassen haben. Gestrichelt dargestellt: Es ist eine Einschätzung, kein Musterabgleich."
+    },
+    "NER": {
+      "label": "Erkennung per Modell",
+      "help": "Gefunden vom lokalen Sprachmodell: Namen, Anschriften, Städte. Gestrichelt dargestellt: Es ist eine Einschätzung, kein Musterabgleich."
+    },
+    "STRUCT": {
+      "label": "Datenwert",
+      "help": "Ein Wert aus einer Tabelle, einem JSON-Dokument oder key=value-Paaren in der Ausgabe eines Tools, maskiert durch den strikten Datenmodus oder eine Feldregel. Er wird nur in seiner Struktur maskiert: Dasselbe Wort an anderer Stelle bleibt unverändert."
+    },
+    "UNKNOWN": {
+      "label": "Unbekannt",
+      "help": "Latet kennt den Typ dieses Werts nicht mehr."
+    },
+    "guessed": "{{list}} (Klassen aus den Typen abgeleitet)",
+    "count": "{{label}}: {{count}}"
+  },
+  "kinds": {
+    "system": "System-Prompt",
+    "user_text": "Benutzertext",
+    "assistant_text": "Assistententext",
+    "tool_input": "Tool-Eingabe",
+    "tool_result": "Tool-Ergebnis",
+    "attachment": "Anhang",
+    "tool_description": "Tool-Beschreibung",
+    "other": "Sonstiges",
+    "outbound_tool": "Tool außerhalb Ihres Rechners",
+    "image_text": "Text in einem Bild"
+  },
+  "flags": {
+    "withDetail": "{{label}}: {{detail}}",
+    "details": {
+      "image": "ein Bild",
+      "document": "ein Dokument",
+      "file": "eine Datei",
+      "audio": "eine Audioaufnahme",
+      "masked": "maskiert",
+      "withheld": "zurückgehalten"
+    },
+    "blocked": {
+      "label": "Blockiert",
+      "help": "Latet hat diese Anfrage gestoppt, weil sie einen sensiblen Wert im Klartext gesendet hätte. Nichts hat Ihren Rechner verlassen; der Agent hat einen Fehler erhalten."
+    },
+    "leak": {
+      "label": "Leck",
+      "help": "Die Prüfung hat in dieser Anfrage sensible Werte im Klartext gefunden. Siehe die Liste auf der Seite der Anfrage (nur die Typen, nie die Werte)."
+    },
+    "error": {
+      "label": "Fehler",
+      "help": "Der Austausch ist fehlgeschlagen: Der Anbieter hat mit einem Fehler geantwortet, oder die Verbindung ist abgebrochen."
+    },
+    "uninspected": {
+      "label": "Nicht gelesen",
+      "help": "Ein Teil dieser Anfrage wurde nicht gelesen ({{detail}}): PDFs und andere Dokumente, per Adresse eingebundene Bilder sowie Bilder, solange die Texterkennung ausgeschaltet oder nicht installiert ist, werden unverändert gesendet."
+    },
+    "degraded": {
+      "label": "Eingeschränkt",
+      "help": "Ein Detektor lief nicht vollständig ({{detail}}), daher wurden möglicherweise einige Werte übersehen."
+    },
+    "unknown-route": {
+      "label": "Unbekannte Route",
+      "help": "Latet kennt diese API-Route nicht und hat die Anfrage daher ungeprüft weitergeleitet."
+    },
+    "project-off": {
+      "label": "Latet aus",
+      "help": "Latet ist in diesem Projekt ausgeschaltet (Ihre eigenen Einstellungen dafür): Die Anfrage wurde unverändert gesendet, und nur für Ersatzwerte, die schon in der Unterhaltung standen, wurden die echten Werte wieder eingesetzt."
+    },
+    "withheld": {
+      "label": "Zurückgehalten",
+      "help": "Der Dump-Schutz hat eine Tool-Ausgabe vom Modell ferngehalten: Die Ausgabe enthielt mehr personenbezogene Werte, als in einer Ausgabe erlaubt sind. Das Modell wurde aufgefordert, weniger Zeilen oder stattdessen Zählungen abzufragen."
+    },
+    "history": {
+      "label": "Aus dem Verlauf",
+      "help": "Die Werte im Klartext standen im Verlauf dieser Unterhaltung, den Latet nie maskiert hat: Die Unterhaltung begann, bevor Latet aktiv war, oder wurde aus dieser Zeit fortgesetzt. Claude Code sendet diesen Verlauf mit jeder Anfrage, beginnen Sie daher eine neue Unterhaltung (/clear)."
+    },
+    "image": {
+      "label": "Bild",
+      "help": "Ein Bild dieser Anfrage wurde auf diesem Rechner gelesen ({{detail}}). Maskiert: Die darin gelesenen Werte wurden mit ihren Ersatzwerten überdeckt, bevor es gesendet wurde. Zurückgehalten: Es konnte nicht gelesen werden und wurde daher nicht gesendet."
+    },
+    "other": {
+      "label": "Markierung",
+      "help": "Vom Daemon gemeldete Markierung: {{flag}}"
+    },
+    "verified": {
+      "label": "Verifiziert",
+      "help": "Die abschließende Prüfung lief über alles, was den Rechner verlassen sollte, und hat nichts Sensibles im Klartext gefunden."
+    },
+    "auto-mode-review": {
+      "label": "Auto-Modus-Prüfung",
+      "help": "Der Prüfer des Auto-Modus von Claude Code: ein Modell, das gefragt wird, ob eine Aktion sicher ausgeführt werden kann. Es erhält Ihren Benutzernamen im Betriebssystem, Ihr Home- und Arbeitsverzeichnis und Ihren Git-Autor."
+    },
+    "outbound": {
+      "label": "Ersatzwert an externes Tool",
+      "help": "Ein Tool, das außerhalb Ihres Rechners läuft (eine Websuche, eine Seite, ein claude.ai-Connector, ein Tool, das der Anbieter ausführt), hat einen Wert erhalten oder hätte ihn erhalten, den Latet ersetzt hat: Es arbeitet mit dem Ersatzwert, nicht mit dem echten Wert."
+    },
+    "route-bypass": {
+      "label": "An Latet vorbei",
+      "help": "Claude Code war so eingestellt, dass es seine Anfragen an Latet vorbei woandershin sendet: Seine Prompts wurden gestoppt. Die Begründung nennt die Einstellungsdatei, die das bewirkt hat."
+    }
+  },
+  "masked": {
+    "empty": "Leer",
+    "valueLabel": "{{type}}: {{value}}",
+    "stoppedLabel": "{{type}} hat die Anfrage gestoppt: {{value}}",
+    "expand_one": "{{count}} Zeile anzeigen",
+    "expand_other": "Alle {{count}} Zeilen anzeigen",
+    "collapse": "Weniger anzeigen",
+    "hiddenValues_one": "{{count}} weiterer maskierter Wert unten",
+    "hiddenValues_other": "{{count}} weitere maskierte Werte unten"
+  },
+  "inspector": {
+    "sentAs": "Gesendet als",
+    "value": "Wert",
+    "stopped": "Gestoppt: Er hätte Ihren Rechner im Klartext verlassen.",
+    "stoppedMany": "Die Prüfung hat ihn als {{number}} überlappende Werte gelesen: Nicht sensibel lässt jeden davon zu.",
+    "stoppedHint": "Wenn er nicht sensibel ist, lassen Sie ihn zu und versuchen Sie es dann in Ihrem Agenten erneut.",
+    "realValue": "Echter Wert",
+    "replaces": "Ersetzt",
+    "showOriginal": "Echten Wert anzeigen",
+    "revealFromVault": "Im Tresor nachschlagen",
+    "unknown": "Nicht verfügbar",
+    "forgotten": "Entfernt: Der Tresor enthält ihn nicht mehr",
+    "notKept": "Nicht verfügbar: unumkehrbar geschwärzt",
+    "module": "Gefunden von",
+    "rule": "Regel",
+    "via": "Herkunft",
+    "entity": "Tresoreintrag",
+    "noEntity": "Nicht verknüpft (unumkehrbar geschwärzt)",
+    "redactedNote": "Geschwärzt, nicht wieder eingesetzt",
+    "jsonNote": "In seiner JSON-escapten Form gefunden",
+    "allow": "Nicht sensibel: immer zulassen",
+    "allowDone": "Zugelassen",
+    "allowed": "{{type}} zur Zulassungsliste hinzugefügt. Neue Anfragen senden den Wert unverändert.",
+    "allowedInProject": "{{type}} zur Zulassungsliste dieses Projekts hinzugefügt. Neue Anfragen des Projekts senden den Wert unverändert.",
+    "alwaysMask": "Immer maskieren",
+    "termDone": "Hinzugefügt",
+    "termAdded": "Als eigener Begriff hinzugefügt ({{type}}): Er wird überall maskiert, wo er vorkommt.",
+    "termAddedInProject": "Als Begriff dieses Projekts hinzugefügt ({{type}}): Er wird dort überall maskiert, wo er vorkommt.",
+    "noOriginal": "Der echte Wert ist nicht verfügbar und kann daher keiner Liste hinzugefügt werden.",
+    "pinHint": "Klicken Sie oder drücken Sie Enter, damit dies geöffnet bleibt.",
+    "keepInProject": "{{field}} in diesem Projekt nicht maskieren",
+    "keep": "{{field}} nirgends maskieren",
+    "keepDone": "Im Klartext gelassen",
+    "keptInProject": "{{field}} bleibt ab jetzt in den Tool-Ausgaben dieses Projekts im Klartext.",
+    "kept": "{{field}} bleibt ab jetzt in Tool-Ausgaben im Klartext.",
+    "technical": {
+      "id": "Sieht nach einer ID aus: Im Klartext lassen ist meist unbedenklich.",
+      "date": "Sieht nach dem Datum eines Ereignisses aus: Im Klartext lassen ist meist unbedenklich.",
+      "state": "Sieht nach einem Status oder Typ aus: Im Klartext lassen ist meist unbedenklich.",
+      "count": "Sieht nach einer Anzahl aus: Im Klartext lassen ist meist unbedenklich."
+    }
+  },
+  "valueScope": {
+    "label": "Geltungsbereich",
+    "project": "Dieses Projekt",
+    "everywhere": "Überall"
+  },
+  "legend": {
+    "label": "Was die Hervorhebungen bedeuten",
+    "sample": "Wert",
+    "stopped": "Hat die Anfrage gestoppt",
+    "stoppedHelp": "Dieser Wert hätte Ihren Rechner im Klartext verlassen, daher wurde die Anfrage nicht gesendet. Klicken Sie darauf, um zu sehen, was er ist, und um ihn als Nicht sensibel zu markieren.",
+    "redacted": "Unumkehrbar geschwärzt",
+    "redactedHelp": "Statt des Werts wurde ein fester Platzhalter gesendet, und der Wert wird nie wieder eingesetzt. Er wird nur dann versiegelt im Tresor aufbewahrt, wenn der lokale Prüfer ihn gefunden hat oder Sie ihn im Live-Prüfer markiert haben.",
+    "gone": "Original entfernt",
+    "goneHelp": "Der Tresor enthält diesen Wert nicht mehr (vergessen), daher kann nur angezeigt werden, was gesendet wurde."
+  },
+  "live": {
+    "title": "Live",
+    "description": "Jede Anfrage, die Ihre Agenten über Latet senden, in Echtzeit. Öffnen Sie eine, um genau zu sehen, was Ihren Rechner verlassen hat.",
+    "pause": "Anhalten",
+    "resume": "Fortsetzen",
+    "notRecording": "Der Verlauf ist ausgeschaltet, daher werden neue Austausche hier nicht aufgezeichnet. Schalten Sie ihn unter Regeln im Abschnitt Verlauf ein.",
+    "tableLabel": "Austausche",
+    "pendingCount_one": "{{count}} neuen Austausch anzeigen",
+    "pendingCount_other": "{{count}} neue Austausche anzeigen",
+    "loadOlder": "Ältere Austausche laden",
+    "stream": {
+      "connecting": "Verbindung wird hergestellt…",
+      "open": "Live",
+      "retrying": "Verbindung wird wiederhergestellt…",
+      "paused": "Angehalten"
+    },
+    "filters": {
+      "label": "Filter",
+      "agent": "Agent",
+      "anyAgent": "Alle Agenten",
+      "flag": "Markierung",
+      "anyFlag": "Alle Markierungen",
+      "session": "Sitzung",
+      "anySession": "Alle Sitzungen",
+      "clear": "Filter zurücksetzen",
+      "project": "Projekt",
+      "anyProject": "Alle Projekte"
+    },
+    "columns": {
+      "time": "Zeit",
+      "agent": "Agent und Modell",
+      "mode": "Modus und Status",
+      "latency": "Latenz",
+      "tokens": "Tokens",
+      "masked": "Maskiert",
+      "flags": "Markierungen"
+    },
+    "overhead": "+{{value}} Latet",
+    "overheadHelp": "Zeit, die Latet vor dem Weiterleiten der Anfrage hinzugefügt hat",
+    "tokensInOut": "{{input}} Eingabe, {{output}} Ausgabe",
+    "cached": "{{value}} aus dem Cache",
+    "cacheHelp": "{{value}} Prompt-Tokens wurden aus dem Cache des Anbieters gelesen",
+    "nothingMasked": "Nichts",
+    "newMasked_one": "{{count}} neu",
+    "newMasked_other": "{{count}} neu",
+    "allResent": "alle erneut gesendet",
+    "empty": {
+      "title": "Noch keine Austausche",
+      "body": "Starten Sie einen Agenten über Latet, und seine Anfragen erscheinen hier in Echtzeit."
+    },
+    "emptyFiltered": {
+      "title": "Keine Austausche passen zu diesen Filtern",
+      "body": "Entfernen Sie einen Filter, oder warten Sie auf neue Austausche: Diese erscheinen hier, sobald sie eintreffen."
+    },
+    "modes": {
+      "summary": "Was bedeuten Umschreiben, Prüfen und Durchleiten?"
+    }
+  },
+  "approvals": {
+    "title": "Freigaben",
+    "description": "Wenn der Live-Prüfer eingeschaltet ist, wartet hier jeder neue Text, den Ihre Agenten senden wollen. Geben Sie ihn so frei, wie Latet ihn maskiert hat, maskieren Sie vorher mehr, oder senden Sie ihn nicht.",
+    "documentTitle": "({{count}}) {{name}}",
+    "banner_one": "{{count}} Anfrage wartet auf Ihre Freigabe, bevor sie Ihren Rechner verlässt.",
+    "banner_other": "{{count}} Anfragen warten auf Ihre Freigabe, bevor sie Ihren Rechner verlassen.",
+    "open": "Freigaben öffnen",
+    "settings": "Einstellungen des Live-Prüfers",
+    "tabs": {
+      "label": "Was auf Sie wartet",
+      "texts": "Texte",
+      "settings": "Einstellungen"
+    },
+    "settingsEmpty": {
+      "title": "Keine Änderung Ihrer Einstellungen wartet auf Sie",
+      "body": "Eine Änderung Ihrer Einstellungen, die den Schutz verringert, wartet hier, bis Sie sie freigeben oder rückgängig machen, wer auch immer sie vorgenommen hat."
+    },
+    "narrow": {
+      "position": "{{number}} von {{count}}",
+      "previous": "Vorheriger Text",
+      "next": "Nächster Text"
+    },
+    "shortcuts": {
+      "title": "Tastenkürzel",
+      "on": "Tastenkürzel an",
+      "intro": "Aus, bis Sie sie einschalten, und dieser Browser merkt sich Ihre Wahl. Sie wirken nie, während Sie in einem Feld tippen, und Enter gibt nichts frei: Die Schaltfläche Freigeben sendet einen Text unverändert.",
+      "switch": "Tastenkürzel verwenden",
+      "shift": "Umschalt",
+      "nothingToMask": "Nichts zu maskieren: Markieren Sie zuerst einen Wert im Original.",
+      "keys": {
+        "approve": "Den gezeigten Text freigeben",
+        "skip": "Ihn nicht senden",
+        "next": "Nächster Text",
+        "previous": "Vorheriger Text",
+        "mask": "Den im Original markierten Text maskieren, sonst den ersten Vorschlag",
+        "approveAll": "Alle wartenden freigeben, nach einer Rückfrage",
+        "help": "Diese Liste"
+      }
+    },
+    "change": {
+      "title": "Eine Änderung Ihrer Einstellungen wartet auf Sie",
+      "source": {
+        "command": "{{agent}} hat einen latet-Befehl ausgeführt.",
+        "commandNoAgent": "Ein latet-Befehl wurde ausgeführt.",
+        "file": "config.yaml wurde bearbeitet.",
+        "serverFile": "Gefunden, als der Server Ihre Einstellungen erneut angewendet hat, nach einer Änderung dessen, was für alle festgelegt ist, oder Ihrer Einstellungen auf einer anderen seiner Instanzen: Bis Sie entscheiden, gelten die Einstellungen, die Sie freigegeben haben.",
+        "serverStart": "Gefunden, als Ihr Bereich auf dem Server erstellt wurde: Bis Sie entscheiden, gelten die Einstellungen, die Sie freigegeben haben.",
+        "start": "Beim Start von Latet in config.yaml gefunden: Latet läuft mit den Einstellungen, die Sie freigegeben haben, bis Sie entscheiden.",
+        "other": "Ihre Einstellungen wurden geändert."
+      },
+      "loosened": "Die Änderung verringert den Schutz:",
+      "keys": "Die Änderung betrifft",
+      "guidance": "Die Änderung schreibt diese Hinweise für den lokalen Prüfer:",
+      "guidanceIn": "Die Änderung schreibt diese Hinweise für den lokalen Prüfer in {{project}}:",
+      "before": "Vorher",
+      "after": "Nachher",
+      "noGuidance": "Keine.",
+      "help": "Die Änderung gilt erst, wenn Sie sie freigeben.",
+      "approveHelp": "Die Änderung wird angewendet und gespeichert.",
+      "undo": "Rückgängig machen",
+      "undoing": "Wird rückgängig gemacht…",
+      "undoHelp": "config.yaml kehrt zu den Einstellungen zurück, die gerade gelten.",
+      "undoHelpServer": "Ihre Einstellungen kehren zu denen zurück, die gerade gelten.",
+      "approved": "Freigegeben: Ihre Einstellungen wurden geändert.",
+      "undone": "Rückgängig gemacht: config.yaml enthält wieder die Einstellungen, die gerade gelten.",
+      "undoneServer": "Rückgängig gemacht: Ihre Einstellungen sind wieder die, die gerade gelten.",
+      "notification": "Eine Änderung Ihrer Einstellungen wartet auf Ihre Freigabe",
+      "notice": "Eine Änderung Ihrer Einstellungen wartet auf Ihre Freigabe. Die Änderung ist noch nicht angewendet: Dies sind die Einstellungen, die gerade gelten.",
+      "review": "Ansehen",
+      "destination": "Ziel {{name}}: wohin Anfragen und Schlüssel gehen würden",
+      "destinationGone": "Entfernt"
+    },
+    "approve": "Freigeben",
+    "approveWith_one": "Mit {{count}} Maskierung freigeben",
+    "approveWith_other": "Mit {{count}} Maskierungen freigeben",
+    "approving": "Wird freigegeben…",
+    "reject": "Nicht senden",
+    "rejectHelp": "Der Agent erfährt, dass der Text nicht gesendet wurde. Nur der Agent kann ihn erneut senden.",
+    "approveAll": "Alle wartenden freigeben ({{count}})",
+    "approveAllIn": "Alle in {{project}} freigeben ({{count}})",
+    "approveAllInTitle_one": "Die wartende Anfrage in {{project}} freigeben?",
+    "approveAllInTitle_other": "Die {{count}} wartenden Anfragen in {{project}} freigeben?",
+    "filter": {
+      "label": "Projekt",
+      "all": "Alle Projekte",
+      "none": "Kein Projekt",
+      "unknown": "Ein Projekt"
+    },
+    "approveAllTitle_one": "Die wartende Anfrage freigeben?",
+    "approveAllTitle_other": "Alle {{count}} wartenden Anfragen freigeben?",
+    "approveAllBody": "Jede wird so gesendet, wie Latet und der lokale Prüfer sie maskiert haben.",
+    "approveAllMasks": "Die Werte, die Sie hier maskiert haben, sind nicht enthalten: Geben Sie diese Anfragen einzeln frei, um Ihre Maskierungen zu behalten.",
+    "approved": "Freigegeben: Die Anfrage ist unterwegs.",
+    "approvedWith_one": "Mit {{count}} von Ihnen maskierten Wert freigegeben: Er wird ab jetzt überall maskiert, wo er vorkommt.",
+    "approvedWith_other": "Mit {{count}} von Ihnen maskierten Werten freigegeben: Diese werden ab jetzt überall maskiert, wo sie vorkommen.",
+    "allApproved_one": "{{count}} Anfrage freigegeben.",
+    "allApproved_other": "{{count}} Anfragen freigegeben.",
+    "rejected": "Nicht gesendet. Der Agent wird darüber informiert.",
+    "gone": "Die Anfrage wartet nicht mehr: Darüber wurde an anderer Stelle entschieden, oder ihre Zeit ist abgelaufen.",
+    "refused": "Latet hat einen von Ihnen maskierten Wert nicht angenommen: {{message}}",
+    "termsAdded_one": "Zu Ihren Begriffen hinzugefügt: Er wird überall maskiert, wo er vorkommt.",
+    "termsAdded_other": "{{count}} Werte zu Ihren Begriffen hinzugefügt: Diese werden überall maskiert, wo sie vorkommen.",
+    "termsAddedInProject_one": "Zu den Begriffen dieses Projekts hinzugefügt: Er wird dort überall maskiert, wo er vorkommt.",
+    "termsAddedInProject_other": "{{count}} Werte zu den Begriffen dieses Projekts hinzugefügt: Diese werden dort überall maskiert, wo sie vorkommen.",
+    "arrived": "Eingegangen {{time}}",
+    "expires": "Wird nicht gesendet, wenn Sie nicht {{time}} antworten",
+    "off": {
+      "title": "Der Live-Prüfer ist ausgeschaltet",
+      "body": "Schalten Sie ihn oben ein, und jeder neue Text, den Ihre Agenten senden wollen, wartet hier, bis Sie ihn freigeben: Ihre Prompts, die Dateien, die sie lesen, und was ihre Tools abrufen. Sie sehen, was Latet maskiert hat, und können mehr maskieren."
+    },
+    "empty": {
+      "title": "Nichts wartet auf Sie",
+      "body": "Neue Texte, die Ihre Agenten senden wollen, erscheinen hier und warten, bis Sie sie freigeben. Lassen Sie diese Seite geöffnet, oder schalten Sie Benachrichtigungen ein.",
+      "noTexts": "Keine Texte warten auf Sie"
+    },
+    "notify": {
+      "ask": "Benachrichtigen",
+      "help": "Eine Browser-Benachrichtigung, wenn ein neuer Text wartet und dieser Tab im Hintergrund ist.",
+      "on": "Benachrichtigungen ein",
+      "onHelp": "Sie erhalten eine Browser-Benachrichtigung, wenn ein neuer Text wartet und dieser Tab im Hintergrund ist.",
+      "blocked": "Benachrichtigungen sind in diesem Browser blockiert"
+    },
+    "notification": {
+      "title": "Ein Text wartet auf Ihre Freigabe",
+      "body_one": "{{agent}}: {{count}} neuer Text zum Freigeben.",
+      "body_other": "{{agent}}: {{count}} neue Texte zum Freigeben."
+    },
+    "queue": {
+      "label": "Warten auf Ihre Freigabe",
+      "title_one": "{{count}} wartet, älteste zuerst",
+      "title_other": "{{count}} warten, älteste zuerst"
+    },
+    "batch": {
+      "label": "Die wartenden Texte"
+    },
+    "legend": {
+      "suggested": "Vom lokalen Prüfer vorgeschlagen: zum Maskieren klicken",
+      "added": "Von Ihnen maskiert, wirksam bei der Freigabe"
+    },
+    "decision": {
+      "asIs": "Alles wird so gesendet, wie unter Wird gesendet gezeigt.",
+      "masks_one": "{{count}} von Ihnen maskierter Wert erhält bei der Freigabe einen Ersatzwert aus dem Tresor.",
+      "masks_other": "{{count}} von Ihnen maskierte Werte erhalten bei der Freigabe Ersatzwerte aus dem Tresor.",
+      "rects_one": "{{count}} von Ihnen gezeichnetes Rechteck überdeckt einen Teil eines Bildes mit einem Balken.",
+      "rects_other": "{{count}} von Ihnen gezeichnete Rechtecke überdecken Teile der Bilder mit einem Balken.",
+      "withheld_one": "{{count}} Bild wird nicht gesendet: Das Modell erhält an seiner Stelle einen Hinweis.",
+      "withheld_other": "{{count}} Bilder werden nicht gesendet: Das Modell erhält an ihrer Stelle einen Hinweis."
+    },
+    "item": {
+      "label": "Text {{number}}: {{kind}}",
+      "number": "{{number}} von {{count}}",
+      "failed": "Der lokale Prüfer konnte diesen Text nicht lesen: Prüfen Sie ihn selbst."
+    },
+    "panes": {
+      "original": "Original",
+      "selectHint": "Text auswählen, um ihn zu maskieren",
+      "sent": "Wird gesendet"
+    },
+    "suggestion": {
+      "intro": "Der lokale Prüfer schlägt vor:",
+      "action": "Maskieren",
+      "title": "Vom lokalen Prüfer vorgeschlagen ({{category}}). Klicken Sie, um ihn zu maskieren.",
+      "mask": "{{value}} maskieren ({{category}})"
+    },
+    "added": {
+      "label": "Von Ihnen maskierte Werte",
+      "title": "Von Ihnen maskiert ({{category}}): Er erhält bei der Freigabe einen Ersatzwert",
+      "preview": "Bei der Freigabe tritt ein Ersatzwert aus dem Tresor an seine Stelle",
+      "sentAs": "gesendet als Ersatzwert {{placeholder}}",
+      "always": "Immer maskieren",
+      "alwaysProject": "In diesem Projekt immer maskieren",
+      "alwaysHelp": "Fügt ihn nach der Freigabe auch Ihren Begriffen hinzu, damit er maskiert bleibt, selbst wenn der Tresor ihn vergisst.",
+      "remove": "{{value}} nicht maskieren"
+    },
+    "select": {
+      "title": "Auswahl maskieren",
+      "as": "Maskieren als:",
+      "empty": "Wählen Sie einen Wert aus, nicht nur Leerzeichen.",
+      "short": "Wählen Sie mindestens zwei Zeichen aus.",
+      "noword": "Wählen Sie einen Wert mit Buchstaben oder Ziffern aus.",
+      "masked": "Ein Teil davon ist bereits maskiert: Wählen Sie nur Klartext aus.",
+      "added": "Einen Teil davon haben Sie bereits maskiert."
+    },
+    "approveChanged": "Mit Ihren Änderungen freigeben",
+    "image": {
+      "title": "Bild, {{width}} × {{height}}",
+      "view": "Bild anzeigen",
+      "sent": "So, wie es jetzt gesendet wird",
+      "sentHelp": "So, wie Latet es maskiert hat. Was Sie hier ändern, wird bei der Freigabe angewendet.",
+      "alt": "Das Bild, in dem dieser Text gelesen wurde",
+      "gone": "Das Bild ist nicht mehr verfügbar.",
+      "withhold": "Dieses Bild nicht senden",
+      "withholdHelp": "Das Modell erhält an seiner Stelle einen kurzen Hinweis. Wird dasselbe Bild erneut gesendet, wird es ebenfalls zurückgehalten.",
+      "withheld": "Dieses Bild wird nicht gesendet.",
+      "coveredTitle": "{{type}}: mit seinem Ersatzwert überdeckt",
+      "drawHint": "Ziehen Sie auf dem Bild, um einen Teil davon mit einem Balken zu überdecken. Wird dasselbe Bild erneut gesendet, wird es genauso überdeckt.",
+      "tooMany": "Höchstens {{count}} Rechtecke pro Bild.",
+      "legend": {
+        "covered": "Mit seinem Ersatzwert überdeckt",
+        "pending": "Von Ihnen im Text maskiert",
+        "drawn": "Mit einem Balken überdeckt"
+      },
+      "rects": {
+        "label": "Von Ihnen gezeichnete Rechtecke",
+        "item": "Rechteck {{number}}: {{width}} × {{height}}",
+        "remove": "Rechteck {{number}} entfernen",
+        "clear": "Alle entfernen"
+      }
+    }
+  },
+  "history": {
+    "clear": {
+      "action": "Verlauf löschen",
+      "title": "Den gesamten Verlauf löschen?",
+      "body": "Jeder aufgezeichnete Austausch wird von diesem Rechner gelöscht. Der Tresor bleibt erhalten, sodass Maskieren und Wiedereinsetzen weiterlaufen wie bisher. Dies kann nicht rückgängig gemacht werden.",
+      "confirm": "Verlauf löschen",
+      "done": "Verlauf gelöscht."
+    }
+  },
+  "sessions": {
+    "title": "Sitzungen",
+    "description": "Jeweils eine Unterhaltung. Agenten senden mit jeder Anfrage den ganzen Verlauf erneut, daher zeigt jede Anfrage standardmäßig nur, was darin neu war.",
+    "listLabel": "Sitzungen",
+    "exchanges_one": "{{count}} Austausch",
+    "exchanges_other": "{{count}} Austausche",
+    "masked_one": "{{count}} maskiert",
+    "masked_other": "{{count}} maskiert",
+    "blocked_one": "{{count}} blockiert",
+    "blocked_other": "{{count}} blockiert",
+    "summary_one": "{{agent}}, {{count}} Austausch von {{first}} bis {{last}}",
+    "summary_other": "{{agent}}, {{count}} Austausche von {{first}} bis {{last}}",
+    "payloadLabel": "Angezeigte Blöcke",
+    "payloadNew": "Neue Blöcke",
+    "payloadAll": "Alle Blöcke",
+    "openInLive": "In Live anzeigen",
+    "newNote": "Angezeigt wird, was in jeder Anfrage zum ersten Mal gesendet wurde, so wie es Ihren Rechner verlassen hat.",
+    "allNote": "Angezeigt wird jeder Block jeder Anfrage, einschließlich des Verlaufs, den der Agent erneut gesendet hat.",
+    "loadEarlier": "Frühere Austausche laden",
+    "timelineLabel": "Austausche in dieser Sitzung, älteste zuerst",
+    "empty": {
+      "title": "Noch keine Sitzungen",
+      "body": "Eine Sitzung beginnt, wenn ein Agent seine erste Anfrage über Latet sendet."
+    },
+    "noExchanges": {
+      "title": "Keine Austausche in dieser Sitzung",
+      "body": "Die Austausche wurden vielleicht gelöscht, oder sie sind älter als die Aufbewahrungszeit des Verlaufs."
+    },
+    "item": {
+      "newMasked_one": "{{count}} Wert in neuen Blöcken maskiert",
+      "newMasked_other": "{{count}} Werte in neuen Blöcken maskiert",
+      "onlyResent_one": "{{count}} maskierter Wert, erneut gesendet",
+      "onlyResent_other": "{{count}} maskierte Werte, alle erneut gesendet",
+      "nothing": "Nichts maskiert",
+      "noNewBlocks_one": "Nichts Neues: Der Block wurde bereits zuvor gesendet.",
+      "noNewBlocks_other": "Nichts Neues: Alle {{count}} Blöcke wurden bereits zuvor gesendet.",
+      "noBlocks": "Keine Textblöcke aufgezeichnet."
+    }
+  },
+  "exchange": {
+    "back": "Live",
+    "copyId": "Austausch-ID kopieren",
+    "title": "Anfrage an {{upstream}}, {{time}}",
+    "notFound": {
+      "title": "Dieser Austausch ist nicht im Verlauf",
+      "body": "Er wurde vielleicht gelöscht, oder er ist älter als die Aufbewahrungszeit des Verlaufs."
+    },
+    "verdict": {
+      "passthrough": "Ohne Prüfung weitergeleitet.",
+      "passthroughDetail": "Latet versteht diese Route nicht, daher wurde nichts maskiert oder geprüft.",
+      "verified": "Verifiziert: Nichts Sensibles hat den Rechner im Klartext verlassen.",
+      "verifiedMasked_one": "{{count}} Wert wurde durch einen Ersatzwert ersetzt.",
+      "verifiedMasked_other": "{{count}} Werte wurden durch Ersatzwerte ersetzt.",
+      "verifiedNothing": "Nichts darin musste maskiert werden.",
+      "notVerified": "Nicht verifiziert.",
+      "notVerifiedDetail": "Die abschließende Prüfung hat diese Anfrage nicht bestätigt. Sehen Sie sich die Markierungen und Lecks unten an.",
+      "uninspected": "Die Prüfung umfasst nur Text: Latet hat {{what}} unverändert gesendet.",
+      "reviewAllowed": "An den Prüfer des Auto-Modus gesendet.",
+      "reviewAllowedDetail": "Die Anfrage enthielt {{what}}, und Ihre Regeln lassen das zum Prüfer durch. Geheime Werte und personenbezogene Daten gehen nie durch."
+    },
+    "why": {
+      "happened": "Was passiert ist",
+      "meant": "Was das für Sie bedeutete",
+      "todo": "Was Sie tun können",
+      "inRules": "Unter Regeln ändern",
+      "given": "Die Begründung, die Latet dem Agenten gegeben hat, wörtlich",
+      "review": {
+        "title": "Die Prüfung im Auto-Modus von Claude Code wurde nicht gesendet",
+        "happened": "Bevor Claude Code eine Aktion selbstständig ausführt, fragt es ein Prüfmodell, ob es sie zulassen soll. Diese Anfrage enthielt {{details}}, und Ihre Regeln behalten das auf diesem Rechner, daher hat Latet sie nicht gesendet.",
+        "happenedOthers": "Bevor Claude Code eine Aktion selbstständig ausführt, fragt es ein Prüfmodell, ob es sie zulassen soll. Diese Anfrage enthielt Werte vom Typ {{others}}, und solche Werte gelangen nie zum Prüfer, daher hat Latet sie nicht gesendet.",
+        "alsoOthers": "Die Anfrage enthielt außerdem Werte vom Typ {{others}}, und solche Werte gelangen nie zum Prüfer.",
+        "meant": "Claude Code hat die Aktion nicht ausgeführt. Es meldet seinen Prüfer als vorübergehend nicht verfügbar und fragt Sie nicht: Führen Sie die Aktion selbst aus, oder stellen Sie Claude Code auf einen Berechtigungsmodus um, der Sie fragt. Ihre Unterhaltung blieb unberührt.",
+        "todo": "Wenn Sie es so lassen, lehnt der Auto-Modus die Aktionen ab, die seinen Prüfer brauchen. Oder lassen Sie {{details}} zum Prüfer durch, dann funktioniert der Auto-Modus wieder: Ihre geheimen Werte und personenbezogenen Daten gehen nie durch.",
+        "todoOthers": "Hier ist nichts zu ändern: Der Prüfer erhält nie geheime Werte oder personenbezogene Daten, daher lehnt der Auto-Modus die Aktionen ab, die solche enthalten. Führen Sie sie selbst aus, oder halten Sie den geheimen Wert aus Ihrer CLAUDE.md heraus.",
+        "allow": "{{details}} durchlassen",
+        "done": "Erledigt: Ab jetzt lässt Latet {{details}} zum Prüfer durch.",
+        "surrogate": "Oder behalten Sie Ihren echten Benutzernamen hier: Der Prüfer erhält denselben Ersatznamen, den das Modell sieht, und nur Ihr Benutzerordner in Pfaden geht durch.",
+        "surrogateAllow": "Ersatznamen verwenden, Ordner durchlassen",
+        "surrogateDone": "Erledigt: Starten Sie Claude Code neu (mit latet claude gestartet oder nach latet agents apply claude), damit es den Ersatznamen verwendet.",
+        "surrogateNote": "Wenn Ihr Benutzerordner genauso heißt wie Ihr Benutzername, liest der Prüfer ihn weiterhin in den Pfaden."
+      },
+      "history": {
+        "title": "Diese Unterhaltung ist gestoppt",
+        "happened": "Die Unterhaltung enthält Werte im Klartext aus der Zeit, bevor Latet sie maskiert hat, denn sie begann, bevor Latet aktiv war, oder wurde aus dieser Zeit fortgesetzt. Claude Code sendet mit jeder Anfrage den ganzen Verlauf, daher hat das Plugin sie gestoppt.",
+        "meant": "Nichts davon hat Ihren Rechner verlassen, und jede Anfrage dieser Unterhaltung wird hier gestoppt.",
+        "todo": "Beginnen Sie in Claude Code eine neue Unterhaltung (/clear): Ab dann wird alles maskiert, sobald es hinzukommt."
+      },
+      "plugin": {
+        "title": "In Claude Code gestoppt",
+        "happened": "Die abschließende Prüfung des Plugins hat in dem, was Claude Code senden wollte, Werte vom Typ {{types}} im Klartext gefunden.",
+        "meant": "Die Anfrage hat Ihren Rechner nie verlassen, und Claude Code hat dafür einen Fehler erhalten.",
+        "todo": "Versuchen Sie es erneut. Wird es immer wieder gestoppt, gelangt der Wert auf einem Weg zu Claude Code, den Latet nicht maskiert: Bitte eröffnen Sie ein Issue. Wenn der Wert nicht sensibel ist, ist er unten in der Anfrage hervorgehoben: Klicken Sie darauf, und wählen Sie Nicht sensibel.",
+        "todoUnmarked": "Versuchen Sie es erneut. Wird es immer wieder gestoppt, gelangt der Wert auf einem Weg zu Claude Code, den Latet nicht maskiert: Bitte eröffnen Sie ein Issue. Wenn der Wert nicht sensibel ist, fügen Sie ihn unter Regeln zur Zulassungsliste hinzu."
+      },
+      "uninspected": {
+        "title": "Nicht gesendet: Die Anfrage enthielt {{what}}",
+        "happened": "Das Profil Maximal sendet nichts, was es nicht maskieren kann, und mit diesem Profil schaut Latet nicht in {{what}} hinein.",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Nehmen Sie {{what}} aus der Unterhaltung, wählen Sie das Profil Ausgewogen, oder setzen Sie images: mask im Projekt: Dann werden Bilder gesendet, mit dem Text darin maskiert."
+      },
+      "imagesSetting": {
+        "title": "Nicht gesendet: Die Anfrage enthielt {{what}}",
+        "happened": "Ihre Regeln setzen images: block, daher werden Anfragen, die {{what}} enthalten, nicht gesendet.",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Nehmen Sie {{what}} aus der Unterhaltung, oder setzen Sie images: allow oder mask: Dann werden Bilder gesendet, mit dem Text darin maskiert, sobald die Texterkennung installiert ist."
+      },
+      "localReviewer": {
+        "title": "Der lokale Prüfer konnte die Anfrage nicht prüfen",
+        "happened": "Nach Ihren Regeln liest der lokale Prüfer jeden neuen Text, bevor er gesendet wird. Er konnte nicht antworten (sein Server ist aus oder zu langsam, oder seiner Antwort war nicht zu trauen), oder er hat verlangt, den Text zu stoppen.",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Prüfen Sie seinen Server mit latet llm status. Um Texte nur von den Detektoren maskiert zu senden, wenn er nicht antworten kann, wählen Sie unter Lokaler Prüfer die Option Von den Detektoren maskiert senden."
+      },
+      "leak": {
+        "title": "Nicht gesendet: Ein Wert hätte den Rechner im Klartext verlassen",
+        "happened": "Die abschließende Prüfung hat in dem, was gesendet werden sollte, Werte vom Typ {{types}} im Klartext gefunden.",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Nehmen Sie den Wert heraus: Beginnen Sie eine neue Unterhaltung (in Claude Code /clear), und verweisen Sie den Agenten auf die Datei oder Variable, die ihn enthält, statt ihn einzufügen. Nur wenn er überhaupt nicht geheim ist, etwa ein Test- oder Beispielwert, klicken Sie unten in der Anfrage darauf, und wählen Sie Nicht sensibel.",
+        "todoUnmarked": "Nehmen Sie den Wert heraus: Beginnen Sie eine neue Unterhaltung (in Claude Code /clear), und verweisen Sie den Agenten auf die Datei oder Variable, die ihn enthält, statt ihn einzufügen. Die Werte sind unten nach Typ und Länge aufgeführt, nicht nach Fundstelle: Nur wenn einer überhaupt nicht geheim ist, etwa ein Test- oder Beispielwert, fügen Sie ihn unter Regeln zur Zulassungsliste hinzu."
+      },
+      "other": {
+        "title": "Nicht gesendet",
+        "happened": "Latet konnte diese Anfrage nicht verarbeiten: {{reason}}.",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Wenn es wieder passiert, prüft latet doctor, was nicht stimmt."
+      },
+      "live": {
+        "meant": "Nichts hat Ihren Rechner verlassen: Der Agent hat erfahren, dass nichts gesendet wurde.",
+        "rejected": {
+          "title": "Sie haben die Anfrage im Live-Prüfer gestoppt",
+          "happened": "Sie haben für ihre neuen Texte Nicht senden gewählt.",
+          "todo": "Nichts zu tun. Wenn der Agent es erneut versucht, wartet die Anfrage wieder auf Sie."
+        },
+        "expired": {
+          "title": "Die Anfrage hat zu lange auf Ihre Freigabe gewartet",
+          "happened": "Die Anfrage hat im Live-Prüfer länger gewartet als Ihr Zeitlimit.",
+          "todo": "Geben Sie früher frei, oder erhöhen oder entfernen Sie das Zeitlimit unter Live-Prüfer."
+        },
+        "abandoned": {
+          "title": "Der Agent hat aufgehört zu warten",
+          "happened": "Der Agent hat die Anfrage aufgegeben, während sie auf Ihre Freigabe wartete: Sie haben ihn gestoppt, oder er hat von selbst aufgegeben.",
+          "todo": "Nichts zu tun."
+        }
+      },
+      "outbound": {
+        "title": "{{tools}} wurde gestoppt: Es hätte einen Ersatzwert verwendet",
+        "happened": "Das Modell hat {{tools}} gebeten, mit {{types}} zu arbeiten. Latet hatte diesen Wert ersetzt, bevor das Modell ihn sah. Dieses Tool läuft außerhalb Ihres Rechners, daher hätte es den Ersatzwert verwendet: nach jemand anderem gesucht, die falsche Seite geöffnet oder an eine Adresse geschrieben, die es nicht gibt. Hätte Latet den echten Wert gesendet, hätte er Ihren Rechner verlassen.",
+        "meant": "Das Tool wurde nicht ausgeführt. Das Modell hat den Grund erfahren und fragt Sie, ob der Wert im Klartext hinausgehen darf.",
+        "todo": "Wenn der Wert Ihren Rechner verlassen darf, markieren Sie ihn hier als Nicht sensibel, und bitten Sie das Modell dann, es erneut zu versuchen. Wenn nicht, ist nichts zu tun: Er bleibt maskiert.",
+        "ranTitle": "{{tools}} lief außerhalb Ihres Rechners mit einem Ersatzwert",
+        "ranHappened": "Der Anbieter hat {{tools}} selbst ausgeführt, mit {{types}}. Latet hatte diesen Wert ersetzt, bevor das Modell ihn sah. Das Tool hat mit dem Ersatzwert gearbeitet: nach jemand anderem gesucht, die falsche Seite geöffnet oder an eine Adresse geschrieben, die es nicht gibt. Latet sieht einen solchen Aufruf erst, nachdem er gelaufen ist, im Verlauf dieser Anfrage.",
+        "ranMeant": "Was das Tool gefunden oder getan hat, betrifft den Ersatzwert, nicht den echten Wert, und die Antwort schreibt es womöglich Ihrem echten Wert zu. Der echte Wert hat Ihren Rechner nicht verlassen.",
+        "ranTodo": "Wenn der Wert im Klartext hinausgehen darf, markieren Sie ihn hier als Nicht sensibel: Beim nächsten Mal sieht und verwendet das Modell den echten Wert.",
+        "allowValue": "{{value}} ist nicht sensibel",
+        "sentAs": "gesendet als {{sent}}",
+        "allowed": "{{value}}: ab jetzt nicht sensibel.",
+        "aValue": "einem Wert"
+      },
+      "imagesMask": {
+        "title": "Nicht gesendet: Latet konnte {{what}} nicht maskieren",
+        "happened": "Ihre Regeln setzen images: mask, daher werden nur Bilder gesendet, deren Text Latet gelesen und maskiert hat. Latet konnte {{what}} nicht lesen: Die Texterkennung ist nicht installiert, oder es ist kein Bild, das Latet liest (ein PDF, ein per Adresse eingebundenes Bild).",
+        "meant": "Nichts hat Ihren Rechner verlassen, und der Agent hat einen Fehler erhalten.",
+        "todo": "Installieren Sie die Texterkennung (latet ocr install), nehmen Sie {{what}} aus der Unterhaltung, oder setzen Sie images: allow."
+      }
+    },
+    "meta": {
+      "modules": "Maskiert von",
+      "agent": "Agent",
+      "model": "Modell",
+      "mode": "Modus",
+      "status": "Status",
+      "latency": "Latenz",
+      "overhead": "+{{value}} Latet",
+      "tokens": "Tokens",
+      "tokensHelp": "{{input}} Eingabe, {{read}} aus dem Cache gelesen, {{write}} in den Cache geschrieben, {{output}} Ausgabe",
+      "session": "Sitzung",
+      "path": "Route",
+      "size": "Body-Größe",
+      "when": "Zeit",
+      "project": "Projekt",
+      "projectHelp": "Das Projekt des Ordners der Sitzung: seine Regeln öffnen",
+      "sentTo": "Gesendet an",
+      "sentToHelp": "Wohin die Anfrage nach Latet ging",
+      "signed": "Von Latet signiert",
+      "signedProfile": "mit dem AWS-Profil {{profile}}",
+      "signedSession": "mit den AWS-Zugangsdaten der Shell von `latet claude`"
+    },
+    "flow": {
+      "label": "Von Ihrem Rechner zum Modell und zurück",
+      "original": "Original",
+      "blocks_one": "{{count}} Block, auf diesem Rechner",
+      "blocks_other": "{{count}} Blöcke, auf diesem Rechner",
+      "sent": "An das Modell gesendet",
+      "notSent": "Nicht gesendet",
+      "masked_one": "{{count}} Wert maskiert",
+      "masked_other": "{{count}} Werte maskiert",
+      "blockedDetail": "Von Latet blockiert",
+      "passthroughDetail": "Unverändert weitergeleitet",
+      "model": "Wie das Modell es schrieb",
+      "agent": "Wie Ihr Agent es erhielt",
+      "restored_one": "{{count}} Wert wieder eingesetzt",
+      "restored_other": "{{count}} Werte wieder eingesetzt",
+      "noResponse": "Keine Antwort",
+      "pluginDetail": "In Claude Code gestoppt"
+    },
+    "leaks": {
+      "title_one": "{{count}} Wert im Klartext",
+      "title_other": "{{count}} Werte im Klartext",
+      "body": "Die Prüfung hat diese Werte in dem gefunden, was gesendet werden sollte. Diese Liste zeigt nur Typ und Länge; die Blöcke darunter zeigen die Anfrage so, wie sie gesendet worden wäre, einschließlich der Werte.",
+      "type": "Typ",
+      "kind": "Gefunden in",
+      "preview": "Typ und Länge",
+      "status": "Wirkung",
+      "new": "In einem neuen Block: hat die Anfrage blockiert",
+      "old": "In dieser Sitzung schon früher gesendet",
+      "allowed": "Zum Prüfer durchgelassen, wie Ihre Regeln es erlauben",
+      "letThroughTitle_one": "{{count}} Wert zum Prüfer durchgelassen",
+      "letThroughTitle_other": "{{count}} Werte zum Prüfer durchgelassen",
+      "letThroughBody": "Ihre Regeln lassen diese Angaben zu Ihrer Identität zum Prüfer des Auto-Modus durch, und nur zu ihm. Diese Liste zeigt nur Typ und Länge.",
+      "folded_one": "Was die Prüfung gefunden hat: {{count}} Wert (Typ und Länge)",
+      "folded_other": "Was die Prüfung gefunden hat: {{count}} Werte (Typ und Länge)"
+    },
+    "request": {
+      "title": "Anfrage",
+      "blocksLabel": "Angezeigte Blöcke",
+      "newBlocks_one": "Neu ({{count}})",
+      "newBlocks_other": "Neu ({{count}})",
+      "allBlocks_one": "Alle ({{count}})",
+      "allBlocks_other": "Alle ({{count}})",
+      "footnotes": "Werte nummerieren",
+      "newNote_one": "Angezeigt wird der eine von {{total}} Blöcken, der zum ersten Mal gesendet wurde. Der Rest ist Verlauf, den der Agent mit jeder Anfrage erneut sendet.",
+      "newNote_other": "Angezeigt werden die {{count}} von {{total}} Blöcken, die zum ersten Mal gesendet wurden. Der Rest ist Verlauf, den der Agent mit jeder Anfrage erneut sendet.",
+      "allNote": "Angezeigt wird jeder Block, einschließlich des Verlaufs, den der Agent erneut gesendet hat.",
+      "noBlocks": "Es wurden keine Textblöcke aufgezeichnet: Die Anfrage hatte keine, die Latet prüft, oder der Verlauf speichert nur Metadaten.",
+      "notSent": "Nicht gesendet.",
+      "notSentDetail": "Hier sehen Sie, was gesendet worden wäre, einschließlich der Werte, die die Anfrage gestoppt haben. Es wird verschlüsselt auf diesem Rechner aufbewahrt, für die übliche Aufbewahrungszeit.",
+      "notSentText": "Hier sehen Sie den Text, der gesendet worden wäre. Er wird verschlüsselt auf diesem Rechner aufbewahrt, für die übliche Aufbewahrungszeit."
+    },
+    "images": {
+      "title_one": "{{count}} Bild",
+      "title_other": "{{count}} Bilder",
+      "masked": "Maskiert",
+      "maskedHelp": "Die darin gelesenen Werte wurden mit ihren Ersatzwerten überdeckt, und es wurde so gesendet.",
+      "clean": "Nichts zu maskieren",
+      "cleanHelp": "Sein Text wurde gelesen, und nichts darin wird nach Ihren Regeln maskiert: Es wurde unverändert gesendet.",
+      "withheld": "Zurückgehalten",
+      "withheldHelp": "Es konnte nicht gelesen werden und wurde daher nicht gesendet: Das Modell hat an seiner Stelle einen Hinweis erhalten.",
+      "alt": "Das Bild, wie es gesendet wurde ({{state}})",
+      "larger": "Größer anzeigen",
+      "smaller": "Kleiner anzeigen",
+      "notSent": "Nicht gesendet",
+      "notKept": "Nicht aufbewahrt: zu groß oder bereits mit dem Verlauf entfernt",
+      "text": "Der darin gelesene Text (Block {{number}})"
+    },
+    "columns": {
+      "show": "Spalten auswählen, die im Klartext bleiben",
+      "hide": "Spalten ausblenden",
+      "none": "In dieser Ausgabe wurden keine Spalten gefunden: Tabellen, JSON und key=value-Zeilen haben welche.",
+      "intro": "Der strikte Datenmodus hat jeden Wert dieser Ausgabe maskiert, daher kann das Modell auch ihre Status und Datumsangaben nicht lesen. Latet schlägt die Spalten vor, die im Klartext gesendet werden könnten: IDs, Datumsangaben von Ereignissen, Status und Anzahlen sagen nichts über eine Person aus. Nichts ändert sich, bevor Sie es anwenden.",
+      "strictOff": "Der strikte Datenmodus ist dort jetzt ausgeschaltet: Eine im Klartext gelassene Spalte zählt, sobald er wieder eingeschaltet ist.",
+      "keep": "Im Klartext lassen",
+      "keepColumn": "{{name}} im Klartext lassen",
+      "column": "Spalte",
+      "examples": "Werte hier",
+      "reviewer": "Lokaler Prüfer",
+      "masked_one": "{{count}} Wert maskiert",
+      "masked_other": "{{count}} Werte maskiert",
+      "keptNow": "Bereits im Klartext",
+      "starred": "Der Spaltenname enthält ein *: Lassen Sie die Spalte über die Seite Regeln im Klartext",
+      "proposal": {
+        "title": "Vorschlag",
+        "keep": "Im Klartext lassen",
+        "mask": "Maskiert lassen",
+        "ask": "Ihre Entscheidung"
+      },
+      "reason": {
+        "dates": "Datumsangaben von Ereignissen",
+        "ids": "IDs und Codes",
+        "states": "Wenige Status, die sich wiederholen",
+        "flags": "Ja oder nein",
+        "counts": "Anzahlen",
+        "secretName": "Der Name deutet auf geheime Werte hin",
+        "secret": "Ein geheimer Wert darin gefunden",
+        "people": "Personenbezogene Daten darin gefunden",
+        "person": "Der Name deutet auf Personen hin",
+        "freeText": "Freitext: Er könnte alles enthalten",
+        "birthDates": "Geburts- oder Sterbedaten",
+        "sensitive": "Der Name deutet auf Gesundheit, Überzeugungen oder Privatleben hin",
+        "amounts": "Beträge: möglicherweise sensibel",
+        "datesUnclear": "Datumsangaben, aber der Name sagt nicht, wovon",
+        "flagsUnclear": "Ja oder nein, aber der Name sagt nicht, worüber",
+        "repeats": "Wenige Werte, die sich wiederholen: Status oder die Namen weniger Personen?",
+        "unclear": "Kein Hinweis"
+      },
+      "opinionKeep": "Im Klartext: {{why}}",
+      "opinionMask": "Maskiert: {{why}}",
+      "apply_one": "{{count}} Spalte im Klartext lassen",
+      "apply_other": "{{count}} Spalten im Klartext lassen",
+      "saving": "Wird gespeichert…",
+      "ask": "Lokalen Prüfer fragen",
+      "asking": "Wird gefragt…",
+      "reviewerOff": "Schalten Sie den lokalen Prüfer unter Regeln ein, um auch seine Einschätzung einzuholen.",
+      "saved_one": "{{count}} Spalte bleibt ab der nächsten Anfrage überall im Klartext.",
+      "saved_other": "{{count}} Spalten bleiben ab der nächsten Anfrage überall im Klartext.",
+      "savedProject_one": "{{count}} Spalte bleibt ab der nächsten Anfrage in diesem Projekt im Klartext.",
+      "savedProject_other": "{{count}} Spalten bleiben ab der nächsten Anfrage in diesem Projekt im Klartext.",
+      "notLoaded": "Latet wurde seit diesem Austausch neu gestartet, und die Einstellungen von {{project}} werden bei seiner nächsten Sitzung geladen: Vorerst kann die Auswahl nur in den globalen Regeln gespeichert werden.",
+      "held_one": "Eine Regel dieses Projekts hält {{columns}} maskiert, und sie hat Vorrang vor den globalen Regeln: Wählen Sie dafür Dieses Projekt.",
+      "held_other": "Regeln dieses Projekts halten {{columns}} maskiert, und sie haben Vorrang vor den globalen Regeln: Wählen Sie dafür Dieses Projekt.",
+      "resends": "Dieser Agent sendet mit jeder Anfrage die ganze Unterhaltung: Ab der nächsten Anfrage werden auch die Ausgaben, die schon darin stehen, mit diesen Spalten im Klartext gesendet."
+    },
+    "strict": {
+      "notice": "Diese Anfrage enthält strukturierte Werte. Der strikte Datenmodus unter Regeln maskiert jeden dieser Werte.",
+      "open": "Regeln öffnen"
+    },
+    "block": {
+      "number": "{{number}}",
+      "fromModel": "Vom Modell geschrieben",
+      "fromModelHelp": "Das Modell hat diesen Block in einer früheren Antwort geschrieben, daher hat es immer nur Ersatzwerte gesehen.",
+      "new": "Neu",
+      "newHelp": "Dieser Block wurde in dieser Sitzung zum ersten Mal gesendet",
+      "resent": "Erneut gesendet",
+      "resentHelp": "Bereits früher in dieser Sitzung gesendet: Der Agent sendet seinen Verlauf mit jeder Anfrage erneut",
+      "noValues": "Nichts maskiert",
+      "values_one": "{{count}} Wert maskiert",
+      "values_other": "{{count}} Werte maskiert"
+    },
+    "panes": {
+      "original": "Original, auf diesem Rechner",
+      "originalUnknown": "Das Original ist nicht verfügbar: Das Plugin für Claude Code hat diesen Block maskiert, bevor Latet ihn sah. Angezeigt wird nur, was gesendet wurde.",
+      "sent": "An das Modell gesendet",
+      "model": "Wie das Modell es schrieb",
+      "agent": "Wie Ihr Agent es erhielt",
+      "modelArgs": "Argumente, wie das Modell sie schrieb",
+      "agentArgs": "Argumente, wie Ihr Agent sie erhielt",
+      "wouldSend": "Wäre gesendet worden"
+    },
+    "values": {
+      "show_one": "Maskierten Wert anzeigen",
+      "show_other": "Die {{count}} maskierten Werte anzeigen",
+      "hide": "Maskierte Werte ausblenden",
+      "number": "#",
+      "type": "Typ",
+      "class": "Klasse",
+      "sent": "Gesendet als",
+      "module": "Gefunden von",
+      "rule": "Regel",
+      "entity": "Tresoreintrag",
+      "redacted": "(unumkehrbar geschwärzt)",
+      "gone": "(Original entfernt)"
+    },
+    "response": {
+      "title": "Antwort",
+      "text": "Antworttext",
+      "toolCall": "Tool-Aufruf",
+      "verifyNote": "Im Client-Modus setzt das Plugin für Claude Code die Werte auf Ihrem Rechner wieder ein. Hier rekonstruiert Latet sie aus dem Tresor, damit Sie vergleichen können.",
+      "notAligned": "Nicht jeder wieder eingesetzte Wert ließ sich seinem Ersatzwert zuordnen: Die Hervorhebungen in dem, was Ihr Agent erhalten hat, sind möglicherweise unvollständig.",
+      "empty": "Die Antwort enthielt weder Text noch Tool-Aufrufe.",
+      "noText": "Kein Text",
+      "noArgs": "Keine Argumente",
+      "blocked": "Nicht weitergeleitet: Latet hat die Anfrage blockiert, daher hat das Modell sie nie gesehen, und der Agent hat stattdessen einen Fehler erhalten.",
+      "none": "Für diesen Austausch wurde keine Antwort aufgezeichnet.",
+      "plugin": "Es wurde nichts gesendet: Das Plugin für Claude Code hat die Anfrage in Claude Code gestoppt."
+    },
+    "headers": {
+      "title": "Header",
+      "note": "Zugangsdaten werden nie aufgezeichnet: An Stelle ihrer Werte steht ihre Länge.",
+      "request": "Anfrage-Header",
+      "response": "Antwort-Header",
+      "none": "Keine aufgezeichnet."
+    },
+    "raw": {
+      "title": "Roh-JSON",
+      "label": "Angezeigtes JSON",
+      "payload": "Gesendete Nutzdaten",
+      "record": "Datensatz des Austauschs",
+      "copy": "JSON kopieren",
+      "payloadNote": "Die geprüften Textfelder genau so, wie sie gesendet wurden, an ihren JSON-Pfaden rekonstruiert. Andere Felder (Modellparameter, Tool-Schemas, Bilder) gehören nicht dazu: Die Bilder, wie sie gesendet wurden, werden bei der Anfrage angezeigt.",
+      "recordNote": "Alles, was das Dashboard für diesen Austausch erhalten hat, mit den aus dem Tresor rekonstruierten Originalen.",
+      "skipped_one": "{{count}} Feld konnte nicht zugeordnet werden und fehlt.",
+      "skipped_other": "{{count}} Felder konnten nicht zugeordnet werden und fehlen."
+    }
+  },
+  "pagination": {
+    "label": "Seiten",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "page": "Seite {{page}}"
+  },
+  "vault": {
+    "title": "Tresor",
+    "description": "Der Tresor ordnet jedem Ersatzwert den echten Wert zu, den er ersetzt hat, damit in Antworten die echten Werte wieder eingesetzt werden können. Er ist verschlüsselt und verlässt diesen Rechner nie.",
+    "search": {
+      "label": "Suche",
+      "placeholder": "Typ, Ersatzwert, Eintrags-ID oder echter Wert"
+    },
+    "filters": {
+      "type": "Typ",
+      "anyType": "Alle Typen",
+      "class": "Klasse",
+      "anyClass": "Alle Klassen"
+    },
+    "count_one": "{{count}} Wert",
+    "count_other": "{{count}} Werte",
+    "range": "{{from}}–{{to}} von {{total}}",
+    "columns": {
+      "type": "Typ",
+      "class": "Klasse",
+      "surrogate": "Ersatzwert",
+      "original": "Echter Wert",
+      "created": "Zuerst gesehen",
+      "sessions": "Sitzungen",
+      "actions": "Aktionen"
+    },
+    "reveal": {
+      "action": "Anzeigen",
+      "hide": "Ausblenden",
+      "hidden": "Verborgen",
+      "shown": "{{seconds}} Sekunden lang angezeigt, dann wieder verborgen."
+    },
+    "forget": {
+      "action": "Vergessen",
+      "title": "Diesen Wert vergessen?",
+      "body": "Latet entfernt diesen Wert vom Typ {{type}} aus dem Tresor:",
+      "consequence": "Er verschwindet aus dem gesamten Verlauf: Frühere Anfragen zeigen stattdessen den Ersatzwert, und in Antworten, die den Ersatzwert enthalten, wird der echte Wert nicht mehr wieder eingesetzt. Taucht der Wert erneut auf, wird er wieder maskiert, mit demselben Ersatzwert, außer dieser steht bereits in der Unterhaltung.",
+      "confirm": "Vergessen",
+      "done": "{{type}} vergessen."
+    },
+    "empty": {
+      "title": "Der Tresor ist leer",
+      "body": "Werte erscheinen hier, sobald Latet sie maskiert."
+    },
+    "emptyFiltered": {
+      "title": "Keine passenden Werte",
+      "body": "Versuchen Sie eine andere Suche, oder setzen Sie die Filter zurück."
+    }
+  },
+  "rules": {
+    "title": "Regeln",
+    "description": "Wonach Latet sucht und was es tut, wenn es etwas findet. Änderungen gelten sofort für neue Anfragen, ohne Neustart.",
+    "tabs": {
+      "label": "Bereiche der Regeln",
+      "protection": "Schutz",
+      "terms": "Begriffe",
+      "values": "Zugelassene Werte",
+      "reviewers": "Prüfer",
+      "advanced": "Erweitert",
+      "recognizers": "Erkenner",
+      "policies": "Richtlinien",
+      "countProject_one": "{{count}} eigene · {{all}} insgesamt",
+      "countProject_other": "{{count}} eigene · {{all}} insgesamt"
+    },
+    "search": "Regeln durchsuchen",
+    "searchNone": "Kein Bereich der Regeln passt zu dieser Suche.",
+    "remove": "{{value}} entfernen",
+    "unsaved": "Sie haben ungespeicherte Änderungen.",
+    "upToDate": "Keine Änderungen.",
+    "saved": "Regeln gespeichert (Version {{version}}).",
+    "savedVersion": "Gespeichert. Version {{version}} der Regeln gilt für neue Anfragen.",
+    "save": "Regeln speichern",
+    "saving": "Wird gespeichert…",
+    "discard": "Änderungen verwerfen",
+    "profile": {
+      "title": "Profil",
+      "description": "Wie viel Latet maskiert.",
+      "balanced": {
+        "label": "Ausgewogen",
+        "help": "Geheime Werte, Ihre eigenen Begriffe, personenbezogene Daten (E-Mail-Adressen, Telefonnummern, IBANs, codice fiscale, partita IVA, Kartennummern) und die Identität dieses Rechners. Der Standard für die Arbeit an Code."
+      },
+      "max": {
+        "label": "Maximal",
+        "help": "Alles aus Ausgewogen, dazu private IP-Adressen und der strikte Datenmodus: Jeder Wert der Tabellen und des JSON, die ein Tool ausgibt, wird maskiert. Bilder und PDFs werden nicht gesendet; ein Projekt kann Bilder mit maskiertem Text senden (images: mask). Ist die lokale Namenserkennung installiert, wird überall nach Namen gesucht: auch nach Namen aus einem Wort, nach Städten und in Tool-Ausgaben."
+      },
+      "secrets": {
+        "label": "Nur Geheimnisse",
+        "help": "Nur geheime Werte und Ihre eigenen Begriffe. Personenbezogene Daten und Identität gehen durch: weniger Fehlalarme."
+      }
+    },
+    "pii": {
+      "title": "Personenbezogene Daten",
+      "description": "Welche Arten personenbezogener Daten erkannt werden, und aus welchen Ländern Identifikationsnummern.",
+      "secretsOnly": "Das Profil Nur Geheimnisse erkennt keine personenbezogenen Daten.",
+      "useDefault": "Standard des Profils verwenden",
+      "useDefaultHelp": "Die allgemeinen Typen und die Identifikationsnummern der Länder oben. Schalten Sie dies aus, um Typ für Typ zu wählen.",
+      "types": {
+        "EMAIL": "E-Mail-Adressen",
+        "PHONE": "Telefonnummern",
+        "IBAN": "Bankkonten (IBAN)",
+        "CREDIT_CARD": "Nummern von Zahlungskarten",
+        "IT_FISCAL_CODE": "Codice fiscale",
+        "IT_VAT_CODE": "Partita IVA, auch ohne das Präfix IT",
+        "IP_ADDRESS": "IP-Adressen",
+        "CRYPTO_WALLET": "Krypto-Wallet-Adressen (Bitcoin)",
+        "VAT_NUMBER": "Umsatzsteuer-Identifikationsnummern, mit ihrem Länderpräfix",
+        "ES_DNI": "DNI (Personalausweisnummer)",
+        "ES_NIE": "NIE (Identifikationsnummer für Ausländer)",
+        "FR_NIR": "Sozialversicherungsnummer (NIR)",
+        "DE_TAX_ID": "Steuer-Identifikationsnummer (Steuer-IdNr)",
+        "NL_BSN": "Bürgerservicenummer (BSN)",
+        "BE_NATIONAL_NUMBER": "Nationalregisternummer",
+        "PT_NIF": "Steuernummer (NIF)",
+        "PL_PESEL": "PESEL",
+        "CH_AHV": "AHV-Nummer (Sozialversicherungsnummer)",
+        "SE_PERSONNUMMER": "Personnummer",
+        "FI_HETU": "Personenkennung (henkilötunnus)",
+        "GB_NINO": "National Insurance Number",
+        "US_SSN": "Social Security Number",
+        "US_ITIN": "Individual Taxpayer Identification Number",
+        "CA_SIN": "Social Insurance Number",
+        "LV_PERSONAL_CODE": "Personenkennung (personas kods)"
+      },
+      "countries": "Länder",
+      "countriesHelp": "Nationale Identifikations- und Steuernummern dieser Länder werden erkannt. Umsatzsteuer-Identifikationsnummern werden für jedes europäische Land erkannt, unabhängig von Ihrer Auswahl hier.",
+      "countriesMax": "Das Profil Maximal erkennt die Identifikations- und Steuernummern aller aufgeführten Länder.",
+      "general": "Allgemein"
+    },
+    "phones": {
+      "title": "Telefonregionen",
+      "description": "Nummern ohne internationale Vorwahl werden als Nummern dieser Regionen gelesen (Codes aus zwei Buchstaben).",
+      "placeholder": "Regionscode, etwa IT",
+      "add": "Region hinzufügen",
+      "invalid": "Verwenden Sie einen Regionscode aus zwei Buchstaben, etwa IT oder US.",
+      "empty": "Keine Regionen: Nur Nummern mit internationaler Vorwahl werden erkannt."
+    },
+    "privateIps": {
+      "title": "Private IP-Adressen",
+      "description": "Adressen wie 10.0.0.12 oder 192.168.1.20 sagen wenig über Sie aus, daher maskiert sie standardmäßig nur das Profil Maximal.",
+      "default": "Standard des Profils",
+      "mask": "Maskieren",
+      "keep": "Nicht maskieren"
+    },
+    "terms": {
+      "title": "Eigene Begriffe",
+      "description": "Wörter, die Latet immer maskieren soll: Kundennamen, Codenamen von Projekten, interne Domains. Der Typ kennzeichnet sie im Dashboard und in Richtlinien.",
+      "value": "Begriff",
+      "type": "Typ",
+      "caseSensitive": "Groß-/Kleinschreibung",
+      "wholeWord": "Ganzes Wort",
+      "caseSensitiveFor": "Groß-/Kleinschreibung beachten für {{value}}",
+      "wholeWordFor": "Nur ganzes Wort für {{value}}",
+      "actions": "Aktionen",
+      "newValue": "Neuer Begriff",
+      "placeholder": "Etwa Project Aurora",
+      "add": "Begriff hinzufügen",
+      "empty": "Keine eigenen Begriffe.",
+      "noLetterOrDigit": "Ein Begriff braucht einen Buchstaben oder eine Ziffer: Der Ersatzwert behält die Sonderzeichen des Originals bei, daher lassen sich reine Sonderzeichen wie `--` oder `###` nicht maskieren.",
+      "tooLong": "Ein Begriff hat höchstens {{max}} Zeichen: Ein längerer lässt sich nicht als Begriff maskieren.",
+      "taken": "Dieser Begriff steht mit diesem Typ schon in der Liste.",
+      "deleteConfirm_one": "Der ausgewählte Begriff wird sofort aus diesen Regeln entfernt.",
+      "deleteConfirm_other": "Die {{count}} ausgewählten Begriffe werden sofort aus diesen Regeln entfernt."
+    },
+    "allow": {
+      "title": "Zulassungsliste",
+      "description": "Werte, die nicht sensibel sind und unverändert gesendet werden sollen, etwa ein öffentlicher Testschlüssel oder ein gemeinsames Demo-Konto.",
+      "valuePlaceholder": "Exakter Wert",
+      "patternPlaceholder": "Regulärer Ausdruck",
+      "noValues": "Keine Werte.",
+      "invalidPattern": "Kein gültiger regulärer Ausdruck: {{message}}",
+      "re2": "Latet verwendet RE2: Lookarounds und Rückverweise werden nicht unterstützt.",
+      "patternsHelp": "Reguläre Ausdrücke in RE2, abgeglichen mit dem ganzen Wert.",
+      "valuesHelp": "Exakte Werte, in beliebiger Groß-/Kleinschreibung.",
+      "column": "Wert oder Muster",
+      "kind": "Art",
+      "kindValue": "Wert",
+      "kindPattern": "Muster",
+      "add": "Wert oder Muster hinzufügen",
+      "new": "Neuer Wert oder neues Muster",
+      "taken": "Dieser Eintrag steht schon in der Liste.",
+      "deleteConfirm_one": "Die ausgewählte Zeile wird sofort aus diesen Regeln entfernt: Was sie durchließ, wird wieder maskiert.",
+      "deleteConfirm_other": "Die {{count}} ausgewählten Zeilen werden sofort aus diesen Regeln entfernt: Was sie durchließen, wird wieder maskiert.",
+      "try": {
+        "label": "An einem Wert ausprobieren",
+        "placeholder": "Ein Wert, wie er in einem Text steht",
+        "matches": "Das Muster passt auf den ganzen Wert: Er wird unverändert gesendet.",
+        "noMatch": "Das Muster passt nicht auf den ganzen Wert: Dieses Muster lässt ihn nicht durch.",
+        "cannot": "Dieses Muster lässt sich hier nicht ausprobieren: Es nutzt eine Form, die nur Latet liest. Latet wendet es so an, wie es geschrieben ist."
+      }
+    },
+    "policies": {
+      "title": "Richtlinien nach Typ",
+      "description": "Was passiert, wenn ein Typ gefunden wird. Nicht aufgeführte Typen werden maskiert.",
+      "for": "Richtlinie für {{type}}",
+      "type": "Typ",
+      "add": "Richtlinie hinzufügen",
+      "empty": "Keine Richtlinien: Jeder Typ wird maskiert.",
+      "mask": "Maskieren",
+      "redact": "Schwärzen",
+      "allow": "Zulassen",
+      "help": {
+        "mask": "Einen Ersatzwert senden und das Original in der Antwort wieder einsetzen.",
+        "redact": "Einen festen Platzhalter senden. Der Wert wird nie wieder eingesetzt.",
+        "allow": "Den Wert unverändert senden. Er erscheint trotzdem im Dashboard."
+      },
+      "new": "Neue Richtlinie",
+      "action": "Aktion",
+      "choose": "Typ wählen",
+      "deleteConfirm_one": "Die ausgewählte Richtlinie wird sofort aus diesen Regeln entfernt: Ihr Typ wird maskiert, wie jeder Typ ohne Richtlinie.",
+      "deleteConfirm_other": "Die {{count}} ausgewählten Richtlinien werden sofort aus diesen Regeln entfernt: Ihre Typen werden maskiert, wie jeder Typ ohne Richtlinie.",
+      "inForce": "Hier in Kraft",
+      "notApplied": "hier nicht angewendet",
+      "other": "Ein anderer Typ…",
+      "typeOther": "Name des Typs",
+      "typeOtherHelp": "Ein Typ, den Latet findet und das Menü nicht aufführt, etwa der Typ eines Geheimnisses aus einem Austausch.",
+      "taken": "Für diesen Typ gibt es schon eine Richtlinie."
+    },
+    "identity": {
+      "title": "Identität",
+      "description": "Ihr Benutzername in Dateipfaden, der Hostname sowie Ihr Name und Ihre E-Mail-Adresse in Git.",
+      "toggle": "Identität dieses Rechners maskieren",
+      "toggleServer": "Ihre Identität maskieren",
+      "toggleHelp": "Empfohlen: Pfade und Commit-Logs verraten, wer und wo Sie sind.",
+      "secretsOnly": "Das Profil Nur Geheimnisse maskiert die Identität nicht.",
+      "sandbox": "Die Sandbox des Tutorials hat keine Identität: Ihre ist nicht darin, daher gibt es hier nichts zu maskieren.",
+      "usernames": "Benutzernamen",
+      "hostname": "Hostname",
+      "hostnames": "Hostnamen",
+      "fullName": "Vollständiger Name",
+      "emails": "E-Mail-Adressen",
+      "detected": "Auf diesem Rechner aus dem System und Ihrer Git-Konfiguration erkannt.",
+      "detectedServer": "Jeder Ihrer Rechner sendet sie, wenn er sich mit dem Server verbindet: seine Benutzernamen und seinen Hostnamen sowie Ihren Namen und Ihre E-Mail-Adresse in Git."
+    },
+    "history": {
+      "title": "Verlauf",
+      "description": "Was das Dashboard von jedem Austausch aufbewahrt. Gespeichert wird nur maskierter Text, verschlüsselt; die Originale werden im Tresor nachgeschlagen, wenn Sie eine Anfrage öffnen.",
+      "keep": "Aufbewahren",
+      "full": "Alles",
+      "fullHelp": "Textblöcke, Antworten und Zeiten, damit Sie genau sehen, was gesendet wurde.",
+      "metadata": "Nur Metadaten",
+      "metadataHelp": "Anzahlen, Zeiten und Markierungen. Kein Text wird aufbewahrt.",
+      "off": "Nichts",
+      "offHelp": "Austausche werden nicht aufgezeichnet, und die Seite Live bleibt leer.",
+      "retention": "Aufbewahren für",
+      "days_one": "Tag",
+      "days_other": "Tage",
+      "retentionHelp": "Von 1 bis 365 Tagen. Ältere Austausche werden gelöscht.",
+      "clearHelp": "Jetzt alle aufgezeichneten Austausche löschen. Der Tresor bleibt erhalten."
+    },
+    "invalid": "Diese Regeln können nicht gespeichert werden:",
+    "ocr": {
+      "noRuntime": "Der Text in Bildern wird nicht gelesen: Diese Latet-Installation enthält das Extra ocr nicht, das ihn liest. Dieser Befehl installiert die neueste Version samt Extra:",
+      "noRuntimeNext": "Führen Sie dann latet ocr install aus.",
+      "noModel": "Der Text in Bildern wird noch nicht gelesen: Laden Sie die Modelle für die Texterkennung herunter (etwa 31 MB, einmalig).",
+      "toggle": "Text in Bildern lesen",
+      "on": "Screenshots werden auf diesem Rechner gelesen, und was Ihre Regeln maskieren, wird mit seinem Ersatzwert überdeckt.",
+      "off": "Bilder werden unverändert gesendet, und das Dashboard markiert sie."
+    },
+    "ner": {
+      "title": "Lokale Namenserkennung",
+      "description": "Ein Sprachmodell, das auf diesem Rechner läuft, findet Personennamen und Anschriften, was kein Muster kann.",
+      "toggle": "Namen und Anschriften mit dem lokalen Modell erkennen",
+      "toggleHelp": "Wird verwendet, sobald es installiert ist. Dafür verlässt nichts Ihren Rechner.",
+      "off": "Aus: Es wird nicht nach Namen und Anschriften gesucht.",
+      "secretsOnly": "Das Profil Nur Geheimnisse sucht nicht nach Namen.",
+      "noRuntime": "Noch nicht installiert: Diese Latet-Installation enthält das Extra nicht, das das Modell ausführt. Dieser Befehl installiert die neueste Version samt Extra:",
+      "noRuntimeNext": "Kommen Sie dann hierher zurück: Der nächste Schritt lädt das Modell herunter.",
+      "noModel": "Das Modell ist noch nicht heruntergeladen. Führen Sie dies einmal aus: Es lädt etwa 1,6 GB herunter und funktioniert danach offline.",
+      "active": "Eingeschaltet.",
+      "balanced": "Ausgewogen: vollständige Namen und Anschriften in Ihren Prompts.",
+      "max": "Maximal: überall, auch Namen aus einem Wort, Städte und Tool-Ausgaben.",
+      "onSave": "Speichern Sie die Regeln, um die Änderung anzuwenden.",
+      "inactive": "Installiert, aber nicht in Gebrauch. `latet doctor` sagt, warum."
+    },
+    "review": {
+      "title": "Prüfungen im Auto-Modus von Claude Code",
+      "description": "Im Auto-Modus fragt Claude Code ein Prüfmodell, ob jede Aktion sicher ist. Es sendet dem Prüfer Ihren Benutzernamen im Betriebssystem und die Pfade Ihres Home- und Arbeitsverzeichnisses, dazu jeden Hostnamen oder Git-Autor in Ihrer CLAUDE.md oder in der Aktion. Kein Plugin kann diese maskieren.",
+      "block": "Alle auf diesem Rechner behalten (Standard)",
+      "blockHelp": "Latet stoppt diese Prüfungen, damit die Angaben lokal bleiben. Der Auto-Modus kann diese Aktionen dann nicht genehmigen: Claude Code lehnt sie ab, als wäre sein Prüfer nicht verfügbar, und fragt Sie nicht.",
+      "allow": "Alle zum Prüfer durchlassen",
+      "allowHelp": "Ihr Benutzername, Benutzerordner, Hostname und Git-Autor dürfen den Prüfer erreichen, und nur den Prüfer, damit der Auto-Modus weiter funktioniert.",
+      "choose": "Für jede Angabe wählen",
+      "chooseHelp": "Eine Prüfung mit einer Angabe, die Sie blockieren, wird gestoppt, und der Auto-Modus lehnt diese Aktion ab.",
+      "details": {
+        "user_name": "Benutzername",
+        "user_nameHelp": "Ihr Benutzername im Betriebssystem, den der Prüfer als seine User identity erhält.",
+        "paths": "Benutzerordner in Pfaden",
+        "pathsHelp": "Der Name Ihres Benutzerordners in den Pfaden Ihres Home- und Arbeitsverzeichnisses.",
+        "host_name": "Hostname",
+        "host_nameHelp": "Der Name dieses Rechners, wenn Ihre CLAUDE.md oder die Aktion ihn enthält.",
+        "git_author": "Git-Autor",
+        "git_authorHelp": "Ihr Name und Ihre E-Mail-Adresse wie in Ihrem Git-Autor, wenn Ihre CLAUDE.md oder die Aktion sie enthält."
+      },
+      "choice": {
+        "block": "Blockieren",
+        "allow": "Zulassen",
+        "surrogate": "Ersatzname"
+      },
+      "surrogate": "Claude Code erhält den Ersatzwert Ihres Benutzernamens in USERNAME und USER, damit der Prüfer denselben Ersatznamen sieht wie das Modell. Skripte, die %USERNAME% oder $USER lesen, sehen ihn ebenfalls. Führen Sie nach dem Speichern aus:",
+      "surrogateNext": "Starten Sie dann Claude Code neu. Ihr Benutzerordner in Pfaden behält seinen echten Namen: Er folgt der Auswahl oben.",
+      "never": "Geheime Werte und personenbezogene Daten in einer Prüfung werden nie durchgelassen, egal was Sie wählen."
+    },
+    "recognizers": {
+      "title": "Eigene Erkenner",
+      "description": "Ihre eigenen Formate, etwa Ausweisnummern oder Vertragscodes: ein Muster, Prüfziffern und Schlüsselwörter. Schreiben Sie die Beispiele von Hand: Fügen Sie nie echte Werte ein.",
+      "empty": "Noch keine Erkenner.",
+      "add": "Erkenner hinzufügen",
+      "docs": "So schreiben Sie einen",
+      "name": "Name",
+      "noName": "(ohne Namen)",
+      "nameHelp": "Kleinbuchstaben, Ziffern und Bindestriche.",
+      "type": "Typ",
+      "typeHelp": "Wird für seine Werte angezeigt; wenn leer, der Name in Großbuchstaben.",
+      "stateTitle": "Status",
+      "state": {
+        "active": "Aktiv",
+        "off": "Aus",
+        "error": "Fehler: ausgeschaltet",
+        "failing": "Beispiele schlagen fehl",
+        "unsaved": "Noch nicht gespeichert"
+      },
+      "enabled": "Ein",
+      "handEdited": "Enthält Schlüssel, die dieses Formular nicht anzeigen kann: Ändern Sie ihn in config.yaml.",
+      "pattern": "Muster",
+      "patternHelp": "RE2-Syntax. Eine Gruppe namens value, (?P<value>…), wählt den Teil aus, der maskiert wird.",
+      "checksum": "Prüfziffern",
+      "checksumNone": "Keine",
+      "checksumWeighted": "Gewichtete Summe…",
+      "weights": "Gewichte",
+      "weightsHelp": "Eines pro Ziffer, von links wiederholt, etwa 9, 8, 7, 6, 5, 4, 3, 2, -1.",
+      "modulus": "Modulus",
+      "remainder": "Rest",
+      "keywords": "Schlüsselwörter",
+      "keywordsHelp": "Mindestens eines muss in der Nähe des Werts stehen: in seiner Zeile, einige Zeichen davor oder in seiner Spaltenüberschrift. Lassen Sie das Feld leer, wenn das Muster genügt.",
+      "keywordPlaceholder": "Ein Wort, etwa badge",
+      "addKeyword": "Hinzufügen",
+      "noKeywords": "Keine.",
+      "match": "Gefunden in",
+      "matchHelp": "Erfundene Texte, in denen er einen Wert finden muss.",
+      "noMatch": "Unberührt in",
+      "noMatchHelp": "Erfundene Texte, die er nicht anrühren darf.",
+      "examplePlaceholder": "Ein erfundenes Beispiel",
+      "addExample": "Hinzufügen",
+      "noExamples": "Noch keine.",
+      "secret": "Als geheimen Wert behandeln",
+      "secretHelp": "Wie ein Passwort: Eine Anfrage, die einen solchen Wert im Klartext enthält, wird gestoppt, auch in Claude Code.",
+      "policy": "Was mit seinen Werten passiert",
+      "policyDefault": "Maskieren",
+      "policyRedact": "Schwärzen",
+      "policyAllow": "Zulassen",
+      "advanced": "Weitere Optionen",
+      "acronyms": "Schlüsselwörter in genau dieser Schreibweise",
+      "acronymsHelp": "Für kurze Wörter, die in anderer Schreibweise häufig sind, etwa SIN.",
+      "acronymPlaceholder": "Ein Wort, etwa EID",
+      "window": "Zeichen davor",
+      "windowHelp": "Wie weit vor dem Wert ein Schlüsselwort stehen darf.",
+      "keep": "Beibehaltene Zeichen",
+      "keepHelp": "Der Ersatzwert behält so viele führende Zeichen, etwa ein Präfix.",
+      "minLength": "Kürzester Wert",
+      "header": "Schlüsselwörter auch in Spaltenüberschriften von Tabellen suchen",
+      "ruleLabel": "Eigener Erkenner {{name}}",
+      "problems": {
+        "name": "Der Name besteht aus Kleinbuchstaben, Ziffern und Bindestrichen, etwa employee-id.",
+        "nameTaken": "Ein anderer Erkenner hat diesen Namen.",
+        "type": "Der Typ besteht aus Großbuchstaben, Ziffern und Unterstrichen, etwa EMPLOYEE_ID.",
+        "pattern": "Ein Muster ist erforderlich (bis zu 2000 Zeichen).",
+        "weights": "Gewichte sind ganze Zahlen, durch Kommas getrennt.",
+        "modulus": "Der Modulus ist eine ganze Zahl ab 2.",
+        "window": "Zeichen davor: eine ganze Zahl von 1 bis 500.",
+        "keep": "Beibehaltene Zeichen: eine ganze Zahl von 0 bis 32.",
+        "minLength": "Kürzester Wert: eine ganze Zahl ab 1."
+      },
+      "try": {
+        "title": "Ausprobieren",
+        "help": "Fügen Sie einen Text ein oder tippen Sie ihn, um zu sehen, was dieser Entwurf finden würde. Nichts, was Sie hier eingeben, wird aufbewahrt oder an ein Modell gesendet.",
+        "placeholder": "Ein Text mit einem Wert darin…",
+        "button": "Testen",
+        "trying": "Wird getestet…",
+        "none": "Nichts gefunden",
+        "shouldMatch": "sollte einen Wert finden",
+        "shouldNot": "sollte nichts finden",
+        "found": "gefunden: {{values}}",
+        "stdlib_one": "{{count}} Treffer in gewöhnlichem Code (einer Stichprobe der Python-Standardbibliothek).",
+        "stdlib_other": "{{count}} Treffer in gewöhnlichem Code (einer Stichprobe der Python-Standardbibliothek); mehr als 50 schalten ihn aus."
+      },
+      "descriptionLabel": "Beschreibung",
+      "draft": {
+        "title": "Entwurf aus einer Beschreibung",
+        "help": "Das Modell des lokalen Prüfers schreibt aus Ihren Worten einen Erkenner. Er wird nur hinzugefügt, wenn seine Beispiele bestehen; prüfen Sie ihn, und speichern Sie dann.",
+        "placeholder": "Ausweisnummern: BD, ein Bindestrich und sechs Ziffern",
+        "run": "Entwerfen",
+        "running": "Wird entworfen…",
+        "added": "Entwurf im Bereich bereit: Prüfen Sie ihn, und speichern Sie dann.",
+        "failed": "Der Entwurf hat nicht bestanden: {{errors}}",
+        "off": "Schalten Sie den lokalen Prüfer ein, um Erkenner aus einer Beschreibung zu entwerfen."
+      },
+      "finds": "Was er findet",
+      "class": "Klasse",
+      "classSecret": "Geheimer Wert",
+      "classCustom": "Eigener",
+      "new": "Neuer Erkenner",
+      "turnOn": "Einschalten",
+      "turnOff": "Ausschalten",
+      "loaded": "Beim letzten Laden:",
+      "deleteConfirm_one": "Der ausgewählte Erkenner wird sofort aus diesen Regeln entfernt.",
+      "deleteConfirm_other": "Die {{count}} ausgewählten Erkenner werden sofort aus diesen Regeln entfernt.",
+      "turnOnConfirm_one": "Der ausgewählte Erkenner wird sofort eingeschaltet.",
+      "turnOnConfirm_other": "Die {{count}} ausgewählten Erkenner werden sofort eingeschaltet.",
+      "turnOffConfirm_one": "Der ausgewählte Erkenner wird sofort ausgeschaltet: Was er findet, maskiert er nicht mehr.",
+      "turnOffConfirm_other": "Die {{count}} ausgewählten Erkenner werden sofort ausgeschaltet: Was sie finden, maskieren sie nicht mehr.",
+      "handEditedRepo": "Enthält Schlüssel, die dieses Formular nicht anzeigen kann: Ändern Sie ihn in der latet.yaml des Projekts."
+    },
+    "table": {
+      "search": "In dieser Liste suchen",
+      "any": "Alle",
+      "count": "{{count}} insgesamt",
+      "matched": "{{matched}} von {{count}}",
+      "noMatch": "Keine Zeile passt zur Suche und zu den Filtern.",
+      "selectPage": "Alle Zeilen dieser Seite auswählen",
+      "select": "{{row}} auswählen",
+      "selected_one": "{{count}} ausgewählt",
+      "selected_other": "{{count}} ausgewählt",
+      "actions": "Aktionen für die ausgewählten Zeilen",
+      "clear": "Auswahl aufheben",
+      "delete": "Löschen",
+      "copy": "In ein Projekt kopieren…",
+      "changed": "Eine der ausgewählten Zeilen hat sich inzwischen geändert, in einem anderen Tab oder durch eine seither angewendete Änderung, daher wurde nichts getan. Die Tabelle zeigt sie so, wie sie jetzt sind.",
+      "addFor": "Für {{project}} hinzufügen",
+      "repoRows_one": "Eine davon steht in der latet.yaml des Projekts: Die Datei wird neu geschrieben, für alle, die das Repository lesen.",
+      "repoRows_other": "{{count}} davon stehen in der latet.yaml des Projekts: Die Datei wird neu geschrieben, für alle, die das Repository lesen."
+    },
+    "panel": {
+      "close": "Schließen",
+      "save": "Speichern",
+      "saving": "Wird gespeichert…",
+      "discardTitle": "Änderungen verwerfen?",
+      "discardBody": "Was Sie in diesem Bereich geändert haben, ist nicht gespeichert: Es geht verloren, wenn Sie ihn schließen.",
+      "discard": "Änderungen verwerfen",
+      "keepEditing": "Weiter bearbeiten",
+      "changed": "Diese Zeile hat sich inzwischen geändert, in einem anderen Tab oder durch eine seither angewendete Änderung, daher wurde Ihre Änderung nicht gespeichert. Sie sehen sie jetzt so, wie sie ist: Nehmen Sie Ihre Änderung erneut vor, wenn Sie sie noch brauchen.",
+      "gone": "Diese Zeile wurde inzwischen entfernt, in einem anderen Tab oder durch eine seither angewendete Änderung. Was Sie eingegeben haben, ist noch da: Speichern fügt sie wieder hinzu.",
+      "global": "Diese Regel steht in Ihren globalen Regeln: Sie wird dort geändert und gilt in jedem Projekt.",
+      "openGlobal": "In den globalen Regeln öffnen →",
+      "repoFile": "Diese Zeile steht in der latet.yaml des Projekts: Jeder, der das Repository liest, liest sie.",
+      "taken": "Inzwischen wurde eine Zeile mit diesem Namen oder Wert hinzugefügt, in einem anderen Tab oder durch eine seither angewendete Änderung, daher wurde diese nicht gespeichert. Was Sie eingegeben haben, ist noch da: Ändern Sie es, oder schließen Sie den Bereich."
+    },
+    "copy": {
+      "title": "In ein Projekt kopieren",
+      "help_one": "Die ausgewählte Zeile wird Ihren eigenen Einstellungen für das gewählte Projekt hinzugefügt. Enthalten diese sie schon, bleibt sie, wie sie ist.",
+      "help_other": "Die {{count}} ausgewählten Zeilen werden Ihren eigenen Einstellungen für das gewählte Projekt hinzugefügt. Was diese schon enthalten, bleibt, wie es ist.",
+      "project": "Projekt",
+      "confirm": "Kopieren",
+      "done_one": "{{count}} Zeile zu Ihren Einstellungen für {{project}} hinzugefügt.",
+      "done_other": "{{count}} Zeilen zu Ihren Einstellungen für {{project}} hinzugefügt.",
+      "nothing": "Ihre Einstellungen für {{project}} enthalten sie schon: Es wurde nichts hinzugefügt.",
+      "none": "Noch kein Projekt: Ein Projekt erscheint hier, sobald ein Agent in seinem Ordner arbeitet."
+    },
+    "lost": "Ihre nicht gespeicherten Änderungen in {{tabs}} wurden verworfen, weil sich diese Einstellungen inzwischen geändert haben, in einem anderen Tab oder durch eine seither angewendete Änderung. Der Tab zeigt sie so, wie sie jetzt sind.",
+    "from": {
+      "title": "Herkunft",
+      "global": "global",
+      "personal": "Ihre, für {{project}}",
+      "repo": "latet.yaml"
+    },
+    "saveTo": {
+      "title": "Speichern in",
+      "personal": "Ihre Einstellungen für {{project}}",
+      "repo": "latet.yaml, über das Repository geteilt",
+      "repoHelp": "Jeder, der das Repository liest, liest diese Datei und was diese Zeile enthält.",
+      "created": "Das Projekt hat noch keine latet.yaml: Beim Speichern wird sie im Ordner des Projekts angelegt.",
+      "rewritten": "Die Datei wird ganz neu geschrieben: Kommentare nach ihren ersten Zeilen bleiben nicht erhalten."
+    },
+    "searchFound": "Zeilen gefunden in {{tabs}}.",
+    "export": {
+      "button": "Exportieren",
+      "title": "Speichert die Zeilen, die die Tabelle zeigt, mit den aktiven Filtern in eine Datei.",
+      "saved": "Gespeichert als {{name}}.",
+      "valuesInClear": "Gespeichert als {{name}}. Die Werte, die nie maskiert werden, stehen darin im Klartext: Senden Sie die Datei so, wie Sie diese Werte senden würden."
+    },
+    "import": {
+      "button": "Importieren",
+      "title": "Fügt dieser Liste die Zeilen einer Datei hinzu, nachdem gezeigt wurde, was sich ändern würde. Keine Ihrer Zeilen wird ersetzt.",
+      "line": "Zeile {{line}}: {{reason}}",
+      "reason": {
+        "empty": "sie hat keinen Wert.",
+        "yesNo": "case_sensitive und whole_word nehmen true oder false.",
+        "noLetterOrDigit": "ein Begriff braucht einen Buchstaben oder eine Ziffer.",
+        "tooLong": "sie ist länger, als ein Begriff sein kann.",
+        "quote": "ein Anführungszeichen wird geöffnet und nie geschlossen.",
+        "kind": "die Art ist value oder pattern.",
+        "pattern": "sie ist kein Muster, das RE2 liest.",
+        "type": "der Typ ist keiner (Großbuchstaben, Ziffern und Unterstriche): Ein Komma ohne Anführungszeichen hat den Wert vielleicht geteilt; setzen Sie einen Wert mit Komma in doppelte Anführungszeichen.",
+        "columns": "sie hat mehr als vier Felder: Ein Komma ohne Anführungszeichen hat den Wert vielleicht geteilt; setzen Sie einen Wert mit Komma in doppelte Anführungszeichen."
+      },
+      "otherLists": "{{name}} enthält außer Erkennern weitere Listen ({{lists}}), die diese Tabelle nicht importiert: Importieren Sie die ganze Datei mit Regeln importieren oben in Regeln oder mit Einstellungen importieren in der Übersicht eines Projekts."
+    },
+    "leave": {
+      "title": "Ohne Speichern verlassen?",
+      "body": "Was Sie auf dieser Seite geändert haben, ist nicht gespeichert: Es geht verloren, wenn Sie sie verlassen.",
+      "confirm": "Seite verlassen",
+      "stay": "Auf der Seite bleiben"
+    }
+  },
+  "playground": {
+    "title": "Testbereich",
+    "description": "Fügen Sie einen Text ein, und sehen Sie, wie die aktuellen Regeln ihn maskieren würden.",
+    "nothingStored": "Nichts, was Sie hier einfügen, wird gespeichert oder an ein Modell gesendet: Es wird im Arbeitsspeicher mit einem Wegwerf-Tresor maskiert und dann verworfen.",
+    "kind": "Art des Texts",
+    "profile": "Profil",
+    "profileYours": "Ihre Regeln",
+    "profileHelp": "Probieren Sie den Text so aus, wie ein anderes Profil ihn maskieren würde: Ihre Regeln bleiben unverändert.",
+    "kindHelps": {
+      "user_text": "Wie ein Prompt von Ihnen: Das Namensmodell liest ihn, und in Fließtext werden Ziffernfolgen eher als Telefonnummern erkannt.",
+      "attachment": "Wie eine Datei oder ein Text, der einem Prompt angehängt ist: Das Namensmodell liest ihn, eher als Daten denn als Fließtext.",
+      "tool_result": "Wie die Ausgabe eines Tools (ein Befehl, eine Abfrage, eine gelesene Datei): Der strikte Datenmodus maskiert, wenn er aktiv ist, jeden Wert ihrer Tabellen und JSON, der Dump-Schutz gilt, und das Namensmodell liest sie nur mit dem Profil Maximal.",
+      "system": "Wie die Anweisungen des Agenten (sein Systemprompt, Ihre CLAUDE.md): Das Namensmodell liest sie nur mit dem Profil Maximal."
+    },
+    "input": "Zu maskierender Text",
+    "placeholder": "Fügen Sie einen Prompt, ein Log oder eine Konfigurationsdatei ein…",
+    "example": "Beispiel verwenden",
+    "clear": "Leeren",
+    "mask": "Text maskieren",
+    "masking": "Wird maskiert…",
+    "result": "Ergebnis",
+    "found_one": "{{count}} Wert würde maskiert.",
+    "found_other": "{{count}} Werte würden maskiert.",
+    "nothingFound": "Nichts würde maskiert.",
+    "stale": "Text geändert: Text maskieren zeigt das Ergebnis.",
+    "original": "Ihr Text",
+    "masked": "Was gesendet würde",
+    "empty": {
+      "title": "Noch nichts anzuzeigen",
+      "body": "Geben Sie oben etwas ein, oder fügen Sie etwas ein, und wählen Sie dann Text maskieren (oder Strg+Enter)."
+    }
+  },
+  "integrations": {
+    "title": "Geschützte Agenten",
+    "description": "Ob Latet die Agenten auf diesem Rechner schützt: seine Prüfungen, jeder Agent, ob seine Anfragen über Latet laufen und wohin sie gehen.",
+    "recheck": "Erneut prüfen",
+    "fixWith": "Zum Beheben führen Sie aus:",
+    "status": {
+      "ok": "OK",
+      "warn": "Warnung",
+      "fail": "Fehlgeschlagen"
+    },
+    "checks": {
+      "title": "Prüfungen",
+      "allGood": "Alle Prüfungen bestanden.",
+      "problems_one": "{{count}} Prüfung braucht Aufmerksamkeit.",
+      "problems_other": "{{count}} Prüfungen brauchen Aufmerksamkeit.",
+      "empty": "Der Daemon hat keine Prüfungen gemeldet."
+    },
+    "agents": {
+      "title": "Agenten",
+      "agent": "Agent",
+      "installed": "Installiert",
+      "version": "Version",
+      "status": "Über Latet",
+      "statusHelp": "Über Latet: Ja heißt, die Anfragen des Agenten laufen über Latet und gehen maskiert hinaus; Teilweise heißt, nur ein Teil der Einstellungen von Latet ist vorhanden, sodass manche Anfragen ungeschützt an den Anbieter gehen können; Nein heißt, das tun sie alle. Bei Teilweise und Nein nennen die Hinweise des Agenten den Befehl, der das richtet; Nicht installiert heißt, der Agent ist nicht auf diesem Rechner. Mit latet gemini heißt, seine Anfragen laufen über Latet, wenn er mit diesem Befehl gestartet wird, dem einzigen Weg, auf dem Gemini CLI die Adresse von Latet übernimmt.",
+      "notes": "Hinweise",
+      "applied": "Ja",
+      "partial": "Teilweise",
+      "wrapper": "Mit latet gemini",
+      "notApplied": "Nein",
+      "notInstalled": "Nicht installiert",
+      "fix": "Um ihn über Latet zu leiten, führen Sie aus:",
+      "empty": "Auf diesem Rechner wurden keine Agenten gefunden.",
+      "route": "Ziel",
+      "routeProblem": "Latet kann ihm nicht vorgeschaltet werden:"
+    },
+    "server": "Ihre Agenten laufen auf Ihren eigenen Rechnern, nicht auf diesem Server. Auf jedem davon prüft dieser Befehl, wie seine Agenten den Server erreichen:",
+    "cli": {
+      "title": "Im Terminal",
+      "body": "Dieselben Prüfungen, ausführlicher, und der Befehl, der Ihre Agenten dauerhaft über Latet leitet:"
+    },
+    "destinations": {
+      "title": "Wohin Anfragen gehen",
+      "help": "Die Endpunkte Ihres Unternehmens, die Agenten über Latet erreichen: Latet fügt sie hinzu, wenn es die Einstellungen eines Agenten liest, und Sie sehen jeden davon hier.",
+      "name": "Name",
+      "address": "Adresse",
+      "from": "Quelle",
+      "lastUsed": "Zuletzt verwendet",
+      "use": "Verwendung",
+      "never": "Nie",
+      "inUse": "Von Claude Code oder Codex verwendet",
+      "unused": "Weder von Claude Code noch von Codex verwendet",
+      "fromYou": "Von Ihnen",
+      "shared": "Für alle festgelegt",
+      "remove": "Entfernen",
+      "removing": "Wird entfernt…",
+      "removed": "Ziel {{name}} entfernt.",
+      "empty": "Keine Unternehmens-Endpunkte: Ihre Agenten senden an die Anbieter, die Latet kennt (Anthropic, OpenAI, OpenRouter, Bedrock, Vertex)."
+    }
+  },
+  "stats": {
+    "title": "Statistik",
+    "description": "Wie viel Verkehr über Latet lief, was es maskiert hat und wie viel Zeit es gekostet hat.",
+    "period": "Zeitraum",
+    "today": "Heute",
+    "lastDays_one": "Letzter Tag",
+    "lastDays_other": "Letzte {{count}} Tage",
+    "other": "Andere Typen",
+    "noneMasked": "In diesem Zeitraum wurde nichts maskiert.",
+    "partial": "Dieser Zeitraum enthält mehr Austausche, als die Statistik auf einmal liest: Diese Zahlen zählen die letzten {{latest}}.",
+    "empty": {
+      "title": "Kein Verkehr in diesem Zeitraum",
+      "body": "Die Statistik erscheint, sobald Agenten Anfragen über Latet senden."
+    },
+    "tiles": {
+      "exchanges": "Austausche",
+      "perDay": "{{value}} pro Tag im Schnitt",
+      "masked": "Maskierte Werte",
+      "maskedHelp": "Einmal gezählt, in dem Block, in dem sie zuerst gesendet wurden",
+      "blocked": "Blockierte Anfragen",
+      "blockedNone": "Keine",
+      "blockedShare": "{{value}} der Austausche",
+      "cache": "Prompt-Cache-Treffer",
+      "cacheHelp": "Anteil der Prompt-Tokens, die aus dem Cache des Anbieters kamen. Stabile Ersatzwerte halten ihn hoch.",
+      "cacheNone": "Kein Token-Verbrauch gemeldet",
+      "latency": "Latenz, Median",
+      "overhead": "Latet-Overhead, Median",
+      "p95": "95. Perzentil: {{value}}"
+    },
+    "charts": {
+      "exchanges": "Austausche pro Tag",
+      "exchangesHelp": "Jede Anfrage, maskiert oder nicht",
+      "exchangesMeasure": "Austausche",
+      "masked": "Maskierte Werte pro Tag",
+      "maskedHelp": "In Blöcken, die zum ersten Mal gesendet wurden",
+      "maskedMeasure": "Maskierte Werte",
+      "blocked": "Blockierte Anfragen pro Tag",
+      "blockedHelp": "Gestoppt, bevor sie Ihren Rechner verließen",
+      "blockedMeasure": "Blockierte Anfragen",
+      "byType": "Maskierte Werte nach Typ",
+      "byAgent": "Austausche nach Agent",
+      "day": "Tag",
+      "type": "Typ",
+      "agent": "Agent"
+    },
+    "withShare": "{{value}} ({{share}})"
+  },
+  "charts": {
+    "view": "Anzeigen als",
+    "chart": "Diagramm",
+    "table": "Tabelle",
+    "barLabel": "{{label}}: {{value}} {{measure}}",
+    "columnSummary_one": "{{measure}} über {{count}} Tag; Höchstwert {{max}}, am {{peak}}",
+    "columnSummary_other": "{{measure}} über {{count}} Tage; Höchstwert {{max}}, am {{peak}}"
+  },
+  "notFound": {
+    "title": "Hier gibt es keine Seite",
+    "body": "Die Adresse ist vielleicht falsch geschrieben, oder die Seite wurde verschoben.",
+    "action": "Zu Live wechseln"
+  },
+  "transport": {
+    "ws": "WS",
+    "websocket": "Austausch über WebSocket",
+    "plugin": "In Claude Code gestoppt",
+    "pluginHelp": "Die abschließende Prüfung des Plugins für Claude Code hat sensible Werte im Klartext gefunden und die Anfrage in Claude Code gestoppt: Die Anfrage hat das Netzwerk nie erreicht."
+  },
+  "modules": {
+    "secrets": "Geheimnisse: bekannte Formate",
+    "secret-structure": "Geheimnisse: nach ihrer Form",
+    "personal": "Personenbezogene Daten",
+    "ids": "ID-Nummern und USt-IdNr.",
+    "identity": "Ihre Identität",
+    "terms": "Ihre Begriffe",
+    "recognizers": "Ihre Erkenner",
+    "names": "Namensmodell",
+    "reviewer": "Lokaler Prüfer",
+    "live": "Sie, im Live-Prüfer",
+    "fields": "Ihre Feldregeln",
+    "data": "Strikter Datenmodus",
+    "other": "Nicht aufgezeichnet"
+  },
+  "via": {
+    "detector": "In diesem Text gefunden",
+    "known": "Ein Wert, der schon im Tresor ist",
+    "repeat": "An anderer Stelle im selben Text gefunden",
+    "echo": "Ein zurückgesendeter Ersatzwert, erneut maskiert",
+    "plugin": "Vom Plugin für Claude Code maskiert",
+    "restore": "In der Antwort wieder eingesetzt"
+  },
+  "reviewDetails": {
+    "user_name": "Ihren Benutzernamen",
+    "paths": "Ihren Benutzerordner in Pfaden",
+    "host_name": "Ihren Hostnamen",
+    "git_author": "Ihren Git-Autor"
+  },
+  "projects": {
+    "description": "Die Regeln eines Projekts: seine latet.yaml, über sein Repository geteilt, und Ihre eigenen Einstellungen dafür. Sie gelten zusätzlich zu Ihren globalen Regeln.",
+    "folder": "Ordner",
+    "file": "latet.yaml",
+    "noFile": "Noch keine: Wenn Sie die Regeln unter Repository-Datei speichern, wird sie angelegt",
+    "notices": "Was nicht angewendet wird",
+    "fromRepo": "latet.yaml",
+    "fromPersonal": "Ihre Einstellungen",
+    "ignored": "ignoriert: {{message}}",
+    "error": "Fehler: {{message}}",
+    "pastShare": "Sie nutzen den gesamten Speicher, den der Server einer Person gibt, daher wurden die Regeln dieses Ordners nicht erstellt und seine Texte werden abgelehnt. Sie werden bei der nächsten Verwendung des Ordners erstellt, sobald Sie weniger nutzen: Vergessen Sie einige Werte im Tresor, oder entfernen Sie einige Regeln oder Projekte.",
+    "unbuilt": "Seine Regeln konnten nicht erstellt werden, daher werden seine Texte abgelehnt, bis sie erstellt werden können.",
+    "repoCannotSet": "Eine Datei im Repository kann das nicht festlegen, tragen Sie es daher in Ihren Einstellungen für das Projekt ein.",
+    "repoWholeLatet": "Eine Einstellung für ganz Latet, daher legt nur Ihre config.yaml sie fest.",
+    "repoUnknown": "Keine Einstellung, die Latet kennt.",
+    "scope": {
+      "label": "Regeln für",
+      "global": "Alles (globale Regeln)",
+      "offName": "{{name}} (Latet aus)",
+      "add": "Projekt über seinen Ordner hinzufügen…",
+      "hint": "Eine Sitzung gehört zum Projekt des Ordners, in dem ihr Agent arbeitet.",
+      "folder": "Projektordner",
+      "folderPlaceholder": "C:\\Users\\you\\dev\\project",
+      "addButton": "Projekt hinzufügen"
+    },
+    "tabs": {
+      "overview": "Übersicht",
+      "repo": "Repository-Datei"
+    },
+    "protection": {
+      "title": "Schutz",
+      "description": "Wie viel von Latet in diesem Projekt gilt. Gespeichert mit Ihren Einstellungen dafür, nie im Repository.",
+      "on": "Ein",
+      "secrets": "Nur Geheimnisse",
+      "off": "Aus",
+      "onHelp": "Ihre globalen Regeln, ergänzt um die des Projekts.",
+      "secretsHelp": "Hier werden nur geheime Werte maskiert: Schlüssel, Tokens, Passwörter. Personenbezogene Daten werden unverändert gesendet.",
+      "offHelp": "In diesem Projekt wird nichts maskiert oder blockiert, auch keine geheimen Werte: Anfragen werden unverändert gesendet. Für Ersatzwerte, die schon in einer Unterhaltung stehen, werden die echten Werte weiterhin wieder eingesetzt."
+    },
+    "effective": {
+      "title": "Wirksam",
+      "description": "Was in diesem Projekt gilt, alle Ebenen zusammen.",
+      "profile": "Profil",
+      "pii": "Personenbezogene Daten",
+      "types_one": "{{count}} Typ",
+      "types_other": "{{count}} Typen",
+      "countries": "ID-Nummern aus",
+      "terms": "Begriffe",
+      "recognizers": "Erkenner",
+      "exceptions": "Nie maskiert",
+      "policies": "Richtlinien",
+      "off": "Latet ist in diesem Projekt ausgeschaltet.",
+      "data": "Daten",
+      "strict": "Strikt: jeder Wert in Tool-Ausgaben maskiert",
+      "normal": "Normal",
+      "fields": "Feldregeln",
+      "fieldCount_one": "{{count}} Regel",
+      "fieldCount_other": "{{count}} Regeln",
+      "dumpGuard": "Dump-Schutz",
+      "images": "Bilder und PDFs",
+      "imagesBlocked": "Nicht gesendet",
+      "imagesMasked": "Nur maskiert",
+      "imagesSent": "Gesendet",
+      "reviewer": "Lokaler Prüfer"
+    },
+    "repo": {
+      "title": "Aus dem Repository (latet.yaml)",
+      "description": "Über sein Repository mit allen geteilt, die an dem Projekt arbeiten. Die Datei kann nur Schutz hinzufügen: Was ihn verringern würde, wird ignoriert und oben aufgeführt.",
+      "readOnly": "Der Ordner des Projekts ist nicht auf diesem Rechner (oder Latet läuft in einem Container): Die Datei kann hier gelesen, aber nicht geschrieben werden.",
+      "unreadable": "Die latet.yaml dieses Projekts lässt sich hier gerade nicht lesen (sie ist keine normale Datei, sie ist zu groß, oder das Lesen wurde verweigert): Von dieser Seite aus wird nichts darüber geschrieben, bis sie sich lesen lässt.",
+      "save": "latet.yaml speichern",
+      "create": "latet.yaml anlegen",
+      "saved": "latet.yaml gespeichert: gilt sofort",
+      "changed": "latet.yaml hat sich geändert, seit Sie diese Seite geöffnet haben: Laden Sie die Seite neu, und speichern Sie dann erneut.",
+      "profile": "Profil",
+      "profileHelp": "Gilt nur, wenn es strenger ist als das eigene Profil jeder Person.",
+      "profileUnset": "Nicht festgelegt",
+      "countries": "Länder",
+      "countriesHelp": "Identifikations- und Steuernummern dieser Länder werden ebenfalls erkannt, zusätzlich zu den eigenen jeder Person.",
+      "privateIps": "Private IP-Adressen maskieren",
+      "privateIpsHelp": "10.x, 192.168.x und Ähnliches, in diesem Projekt.",
+      "names": "Nach Namen und Anschriften suchen",
+      "namesHelp": "Mit dem lokalen Namensmodell, wo es installiert ist."
+    },
+    "personal": {
+      "title": "Ihre Einstellungen für dieses Projekt",
+      "description": "In Ihrer config.yaml gespeichert, nie im Repository. Ihre Einstellungen dürfen die Regeln auch lockern: Werte, die nie maskiert werden, schwächere Richtlinien.",
+      "descriptionServer": "Mit Ihren Einstellungen auf dem Server gespeichert, nie im Repository. Ihre Einstellungen dürfen die Regeln auch lockern: Werte, die nie maskiert werden, schwächere Richtlinien.",
+      "save": "Ihre Einstellungen speichern",
+      "saved": "Ihre Einstellungen für das Projekt gespeichert",
+      "removed": "Ihre Einstellungen für das Projekt entfernt",
+      "remove": "Ihre Einstellungen entfernen"
+    },
+    "suggest": {
+      "unavailableServer": "Der Latet-Server kann keine Repository-Dateien auf verbundenen Computern durchsuchen. Vorschläge für Erkenner sind hier nicht verfügbar.",
+      "help": "Durchsucht die Dateien des Projekts nach codeartigen Werten, die keine Regel abdeckt, und entwirft Erkenner dafür. Nichts verlässt diesen Rechner, und kein Wert wird angezeigt.",
+      "run": "Erkenner vorschlagen",
+      "looked_one": "{{count}} Datei durchgesehen.",
+      "looked_other": "{{count}} Dateien durchgesehen.",
+      "none": "Jeder codeartige Wert dort ist bereits abgedeckt oder zu selten, um ein Format zu sein.",
+      "add": "Hinzufügen"
+    },
+    "layer": {
+      "repo": "aus latet.yaml",
+      "personal": "aus Ihren Einstellungen für das Projekt"
+    },
+    "reviewer": {
+      "title": "Lokaler Prüfer hier",
+      "help": "Wo der lokale Prüfer eingeschaltet ist: wie viel er in diesem Projekt liest.",
+      "repoHelp": "Wo der lokale Prüfer eingeschaltet ist: Eine Datei im Repository kann ihn nur mehr lesen lassen.",
+      "off": "Aus",
+      "background": "Nach dem Senden",
+      "inline": "Vor dem Senden"
+    },
+    "live": {
+      "title": "Live-Prüfer hier",
+      "help": "Ob neue Texte aus diesem Projekt im Dashboard auf Ihre Freigabe warten. Nur Ihre Einstellung: Eine Datei im Repository schaltet ihn nie ein.",
+      "inheritOn": "Wie in Ihren Einstellungen (ein)",
+      "inheritOff": "Wie in Ihren Einstellungen (aus)",
+      "on": "Ein",
+      "off": "Aus"
+    },
+    "reviewImages": {
+      "title": "Der lokale Prüfer sieht die Bilder",
+      "help": "Ob dem lokalen Prüfer in diesem Projekt die Bilder gezeigt werden, mit dem darin gelesenen Text. Nur Ihre Einstellung: Eine Datei im Repository kann sie nicht festlegen.",
+      "inheritOn": "Wie in Ihren Einstellungen (ein)",
+      "inheritOff": "Wie in Ihren Einstellungen (aus)",
+      "on": "Ein",
+      "off": "Aus"
+    },
+    "sources": "Jede Regel dieser Liste, die in diesem Projekt gilt, jeweils mit ihrer Herkunft: Ihre Einstellungen für das Projekt, seine latet.yaml oder Ihre globalen Regeln, die dort geändert werden."
+  },
+  "data": {
+    "title": "Produktionsdaten",
+    "description": "Abfrageergebnisse, API-Antworten und Logs, die der Agent liest: Tabellen, JSON und key=value-Paare. Spalten und Schlüssel, die wie geheime Werte heißen (password, api_key, *_token), werden immer maskiert.",
+    "unset": "Nicht festgelegt",
+    "strict": {
+      "title": "Strikter Datenmodus",
+      "help": "Jeder Wert einer Tabelle, eines JSON-Dokuments oder von key=value-Paaren in der Ausgabe eines Tools wird maskiert; Spalten- und Schlüsselnamen bleiben. Derselbe Wert erhält immer denselben Ersatzwert, sodass Zählungen, Gruppierungen und Joins weiterhin funktionieren und eine mit einem Ersatzwert geschriebene Abfrage mit dem echten Wert läuft. Dateien, die der Agent liest, und Webseiten bleiben unverändert, es sei denn, eine Regel unten nennt sie.",
+      "switch": "Jeden Wert in Tool-Ausgaben maskieren",
+      "on": "Strikt",
+      "off": "Normal",
+      "profile": "Wie das Profil",
+      "profileHelp": "Wie das Profil: ein bei Maximal, aus bei Ausgewogen und Nur Geheimnisse. Strikt oder Normal bleibt so, wie Sie es festlegen, unabhängig vom Profil."
+    },
+    "files": {
+      "title": "Dateien, die als Daten gelten",
+      "help": "Pfadmuster, mit * für beliebige Zeichen: *.json, exports/**, .env*. Ein Muster ohne Schrägstrich nennt eine Datei bei ihrem Namen. Liest der Agent eine solche Datei, wird jeder Wert darin maskiert, gefunden nach dem Format der Datei: JSON, Tabellen (CSV, TSV), .env und Properties, YAML. Eine Markdown-Datei nur, wenn ein Muster Markdown nennt (*.md), und dann nur ihre Tabellen. Das gilt, ob der strikte Datenmodus an ist oder nicht. Ein so breites Muster wie *.json deckt auch package.json ab: Nennen Sie die Ordner, die Daten enthalten (exports/**).",
+      "placeholder": "exports/**",
+      "add": "Muster hinzufügen",
+      "empty": "Keine Datei: Dateien, die der Agent liest, bleiben unverändert."
+    },
+    "hosts": {
+      "title": "Webadressen, die als Daten gelten",
+      "help": "Hostnamen, mit * für beliebige Zeichen: api.internal.example.com, *.salesforce.com. Ein Muster für jede Subdomain, etwa *.salesforce.com, deckt auch die Domain selbst ab. Eine Seite, die ein Web-Tool (WebFetch) von einer solchen Adresse abruft, wird wie die Ausgabe eines Tools maskiert: jeder Wert ihrer Tabellen, ihres JSON und ihrer key=value-Paare. Das gilt, ob der strikte Datenmodus an ist oder nicht.",
+      "placeholder": "*.salesforce.com",
+      "add": "Adresse hinzufügen",
+      "empty": "Keine Adresse: Webseiten bleiben unverändert."
+    },
+    "tools": {
+      "title": "Tools und MCP-Server, die als Daten gelten",
+      "help": "Tool-Namen, mit * für beliebige Zeichen: mcp__postgres__* (jedes Tool des MCP-Servers postgres), Bash. Mit eingeschaltetem striktem Datenmodus und leerer Liste gilt die Ausgabe jedes Tools, außer den Tools, die Dateien lesen, und den Web-Tools (WebSearch, WebFetch), deren Ergebnisse öffentliche Inhalte sind; mit Namen hier gelten nur die Ausgaben dieser Tools.",
+      "placeholder": "mcp__postgres__*",
+      "add": "Tool hinzufügen",
+      "empty": "Die Ausgabe jedes Tools."
+    },
+    "fields": {
+      "title": "Feldregeln",
+      "help": "Die Werte einer Spalte oder eines JSON-Schlüssels (ein Pfad wie items[].sku; * steht für beliebige Zeichen), als eigener Typ maskiert oder im strikten Datenmodus im Klartext gelassen. Geheime Spalten bleiben trotzdem maskiert.",
+      "repoHelp": "Die Werte einer Spalte oder eines JSON-Schlüssels (ein Pfad wie items[].sku; * steht für beliebige Zeichen), als eigener Typ maskiert. Ein Feld im Klartext zu lassen, gehört in die eigenen Einstellungen jeder Person.",
+      "name": "Feld",
+      "type": "Typ",
+      "typePlaceholder": "FIELD",
+      "clear": "Im Klartext lassen",
+      "clearFor": "{{name}} im Klartext lassen",
+      "secret": "Geheim",
+      "secretFor": "{{name}} enthält geheime Werte",
+      "empty": "Keine Feldregeln.",
+      "newName": "Neues Feld",
+      "placeholder": "note_*",
+      "add": "Feld hinzufügen"
+    },
+    "dumpGuard": {
+      "title": "Dump-Schutz",
+      "help": "Eine Tool-Ausgabe, die mehr personenbezogene Werte enthält als hier angegeben (Namen, E-Mail-Adressen, Telefonnummern und Ähnliches), wird zurückgehalten: Das Modell wird aufgefordert, weniger Zeilen oder stattdessen Zählungen abzufragen. Leer oder 0: keine Grenze.",
+      "repoHelp": "Eine Tool-Ausgabe, die mehr personenbezogene Werte enthält als hier angegeben (Namen, E-Mail-Adressen, Telefonnummern und Ähnliches), wird zurückgehalten. Gilt nur, wenn die Grenze niedriger ist als die eigene jeder Person.",
+      "unit": "personenbezogene Werte in einer Ausgabe, höchstens",
+      "off": "Keine Grenze",
+      "personalHelp": "Eine Tool-Ausgabe, die mehr personenbezogene Werte enthält als hier angegeben (Namen, E-Mail-Adressen, Telefonnummern und Ähnliches), wird zurückgehalten: Das Modell wird aufgefordert, weniger Zeilen oder stattdessen Zählungen abzufragen. Leer: wie die anderen Regeln es festlegen; 0: keine Grenze in diesem Projekt."
+    },
+    "images": {
+      "title": "Bilder und PDFs",
+      "help": "Latet liest den Text in Screenshots auf diesem Rechner und überdeckt, was es maskiert, sobald die Modelle für die Texterkennung installiert sind. Senden: Bilder werden gesendet, maskiert, wenn sie gelesen werden können. Nur maskiert: Ein Bild wird erst gesendet, wenn sein Text gelesen und maskiert wurde, und PDFs nie. Nicht senden: keine Bilder oder PDFs. Auch das Profil Maximal sendet keine, außer hier steht Nur maskiert.",
+      "block": "Nicht senden",
+      "mask": "Nur maskiert",
+      "allow": "Senden"
+    },
+    "ruleStrict": "Strikter Datenmodus: {{field}}",
+    "ruleField": "Feldregel: {{field}}"
+  },
+  "reviewer": {
+    "title": "Lokaler Prüfer",
+    "description": "Ein Sprachmodell auf Ihrem eigenen Server liest vor dem Senden, was die Detektoren im Klartext gelassen haben, und maskiert, was es findet. Es läuft auf diesem Rechner oder auf einem anderen Ihrer Rechner und kann das Maskierte nur ergänzen, nie etwas davon wegnehmen.",
+    "enabled": "Lokalen Prüfer fragen",
+    "enabledHelp": "Sein Server läuft auf diesem Rechner oder auf einem anderen Ihrer Rechner: llama.cpp, Ollama oder LM Studio.",
+    "sandbox": "Die Sandbox des Tutorials hat keinen lokalen Prüfer: Sein Server liegt außerhalb der Sandbox, und nichts hier reicht über sie hinaus. In Ihrem eigenen Latet richten Sie ihn hier ein.",
+    "simulated": "Im Tutorial ist der lokale Prüfer der Tutorial Reviewer: Er ist simuliert, antwortet so, wie es im Kapitel geschrieben steht, und erreicht keinen Server. Hier können Sie nur Ihre Hinweise ändern.",
+    "url": "Server",
+    "urlHelp": "Seine OpenAI-kompatible Adresse, etwa http://127.0.0.1:8080/v1, und die ID des Modells dort.",
+    "remote": "Dieser Server gehört mir",
+    "remoteHelp": "Er steht auf einem anderen Rechner, und Latet sendet ihm die Originaltexte, bevor sie maskiert werden. Verwenden Sie nur einen eigenen Server, außerhalb Ihres lokalen Netzwerks über https erreichbar.",
+    "httpsNeeded": "Außerhalb Ihres lokalen Netzwerks muss die Adresse mit https:// beginnen.",
+    "inClear": "Über http durchqueren die Originaltexte Ihr Netzwerk unverschlüsselt. Geben Sie dem Server ein Zertifikat, und verwenden Sie https://: Ein selbstsigniertes genügt, wenn Sie ihm unten vertrauen.",
+    "certificate": {
+      "title": "Das Zertifikat des Servers",
+      "help": "Einem selbstsignierten Zertifikat vertraut Ihr Rechner nicht. Wenn der Server Ihnen gehört, zeigen Sie sein Zertifikat an, vergleichen Sie seinen Fingerabdruck mit dem auf dem Server, und vertrauen Sie ihm: Dann wird nur dieses Zertifikat akzeptiert.",
+      "show": "Zertifikat anzeigen",
+      "compare": "Ist das der Fingerabdruck auf Ihrem Server? Auf dem Server gibt openssl ihn aus:",
+      "same": "Stimmt überein: vertrauen",
+      "different": "Stimmt nicht überein",
+      "trusted": "Vertrauenswürdig (sobald Sie die Einstellungen speichern), und nur dieses wird akzeptiert:",
+      "forget": "Nicht mehr vertrauen",
+      "trustedToast": "Zertifikat übernommen: Speichern Sie die Einstellungen, um ihm zu vertrauen."
+    },
+    "key": {
+      "title": "API-Schlüssel",
+      "none": "Kein Schlüssel. Fügen Sie einen hinzu, wenn der Server einen verlangt.",
+      "saved": "Ein Schlüssel ist gespeichert, im Anmeldedatenspeicher des Betriebssystems: nie in config.yaml.",
+      "env": "Der Schlüssel stammt aus der Variablen {{variable}}.",
+      "file": "Der Schlüssel stammt aus der Datei, die unter Serverdetails festgelegt ist.",
+      "server": "Braucht der Prüfer einen Schlüssel, gibt ihn der Server: Der Administrator Ihres Servers legt ihn für alle fest.",
+      "placeholder": "Schlüssel des Servers einfügen",
+      "replace": "Neuen Schlüssel einfügen, um ihn zu ersetzen",
+      "save": "Schlüssel speichern",
+      "remove": "Entfernen",
+      "savedToast": "Schlüssel gespeichert. Der Prüfer verwendet ihn ab jetzt.",
+      "removedToast": "Schlüssel entfernt."
+    },
+    "model": "Modell",
+    "modelPlaceholder": "das erste, das er auflistet",
+    "reads": "Was er vor dem Senden liest",
+    "readsHelp": "Standardmäßig alles, was das Modell nicht geschrieben hat. Was Sie hier auslassen, wird nach dem Senden gelesen, wenn das eingeschaltet ist.",
+    "kinds": {
+      "user_text": "Ihre Prompts",
+      "attachment": "Anhänge",
+      "system": "Anweisungen (System-Prompt, CLAUDE.md)",
+      "tool_result": "Was Tools abrufen (Dateien, Abfragen, Seiten)",
+      "tool_input": "Tool-Aufrufe, die das Modell schreibt",
+      "tool_description": "Tool-Beschreibungen",
+      "image_text": "Der Text in Bildern"
+    },
+    "wait": "Wie lange eine Anfrage wartet",
+    "waitHelp": "Leer: so lange, wie ihre Prüfung dauert.",
+    "waitUnit": "ms maximal",
+    "noLimit": "Keine Grenze",
+    "onFailure": "Wenn er nicht antworten kann",
+    "onFailureHelp": "Sein Server ist aus oder zu langsam, oder seiner Antwort ist nicht zu trauen.",
+    "stop": "Anfrage stoppen",
+    "send": "Von den Detektoren maskiert senden",
+    "background": "Den Rest nach dem Senden lesen",
+    "backgroundHelp": "Was er dann findet, wird ab der nächsten Anfrage maskiert.",
+    "block": "Darf eine Anfrage stoppen",
+    "blockHelp": "Für einen Text, der nicht einmal maskiert gesendet werden darf, etwa eine ganze Krankenakte. Große Modelle tun das zuverlässig, kleine nicht.",
+    "masks": "Was er selbst maskiert",
+    "masksHelp": "Die anderen Kategorien werden im Austausch als Vorschläge gezeigt: immer maskieren oder nicht sensibel.",
+    "categories": {
+      "person": "Personen",
+      "address": "Anschriften",
+      "phone": "Telefonnummern",
+      "email": "E-Mail-Adressen",
+      "id": "ID- und Kontonummern",
+      "health": "Gesundheit",
+      "sensitive": "Religion, Politik, Gewerkschaften, Justiz",
+      "financial": "Finanzen einer Person",
+      "secret": "Passwörter und Schlüssel",
+      "org": "Unternehmen und Organisationen",
+      "confidential": "Codenamen und Pläne"
+    },
+    "guidance": {
+      "title": "Ihre Hinweise",
+      "help": "Werden nach den eigenen Anweisungen von Latet angefügt, in jedem Projekt. Sagen Sie, was in Ihrer Arbeit sonst noch vertraulich ist oder was unberührt bleiben soll: Arten von Werten, nicht die Werte selbst (das sind Begriffe). Die Hinweise werden mit jeder Prüfung an den Server des Prüfers gesendet und gelten für die Texte, die ab dann gelesen werden. Um einen einzelnen Wert im Klartext zu lassen, markieren Sie ihn stattdessen als Nicht sensibel.",
+      "placeholder": "Namen von Stationen und Abteilungen sind vertraulich. PRJ- gefolgt von Ziffern ist ein internes Projekt.",
+      "count": "{{chars}} von {{max}} Zeichen",
+      "tooLong": "{{chars}} Zeichen: höchstens {{max}}, sonst kann der Text nicht gespeichert werden.",
+      "projectTitle": "Hinweise für den lokalen Prüfer hier",
+      "projectHelp": "Werden nach Ihren Hinweisen für alle Projekte angefügt, nur für dieses Projekt. Nur Ihre Einstellung: Eine Datei im Repository kann sie nicht festlegen.",
+      "projectPlaceholder": "Hier gehören Ticketnummern wie T-48213 zu Kunden. Namen von Krankenhäusern sind öffentlich.",
+      "projectAfter": "Angefügt nach Ihren Hinweisen für alle Projekte:",
+      "reviewerOff": "Der lokale Prüfer ist ausgeschaltet: Schalten Sie ihn unter Regeln ein, um ihn hier auszuprobieren."
+    },
+    "instructions": {
+      "title": "Was der Prüfer gesagt bekommt",
+      "help": "Die eigenen Anweisungen von Latet, genau so, wie der Daemon sie an den Prüfer sendet, und danach Ihre Hinweise. Der Teil von Latet ist fest: Er ist das, was der Benchmark von Latet misst, und ändert sich nur mit einer neuen Version von Latet.",
+      "version": "Version {{version}} der Anweisungen",
+      "yours": "Der dunklere Text sind Ihre Hinweise."
+    },
+    "advanced": "Serverdetails",
+    "advancedHelp": "Slots: Prüfungen, die der Server parallel ausführt (leer: was llama.cpp angibt, oder 1). Teile: Lange Texte werden in Teilen von etwa so vielen Zeichen gelesen, was kleinen Modellen hilft.",
+    "server": "Wo der lokale Prüfer läuft, ist für alle auf diesem Server gleich: Seine Administratoren legen Adresse, Modell, Slots, Teilgröße und Zertifikat fest, mit seinem Schlüssel. Darunter wählen Sie, wie Sie ihn nutzen.",
+    "keyEnv": "Oder der Schlüssel aus einer Variablen",
+    "keyFile": "oder Datei",
+    "keyFilePlaceholder": "nicht festgelegt",
+    "keyHelp": "Andere Wege, den Schlüssel anzugeben: eine Umgebungsvariable oder eine Datei. Beide haben Vorrang vor einem gespeicherten Schlüssel. Der Schlüssel selbst wird nie in config.yaml geschrieben.",
+    "slots": "Slots",
+    "slotsAuto": "auto",
+    "chunk": "Teilgröße (Zeichen)",
+    "try": "Ausprobieren",
+    "trying": "Wird getestet…",
+    "tryHelp": "Der Server liest ein Beispiel mit erfundenen Werten oder Ihren eigenen Text unten, mit den Einstellungen oben (noch nicht gespeichert).",
+    "tryText": "Ein eigener Text zum Ausprobieren (optional; leer gelassen: das Beispiel)",
+    "tryOk": "Antwort in {{seconds}} s, Modell {{model}}",
+    "trySlots_one": "{{count}} Slot mit {{ctx}} Tokens",
+    "trySlots_other": "{{count}} Slots mit je {{ctx}} Tokens",
+    "tryFailed": "Keine Antwort: {{error}}",
+    "tryNothing": "Er hat nichts gefunden.",
+    "masked": "maskiert",
+    "suggested": "vorgeschlagen",
+    "failed": {
+      "timeout": "Nicht geprüft: Es hat länger gedauert als erlaubt.",
+      "unreachable": "Nicht geprüft: Sein Server hat nicht geantwortet.",
+      "unreadable": "Nicht geprüft: Seine Antwort war nicht lesbar.",
+      "suspect": "Nicht vertrauenswürdig: Der Text gibt dem Prüfer Anweisungen, und er hat nichts gefunden.",
+      "busy": "Nicht geprüft: Zu viel wartete auf ihn.",
+      "other": "Nicht geprüft."
+    },
+    "panel": {
+      "title": "Lokaler Prüfer",
+      "inline": "Vor dem Senden gelesen",
+      "background": "Nach dem Senden gelesen",
+      "kind": "{{kind}}",
+      "seconds": "{{seconds}} s",
+      "blockAsked": "Er hat verlangt, diesen Text als Ganzes zu stoppen.",
+      "masked": "Maskiert",
+      "suggested": "Vorgeschlagen",
+      "alwaysMask": "Immer maskieren",
+      "notSensitive": "Nicht sensibel",
+      "termAdded": "Zu Ihren Begriffen hinzugefügt: Er wird ab jetzt überall maskiert, wo er vorkommt.",
+      "termAddedInProject": "Zu den Begriffen dieses Projekts hinzugefügt: Er wird dort ab jetzt überall maskiert, wo er vorkommt.",
+      "allowed": "Zu den Werten hinzugefügt, die nie maskiert werden.",
+      "allowedInProject": "Zu den Werten dieses Projekts hinzugefügt, die nie maskiert werden.",
+      "description": "Was er zu den Texten dieser Anfrage gesagt hat, einschließlich des Verlaufs, den der Agent mit jeder Anfrage erneut sendet: jeweils die neueste Prüfung.",
+      "block": "Block {{number}}",
+      "blockHistory": "Block {{number}}, Verlauf (angezeigt mit Alle)",
+      "allowedByYou": "Nicht sensibel (Ihre Regeln)"
+    },
+    "live": {
+      "found_one": "Der lokale Prüfer hat nach dem Senden {{count}} Wert gefunden: Er wird ab der nächsten Anfrage maskiert.",
+      "found_other": "Der lokale Prüfer hat nach dem Senden {{count}} Werte gefunden: Diese werden ab der nächsten Anfrage maskiert.",
+      "openExchange": "Neuesten Austausch der Sitzung öffnen",
+      "openSession": "Sitzung anzeigen",
+      "dismiss": "Ausblenden"
+    },
+    "images": "Dem Prüfer die Bilder zeigen",
+    "imagesHelp": "Er sieht jedes Bild mit dem darin gelesenen Text und findet, was die Texterkennung übersehen hat. Sein Modell muss Bilder sehen können (llama.cpp mit seiner --mmproj-Datei). Ein Wert, den er sieht, den Latet aber im Bild nicht verorten kann, hält das Bild zurück.",
+    "noVision": "Sein Modell sieht keine Bilder: Starten Sie llama.cpp mit seiner --mmproj-Datei, oder schalten Sie die Option Dem Prüfer die Bilder zeigen aus. Sonst schlagen die Prüfungen von Bildern fehl.",
+    "visionUnknown": "Der Server gibt nicht an, ob sein Modell Bilder sieht (llama.cpp tut das)."
+  },
+  "liveReview": {
+    "title": "Live-Prüfer",
+    "description": "Sie geben jeden neuen Text im Dashboard frei, bevor er gesendet wird: Was Latet maskiert hat, steht neben dem Original, und Sie können mehr maskieren. Solange er wartet, wird nichts gesendet.",
+    "enabled": "Mich vor jedem neuen Text fragen",
+    "enabledHelp": "Die Texte warten auf der Seite Freigaben.",
+    "open": "Freigaben öffnen",
+    "kinds": "Was auf Sie wartet",
+    "kindsHelp": "Standardmäßig alles, was das Modell nicht geschrieben hat. Was Sie hier auslassen, wird ohne Nachfrage gesendet.",
+    "autoApprove": "Saubere Texte ohne Nachfrage senden",
+    "autoApproveHelp": "Ein Text, in dem weder Latet noch der lokale Prüfer etwas gefunden hat, wird sofort gesendet.",
+    "timeout": "Wie lange ein Text wartet",
+    "timeoutHelp": "Ist die Zeit um, wird er nicht gesendet. Leer: bis Sie antworten.",
+    "timeoutUnit": "Sekunden maximal",
+    "timeoutMin": "Mindestens 10 Sekunden.",
+    "noLimit": "Keine Grenze",
+    "switch": "Live-Prüfer",
+    "switchOn": "Neue Texte warten auf Ihre Freigabe",
+    "switchOff": "Aus: Texte werden so gesendet, wie Latet sie maskiert",
+    "turnedOn": "Live-Prüfer ein: Neue Texte warten auf Ihre Freigabe.",
+    "turnedOff": "Live-Prüfer aus: Texte werden so gesendet, wie Latet sie maskiert."
+  },
+  "transfer": {
+    "export": "Regeln exportieren",
+    "import": "Regeln importieren",
+    "exportProject": "Diese Einstellungen exportieren",
+    "importProject": "Einstellungen importieren",
+    "saveFirst": "Speichern oder verwerfen Sie zuerst Ihre Änderungen.",
+    "exported": "Gespeichert als {{name}}. Die Begriffe stehen darin im Klartext: Versenden Sie die Datei so, wie Sie die Begriffe selbst versenden würden.",
+    "title": "Regeln importieren",
+    "added": "Hinzugefügt: Diese erhöhen den Schutz, sofort angewendet",
+    "held": "Ausgelassen: Diese würden den Schutz verringern",
+    "everything": "Auch diese anwenden",
+    "everythingHelp": "Nur wenn Sie wissen, woher die Datei stammt: Diese Regeln lassen Werte durch oder schwächen eine Ihrer Regeln.",
+    "skipped": "Bereits vorhanden, oder Ihre Fassung beibehalten",
+    "notices": "Nicht gelesen",
+    "nothingNew": "Nichts Neues: Diese Regeln haben Sie bereits.",
+    "apply": "Importieren",
+    "importing": "Wird importiert…",
+    "imported": "Importiert: Ihre Regeln wurden geändert.",
+    "nothing": "Nichts zu importieren."
+  },
+  "tutorial": {
+    "title": "Tutorial",
+    "description": "Latet bei der Arbeit auf Ihrem Rechner, ein kurzes Kapitel nach dem anderen.",
+    "sandbox": "Sandbox: Agent und Modell sind simuliert, Latet ist echt. Nichts verlässt Ihren Rechner.",
+    "key": "Enter",
+    "keyHelp": "Enter bewirkt dasselbe, überall auf der Seite",
+    "menu": {
+      "label": "Kapitel",
+      "chapter": "Kapitel {{number}}",
+      "minutes_one": "{{count}} Minute",
+      "minutes_other": "{{count}} Minuten",
+      "learn": "Was Sie lernen",
+      "done": "Erledigt",
+      "current": "In Arbeit",
+      "start": "Starten",
+      "continue": "Fortsetzen",
+      "again": "Erneut starten",
+      "needs": "Braucht Texterkennung:"
+    },
+    "real": {
+      "title": "Im echten Einsatz",
+      "intro": "Außerhalb der Sandbox arbeitet Latet genauso, Ihrem eigenen Agenten vorgeschaltet.",
+      "agents": "Starten Sie Ihren Agenten über Latet, für eine Sitzung: Keine seiner Einstellungen ändert sich.",
+      "global": "Sobald es zu Ihrer Arbeit passt, dauerhaft: Ihre Agenten laufen im Terminal und in der IDE über Latet.",
+      "company": "Ihr Unternehmen hat einen eigenen Endpunkt, etwa ein Gateway, Amazon Bedrock oder Google Vertex? `latet claude` und `latet codex` finden ihn in den Einstellungen des Agenten und schalten sich davor. Um einen von Hand hinzuzufügen:"
+    },
+    "chapter": {
+      "back": "Alle Kapitel",
+      "of": "Kapitel {{number}} von {{count}}",
+      "number": "Kapitel {{number}}",
+      "step": "Schritt {{number}} von {{count}}",
+      "allDone": "Alle {{count}} Schritte erledigt",
+      "startOver": "Neu beginnen",
+      "startOverTitle": "Dieses Kapitel neu beginnen?",
+      "startOverBody": "Die Sandbox kehrt zum Anfang des Kapitels zurück: seine Anfragen, Werte und Einstellungen. Nichts von Ihnen wird angerührt.",
+      "busy": "{{agent}} arbeitet noch an einem Schritt. Versuchen Sie es gleich noch einmal.",
+      "stopped": "Dieses Kapitel läuft nicht mehr: Ein anderer Tab hat ein anderes Kapitel gestartet oder dieses neu begonnen.",
+      "notFound": "Es gibt kein Kapitel {{id}}",
+      "notFoundBody": "Die erste Seite des Tutorials listet seine Kapitel auf."
+    },
+    "needs": {
+      "title": "Dieses Kapitel braucht Texterkennung",
+      "body": "Latet liest den Text in Bildern mit zwei kleinen Modellen (etwa 31 MB), die noch nicht auf diesem Rechner sind. Installieren Sie sie in einem Terminal und prüfen Sie dann erneut.",
+      "again": "Erneut prüfen"
+    },
+    "agent": {
+      "model": "Modell: {{model}}",
+      "pretend": "Simuliert",
+      "pretendHelp": "Agent und Modell sind simuliert. Latet, dazwischen, ist echt.",
+      "log": "Was {{agent}} tut",
+      "idle": "{{agent}} ist bereit.",
+      "typed": "Eingegeben, noch nicht gesendet:",
+      "continue": "Fortfahren",
+      "next": "Weiter",
+      "finish": "Kapitel abschließen",
+      "working": "{{agent}} arbeitet…",
+      "again": "{{agent}} versucht es erneut…",
+      "waiting": "{{agent}} wartet auf Sie: Tun Sie, worum Latet bittet, dann versucht er es erneut.",
+      "held": "Die Anfrage von {{agent}} wartet in Latet auf Ihre Freigabe.",
+      "failed": "Latet konnte diesen Schritt nicht abschließen: {{error}}.",
+      "wrong": "Dieser Schritt verlief nicht wie vorgesehen: {{error}}.",
+      "done": "Kapitel abgeschlossen.",
+      "pending": "wartet auf Ausführung",
+      "wrote": "{{path}} geschrieben",
+      "more_one": "{{count}} weitere Zeile",
+      "more_other": "{{count}} weitere Zeilen",
+      "less": "Weniger Zeilen",
+      "resumed": "/resume: die Unterhaltung von gestern, aus der Zeit, bevor Latet aktiv war",
+      "cleared": "/clear: eine neue Unterhaltung, ohne Verlauf"
+    },
+    "latet": {
+      "label": "Latet",
+      "intro": "{{agent}} ist simuliert und arbeitet in einem eigenen Bereich. Jede Anfrage, die er sendet, geht über Latet, und Latet ist echt: Was Latet damit getan hat, erscheint hier, und das, worauf es ankommt, ist umrandet.",
+      "learn": "In diesem Kapitel",
+      "yourTurn": "Sie sind dran:",
+      "hint": {
+        "pin": "Klicken Sie auf den hervorgehobenen Wert.",
+        "term": "Fügen Sie das Wort Ihren Begriffen hinzu, und speichern Sie.",
+        "allow": "Klicken Sie auf den hervorgehobenen Wert, und wählen Sie Nicht sensibel.",
+        "approve": "Maskieren Sie, was die Erklärung nennt, und geben Sie dann frei.",
+        "change": "Geben Sie die Änderung frei, oder machen Sie sie rückgängig.",
+        "fields": "Lassen Sie die vorgeschlagenen Spalten im Klartext.",
+        "guidance": "Speichern Sie die Hinweise so, wie sie geschrieben sind."
+      },
+      "approveAsIs": "Die Schaltfläche Freigeben sendet die Anfrage unverändert: Erst maskieren, dann freigeben.",
+      "running": "Latet verarbeitet die Anfrage…",
+      "again": "Erledigt. {{agent}} versucht es erneut…",
+      "later": "Später wiederfinden",
+      "laterHelp": "Öffnet dasselbe im Dashboard. Die Leiste oben auf jeder Seite bringt Sie hierher zurück.",
+      "notSent": "Diese Anfrage wurde nicht gesendet, daher hat das Modell nichts erhalten. Latet zeigt, warum sie gestoppt wurde."
+    },
+    "shown": {
+      "block": "Block {{number}} von {{count}} der Anfrage: das Original und was gesendet wurde.",
+      "blocks_one": "{{count}} von {{total}} Blöcken der Anfrage: das Original und was gesendet wurde.",
+      "blocks_other": "{{count}} von {{total}} Blöcken der Anfrage: das Original und was gesendet wurde.",
+      "response": "Die Antwort: wie das Modell sie schrieb und was der Agent erhielt.",
+      "imageBefore": "Auf Ihrem Rechner",
+      "imageSent": "Wie es gesendet wurde",
+      "noChange": "Jetzt wartet nichts auf Ihre Freigabe.",
+      "simulated": "Simuliert: Der Tutorial Reviewer antwortet so, wie es in diesem Kapitel geschrieben steht. Ihr eigener lokaler Prüfer ist ein Sprachmodell auf Ihrem Rechner."
+    },
+    "done": {
+      "badge": "Kapitel abgeschlossen",
+      "badgeLast": "Tutorial abgeschlossen",
+      "learned": "Was Sie gelernt haben",
+      "where": "Wo Sie es im Dashboard finden",
+      "tryReal": "Im echten Einsatz ausprobieren",
+      "next": "Weiter: {{title}}",
+      "nextUntitled": "Nächstes Kapitel",
+      "menu": "Alle Kapitel"
+    },
+    "bar": {
+      "label": "Tutorial",
+      "text": "Sie sind im Tutorial.",
+      "chapter": "Zurück zu Kapitel {{number}}: {{title}}",
+      "menu": "Zurück zu den Kapiteln"
+    },
+    "end": {
+      "action": "Tutorial beenden",
+      "title": "Tutorial beenden?",
+      "body": "Die Sandbox wird gestoppt und ihr Ordner gelöscht. Ihr eigenes Latet, seine Einstellungen und sein Verlauf bleiben unberührt."
+    },
+    "ended": {
+      "title": "Das Tutorial ist beendet",
+      "body": "Die Sandbox wurde gestoppt und ihr Ordner gelöscht. Sie können diesen Tab schließen.",
+      "again": "Um es erneut zu starten, in einem Terminal:"
+    },
+    "elsewhere": {
+      "title": "Starten Sie das Tutorial in einem Terminal",
+      "body": "Dies ist Ihr eigenes Latet. Das Tutorial läuft in einer eigenen Sandbox, mit einem simulierten Agenten und einem simulierten Modell, und öffnet sich in Ihrem Browser. In einem Terminal:"
+    }
+  }
+}

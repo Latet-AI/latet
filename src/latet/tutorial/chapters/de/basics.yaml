@@ -1,0 +1,39 @@
+title: Die Grundlagen
+learn:
+- Was das Modell statt eines Schlüssels, einer E-Mail-Adresse oder einer Telefonnummer erhält
+- Warum die Dateien, die der Agent schreibt, trotzdem die echten Werte enthalten
+- Wo das Dashboard jeden Wert zeigt, samt der Regel, die ihn gefunden hat
+steps:
+- title: Ein Schlüssel wird als Ersatzwert gesendet
+  explain: 'Der Agent hat .env gelesen und an das Modell gesendet. Bevor die Datei Ihren Rechner verließ, hat Latet den Schlüssel gegen einen Ersatzwert im selben Format ausgetauscht. Die Anfrage, die Latet anzeigt, enthält beides: den Text, wie er auf Ihrem Rechner steht, und das, was das Modell erhalten hat.'
+  prompt: lies .env und richte config.local.json für prod ein
+  button: Senden
+  says:
+  - Ich lese zuerst .env.
+  turns:
+    write:
+      text: Ich habe den Schlüssel. Ich schreibe die Konfiguration.
+- title: Die Datei enthält den echten Schlüssel
+  explain: Das Modell hat seinen Ersatzwert ({{received:DEMO_API_KEY}}) in den Write-Aufruf geschrieben. Latet hat den echten Schlüssel wieder eingesetzt, bevor der Agent den Aufruf ausgeführt hat, daher funktioniert die Datei.
+  button: Schreiben lassen
+  turns:
+    done:
+      text: Fertig. config.local.json ist bereit für prod.
+- title: Fragen Sie Latet
+  explain: Klicken Sie auf den hervorgehobenen Wert. Latet sagt Ihnen, worum es sich handelt, welche Regel den Wert gefunden hat und was an seiner Stelle gesendet wurde.
+- title: Auch Personen
+  explain: 'Auch die Adresse und die Nummer wurden als Ersatzwerte gesendet. Der Agent zeigt Ihnen trotzdem die echten: Latet hat sie in der Antwort wieder eingesetzt.'
+  prompt: schick die Rechnung an {{value:email}}, seine Nummer ist {{value:phone}}
+  button: Senden
+  turns:
+    email:
+      text: Ich kann keine E-Mails senden, aber ich habe mir {{received:EMAIL}} und {{received:PHONE}} notiert.
+end:
+  learned:
+  - Das Modell erhält Ersatzwerte im selben Format; die echten Werte bleiben auf Ihrem Rechner.
+  - In dem, was zurückkommt, werden die echten Werte wieder eingesetzt, daher stehen sie auch in den Dateien, die Ihr Agent schreibt.
+  - 'Das Dashboard zeigt jede Anfrage: den Text, wie er auf Ihrem Rechner steht, und das, was das Modell erhalten hat.'
+  where:
+  - Jede Anfrage, in Echtzeit
+  - Die Anfrage mit dem Schlüssel
+  - Jeder Wert, den Latet ersetzt hat

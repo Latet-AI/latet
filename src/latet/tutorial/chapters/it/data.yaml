@@ -1,0 +1,30 @@
+title: Dati di produzione
+learn:
+- Cosa fa la modalità dati rigorosa con il risultato di una query
+- Quali colonne possono arrivare al modello in chiaro, e come sceglierle
+- Dove viene conservata la tua scelta
+steps:
+- title: Una query in produzione
+  explain: 'In questo capitolo la modalità dati rigorosa è attiva: ogni valore di una tabella stampata da uno strumento esce mascherato, anche id e date. Il modello ha ricevuto {{received:ID}} per l''id {{value:id}} e {{received:PLAN}} per il piano {{value:plan}}, quindi non ha trovato nessun cliente pro, e la sua risposta è sbagliata. I nomi e gli indirizzi email sono al sicuro, ma il modello non può fare il suo lavoro.'
+  prompt: quanti dei nostri clienti più recenti hanno il piano pro?
+  button: Invia
+  says:
+  - Interrogo la tabella customers.
+  turns:
+    table:
+      text: 'Nessuno: nessuna riga dice pro.'
+- title: Lascia in chiaro id, date e piani
+  explain: 'Un id, la data di un evento o un piano non dicono nulla di una persona, quindi il modello può averli in chiaro. Latet propone quelle colonne, tiene mascherati i nomi e gli indirizzi email, e sugli importi lascia decidere a te. Lascia in chiaro quelle proposte, e l''agente esegue di nuovo la query: escono in chiaro, le colonne delle persone restano mascherate, e il modello può rispondere.'
+  prompt: riprova
+  hint: 'Lascia in chiaro le 3 colonne che propone Latet: id, signup_date e plan_type.'
+  turns:
+    again:
+      text: 'Due su cinque: i clienti 1001 e 1004, con il piano pro da gennaio e da marzo. Chi siano, ancora non posso dirlo.'
+end:
+  learned:
+  - La modalità dati rigorosa maschera ogni valore di una tabella stampata da uno strumento, quindi il modello non può leggere nemmeno un id o una data.
+  - Id, date di eventi e stati non dicono nulla di una persona; lasciali in chiaro, e i dati delle persone restano mascherati.
+  - Ciò che lasci in chiaro diventa una regola di campo, in Regole alla voce Dati di produzione, dove puoi revocarla.
+  where:
+  - La modalità dati rigorosa e le tue regole di campo, in Regole
+  - La seconda query, con id, date e piani in chiaro

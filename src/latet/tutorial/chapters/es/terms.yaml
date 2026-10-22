@@ -1,0 +1,36 @@
+title: Tus propios términos
+learn:
+- Por qué un nombre en clave sale en claro, aunque sea un secreto
+- Cómo añadir una palabra a tus términos, para que Latet la enmascare a partir de entonces
+- Dónde están tus términos en el panel
+steps:
+- title: Un nombre en clave sale en claro
+  explain: 'El modelo ha recibido {{value:codename}} tal cual: Latet no ha encontrado nada que enmascarar, porque un nombre en clave es una palabra como cualquier otra y solo tú sabes que es un secreto. En la petición que muestra Latet, el nombre está en claro en el archivo que ha leído el agente. A continuación, le enseñas la palabra a Latet.'
+  prompt: lee roadmap.md y dime qué se lanza primero
+  button: Enviar
+  says:
+  - Miro la hoja de ruta.
+  turns:
+    first:
+      text: 'Lo primero que se lanza es {{received:CODENAME}}, en marzo: el nuevo checkout.'
+- title: Añádelo a tus términos
+  explain: 'Solo tú sabes qué palabras son secretas. Añade {{value:codename}} a tus términos y guarda: a partir de entonces, Latet lo enmascara en cada petición. Después, el agente pregunta por él en una conversación nueva.'
+  hint: En Términos personalizados, añade {{value:codename}} y después guarda.
+- title: Un nombre que el modelo nunca ha visto
+  explain: 'El agente muestra {{value:codename}} porque Latet restaura el nombre real en la respuesta. El modelo ha recibido {{received:ASKED}}: la petición que muestra Latet lo tiene en lugar del nombre. Para el modelo es un nombre que nunca ha visto, así que no puede saber qué se lanza después.'
+  prompt: ¿qué se lanza después de {{value:codename}}?
+  button: Enviar
+  says:
+  - Conversación nueva.
+  turns:
+    again:
+      text: ¿Qué es {{received:ASKED}}? No tengo ni idea de qué se trata.
+end:
+  learned:
+  - Un nombre en clave sale en claro, porque ninguna regla puede saber que una palabra tuya es un secreto.
+  - Añádelo a tus términos y, a partir de entonces, Latet lo enmascara en cada petición.
+  - Lo que se envió antes se queda como se envió, así que añade tus términos antes de necesitarlos.
+  where:
+  - Tus términos, en Reglas
+  - La petición con el nombre enmascarado
+  - Cada valor que Latet ha sustituido

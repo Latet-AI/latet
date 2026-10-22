@@ -1,0 +1,37 @@
+title: Der lokale Prüfer
+learn:
+- Was der lokale Prüfer findet und die Muster von Latet nicht finden können
+- Wie Ihre Hinweise ihm sagen, was in Ihrer Arbeit sonst noch vertraulich ist
+- Wo Sie seine Funde und Ihre Hinweise im Dashboard finden
+steps:
+- title: Was kein Muster findet
+  explain: 'Die Muster von Latet haben hier nichts gefunden: Die E-Mail-Adresse ist in Worten ausgeschrieben, die IBAN hat einen Tippfehler (ihre Prüfziffern stimmen nicht, daher hält kein Muster sie für eine IBAN), und ein Name oder eine Diagnose hat überhaupt kein Format. Der lokale Prüfer hat das Ticket vor dem Senden gelesen, wie ein Mensch es lesen würde, und alle vier Werte gefunden, und Latet hat sie maskiert: Das Modell hat {{received:NAME}} für den Namen erhalten. {{value:ward}} wurde im Klartext gesendet: Nichts sagt dem Prüfer, dass in diesem Krankenhaus der Name einer Station verrät, wer wo ist.'
+  prompt: lies ticket-4182.md und fass es zusammen
+  button: Senden
+  says:
+  - Ich lese das Ticket.
+  turns:
+    summary:
+      text: '{{received:NAME}} kommt seit Montag nicht ins Patientenportal und braucht die Ergebnisse der Blutuntersuchung vor Freitag ({{received:CONDITION}}). Antworte an {{received:WRITTEN}}; die Erstattung der Parkgebühren geht an {{received:ACCOUNT}}.'
+- title: Ihre Hinweise
+  explain: 'Was in Ihrer Arbeit als vertraulich gilt, sagen Sie dem Prüfer in Ihren eigenen Worten: Ihre Hinweise begleiten bei jeder Prüfung seine Anweisungen. Hier sind sie schon für Sie eingetragen: Speichern Sie sie. Ein echter Prüfer befolgt, was darin steht; der Tutorial Reviewer, der simuliert ist, prüft nur, ob Hinweise gespeichert sind. In Ihrem eigenen Dashboard stehen sie im Abschnitt Lokaler Prüfer unter Regeln.'
+  hint: Speichern Sie die Hinweise so, wie sie geschrieben sind.
+  guidance: 'Stationsnamen sind vertraulich: In diesem Krankenhaus verrät der Name einer Station, wer wo ist.'
+- title: Eine Station, die niemand aufgelistet hat
+  explain: 'Mit Ihren Hinweisen hat der Prüfer beide Stationen gefunden, und Latet hat sie maskiert: {{value:ward}} und {{value:other_ward}}, eine Station, die er noch nie gesehen hatte. Das Modell hat {{received:OTHER_WARD}} für {{value:other_ward}} erhalten. Ihre Begriffe maskieren die Wörter, die Sie auflisten; Hinweise beschreiben eine Art von Wert und gelten auch für Werte, die Sie nicht aufgelistet haben.'
+  prompt: lies handover.md und sag mir, was die Nachtschicht braucht
+  button: Senden
+  says:
+  - Neue Unterhaltung.
+  turns:
+    needs:
+      text: Auf {{received:OTHER_WARD}} fehlt heute Nacht eine Pflegekraft, und die Agentur schickt um 23:00 Uhr eine. Auf {{received:WARD}} sind zwei Betten frei.
+end:
+  learned:
+  - 'Der lokale Prüfer, ein Sprachmodell auf Ihrem Rechner, findet, was kein Format hat, das ein Muster kennt: eine ausgeschriebene E-Mail-Adresse, eine IBAN mit einem Fehler, einen Namen oder eine Diagnose in einem Satz.'
+  - Ihre Hinweise sagen ihm in Ihren eigenen Worten, was in Ihrer Arbeit sonst noch vertraulich ist, und gelten auch für Werte, die Sie nie aufgelistet haben.
+  - 'Ihr eigener lokaler Prüfer läuft auf Ihrem Rechner, mit llama.cpp, Ollama oder LM Studio: Sie richten ihn im Abschnitt Lokaler Prüfer unter Regeln ein und wählen dort, was er selbst maskiert (den Rest schlägt er nur vor).'
+  where:
+  - Der lokale Prüfer und Ihre Hinweise, unter Regeln
+  - Das Ticket, mit dem, was der Prüfer gefunden hat
+  - Die Übergabenotiz mit beiden maskierten Stationen

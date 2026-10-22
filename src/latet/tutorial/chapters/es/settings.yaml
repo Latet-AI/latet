@@ -1,0 +1,38 @@
+title: Un agente que relaja tus reglas
+learn:
+- Por qué un agente puede llegar a cambiar los ajustes de Latet
+- Qué pasa con un cambio que reduce la protección, lo haga quien lo haga
+- Dónde apruebas el cambio o lo deshaces
+steps:
+- title: Un cambio que reduce la protección
+  explain: 'El modelo ha recibido enmascaradas las direcciones de correo electrónico del test y quería las reales. Así que el agente ha ejecutado `latet config set policies "{EMAIL: allow}"`, que deja salir en claro todas las direcciones de correo electrónico. El comando ha dicho que el cambio reduce la protección y que espera tu aprobación.'
+  prompt: el test de importación de correos falla, arréglalo como sea
+  button: Enviar
+  says:
+  - Miro el test que falla.
+  turns:
+    asked:
+      text: El test necesita direcciones de correo electrónico reales y Latet las enmascara, así que le he pedido que las deje pasar. El cambio espera tu aprobación.
+- title: Tú decides
+  explain: 'Un agente puede ejecutar los propios comandos de Latet, igual que tú. Pero un cambio que reduce la protección nunca se aplica solo: espera aquí, con lo que reduce. Es una salvaguarda contra los errores, no un candado: un agente actúa con tus permisos. Deshacerlo mantiene tus ajustes: aquí es la respuesta segura.'
+  hint: 'Deshaz el cambio: es la respuesta segura.'
+- title: Qué ha pasado con el cambio
+  explain: 'El agente se lo ha preguntado a Latet con `latet config get policies`: has deshecho el cambio, así que tus ajustes están como antes, y las direcciones de correo electrónico siguen enmascaradas.'
+  prompt: ¿qué ha pasado con tu cambio?
+  button: Enviar
+  says:
+  - Voy a comprobarlo.
+  otherwise:
+    approved: Has aprobado el cambio, así que ahora las direcciones de correo electrónico salen en claro, desde cualquier agente. En el entorno aislado no ha salido nada de tu equipo, porque el modelo es simulado. Empieza de nuevo para intentarlo otra vez y elige Deshacerlo.
+  turns:
+    told:
+      text: 'Deshecho: las direcciones de correo electrónico siguen enmascaradas. Arreglaré el test sin las reales.'
+      approved: 'Aprobado: ahora las direcciones de correo electrónico salen en claro, así que el test puede tener las reales.'
+end:
+  learned:
+  - Un agente actúa con tus permisos, así que puede cambiar los ajustes de Latet, igual que tú.
+  - Un cambio que reduce la protección espera tu aprobación, lo haya hecho quien lo haya hecho; hasta entonces no cambia nada.
+  - Deshacerlo deja config.yaml como estaba; Aprobar aplica el cambio.
+  where:
+  - Los cambios que te esperan, en Aprobaciones
+  - Tus ajustes, en Reglas

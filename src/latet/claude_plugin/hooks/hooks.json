@@ -1,0 +1,4 @@
+{
+  "description": "Latet client mode: mask before Claude Code builds a request, restore locally, verify every request.",
+  "modules": ["./register.ts"]
+}

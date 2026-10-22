@@ -1,0 +1,125 @@
+---
+title: Live-Prüfer
+description: Sie als letzte Prüfung. Jeder neue Text wartet im Dashboard auf Ihre Freigabe, bevor er Ihren Rechner verlässt.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Die Detektoren von Latet und der [lokale Prüfer](../llm-review/) maskieren, was sie erkennen. Der
+Live-Prüfer bezieht Sie mit ein: Jeder neue Text, den ein Agent senden will, wartet im Dashboard,
+bis Sie ihn freigeben. Sie sehen das Original neben dem, was gesendet wird, und können vorher noch
+mehr maskieren.
+
+## Einschalten
+
+Schalten Sie im Dashboard auf der Seite **Freigaben** oder **Live** den **Live-Prüfer** ein. Oder in
+[config.yaml](../../reference/configuration/#live_review):
+
+```yaml
+live_review:
+  enabled: true
+```
+
+Lassen Sie das Dashboard geöffnet, während Sie arbeiten (`latet dashboard`). Der Eintrag
+**Freigaben** im Menü zeigt, wie viele Texte warten, ebenso der Titel des Browser-Tabs. Mit
+*Benachrichtigen* meldet Ihnen der Browser außerdem, wenn ein Text eintrifft, während Sie in einem
+anderen Tab sind.
+
+## Was wartet und was Sie sehen
+
+<Screenshot name="approvals" alt="Die Seite Freigaben: links zwei wartende Texte; rechts das Original eines Prompts neben dem, was gesendet wird, mit einem vom lokalen Prüfer vorgeschlagenen Namen, der von Hand maskiert wurde, und den Schaltflächen Freigeben und Nicht senden" caption="Freigaben: ein vom lokalen Prüfer vorgeschlagener Name, maskiert, bevor der Prompt gesendet wird." />
+
+Jeder Text, den das Modell nicht geschrieben hat, beim ersten Senden:
+- Ihre Prompts und Anhänge;
+- die Anweisungen, die der Agent erhält (sein System-Prompt, Ihre CLAUDE.md);
+- was die Tools des Agenten abrufen: Dateien, Abfrageergebnisse, Webseiten.
+
+`kinds` wählt unter ihnen aus. Ein Text, den Sie freigegeben haben, wartet in derselben Unterhaltung
+nicht erneut, auch wenn der Agent ihn als Verlauf erneut sendet.
+
+Der in einem [Screenshot oder Bild](../images/) gelesene Text wartet mit dem Bild darüber: Ein
+Rahmen zeigt, wo jeder Wert seinen Ersatzwert erhält, und ein Wert, den Sie in seinem Text maskieren,
+wird auch auf dem Bild überdeckt.
+
+Zu jedem Text sehen Sie das **Original** und **Wird gesendet**, mit dem, was Latet und der lokale
+Prüfer maskiert haben. Was der lokale Prüfer gefunden, aber nicht selbst maskiert hat, ist im
+Original hervorgehoben und lässt sich mit einem Klick maskieren. Konnte der Prüfer einen Text nicht
+lesen (sein Server ist aus, oder seiner Antwort ist nicht zu trauen), wird der Text nicht gestoppt,
+wie es ohne Sie der Fall wäre: Er wartet mit einer Warnung auf Sie, und Sie entscheiden.
+
+Solange ein Text wartet, folgt das, was gesendet wird, Ihren Regeln. Markieren Sie einen Wert als
+*Nicht sensibel*, maskieren Sie einen Wert in einem anderen Text oder ändern Sie eine Einstellung,
+zeigen die noch wartenden Texte das sofort, in jedem offenen Dashboard, und so werden sie gesendet,
+wenn Sie sie freigeben.
+
+## Was Sie tun können
+
+- **Freigeben**: den Text so, wie er ist.
+- **Auswahl maskieren:** Wählen Sie im Original einen Wert aus, und geben Sie an, was er ist (eine
+  Person, eine E-Mail-Adresse, ein Codename...). Er wird als Ersatzwert gesendet, den Latet bei der Freigabe
+  auswählt.
+- **Nicht senden:** Nichts davon verlässt Ihren Rechner. Ein Prompt, den Sie stoppen, wird nicht
+  gesendet, und eine Datei oder Tool-Ausgabe erreicht das Modell stattdessen als kurzer Hinweis.
+- **Auf einem Bild:** Ziehen Sie ein Rechteck über einen beliebigen Teil davon, der dann mit einem
+  Balken überdeckt wird, oder setzen Sie ein Häkchen bei *Dieses Bild nicht senden*: Der Rest der
+  Anfrage wird gesendet, und das Modell erhält an Stelle des Bildes einen kurzen Hinweis.
+  *So, wie es jetzt gesendet wird* zeigt das Bild so, wie Latet es maskiert hat. Ihre Entscheidung
+  wird für dieses Bild versiegelt aufbewahrt: Wird es erneut gesendet, auch nach einem Neustart,
+  geschieht das auf dieselbe Weise.
+- **Alle wartenden freigeben**, so wie Latet sie maskiert hat.
+- **Mit der Tastatur**, sobald Sie die [Tastenkürzel](../../dashboard/#tastenkürzel) einschalten: A gibt
+  frei, X sendet nicht, M maskiert.
+
+Was Sie ändern, prüft der Daemon. Sie können nur Maskierungen hinzufügen: Ein bereits maskierter
+Wert lässt sich nicht wieder in den Klartext zurückholen, und ein bereits verwendeter Ersatzwert
+lässt sich nicht erneut maskieren. Eine Auswahl wird auf ganze Wörter erweitert, da Latet einen Wert
+überall maskiert, wo er als ganzes Wort vorkommt. Ein Wert
+wird nur als ein einziger Typ maskiert, und einen, den Sie als *Nicht sensibel* markiert haben,
+müssen Sie zuerst unter **Regeln** wieder entfernen. Würde ein Wert, den Sie maskiert haben,
+trotzdem im Klartext gesendet, wird der Text stattdessen zurückgehalten. Ein Wert, den Sie maskieren,
+wird wie die Werte, die die Detektoren finden, im Tresor aufbewahrt. Ab dann wird er überall
+maskiert, wo er vorkommt, in jeder Unterhaltung, und die abschließende Prüfung stoppt ihn, wenn er
+im Klartext gesendet werden soll. *Immer maskieren* macht ihn außerdem zu einem Ihrer Begriffe, für
+ein Projekt oder überall, sodass er auch dann maskiert wird, wenn Sie ihn im Tresor vergessen haben.
+
+## Wenn Sie nicht antworten
+
+Ein Text wartet so lange wie nötig. Nichts davon verlässt Ihren Rechner, bevor Sie antworten.
+
+- **Sie stoppen den Agenten** (Esc in Claude Code): Nichts wird gesendet, und der Text verschwindet
+  innerhalb einer Minute aus der Warteschlange.
+- **Kein Dashboard ist geöffnet:** Claude Code meldet das, und der Text wartet weiter, bis Sie eines
+  öffnen.
+- **Ein Zeitlimit,** falls Sie eines möchten: Nach `timeout_s` Sekunden wird der Text nicht gesendet.
+
+```yaml
+live_review:
+  enabled: true
+  auto_approve_clean: true   # a text in which nothing was found leaves without asking you
+  timeout_s: 300             # not set: until you answer
+```
+
+## Wo das geschieht
+
+- **In Claude Code** im Maskierungsschritt des Plugins, bevor Claude Code die Anfrage
+  zusammenstellt. Sie prüfen Stück für Stück jeden Prompt, jede Datei und jede Tool-Ausgabe, sobald
+  sie eintreffen. Claude Code stellt die Anfrage dann mit dem Text zusammen, den Sie freigegeben
+  haben, sodass keine Anfrage nachträglich verändert wird. Solange ein Text im Dashboard auf Ihre
+  Freigabe wartet, zeigt die Statuszeile von Claude Code *waiting for your approval in the dashboard*.
+- **Bei den Agenten, die über das Gateway gehen** (Codex, OpenCode, Hermes Agent...), im Daemon: Die
+  neuen Texte einer Anfrage warten gemeinsam, und die Anfrage wird gesendet, sobald Sie die Texte
+  freigeben. Manche Agenten geben eine Anfrage auf, die zu lange dauert, und versuchen es eventuell
+  erneut; gesendet wird erst, wenn Sie freigeben.
+
+## In einem Projekt
+
+In Ihren eigenen Einstellungen für ein Projekt schaltet `live_review: true` oder `false` ihn dort ein
+oder aus. Die [`latet.yaml`](../projects/) eines Projekts kann ihn nicht einschalten: Ob Sie jeden
+Text prüfen, entscheiden Sie, nicht das Repository.
+
+## Befehle
+
+| Befehl | Was er tut |
+| --- | --- |
+| `latet status` | Zeigt, ob der Live-Prüfer eingeschaltet ist, wie viele Texte warten und wie viele Dashboards geöffnet sind |
+| `latet doctor` | Warnt, wenn der Live-Prüfer eingeschaltet ist und kein Dashboard geöffnet ist |

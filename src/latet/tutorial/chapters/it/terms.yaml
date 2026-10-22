@@ -1,0 +1,36 @@
+title: I tuoi termini
+learn:
+- Perché un nome in codice esce in chiaro, anche se è un segreto
+- Come aggiungere una parola ai tuoi termini, così che Latet la mascheri da quel momento in poi
+- Dove sono i tuoi termini nella dashboard
+steps:
+- title: Un nome in codice esce in chiaro
+  explain: 'Il modello ha ricevuto {{value:codename}} così com''è: Latet non ha trovato niente da mascherare, perché un nome in codice è una parola come le altre e solo tu sai che è un segreto. Nella richiesta che mostra Latet, il nome è in chiaro nel file letto dall''agente. Nel prossimo passaggio insegni questa parola a Latet.'
+  prompt: leggi roadmap.md e dimmi qual è il primo rilascio
+  button: Invia
+  says:
+  - Controllo la roadmap.
+  turns:
+    first:
+      text: 'Il primo rilascio è {{received:CODENAME}}, a marzo: il nuovo checkout.'
+- title: Aggiungilo ai tuoi termini
+  explain: 'Solo tu sai quali parole sono segrete. Aggiungi {{value:codename}} ai tuoi termini e salva: da quel momento Latet lo maschera, in ogni richiesta. Poi, in una nuova conversazione, l''agente fa una domanda su quel nome.'
+  hint: In Termini personalizzati aggiungi {{value:codename}}, poi salva.
+- title: Un nome che il modello non ha mai visto
+  explain: 'L''agente mostra {{value:codename}} perché Latet rimette il nome reale nella risposta. Il modello ha ricevuto {{received:ASKED}}: nella richiesta che mostra Latet compare al posto del nome. Per il modello è un nome mai visto, quindi non sa dire cosa viene dopo.'
+  prompt: cosa viene dopo {{value:codename}}?
+  button: Invia
+  says:
+  - Nuova conversazione.
+  turns:
+    again:
+      text: Cos'è {{received:ASKED}}? Non ho idea di cosa sia.
+end:
+  learned:
+  - Un nome in codice esce in chiaro, perché nessuna regola può sapere che una tua parola è un segreto.
+  - Aggiungilo ai tuoi termini, e da quel momento Latet lo maschera, in ogni richiesta.
+  - Ciò che è stato inviato prima resta com'è stato inviato, quindi aggiungi i tuoi termini prima che ti servano.
+  where:
+  - I tuoi termini, in Regole
+  - La richiesta con il nome mascherato
+  - Ogni valore che Latet ha sostituito

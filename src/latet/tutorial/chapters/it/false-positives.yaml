@@ -1,0 +1,30 @@
+title: Un valore mascherato senza motivo
+learn:
+- Perché a volte Latet maschera un valore che non è sensibile
+- Cosa fa Non sensibile, e quando usarlo
+- Dove sono nella dashboard i valori che lasci passare
+steps:
+- title: Una carta di test, mascherata
+  explain: '{{value:card}} è la carta di test di Stripe, che non addebita niente a nessuno, ma sembra un numero di carta qualsiasi. Latet l''ha mascherata, e il modello ha ricevuto {{received:CARD}}, che ora scambia per la carta di un cliente. Nella richiesta che mostra Latet, la carta è evidenziata dove è stata mascherata. Nel prossimo passaggio dici a Latet che non è sensibile.'
+  prompt: leggi tests/test_checkout.py e aggiungi un test per un rimborso
+  button: Invia
+  says:
+  - Prima leggo il file di test.
+  turns:
+    refused:
+      text: Questa non è la carta di test di Stripe, quindi potrebbe essere quella di un cliente. Non metto una carta reale in un test.
+- title: Non sensibile
+  explain: 'Fai clic sul numero della carta e scegli Non sensibile. Poi l''agente rilegge il file, e questa volta la carta esce in chiaro, perché l''hai segnata come Non sensibile: nella richiesta che mostra Latet è in chiaro nel file che l''agente ha letto. Ogni altro numero di carta resta mascherato. Usa Non sensibile per valori come questo, mai per una chiave o per i dati di qualcuno.'
+  prompt: è la carta di test di Stripe, l'ho segnata come Non sensibile. rileggi il file e aggiungi il test del rimborso
+  hint: Fai clic sul numero della carta nella richiesta, poi scegli Non sensibile.
+  turns:
+    again:
+      text: 'Capito: {{received:CARD}} è la carta di test di Stripe. Aggiungo il test del rimborso.'
+end:
+  learned:
+  - Latet maschera ciò che sembra sensibile, e ogni tanto si tratta di un valore che non lo è.
+  - Non sensibile lascia passare solo quel valore, da quel momento in poi; gli altri dello stesso tipo restano mascherati.
+  - Serve per valori come una carta di test, mai per una chiave o per i dati di qualcuno.
+  where:
+  - I valori che lasci passare, in Regole
+  - La richiesta con la carta in chiaro

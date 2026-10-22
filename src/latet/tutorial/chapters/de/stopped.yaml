@@ -1,0 +1,32 @@
+title: Eine gestoppte Anfrage
+learn:
+- Warum Latet eine Anfrage stoppt, statt sie zu maskieren
+- Wo das Dashboard sagt, warum, und den Wert hervorhebt, der die Anfrage gestoppt hat
+- 'Wie Sie weitermachen: in einer neuen Unterhaltung ohne den geheimen Wert'
+steps:
+- title: Eine Unterhaltung aus der Zeit vor Latet
+  explain: Latet hat diese Anfrage gestoppt, und es wurde nichts gesendet. Dieser Schlüssel ist gestern in die Unterhaltung gelangt, bevor Latet aktiv war, und jede Anfrage sendet die ganze Unterhaltung erneut. Claude Code versiegelt jede Anfrage mit einem Fingerabdruck dieser Unterhaltung, daher darf Latet sie auf dem Weg nach draußen nicht verändern, nur prüfen. Die abschließende Prüfung findet den Schlüssel und stoppt die Anfrage. Ein Schlüssel ist ein geheimer Wert, daher ist Nicht sensibel kein Ausweg.
+  prompt: mach mit dem Deployment weiter
+  button: Senden
+  says:
+  - Zurück zum Deployment von gestern.
+  history:
+  - user: mach das Deployment auf prod mit DEMO_API_KEY={{value:key}} und sag mir, wenn es fertig ist
+  - model: Deployment auf prod läuft. Ich sage dir Bescheid, wenn es fertig ist.
+- title: Eine neue Unterhaltung
+  explain: '/clear beginnt eine neue Unterhaltung: Die alte ist weg und mit ihr der Schlüssel, daher bleibt nichts Geheimes, das gestoppt werden müsste. Der Prompt nennt die Variable, statt den Schlüssel einzufügen, und die Anfrage, die Latet anzeigt, ist durchgegangen.'
+  prompt: mach das Deployment auf prod mit dem Schlüssel aus DEMO_API_KEY und füg ihn nie ein
+  button: Senden
+  says:
+  - Neue Unterhaltung.
+  turns:
+    passed:
+      text: Deployment mit dem Schlüssel aus DEMO_API_KEY läuft. Den Schlüssel selbst habe ich nie erhalten.
+end:
+  learned:
+  - In Claude Code maskiert Latet, bevor eine Anfrage gesendet wird; ein geheimer Wert aus der Zeit, bevor Latet aktiv war, stoppt die Anfrage.
+  - Das Dashboard sagt, warum eine Anfrage gestoppt wurde, und hebt den Wert hervor, der sie gestoppt hat.
+  - Um weiterzumachen, beginnen Sie eine neue Unterhaltung (/clear in Claude Code) und halten den geheimen Wert aus ihr heraus.
+  where:
+  - Die gestoppten Anfragen, unter Live
+  - Die Anfrage, die durchgegangen ist

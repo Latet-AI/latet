@@ -1,0 +1,68 @@
+# The tutorial's fifth chapter: the Live Reviewer, a request that waits for you. Every value is invented. No rule can
+# know the customer's name (the sandbox has no name detection): the user masks it by hand, in the request that waits
+# in Approvals. A rule finds her address. The step says how it ended when the user approved the request as it was
+# (the Approve button sends it so), or chose Don't send.
+id: live
+title: The Live Reviewer
+minutes: 3
+phase: 1
+learn:
+  - How a request can wait for you before it leaves
+  - How to mask by hand a value no rule can know
+  - What Approve, Approve all and Don't send do
+values:
+  name: Emily Carter
+  email: emily.carter@acme.com
+settings:
+  # The prompt waits for you; in Rules, the Live Reviewer's own default is every text the model did not write.
+  live_review: { enabled: true, kinds: [user_text] }
+received:
+  WHO: { value: name, in: user }
+  MAIL: { pattern: '([\w.+-]+@[\w-]+(?:\.[\w-]+)+)', in: user }
+steps:
+  - kind: do
+    title: A request waits for you
+    agent: { says: ["I'll draft the reply."] }
+    prompt: "draft a reply to {{value:name}}, she was charged twice. her address is {{value:email}}"
+    button: Send it
+    wait: { approve: "{{value:name}}", hint: "Select {{value:name}} in the text, choose People, then Approve." }
+    look: { component: approvals }
+    model:
+      - id: draft
+        text: >-
+          Draft: Dear {{received:WHO}}, we're sorry you were charged twice; the refund is on its way. Send it to
+          {{received:MAIL}}.
+    show: { exchange: draft, part: request, highlight: ["{{value:name}}", "{{value:email}}"] }
+    explain: >-
+      With the Live Reviewer on, the request waits for you in Approvals before it leaves. Latet masks the email
+      address, but nothing tells it that {{value:name}} is a customer: this sandbox has no name detection. Select the
+      name, choose People, then Approve: the model gets a fake for it, and the name goes in the vault, masked from
+      then on. Don't send would stop the request.
+    otherwise:
+      in_clear: >-
+        You approved the request as it was, so the model got {{value:name}} in clear: Latet masked only the email
+        address. In the sandbox nothing left your computer, as the model is pretend; a real one would have the name
+        now. Start over to try again, and mask the name before you approve.
+      part_in_clear: >-
+        Part of the name was left in clear, and the model got it as it is. Start over to try again: select the whole
+        name, {{value:name}}, then approve.
+      not_sent: >-
+        You chose Don't send: the request was not sent, the model got nothing, and the agent was told so. Latet
+        shows why it was stopped. Start over to try again: mask the name, then approve.
+    checks:
+      - model_received: { not_contains: ["{{value:name}}", "{{value:email}}"] }
+      - received: { name: WHO, not: "{{value:name}}" }
+      - exchange: { ref: draft, mode: rewrite, masked_rules: ["human:person", "pii:email"] }
+      - shown: { marked: ["{{value:name}}", "{{value:email}}"] }
+      - rules: { masks: "{{value:name}}" }
+      - agent_got: { turn: draft, contains: ["{{value:name}}"] }
+end:
+  learned:
+    - With the Live Reviewer on, every new text waits for you in Approvals before it leaves.
+    - A value you mask by hand goes in the vault, and is masked everywhere from then on.
+    - Approve sends it as shown, Approve all sends everything waiting as Latet masked it, Don't send stops it.
+  where:
+    - { label: "What waits for you, in Approvals", to: "/approvals#texts" }
+    - { label: "Turn it on for real, in Rules: for every project, or for one", to: "/rules#live-review" }
+    - { label: "The request, as it left", to: "exchange:draft" }
+  next: settings

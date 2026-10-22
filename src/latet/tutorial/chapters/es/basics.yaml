@@ -1,0 +1,39 @@
+title: Lo básico
+learn:
+- Qué recibe el modelo en lugar de una clave, una dirección de correo electrónico o un número de teléfono
+- Por qué los archivos que escribe el agente siguen teniendo los valores reales
+- Dónde muestra el panel cada valor y la regla que lo ha detectado
+steps:
+- title: Una clave sale como valor ficticio
+  explain: 'El agente ha leído .env y lo ha enviado al modelo. Antes de que saliera, Latet ha sustituido la clave por un valor ficticio con el mismo formato. La petición que muestra Latet tiene las dos cosas: el texto tal como está en tu equipo y lo que ha recibido el modelo.'
+  prompt: lee .env y prepara config.local.json para prod
+  button: Enviar
+  says:
+  - Primero leo .env.
+  turns:
+    write:
+      text: Ya tengo la clave. Escribo la configuración.
+- title: El archivo contiene la clave real
+  explain: El modelo ha puesto su valor ficticio ({{received:DEMO_API_KEY}}) en la llamada a Write. Latet ha restaurado la clave real antes de que el agente la ejecutara, así que el archivo funciona.
+  button: Dejar que escriba
+  turns:
+    done:
+      text: Hecho. config.local.json está listo para prod.
+- title: Pregunta a Latet
+  explain: Haz clic en el valor resaltado. Latet te dice qué es, qué regla lo ha detectado y qué se ha enviado en su lugar.
+- title: También las personas
+  explain: 'La dirección y el número también han salido como valores ficticios. Aun así, el agente te muestra los reales: Latet los ha restaurado en la respuesta.'
+  prompt: envía la factura por correo a {{value:email}}, su teléfono es {{value:phone}}
+  button: Enviar
+  turns:
+    email:
+      text: No puedo enviar correos, pero he tomado nota de {{received:EMAIL}} y {{received:PHONE}}.
+end:
+  learned:
+  - El modelo recibe valores ficticios con el mismo formato; los valores reales se quedan en tu equipo.
+  - Lo que vuelve se restaura, así que los archivos que escribe tu agente contienen los valores reales.
+  - 'El panel muestra cada petición: el texto tal como está en tu equipo y lo que ha recibido el modelo.'
+  where:
+  - Cada petición, en tiempo real
+  - La petición con la clave
+  - Cada valor que Latet ha sustituido

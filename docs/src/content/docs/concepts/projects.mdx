@@ -1,0 +1,210 @@
+---
+title: Projects
+description: Settings for one project, in a latet.yaml shared through its repository and in your own config.yaml.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+Latet has one configuration for everything, `config.yaml`. A project can add to it in two ways:
+
+| | Where | Shared | What it can do |
+| --- | --- | --- | --- |
+| **The project file**, `latet.yaml` | in the project's repository | with everyone who works on it | only add protection |
+| **Your settings for the project** | in your `config.yaml`, under `projects:` | no | anything, including turning Latet off there |
+
+The first is for what the whole team needs: the formats of the project's own codes, the countries of
+its customers, a stricter profile. The second is for what is yours: the names of your clients, values
+that are not sensitive to you, a project where you do not want Latet at all.
+
+On a computer connected to a Latet server, the project file is not applied: the server reads none of
+the computer's files, and applies your own settings and the settings it shares. In such a project
+`latet doctor` and `latet claude` say so. To use its rules there, import the `latet.yaml` in your
+dashboard, on **Rules** with **Import rules**. See
+[What stays on the computer](../server/#what-stays-on-the-computer).
+
+<Screenshot name="project" alt="A project's rules in the dashboard, in the tabs of the global rules: its Overview, with what is in effect there and your own settings for it as a whole" caption="A project's rules: Rules, with the project picked at the top." />
+
+## Which project a session is in
+
+The folder the agent works in decides.
+- **Claude Code:** the plugin tells Latet.
+- **Codex, OpenCode and Gemini CLI:** they name the folder in their requests.
+- **Any other client:** it can send the header `x-latet-project: <folder>`.
+
+A session whose folder is unknown uses your global settings.
+
+The project of a folder is the folder of the nearest `latet.yaml`, from the folder up to the root of
+its git repository. Without one, it is the repository; outside a repository, the folder itself. Only
+the nearest file applies: a subfolder with its own file is a project of its own, and the two are not
+combined.
+
+## The project file
+
+`latet project init` writes one to start from, at the root of the repository. The dashboard's
+**Rules** page writes it too: pick the project in the selector at the top. Its terms, recognizers
+and policies are rows of the *Terms*, *Recognizers* and *Policies* tables, marked *latet.yaml*,
+changed in their panel; a new one goes to the file when its panel's *Save to* says `latet.yaml`. The
+*Repository file* tab holds the rest of the file, and creates it.
+
+```yaml
+# yaml-language-server: $schema=https://docs.latet.ai/project.schema.json
+profile: max
+id_regions: [DE, FR]
+terms:
+  - {value: Project Falcon, type: PROJECT}
+recognizers:
+  - name: badge
+    description: Badge numbers, two letters, a dash and six digits
+    pattern: '\bBD-\d{6}\b'
+    examples:
+      match: ['badge BD-381904']
+      no_match: ['BD-12']
+policies: {EMAIL: redact}
+```
+
+**A value replaces yours only when it is stricter:**
+- `profile`: secrets, then balanced, then max (which turns strict data mode on there, unless `data`
+  is set);
+- `policies`: allow, then mask, then redact;
+- `include_private_ips`: only `true`;
+- `ner`: only `auto`;
+- `data`: only `strict`; `images`: only fewer, `mask` then `block`; `ocr`: only `auto`;
+  `dump_guard`: only lower (see [Production data](../production-data/));
+- `llm_review`: off, then background, then inline, when the reviewer is on (see
+  [Local reviewer](../llm-review/#in-a-project)).
+
+**A list is added to yours:** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
+`data_files`, `data_hosts` and `fields` (only rules that mask). A recognizer whose name is already in
+use is turned off.
+
+**What a repository file cannot set is ignored:** values and patterns never to mask, secret rules
+turned off, the tools strict data mode covers (`data_tools`), Latet off, the Live Reviewer, guidance
+for the local reviewer, whether it sees the images, and the settings of the whole of Latet (`port`,
+`history`, `identity`...).
+`latet project check` and `latet project show` list what is ignored and why. A repository you
+clone cannot turn your protection down.
+
+**Things to know about the file:**
+- It may hold up to 500 terms and 100 recognizers, in at most 256 KB.
+- A file of more than 20,000 YAML entries (keys, values and the lists and mappings around them;
+  about four times what a full file of 500 terms and 100 recognizers holds) is not valid: nothing in
+  it applies, and `latet project check` says so.
+- A file that cannot be read has no effect, and Latet keeps working.
+- Latet reads the file again when it changes: there is nothing to reload.
+- Terms in the file can be read by everyone who reads the repository. Put your clients' names in
+  your own settings instead.
+
+`latet project check` exits with 1 when something in the file is ignored or an example fails, and
+with 2 when there is no file or it cannot be read, so a CI job can keep the file clean. Its
+[JSON Schema](https://docs.latet.ai/project.schema.json) (also
+`latet config schema --project`) lets editors complete and check it.
+
+## Your settings for a project
+
+In `config.yaml`:
+
+```yaml
+projects:
+  - path: C:\Users\you\dev\acme
+    terms:
+      - {value: Acme Logistica, type: CLIENT}
+    allow_values: [acme-dev]
+```
+
+They apply after the project file, and may also loosen it:
+- values and patterns never to mask;
+- secret rules turned off;
+- a profile or a policy weaker than the global one;
+- fields kept in clear in strict data mode, strict data mode off (`data: normal`), images sent,
+  the text in images not read (`ocr: off`), the dump guard raised or off.
+
+Only your own settings turn the [Live Reviewer](../live-review/) on or off in a project
+(`live_review`), and give the local reviewer guidance there (`review_guidance`, see
+[Your guidance](../llm-review/#your-guidance)).
+
+An entry applies to its folder and to everything in it; when two entries match, the nearer folder
+wins. `latet rules add FILE --project FOLDER` adds recognizers to it.
+
+On the project's **Rules** page in the dashboard, each list (terms, recognizers, values never to
+mask, policies) is a table of every rule that applies in the project, each row saying where it
+comes from: *yours, for* the project, *latet.yaml*, or *global*. A rule is changed where it is born:
+yours in the project's tables, the global ones in the global rules (the panel of a global row is
+read only, with a link there). *Add* writes to your own settings for the project.
+
+### Secrets only, or Latet off, in a project
+
+On the project's **Rules** page in the dashboard, in the *Protection* tab, *Protection* is *On*,
+*Secrets only* or *Off*.
+*Secrets only* masks secrets and your terms there, and lets personal data and your identity through:
+the `secrets` profile, in your own settings for the project.
+
+`latet project off` turns Latet off in the project of the current folder (or of the folder
+given). So does *Protection: Off*:
+- nothing is masked or blocked there;
+- surrogates already in a conversation are still restored;
+- the dashboard marks those exchanges *Latet off*.
+
+`latet project on` turns it on again. Only your own settings can turn it off, never a project
+file. Turned off by an agent, or in `config.yaml` by hand, it waits for your approval in the
+dashboard first (see [Agents and your settings](../agents-and-settings/)).
+
+## The repositories Latet remembers
+
+Latet remembers the folders of the last 2,000 repositories it has seen with a `latet.yaml` of their
+own, in `repositories.json` in its data folder. A change of `config.yaml` that would lower protection
+only where a project file is stricter then waits for your approval, even in a repository no
+conversation has reached since the daemon started. Their files are read again:
+
+- at a reload (`latet reload`, or a command that changes your settings) whose change could lower
+  protection in a repository;
+- at a start that finds `config.yaml` changed in such a way since the settings you approved last;
+- at an import in the dashboard.
+
+A change of what protects nothing in a project (the port, the history and how long it is kept), or
+one that only adds protection (a term), reads none. A helper process reads them, with 10 seconds for
+all of them and 2 for each. A repository that cannot be read now (on a share that does not answer,
+or a file you may not read) is never taken for one with nothing in it: a change that could lower its
+protection neither applies nor waits for you, and the reload says so.
+
+To find such a repository, and take it out of the list:
+
+```sh
+latet repositories                       # each repository remembered, with its state
+latet repositories forget C:\dev\old-app # takes one out of the list
+```
+
+`latet repositories` shows each one as *read*, *nothing to weigh* (not there now, not a regular
+file, not valid) or *unavailable* (not readable now, not read in time), never what its file holds.
+`latet repositories forget` lowers protection, so it refuses to run in an agent and asks you before
+it forgets one: run it yourself, in a terminal of your own. The repository is remembered, and
+weighed again, once a conversation reaches it.
+
+When `repositories.json` itself cannot be read (a folder, a link or a file larger than the list may
+be in its place), a change that could lower protection in a repository neither applies nor waits
+for you, and `latet repositories` says so. If it stays so, move `repositories.json` aside, at your
+own terminal: Latet then remembers repositories again as conversations reach them.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `latet project init [FOLDER] [--suggest]` | Writes a `latet.yaml` to start from; `--suggest` adds draft recognizers for the formats no rule covers there |
+| `latet project show [FOLDER] [--json]` | What applies in a project, and what is ignored |
+| `latet project check [FOLDER]` | Checks the project file, recognizers included |
+| `latet project off` / `on [FOLDER]` | Turns Latet off, or on again, in a project |
+| `latet repositories` | The repositories Latet remembers, each with its state |
+| `latet repositories forget FOLDER` | Takes one out of the list (yours alone: it refuses an agent) |
+| `latet rules add FILE --repo FOLDER` | Adds recognizers to the project file instead of `config.yaml` (`--project`: to your settings for the project) |
+| `latet config schema --project` | Prints the project file's JSON Schema |
+
+## Good to know
+
+- **The vault is the same for every project.** A value masked once, in any project, is masked
+  wherever it appears from then on.
+- **Some settings stay global:** the port, the history, your identity and Claude Code's auto mode
+  reviewer.
+- **`latet rules add --repo` rewrites `latet.yaml`:** only its first lines of comments are kept.
+- **In [Docker](../../getting-started/docker/):**
+  - your own settings work, by the folder's path;
+  - the project file is read only when the project's folder is mounted in the container at the same
+    path.

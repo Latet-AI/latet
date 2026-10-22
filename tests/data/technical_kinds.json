@@ -1,0 +1,28 @@
+{
+  "about": "What a column's name says its values are: the cases both latet.columns.technical_kind and the dashboard's technicalKind (lib/fields.ts) are tested on.",
+  "cases": [
+    {"field": "id", "kind": "id"},
+    {"field": "order_id", "kind": "id"},
+    {"field": "items[].customerId", "kind": "id"},
+    {"field": "created_at", "kind": "date"},
+    {"field": "updatedOn", "kind": "date"},
+    {"field": "creato_il", "kind": "date"},
+    {"field": "data_ordine", "kind": "date"},
+    {"field": "data", "kind": null},
+    {"field": "data_nascita", "kind": null},
+    {"field": "birth_date", "kind": null},
+    {"field": "nato_il", "kind": null},
+    {"field": "status", "kind": "state"},
+    {"field": "order.stato", "kind": "state"},
+    {"field": "qty", "kind": "count"},
+    {"field": "email", "kind": null},
+    {"field": "note", "kind": null},
+    {"field": "at", "kind": null},
+    {"field": "name", "kind": null},
+    {"field": "attivo", "kind": "state"},
+    {"field": "compleanno", "kind": null},
+    {"field": "data_decesso", "kind": null},
+    {"field": "hiv_status", "kind": null},
+    {"field": "marital_status", "kind": null}
+  ]
+}

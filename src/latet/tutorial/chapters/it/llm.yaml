@@ -1,0 +1,37 @@
+title: Il revisore locale
+learn:
+- Cosa trova il revisore locale che i pattern di Latet non possono trovare
+- Come le tue indicazioni gli dicono cos'altro è riservato nel tuo lavoro
+- Dove la dashboard mostra le tue indicazioni e ciò che ha trovato il revisore
+steps:
+- title: Ciò che nessun pattern trova
+  explain: 'I pattern di Latet qui non hanno trovato niente: l''indirizzo email è scritto a parole, l''IBAN ha un errore di battitura (le sue cifre di controllo non tornano, quindi nessun pattern lo prende per un IBAN), e un nome o una diagnosi non hanno affatto un formato. Il revisore locale ha letto il ticket prima che uscisse, come farebbe una persona, ha trovato tutti e quattro i valori e Latet li ha mascherati: il modello ha ricevuto {{received:NAME}} per il nome. {{value:ward}} è uscito in chiaro: niente indica al revisore che, in questo ospedale, il nome di un reparto dice chi si trova dove.'
+  prompt: leggi ticket-4182.md e riassumilo
+  button: Invia
+  says:
+  - Leggo il ticket.
+  turns:
+    summary:
+      text: '{{received:NAME}} non riesce ad accedere al portale dei pazienti da lunedì e ha bisogno dei risultati degli esami del sangue prima di venerdì ({{received:CONDITION}}). Rispondi a {{received:WRITTEN}}; il rimborso del parcheggio va accreditato su {{received:ACCOUNT}}.'
+- title: Le tue indicazioni
+  explain: 'Ciò che è riservato nel tuo lavoro lo dici al revisore con parole tue: le tue indicazioni accompagnano le sue istruzioni a ogni revisione. Qui sono scritte per te: salvale. Un revisore reale segue ciò che dicono; il Tutorial Reviewer, che è simulato, controlla solo che ci siano indicazioni salvate. Nella tua dashboard sono in Regole, alla voce Revisore locale.'
+  hint: Salva le indicazioni così come sono scritte.
+  guidance: 'I nomi dei reparti sono riservati: in questo ospedale, il nome di un reparto dice chi si trova dove.'
+- title: Un reparto che nessuno ha elencato
+  explain: 'Con le tue indicazioni, il revisore ha trovato entrambi i reparti e Latet li ha mascherati: {{value:ward}}, e {{value:other_ward}}, che non aveva mai visto. Il modello ha ricevuto {{received:OTHER_WARD}} per {{value:other_ward}}. I tuoi termini mascherano le parole che elenchi; le indicazioni descrivono un tipo di valore, e valgono anche per quelli che non hai elencato.'
+  prompt: leggi handover.md e dimmi cosa serve al turno di notte
+  button: Invia
+  says:
+  - Nuova conversazione.
+  turns:
+    needs:
+      text: In {{received:OTHER_WARD}} manca un infermiere stanotte, e l'agenzia ne manda uno alle 23:00. In {{received:WARD}} ci sono due letti liberi.
+end:
+  learned:
+  - 'Il revisore locale, un modello linguistico sul tuo computer, trova ciò che non ha un formato noto ai pattern: un indirizzo email scritto a parole, un IBAN con un errore, un nome o una diagnosi in una frase.'
+  - Le tue indicazioni gli dicono, con parole tue, cos'altro è riservato nel tuo lavoro, e valgono anche per valori che non hai mai elencato.
+  - 'Il tuo revisore locale gira sul tuo computer, con llama.cpp, Ollama o LM Studio: lo configuri in Regole, alla voce Revisore locale, e lì scegli cosa maschera da solo (il resto si limita a suggerirlo).'
+  where:
+  - Il revisore locale e le tue indicazioni, in Regole
+  - Il ticket, con ciò che ha trovato il revisore
+  - La nota delle consegne, con entrambi i reparti mascherati

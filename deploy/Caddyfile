@@ -1,0 +1,28 @@
+# Caddy holds the certificate and sends each request to a ready instance, without sticky sessions.
+{
+	admin off
+	# Proxy errors serialize request URIs and custom authentication headers too.
+	log default {
+		exclude http.log.error
+	}
+}
+
+{$LATET_SERVER_HOST} {
+	tls /certs/server.crt /certs/server.key
+	# Match max_request_mb's binary MiB bound. Apply per-client limits at a load balancer or WAF in front:
+	# Caddy's standard build has no rate limiter. Do not enable access logs: paths hold route credentials.
+	request_body {
+		max_size 32MiB
+	}
+	reverse_proxy latet-server-1:5283 latet-server-2:5283 {
+		lb_policy round_robin
+		lb_try_duration 5s
+		health_uri /_latet/ready
+		health_interval 10s
+		health_headers {
+			Host {$LATET_SERVER_HOST}
+		}
+		# Pass streamed replies and WebSocket upgrades immediately; long answers have no short read timeout.
+		flush_interval -1
+	}
+}

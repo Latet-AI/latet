@@ -1,0 +1,37 @@
+title: El revisor local
+learn:
+- Qué encuentra el revisor local que los patrones de Latet no pueden encontrar
+- Cómo tus indicaciones le dicen qué más es confidencial en tu trabajo
+- Dónde muestra el panel tus indicaciones y lo que ha encontrado el revisor
+steps:
+- title: Lo que ningún patrón encuentra
+  explain: 'Los patrones de Latet no han encontrado nada aquí: la dirección de correo electrónico está escrita con palabras, el IBAN tiene una errata (sus dígitos de control no cuadran, así que ningún patrón lo toma por un IBAN), y un nombre o un diagnóstico no tienen ningún formato. El revisor local ha leído la incidencia antes de que saliera, como lo haría una persona, ha encontrado los cuatro valores y Latet los ha enmascarado: el modelo ha recibido {{received:NAME}} en lugar del nombre. {{value:ward}} ha salido en claro: nada le indica al revisor que, en este hospital, el nombre de una unidad dice quién está dónde.'
+  prompt: lee ticket-4182.md y resúmelo
+  button: Enviar
+  says:
+  - Leo la incidencia.
+  turns:
+    summary:
+      text: '{{received:NAME}} no puede entrar en el portal del paciente desde el lunes y necesita los resultados del análisis de sangre antes del viernes ({{received:CONDITION}}). Responde a {{received:WRITTEN}}; el reembolso del aparcamiento se ingresa en {{received:ACCOUNT}}.'
+- title: Tus indicaciones
+  explain: 'Lo que cuenta como confidencial en tu trabajo se lo dices al revisor con tus propias palabras: tus indicaciones acompañan a sus instrucciones en cada revisión. Aquí están escritas para ti: guárdalas. Un revisor real sigue lo que dicen; el Tutorial Reviewer, que es simulado, solo comprueba que haya indicaciones guardadas. En tu propio panel están en la sección Revisor local de Reglas.'
+  hint: Guarda las indicaciones tal como están escritas.
+  guidance: 'Los nombres de las unidades son confidenciales: en este hospital, el nombre de una unidad dice quién está dónde.'
+- title: Una unidad que no estaba en ninguna lista
+  explain: 'Con tus indicaciones, el revisor ha encontrado las dos unidades y Latet las ha enmascarado: {{value:ward}}, y {{value:other_ward}}, que nunca había visto. El modelo ha recibido {{received:OTHER_WARD}} en lugar de {{value:other_ward}}. Tus términos enmascaran las palabras de tu lista; las indicaciones describen un tipo de valor y valen también para los que no están en ella.'
+  prompt: lee handover.md y dime qué necesita el turno de noche
+  button: Enviar
+  says:
+  - Conversación nueva.
+  turns:
+    needs:
+      text: En {{received:OTHER_WARD}} falta un enfermero esta noche, y la agencia manda uno a las 23:00. En {{received:WARD}} hay dos camas libres.
+end:
+  learned:
+  - 'El revisor local, un modelo de lenguaje en tu equipo, encuentra lo que no tiene ningún formato conocido por los patrones: una dirección de correo electrónico escrita con palabras, un IBAN con un error, un nombre o un diagnóstico en una frase.'
+  - Tus indicaciones le dicen, con tus propias palabras, qué más es confidencial en tu trabajo, y valen también para valores que nunca has puesto en una lista.
+  - 'Tu propio revisor local se ejecuta en tu equipo, con llama.cpp, Ollama o LM Studio: lo configuras en la sección Revisor local de Reglas, y allí eliges qué enmascara por su cuenta (lo demás, solo lo sugiere).'
+  where:
+  - El revisor local y tus indicaciones, en Reglas
+  - La incidencia, con lo que ha encontrado el revisor
+  - La nota del cambio de turno, con las dos unidades enmascaradas

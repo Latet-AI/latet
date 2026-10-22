@@ -1,0 +1,80 @@
+# The tutorial's second chapter: a codename no rule can know is a secret, until it is one of your terms. Every value
+# is invented. Once the codename is a term, the agent asks about it in a new conversation: nothing the model saw
+# before goes with it (the roadmap, its own first answer), so the fake it gets is a name it has never seen, and its
+# answer says so.
+id: terms
+title: Your own terms
+minutes: 3
+phase: 1
+learn:
+  - Why a codename leaves in clear, though it is a secret
+  - How to add a word to your terms, so that Latet masks it from then on
+  - Where your terms are in the dashboard
+values:
+  codename: Project Falcon
+settings: {}
+files:
+  roadmap.md: |
+    # Roadmap
+    {{value:codename}} ships in March: the new checkout.
+    Hiring starts in April.
+received:
+  CODENAME: { pattern: '(?m)^(.+) ships in March', in: tool_result }
+  ASKED: { value: codename, in: user }
+steps:
+  - kind: watch
+    title: A codename leaves in clear
+    agent: { files: [roadmap.md], says: ["I'll check the roadmap."] }
+    prompt: read roadmap.md and tell me what ships first
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: roadmap.md } } }
+      - { id: first, text: "{{received:CODENAME}} ships first, in March: the new checkout." }
+    show: { exchange: first, part: request, highlight: ["{{value:codename}}"] }
+    explain: >-
+      The model got {{value:codename}} as it is: Latet found nothing to mask, as a codename is a word like
+      any other and only you know it is a secret. In the request Latet shows, the name is in clear in the
+      file the agent read. Next, you teach Latet the word.
+    checks:
+      - model_received: { contains: ["{{value:codename}}"] }
+      - received: { name: CODENAME, equals: "{{value:codename}}" }
+      - exchange: { ref: first, mode: rewrite }
+      - shown: { clear: ["{{value:codename}}"] }
+  - kind: do
+    title: Make it one of your terms
+    wait: { term: "{{value:codename}}", hint: "In Custom terms, add {{value:codename}}, then save." }
+    look: { component: terms }
+    show: { component: terms }
+    explain: >-
+      Only you know which words are secret. Add {{value:codename}} to your terms and save: Latet masks it
+      from then on, in every request. Then the agent asks about it in a new conversation.
+    checks:
+      - rules: { term: "{{value:codename}}" }
+  - kind: watch
+    title: A name the model has never seen
+    agent: { clear: true, says: ["New conversation."] }
+    prompt: "what ships after {{value:codename}}?"
+    button: Send it
+    model:
+      - { id: again, text: "What's {{received:ASKED}}? No idea what this is." }
+    show: { exchange: again, part: request, highlight: ["{{value:codename}}"] }
+    explain: >-
+      The agent shows {{value:codename}} because Latet puts the real name back in the answer. The model got
+      {{received:ASKED}}: the request Latet shows has it in place of the name. To the model it is a name it
+      has never seen, so it cannot tell what ships after it.
+    checks:
+      - model_received: { not_contains: ["{{value:codename}}"] }
+      - received: { name: ASKED, not: "{{value:codename}}" }
+      - exchange: { ref: again, mode: rewrite, masked_classes: [CUSTOM] }
+      - shown: { marked: ["{{value:codename}}"] }
+      - agent_got: { turn: again }
+end:
+  learned:
+    - A codename leaves in clear, as no rule can know that a word of yours is a secret.
+    - Add it to your terms, and Latet masks it from then on, in every request.
+    - What was sent before stays as it was sent, so add your terms before you need them.
+  where:
+    - { label: "Your terms, in Rules", to: "/rules#terms" }
+    - { label: "The request with the name masked", to: "exchange:again" }
+    - { label: "Every value Latet replaced", to: /vault }
+  next: false-positives

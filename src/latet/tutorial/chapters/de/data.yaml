@@ -1,0 +1,30 @@
+title: Produktionsdaten
+learn:
+- Was der strikte Datenmodus mit dem Ergebnis einer Abfrage macht
+- Welche Spalten im Klartext an das Modell gehen können und wie Sie sie auswählen
+- Wo Ihre Auswahl gespeichert wird
+steps:
+- title: Eine Abfrage auf Produktionsdaten
+  explain: 'In diesem Kapitel ist der strikte Datenmodus eingeschaltet: Jeder Wert einer Tabelle, die ein Tool ausgibt, wird maskiert gesendet, auch IDs und Datumsangaben. Das Modell hat {{received:ID}} für die ID {{value:id}} und {{received:PLAN}} für den Plan {{value:plan}} erhalten, daher hat es niemanden mit pro gefunden, und seine Antwort ist falsch. Die Namen und E-Mail-Adressen sind geschützt, aber das Modell kann seine Aufgabe nicht erledigen.'
+  prompt: wie viele unserer neuesten Kunden sind im Plan pro?
+  button: Senden
+  says:
+  - Ich frage die Tabelle customers ab.
+  turns:
+    table:
+      text: 'Keiner: In keiner Zeile steht pro.'
+- title: Lassen Sie IDs, Datumsangaben und Pläne im Klartext
+  explain: 'Eine ID, das Datum eines Ereignisses oder ein Plan sagt nichts über eine Person aus, daher kann das Modell diese Werte im Klartext erhalten. Latet schlägt diese Spalten vor, lässt die Namen und E-Mail-Adressen maskiert und überlässt Ihnen die Beträge. Lassen Sie die vorgeschlagenen Spalten im Klartext, und der Agent führt die Abfrage erneut aus: Diese werden im Klartext gesendet, die Spalten mit personenbezogenen Daten bleiben maskiert, und das Modell kann antworten.'
+  prompt: versuch es noch mal
+  hint: 'Lassen Sie die 3 Spalten, die Latet vorschlägt, im Klartext: id, signup_date und plan_type.'
+  turns:
+    again:
+      text: 'Zwei von fünf: die Kunden 1001 und 1004, seit Januar bzw. März im Plan pro. Wer sie sind, kann ich immer noch nicht sagen.'
+end:
+  learned:
+  - Der strikte Datenmodus maskiert jeden Wert einer Tabelle, die ein Tool ausgibt, daher kann das Modell auch keine ID und kein Datum lesen.
+  - IDs, Datumsangaben von Ereignissen und Status sagen nichts über eine Person aus; lassen Sie sie im Klartext, und die personenbezogenen Daten bleiben maskiert.
+  - Was Sie im Klartext lassen, wird zu einer Feldregel im Abschnitt Produktionsdaten unter Regeln, wo Sie sie zurücknehmen können.
+  where:
+  - Der strikte Datenmodus und Ihre Feldregeln, unter Regeln
+  - Die zweite Abfrage, mit IDs, Datumsangaben und Plänen im Klartext

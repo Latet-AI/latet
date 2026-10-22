@@ -1,0 +1,36 @@
+title: Ihre eigenen Begriffe
+learn:
+- Warum ein Codename im Klartext gesendet wird, obwohl er geheim ist
+- Wie Sie ein Wort zu Ihren Begriffen hinzufügen, damit Latet es von da an maskiert
+- Wo Sie Ihre Begriffe im Dashboard finden
+steps:
+- title: Ein Codename wird im Klartext gesendet
+  explain: 'Das Modell hat {{value:codename}} unverändert erhalten: Latet hat nichts gefunden, was zu maskieren wäre, denn ein Codename ist ein Wort wie jedes andere, und nur Sie wissen, dass er geheim ist. In der Anfrage, die Latet anzeigt, steht der Name im Klartext in der Datei, die der Agent gelesen hat. Als Nächstes bringen Sie Latet das Wort bei.'
+  prompt: lies roadmap.md und sag mir, was als Erstes erscheint
+  button: Senden
+  says:
+  - Ich sehe mir die Roadmap an.
+  turns:
+    first:
+      text: '{{received:CODENAME}} erscheint als Erstes, im März: der neue Checkout.'
+- title: Fügen Sie ihn Ihren Begriffen hinzu
+  explain: 'Nur Sie wissen, welche Wörter geheim sind. Fügen Sie {{value:codename}} Ihren Begriffen hinzu, und speichern Sie: Von da an maskiert Latet den Namen in jeder Anfrage. Anschließend fragt der Agent in einer neuen Unterhaltung nach diesem Namen.'
+  hint: Fügen Sie {{value:codename}} unter Eigene Begriffe hinzu, und speichern Sie dann.
+- title: Ein Name, den das Modell nie gesehen hat
+  explain: 'Der Agent zeigt {{value:codename}}, weil Latet den echten Namen in der Antwort wieder einsetzt. Das Modell hat {{received:ASKED}} erhalten: In der Anfrage, die Latet anzeigt, steht dieser Ersatzwert an der Stelle des Namens. Für das Modell ist es ein Name, den es nie gesehen hat, daher kann es nicht sagen, was danach erscheint.'
+  prompt: was erscheint nach {{value:codename}}?
+  button: Senden
+  says:
+  - Neue Unterhaltung.
+  turns:
+    again:
+      text: Was ist {{received:ASKED}}? Keine Ahnung, was das ist.
+end:
+  learned:
+  - Ein Codename wird im Klartext gesendet, denn keine Regel kann wissen, dass ein Wort von Ihnen geheim ist.
+  - Fügen Sie ihn Ihren Begriffen hinzu, dann maskiert Latet ihn von da an in jeder Anfrage.
+  - Was vorher gesendet wurde, bleibt so, wie es gesendet wurde; fügen Sie Ihre Begriffe also hinzu, bevor Sie sie brauchen.
+  where:
+  - Ihre Begriffe, unter Regeln
+  - Die Anfrage mit dem maskierten Namen
+  - Jeder Wert, den Latet ersetzt hat

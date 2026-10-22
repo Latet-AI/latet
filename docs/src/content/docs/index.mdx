@@ -1,0 +1,116 @@
+---
+title: Latet
+description: A local privacy firewall for AI agents. Secrets and personal data are swapped for realistic fakes before they leave your machine, and restored locally.
+template: splash
+hero:
+  title: A local privacy firewall for AI agents
+  tagline: Coding agents and autonomous agents read your files, databases, logs and mailboxes, and send it all to a model in the cloud. Latet swaps every secret and personal value for a realistic fake before it leaves your machine, and puts the real one back locally, so your agent keeps working normally.
+  image:
+    light: ../../assets/logo.png
+    dark: ../../assets/logo-white.png
+    alt: The Latet mark, an L and a T around an eye whose gaze breaks into pixels
+  actions:
+    - text: Get started
+      link: getting-started/installation/
+      icon: right-arrow
+    - text: How it works
+      link: concepts/how-it-works/
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import ProductVideo from '../../components/ProductVideo.astro';
+import Screenshot from '../../components/Screenshot.astro';
+
+<ProductVideo />
+
+## What it protects
+
+AI agents read for you, and autonomous agents such as Hermes Agent, OpenClaw, Goose and OpenHands
+do it on their own, for hours, with no one reading each step. Every request is checked before it
+leaves, whatever put the text in it:
+
+| What leaves your machine | For example | What Latet does |
+| --- | --- | --- |
+| Your prompts | *"Send the IBAN <span class="real">GB82 WEST 1234 5698 7654 32</span> to <span class="real">Emily Carter</span>"* | Each value becomes a fake of the same shape, the name with the optional local name model; the answer comes back with the real ones |
+| Files the agent reads | `.env`, `config.yaml`, test fixtures, a customer export | Keys, passwords, connection strings and personal data are masked; files the agent writes get the real values back |
+| Command output and logs | `docker logs`, a stack trace, `kubectl describe` | Tokens, email addresses, public IP addresses and ID numbers in them are masked |
+| Database queries | `psql`, or an MCP server answering `SELECT * FROM customers` | Secret columns always; with [strict data mode](concepts/production-data/) every value, with fakes that keep joins and counts working |
+| Web pages | An admin panel the agent opens with a browser tool | The personal data in the page's text is masked |
+| Instructions | CLAUDE.md, AGENTS.md, the system prompt | Your name, user name, host name and company domain are masked |
+| History | A session resumed ten days later | The same value gets the same fake, every time |
+| Screenshots | A screenshot of an invoice | With the optional [text recognition](concepts/images/), the text in it is read on your machine and each value is covered with its fake; PDFs are flagged, or not sent (`images: block`) |
+| What no pattern finds | *"Mark from sales is quietly interviewing at a competitor"* | The optional [local reviewer](concepts/llm-review/), a language model of yours, finds it before it leaves, following Latet's instructions and [your own guidance](concepts/llm-review/#your-guidance): what counts as sensitive in your work, everywhere or in one project |
+
+## How it protects
+
+<CardGrid>
+	<Card title="Detects before anything leaves" icon="magnifier">
+		Secrets (API keys, tokens, passwords, private keys, credentials in connection strings),
+		personal data (emails, phone numbers, IBANs, card numbers, VAT numbers, the ID and tax numbers
+		of 15 countries), your own terms and formats, and this machine's identity.
+	</Card>
+	<Card title="Swaps in realistic fakes" icon="random">
+		Each value becomes a deterministic fake of the same shape, the same every time, so code and
+		configuration still make sense to the model.
+	</Card>
+	<Card title="Restores on your machine" icon="laptop">
+		Originals are put back locally, in answers, streamed output and tool-call arguments, so the
+		files your agent writes contain the real values.
+	</Card>
+	<Card title="Adapts to each project" icon="setting">
+		A `latet.yaml` in a repository adds the project's own terms and formats, shared with the team,
+		and can never turn protection down.
+	</Card>
+	<Card title="Reads data by its structure" icon="document">
+		Secret columns of a query result are always masked, and strict data mode masks every value of
+		the tables, JSON and logs an agent reads.
+	</Card>
+	<Card title="Reviews what no pattern finds" icon="approve-check-circle">
+		If you want, a language model on a server of yours reads every text before it leaves: names in
+		passing, health details, a password written in a sentence.
+	</Card>
+	<Card title="Shows you the evidence" icon="list-format">
+		A local [dashboard](dashboard/) shows exactly what was sent upstream and how each value was
+		masked.
+	</Card>
+</CardGrid>
+
+## See what left your machine
+
+`latet dashboard` opens a local page with every request your agents sent: the original on your
+machine next to what the model received, each masked value labelled with what it is and the rule
+that found it.
+
+<Screenshot name="exchange" alt="One exchange in the dashboard: each block of the request as it is on this machine, next to what was sent to the model, with every masked value highlighted" />
+
+## Agents
+
+| Agent | How it goes through Latet |
+| --- | --- |
+| [Claude Code](agents/claude-code/): CLI, VS Code, JetBrains, with a Pro or Max subscription or an API key | Client mode: the Latet plugin masks inside Claude Code; the daemon checks each request |
+| [Codex](agents/codex/): CLI and Desktop, with ChatGPT or an API key | Gateway: the daemon masks and restores |
+| [OpenCode](agents/opencode/), with API-key providers | Gateway |
+| [Gemini CLI](agents/gemini/), with an API key or Vertex AI | Gateway, with `latet gemini` |
+| [Hermes Agent, OpenClaw, Goose, OpenHands](agents/autonomous-agents/) and any agent that takes an OpenAI-compatible base URL | Gateway, with your OpenAI, OpenRouter or Anthropic API key |
+| [Scripts and SDKs](agents/openai-compatible/): the OpenAI, Anthropic and Google GenAI SDKs, LangChain, LangGraph, AutoGen, CrewAI, Aider, etc. | Gateway, with `latet run` |
+| [GitHub Copilot, JetBrains, Zed and other tools](agents/other-tools/): Copilot in VS Code and its CLI, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush | Gateway, with your API key; Copilot's inline suggestions are not covered |
+
+Not covered: Claude Desktop's Chat and Cowork signed in to Claude, cloud sessions, Cursor, Windsurf
+and the other tools whose requests leave from the vendor's servers: see
+[what Latet cannot protect](agents/other-tools/#what-latet-cannot-protect).
+
+<CardGrid>
+	<LinkCard
+		title="Claude Pro and Max subscriptions"
+		description="Claude Code runs unmodified and signs in with its own login; each request leaves as Claude Code built it."
+		href="agents/claude-code/#pro-and-max-subscriptions"
+	/>
+	<LinkCard
+		title="What is and isn't protected"
+		description="Latet masks what its detectors recognize. Know the limits before you rely on it."
+		href="concepts/protection-scope/"
+	/>
+</CardGrid>
+
+Everything runs on your machine: there is no Latet cloud service, no telemetry and no analytics.

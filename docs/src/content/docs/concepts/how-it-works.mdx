@@ -1,0 +1,161 @@
+---
+title: How it works
+description: Surrogates, client mode, gateway mode and verify-only, with a step-by-step example of a key from a .env file.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet sits between your agent and the model provider. One engine detects sensitive
+values, replaces them with surrogates on the way out and puts the originals back on the way in.
+Where that happens depends on the agent: inside the agent (**client mode**) or in a proxy
+(**gateway mode**). Both run on your machine, or, when your computer is connected to a
+[Latet server](../server/), on that server.
+
+## Surrogates
+
+A surrogate is a fake value with the same shape as the original:
+
+| Kind | Original (stays on your machine) | Surrogate (sent upstream) |
+| --- | --- | --- |
+| API key | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
+| Password in a URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Email | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
+| Phone number | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
+| IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
+| Your user name in a path | <span class="real">`C:\Users\ecarter\shop\app.py`</span> | <span class="fake">`C:\Users\oliver75\shop\app.py`</span> |
+
+<small>The values are illustrative. Your surrogates differ: they are derived from a key created on
+your machine.</small>
+
+- **Format-preserving.** A key keeps its prefix (`pk_`, `ghp_`, `sk-ant-api03-`...), its length and
+  its character set. An email stays an email: a public webmail domain such as `gmail.com` is kept,
+  any other domain becomes a fake one under `.example`. IBANs, card numbers, national IDs, tax and
+  VAT numbers get valid check digits, and public IP addresses move to the ranges reserved for
+  documentation. The model can still reason about the code and configuration around them.
+- **Deterministic.** The same original always gets the same surrogate on your machine, so the model
+  can follow a value across files and turns, and Latet can map it back. Earlier turns are sent
+  again byte for byte, so the provider's prompt cache keeps working.
+- **Local.** The table of originals and surrogates, the **vault**, never leaves your machine. The
+  originals in it are encrypted on disk, with a key kept in your operating system's credential
+  store, or, where there is none (a Linux machine without a desktop keyring, the container), in a
+  file readable by you alone, `root.key`, in Latet's data folder.
+- **Scoped.** A surrogate is restored only in the conversation that was shown it.
+
+### The same over time
+
+A surrogate is derived from the value and from your installation's root key, not drawn at random,
+and the vault is kept on disk with no expiry: the dashboard's history is pruned after
+`retention_days`, the vault is not. So a value gets the same surrogate today, after a restart, and
+when you resume a conversation days later:
+- **Resuming a session:** its history already holds the surrogates, new text masks to the same ones,
+  and the model's answers are restored as before. The domain of an email address in your CLAUDE.md
+  is the same fake domain in every turn, wherever else it appears.
+- **A value Latet has learnt is masked everywhere from then on,** even after the rule that found it
+  is gone.
+- **What changes a surrogate:**
+  - **another root key**, on a new machine or a lost credential store: new surrogates, and the old
+    ones in a resumed conversation are no longer restored. Move the vault with its key:
+    [`latet backup latet.backup --vault`](../export-import/#your-installation-for-another-machine),
+    then `latet restore latet.backup` there;
+  - **a value you let through** leaves in clear from then on, while the history keeps its surrogate.
+- **What does not:** *Forget* in the vault. The same value gets the same surrogate again.
+
+A company's domain on its own (`api.acme-intra.com`) is masked when it is one of your
+[terms](../detection/), or once Latet has seen it in an email address. Your own company's domain,
+from your git author's email, is masked wherever it appears from the start.
+
+## Client mode: Claude Code
+
+Claude Code adds to each request an attribution block with a fingerprint derived from the
+conversation, and Anthropic's [gateway guide](https://code.claude.com/docs/en/llm-gateway-protocol)
+asks a gateway to inspect requests without modifying them. So Latet does not rewrite Claude Code's
+requests: the Latet plugin masks content **inside Claude Code, before the request is built**, and
+the local daemon only checks what goes out. This works with a Pro or Max subscription as with an API
+key (see [Claude Code](../../agents/claude-code/#pro-and-max-subscriptions)).
+
+Here is what happens to a key from a `.env` file:
+
+<Steps>
+
+1. Your project's `.env` contains
+   <code>PAYMENTS_API_KEY=<span class="real">pk_9f2c4e7a1b3d5f8e0a6c</span></code>. You ask Claude
+   Code: *"Add the payments key from `.env` to `config/local.toml`."*
+
+2. Claude Code reads `.env` with its Read tool. Before the tool result joins the conversation, the
+   plugin hands it to the local daemon, which finds the key and swaps it for the surrogate
+   <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. The pair is stored in the vault.
+
+3. Claude Code builds the request as usual. It contains only the surrogate. Just before
+   the request leaves, the plugin runs a final check on it. Because `ANTHROPIC_BASE_URL` points at
+   the Latet daemon (`127.0.0.1:5283`), the request then passes through the daemon, which runs
+   **verify-only**: it looks for sensitive values in clear, forwards the bytes unchanged, and
+   records the exchange for the [dashboard](../../dashboard/).
+
+4. Anthropic receives <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> and nothing else. The
+   model never sees the real key.
+
+5. The model answers with a tool call that edits `config/local.toml` and writes
+   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Before the tool runs
+   on your machine, the plugin restores the original in the tool-call arguments, so the file on
+   disk contains <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>. The text shown in your
+   terminal is restored too.
+
+6. The conversation history keeps the surrogate, so every later request stays masked. If an
+   original ever shows up in clear in an outgoing request, for example through a channel the plugin
+   does not cover, the plugin's final check stops the request before it is sent. The daemon is a
+   second check behind it.
+
+</Steps>
+
+Blocking is the only thing the daemon can do in client mode: it never changes a byte, so each
+request reaches Anthropic exactly as Claude Code built it.
+
+**If the daemon is not running**, the plugin tries to start it. If that fails, the plugin holds
+content back instead of sending it unmasked: your prompt is not sent, a tool result it cannot mask
+is replaced by a notice, a tool call it cannot restore is refused, and a request it cannot check
+stays on your machine.
+
+## Gateway mode: every other agent
+
+Codex, OpenCode, [Hermes Agent, OpenClaw and other agents](../../agents/autonomous-agents/), and
+your own scripts talk to their provider through a base URL you can change. Here the local daemon is
+the masking point. The same `.env` key, this time with Codex:
+
+<Steps>
+
+1. Codex sends its request to `127.0.0.1:5283` instead of the provider: over a WebSocket when you
+   sign in with ChatGPT, as an HTTP request with an API key.
+
+2. The daemon decodes the request (compressed bodies too) and finds
+   <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> in the output of the command Codex ran to
+   read `.env`. It replaces the key with <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> and
+   forwards the request to the provider.
+
+3. The model streams back a patch that writes the surrogate into `config/local.toml`. The daemon
+   restores the original in the streamed text and tool-call arguments before Codex sees them, even
+   when a surrogate is split across two chunks.
+
+4. Codex applies the patch with the real key. Its own copy of the conversation now holds the
+   original. When Codex sends that history again, the daemon masks it again, and the model gets back
+   exactly the bytes it wrote.
+
+</Steps>
+
+The provider only ever sees surrogates; the agent only ever sees originals. Thinking blocks and
+encrypted reasoning pass through untouched.
+
+A final check then reads the texts of every request before it leaves, those Latet masks, as in
+client mode, and stops one that would let a value out in clear, saying why. When the daemon cannot
+mask a request, it refuses it instead of sending it unmasked: a body it cannot decode, or a value it
+cannot replace, ends in an error that says nothing was sent.
+
+<Aside type="tip">
+	Run `latet dashboard` to see both sides of every request: the original on your machine, and
+	what was sent upstream. See the [dashboard guide](../../dashboard/).
+</Aside>
+
+## What decides what gets masked
+
+- [Detection](../detection/): how values are recognized.
+- [Profiles and policies](../profiles/): how much to mask, and what to do with each detection.
+- [What is and isn't protected](../protection-scope/): the limits of this approach.

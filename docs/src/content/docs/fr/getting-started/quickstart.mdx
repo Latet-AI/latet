@@ -1,0 +1,185 @@
+---
+title: Démarrage rapide
+description: Essayez Latet avec une valeur canari inoffensive sans changer aucun réglage de vos agents, puis activez-le pour chaque session.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet n'a pas besoin de changer les réglages de vos agents pour que vous puissiez l'essayer. Voyez-le
+d'abord à l'œuvre sur une session, avec une clé inventée ; puis activez-le pour chaque session,
+quand vous serez prêt.
+
+## L'essayer sans rien changer
+
+<Steps>
+
+1. **Installez Latet** avec le [script d'installation en une ligne](../installation/#script-dinstallation-en-une-ligne) :
+   il installe la dernière version depuis GitHub, et ne change aucun réglage de vos agents. Sous macOS
+   et Linux, ouvrez d'abord un nouveau terminal. Téléchargez
+   ensuite les modèles qui trouvent les noms et lisent le texte des images, la
+   [configuration recommandée dès le premier jour](../installation/#recommandé--les-noms-et-les-images-dès-le-premier-jour) :
+   `latet ner install` et `latet ocr install`.
+
+2. **Voyez-le à l'œuvre.** Vous découvrez Latet ? `latet tutorial` vous le montre à l'œuvre en
+   30 minutes environ, dans votre navigateur : un agent fictif et un modèle fictif, le vrai Latet
+   entre les deux, et des données inventées. Rien ne quitte votre machine, et aucun de vos réglages
+   ne change. Voir [Tutoriel](../tutorial/).
+
+3. **Créez une valeur canari.** Dans un dossier de test, créez un fichier `.env` avec une clé
+   inventée :
+
+   ```sh title=".env"
+   DEMO_API_KEY=demo_7Hq2LmX9pR4tV8nB3cK6
+   ```
+
+4. **Lancez votre agent via Latet, pour cette session seulement.** Dans ce dossier :
+
+   ```sh
+   latet claude                 # Claude Code, with the plugin and the verify-only daemon
+   latet codex                  # or the Codex CLI
+   latet opencode               # or OpenCode, API-key providers
+   latet gemini                 # or Gemini CLI, with an API key or Vertex AI
+   ```
+
+   Le lanceur démarre le daemon et donne à l'agent ce dont il a besoin pour cette session seulement.
+   Aucun réglage de l'agent ne change : quand la session se termine, l'agent fonctionne comme avant.
+   Tous les autres arguments sont transmis tels quels, comme dans `latet claude --resume`.
+
+   Demandez ensuite à l'agent : *"Lis `.env` et copie la clé dans `config.local.json`."*
+
+5. **Vérifiez le résultat.**
+
+   - Lancez `latet dashboard` et ouvrez la dernière requête sur la page **En direct**. Là où se
+     trouvait le contenu de votre `.env`, le fournisseur a reçu une valeur factice du même format,
+     par exemple `demo_9Tz6ZsM0aB8uA6vS8gA0`, étiquetée `ASSIGNED_SECRET`. Votre valeur factice sera
+     différente : les valeurs factices sont dérivées d'une clé créée sur votre machine.
+   - `config.local.json` sur le disque contient la vraie clé, `demo_7Hq2LmX9pR4tV8nB3cK6`, car Latet
+     l'a remise en place localement avant que l'outil de l'agent n'écrive le fichier.
+   - La réponse de l'agent à votre écran affiche elle aussi la vraie clé. Une exception : dans le
+     mode print de Claude Code (`claude -p`), la réponse affichée garde la valeur factice. Voir
+     [Claude Code](../../agents/claude-code/#limites).
+
+</Steps>
+
+`claude` lancé seul ne passe pas par Latet : seul le lanceur y passe, jusqu'à ce que vous lanciez
+`latet global-install`.
+
+## L'activer pour chaque session
+
+<Steps>
+
+1. **Faites passer vos agents par Latet pour de bon.**
+
+   ```sh
+   latet global-install
+   ```
+
+   La commande montre tout ce qu'elle changerait, puis demande une seule fois :
+
+   - **Chaque agent qu'elle trouve** (Claude Code, Codex, OpenCode), qui passe alors par Latet : le
+     plugin Latet dans chaque session de Claude Code, les autres dirigés vers le daemon local. Les
+     réglages de chacun sont d'abord sauvegardés.
+   - **Démarrage à l'ouverture de session** : le daemon démarre quand vous ouvrez votre session.
+   - **Profil** : `balanced`, ou celui que vous choisissez, et les pays dont Latet reconnaît les
+     numéros d'identité nationaux et les numéros fiscaux : votre pays, quand il fait partie des 15 que
+     Latet connaît, avec les États-Unis et le Royaume-Uni ; sinon l'Italie, les États-Unis et le
+     Royaume-Uni. Les numéros de TVA sont reconnus pour les 27 pays de l'UE, le Royaume-Uni, la Suisse
+     et la Norvège. Voir [Profils et politiques](../../concepts/profiles/).
+   - **Votre identité** : vos noms d'utilisateur du système, votre nom d'hôte et votre
+     auteur git, masqués. Latet les détecte à chaque démarrage : une nouvelle adresse e-mail git est
+     donc masquée elle aussi.
+   - **Relecteur du mode auto** : votre nom d'utilisateur du système et vos chemins, qu'aucun plugin
+     ne peut masquer, restent en local quand le mode auto de Claude Code interroge son relecteur ; le
+     mode auto ne peut alors pas approuver d'actions de lui-même. La page **Règles** du tableau de
+     bord peut les laisser passer un par un.
+   - **Noms et adresses** : le modèle local qui trouve les noms et les adresses postales (environ
+     1,6 Go), téléchargé avec `--ner` si vous ne l'avez pas encore téléchargé.
+   - **Texte des images** : les modèles de reconnaissance de texte (environ 31 Mo), téléchargés avec
+     `--ocr` si vous ne les avez pas encore téléchargés.
+   - **Port** : le port sur lequel écoute le daemon : 5283, ou un port libre voisin si un autre
+     programme l'utilise (vos agents suivent le changement).
+
+   Elle indique aussi comment tout retirer : `latet global-uninstall`. Des options permettent
+   d'autres choix que ceux par défaut, comme `--agents claude --no-autostart` ; `--yes` applique le
+   tout sans demander.
+
+2. **Redémarrez vos agents** pour qu'ils prennent en compte la nouvelle configuration. Désormais,
+   chaque session passe par Latet, dans le terminal et dans l'IDE.
+
+3. **Vérifiez que tout est bien branché.**
+
+   ```sh
+   latet doctor
+   ```
+
+   Quand tout fonctionne, chaque ligne commence par `OK` :
+
+   ```text
+   [OK  ] Daemon: running on 127.0.0.1:5283, masking
+   [OK  ] Plugin bridge: token accepted
+   [OK  ] Start at login: installed
+   [OK  ] Masking self-test: 3 values masked and restored (balanced profile)
+   [OK  ] Claude Code: 2.1.291 (Claude Code) - applied
+   ```
+
+   Une ligne `WARN` ou `FAIL` indique la commande qui corrige le problème.
+
+</Steps>
+
+`latet agents apply codex` (ou `claude`, `opencode`) fait passer un seul agent par Latet : lancez-la
+pour un agent que vous installez plus tard. Sans nom, elle fait passer tous ceux qui sont installés.
+
+`latet global-install` configure Claude Code, Codex et OpenCode. Les autres outils gardent l'adresse
+de Latet d'une de ces autres façons :
+
+| Comment | Outils | Combien de temps |
+| --- | --- | --- |
+| `latet global-install` la configure | Claude Code, Codex, OpenCode | Pour de bon |
+| Vous la définissez une fois, dans les réglages de l'outil | GitHub Copilot dans VS Code et les IDE JetBrains, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands | Pour de bon, tant que ces réglages le disent ; les réglages propres à un projet peuvent orienter Kilo Code, Junie CLI ou Continue ailleurs |
+| Variables d'environnement seulement | Gemini CLI, Qwen Code, Aider, vos scripts et SDK | Pour chaque commande lancée avec `latet run`, ou pour un shell avec `latet env` |
+| Vous définissez ses variables dans votre shell | La GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL` et les autres) | Pour chaque shell qui les définit |
+
+**Gemini CLI n'est pas disponible en mode global.** Lancez-le avec `latet gemini` : il ne lit son
+adresse que dans l'environnement et dans un seul fichier `.env`, et le `.env` propre à un projet
+cacherait, sans un mot, un réglage fait pour de bon. Voir
+[Gemini CLI et Google GenAI](../../agents/gemini/).
+
+Pour vos propres scripts et SDK, `latet run` définit `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` et
+`GOOGLE_GEMINI_BASE_URL` le temps d'une commande : `latet run python report.py`. Voir
+[Compatible OpenAI et OpenRouter](../../agents/openai-compatible/). Les agents autonomes comme
+Hermes Agent et OpenClaw reçoivent l'adresse de Latet dans leurs propres réglages : voir
+[Agents autonomes](../../agents/autonomous-agents/). GitHub Copilot, Junie et AI Assistant de
+JetBrains, Zed, Cline, Continue et d'autres outils font de même : voir
+[GitHub Copilot, JetBrains, Zed et autres outils](../../agents/other-tools/).
+
+## Tout annuler
+
+```sh
+latet global-uninstall
+```
+
+Cette commande rétablit chaque agent, octet pour octet, supprime le démarrage à l'ouverture de
+session et arrête le daemon. Vos règles restent dans `config.yaml`, pour `latet claude`. Les outils
+que vous avez pointés vers Latet dans leurs propres réglages gardent son adresse : remettez la leur.
+Voir [Désinstallation](../uninstall/).
+
+<Aside type="tip">
+	Pour voir à tout moment ce qui a exactement atteint le modèle, lancez `latet dashboard`. Le
+	[guide du tableau de bord](../../dashboard/) explique chaque page.
+</Aside>
+
+## Étapes suivantes
+
+- [Comment ça marche](../../concepts/how-it-works/) : ce qui arrive à la clé, étape par étape.
+- [Ce qui est protégé et ce qui ne l'est pas](../../concepts/protection-scope/) : connaissez-en les
+  limites avant de vous y fier.
+- [Projets](../../concepts/projects/) : un `latet.yaml` avec les termes et les formats propres à un
+  projet, partagé via son dépôt.
+- [Données de production](../../concepts/production-data/) : pour les agents qui lisent des bases
+  de données et des journaux.
+- [Relecteur local](../../concepts/llm-review/) : un modèle de langage à vous qui lit chaque texte
+  avant son départ.
+- Guides des agents : [Claude Code](../../agents/claude-code/), [Codex](../../agents/codex/),
+  [OpenCode](../../agents/opencode/), [agents autonomes](../../agents/autonomous-agents/),
+  [compatible OpenAI et OpenRouter](../../agents/openai-compatible/),
+  [GitHub Copilot, JetBrains, Zed et autres outils](../../agents/other-tools/).

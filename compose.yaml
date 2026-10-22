@@ -1,0 +1,202 @@
+# Latet in a container. Start it with `docker compose up -d`, then follow
+# `docker exec latet latet agents print` to point your agents at it.
+# Latet on a server is the profile `server` below: PostgreSQL, Valkey, two Latet instances, and Caddy
+# in front of them with the certificate. Its steps (secrets/, certs/, `latet server init`) are in
+# https://docs.latet.ai/concepts/server-operations/ : PostgreSQL and Valkey start first, with
+# `docker compose -p latet --profile server up -d --wait postgres valkey`; once the server is initialized,
+# `docker compose -p latet --profile server up -d latet-server-1 latet-server-2 caddy` starts the rest.
+
+x-server-logging: &server-logging
+  driver: json-file
+  options:
+    mode: non-blocking
+    max-buffer-size: 4m
+    max-size: 10m
+    max-file: "5"
+
+x-latet-server: &latet-server
+  image: ghcr.io/latet-ai/latet:latest
+  profiles: [server]
+  restart: unless-stopped
+  command: ["server", "run"]
+  environment:
+    LATET_SERVER_URL: ${LATET_SERVER_URL:-https://latet.localhost}
+    # Passwords and keys come only from files; no secret belongs in .env or a container's environment.
+    LATET_SERVER_DATABASE_URL: postgresql://latet@postgres:5432/latet
+    LATET_SERVER_DATABASE_PASSWORD_FILE: /run/secrets/latet-db-password
+    LATET_SERVER_VALKEY_URL: redis://valkey:6379/0
+    LATET_SERVER_VALKEY_PASSWORD_FILE: /run/secrets/latet-valkey-password
+    # Only the instances, PostgreSQL and Valkey join the internal latet-back network, so these are true.
+    LATET_SERVER_DATABASE_PRIVATE_NETWORK: "1"
+    LATET_SERVER_VALKEY_PRIVATE_NETWORK: "1"
+    LATET_MASTER_KEY_FILE: /run/secrets/latet-master-key
+    LATET_SERVER_METRICS_TOKEN_FILE: /run/secrets/latet-metrics-token
+    # Scrape inside each instance only. There is no host port, Caddy route or monitoring network for metrics.
+    LATET_SERVER_METRICS_HOST: 127.0.0.1
+    LATET_SERVER_METRICS_PORT: "7283"
+    LATET_SERVER_LOG_FORMAT: json
+    # Caddy alone has this fixed front-network address: trust its forwarded headers alone.
+    LATET_SERVER_FORWARDED_ALLOW_IPS: 172.28.0.2
+    # Optional shared reviewer key: also uncomment its secret mount and definition below.
+    # LATET_SERVER_REVIEWER_KEY_FILE: /run/secrets/latet-reviewer-key
+  secrets:
+    - latet-master-key
+    - latet-metrics-token
+    - latet-db-password
+    - latet-valkey-password
+    # - latet-reviewer-key
+  networks: [latet-front, latet-back]
+  volumes:
+    - latet-server-data:/data # recognition models, shared by the instances
+  # No memory limit: budget for the spaces' fixed 2 GiB, models and concurrent OCR work (Task 22).
+  depends_on:
+    postgres: {condition: service_healthy}
+    valkey: {condition: service_healthy}
+  healthcheck:
+    test: ["CMD", "latet", "server", "ready"]
+    interval: 15s
+    timeout: 5s
+    start_period: 30s
+    retries: 3
+  logging: *server-logging
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  init: true
+
+services:
+  latet:
+    image: ghcr.io/latet-ai/latet:latest
+    container_name: latet
+    restart: unless-stopped
+    # This machine only: on Linux, Docker's published ports bypass the firewall, so never drop the
+    # 127.0.0.1. The port is the same inside and out: the daemon checks it in every request.
+    ports:
+      - "127.0.0.1:${LATET_PORT:-5283}:${LATET_PORT:-5283}"
+    environment:
+      LATET_PORT: ${LATET_PORT:-5283}
+      # A proxy of your network, if the providers are reached through one.
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+    volumes:
+      - latet-data:/data # the vault, its key, the dashboard history: keep it private
+      - latet-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    init: true
+
+  postgres:
+    image: postgres:18-alpine
+    profiles: [server]
+    restart: unless-stopped
+    environment:
+      # The image's superuser, postgres, has a password of its own, which no instance is given.
+      POSTGRES_PASSWORD_FILE: /run/secrets/latet-db-admin-password
+    secrets: [latet-db-admin-password, latet-db-password]
+    networks: [latet-back]
+    volumes:
+      # PostgreSQL 18 keeps its data beneath /var/lib/postgresql/18/docker; mount its declared parent volume.
+      - latet-postgres:/var/lib/postgresql
+      # Run once, on a new data volume: the role latet the instances connect as, no superuser, owning the
+      # database latet, with the password of latet-db-password.
+      - ./deploy/postgres-init.sh:/docker-entrypoint-initdb.d/latet-role.sh:ro
+    healthcheck:
+      # Over TCP: ready once the server listens for the instances, after the role and the database are made.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U latet -d latet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *server-logging
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    profiles: [server]
+    restart: unless-stopped
+    # Size this for the shared short-lived state. At capacity, noeviction fails requests closed;
+    # it never evicts another identity's state. Keep Valkey's default pubsub output-buffer limits.
+    # The generated password is hexadecimal. Builtins send it on stdin, never a process argument.
+    command:
+      - sh
+      - -ec
+      - |
+        password=
+        IFS= read -r password < /run/secrets/latet-valkey-password || test -n "$$password"
+        case "$$password" in *[!0-9a-fA-F]*|'') exit 1 ;; esac
+        printf '%s\n' 'save ""' 'appendonly no' 'maxmemory 1gb' 'maxmemory-policy noeviction' \
+          "requirepass $$password" | exec docker-entrypoint.sh valkey-server -
+    secrets: [latet-valkey-password]
+    networks: [latet-back]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          password=; IFS= read -r password < /run/secrets/latet-valkey-password || test -n "$$password";
+          VALKEYCLI_AUTH="$$password" valkey-cli ping | grep -qx PONG
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *server-logging
+
+  # Every instance serves every request: add another here and in deploy/Caddyfile when needed.
+  latet-server-1: *latet-server
+  latet-server-2: *latet-server
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: [server]
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      LATET_SERVER_HOST: ${LATET_SERVER_HOST:-latet.localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+    networks:
+      latet-front:
+        ipv4_address: 172.28.0.2
+    depends_on: [latet-server-1, latet-server-2]
+    logging: *server-logging
+
+volumes:
+  latet-data:
+  latet-config:
+  latet-server-data:
+  latet-postgres:
+  caddy-data:
+
+networks:
+  latet-front:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          # Instances start before Caddy; keep its fixed .2 outside Docker's automatic allocation pool.
+          ip_range: 172.28.0.128/25
+  latet-back:
+    internal: true
+
+# On the host: administrator-owned secrets/ mode 0700, files 0444 inside it so each container's own user can read.
+# Compose binds file secrets and ignores uid/mode overrides. On Windows, restrict the directory's ACL instead.
+# Pre-create master.key (base64 of 32 random bytes) before init; use --log-driver none for its one-time admin token.
+# db.password and valkey.password are hexadecimal (openssl rand -hex 32); db-admin.password is PostgreSQL's own.
+secrets:
+  latet-master-key:
+    file: ./secrets/master.key
+  latet-metrics-token:
+    file: ./secrets/metrics.token
+  latet-db-admin-password:
+    file: ./secrets/db-admin.password
+  latet-db-password:
+    file: ./secrets/db.password
+  latet-valkey-password:
+    file: ./secrets/valkey.password
+  # latet-reviewer-key:
+  #   file: ./secrets/reviewer.key

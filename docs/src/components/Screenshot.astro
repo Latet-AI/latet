@@ -1,0 +1,32 @@
+---
+// A screenshot of the dashboard by its name, in the page's language and in both themes (the page shows the one of its
+// own theme): docs/src/assets/screens/<lang>/<name>-<light|dark>.webp, made by `npm run screenshots` in dashboard/.
+// English where a language has none. The public site has it at 800 and 1440 px; the copy Latet serves itself
+// (`npm run build:bundle`) at 1440 px only, the dashboard's own width, to keep the package small.
+import type { ImageMetadata } from 'astro';
+import { Image } from 'astro:assets';
+
+interface Props {
+	name: string;
+	alt: string;
+	caption?: string;
+}
+
+const screens = import.meta.glob<ImageMetadata>('../assets/screens/*/*.webp', { import: 'default', eager: true });
+
+const { name, alt, caption } = Astro.props;
+const lang = Astro.locals.starlightRoute.lang;
+const pick = (theme: 'light' | 'dark'): ImageMetadata => {
+	const file = screens[`../assets/screens/${lang}/${name}-${theme}.webp`] ?? screens[`../assets/screens/en/${name}-${theme}.webp`];
+	if (!file) throw new Error(`No screenshot ${name}-${theme}.webp in docs/src/assets/screens/en/: run npm run screenshots in dashboard/`);
+	return file;
+};
+const sizes = '(max-width: 72rem) 100vw, 72rem';
+const widths = import.meta.env.LATET_DOCS_BUNDLE ? [1440] : [800, 1440];
+---
+
+<figure class="media-frame">
+	<Image src={pick('light')} alt={alt} class="light-only" widths={widths} sizes={sizes} />
+	<Image src={pick('dark')} alt={alt} class="dark-only" widths={widths} sizes={sizes} />
+	{caption && <figcaption>{caption}</figcaption>}
+</figure>

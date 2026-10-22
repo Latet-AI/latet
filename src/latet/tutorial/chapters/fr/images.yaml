@@ -1,0 +1,26 @@
+title: Captures d'écran
+learn:
+- Ce que fait Latet d'une capture d'écran qu'envoie votre agent
+- Où le tableau de bord affiche l'image, et le texte qui y a été lu
+- Ce que Latet ne lit pas
+steps:
+- title: Une capture d'écran part avec ses valeurs recouvertes
+  explain: L'agent a envoyé la capture d'écran telle quelle. Latet a lu sur votre machine le texte qu'elle contient, y a trouvé une adresse e-mail, un IBAN et un numéro de téléphone, et a recouvert chacune de ces valeurs par sa valeur factice avant le départ de l'image. Le panneau de Latet affiche l'image telle qu'elle est sur votre machine et telle qu'elle a été envoyée, et le texte qui y a été lu.
+  prompt: pourquoi le paiement de payment.png a-t-il été refusé ?
+  button: Envoyer
+  says:
+  - Je regarde la capture d'écran.
+  turns:
+    why:
+      text: La banque du bénéficiaire a clôturé le compte, le paiement n'a donc pas pu aboutir. Demandez un autre compte au client, puis renvoyez le paiement.
+- title: Demander à Latet
+  explain: Cliquez sur une valeur mise en évidence dans le texte que Latet a lu dans l'image. Latet indique ce que c'est, quelle règle l'a trouvée, et ce qui a été envoyé à sa place.
+  hint: Cliquez sur {{value:email}} dans le texte lu dans l'image.
+end:
+  learned:
+  - Avec la reconnaissance de texte installée, Latet lit sur votre machine le texte d'une capture d'écran, et recouvre chaque valeur par sa valeur factice avant le départ de l'image.
+  - Le tableau de bord affiche l'image telle qu'elle a été envoyée, et le texte qui y a été lu, où chaque valeur est marquée.
+  - 'Un PDF, ou une image désignée par son adresse, n''est pas lu : il part tel quel, avec l''indicateur Non inspecté, sauf si le réglage Images et PDF, sur la page Règles, indique Masquées uniquement ou Ne pas envoyer ; la requête n''est alors pas envoyée.'
+  where:
+  - Images et PDF, sur la page Règles
+  - La requête avec la capture d'écran

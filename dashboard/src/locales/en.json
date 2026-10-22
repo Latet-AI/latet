@@ -1,0 +1,2266 @@
+{
+  "deployment": {
+    "verifyNote": "In client mode, the Claude Code plugin asks the connected Latet server to restore values from your space's vault, then returns them to Claude Code. Here Latet reconstructs them from that vault for comparison.",
+    "liveDescription": "Requests your connected agents send through the Latet server, as they happen. Open one to inspect the recorded request and its result on the protected provider path.",
+    "sessionNewNote": "Showing the newly sent blocks in each recorded request received by the Latet server.",
+    "requestNotSentDetail": "This request was not forwarded on the protected provider path. The recorded text includes the values that stopped it. It is kept encrypted in this identity's server history for the configured retention time; this view displays it in your browser.",
+    "requestNotSentText": "This request was not forwarded on the protected provider path. The recorded text is kept encrypted in this identity's server history for the configured retention time; this view displays it in your browser.",
+    "hostNameHelp": "The host name reported by the connected agent, when its CLAUDE.md or action contains it.",
+    "recognizerUnsupported": "This form cannot edit this recognizer because it contains unsupported keys.",
+    "nerInactive": "Installed on the Latet server, but not active. Ask the server's administrators to check name detection.",
+    "projectNoFile": "No repository file is available to this server view.",
+    "projectRepoReadOnly": "These repository settings were supplied by the connected agent. This server view cannot read, create or change files on that computer.",
+    "stoppedHelp": "Latet stopped this protected request before forwarding this value in clear to the model provider. Click it to inspect it or mark it Not sensitive.",
+    "stopped": "Stopped before this value was forwarded in clear on the protected model/provider path.",
+    "statsBlockedHelp": "Protected requests stopped before forwarding to the model provider",
+    "profileBalanced": "Secrets, your own terms, personal data (emails, phones, IBANs, codice fiscale, partita IVA, cards) and identity supplied to this server space. The default for code work.",
+    "nerDescription": "When its model is available, name detection on the Latet server can find names of people and street addresses that patterns cannot identify.",
+    "nerToggleHelp": "Uses the server's name-detection model when available. Administrators install and maintain it.",
+    "reviewerDescription": "The administrator-configured reviewer service can read original text left in clear by the detectors before forwarding to the model provider. It can add masking, never remove it.",
+    "ocrOn": "Text recognition runs on the Latet server when available, covering detected values with surrogates.",
+    "reviewBlock": "Keep these details from the reviewer (default)",
+    "reviewBlockHelp": "Latet stops these auto-mode review requests before forwarding them to the reviewer. Claude Code treats its reviewer as unavailable, refuses those actions and does not ask you. Data already received by Latet is not erased.",
+    "imagesHelp": "Images are processed on the Latet server; administrators provide text recognition. Send does not override an enabled server check that refuses unread images. Only masked requires readable, masked images and excludes PDFs. Don't send excludes images and PDFs. Other server checks still apply.",
+    "destinationsHelp": "Destinations reported by connected agents or configured on the server. Registration is not an audit of installed agents or their current settings.",
+    "destinationInUse": "Reported as registered",
+    "destinationUnused": "No current registration reported",
+    "destinationsEmpty": "No additional destinations are reported here. This does not confirm how every connected agent is routed.",
+    "integrationsCli": "On each connected computer, these commands check its connection and configure its agents to use Latet.",
+    "tagline": "Server privacy firewall",
+    "unknownTagline": "Privacy firewall",
+    "pending": "Deployment information could not be loaded. Retry the connection to load it.",
+    "ocrUnavailable": "Text recognition is unavailable on the Latet server. Ask the server's administrators to check its runtime and model.",
+    "nerUnavailable": "Name detection is unavailable on the Latet server. Ask the server's administrators to check its runtime and model.",
+    "historyClear": "Every recorded exchange in this identity's server history is deleted. The vault is kept, so masking and restoring go on as before. This can't be undone.",
+    "identityHelp": "Identity supplied by connected computers: user names in paths, host names, and git names and emails.",
+    "reviewerHelp": "Found by the administrator-configured reviewer, which can read original text the detectors left in clear. A dashed line marks a judgement, not a pattern match.",
+    "nerHelp": "Found by the name-detection model on the Latet server: names, street addresses and cities. A dashed line marks a judgement, not a pattern match.",
+    "outboundKind": "Provider or external tool",
+    "blockedHelp": "Latet stopped this protected request before forwarding it to the model provider. This does not describe other network traffic.",
+    "imageHelp": "An image was read on the Latet server ({{detail}}). Masked: detected values were covered with surrogates. Withheld: it could not be read and was excluded from the model request.",
+    "outboundHelp": "A provider or external tool got, or would have got, a surrogate. It acts on the surrogate, not the original. This does not inspect arbitrary tool traffic.",
+    "uninspectedHelp": "Part of this request was not inspected ({{detail}}). The flag alone does not prove it was forwarded. An enabled server check refuses unread images; a rewritten request may withhold them. Protection-off calls follow their own policy.",
+    "pluginHelp": "The supported Claude Code plugin flow stopped this model request. Text may already have reached Latet through its helper or bridge; this does not mean there was no network traffic.",
+    "reviewHappened": "Claude Code asked its auto-mode reviewer about an action. The request carried {{details}} reported by the connected agent, which your rules keep from that reviewer, so it was not forwarded to it.",
+    "notForwarded": "This protected request was not forwarded to the model provider. This does not describe other network traffic or erase data already received by Latet.",
+    "imagesTodo": "Remove the unread attachment or ask the server's administrators to check text recognition. Your image policy cannot make an enabled server check forward an image it could not read.",
+    "doctorTodo": "Run latet doctor on the connected computer to check its connection. Ask the server's administrators to investigate a server failure.",
+    "imagesHappened": "Your image policy requires readable, masked images. Latet could not read {{what}}: availability, capacity, time limits or the input format may prevent it.",
+    "reviewerHappened": "Your rules require the configured reviewer to check new text. Its service could not complete a trusted check, or asked to stop this request.",
+    "reviewerTodo": "Ask the server's administrators to check the reviewer service. Your own reviewer policy remains in Rules; its endpoint, model, certificate and key are set by the administrators.",
+    "outboundHappened": "The model asked {{tools}} to use {{types}} that Latet had replaced. This provider or external tool would have acted on the surrogate: searched for someone else, opened the wrong page or used an invented address.",
+    "outboundTodo": "Only if the original may be sent to this provider or external tool, mark it Not sensitive and ask the model to try again. Otherwise keep it masked.",
+    "outboundRanTitle": "{{tools}} used a surrogate",
+    "outboundRanMeant": "What the tool found or did concerns the surrogate, not the original; its answer may attribute it to the real value. This call used the surrogate, which is not a claim about other network traffic.",
+    "flowLabel": "Recorded path through Latet",
+    "flowBlocks_one": "{{count}} recorded block",
+    "flowBlocks_other": "{{count}} recorded blocks",
+    "original": "Original, from identity storage",
+    "vault": "This identity's originals and surrogates are kept sealed on the Latet server. Authorized dashboard views can deliver originals to this browser. Clearing history keeps the vault.",
+    "integrations": "Registered destinations and connection checks for this server space. The server does not scan installed agents on connected computers.",
+    "reviewerEnabled": "Administrators configure this reviewer service. When selected, it can read original text the detectors left in clear.",
+    "tutorial": "Start a separate local tutorial on your computer. It uses a sandbox with a pretend agent and model; your server space is separate. In a terminal on that computer:"
+  },
+  "app": {
+    "name": "Latet",
+    "tagline": "Local privacy firewall",
+    "skipToContent": "Skip to content"
+  },
+  "nav": {
+    "label": "Main",
+    "live": "Live",
+    "approvals": "Approvals",
+    "waiting_one": "{{count}} waiting for your approval",
+    "waiting_other": "{{count}} waiting for your approval",
+    "sessions": "Sessions",
+    "stats": "Stats",
+    "vault": "Vault",
+    "rules": "Rules",
+    "playground": "Playground",
+    "integrations": "Protected agents",
+    "tutorial": "Tutorial",
+    "sections": "On this page"
+  },
+  "shell": {
+    "recording": "Recording exchanges",
+    "notRecording": "Not recording",
+    "profile": "Profile: {{profile}}",
+    "address": "127.0.0.1:{{port}}",
+    "version": "Latet {{version}}",
+    "mock": "Mock data",
+    "mockHint": "This dashboard runs on built-in example data, not on a daemon.",
+    "unreachable": "Daemon not answering",
+    "unreachableServer": "Server not answering",
+    "server": "Server {{host}}",
+    "signedIn": "Signed in as {{name}}",
+    "signOut": "Sign out"
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "Match the system",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "docs": {
+    "page": "Documentation",
+    "section": "Documentation: {{section}}",
+    "why": "Why",
+    "whyAbout": "Why: {{about}}"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Try again",
+    "copy": "Copy",
+    "copied": "Copied",
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "cancel": "Cancel",
+    "none": "–",
+    "yes": "Yes",
+    "no": "No",
+    "more_one": "+{{count}} more",
+    "more_other": "+{{count}} more"
+  },
+  "tabs": {
+    "unsaved": "Unsaved changes"
+  },
+  "errors": {
+    "title": "This page couldn't load",
+    "network": "Latet isn't answering. Check that the daemon runs with `latet status`, or start it with `latet start`.",
+    "networkServer": "Latet isn't answering. Check the connection and try again. If it remains unavailable, contact whoever manages this Latet service.",
+    "unauthorized": "Your dashboard session has ended. Run `latet dashboard` to open a new one.",
+    "http": "The daemon answered {{status}}: {{message}}",
+    "httpServer": "The Latet server answered {{status}}: {{message}}",
+    "unexpected": "Something unexpected happened: {{message}}",
+    "settingsStale": "Your settings changed after this page read them, so your change was not kept. Make it again on your settings as they are now.",
+    "settingsTooLarge": "These settings are larger than the server keeps for one person, so nothing was saved. Remove some of your terms or other entries, then save again.",
+    "settingsTermsTooLong": "These settings contain a term that is too long, so nothing was saved. Shorten or remove it, then save again.",
+    "settingsTooManyRules": "These settings hold more recognizers, field rules or allow list patterns than the server keeps for one person, counting those of your projects, so nothing was saved. Remove some of them, then save again.",
+    "settingsUnavailable": "The server could not save your settings just now, so nothing changed. Try again in a moment.",
+    "settingsChangeWaits": "A change to your settings waits for your approval, so nothing was saved. Approve it or undo it, then make your change again.",
+    "repositoriesUnchecked": "Latet could not read every repository it has seen just now (one may be on a share that does not answer, or in a file it may not read), so nothing changed. Try again once they can be read.",
+    "repoFileUnreadable": "This project's latet.yaml is not a regular file, or is larger than a project's file may be, so nothing was saved over it. Fix it in the project's folder, then reload the page.",
+    "repoFileUnavailable": "This project's latet.yaml cannot be read just now, so nothing was saved over it. Try again in a moment.",
+    "settingsSavedChangePending": "Your settings were saved, but the pending change could not be refreshed. Refresh the dashboard before making another change.",
+    "settingsTooManyProjects": "These settings name more projects than the server keeps for one person, so nothing was saved. Remove your settings for some projects, then save again.",
+    "settingsDropsShared": "This would remove {{items}} set for everyone on this server, so nothing was saved. Only the server's administrators can remove them.",
+    "dropped": {
+      "upstreams_one": "{{count}} destination",
+      "upstreams_other": "{{count}} destinations"
+    },
+    "destinationRefused": "{{url}}: a destination of your own on this server needs an address that can be used, reached over https, and leading neither to the server itself nor inside its network. A destination reached in clear or inside the network can be set for everyone by its administrators.",
+    "reviewerKeyServer": "{{setting}}: on a server no setting says where the local reviewer's key is read from. The server gives it, as its administrators set it."
+  },
+  "auth": {
+    "title": "Open the dashboard from your terminal",
+    "body": "The dashboard opens only through a one-time link, so no other page or program on this machine can read it. This command signs you in and opens it:",
+    "otherBrowser": "To open it in another browser, print the link instead:",
+    "expired": "That link has expired or was already used. Each link works once, for two minutes.",
+    "why": "Sessions end after 12 hours without use. The dashboard listens on 127.0.0.1 only.",
+    "tutorialTitle": "Start the tutorial again from your terminal",
+    "tutorialBody": "The tutorial opens only through a one-time link, and this one has ended or was used already. Press Ctrl+C in the terminal where the tutorial runs, then start it again:",
+    "tutorialWhy": "The tutorial is a sandbox on this computer. Nothing in it is yours, and it is deleted when it ends.",
+    "serverBody": "This dashboard is on a Latet server, and opens only through a one-time link made for you. On a computer connected to the server, this command signs you in and opens it:",
+    "serverWhy": "Sessions end after 12 hours without use. Each person has a dashboard of their own on the server.",
+    "serverExpired": "That link did not sign you in: it was already used, or it is more than two minutes old, or it was opened from a page of another site, which never signs anyone in. Each link works once, for two minutes.",
+    "limited": "Too many sign-in links were tried from this address: wait a minute, then open your link again.",
+    "busy": "The server is busy and could not sign you in: try again in a moment."
+  },
+  "shared": {
+    "title": "Set for everyone on this server"
+  },
+  "agents": {
+    "claude-code": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "gemini-cli": "Gemini CLI",
+    "tutorial-agent": "Tutorial Agent",
+    "other": "Other client"
+  },
+  "modes": {
+    "rewrite": {
+      "label": "Rewrite",
+      "help": "Gateway mode. Latet replaced sensitive values with surrogates before forwarding, and put the originals back into the answer."
+    },
+    "verify": {
+      "label": "Verify",
+      "help": "Client mode, used for Claude Code. The plugin masked values inside Claude Code; Latet checked the request, then forwarded it unchanged or blocked it."
+    },
+    "passthrough": {
+      "label": "Passthrough",
+      "help": "Not inspected. Latet doesn't understand this route or body, so it was forwarded as it was."
+    }
+  },
+  "classes": {
+    "SECRET": {
+      "label": "Secret",
+      "help": "Credentials: API keys, tokens, passwords, private keys, connection strings."
+    },
+    "PII": {
+      "label": "Personal data",
+      "help": "Data about people: emails, phone numbers, IBANs, codice fiscale, partita IVA, card numbers."
+    },
+    "IDENTITY": {
+      "label": "Identity",
+      "help": "This machine's identity: your user name in paths, the host name, your git name and email."
+    },
+    "CUSTOM": {
+      "label": "Your terms and formats",
+      "help": "A term from your own list (client names, project code names, internal domains), or a value one of your recognizers found."
+    },
+    "LLM": {
+      "label": "Local reviewer",
+      "help": "Found by your local reviewer, a language model on your own server that reads what the detectors left in clear. Drawn with a dashed line: it is a judgement, not a pattern match."
+    },
+    "NER": {
+      "label": "Model detection",
+      "help": "Found by the local language model: names, street addresses, cities. Drawn with a dashed line: it is a judgement, not a pattern match."
+    },
+    "STRUCT": {
+      "label": "Data value",
+      "help": "A value of a table, a JSON document or key=value pairs in a tool's output, masked by strict data mode or a field rule. It is masked in its structure only: the same word elsewhere is left alone."
+    },
+    "UNKNOWN": {
+      "label": "Unknown",
+      "help": "Latet lost track of this value's type."
+    },
+    "guessed": "{{list}} (classes guessed from the types)",
+    "count": "{{label}}: {{count}}"
+  },
+  "kinds": {
+    "system": "System prompt",
+    "user_text": "User text",
+    "assistant_text": "Assistant text",
+    "tool_input": "Tool input",
+    "tool_result": "Tool result",
+    "attachment": "Attachment",
+    "tool_description": "Tool description",
+    "other": "Other",
+    "outbound_tool": "Tool outside your computer",
+    "image_text": "Text in an image"
+  },
+  "flags": {
+    "withDetail": "{{label}}: {{detail}}",
+    "details": {
+      "image": "an image",
+      "document": "a document",
+      "file": "a file",
+      "audio": "audio",
+      "masked": "masked",
+      "withheld": "withheld"
+    },
+    "blocked": {
+      "label": "Blocked",
+      "help": "Latet stopped this request: it would have sent a sensitive value in clear. Nothing left your machine; the agent got an error."
+    },
+    "leak": {
+      "label": "Leak",
+      "help": "The check found sensitive values in clear in this request. See the list on the request page (types only, never the values)."
+    },
+    "error": {
+      "label": "Error",
+      "help": "The exchange failed: the provider answered with an error or the connection broke."
+    },
+    "uninspected": {
+      "label": "Not inspected",
+      "help": "Part of this request was not read ({{detail}}): PDFs and other documents, images by their address, and images while text recognition is off or not installed are sent as they are."
+    },
+    "degraded": {
+      "label": "Degraded",
+      "help": "A detector did not run fully ({{detail}}), so some values may have been missed."
+    },
+    "unknown-route": {
+      "label": "Unknown route",
+      "help": "Latet doesn't know this API route, so it forwarded the request without inspecting it."
+    },
+    "project-off": {
+      "label": "Latet off",
+      "help": "Latet is off in this project (your own settings for it): the request was sent as it was, and only surrogates already in the conversation were restored."
+    },
+    "withheld": {
+      "label": "Withheld",
+      "help": "The dump guard kept a tool output from the model: it held more personal values than allowed in one output. The model was told to ask for fewer rows, or for counts instead."
+    },
+    "history": {
+      "label": "From the history",
+      "help": "The values in clear were in this conversation's history, which Latet never masked: it began before Latet was on, or was resumed from then. Claude Code sends that history with every request, so start a new conversation (/clear)."
+    },
+    "image": {
+      "label": "Image",
+      "help": "An image of this request was read on this computer ({{detail}}). Masked: the values read in it were covered with their fakes before it left. Withheld: it could not be read, so it was not sent."
+    },
+    "other": {
+      "label": "Flag",
+      "help": "Flag reported by the daemon: {{flag}}"
+    },
+    "verified": {
+      "label": "Verified",
+      "help": "The final check ran on what was about to leave and found nothing sensitive in clear."
+    },
+    "auto-mode-review": {
+      "label": "Auto mode review",
+      "help": "Claude Code's auto mode reviewer: a model asked whether an action is safe to run. It is sent your OS user name, your home and working directories and your git author."
+    },
+    "outbound": {
+      "label": "Stand-in to a tool outside",
+      "help": "A tool that runs outside your computer (a web search, a page, a claude.ai connector, a tool the provider runs) got, or would have got, a value Latet replaced: it works on the stand-in, not on the real value."
+    },
+    "route-bypass": {
+      "label": "Around Latet",
+      "help": "Claude Code was set to send its requests elsewhere, around Latet: its prompts were stopped. The reason says which settings file did it."
+    }
+  },
+  "masked": {
+    "empty": "Empty",
+    "valueLabel": "{{type}}: {{value}}",
+    "stoppedLabel": "{{type}} that stopped the request: {{value}}",
+    "expand_one": "Show {{count}} line",
+    "expand_other": "Show all {{count}} lines",
+    "collapse": "Show less",
+    "hiddenValues_one": "{{count}} more masked value below",
+    "hiddenValues_other": "{{count}} more masked values below"
+  },
+  "inspector": {
+    "sentAs": "Sent as",
+    "value": "Value",
+    "stopped": "Stopped: it would have left your computer in clear.",
+    "stoppedMany": "The check read it as {{number}} overlapping values: Not sensitive allows each of them.",
+    "stoppedHint": "If it is not sensitive, allow it, then try the turn again in your agent.",
+    "realValue": "Real value",
+    "replaces": "Replaces",
+    "showOriginal": "Show the real value",
+    "revealFromVault": "Look it up in the vault",
+    "unknown": "Not available",
+    "forgotten": "Gone: the vault no longer holds it",
+    "notKept": "Not available: redacted one way",
+    "module": "Found by",
+    "rule": "Rule",
+    "via": "How",
+    "entity": "Vault entry",
+    "noEntity": "Not linked (redacted one way)",
+    "redactedNote": "Redacted, not restored",
+    "jsonNote": "Found in its JSON-escaped form",
+    "allow": "Not sensitive: always allow",
+    "allowDone": "Allowed",
+    "allowed": "{{type}} added to the allow list. New requests send it as it is.",
+    "allowedInProject": "{{type}} added to this project's allow list. Its new requests send it as it is.",
+    "alwaysMask": "Always mask this",
+    "termDone": "Added",
+    "termAdded": "Added as a custom term ({{type}}): it is masked wherever it appears.",
+    "termAddedInProject": "Added as a term of this project ({{type}}): it is masked wherever it appears there.",
+    "noOriginal": "The real value is not available, so it can't be added to a list.",
+    "pinHint": "Click or press Enter to keep this open.",
+    "keepInProject": "Don't mask {{field}} in this project",
+    "keep": "Don't mask {{field}} anywhere",
+    "keepDone": "Kept in clear",
+    "keptInProject": "{{field}} is kept in clear in this project's tool outputs from now on.",
+    "kept": "{{field}} is kept in clear in tool outputs from now on.",
+    "technical": {
+      "id": "Looks like an id: keeping it in clear is usually safe.",
+      "date": "Looks like the date of an event: keeping it in clear is usually safe.",
+      "state": "Looks like a state or a type: keeping it in clear is usually safe.",
+      "count": "Looks like a count: keeping it in clear is usually safe."
+    }
+  },
+  "valueScope": {
+    "label": "Where it applies",
+    "project": "This project",
+    "everywhere": "Everywhere"
+  },
+  "legend": {
+    "label": "What the highlights mean",
+    "sample": "value",
+    "stopped": "Stopped the request",
+    "stoppedHelp": "This value would have left your computer in clear, so the request was not sent. Click it to see what it is, and to mark it Not sensitive.",
+    "redacted": "Redacted one way",
+    "redactedHelp": "A fixed marker was sent instead of the value, and the value is never restored. It is kept, sealed in the vault, only when the local reviewer or you, in the Live Reviewer, found it.",
+    "gone": "Original gone",
+    "goneHelp": "The vault no longer holds this value (forgotten), so only what was sent can be shown."
+  },
+  "live": {
+    "title": "Live",
+    "description": "Every request your agents send through Latet, as it happens. Open one to see exactly what left your machine.",
+    "pause": "Pause",
+    "resume": "Resume",
+    "notRecording": "The history is off, so new exchanges are not recorded here. Turn it on in Rules, under History.",
+    "tableLabel": "Exchanges",
+    "pendingCount_one": "Show {{count}} new exchange",
+    "pendingCount_other": "Show {{count}} new exchanges",
+    "loadOlder": "Load older exchanges",
+    "stream": {
+      "connecting": "Connecting…",
+      "open": "Live",
+      "retrying": "Reconnecting…",
+      "paused": "Paused"
+    },
+    "filters": {
+      "label": "Filters",
+      "agent": "Agent",
+      "anyAgent": "All agents",
+      "flag": "Flag",
+      "anyFlag": "Any flag",
+      "session": "Session",
+      "anySession": "All sessions",
+      "clear": "Clear filters",
+      "project": "Project",
+      "anyProject": "All projects"
+    },
+    "columns": {
+      "time": "Time",
+      "agent": "Agent and model",
+      "mode": "Mode and status",
+      "latency": "Latency",
+      "tokens": "Tokens",
+      "masked": "Masked",
+      "flags": "Flags"
+    },
+    "overhead": "+{{value}} Latet",
+    "overheadHelp": "Time Latet added before forwarding the request",
+    "tokensInOut": "{{input}} in, {{output}} out",
+    "cached": "{{value}} from cache",
+    "cacheHelp": "{{value}} prompt tokens were read from the provider's cache",
+    "nothingMasked": "Nothing",
+    "newMasked_one": "{{count}} new",
+    "newMasked_other": "{{count}} new",
+    "allResent": "all resent",
+    "empty": {
+      "title": "No exchanges yet",
+      "body": "Start an agent through Latet and its requests show up here as they happen."
+    },
+    "emptyFiltered": {
+      "title": "No exchanges match these filters",
+      "body": "Clear a filter, or wait for new exchanges: they appear here as they arrive."
+    },
+    "modes": {
+      "summary": "What do Rewrite, Verify and Passthrough mean?"
+    }
+  },
+  "approvals": {
+    "title": "Approvals",
+    "description": "With the Live Reviewer on, every new text your agents are about to send waits here. Approve it as Latet masked it, mask more first, or don't send it.",
+    "documentTitle": "({{count}}) {{name}}",
+    "banner_one": "{{count}} request waits for your approval before it leaves.",
+    "banner_other": "{{count}} requests wait for your approval before they leave.",
+    "open": "Open Approvals",
+    "settings": "Live Reviewer settings",
+    "tabs": {
+      "label": "What waits for you",
+      "texts": "Texts",
+      "settings": "Settings"
+    },
+    "settingsEmpty": {
+      "title": "No change to your settings waits for you",
+      "body": "A change to your settings that lowers protection waits here until you approve it or undo it, whoever made it."
+    },
+    "narrow": {
+      "position": "{{number}} of {{count}}",
+      "previous": "Previous text",
+      "next": "Next text"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "on": "Shortcuts on",
+      "intro": "Off until you turn them on, and this browser keeps your choice. They never act while you type in a field, and Enter approves nothing: the Approve button sends a text as it is.",
+      "switch": "Use keyboard shortcuts",
+      "shift": "Shift",
+      "nothingToMask": "Nothing to mask: select a value in the original first.",
+      "keys": {
+        "approve": "Approve the text shown",
+        "skip": "Don't send it",
+        "next": "Next text",
+        "previous": "Previous text",
+        "mask": "Mask the text selected in the original, or else the first suggestion",
+        "approveAll": "Approve all waiting, once you confirm",
+        "help": "This list"
+      }
+    },
+    "change": {
+      "title": "A change to your settings waits for you",
+      "source": {
+        "command": "{{agent}} ran a latet command.",
+        "commandNoAgent": "A latet command was run.",
+        "file": "config.yaml was edited.",
+        "start": "Found in config.yaml when Latet started: it runs with the settings you approved until you decide.",
+        "serverFile": "Found when the server applied your settings again, after a change to what is set for everyone or to your settings on another of its instances: they run as you approved them until you decide.",
+        "serverStart": "Found when your space on the server was made: it runs with the settings you approved until you decide.",
+        "other": "Your settings were changed."
+      },
+      "loosened": "It lowers protection:",
+      "keys": "It changes",
+      "guidance": "The local reviewer's guidance it writes:",
+      "guidanceIn": "The local reviewer's guidance it writes for {{project}}:",
+      "before": "Before",
+      "after": "After",
+      "noGuidance": "None.",
+      "help": "It does not apply until you approve it.",
+      "approveHelp": "It applies and is saved.",
+      "undo": "Undo it",
+      "undoing": "Undoing…",
+      "undoHelp": "config.yaml goes back to the settings in use.",
+      "undoHelpServer": "Your settings go back to those in use.",
+      "approved": "Approved: your settings changed.",
+      "undone": "Undone: config.yaml is back to the settings in use.",
+      "undoneServer": "Undone: your settings are back to those in use.",
+      "notification": "A change to your settings waits for your approval",
+      "notice": "A change to your settings waits for your approval. It is not applied yet: these are the settings in use.",
+      "review": "Review it",
+      "destination": "Destination {{name}}: where requests and keys would go",
+      "destinationGone": "Removed"
+    },
+    "approve": "Approve",
+    "approveWith_one": "Approve with {{count}} mask",
+    "approveWith_other": "Approve with {{count}} masks",
+    "approving": "Approving…",
+    "reject": "Don't send",
+    "rejectHelp": "The agent is told the text was not sent. Only the agent can send it again.",
+    "approveAll": "Approve all waiting ({{count}})",
+    "approveAllIn": "Approve all in {{project}} ({{count}})",
+    "approveAllInTitle_one": "Approve the request waiting in {{project}}?",
+    "approveAllInTitle_other": "Approve the {{count}} requests waiting in {{project}}?",
+    "filter": {
+      "label": "Project",
+      "all": "Every project",
+      "none": "No project",
+      "unknown": "A project"
+    },
+    "approveAllTitle_one": "Approve the request waiting?",
+    "approveAllTitle_other": "Approve all {{count}} requests waiting?",
+    "approveAllBody": "Each is sent as Latet and the local reviewer masked it.",
+    "approveAllMasks": "The values you masked here are not included: approve those requests one by one to keep them.",
+    "approved": "Approved: it is on its way.",
+    "approvedWith_one": "Approved with {{count}} value you masked: it is masked wherever it appears from now on.",
+    "approvedWith_other": "Approved with {{count}} values you masked: they are masked wherever they appear from now on.",
+    "allApproved_one": "{{count}} request approved.",
+    "allApproved_other": "{{count}} requests approved.",
+    "rejected": "Not sent. The agent is told so.",
+    "gone": "It no longer waits: it was decided elsewhere, or its time ran out.",
+    "refused": "Latet did not accept a value you masked: {{message}}",
+    "termsAdded_one": "Added to your terms: it is masked wherever it appears.",
+    "termsAdded_other": "{{count}} values added to your terms: they are masked wherever they appear.",
+    "termsAddedInProject_one": "Added to this project's terms: it is masked wherever it appears there.",
+    "termsAddedInProject_other": "{{count}} values added to this project's terms: they are masked wherever they appear there.",
+    "arrived": "Arrived {{time}}",
+    "expires": "Not sent if you don't answer {{time}}",
+    "off": {
+      "title": "The Live Reviewer is off",
+      "body": "Turn it on above, and every new text your agents are about to send waits here until you approve it: your prompts, the files they read, what their tools fetch. You see what Latet masked, and you can mask more."
+    },
+    "empty": {
+      "title": "Nothing waits for you",
+      "body": "New texts your agents are about to send show up here and wait until you approve them. Keep this page open, or turn on notifications.",
+      "noTexts": "No texts wait for you"
+    },
+    "notify": {
+      "ask": "Notify me",
+      "help": "A browser notification when a new text waits and this tab is in the background.",
+      "on": "Notifications on",
+      "onHelp": "You get a browser notification when a new text waits and this tab is in the background.",
+      "blocked": "Notifications are blocked in this browser"
+    },
+    "notification": {
+      "title": "A text waits for your approval",
+      "body_one": "{{agent}}: {{count}} new text to approve.",
+      "body_other": "{{agent}}: {{count}} new texts to approve."
+    },
+    "queue": {
+      "label": "Waiting for your approval",
+      "title_one": "{{count}} waiting, oldest first",
+      "title_other": "{{count}} waiting, oldest first"
+    },
+    "batch": {
+      "label": "The texts waiting"
+    },
+    "legend": {
+      "suggested": "Suggested by the local reviewer: click to mask",
+      "added": "Masked by you, when you approve"
+    },
+    "decision": {
+      "asIs": "It leaves as shown under Will be sent.",
+      "masks_one": "{{count}} value you masked gets a fake from the vault when you approve.",
+      "masks_other": "{{count}} values you masked get a fake from the vault when you approve.",
+      "rects_one": "{{count}} rectangle you drew covers part of an image with a bar.",
+      "rects_other": "{{count}} rectangles you drew cover parts of the images with a bar.",
+      "withheld_one": "{{count}} image is not sent: the model gets a note in its place.",
+      "withheld_other": "{{count}} images are not sent: the model gets a note in their place."
+    },
+    "item": {
+      "label": "Text {{number}}: {{kind}}",
+      "number": "{{number}} of {{count}}",
+      "failed": "The local reviewer could not read this text: check it yourself."
+    },
+    "panes": {
+      "original": "Original",
+      "selectHint": "Select text to mask it",
+      "sent": "Will be sent"
+    },
+    "suggestion": {
+      "intro": "The local reviewer suggests:",
+      "action": "Mask",
+      "title": "Suggested by the local reviewer ({{category}}). Click to mask it.",
+      "mask": "Mask {{value}} ({{category}})"
+    },
+    "added": {
+      "label": "Values you masked",
+      "title": "Masked by you ({{category}}): it gets a fake when you approve",
+      "preview": "A fake from the vault takes its place when you approve",
+      "sentAs": "sent as a fake {{placeholder}}",
+      "always": "Always mask",
+      "alwaysProject": "Always mask in this project",
+      "alwaysHelp": "Also add it to your terms once you approve, so it stays masked even if the vault forgets it.",
+      "remove": "Don't mask {{value}}"
+    },
+    "select": {
+      "title": "Mask the selection",
+      "as": "Mask as:",
+      "empty": "Select a value, not just spaces.",
+      "short": "Select at least two characters.",
+      "noword": "Select a value with letters or digits.",
+      "masked": "Part of this is masked already: select clear text only.",
+      "added": "You masked part of this already."
+    },
+    "approveChanged": "Approve with your changes",
+    "image": {
+      "title": "Image, {{width}} × {{height}}",
+      "view": "Show the image",
+      "sent": "As it leaves now",
+      "sentHelp": "As Latet masked it. What you change here is applied when you approve.",
+      "alt": "The image this text was read in",
+      "gone": "The image is no longer available.",
+      "withhold": "Don't send this image",
+      "withholdHelp": "The model gets a short note in its place. The same image sent again is withheld too.",
+      "withheld": "This image will not be sent.",
+      "coveredTitle": "{{type}}: covered with its fake",
+      "drawHint": "Drag on the image to cover a part of it with a bar. The same image sent again is covered the same way.",
+      "tooMany": "At most {{count}} rectangles on an image.",
+      "legend": {
+        "covered": "Covered with its fake",
+        "pending": "Masked by you in the text",
+        "drawn": "Covered with a bar"
+      },
+      "rects": {
+        "label": "Rectangles you drew",
+        "item": "Rectangle {{number}}: {{width}} × {{height}}",
+        "remove": "Remove rectangle {{number}}",
+        "clear": "Remove all"
+      }
+    }
+  },
+  "history": {
+    "clear": {
+      "action": "Clear history",
+      "title": "Clear the whole history?",
+      "body": "Every recorded exchange is deleted from this machine. The vault is kept, so masking and restoring go on as before. This can't be undone.",
+      "confirm": "Clear history",
+      "done": "History cleared."
+    }
+  },
+  "sessions": {
+    "title": "Sessions",
+    "description": "One conversation at a time. Agents resend the whole history with every turn, so by default each request shows only what was new in it.",
+    "listLabel": "Sessions",
+    "exchanges_one": "{{count}} exchange",
+    "exchanges_other": "{{count}} exchanges",
+    "masked_one": "{{count}} masked",
+    "masked_other": "{{count}} masked",
+    "blocked_one": "{{count}} blocked",
+    "blocked_other": "{{count}} blocked",
+    "summary_one": "{{agent}}, {{count}} exchange from {{first}} to {{last}}",
+    "summary_other": "{{agent}}, {{count}} exchanges from {{first}} to {{last}}",
+    "payloadLabel": "Blocks to show",
+    "payloadNew": "New blocks",
+    "payloadAll": "Full payload",
+    "openInLive": "Show in Live",
+    "newNote": "Showing what was sent for the first time in each request, as it left your machine.",
+    "allNote": "Showing every block of each request, including the history the agent resent.",
+    "loadEarlier": "Load earlier exchanges",
+    "timelineLabel": "Exchanges in this session, oldest first",
+    "empty": {
+      "title": "No sessions yet",
+      "body": "A session starts when an agent sends its first request through Latet."
+    },
+    "noExchanges": {
+      "title": "No exchanges in this session",
+      "body": "They may have been cleared, or be older than the history keeps."
+    },
+    "item": {
+      "newMasked_one": "{{count}} value masked in new blocks",
+      "newMasked_other": "{{count}} values masked in new blocks",
+      "onlyResent_one": "{{count}} masked value, all resent",
+      "onlyResent_other": "{{count}} masked values, all resent",
+      "nothing": "Nothing masked",
+      "noNewBlocks_one": "Nothing new: its only block was sent before.",
+      "noNewBlocks_other": "Nothing new: all {{count}} blocks were sent before.",
+      "noBlocks": "No text blocks recorded."
+    }
+  },
+  "exchange": {
+    "back": "Live",
+    "copyId": "Copy exchange ID",
+    "title": "Request to {{upstream}} at {{time}}",
+    "notFound": {
+      "title": "This exchange isn't in the history",
+      "body": "It may have been cleared, or be older than the history keeps."
+    },
+    "verdict": {
+      "passthrough": "Forwarded without inspection.",
+      "passthroughDetail": "Latet doesn't understand this route, so nothing was masked or checked.",
+      "verified": "Verified: nothing sensitive left in clear.",
+      "verifiedMasked_one": "{{count}} value was replaced by a surrogate.",
+      "verifiedMasked_other": "{{count}} values were replaced by surrogates.",
+      "verifiedNothing": "Nothing in it needed masking.",
+      "notVerified": "Not verified.",
+      "notVerifiedDetail": "The final check didn't confirm this request. Look at the flags and leaks below.",
+      "uninspected": "The check covers text only: {{what}} went as it was.",
+      "reviewAllowed": "Sent to auto mode's reviewer.",
+      "reviewAllowedDetail": "It carried {{what}}, which your rules let through to the reviewer. Secrets and personal data never go through."
+    },
+    "why": {
+      "happened": "What happened",
+      "meant": "What it meant for you",
+      "todo": "What you can do",
+      "inRules": "Change it in Rules",
+      "given": "The reason Latet gave the agent, word for word",
+      "review": {
+        "title": "Claude Code's auto mode check was not sent",
+        "happened": "Before running an action by itself, Claude Code asks a reviewer model whether to allow it. That request carried {{details}}, which your rules keep on this computer, so Latet did not send it.",
+        "happenedOthers": "Before running an action by itself, Claude Code asks a reviewer model whether to allow it. That request carried {{others}}, which never goes to the reviewer, so Latet did not send it.",
+        "alsoOthers": "It also carried {{others}}, which never goes to the reviewer.",
+        "meant": "Claude Code did not run the action. It reports its reviewer as temporarily unavailable, and does not ask you: run the action yourself, or switch Claude Code to a permission mode that asks you. Your conversation was not touched.",
+        "todo": "Leave it, and auto mode refuses the actions that need its reviewer. Or let {{details}} through to the reviewer, and auto mode works again: your secrets and personal data never go through.",
+        "todoOthers": "Nothing to change: the reviewer never receives secrets or personal data, so auto mode refuses the actions that carry them. Run them yourself, or keep the secret out of your CLAUDE.md.",
+        "allow": "Let {{details}} through",
+        "done": "Done: from now on, the reviewer gets {{details}}.",
+        "surrogate": "Or keep your real user name here: the reviewer is told the same fake user name the model sees, and only your user folder in paths goes through.",
+        "surrogateAllow": "Use a fake user name, let the folder through",
+        "surrogateDone": "Done: restart Claude Code (started with latet claude, or after latet agents apply claude) so it uses the fake user name.",
+        "surrogateNote": "If your user folder has the same name as your user name, the reviewer still reads it in the paths."
+      },
+      "history": {
+        "title": "This conversation is stopped",
+        "happened": "It holds values in clear from before Latet masked it: it began before Latet was on, or was resumed from then. Claude Code sends the whole history with every request, so the plugin stopped it.",
+        "meant": "Nothing of it left your computer, and every request of this conversation stops here.",
+        "todo": "Start a new conversation in Claude Code (/clear): from there everything is masked as it comes in."
+      },
+      "plugin": {
+        "title": "Stopped inside Claude Code",
+        "happened": "The plugin's final check found {{types}} in clear in what Claude Code was about to send.",
+        "meant": "The request never left your computer, and Claude Code got an error for this turn.",
+        "todo": "Try the turn again. If it keeps stopping, the value reaches Claude Code by a way Latet does not mask: please open an issue. If the value is not sensitive, it is marked in the request below: click it and choose Not sensitive.",
+        "todoUnmarked": "Try the turn again. If it keeps stopping, the value reaches Claude Code by a way Latet does not mask: please open an issue. If the value is not sensitive, add it to the Allow list in Rules."
+      },
+      "uninspected": {
+        "title": "Not sent: it carried {{what}}",
+        "happened": "The max profile does not send what it cannot mask, and Latet does not look inside {{what}} with it.",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "Take {{what}} out of the conversation, choose the balanced profile, or set images: mask in the project: images are then sent with the text in them masked."
+      },
+      "imagesSetting": {
+        "title": "Not sent: it carried {{what}}",
+        "happened": "Your rules set images: block, so requests that carry {{what}} are not sent.",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "Take {{what}} out of the conversation, or set images: allow or mask: images are then sent with the text in them masked, once text recognition is installed."
+      },
+      "localReviewer": {
+        "title": "The local reviewer could not check it",
+        "happened": "Your rules have the local reviewer read every new text before it leaves. It could not answer (its server is off or too slow, or its answer was not to be trusted), or it asked to stop the text.",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "Check its server with latet llm status. To send texts masked by the detectors alone when it cannot answer, choose Send it masked by the detectors under Local reviewer."
+      },
+      "leak": {
+        "title": "Not sent: a value would have left in clear",
+        "happened": "The final check found {{types}} in clear in what was about to leave.",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "Take the value out: start a new conversation (in Claude Code, /clear) and point the agent at the file or variable that holds it, instead of pasting it. Only if it is not a secret at all, such as a test or example value, click it in the request below and choose Not sensitive.",
+        "todoUnmarked": "Take the value out: start a new conversation (in Claude Code, /clear) and point the agent at the file or variable that holds it, instead of pasting it. The values are listed below by type and length, not where they are: only if one is not a secret at all, such as a test or example value, add it to the Allow list in Rules."
+      },
+      "other": {
+        "title": "Not sent",
+        "happened": "Latet could not handle this request: {{reason}}.",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "If it happens again, latet doctor checks what is wrong."
+      },
+      "live": {
+        "meant": "Nothing left your computer: the agent was told it was not sent.",
+        "rejected": {
+          "title": "You stopped it in the Live Reviewer",
+          "happened": "You chose Don't send for its new texts.",
+          "todo": "Nothing to do. If the agent tries again, it waits for you again."
+        },
+        "expired": {
+          "title": "It waited too long for your approval",
+          "happened": "It waited in the Live Reviewer longer than your time limit.",
+          "todo": "Approve sooner, or raise or remove the time limit under Live Reviewer."
+        },
+        "abandoned": {
+          "title": "The agent stopped waiting",
+          "happened": "The agent gave the request up while it waited for your approval: you stopped it, or it gave up on its own.",
+          "todo": "Nothing to do."
+        }
+      },
+      "outbound": {
+        "title": "{{tools}} was stopped: it would have used a stand-in",
+        "happened": "The model asked {{tools}} to work with {{types}} that Latet had replaced before the model saw it. That tool runs outside your computer, so it would have used the stand-in: searched for someone else, opened the wrong page, or written to an address that does not exist. Sending the real value would have let it leave your computer.",
+        "meant": "The tool did not run. The model was told why, and asks you whether the value may go out in clear.",
+        "todo": "If the value may leave your computer, mark it Not sensitive here, then ask the model to try again. If it may not, nothing to do: it stays masked.",
+        "ranTitle": "{{tools}} ran outside your computer with a stand-in",
+        "ranHappened": "The provider ran {{tools}} itself, with {{types}} that Latet had replaced before the model saw it. It worked on the stand-in: searched for someone else, opened the wrong page, or wrote to an address that does not exist. Latet sees such a call only after it ran, in the history of this request.",
+        "ranMeant": "What it found, or did, is about the stand-in, not about the real value, and the answer may attribute it to your real value. The real value did not leave your computer.",
+        "ranTodo": "If the value may go out in clear, mark it Not sensitive here: the next time, the model sees and uses the real value.",
+        "allowValue": "{{value}} is not sensitive",
+        "sentAs": "sent as {{sent}}",
+        "allowed": "{{value}}: not sensitive from now on.",
+        "aValue": "a value"
+      },
+      "imagesMask": {
+        "title": "Not sent: Latet could not mask {{what}}",
+        "happened": "Your rules set images: mask, so only images whose text Latet read and masked are sent. It could not read {{what}}: text recognition is not installed, or it is not an image Latet reads (a PDF, an image by its address).",
+        "meant": "Nothing left your computer, and the agent got an error.",
+        "todo": "Install text recognition (latet ocr install), take {{what}} out of the conversation, or set images: allow."
+      }
+    },
+    "meta": {
+      "modules": "Masked by",
+      "agent": "Agent",
+      "model": "Model",
+      "mode": "Mode",
+      "status": "Status",
+      "latency": "Latency",
+      "overhead": "+{{value}} Latet",
+      "tokens": "Tokens",
+      "tokensHelp": "{{input}} input, {{read}} read from cache, {{write}} written to cache, {{output}} output",
+      "session": "Session",
+      "path": "Route",
+      "size": "Body size",
+      "when": "Time",
+      "project": "Project",
+      "projectHelp": "The project of the session's folder: open its rules",
+      "sentTo": "Sent to",
+      "sentToHelp": "Where the request went after Latet",
+      "signed": "Signed by Latet",
+      "signedProfile": "with AWS profile {{profile}}",
+      "signedSession": "with the AWS credentials of `latet claude`'s shell"
+    },
+    "flow": {
+      "label": "From your machine to the model and back",
+      "original": "Original",
+      "blocks_one": "{{count}} block, on this machine",
+      "blocks_other": "{{count}} blocks, on this machine",
+      "sent": "Sent to the model",
+      "notSent": "Not sent",
+      "masked_one": "{{count}} value masked",
+      "masked_other": "{{count}} values masked",
+      "blockedDetail": "Blocked by Latet",
+      "passthroughDetail": "Forwarded as it was",
+      "model": "As the model wrote it",
+      "agent": "As your agent got it",
+      "restored_one": "{{count}} value restored",
+      "restored_other": "{{count}} values restored",
+      "noResponse": "No response",
+      "pluginDetail": "Stopped in Claude Code"
+    },
+    "leaks": {
+      "title_one": "{{count}} value in clear",
+      "title_other": "{{count}} values in clear",
+      "body": "The check found these in what was about to leave. This list shows only their type and length; the blocks below show the request as it would have left, values included.",
+      "type": "Type",
+      "kind": "Found in",
+      "preview": "Type and length",
+      "status": "Effect",
+      "new": "In a new block: blocked the request",
+      "old": "Sent before in this session",
+      "allowed": "Let through to the reviewer, as your rules allow",
+      "letThroughTitle_one": "{{count}} value let through to the reviewer",
+      "letThroughTitle_other": "{{count}} values let through to the reviewer",
+      "letThroughBody": "Your rules let these details of your identity reach auto mode's reviewer, and only the reviewer. This list shows only their type and length.",
+      "folded_one": "What the check found: {{count}} value (type and length)",
+      "folded_other": "What the check found: {{count}} values (type and length)"
+    },
+    "request": {
+      "title": "Request",
+      "blocksLabel": "Blocks to show",
+      "newBlocks_one": "New ({{count}})",
+      "newBlocks_other": "New ({{count}})",
+      "allBlocks_one": "All ({{count}})",
+      "allBlocks_other": "All ({{count}})",
+      "footnotes": "Number the values",
+      "newNote_one": "Showing the one block sent for the first time, of {{total}}. The rest is history the agent resends with every turn.",
+      "newNote_other": "Showing the {{count}} blocks sent for the first time, of {{total}}. The rest is history the agent resends with every turn.",
+      "allNote": "Showing every block, including the history the agent resent.",
+      "noBlocks": "No text blocks were recorded: the request had none Latet inspects, or the history keeps metadata only.",
+      "notSent": "Not sent.",
+      "notSentDetail": "This shows what would have left, including the values that stopped it. It is kept on this machine, encrypted, for the usual retention time.",
+      "notSentText": "This shows the text that would have left. It is kept on this machine, encrypted, for the usual retention time."
+    },
+    "images": {
+      "title_one": "{{count}} image",
+      "title_other": "{{count}} images",
+      "masked": "Masked",
+      "maskedHelp": "The values read in it were covered with their fakes, and it was sent like this.",
+      "clean": "Nothing to mask",
+      "cleanHelp": "Its text was read and nothing in it is masked by your rules: it was sent as it was.",
+      "withheld": "Withheld",
+      "withheldHelp": "It could not be read, so it was not sent: the model got a note in its place.",
+      "alt": "The image as it was sent ({{state}})",
+      "larger": "Show it larger",
+      "smaller": "Show it smaller",
+      "notSent": "Not sent",
+      "notKept": "Not kept: too large, or already removed with the history",
+      "text": "The text read in it (block {{number}})"
+    },
+    "columns": {
+      "show": "Choose the columns to keep in clear",
+      "hide": "Hide the columns",
+      "none": "No columns found in this output: tables, JSON and key=value lines have them.",
+      "intro": "Strict data mode masked every value of this output, so the model can't read its states or dates either. Latet proposes the columns that could go in clear: ids, dates of events, states and counts say nothing about a person. Nothing changes until you apply.",
+      "strictOff": "Strict data mode is off there now: a column kept in clear counts once it's on again.",
+      "keep": "Keep in clear",
+      "keepColumn": "Keep {{name}} in clear",
+      "column": "Column",
+      "examples": "Values here",
+      "reviewer": "Local reviewer",
+      "masked_one": "{{count}} value masked",
+      "masked_other": "{{count}} values masked",
+      "keptNow": "In clear already",
+      "starred": "Its name has a *: keep it in clear from the Rules page",
+      "proposal": {
+        "title": "Proposal",
+        "keep": "Keep in clear",
+        "mask": "Keep masked",
+        "ask": "Your call"
+      },
+      "reason": {
+        "dates": "Dates of events",
+        "ids": "Ids and codes",
+        "states": "A few states that repeat",
+        "flags": "Yes or no",
+        "counts": "Counts",
+        "secretName": "Its name says it holds secrets",
+        "secret": "A secret found in it",
+        "people": "Personal data found in it",
+        "person": "Its name says it's about people",
+        "freeText": "Free text: it could hold anything",
+        "birthDates": "Dates of birth or death",
+        "sensitive": "Its name says it's about health, beliefs or private life",
+        "amounts": "Amounts: they may be sensitive",
+        "datesUnclear": "Dates, but its name doesn't say of what",
+        "flagsUnclear": "Yes or no, but its name doesn't say about what",
+        "repeats": "A few values that repeat: states, or a few people's names?",
+        "unclear": "Nothing tells"
+      },
+      "opinionKeep": "In clear: {{why}}",
+      "opinionMask": "Masked: {{why}}",
+      "apply_one": "Keep {{count}} column in clear",
+      "apply_other": "Keep {{count}} columns in clear",
+      "saving": "Saving…",
+      "ask": "Ask the local reviewer",
+      "asking": "Asking…",
+      "reviewerOff": "Turn on the local reviewer in Rules to ask its opinion too.",
+      "saved_one": "{{count}} column kept in clear everywhere, from the next request.",
+      "saved_other": "{{count}} columns kept in clear everywhere, from the next request.",
+      "savedProject_one": "{{count}} column kept in clear in this project, from the next request.",
+      "savedProject_other": "{{count}} columns kept in clear in this project, from the next request.",
+      "notLoaded": "Latet restarted since this exchange, and the settings of {{project}} load at its next session: for now the choice can go only in the global rules.",
+      "held_one": "A rule of this project keeps {{columns}} masked, and it comes before the global rules: choose This project for it.",
+      "held_other": "Rules of this project keep {{columns}} masked, and they come before the global rules: choose This project for them.",
+      "resends": "This agent sends the whole conversation with each request: from the next one, the outputs already in it also go with these columns in clear."
+    },
+    "strict": {
+      "notice": "This request holds structured values. Strict data mode in Rules masks every value of them.",
+      "open": "Open Rules"
+    },
+    "block": {
+      "number": "{{number}}",
+      "fromModel": "Written by the model",
+      "fromModelHelp": "The model wrote this block in an earlier turn, so it only ever saw surrogates.",
+      "new": "New",
+      "newHelp": "First time this block left in this session",
+      "resent": "Resent",
+      "resentHelp": "Already sent earlier in this session: the agent resends its history every turn",
+      "noValues": "Nothing masked",
+      "values_one": "{{count}} value masked",
+      "values_other": "{{count}} values masked"
+    },
+    "panes": {
+      "original": "Original, on this machine",
+      "originalUnknown": "The original isn't available: the Claude Code plugin masked this block before Latet saw it. Only what was sent is shown.",
+      "sent": "Sent to the model",
+      "model": "As the model wrote it",
+      "agent": "As your agent got it",
+      "modelArgs": "Arguments as the model wrote them",
+      "agentArgs": "Arguments as your agent got them",
+      "wouldSend": "Would have been sent"
+    },
+    "values": {
+      "show_one": "Show the masked value",
+      "show_other": "Show the {{count}} masked values",
+      "hide": "Hide the masked values",
+      "number": "#",
+      "type": "Type",
+      "class": "Class",
+      "sent": "Sent as",
+      "module": "Found by",
+      "rule": "Rule",
+      "entity": "Vault entry",
+      "redacted": "(redacted one way)",
+      "gone": "(original gone)"
+    },
+    "response": {
+      "title": "Response",
+      "text": "Answer",
+      "toolCall": "Tool call",
+      "verifyNote": "In client mode the Claude Code plugin restores values on your machine. Here Latet rebuilds them from the vault, so you can compare.",
+      "notAligned": "Couldn't line up every restored value with its surrogate: the highlights in what your agent got may be incomplete.",
+      "empty": "The response had no text and no tool calls.",
+      "noText": "No text",
+      "noArgs": "No arguments",
+      "blocked": "Not forwarded: Latet blocked the request, so the model never saw it and the agent got an error instead.",
+      "none": "No response was recorded for this exchange.",
+      "plugin": "Nothing was sent: the Claude Code plugin stopped the request inside Claude Code."
+    },
+    "headers": {
+      "title": "Headers",
+      "note": "Credentials are never recorded: their values are replaced by their length.",
+      "request": "Request headers",
+      "response": "Response headers",
+      "none": "None recorded."
+    },
+    "raw": {
+      "title": "Raw JSON",
+      "label": "JSON to show",
+      "payload": "Sent payload",
+      "record": "Exchange record",
+      "copy": "Copy JSON",
+      "payloadNote": "The inspected text fields exactly as they were sent, rebuilt at their JSON paths. Other fields (model parameters, tool schemas, images) are not part of it: the images as they were sent are shown with the request.",
+      "recordNote": "Everything the dashboard received for this exchange, with the originals rebuilt from the vault.",
+      "skipped_one": "{{count}} field could not be placed and is left out.",
+      "skipped_other": "{{count}} fields could not be placed and are left out."
+    }
+  },
+  "pagination": {
+    "label": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}}"
+  },
+  "vault": {
+    "title": "Vault",
+    "description": "The vault maps each surrogate to the real value it replaced, so answers can be restored. It is encrypted and never leaves this machine.",
+    "search": {
+      "label": "Search",
+      "placeholder": "Type, surrogate, entry ID or real value"
+    },
+    "filters": {
+      "type": "Type",
+      "anyType": "All types",
+      "class": "Class",
+      "anyClass": "All classes"
+    },
+    "count_one": "{{count}} value",
+    "count_other": "{{count}} values",
+    "range": "{{from}}–{{to}} of {{total}}",
+    "columns": {
+      "type": "Type",
+      "class": "Class",
+      "surrogate": "Surrogate",
+      "original": "Real value",
+      "created": "First seen",
+      "sessions": "Sessions",
+      "actions": "Actions"
+    },
+    "reveal": {
+      "action": "Reveal",
+      "hide": "Hide",
+      "hidden": "Hidden",
+      "shown": "Shown for {{seconds}} seconds, then hidden again."
+    },
+    "forget": {
+      "action": "Forget",
+      "title": "Forget this value?",
+      "body": "Latet removes this {{type}} from the vault:",
+      "consequence": "It disappears from the whole history: past requests show the surrogate instead, and answers that contain the surrogate are no longer restored. If the value shows up again, it is masked again, with the same surrogate unless that one is already in the conversation.",
+      "confirm": "Forget",
+      "done": "{{type}} forgotten."
+    },
+    "empty": {
+      "title": "The vault is empty",
+      "body": "Values appear here once Latet masks them."
+    },
+    "emptyFiltered": {
+      "title": "No values match",
+      "body": "Try another search, or clear the filters."
+    }
+  },
+  "rules": {
+    "title": "Rules",
+    "description": "What Latet looks for, and what it does when it finds it. Changes apply to new requests at once, without a restart.",
+    "tabs": {
+      "label": "Sections of the rules",
+      "protection": "Protection",
+      "terms": "Terms",
+      "values": "Allowed values",
+      "reviewers": "Reviewers",
+      "advanced": "Advanced",
+      "recognizers": "Recognizers",
+      "policies": "Policies",
+      "countProject_one": "{{count}} yours · {{all}} in all",
+      "countProject_other": "{{count}} yours · {{all}} in all"
+    },
+    "search": "Search the rules",
+    "searchNone": "No section of the rules matches this search.",
+    "remove": "Remove {{value}}",
+    "unsaved": "You have unsaved changes.",
+    "upToDate": "No changes.",
+    "saved": "Rules saved (version {{version}}).",
+    "savedVersion": "Saved. Rules version {{version}} applies to new requests.",
+    "save": "Save rules",
+    "saving": "Saving…",
+    "discard": "Discard changes",
+    "profile": {
+      "title": "Profile",
+      "description": "How much Latet masks.",
+      "balanced": {
+        "label": "Balanced",
+        "help": "Secrets, your own terms, personal data (emails, phones, IBANs, codice fiscale, partita IVA, cards) and this machine's identity. The default for code work."
+      },
+      "max": {
+        "label": "Max",
+        "help": "Everything in Balanced, plus private IP addresses and strict data mode: every value of the tables and JSON a tool prints is masked. Images and PDFs are not sent; a project can send images with their text masked (images: mask). With local name detection installed, names are looked for everywhere: one-word names, cities and tool output too."
+      },
+      "secrets": {
+        "label": "Secrets only",
+        "help": "Secrets and your own terms only. Personal data and identity pass through: fewer false alarms."
+      }
+    },
+    "pii": {
+      "title": "Personal data",
+      "description": "The kinds of personal data to detect, and the countries whose ID numbers to recognise.",
+      "secretsOnly": "The Secrets only profile doesn't detect personal data.",
+      "useDefault": "Use the profile's default",
+      "useDefaultHelp": "The general types and the ID numbers of the countries above. Turn this off to choose type by type.",
+      "types": {
+        "EMAIL": "Email addresses",
+        "PHONE": "Phone numbers",
+        "IBAN": "Bank accounts (IBAN)",
+        "CREDIT_CARD": "Payment card numbers",
+        "IT_FISCAL_CODE": "Codice fiscale",
+        "IT_VAT_CODE": "Partita IVA, also without the IT prefix",
+        "IP_ADDRESS": "IP addresses",
+        "CRYPTO_WALLET": "Crypto wallet addresses (Bitcoin)",
+        "VAT_NUMBER": "VAT numbers, with their country prefix",
+        "ES_DNI": "DNI (national identity number)",
+        "ES_NIE": "NIE (foreigner identity number)",
+        "FR_NIR": "Social security number (NIR)",
+        "DE_TAX_ID": "Tax ID (Steuer-IdNr)",
+        "NL_BSN": "Citizen service number (BSN)",
+        "BE_NATIONAL_NUMBER": "National register number",
+        "PT_NIF": "Tax number (NIF)",
+        "PL_PESEL": "PESEL",
+        "CH_AHV": "AHV/AVS social security number",
+        "SE_PERSONNUMMER": "Personnummer",
+        "FI_HETU": "Personal identity code (henkilötunnus)",
+        "GB_NINO": "National Insurance number",
+        "US_SSN": "Social Security number",
+        "US_ITIN": "Individual Taxpayer Identification Number",
+        "CA_SIN": "Social Insurance Number",
+        "LV_PERSONAL_CODE": "Personal code (personas kods)"
+      },
+      "countries": "Countries",
+      "countriesHelp": "National ID and tax numbers of these countries are recognised. VAT numbers are recognised for every European country, whatever you choose here.",
+      "countriesMax": "The Max profile recognises the ID and tax numbers of every country listed.",
+      "general": "General"
+    },
+    "phones": {
+      "title": "Phone regions",
+      "description": "Numbers without an international prefix are read as numbers of these regions (two-letter codes).",
+      "placeholder": "Region code, like IT",
+      "add": "Add region",
+      "invalid": "Use a two-letter region code, like IT or US.",
+      "empty": "No regions: only numbers with an international prefix are detected."
+    },
+    "privateIps": {
+      "title": "Private IP addresses",
+      "description": "Addresses like 10.0.0.12 or 192.168.1.20 say little about you, so only the Max profile masks them by default.",
+      "default": "Profile default",
+      "mask": "Mask",
+      "keep": "Don't mask"
+    },
+    "terms": {
+      "title": "Custom terms",
+      "description": "Words Latet should always mask: client names, project code names, internal domains. The type labels them in the dashboard and in policies.",
+      "value": "Term",
+      "type": "Type",
+      "caseSensitive": "Match case",
+      "wholeWord": "Whole word",
+      "caseSensitiveFor": "Match case for {{value}}",
+      "wholeWordFor": "Whole word only for {{value}}",
+      "actions": "Actions",
+      "newValue": "New term",
+      "placeholder": "Like Project Aurora",
+      "add": "Add term",
+      "empty": "No custom terms.",
+      "noLetterOrDigit": "A term needs a letter or a digit: a fake keeps the signs of a value, so signs alone, such as `--` or `###`, cannot be masked.",
+      "tooLong": "A term holds at most {{max}} characters: a longer one cannot be masked as a term.",
+      "taken": "This term is in the list already, with this type.",
+      "deleteConfirm_one": "The term selected is removed from these rules at once.",
+      "deleteConfirm_other": "The {{count}} terms selected are removed from these rules at once."
+    },
+    "allow": {
+      "title": "Allow list",
+      "description": "Values that are not sensitive and should be sent as they are, like a public test key or a shared demo account.",
+      "valuePlaceholder": "Exact value",
+      "patternPlaceholder": "Regular expression",
+      "noValues": "No values.",
+      "invalidPattern": "Not a valid regular expression: {{message}}",
+      "re2": "Latet uses RE2: lookarounds and backreferences are not supported.",
+      "patternsHelp": "RE2 regular expressions, matched against the whole value.",
+      "valuesHelp": "Exact values, in any letter case.",
+      "column": "Value or pattern",
+      "kind": "Kind",
+      "kindValue": "Value",
+      "kindPattern": "Pattern",
+      "add": "Add a value or a pattern",
+      "new": "New value or pattern",
+      "taken": "This one is in the list already.",
+      "deleteConfirm_one": "The row selected is removed from these rules at once: what it lets through is masked again.",
+      "deleteConfirm_other": "The {{count}} rows selected are removed from these rules at once: what they let through is masked again.",
+      "try": {
+        "label": "Try it on a value",
+        "placeholder": "A value, as it shows in a text",
+        "matches": "The pattern matches this value whole: it is sent as it is.",
+        "noMatch": "The pattern does not match this value whole: it is not let through by this pattern.",
+        "cannot": "This pattern cannot be tried here: it uses a form that only Latet reads. Latet applies it as written."
+      }
+    },
+    "policies": {
+      "title": "Policies by type",
+      "description": "What happens when a type is found. Types not listed here are masked.",
+      "for": "Policy for {{type}}",
+      "type": "Type",
+      "add": "Add policy",
+      "empty": "No policies: every type is masked.",
+      "mask": "Mask",
+      "redact": "Redact",
+      "allow": "Allow",
+      "help": {
+        "mask": "Send a surrogate and restore the original in the answer.",
+        "redact": "Send a fixed marker. The value is never restored.",
+        "allow": "Send the value as it is. It still shows up in the dashboard."
+      },
+      "new": "New policy",
+      "action": "Action",
+      "choose": "Choose a type",
+      "deleteConfirm_one": "The policy selected is removed from these rules at once: its type is masked, as every type without a policy is.",
+      "deleteConfirm_other": "The {{count}} policies selected are removed from these rules at once: their types are masked, as every type without a policy is.",
+      "inForce": "In force here",
+      "notApplied": "not applied here",
+      "other": "Another type…",
+      "typeOther": "Type name",
+      "typeOtherHelp": "A type Latet finds that the menu does not list, such as the type of a secret seen in an exchange.",
+      "taken": "A policy is set for this type already."
+    },
+    "identity": {
+      "title": "Identity",
+      "description": "Your user name in file paths, the host name, and your git name and email.",
+      "toggle": "Mask this machine's identity",
+      "toggleServer": "Mask your identity",
+      "toggleHelp": "Recommended: paths and commit logs reveal who and where you are.",
+      "secretsOnly": "The Secrets only profile doesn't mask identity.",
+      "sandbox": "The tutorial's sandbox has nobody's identity: yours is not in it, so there is nothing to mask here.",
+      "usernames": "User names",
+      "hostname": "Host name",
+      "hostnames": "Host names",
+      "fullName": "Full name",
+      "emails": "Emails",
+      "detected": "Detected on this machine from the system and your git configuration.",
+      "detectedServer": "Sent by each of your computers when it connects to the server: its user names and host name, and your git name and email."
+    },
+    "history": {
+      "title": "History",
+      "description": "What the dashboard keeps of each exchange. Only masked text is stored, encrypted; originals are looked up in the vault when you open a request.",
+      "keep": "Keep",
+      "full": "Everything",
+      "fullHelp": "Text blocks, answers and timings, so you can see exactly what was sent.",
+      "metadata": "Metadata only",
+      "metadataHelp": "Counts, timings and flags. No text is kept.",
+      "off": "Nothing",
+      "offHelp": "Exchanges are not recorded and the Live page stays empty.",
+      "retention": "Keep for",
+      "days_one": "day",
+      "days_other": "days",
+      "retentionHelp": "From 1 to 365 days. Older exchanges are deleted.",
+      "clearHelp": "Delete every recorded exchange now. The vault is kept."
+    },
+    "invalid": "These rules can't be saved:",
+    "ocr": {
+      "noRuntime": "The text in images is not read: this Latet came without the ocr extra that reads it. This installs the latest release with it:",
+      "noRuntimeNext": "Then run latet ocr install.",
+      "noModel": "The text in images is not read yet: download the text recognition models (about 31 MB, once).",
+      "toggle": "Read the text in images",
+      "on": "Screenshots are read on this computer and what your rules mask is covered with its fake.",
+      "off": "Images are sent as they are, and the dashboard flags them."
+    },
+    "ner": {
+      "title": "Local name detection",
+      "description": "A language model that runs on this machine finds names of people and street addresses, which no pattern can.",
+      "toggle": "Detect names and addresses with the local model",
+      "toggleHelp": "Used once it is installed. Nothing leaves your machine to do this.",
+      "off": "Off: names and addresses are not looked for.",
+      "secretsOnly": "The Secrets only profile doesn't look for names.",
+      "noRuntime": "Not installed yet: this Latet came without the extra that runs the model. This installs the latest release with it:",
+      "noRuntimeNext": "Then come back here: the next step downloads the model.",
+      "noModel": "The model isn't downloaded yet. Run this once: it downloads about 1.6 GB, then works offline.",
+      "active": "On.",
+      "balanced": "Balanced: full names and street addresses in your prompts.",
+      "max": "Max: everywhere, including one-word names, cities and tool output.",
+      "onSave": "Save the rules to apply the change.",
+      "inactive": "Installed, but not in use. `latet doctor` tells why."
+    },
+    "review": {
+      "title": "Claude Code auto mode reviews",
+      "description": "In auto mode, Claude Code asks a reviewer model whether each action is safe. It sends the reviewer your OS user name and the paths of your home and working directories, plus any host name or git author in your CLAUDE.md or in the action. No plugin can mask those.",
+      "block": "Keep them all on this machine (default)",
+      "blockHelp": "Latet stops these reviews, so the details stay local. Auto mode then can't approve those actions: Claude Code refuses them as if its reviewer were unavailable, and does not ask you.",
+      "allow": "Let them all through to the reviewer",
+      "allowHelp": "Your user name, user folder, host name and git author may reach the reviewer, and only the reviewer, so auto mode keeps working.",
+      "choose": "Choose for each detail",
+      "chooseHelp": "A review that carries a detail you block is stopped, and auto mode refuses that action.",
+      "details": {
+        "user_name": "User name",
+        "user_nameHelp": "Your OS user name, which the reviewer is told as its User identity.",
+        "paths": "User folder in paths",
+        "pathsHelp": "Your user folder's name in the paths of your home and working directories.",
+        "host_name": "Host name",
+        "host_nameHelp": "This machine's name, when your CLAUDE.md or the action contains it.",
+        "git_author": "Git author",
+        "git_authorHelp": "Your name and email as in your git author, when your CLAUDE.md or the action contains them."
+      },
+      "choice": {
+        "block": "Block",
+        "allow": "Allow",
+        "surrogate": "Fake name"
+      },
+      "surrogate": "Claude Code gets your user name's surrogate in USERNAME and USER, so the reviewer sees the same fake name as the model. Scripts that read %USERNAME% or $USER see it too. After saving, run:",
+      "surrogateNext": "Then restart Claude Code. Your user folder in paths keeps its real name: it follows the choice above.",
+      "never": "Secrets and personal data in a review are never let through, whichever you choose."
+    },
+    "recognizers": {
+      "title": "Custom recognizers",
+      "description": "Your own formats, such as badge numbers or contract codes: a pattern, check digits and keywords. Write the examples by hand: never paste real values.",
+      "empty": "No recognizers yet.",
+      "add": "Add recognizer",
+      "docs": "How to write one",
+      "name": "Name",
+      "noName": "(no name)",
+      "nameHelp": "Lower case letters, digits and hyphens.",
+      "type": "Type",
+      "typeHelp": "Shown for its values; the name in capitals when empty.",
+      "stateTitle": "State",
+      "state": {
+        "active": "Active",
+        "off": "Off",
+        "error": "Error: turned off",
+        "failing": "Examples fail",
+        "unsaved": "Not saved yet"
+      },
+      "enabled": "On",
+      "handEdited": "Has keys this form can't show: change it in config.yaml.",
+      "pattern": "Pattern",
+      "patternHelp": "RE2 syntax. A group named value, (?P<value>…), picks the part to mask.",
+      "checksum": "Check digits",
+      "checksumNone": "None",
+      "checksumWeighted": "Weighted sum…",
+      "weights": "Weights",
+      "weightsHelp": "One per digit, repeated from the left, such as 9, 8, 7, 6, 5, 4, 3, 2, -1.",
+      "modulus": "Modulus",
+      "remainder": "Remainder",
+      "keywords": "Keywords",
+      "keywordsHelp": "At least one must be near the value: on its line, a few characters before, or in its column header. Leave empty when the pattern is enough.",
+      "keywordPlaceholder": "A word, like badge",
+      "addKeyword": "Add",
+      "noKeywords": "None.",
+      "match": "Found in",
+      "matchHelp": "Invented texts it must find a value in.",
+      "noMatch": "Left alone in",
+      "noMatchHelp": "Invented texts it must not touch.",
+      "examplePlaceholder": "An invented example",
+      "addExample": "Add",
+      "noExamples": "None yet.",
+      "secret": "Treat as a secret",
+      "secretHelp": "Like a password: a request that carries one in clear is stopped, even in Claude Code.",
+      "policy": "What happens to its values",
+      "policyDefault": "Mask",
+      "policyRedact": "Redact",
+      "policyAllow": "Allow",
+      "advanced": "More options",
+      "acronyms": "Keywords in this exact case",
+      "acronymsHelp": "For short words that are common in other cases, like SIN.",
+      "acronymPlaceholder": "A word, like EID",
+      "window": "Characters to look back",
+      "windowHelp": "How far before the value a keyword may be.",
+      "keep": "Characters kept",
+      "keepHelp": "The fake keeps this many leading characters, such as a prefix.",
+      "minLength": "Shortest value",
+      "header": "Look for keywords in table column headers too",
+      "ruleLabel": "Custom recognizer {{name}}",
+      "problems": {
+        "name": "The name takes lower case letters, digits and hyphens, such as employee-id.",
+        "nameTaken": "Another recognizer has this name.",
+        "type": "The type takes capital letters, digits and underscores, such as EMPLOYEE_ID.",
+        "pattern": "A pattern is needed (up to 2000 characters).",
+        "weights": "Weights are whole numbers, separated by commas.",
+        "modulus": "The modulus is a whole number from 2.",
+        "window": "Characters to look back: a whole number from 1 to 500.",
+        "keep": "Characters kept: a whole number from 0 to 32.",
+        "minLength": "Shortest value: a whole number from 1."
+      },
+      "try": {
+        "title": "Try it",
+        "help": "Paste or type a text to see what this draft would find. Nothing typed here is kept or sent to a model.",
+        "placeholder": "Some text with a value in it…",
+        "button": "Try",
+        "trying": "Trying…",
+        "none": "Nothing found",
+        "shouldMatch": "should find a value",
+        "shouldNot": "should find nothing",
+        "found": "found {{values}}",
+        "stdlib_one": "{{count}} match in ordinary code (a sample of the Python standard library).",
+        "stdlib_other": "{{count}} matches in ordinary code (a sample of the Python standard library); more than 50 turns it off."
+      },
+      "descriptionLabel": "Description",
+      "draft": {
+        "title": "Draft from a description",
+        "help": "The local reviewer's model writes a recognizer from your words. It is added only when its examples pass; check it, then save.",
+        "placeholder": "Badge numbers: BD, a dash and six digits",
+        "run": "Draft",
+        "running": "Drafting…",
+        "added": "Draft ready in the panel: check it, then save.",
+        "failed": "The draft did not pass: {{errors}}",
+        "off": "Turn the local reviewer on to draft recognizers from a description."
+      },
+      "finds": "What it finds",
+      "class": "Class",
+      "classSecret": "Secret",
+      "classCustom": "Custom",
+      "new": "New recognizer",
+      "turnOn": "Turn on",
+      "turnOff": "Turn off",
+      "loaded": "When it was last loaded:",
+      "deleteConfirm_one": "The recognizer selected is removed from these rules at once.",
+      "deleteConfirm_other": "The {{count}} recognizers selected are removed from these rules at once.",
+      "turnOnConfirm_one": "The recognizer selected is turned on at once.",
+      "turnOnConfirm_other": "The {{count}} recognizers selected are turned on at once.",
+      "turnOffConfirm_one": "The recognizer selected is turned off at once: what it finds is no longer masked by it.",
+      "turnOffConfirm_other": "The {{count}} recognizers selected are turned off at once: what they find is no longer masked by them.",
+      "handEditedRepo": "Has keys this form can't show: change it in the project's latet.yaml."
+    },
+    "table": {
+      "search": "Search this list",
+      "any": "Any",
+      "count": "{{count}} in all",
+      "matched": "{{matched}} of {{count}}",
+      "noMatch": "No row matches the search and the filters.",
+      "selectPage": "Select every row on this page",
+      "select": "Select {{row}}",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "actions": "Actions on the rows selected",
+      "clear": "Clear the selection",
+      "delete": "Delete",
+      "copy": "Copy to a project…",
+      "changed": "One of the rows selected changed meanwhile, in another tab or by a change applied since, so nothing was done. The table shows them as they are now.",
+      "addFor": "Add for {{project}}",
+      "repoRows_one": "One of them is in the project's latet.yaml: the file is written again, for everyone who reads the repository.",
+      "repoRows_other": "{{count}} of them are in the project's latet.yaml: the file is written again, for everyone who reads the repository."
+    },
+    "panel": {
+      "close": "Close",
+      "save": "Save",
+      "saving": "Saving…",
+      "discardTitle": "Discard your changes?",
+      "discardBody": "What you changed in this panel is not saved: it goes if you close it.",
+      "discard": "Discard changes",
+      "keepEditing": "Keep editing",
+      "changed": "This row changed meanwhile, in another tab or by a change applied since, so your change was not saved. It shows as it is now: make your change again if you still want it.",
+      "gone": "This row was removed meanwhile, in another tab or by a change applied since. What you typed is still here: Save adds it again.",
+      "global": "This rule is in your global rules: it is changed there, and it applies in every project.",
+      "openGlobal": "Open in the global rules →",
+      "repoFile": "This row is in the project's latet.yaml: everyone who reads the repository reads it.",
+      "taken": "A row with this name or value was added meanwhile, in another tab or by a change applied since, so this one was not saved. What you typed is still here: change it, or close the panel."
+    },
+    "copy": {
+      "title": "Copy to a project",
+      "help_one": "The row selected is added to your own settings for the project you pick. If they hold it already, it is left as it is.",
+      "help_other": "The {{count}} rows selected are added to your own settings for the project you pick. Those they hold already are left as they are.",
+      "project": "Project",
+      "confirm": "Copy",
+      "done_one": "{{count}} row added to your settings for {{project}}.",
+      "done_other": "{{count}} rows added to your settings for {{project}}.",
+      "nothing": "Your settings for {{project}} hold them already: nothing was added.",
+      "none": "No project yet: a project shows here once an agent works in its folder."
+    },
+    "lost": "Your unsaved changes in {{tabs}} were dropped, because those settings changed meanwhile, in another tab or by a change applied since. The tab shows them as they are now.",
+    "from": {
+      "title": "From",
+      "global": "global",
+      "personal": "yours, for {{project}}",
+      "repo": "latet.yaml"
+    },
+    "saveTo": {
+      "title": "Save to",
+      "personal": "Yours, for {{project}}",
+      "repo": "latet.yaml, shared through the repository",
+      "repoHelp": "Everyone who reads the repository reads this file, and what this row holds.",
+      "created": "The project has no latet.yaml yet: saving creates it in the project's folder.",
+      "rewritten": "The file is written again whole: comments after its first lines are not kept."
+    },
+    "searchFound": "Rows found in {{tabs}}.",
+    "export": {
+      "button": "Export",
+      "title": "Saves the rows the table shows, as filtered, to a file.",
+      "saved": "Saved as {{name}}.",
+      "valuesInClear": "Saved as {{name}}. The values never masked are in it in clear: send it the way you would send them."
+    },
+    "import": {
+      "button": "Import",
+      "title": "Adds the rows of a file to this list, after showing what would change. None of yours is replaced.",
+      "line": "Line {{line}}: {{reason}}",
+      "reason": {
+        "empty": "it has no value.",
+        "yesNo": "case_sensitive and whole_word take true or false.",
+        "noLetterOrDigit": "a term needs a letter or a digit.",
+        "tooLong": "it is longer than a term can be.",
+        "quote": "a quote is opened and never closed.",
+        "kind": "the kind is value or pattern.",
+        "pattern": "it is not a pattern RE2 reads.",
+        "type": "the type is not one (capital letters, digits and underscores): a comma not in quotes may have split the value; put a value holding a comma in double quotes.",
+        "columns": "it has more than four fields: a comma not in quotes may have split the value; put a value holding a comma in double quotes."
+      },
+      "otherLists": "{{name}} holds other lists besides recognizers ({{lists}}), which this table does not import: import the whole file with Import rules, at the top of Rules, or Import settings in a project's Overview."
+    },
+    "leave": {
+      "title": "Leave without saving?",
+      "body": "What you changed on this page is not saved: it goes if you leave it.",
+      "confirm": "Leave the page",
+      "stay": "Stay on the page"
+    }
+  },
+  "playground": {
+    "title": "Playground",
+    "description": "Paste a text and see how the current rules would mask it.",
+    "nothingStored": "Nothing you paste here is stored or sent to a model: it is masked in memory with a throwaway vault, then discarded.",
+    "kind": "Kind of text",
+    "profile": "Profile",
+    "profileYours": "Your rules",
+    "profileHelp": "Try the text as another profile would mask it: your rules do not change.",
+    "kindHelps": {
+      "user_text": "As a prompt of yours: the name model reads it, and in prose digit runs are taken for phone numbers more readily.",
+      "attachment": "As a file or a text attached to a prompt: the name model reads it, as data rather than prose.",
+      "tool_result": "As a tool's output (a command, a query, a file read): strict data mode, when it is on, masks every value of its tables and JSON, the dump guard applies, and the name model reads it with the Max profile only.",
+      "system": "As the agent's instructions (its system prompt, your CLAUDE.md): the name model reads them with the Max profile only."
+    },
+    "input": "Text to mask",
+    "placeholder": "Paste a prompt, a log or a config file…",
+    "example": "Use an example",
+    "clear": "Clear",
+    "mask": "Mask text",
+    "masking": "Masking…",
+    "result": "Result",
+    "found_one": "{{count}} value would be masked.",
+    "found_other": "{{count}} values would be masked.",
+    "nothingFound": "Nothing would be masked.",
+    "stale": "Text changed: Mask text shows its result.",
+    "original": "Your text",
+    "masked": "What would be sent",
+    "empty": {
+      "title": "Nothing to show yet",
+      "body": "Type or paste something above, then choose Mask text (or press Ctrl+Enter)."
+    }
+  },
+  "integrations": {
+    "title": "Protected agents",
+    "description": "Whether Latet protects the agents on this computer: its checks, each agent and whether its requests go through Latet, and where they go.",
+    "recheck": "Check again",
+    "fixWith": "To fix it, run:",
+    "status": {
+      "ok": "OK",
+      "warn": "Warning",
+      "fail": "Failed"
+    },
+    "checks": {
+      "title": "Health checks",
+      "allGood": "All checks passed.",
+      "problems_one": "{{count}} check needs attention.",
+      "problems_other": "{{count}} checks need attention.",
+      "empty": "The daemon reported no checks."
+    },
+    "agents": {
+      "title": "Agents",
+      "agent": "Agent",
+      "installed": "Installed",
+      "version": "Version",
+      "status": "Through Latet",
+      "statusHelp": "Through Latet: Yes means the agent's requests pass through Latet and leave masked; Partly means only part of Latet's settings are in place, so some requests may go to the provider unprotected; No means they all do. For Partly and No, the agent's notes give the command that sets it right; Not installed means the agent is not on this computer. With latet gemini means its requests pass through Latet when it is started with that command, the only way Gemini CLI takes Latet's address.",
+      "notes": "Notes",
+      "applied": "Yes",
+      "partial": "Partly",
+      "wrapper": "With latet gemini",
+      "notApplied": "No",
+      "notInstalled": "Not installed",
+      "fix": "To route it through Latet, run:",
+      "empty": "No agents found on this machine.",
+      "route": "Where it goes",
+      "routeProblem": "Latet cannot go in front of it:"
+    },
+    "server": "Your agents run on your own computers, not on this server. On each of them, this command checks how its agents reach the server:",
+    "cli": {
+      "title": "From the terminal",
+      "body": "The same checks, with more detail, and the command that routes your agents through Latet for good:"
+    },
+    "destinations": {
+      "title": "Where requests go",
+      "help": "Your company's endpoints that agents reach through Latet: Latet adds them when it reads an agent's settings, and you see each one here.",
+      "name": "Name",
+      "address": "Address",
+      "from": "Read from",
+      "lastUsed": "Last used",
+      "use": "In use",
+      "never": "Never",
+      "inUse": "Claude Code or Codex uses it",
+      "unused": "Not used by Claude Code or Codex",
+      "fromYou": "You",
+      "shared": "Set for everyone",
+      "remove": "Remove",
+      "removing": "Removing…",
+      "removed": "Destination {{name}} removed.",
+      "empty": "No company endpoints: your agents go to the providers Latet knows (Anthropic, OpenAI, OpenRouter, Bedrock, Vertex)."
+    }
+  },
+  "stats": {
+    "title": "Stats",
+    "description": "How much traffic went through Latet, what it masked, and what it cost in time.",
+    "period": "Period",
+    "today": "Today",
+    "lastDays_one": "Last {{count}} day",
+    "lastDays_other": "Last {{count}} days",
+    "other": "Other types",
+    "noneMasked": "Nothing was masked in this period.",
+    "partial": "This period holds more exchanges than the stats read at once: these numbers count its latest {{latest}}.",
+    "empty": {
+      "title": "No traffic in this period",
+      "body": "Stats appear once agents send requests through Latet."
+    },
+    "tiles": {
+      "exchanges": "Exchanges",
+      "perDay": "{{value}} a day on average",
+      "masked": "Values masked",
+      "maskedHelp": "Counted once, in the block where they first left",
+      "blocked": "Requests blocked",
+      "blockedNone": "None",
+      "blockedShare": "{{value}} of exchanges",
+      "cache": "Prompt cache reads",
+      "cacheHelp": "Share of prompt tokens served from the provider's cache. Stable surrogates keep it high.",
+      "cacheNone": "No token usage reported",
+      "latency": "Latency, median",
+      "overhead": "Latet overhead, median",
+      "p95": "95th percentile: {{value}}"
+    },
+    "charts": {
+      "exchanges": "Exchanges per day",
+      "exchangesHelp": "Every request, masked or not",
+      "exchangesMeasure": "Exchanges",
+      "masked": "Values masked per day",
+      "maskedHelp": "In blocks sent for the first time",
+      "maskedMeasure": "Values masked",
+      "blocked": "Requests blocked per day",
+      "blockedHelp": "Stopped before leaving your machine",
+      "blockedMeasure": "Requests blocked",
+      "byType": "Values masked by type",
+      "byAgent": "Exchanges by agent",
+      "day": "Day",
+      "type": "Type",
+      "agent": "Agent"
+    },
+    "withShare": "{{value}} ({{share}})"
+  },
+  "charts": {
+    "view": "Show as",
+    "chart": "Chart",
+    "table": "Table",
+    "barLabel": "{{label}}: {{value}} {{measure}}",
+    "columnSummary_one": "{{measure}} over {{count}} day; highest {{max}}, on {{peak}}",
+    "columnSummary_other": "{{measure}} over {{count}} days; highest {{max}}, on {{peak}}"
+  },
+  "notFound": {
+    "title": "There's no page here",
+    "body": "The address may be mistyped, or the page may have moved.",
+    "action": "Go to Live"
+  },
+  "transport": {
+    "ws": "WS",
+    "websocket": "WebSocket turn",
+    "plugin": "Stopped in Claude Code",
+    "pluginHelp": "The Claude Code plugin's final check found sensitive values in clear and stopped the request inside Claude Code: it never reached the network."
+  },
+  "modules": {
+    "secrets": "Secrets: known formats",
+    "secret-structure": "Secrets: by their shape",
+    "personal": "Personal data",
+    "ids": "ID and VAT numbers",
+    "identity": "Your identity",
+    "terms": "Your terms",
+    "recognizers": "Your recognizers",
+    "names": "Name model",
+    "reviewer": "Local reviewer",
+    "live": "You, in the Live Reviewer",
+    "fields": "Your field rules",
+    "data": "Strict data mode",
+    "other": "Not recorded"
+  },
+  "via": {
+    "detector": "Found in this text",
+    "known": "A value already in the vault",
+    "repeat": "Found elsewhere in the same text",
+    "echo": "A surrogate sent back, masked again",
+    "plugin": "Masked by the Claude Code plugin",
+    "restore": "Restored in the answer"
+  },
+  "reviewDetails": {
+    "user_name": "your user name",
+    "paths": "your user folder in paths",
+    "host_name": "your host name",
+    "git_author": "your git author"
+  },
+  "projects": {
+    "description": "The rules of one project: its latet.yaml, shared through its repository, and your own settings for it. They apply on top of your global rules.",
+    "folder": "Folder",
+    "file": "latet.yaml",
+    "noFile": "None yet: saving the rules under Repository file creates it",
+    "notices": "What is not applied",
+    "fromRepo": "latet.yaml",
+    "fromPersonal": "Your settings",
+    "ignored": "ignored: {{message}}",
+    "error": "error: {{message}}",
+    "pastShare": "you use all the memory the server gives one person, so the rules of this folder were not built and its texts are refused. They are built at the folder's next use once you use less: forget some values in Vault, or remove some rules or projects.",
+    "unbuilt": "its rules could not be built, so its texts are refused until they can be.",
+    "repoCannotSet": "a repository file cannot set this, so put it in your own settings for the project.",
+    "repoWholeLatet": "a setting of the whole of Latet, so only your config.yaml sets it.",
+    "repoUnknown": "not a setting Latet knows.",
+    "scope": {
+      "label": "Rules of",
+      "global": "Everything (global rules)",
+      "offName": "{{name}} (Latet off)",
+      "add": "Add a project by its folder…",
+      "hint": "A session belongs to the project of the folder its agent works in.",
+      "folder": "Project folder",
+      "folderPlaceholder": "C:\\Users\\you\\dev\\project",
+      "addButton": "Add the project"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "repo": "Repository file"
+    },
+    "protection": {
+      "title": "Protection",
+      "description": "How much of Latet applies in this project. Saved with your settings for it, never in the repository.",
+      "on": "On",
+      "secrets": "Secrets only",
+      "off": "Off",
+      "onHelp": "Your global rules, with the project's own on top.",
+      "secretsHelp": "Only secrets are masked here: keys, tokens, passwords. Personal data is sent as it is.",
+      "offHelp": "Nothing is masked or blocked in this project, secrets included: requests are sent as they are. Surrogates already in a conversation are still restored."
+    },
+    "effective": {
+      "title": "In effect",
+      "description": "What applies in this project, all layers together.",
+      "profile": "Profile",
+      "pii": "Personal data",
+      "types_one": "{{count}} type",
+      "types_other": "{{count}} types",
+      "countries": "ID numbers of",
+      "terms": "Terms",
+      "recognizers": "Recognizers",
+      "exceptions": "Never masked",
+      "policies": "Policies",
+      "off": "Latet is off in this project.",
+      "data": "Data",
+      "strict": "Strict: every value of tool outputs masked",
+      "normal": "Normal",
+      "fields": "Field rules",
+      "fieldCount_one": "{{count}} rule",
+      "fieldCount_other": "{{count}} rules",
+      "dumpGuard": "Dump guard",
+      "images": "Images and PDFs",
+      "imagesBlocked": "Not sent",
+      "imagesMasked": "Only masked",
+      "imagesSent": "Sent",
+      "reviewer": "Local reviewer"
+    },
+    "repo": {
+      "title": "From the repository (latet.yaml)",
+      "description": "Shared with everyone who works on the project, through its repository. It can only add protection: what would turn it down is ignored, and listed above.",
+      "readOnly": "The project's folder is not on this machine (or Latet runs in a container): the file can be read here, not written.",
+      "unreadable": "This project's latet.yaml cannot be read here now (it is not a regular file, it is too large, or reading it was refused): nothing is written over it from this page until it can be read.",
+      "save": "Save latet.yaml",
+      "create": "Create latet.yaml",
+      "saved": "latet.yaml saved: it applies at once",
+      "changed": "latet.yaml changed since you opened this page: reload the page, then save again.",
+      "profile": "Profile",
+      "profileHelp": "Applies only when it is stricter than each person's own.",
+      "profileUnset": "Not set",
+      "countries": "Countries",
+      "countriesHelp": "ID and tax numbers of these countries are recognised too, besides each person's own.",
+      "privateIps": "Mask private IP addresses",
+      "privateIpsHelp": "10.x, 192.168.x and the like, in this project.",
+      "names": "Look for names and addresses",
+      "namesHelp": "With the local name model, where it is installed."
+    },
+    "personal": {
+      "title": "Yours, for this project",
+      "description": "Kept in your config.yaml, never in the repository. They may also loosen the rules: values never to mask, weaker policies.",
+      "descriptionServer": "Kept on the server with your settings, never in the repository. They may also loosen the rules: values never to mask, weaker policies.",
+      "save": "Save your settings",
+      "saved": "Your settings for the project saved",
+      "removed": "Your settings for the project removed",
+      "remove": "Remove your settings"
+    },
+    "suggest": {
+      "unavailableServer": "The Latet server cannot scan repository files on connected computers. Recognizer suggestions are unavailable here.",
+      "help": "Look through the project's files for code-like values no rule covers, and draft recognizers for them. Nothing leaves this machine, and no value is shown.",
+      "run": "Suggest recognizers",
+      "looked_one": "Looked at {{count}} file.",
+      "looked_other": "Looked at {{count}} files.",
+      "none": "Every code-like value there is covered already, or too rare to be a format.",
+      "add": "Add"
+    },
+    "layer": {
+      "repo": "from latet.yaml",
+      "personal": "from your settings for the project"
+    },
+    "reviewer": {
+      "title": "Local reviewer here",
+      "help": "Where the local reviewer is on: how much it reads in this project.",
+      "repoHelp": "Where the local reviewer is on: a repository file can only make it read more.",
+      "off": "Off",
+      "background": "After it is sent",
+      "inline": "Before it leaves"
+    },
+    "live": {
+      "title": "Live Reviewer here",
+      "help": "Whether new texts from this project wait for your approval in the dashboard. Yours alone: a repository file never turns it on.",
+      "inheritOn": "As in your settings (on)",
+      "inheritOff": "As in your settings (off)",
+      "on": "On",
+      "off": "Off"
+    },
+    "reviewImages": {
+      "title": "The local reviewer sees the images",
+      "help": "Whether the local reviewer is shown the images in this project, with the text read in them. Yours alone: a repository file cannot set it.",
+      "inheritOn": "As in your settings (on)",
+      "inheritOff": "As in your settings (off)",
+      "on": "On",
+      "off": "Off"
+    },
+    "sources": "Every rule of this list that applies in this project, each with where it comes from: your settings for the project, its latet.yaml, or your global rules, which are changed there."
+  },
+  "data": {
+    "title": "Production data",
+    "description": "Query results, API answers and logs the agent reads: tables, JSON and key=value pairs. Columns and keys named like secrets (password, api_key, *_token) are always masked.",
+    "unset": "Not set",
+    "strict": {
+      "title": "Strict data mode",
+      "help": "Every value of a table, a JSON document or key=value pairs in a tool's output is masked; column and key names stay. The same value always gets the same fake, so counts, groups and joins still work, and a query written with a fake runs with the real value. Files the agent reads and web pages are left alone, unless a rule below names them.",
+      "switch": "Mask every value of tool outputs",
+      "on": "Strict",
+      "off": "Normal",
+      "profile": "As the profile",
+      "profileHelp": "As the profile: on with Max, off with Balanced and Secrets only. Strict or Normal stays as you set it, whatever the profile."
+    },
+    "files": {
+      "title": "Files that count as data",
+      "help": "Path patterns, with * for any characters: *.json, exports/**, .env*. A pattern without a slash names a file by its name. When the agent reads such a file, every value in it is masked, found by the file's format: JSON, tables (CSV, TSV), .env and properties, YAML. A markdown file only when a pattern names markdown (*.md), and then only its tables. This holds whether strict data mode is on or off. A pattern as broad as *.json also covers package.json: name the folders that hold data (exports/**).",
+      "placeholder": "exports/**",
+      "add": "Add pattern",
+      "empty": "No file: the files the agent reads are left alone."
+    },
+    "hosts": {
+      "title": "Web addresses that count as data",
+      "help": "Host names, with * for any characters: api.internal.example.com, *.salesforce.com. A pattern for every subdomain, such as *.salesforce.com, also covers the domain itself. A page a web tool (WebFetch) fetches from such an address is masked as a tool's output: every value of its tables, JSON and key=value pairs. This holds whether strict data mode is on or off.",
+      "placeholder": "*.salesforce.com",
+      "add": "Add address",
+      "empty": "No address: web pages are left alone."
+    },
+    "tools": {
+      "title": "Tools and MCP servers that count as data",
+      "help": "Tool names, with * for any characters: mcp__postgres__* (every tool of the MCP server postgres), Bash. With strict data mode on and this list empty, every tool's output counts, except the tools that read files and the web tools (WebSearch, WebFetch), whose results are public content; with names here, only those tools' outputs count.",
+      "placeholder": "mcp__postgres__*",
+      "add": "Add tool",
+      "empty": "Every tool's output."
+    },
+    "fields": {
+      "title": "Field rules",
+      "help": "The values of a column or a JSON key (a path like items[].sku; * matches any characters), masked as a type of your own, or kept in clear in strict data mode. Secret columns stay masked all the same.",
+      "repoHelp": "The values of a column or a JSON key (a path like items[].sku; * matches any characters), masked as a type of your own. Keeping a field in clear goes in each person's own settings.",
+      "name": "Field",
+      "type": "Type",
+      "typePlaceholder": "FIELD",
+      "clear": "Keep in clear",
+      "clearFor": "Keep {{name}} in clear",
+      "secret": "Secret",
+      "secretFor": "{{name}} holds secrets",
+      "empty": "No field rules.",
+      "newName": "New field",
+      "placeholder": "note_*",
+      "add": "Add field"
+    },
+    "dumpGuard": {
+      "title": "Dump guard",
+      "help": "A tool output holding more personal values than this (names, e-mail addresses, phone numbers and the like) is withheld: the model is told to ask for fewer rows, or for counts instead. Empty or 0: no limit.",
+      "repoHelp": "A tool output holding more personal values than this (names, e-mail addresses, phone numbers and the like) is withheld. Applies only when lower than each person's own.",
+      "unit": "personal values in one output, at most",
+      "off": "No limit",
+      "personalHelp": "A tool output holding more personal values than this (names, e-mail addresses, phone numbers and the like) is withheld: the model is told to ask for fewer rows, or for counts instead. Empty: as the other rules say; 0: no limit in this project."
+    },
+    "images": {
+      "title": "Images and PDFs",
+      "help": "Latet reads the text in screenshots on this computer and covers what it masks, once the text recognition models are installed. Send: images go out, masked when they can be read. Only masked: an image goes out only once its text was read and masked, and PDFs never. Don't send: no images or PDFs. The max profile sends none either, unless this says Only masked.",
+      "block": "Don't send",
+      "mask": "Only masked",
+      "allow": "Send"
+    },
+    "ruleStrict": "Strict data mode: {{field}}",
+    "ruleField": "Field rule: {{field}}"
+  },
+  "reviewer": {
+    "title": "Local reviewer",
+    "description": "A language model on your own server reads what the detectors left in clear, before it leaves, and masks what it finds. It runs on this machine, or on another of yours, and can add to what is masked, never take anything away.",
+    "enabled": "Ask the local reviewer",
+    "enabledHelp": "Its server runs on this machine or on another of yours: llama.cpp, Ollama or LM Studio.",
+    "sandbox": "The tutorial's sandbox has no local reviewer: its server is outside the sandbox, and nothing here reaches outside it. On your own Latet, you set it up here.",
+    "simulated": "In the tutorial, the local reviewer is the Tutorial Reviewer: it is simulated, answers as the chapter is written, and reaches no server. Only your guidance can be changed here.",
+    "url": "Server",
+    "urlHelp": "Its OpenAI-compatible address, such as http://127.0.0.1:8080/v1, and the model's id there.",
+    "remote": "This server is mine",
+    "remoteHelp": "It is on another machine, and Latet sends it the original texts, before they are masked. Use a server of yours only, reached over https outside your local network.",
+    "httpsNeeded": "Outside your local network the address must start with https://.",
+    "inClear": "Over http the original texts cross your network unencrypted. Give the server a certificate and use https://: a self-signed one is fine, trusted below.",
+    "certificate": {
+      "title": "The server's certificate",
+      "help": "A self-signed certificate is not trusted by your computer. If the server is yours, show its certificate, compare its fingerprint with the one on the server, and trust it: only that certificate is accepted then.",
+      "show": "Show its certificate",
+      "compare": "Is this the fingerprint on your server? On the server, openssl prints it:",
+      "same": "It's the same: trust it",
+      "different": "It's different",
+      "trusted": "Trusted (once you save the settings), and only this one is accepted:",
+      "forget": "Stop trusting it",
+      "trustedToast": "Certificate kept: save the settings to trust it."
+    },
+    "key": {
+      "title": "API key",
+      "none": "No key. Add one when the server asks for it.",
+      "saved": "A key is saved, in the operating system's credential store: never in config.yaml.",
+      "env": "The key comes from the variable {{variable}}.",
+      "file": "The key comes from the file set under Server details.",
+      "server": "If the reviewer needs a key, the server gives it: your server's administrator sets it, for everyone.",
+      "placeholder": "Paste the server's key",
+      "replace": "Paste a new key to replace it",
+      "save": "Save key",
+      "remove": "Remove",
+      "savedToast": "Key saved. The reviewer uses it from now on.",
+      "removedToast": "Key removed."
+    },
+    "model": "Model",
+    "modelPlaceholder": "the first it lists",
+    "reads": "What it reads before it leaves",
+    "readsHelp": "By default everything the model did not write. What you leave out here is read after it is sent, when that is on.",
+    "kinds": {
+      "user_text": "Your prompts",
+      "attachment": "Attachments",
+      "system": "Instructions (system prompt, CLAUDE.md)",
+      "tool_result": "What tools fetch (files, queries, pages)",
+      "tool_input": "Tool calls the model writes",
+      "tool_description": "Tool descriptions",
+      "image_text": "The text in images"
+    },
+    "wait": "How long a request waits",
+    "waitHelp": "Empty: as long as its review takes.",
+    "waitUnit": "ms at most",
+    "noLimit": "No limit",
+    "onFailure": "When it cannot answer",
+    "onFailureHelp": "Its server is off or too slow, or its answer is not to be trusted.",
+    "stop": "Stop the request",
+    "send": "Send it masked by the detectors",
+    "background": "Read the rest after it is sent",
+    "backgroundHelp": "What it finds then is masked from the next request on.",
+    "block": "Let it stop a request",
+    "blockHelp": "For a text that must not leave even masked, such as a whole medical record. Large models do this reliably; small ones do not.",
+    "masks": "What it masks by itself",
+    "masksHelp": "The other categories are shown in the exchange as suggestions: always mask, or not sensitive.",
+    "categories": {
+      "person": "People",
+      "address": "Addresses",
+      "phone": "Phone numbers",
+      "email": "Email addresses",
+      "id": "ID and account numbers",
+      "health": "Health",
+      "sensitive": "Religion, politics, unions, justice",
+      "financial": "A person's money",
+      "secret": "Passwords and keys",
+      "org": "Companies and organisations",
+      "confidential": "Code names and plans"
+    },
+    "guidance": {
+      "title": "Your guidance",
+      "help": "Added after Latet's own instructions, in every project. Say what else is confidential in your work, or what to leave alone: kinds of values, not the values themselves (those are terms). It is sent to the reviewer's server with every review, and applies to the texts read from then on. To leave one value in clear, mark it Not sensitive instead.",
+      "placeholder": "Ward and department names are confidential. PRJ- followed by digits is an internal project.",
+      "count": "{{chars}} of {{max}} characters",
+      "tooLong": "{{chars}} characters: at most {{max}}, or it cannot be saved.",
+      "projectTitle": "Guidance for the local reviewer here",
+      "projectHelp": "Added after your guidance for every project, for this project only. Yours alone: a repository file cannot set it.",
+      "projectPlaceholder": "Here, ticket numbers such as T-48213 belong to customers. Hospital names are public.",
+      "projectAfter": "It comes after your guidance for every project:",
+      "reviewerOff": "The local reviewer is off: turn it on in Rules to try it here."
+    },
+    "instructions": {
+      "title": "What the reviewer is told",
+      "help": "Latet's own instructions, exactly as the daemon sends them to the reviewer, and your guidance after them. Latet's part is fixed: it is what Latet's benchmark measures, and it changes only with a new version of Latet.",
+      "version": "Instructions version {{version}}",
+      "yours": "The darker text is your guidance."
+    },
+    "advanced": "Server details",
+    "advancedHelp": "Slots: reviews the server runs side by side (empty: what llama.cpp says, or 1). Pieces: long texts are read in pieces of about this many characters, which helps small models.",
+    "server": "Where the local reviewer runs is the same for everyone on this server: its administrators set its address, model, slots, piece size and certificate, with its key. Below, you choose how you use it.",
+    "keyEnv": "Or the key from a variable",
+    "keyFile": "or file",
+    "keyFilePlaceholder": "not set",
+    "keyHelp": "Other ways to give the key: an environment variable, or a file. Either comes before a saved key. The key itself is never written in config.yaml.",
+    "slots": "Slots",
+    "slotsAuto": "auto",
+    "chunk": "Piece size (characters)",
+    "try": "Try it",
+    "trying": "Trying…",
+    "tryHelp": "The server reads a sample with invented values, or your own text below, with the settings above (not saved yet).",
+    "tryText": "A text of your own to try (optional; left empty, the sample)",
+    "tryOk": "Answered in {{seconds}} s, model {{model}}",
+    "trySlots_one": "{{count}} slot of {{ctx}} tokens",
+    "trySlots_other": "{{count}} slots of {{ctx}} tokens",
+    "tryFailed": "No answer: {{error}}",
+    "tryNothing": "It found nothing.",
+    "masked": "masked",
+    "suggested": "suggested",
+    "failed": {
+      "timeout": "Not reviewed: it took longer than the time allowed.",
+      "unreachable": "Not reviewed: its server did not answer.",
+      "unreadable": "Not reviewed: its answer could not be read.",
+      "suspect": "Not trusted: the text gives the reviewer instructions, and it found nothing.",
+      "busy": "Not reviewed: too much was waiting for it.",
+      "other": "Not reviewed."
+    },
+    "panel": {
+      "title": "Local reviewer",
+      "inline": "Read before it left",
+      "background": "Read after it left",
+      "kind": "{{kind}}",
+      "seconds": "{{seconds}} s",
+      "blockAsked": "It asked to stop this text as a whole.",
+      "masked": "Masked",
+      "suggested": "Suggested",
+      "alwaysMask": "Always mask",
+      "notSensitive": "Not sensitive",
+      "termAdded": "Added to your terms: it is masked wherever it appears from now on.",
+      "termAddedInProject": "Added to this project's terms: it is masked wherever it appears there from now on.",
+      "allowed": "Added to the values never to mask.",
+      "allowedInProject": "Added to this project's values never to mask.",
+      "description": "What it said of this request's texts, the history the agent sends again with every turn included: the newest review of each.",
+      "block": "block {{number}}",
+      "blockHistory": "block {{number}}, history (shown with All)",
+      "allowedByYou": "Not sensitive (your rules)"
+    },
+    "live": {
+      "found_one": "The local reviewer found {{count}} value after it was sent: it is masked from the next request on.",
+      "found_other": "The local reviewer found {{count}} values after they were sent: they are masked from the next request on.",
+      "openExchange": "Open the session's latest exchange",
+      "openSession": "Show the session",
+      "dismiss": "Dismiss"
+    },
+    "images": "Show it the images",
+    "imagesHelp": "It sees each image with the text read in it and finds what text recognition missed. Its model must see images (llama.cpp with its --mmproj file). A value it sees that Latet cannot place in the image withholds the image.",
+    "noVision": "Its model does not see images: start llama.cpp with its --mmproj file, or turn off Show it the images. Otherwise the reviews of images fail.",
+    "visionUnknown": "The server does not say whether its model sees images (llama.cpp does)."
+  },
+  "liveReview": {
+    "title": "Live Reviewer",
+    "description": "You approve, in the dashboard, every new text before it leaves: what Latet masked is shown next to the original, and you can mask more. Nothing is sent while it waits.",
+    "enabled": "Ask me before each new text leaves",
+    "enabledHelp": "The texts wait on the Approvals page.",
+    "open": "Open Approvals",
+    "kinds": "What waits for you",
+    "kindsHelp": "By default everything the model did not write. What you leave out here leaves without asking.",
+    "autoApprove": "Send clean texts without asking",
+    "autoApproveHelp": "A text in which neither Latet nor the local reviewer found anything leaves at once.",
+    "timeout": "How long a text waits",
+    "timeoutHelp": "When the time is up it is not sent. Empty: until you answer.",
+    "timeoutUnit": "seconds at most",
+    "timeoutMin": "At least 10 seconds.",
+    "noLimit": "No limit",
+    "switch": "Live Reviewer",
+    "switchOn": "New texts wait for your approval",
+    "switchOff": "Off: texts leave as Latet masks them",
+    "turnedOn": "Live Reviewer on: new texts wait for your approval.",
+    "turnedOff": "Live Reviewer off: texts leave as Latet masks them."
+  },
+  "transfer": {
+    "export": "Export rules",
+    "import": "Import rules",
+    "exportProject": "Export these settings",
+    "importProject": "Import settings",
+    "saveFirst": "Save or discard your changes first.",
+    "exported": "Saved as {{name}}. The terms are in it in clear: send it the way you would send them.",
+    "title": "Import rules",
+    "added": "Added: they add protection, applied at once",
+    "held": "Left out: they would lower protection",
+    "everything": "Apply these too",
+    "everythingHelp": "Only if you know where the file comes from: they let values through, or weaken a rule of yours.",
+    "skipped": "Yours already, or yours kept",
+    "notices": "Not read",
+    "nothingNew": "Nothing new: these rules are yours already.",
+    "apply": "Import",
+    "importing": "Importing…",
+    "imported": "Imported: your rules changed.",
+    "nothing": "Nothing to import."
+  },
+  "tutorial": {
+    "title": "Tutorial",
+    "description": "Latet at work on your computer, one short chapter at a time.",
+    "sandbox": "Sandbox: the agent and the model are pretend, Latet is real. Nothing leaves your computer.",
+    "key": "Enter",
+    "keyHelp": "Enter does the same, anywhere on the page",
+    "menu": {
+      "label": "Chapters",
+      "chapter": "Chapter {{number}}",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "learn": "What you learn",
+      "done": "Done",
+      "current": "In progress",
+      "start": "Start",
+      "continue": "Continue",
+      "again": "Start again",
+      "needs": "Needs text recognition:"
+    },
+    "real": {
+      "title": "Use it for real",
+      "intro": "Outside the sandbox, Latet works the same way in front of your own agent.",
+      "agents": "Start your agent through Latet, for one session: none of its settings change.",
+      "global": "Once it fits your work, for good: your agents go through Latet in the terminal and in the IDE.",
+      "company": "Your company has its own endpoint, like a gateway, Amazon Bedrock or Google Vertex? `latet claude` and `latet codex` find it in the agent's settings and go in front of it. To add one by hand:"
+    },
+    "chapter": {
+      "back": "All chapters",
+      "of": "Chapter {{number}} of {{count}}",
+      "number": "Chapter {{number}}",
+      "step": "Step {{number}} of {{count}}",
+      "allDone": "All {{count}} steps done",
+      "startOver": "Start over",
+      "startOverTitle": "Start this chapter over?",
+      "startOverBody": "The sandbox goes back to the start of the chapter: its requests, values and settings. Nothing of yours is touched.",
+      "busy": "{{agent}} is still working on a step. Try again in a moment.",
+      "stopped": "This chapter is not running any more: another tab started another chapter, or this one over.",
+      "notFound": "There is no chapter {{id}}",
+      "notFoundBody": "The tutorial's first page lists its chapters."
+    },
+    "needs": {
+      "title": "This chapter needs text recognition",
+      "body": "Latet reads the text in images with two small models, about 31 MB, that are not on this computer yet. Install them in a terminal, then look again.",
+      "again": "Look again"
+    },
+    "agent": {
+      "model": "model: {{model}}",
+      "pretend": "Pretend",
+      "pretendHelp": "The agent and the model are pretend. Latet, between them, is real.",
+      "log": "What {{agent}} does",
+      "idle": "{{agent}} is ready.",
+      "typed": "Typed, not sent yet:",
+      "continue": "Continue",
+      "next": "Next",
+      "finish": "Finish the chapter",
+      "working": "{{agent}} is working…",
+      "again": "{{agent}} tries again…",
+      "waiting": "{{agent}} waits for you: do what Latet asks, and it tries again.",
+      "held": "{{agent}}'s request waits for your approval, in Latet.",
+      "failed": "Latet could not finish this step: {{error}}.",
+      "wrong": "This step did not go as written: {{error}}.",
+      "done": "Chapter done.",
+      "pending": "waiting to run",
+      "wrote": "Wrote {{path}}",
+      "more_one": "{{count}} more line",
+      "more_other": "{{count}} more lines",
+      "less": "Fewer lines",
+      "resumed": "/resume: yesterday's conversation, from before Latet was on",
+      "cleared": "/clear: a new conversation, with no history"
+    },
+    "latet": {
+      "label": "Latet",
+      "intro": "{{agent}} is pretend, and works in its own pane. Every request it sends goes through Latet, which is real: what Latet did with it shows here, the thing to look at outlined.",
+      "learn": "In this chapter",
+      "yourTurn": "Your turn:",
+      "hint": {
+        "pin": "Click the highlighted value.",
+        "term": "Add the word to your terms, and save.",
+        "allow": "Click the highlighted value and choose Not sensitive.",
+        "approve": "Mask what the explanation says, then approve.",
+        "change": "Approve the change, or undo it.",
+        "fields": "Keep the proposed columns in clear.",
+        "guidance": "Save the guidance as it is written."
+      },
+      "approveAsIs": "The Approve button sends the request as it is: mask first, then approve.",
+      "running": "Latet is handling the request…",
+      "again": "Done. {{agent}} tries again…",
+      "later": "Find it later",
+      "laterHelp": "Opens the same thing in the dashboard. The bar on top of every page brings you back here.",
+      "notSent": "This request was not sent, so the model received nothing. Latet shows why it was stopped."
+    },
+    "shown": {
+      "block": "Block {{number}} of the request's {{count}}: the original and what was sent.",
+      "blocks_one": "{{count}} of the request's {{total}} blocks: the original and what was sent.",
+      "blocks_other": "{{count}} of the request's {{total}} blocks: the original and what was sent.",
+      "response": "The answer: as the model wrote it, and what the agent got.",
+      "imageBefore": "On your computer",
+      "imageSent": "As it was sent",
+      "noChange": "Nothing waits for your approval now.",
+      "simulated": "Simulated: the Tutorial Reviewer answers as this chapter is written. Your own local reviewer is a language model on your computer."
+    },
+    "done": {
+      "badge": "Chapter done",
+      "badgeLast": "Tutorial done",
+      "learned": "What you learned",
+      "where": "Where it is in the dashboard",
+      "tryReal": "Try it for real",
+      "next": "Next: {{title}}",
+      "nextUntitled": "Next chapter",
+      "menu": "All chapters"
+    },
+    "bar": {
+      "label": "Tutorial",
+      "text": "You're in the tutorial.",
+      "chapter": "Back to chapter {{number}}: {{title}}",
+      "menu": "Back to the chapters"
+    },
+    "end": {
+      "action": "End the tutorial",
+      "title": "End the tutorial?",
+      "body": "The sandbox stops and its folder is deleted. Your own Latet, its settings and its history are not touched."
+    },
+    "ended": {
+      "title": "The tutorial has ended",
+      "body": "The sandbox stopped and its folder was deleted. You can close this tab.",
+      "again": "To start it again, in a terminal:"
+    },
+    "elsewhere": {
+      "title": "Start the tutorial from a terminal",
+      "body": "This is your own Latet. The tutorial runs in a sandbox of its own, with a pretend agent and a pretend model, and opens in your browser. In a terminal:"
+    }
+  }
+}

@@ -1,0 +1,114 @@
+---
+title: Live Reviewer
+description: You as the last check. Every new text waits for your approval in the dashboard before it leaves.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+Latet's detectors and the [local reviewer](../llm-review/) mask what they recognise. The Live
+Reviewer adds you: every new text an agent is about to send waits in the dashboard until you approve
+it. You see the original next to what will leave, and you can mask more before it goes.
+
+## Turn it on
+
+In the dashboard, turn on **Live Reviewer** on the **Approvals** or **Live** page. Or in
+[config.yaml](../../reference/configuration/#live_review):
+
+```yaml
+live_review:
+  enabled: true
+```
+
+Keep the dashboard open while you work (`latet dashboard`). The **Approvals** entry in the menu
+shows how many texts wait, and so does the browser tab's title. With *Notify me* the browser also
+tells you when a text arrives while you are in another tab.
+
+## What waits, and what you see
+
+<Screenshot name="approvals" alt="The Approvals page: two texts waiting on the left; on the right a prompt's original next to what will be sent, with a name the local reviewer suggested masked by hand, and the Approve and Don't send buttons" caption="Approvals: a name the local reviewer suggested, masked before the prompt leaves." />
+
+Every text the model did not write, the first time it is sent:
+- your prompts and attachments;
+- the instructions the agent is given (its system prompt, your CLAUDE.md);
+- what the agent's tools fetch: files, query results, web pages.
+
+`kinds` chooses among them. A text you approved does not wait again in the same conversation, even
+when the agent sends it again as history.
+
+The text read in a [screenshot or image](../images/) waits with the image above it: a box shows
+where each value gets its fake, and a value you mask in its text is covered on the image too.
+
+Each text shows the **Original**, and what **Will be sent**, with what Latet and the local
+reviewer masked. What the local reviewer found and did not mask by itself is marked in the
+original, ready to mask with one click. When the reviewer could not read a text (its server is off,
+or its answer is not to be trusted), the text is not stopped as it would be without you: it waits
+for you with a warning, and you decide.
+
+While a text waits, what will be sent follows your rules. When you mark a value *Not sensitive*,
+mask a value in another text or change a setting, the texts still waiting show it at once, in every
+dashboard open, and they leave that way when you approve them.
+
+## What you can do
+
+- **Approve** it as it is.
+- **Mask the selection:** select a value in the original and choose what it is (a person, an email address,
+  a code name...). It leaves as a fake, which Latet picks when you approve.
+- **Don't send:** nothing of it leaves. A prompt you stop is not sent, and a file or tool output
+  reaches the model as a short notice instead.
+- **On an image:** drag a rectangle over any part of it, which is covered with a bar, or tick
+  *Don't send this image*: the rest of the request leaves, and the model gets a short note in place
+  of the image. *As it leaves now* shows the image as Latet masked it. Your decision is kept,
+  sealed, for that image: sent again, also after a restart, it leaves the same way.
+- **Approve all waiting**, as Latet masked them.
+- **With the keyboard**, once you turn its [shortcuts](../../dashboard/#keyboard-shortcuts) on: A approves, X
+  does not send, M masks.
+
+What you change is checked by the daemon. You can only add masking: a value already masked cannot
+be put back in clear, and a fake already in use cannot be masked again. A selection becomes whole
+words, since Latet masks a value wherever it appears as a whole word. A
+value is masked as one type only, and one you marked *Not sensitive* must first be taken out of
+**Rules**. If a value you masked would still leave in clear, the text is withheld instead. A value you mask is kept in
+the vault like the values the detectors find. It is masked wherever it appears from then on, in
+every conversation, and the final check stops it if it is about to leave in clear. *Always mask*
+also makes it one of your terms, for a project or everywhere, so it is masked even after you forget
+it from the vault.
+
+## When you do not answer
+
+A text waits as long as it takes. Nothing of it leaves until you answer.
+
+- **You stop the agent** (Esc in Claude Code): nothing is sent, and the text leaves the queue within
+  a minute.
+- **No dashboard is open:** Claude Code says so, and the text keeps waiting until you open one.
+- **A time limit,** if you want one: past `timeout_s` seconds the text is not sent.
+
+```yaml
+live_review:
+  enabled: true
+  auto_approve_clean: true   # a text in which nothing was found leaves without asking you
+  timeout_s: 300             # not set: until you answer
+```
+
+## Where it happens
+
+- **In Claude Code,** in the plugin's masking step, before Claude Code builds the request. You
+  review piece by piece, each prompt, file and tool output as it arrives. Claude Code then builds
+  the request with the text you approved, so no request is changed after it is built. While a text
+  waits, Claude Code's status line says *waiting for your approval in the dashboard*.
+- **For the agents that go through the gateway** (Codex, OpenCode, Hermes Agent...), in the daemon:
+  the new texts of a request wait together, and the request leaves once you approve them. Some
+  agents give up a request that takes too long, and may try it again; nothing is sent until you
+  approve it.
+
+## In a project
+
+In your own settings for a project, `live_review: true` or `false` turns it on or off there. A
+project's [`latet.yaml`](../projects/) cannot turn it on: whether you check every text is your
+choice, not the repository's.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `latet status` | Says whether the Live Reviewer is on, how many texts wait, and how many dashboards are open |
+| `latet doctor` | Warns when the Live Reviewer is on and no dashboard is open |

@@ -1,0 +1,320 @@
+{
+  "pending": [],
+  "components": [
+    {
+      "name": "psycopg",
+      "version": "3.3.6",
+      "license": "LGPL-3.0-only (with the GPL-3.0 companion text)",
+      "source": "https://psycopg.org/",
+      "artifact": "psycopg-3.3.6-py3-none-any.whl",
+      "artifact_sha256": "a1db9f7148b06a28606767efaca51fa6f9398c5c0a3810519be69d7000bdb631",
+      "texts": [
+        {
+          "file": "psycopg-LGPL-3.0.txt",
+          "source_file": "psycopg-3.3.6.dist-info/licenses/LICENSE.txt",
+          "source_sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+        },
+        {
+          "file": "psycopg-GPL-3.0.txt",
+          "source_file": "python runtime image sha256:b3fc7ba0acf789f5072112d71cdab2eefb07b2f60f890cda5c075ddab4626527:/usr/share/common-licenses/GPL-3",
+          "source_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        }
+      ]
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.5",
+      "license": "Apache-2.0",
+      "source": "https://github.com/python/tzdata",
+      "artifact": "tzdata-2026.5-py2.py3-none-any.whl",
+      "artifact_sha256": "b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac",
+      "texts": [
+        {
+          "file": "tzdata-LICENSE.txt",
+          "source_file": "tzdata-2026.5.dist-info/licenses/LICENSE",
+          "source_sha256": "df58f69ea88683035d720b5375bcef0cf5aeaa98a1d098d572e0992c378deb46"
+        },
+        {
+          "file": "tzdata-APACHE-2.0.txt",
+          "source_file": "tzdata-2026.5.dist-info/licenses/licenses/LICENSE_APACHE",
+          "source_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "name": "PostgreSQL libpq",
+      "version": "18.6",
+      "license": "PostgreSQL",
+      "source": "https://www.postgresql.org/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The exact wheel entry's ELF PQlibVersion symbol contains the constant 180006; no library was loaded.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libpq-e9b5c9ac.so.5.18",
+          "sha256": "adee4abe45a36e8f147b15e08aceca893c255dfd4133a047884807931ca8046d"
+        }
+      ],
+      "texts": [
+        {
+          "file": "postgresql-COPYRIGHT.txt",
+          "source_file": "https://raw.githubusercontent.com/postgres/postgres/REL_18_6/COPYRIGHT",
+          "source_sha256": "3d6af92ff8a4c2cdf69afb1cf44edea727922f5cd0cf8b5f72b11cdecac8fdfd"
+        }
+      ]
+    },
+    {
+      "name": "OpenSSL",
+      "version": "3.5.8",
+      "license": "Apache-2.0",
+      "source": "https://openssl-library.org/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The exact libcrypto entry contains the version string OpenSSL 3.5.8 25 Aug 2026; libssl is the accompanying wheel entry.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libcrypto-2d1629ee.so.3",
+          "sha256": "ac767da23afff24a34a1a86e6464f65ff45c8e3374850c117c1cffbfcd879da0"
+        },
+        {
+          "file": "psycopg_binary.libs/libssl-8bd944e8.so.3",
+          "sha256": "ef566b112dc7532a689c07de999c16efda3b4872df0c9d011bdcf00b94dd8a2e"
+        }
+      ],
+      "texts": [
+        {
+          "file": "openssl-LICENSE.txt",
+          "source_file": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.5.8/LICENSE.txt",
+          "source_sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        },
+        {
+          "file": "openssl-README.txt",
+          "source_file": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.5.8/README.md (copyright section)",
+          "source_sha256": "f68c351048c11bd8499b9d6ef8b283386d4544cc556fd2679a2ff2b1c50a378b"
+        }
+      ]
+    },
+    {
+      "name": "OpenLDAP",
+      "version": "2.6.14",
+      "license": "OLDAP-2.8",
+      "source": "https://www.openldap.org/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The exact libldap entry's ldap_get_option symbol stores LDAP vendor version 20614; liblber is the accompanying wheel entry.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/liblber-a44a5afb.so.2.0.200",
+          "sha256": "862a4715f500831283bebf04347491b17a3adb93e56a335d00a6e1b278258929"
+        },
+        {
+          "file": "psycopg_binary.libs/libldap-7c3a4b12.so.2.0.200",
+          "sha256": "1408b751ee5e666470af890e13a508b38a57870b6a261697e27f9c6493b645fc"
+        }
+      ],
+      "texts": [
+        {
+          "file": "openldap-LICENSE.txt",
+          "source_file": "https://raw.githubusercontent.com/openldap/openldap/OPENLDAP_REL_ENG_2_6_14/LICENSE",
+          "source_sha256": "310fe25c858a9515fc8c8d7d1f24a67c9496f84a91e0a0e41ea9975b1371e569"
+        },
+        {
+          "file": "openldap-COPYRIGHT.txt",
+          "source_file": "https://raw.githubusercontent.com/openldap/openldap/OPENLDAP_REL_ENG_2_6_14/COPYRIGHT",
+          "source_sha256": "5b4dfc20608c4d5d75573e899569b8ee0e06658ebcf14fa14566e309bcbab14c"
+        }
+      ]
+    },
+    {
+      "name": "MIT Kerberos",
+      "version": "1.15.1-55.el7_9",
+      "license": "See the original Kerberos notices",
+      "source": "https://web.mit.edu/kerberos/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS krb5-libs 1.15.1-55.el7_9. Notices are from upstream release 1.15.1.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libgssapi_krb5-497db0c6.so.2.2",
+          "sha256": "ef73998b86c24e54667a843be6d589442dd082e1b9fc605aa15bcc2293858806"
+        },
+        {
+          "file": "psycopg_binary.libs/libk5crypto-b1f99d5c.so.3.1",
+          "sha256": "bf04d7ebe3937aba3855c15acbd991482286a484aeea38bb9ced85e772ea2fb0"
+        },
+        {
+          "file": "psycopg_binary.libs/libkrb5-fcafa220.so.3.3",
+          "sha256": "94dc6413050486a6c8de4b6f3bfdd288390892b72bc68580c6c53929721fa07b"
+        },
+        {
+          "file": "psycopg_binary.libs/libkrb5support-d0bcff84.so.0.1",
+          "sha256": "0eb5322b05ac46e4db7ddb779ee0269006dd01801aaa67b84f8e7f753bfdddf2"
+        }
+      ],
+      "texts": [
+        {
+          "file": "krb5-NOTICE.txt",
+          "source_file": "https://raw.githubusercontent.com/krb5/krb5/krb5-1.15.1-final/NOTICE",
+          "source_sha256": "f83512c49bc8cbc44ca6b8783e989a03b4051508b30563b3f9d7956eefae9151"
+        }
+      ]
+    },
+    {
+      "name": "Cyrus SASL",
+      "version": "2.1.26-24.el7_9",
+      "license": "See the original Cyrus SASL license",
+      "source": "https://www.cyrusimap.org/sasl/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS cyrus-sasl-lib 2.1.26-24.el7_9. License text is from upstream release 2.1.26.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libsasl2-84219a89.so.3.0.0",
+          "sha256": "e84be55110f16f7ca930af373e9f41fa7f4ec60733c013d933d1443ae5056a98"
+        }
+      ],
+      "texts": [
+        {
+          "file": "cyrus-sasl-COPYING.txt",
+          "source_file": "https://raw.githubusercontent.com/cyrusimap/cyrus-sasl/cyrus-sasl-2.1.26/COPYING",
+          "source_sha256": "9d6e5d1632140a6c135b251260953650d17d87cd1124f87aaf72192aa4580d4b"
+        }
+      ]
+    },
+    {
+      "name": "libselinux",
+      "version": "2.5-15.el7",
+      "license": "Public domain; see the original warranty disclaimer",
+      "source": "https://github.com/SELinuxProject/selinux",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS libselinux 2.5-15.el7. License text is from upstream release 2.5.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libselinux-0922c95c.so.1",
+          "sha256": "99e60178aed625f6d2e2af58bccf605b13619b1544058e9f985a2772affb4a88"
+        }
+      ],
+      "texts": [
+        {
+          "file": "libselinux-LICENSE.txt",
+          "source_file": "https://raw.githubusercontent.com/SELinuxProject/selinux/libselinux-2.5/libselinux/LICENSE",
+          "source_sha256": "86657b4c0fe868d7cbd977cb04c63b6c667e08fa51595a7bc846ad4bed8fc364"
+        }
+      ]
+    },
+    {
+      "name": "libcom_err",
+      "version": "1.42.9-19.el7",
+      "license": "MIT-style (lib/et library)",
+      "source": "https://github.com/tytso/e2fsprogs",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS libcom_err 1.42.9-19.el7. Original license headers and scope are from e2fsprogs 1.42.9.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libcom_err-2abe824b.so.2.1",
+          "sha256": "5426dcb54dd01c9eedda05e2179f0e47114e8b48a534ffe9e94916e79471b257"
+        }
+      ],
+      "texts": [
+        {
+          "file": "libcom_err-COPYING.txt",
+          "source_file": "https://raw.githubusercontent.com/tytso/e2fsprogs/v1.42.9/COPYING (library license scope paragraph)",
+          "source_sha256": "680f852df303874fe9c722283a7da571ae9a0477768df8af1e363298e2adc51e"
+        },
+        {
+          "file": "libcom_err-source.txt",
+          "source_file": "https://raw.githubusercontent.com/tytso/e2fsprogs/v1.42.9/lib/et/com_err.c (original license header)",
+          "source_sha256": "873d31d80fa2f930d13b3fb600159663d54861af0abb937c1b879b74e11db0ab"
+        },
+        {
+          "file": "libcom_err-et_name.txt",
+          "source_file": "https://raw.githubusercontent.com/tytso/e2fsprogs/v1.42.9/lib/et/et_name.c (original license header)",
+          "source_sha256": "80f5684d5d807446e73800e65d537885a4c9554cecdc4278356c888f6b53d3bb"
+        }
+      ]
+    },
+    {
+      "name": "keyutils libkeyutils",
+      "version": "1.5.8-3.el7",
+      "license": "LGPL-2.0-or-later (upstream supplies the LGPL-2.1 text)",
+      "source": "https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS keyutils-libs 1.5.8-3.el7. Original texts are from upstream v1.5.8, commit dd64114721edca5808872190e7e2e927ee2e994c.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libkeyutils-dfe70bd6.so.1.5",
+          "sha256": "c29e41b03cf4b2dffbfb4960946e2b42f82c0ca5d53d231d3f0fc597ba274488"
+        }
+      ],
+      "texts": [
+        {
+          "file": "keyutils-LICENCE.LGPL.txt",
+          "source_file": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/dhowells/keyutils/+/dd64114721edca5808872190e7e2e927ee2e994c/LICENCE.LGPL?format=TEXT",
+          "source_sha256": "0d15593e3a8ad90917f8509b5ac1e4b5e5d196434a68029aa9dc0858a4a4c521"
+        },
+        {
+          "file": "keyutils-keyutils.c.txt",
+          "source_file": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/dhowells/keyutils/+/dd64114721edca5808872190e7e2e927ee2e994c/keyutils.c?format=TEXT (original library license header)",
+          "source_sha256": "4c34f646e28308cb4b47c9f871f0686da9cbcc59ab289c35ee13e049c2d711bf"
+        }
+      ]
+    },
+    {
+      "name": "libxcrypt libcrypt",
+      "version": "version not reported by the wheel",
+      "license": "LGPL-2.1-or-later and the original permissive notices",
+      "source": "https://github.com/besser82/libxcrypt",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The exact entry embeds lib/alg-gost3411-2012-hmac.c and lib/alg-yescrypt-opt.c source paths and yescrypt strings. Original license texts use source revision v4.4.38; this does not claim the bundled binary is version 4.4.38. The LGPL text and runtime source/header notices below exclude source build utilities and tests; the full upstream LICENSING inventory is retained separately as source provenance.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libcrypt-bc2db45e.so.1",
+          "sha256": "e2a6f6ff300e287a60dfc0c6fdb76ee01e333068df7c60b4e87453d942ccda65"
+        }
+      ],
+      "texts": [
+        {
+          "file": "libxcrypt-COPYING.LIB.txt",
+          "source_file": "https://raw.githubusercontent.com/besser82/libxcrypt/v4.4.38/COPYING.LIB",
+          "source_sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+        },
+        {
+          "file": "libxcrypt-AUTHORS.txt",
+          "source_file": "https://raw.githubusercontent.com/besser82/libxcrypt/v4.4.38/AUTHORS",
+          "source_sha256": "6d1e45c055b6d9e9bf4e9521419eb3dee4ca42a02dd4d824beaaad476dacfdca"
+        },
+        {
+          "file": "libxcrypt-runtime-headers.txt",
+          "source_file": "https://github.com/besser82/libxcrypt/archive/refs/tags/v4.4.38.zip (52 original runtime source/header comment blocks; each source file hash is retained)",
+          "source_sha256": "1cf515c9f32f2ecf30156a3c659b472c7d6f2945eaacc73059db12ebf096a194"
+        }
+      ]
+    },
+    {
+      "name": "PCRE",
+      "version": "8.32-17.el7",
+      "license": "BSD-3-Clause",
+      "source": "https://www.pcre.org/",
+      "artifact": "psycopg_binary-3.3.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "artifact_sha256": "cec5ea900390897d0b46130f60bc2883bf19c314f9044235217c8be88b0ef269",
+      "version_evidence": "The wheel's auditwheel.cdx.json identifies CentOS pcre 8.32-17.el7. The original LICENCE was extracted as data from pcre-8.32-17.el7.x86_64.rpm, whose package header confirms the same identity; RPM SHA-256 cf2b84402e9a9fcf92c8a8a965c4e8d217e82e80c0945de2ce8d46c17131ad28.",
+      "bundled_files": [
+        {
+          "file": "psycopg_binary.libs/libpcre-9513aab5.so.1.2.0",
+          "sha256": "02eda850e04931656d8af81f5171bff74d8bec1553d3d85c3d32d7fc5efe8864"
+        }
+      ],
+      "texts": [
+        {
+          "file": "pcre-LICENCE.txt",
+          "source_file": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/pcre-8.32-17.el7.x86_64.rpm:./usr/share/doc/pcre-8.32/LICENCE",
+          "source_sha256": "9ccbdd877d602470f8ec02a47c32048887e49bd64b081c48132a32dcd6f46eed"
+        }
+      ]
+    }
+  ]
+}

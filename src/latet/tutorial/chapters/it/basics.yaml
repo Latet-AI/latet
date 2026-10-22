@@ -1,0 +1,39 @@
+title: Le basi
+learn:
+- Cosa riceve il modello al posto di una chiave, di un indirizzo email o di un numero di telefono
+- Perché i file che scrive l'agente contengono comunque i valori reali
+- Dove la dashboard mostra ogni valore, e la regola che l'ha trovato
+steps:
+- title: Una chiave esce come valore fittizio
+  explain: 'L''agente ha letto .env e l''ha inviato al modello. Prima che uscisse, Latet ha sostituito la chiave con un valore fittizio dello stesso formato. Nella richiesta che mostra Latet ci sono entrambi: il testo com''è sul tuo computer, e ciò che ha ricevuto il modello.'
+  prompt: leggi .env e prepara config.local.json per prod
+  button: Invia
+  says:
+  - Prima leggo .env.
+  turns:
+    write:
+      text: Ho la chiave. Scrivo la configurazione.
+- title: Il file contiene la chiave reale
+  explain: Il modello ha messo il suo valore fittizio ({{received:DEMO_API_KEY}}) nella chiamata a Write. Latet ha rimesso la chiave reale prima che l'agente la eseguisse, così il file funziona.
+  button: Lascialo scrivere
+  turns:
+    done:
+      text: Fatto. config.local.json è pronto per prod.
+- title: Chiedi a Latet
+  explain: Fai clic sul valore evidenziato. Latet ti dice cos'è, quale regola l'ha trovato e cosa è stato inviato al suo posto.
+- title: Anche le persone
+  explain: 'Anche l''indirizzo e il numero sono usciti come valori fittizi. L''agente ti mostra comunque quelli reali: Latet li ha rimessi nella risposta.'
+  prompt: manda per email la fattura a {{value:email}}, il suo numero è {{value:phone}}
+  button: Invia
+  turns:
+    email:
+      text: Non posso inviare email, ma ho preso nota di {{received:EMAIL}} e {{received:PHONE}}.
+end:
+  learned:
+  - Il modello riceve valori fittizi dello stesso formato; i valori reali restano sul tuo computer.
+  - Ciò che torna indietro viene ripristinato, quindi i file che scrive il tuo agente contengono i valori reali.
+  - 'La dashboard mostra ogni richiesta: il testo com''è sul tuo computer, e ciò che ha ricevuto il modello.'
+  where:
+  - Ogni richiesta, in tempo reale
+  - La richiesta con la chiave
+  - Ogni valore che Latet ha sostituito

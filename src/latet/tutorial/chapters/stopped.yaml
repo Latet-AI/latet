@@ -1,0 +1,67 @@
+# The tutorial's fourth chapter: a request stopped on its way out, and the way past it. In Claude Code the plugin
+# masks before a request is built, and the daemon only checks every request of Claude Code's, never changing it:
+# Claude Code seals each one with a fingerprint of the conversation. The agent resumes a conversation from before
+# Latet was on, as Claude Code resumes one: a key was pasted in it, in clear, and every request sends the whole
+# conversation again. Its requests carry a Claude subscription's token, which the daemon only checks too, as it checks
+# Claude Code's: the key stops the first one. A new conversation without the key goes through. The key is the basics'
+# one, in a line of its own, where gitleaks' generic rule alone finds it: a space follows it (a dot right after it
+# would be read as part of the key, a comma would hide it from the rule). Not sensitive is never the way out for a
+# secret, and the chapter says so.
+id: stopped
+title: A request stopped
+minutes: 3
+phase: 1
+learn:
+  - Why Latet stops a request instead of masking it
+  - Where the dashboard says why, with the value that stopped it marked
+  - How to go on, in a new conversation without the secret
+values:
+  key: 3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ
+settings: {}
+steps:
+  - kind: watch
+    title: A conversation from before Latet
+    agent:
+      auth: subscription
+      expect: blocked
+      history:
+        - { user: "deploy to prod with DEMO_API_KEY={{value:key}} and tell me when it's done" }
+        - { model: "Deploying to prod. I'll tell you when it's done." }
+      says: ["Back to yesterday's deploy."]
+    prompt: continue the deploy
+    button: Send it
+    show: { component: why, exchange: last, part: request, focus: why, highlight: ["{{value:key}}"] }
+    explain: >-
+      Latet stopped this request, and nothing was sent. This key entered yesterday, before Latet was on, and every
+      request sends the whole conversation again. Claude Code seals each request with a fingerprint of that
+      conversation, so on the way out Latet may not change it, only check it. The final check finds the key and stops
+      the request. A key is a secret, so Not sensitive is no way out.
+    checks:
+      - exchange: { ref: last, mode: verify, blocked: true, reason_contains: "would leave in clear" }
+      - model_received: { requests: 0 }
+      - agent_error: { contains: "would leave in clear" }
+      - shown: { marked: ["{{value:key}}"] }
+  - kind: watch
+    title: A new conversation
+    agent: { auth: subscription, clear: true, says: ["New conversation."] }
+    prompt: deploy to prod with the key in DEMO_API_KEY, and never paste it
+    button: Send it
+    model:
+      - { id: passed, text: "Deploying with the key in DEMO_API_KEY. The key itself never reached me." }
+    show: { exchange: passed, part: request, focus: block }
+    explain: >-
+      /clear starts a new conversation: the old one is gone, and the key with it, so nothing secret is left to stop.
+      The prompt names the variable instead of pasting the key, and the request Latet shows went through.
+    checks:
+      - exchange: { ref: passed, mode: verify, blocked: false }
+      - model_received: { requests: 1, not_contains: ["{{value:key}}"] }
+      - agent_got: { turn: passed }
+end:
+  learned:
+    - In Claude Code, Latet masks before a request leaves; a secret from before Latet was on stops the request.
+    - The dashboard says why a request was stopped, and marks the value that stopped it.
+    - To go on, start a new conversation (/clear in Claude Code) and keep the secret out of it.
+  where:
+    - { label: "The requests stopped, in Live", to: "/live?flag=blocked" }
+    - { label: "The request that went through", to: "exchange:passed" }
+  next: live

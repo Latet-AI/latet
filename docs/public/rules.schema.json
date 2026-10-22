@@ -1,0 +1,586 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.latet.ai/rules.schema.json",
+  "$defs": {
+    "FieldRule": {
+      "additionalProperties": false,
+      "description": "A rule for the values of one field: a column of a table, a JSON key or path, the key of `key=value`.",
+      "properties": {
+        "name": {
+          "description": "The field: a column name, a JSON key or path (`items[].sku`), or the key of `key=value`; `*` matches any characters, and case does not matter.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The type its values are masked as (`FIELD` when not set).",
+          "title": "Type"
+        },
+        "mask": {
+          "default": true,
+          "description": "`false` keeps its values in clear in strict data mode (only in your own settings).",
+          "title": "Mask",
+          "type": "boolean"
+        },
+        "secret": {
+          "default": false,
+          "description": "Its values are secrets: one in clear blocks the request.",
+          "title": "Secret",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "FieldRule",
+      "type": "object"
+    },
+    "Policy": {
+      "enum": [
+        "mask",
+        "redact",
+        "allow"
+      ],
+      "title": "Policy",
+      "type": "string"
+    },
+    "Profile": {
+      "enum": [
+        "balanced",
+        "max",
+        "secrets"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "TermConfig": {
+      "properties": {
+        "value": {
+          "description": "The text to mask wherever it appears: a client, a project code name, a domain. It needs a letter or a digit.",
+          "title": "Value",
+          "type": "string"
+        },
+        "type": {
+          "default": "CUSTOM",
+          "description": "The label shown for it, such as CLIENT or PROJECT.",
+          "title": "Type",
+          "type": "string"
+        },
+        "case_sensitive": {
+          "default": false,
+          "description": "Match the exact case only.",
+          "title": "Case Sensitive",
+          "type": "boolean"
+        },
+        "whole_word": {
+          "default": true,
+          "description": "Match whole words only (not inside longer words).",
+          "title": "Whole Word",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "TermConfig",
+      "type": "object"
+    },
+    "ContextSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "words": {
+          "description": "Words that must be near the value (any case).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Words",
+          "type": "array"
+        },
+        "acronyms": {
+          "description": "Words that count in this exact case only.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Acronyms",
+          "type": "array"
+        },
+        "window": {
+          "default": 48,
+          "description": "How many characters before the value to look.",
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Window",
+          "type": "integer"
+        },
+        "header": {
+          "default": true,
+          "description": "Also look in the column header of a CSV, TSV or Markdown table.",
+          "title": "Header",
+          "type": "boolean"
+        }
+      },
+      "title": "ContextSpec",
+      "type": "object"
+    },
+    "Examples": {
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "description": "Invented texts the rule must find a value in.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Match",
+          "type": "array"
+        },
+        "no_match": {
+          "description": "Invented texts the rule must leave alone.",
+          "items": {
+            "type": "string"
+          },
+          "title": "No Match",
+          "type": "array"
+        }
+      },
+      "title": "Examples",
+      "type": "object"
+    },
+    "KeepSurrogate": {
+      "additionalProperties": false,
+      "properties": {
+        "keep": {
+          "description": "Characters kept from the start of the value (a prefix).",
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Keep",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "keep"
+      ],
+      "title": "KeepSurrogate",
+      "type": "object"
+    },
+    "WeightedChecksum": {
+      "additionalProperties": false,
+      "description": "Each digit times its weight (weights repeat from the left), summed, modulo ``modulus``.",
+      "properties": {
+        "algorithm": {
+          "const": "weighted",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "weights": {
+          "description": "One weight per digit, repeated from the left.",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Weights",
+          "type": "array"
+        },
+        "modulus": {
+          "description": "The sum is taken modulo this.",
+          "minimum": 2,
+          "title": "Modulus",
+          "type": "integer"
+        },
+        "remainder": {
+          "default": 0,
+          "description": "What the sum modulo `modulus` must be.",
+          "minimum": 0,
+          "title": "Remainder",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "algorithm",
+        "weights",
+        "modulus"
+      ],
+      "title": "WeightedChecksum",
+      "type": "object"
+    },
+    "Recognizer": {
+      "additionalProperties": false,
+      "description": "One recognizer, as written under ``recognizers:``.",
+      "properties": {
+        "name": {
+          "description": "Lower case letters, digits and hyphens; unique.",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The type shown for it, in capitals; the name in capitals when not set.",
+          "pattern": "^[A-Z][A-Z0-9_]{1,63}$",
+          "title": "Type"
+        },
+        "description": {
+          "default": "",
+          "description": "What it finds, in words.",
+          "title": "Description",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "An RE2 regular expression. A group named `value` picks the part to mask.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Pattern",
+          "type": "string"
+        },
+        "checksum": {
+          "anyOf": [
+            {
+              "enum": [
+                "luhn",
+                "iban",
+                "mod97-10",
+                "mod11-10",
+                "ean",
+                "verhoeff",
+                "damm"
+              ]
+            },
+            {
+              "$ref": "#/$defs/WeightedChecksum"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Check digits the value must pass: luhn, iban, mod97-10, mod11-10, ean, verhoeff, damm, or a weighted sum.",
+          "title": "Checksum"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keywords that must be near the value."
+        },
+        "examples": {
+          "$ref": "#/$defs/Examples",
+          "description": "Invented examples, checked on every load."
+        },
+        "class": {
+          "default": "custom",
+          "description": "`custom`, or `secret` to treat it like a password (never let through, blocks a request).",
+          "enum": [
+            "custom",
+            "secret"
+          ],
+          "title": "Class",
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Policy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`mask`, `redact` or `allow`; `policies` wins."
+        },
+        "surrogate": {
+          "anyOf": [
+            {
+              "const": "shape",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/KeepSurrogate"
+            }
+          ],
+          "default": "shape",
+          "description": "`shape` (same length and kinds of characters), or `{keep: N}`.",
+          "title": "Surrogate"
+        },
+        "min_length": {
+          "default": 1,
+          "description": "Shorter values are skipped.",
+          "minimum": 1,
+          "title": "Min Length",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`false` keeps the rule in the file, turned off.",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "pattern"
+      ],
+      "title": "RecognizerSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Imported, they add protection to the importer's own rules at once; what would lower it (the exceptions, a weaker value, the guidance) is applied only when asked for, and approved.",
+  "properties": {
+    "latet_rules": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The version of the format of this file."
+    },
+    "profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Profile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The profile in this project."
+    },
+    "pii": {
+      "description": "Personal-data types to detect, besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Pii",
+      "type": "array"
+    },
+    "id_regions": {
+      "description": "Countries whose national ID and tax numbers to recognise, besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Id Regions",
+      "type": "array"
+    },
+    "phone_regions": {
+      "description": "Countries whose phone numbers to recognise without a prefix, besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Phone Regions",
+      "type": "array"
+    },
+    "include_private_ips": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Also mask private IP addresses.",
+      "title": "Include Private Ips"
+    },
+    "ner": {
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Local name and address detection.",
+      "title": "Ner"
+    },
+    "terms": {
+      "description": "Values to always mask in this project.",
+      "items": {
+        "$ref": "#/$defs/TermConfig"
+      },
+      "title": "Terms",
+      "type": "array"
+    },
+    "recognizers": {
+      "description": "Recognizers for this project (a name already in use turns the entry off).",
+      "items": {
+        "$ref": "#/$defs/Recognizer"
+      },
+      "title": "Recognizers",
+      "type": "array"
+    },
+    "policies": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Policy"
+      },
+      "description": "Per type: `mask`, `redact` or `allow`.",
+      "title": "Policies",
+      "type": "object"
+    },
+    "fields": {
+      "description": "Rules for the values of single fields.",
+      "items": {
+        "$ref": "#/$defs/FieldRule"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "enum": [
+            "normal",
+            "strict"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "`strict` masks every value of tool outputs that are tables, JSON or `key=value`.",
+      "title": "Data"
+    },
+    "data_files": {
+      "description": "The files strict data mode covers when a tool reads them (path patterns such as `*.json`), besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Files",
+      "type": "array"
+    },
+    "data_hosts": {
+      "description": "The web addresses strict data mode covers (host patterns such as `*.salesforce.com`), besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Hosts",
+      "type": "array"
+    },
+    "dump_guard": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Withhold a tool output with more personal values than this (0: never).",
+      "title": "Dump Guard"
+    },
+    "images": {
+      "anyOf": [
+        {
+          "enum": [
+            "allow",
+            "mask",
+            "block"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "`mask` sends images only with their text read and masked, `block` sends no images or documents.",
+      "title": "Images"
+    },
+    "ocr": {
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Reading the text in images.",
+      "title": "Ocr"
+    },
+    "allow_values": {
+      "description": "Values never to mask in this project.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Allow Values",
+      "type": "array"
+    },
+    "allow_patterns": {
+      "description": "Regular expressions (RE2) of values never to mask in this project.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Allow Patterns",
+      "type": "array"
+    },
+    "disabled_secret_rules": {
+      "description": "gitleaks rule ids to turn off in this project.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Disabled Secret Rules",
+      "type": "array"
+    },
+    "data_tools": {
+      "description": "The tools strict data mode covers (`*` patterns), besides the global ones.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Tools",
+      "type": "array"
+    },
+    "guidance": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Guidance for the local reviewer, added after the importer's own.",
+      "title": "Review Guidance"
+    }
+  },
+  "title": "Latet rules (latet rules export)",
+  "type": "object"
+}

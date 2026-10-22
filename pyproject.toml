@@ -1,0 +1,151 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "latet"
+version = "0.9.0"
+description = "A local privacy firewall for AI agents: masks secrets and personal data before they reach the model and restores them locally."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "LicenseRef-Latet-Sustainable-Use-1.0"
+license-files = ["LICENSE", "LICENSING.md"]
+authors = [{ name = "Emanuele Casabona", email = "siphion@gmail.com" }]
+keywords = ["privacy", "llm", "pii", "secrets", "redaction", "pseudonymization", "claude-code", "codex", "opencode", "proxy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "brotli>=1.2.0",
+    "cryptography>=50.0.2",
+    "google-re2>=1.1.20251105",
+    "httpx>=0.28.1",
+    "keyring>=25.7.0",
+    "phonenumbers>=9.0.40",
+    "platformdirs>=4.12.3",
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+    "starlette>=1.7.0",
+    "tomlkit>=0.15.1",
+    "truststore>=0.10.4",
+    "typer>=0.27.2",
+    "uvicorn>=0.54.0",
+    "websockets>=17.2",
+    "zstandard>=0.25.0",
+]
+
+[project.optional-dependencies]
+# Local name and address detection: `latet ner install` then downloads the model (about 1.6 GB).
+ner = [
+    "numpy>=2.0",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+]
+# Text in images masked: `latet ocr install` then downloads the text recognition models (about 31 MB).
+ocr = [
+    "numpy>=2.0",
+    "onnxruntime>=1.20",
+    "pillow>=11.0",
+]
+# Latet on a server: PostgreSQL and Valkey (or Redis). psycopg is LGPL-3.0, used as a separate, unmodified package.
+# The floors are the versions the server was written against and is tested with: it leans on how psycopg and libpq take
+# an address (`latet.server.db`), and on how redis-py bounds a handshake and reads a blocking subscription
+# (`latet.server.bus`).
+server = [
+    "psycopg[binary,pool]>=3.3",
+    "redis>=8.1",
+]
+
+[project.urls]
+Homepage = "https://latet.ai"
+Documentation = "https://docs.latet.ai"
+Repository = "https://github.com/Latet-AI/latet"
+Issues = "https://github.com/Latet-AI/latet/issues"
+
+[project.scripts]
+latet = "latet.cli.main:main"
+
+[project.gui-scripts]
+latet-daemon = "latet.service.daemon:main"
+
+[tool.hatch.build]
+# The built dashboard and the documentation of this version are not in git (CI builds them from dashboard/ and docs/:
+# `npm run build`, `npm run build:bundle`): ship them anyway.
+artifacts = ["src/latet/web/**", "src/latet/docs/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/latet"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["notes/", "dashboard/node_modules/", "docs/node_modules/"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ASYNC", "PT"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B011", "PT018", "E501"]
+"scripts/**" = ["S"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --disable-socket --allow-hosts=127.0.0.1,::1"
+# A test's tmp_path holds the key and password files it made. A test that passes removes its folder, and a run in which
+# every test passes removes the base folder too; the folders of a test that fails stay for three runs, to look at. Not
+# "none": a run then keeps no lock on its folder, and a pytest of the same user that ends while it runs removes it.
+tmp_path_retention_policy = "failed"
+filterwarnings = ["ignore::DeprecationWarning:starlette.testclient", "ignore:Using `httpx` with `starlette.testclient`"]
+markers = [
+    "e2e: end-to-end tests that start servers or real agents",
+    "live: tests that hit real upstream providers (never in CI)",
+    "agents: real AI agents and tools against fake providers on this computer (LATET_AGENT_TESTS=1)",
+    "server: tests of the server's PostgreSQL and Valkey backends (LATET_TEST_DATABASE_URL, LATET_TEST_VALKEY_URL)",
+]
+
+[tool.uv]
+# Google's GenAI SDK (a dev dependency, which tests/e2e/test_sdks_e2e.py runs through Latet) caps websockets below 17
+# for its Live API, which no test uses; Latet's own websockets>=17.2 is what the lock keeps.
+override-dependencies = ["websockets>=17.2"]
+
+[dependency-groups]
+dev = [
+    "latet[ner,ocr,server]",
+    # The official SDKs (OpenAI, Anthropic, Google GenAI) and the frameworks built on them (LangChain, LangGraph),
+    # which tests/e2e/test_sdks_e2e.py runs through Latet; AutoGen and CrewAI do not fit this environment and run in
+    # their own (tests/agents/test_frameworks.py).
+    "anthropic>=1.15.0",
+    "google-genai>=2.31.0",
+    "hypothesis>=6.168.5",
+    "langchain-openai>=1.7.2",
+    "langgraph>=1.2.16",
+    "openai>=3.35.1",
+    "packaging>=26.3",
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-socket>=0.8.1",
+    "python-stdnum>=2.2",
+    "ruff>=0.16.10",
+]

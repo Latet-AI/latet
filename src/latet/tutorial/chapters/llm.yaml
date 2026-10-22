@@ -1,0 +1,138 @@
+# The tutorial's eighth chapter: the local reviewer, a language model on your computer, finds what no pattern does,
+# and your guidance tells it what else counts. Every value is invented. The reviewer is the Tutorial Reviewer: what it
+# finds is written here (`reviewer`), the same at every run, and the page says it is simulated. The four values of the
+# ticket have no shape Latet's patterns know (an email address written out, an IBAN with two digits swapped, so its
+# check digits fail, a name and a diagnosis in a sentence): a test reads the ticket with every detector and finds
+# none. The wards need the guidance. The handover note is read in a new conversation: the ticket left with Ward 7B in
+# clear, and what was sent stays as it was sent (see terms.yaml). The IBAN is an account number, `id`: the settings
+# mask that category by itself, as they do `confidential`.
+id: llm
+title: The local reviewer
+minutes: 4
+phase: 2
+learn:
+  - What the local reviewer finds that Latet's patterns cannot
+  - How your guidance tells it what else is confidential in your work
+  - Where its findings and your guidance are in the dashboard
+values:
+  name: Daniel Okafor
+  condition: type 2 diabetes
+  written: daniel dot okafor at stmarys-health dot org
+  account: GB82 WEST 1234 5698 7654 23  # the documented example IBAN, its last two digits swapped
+  ward: Ward 7B
+  other_ward: Ward 3A
+settings:
+  llm_review:
+    auto_mask: [person, address, email, phone, secret, health, financial, id, confidential]
+reviewer:
+  - { value: "{{value:name}}", category: person }
+  - { value: "{{value:condition}}", category: health }
+  - { value: "{{value:written}}", category: email }
+  - { value: "{{value:account}}", category: id }
+  - { value: "{{value:ward}}", category: confidential, guidance: true }
+  - { value: "{{value:other_ward}}", category: confidential, guidance: true }
+files:
+  ticket-4182.md: |
+    # Ticket 4182
+
+    Opened by: IT service desk
+    Status: open
+
+    {{value:name}}, a patient on {{value:ward}}, has not been able to log in to the patient portal since Monday.
+    He has {{value:condition}} and needs his blood test results before Friday's appointment.
+    Reply to him at {{value:written}}.
+    He also asks for the parking refund to go to his account, {{value:account}}.
+  handover.md: |
+    # Night handover, 14 March
+
+    {{value:ward}}: two beds free, the hoist is fixed.
+    {{value:other_ward}}: short of one nurse tonight; the agency sends one at 23:00.
+    Pharmacy closes at 22:00; urgent orders go through the switchboard.
+received:
+  NAME: { pattern: '(?m)^(.+?), a patient on ', in: tool_result }
+  CONDITION: { pattern: 'He has (.+?) and needs', in: tool_result }
+  WRITTEN: { pattern: '(?m)^Reply to him at (.+)\.$', in: tool_result }
+  ACCOUNT: { pattern: '(?m)to his account, (.+)\.$', in: tool_result }
+  WARD: { pattern: '(?m)^(.+?): two beds free', in: tool_result }
+  OTHER_WARD: { pattern: '(?m)^(.+?): short of one nurse', in: tool_result }
+steps:
+  - kind: watch
+    title: What no pattern finds
+    agent: { files: [ticket-4182.md], says: ["I'll read the ticket."] }
+    prompt: read ticket-4182.md and sum it up
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: ticket-4182.md } } }
+      - id: summary
+        text: >-
+          {{received:NAME}} has not been able to get into the patient portal since Monday and needs the blood test
+          results before Friday ({{received:CONDITION}}). Reply to {{received:WRITTEN}}; the parking refund goes to
+          {{received:ACCOUNT}}.
+    show:
+      component: review
+      exchange: summary
+      highlight: ["{{value:name}}", "{{value:condition}}", "{{value:written}}", "{{value:account}}"]
+    explain: >-
+      Latet's patterns found nothing here: the email address is written out in words, the IBAN has a typing mistake
+      (its check digits fail, so no pattern takes it for one), and a name or a diagnosis has no shape at all. The
+      local reviewer read the ticket before it left, as a person would, and found all four, and Latet masked them: the
+      model got {{received:NAME}} for the name. {{value:ward}} left in clear: nothing tells the reviewer that, in this
+      hospital, a ward's name says who is where.
+    checks:
+      - model_received:
+          not_contains: ["{{value:name}}", "{{value:condition}}", "{{value:written}}", "{{value:account}}"]
+          contains: ["{{value:ward}}"]
+      - exchange: { ref: summary, mode: rewrite, masked_rules: [llm:person, llm:health, llm:email, llm:id] }
+      - shown:
+          marked: ["{{value:name}}", "{{value:condition}}", "{{value:written}}", "{{value:account}}"]
+          clear: ["{{value:ward}}"]
+      - agent_got: { turn: summary }
+  - kind: do
+    title: Your guidance
+    wait:
+      guidance: "Ward names are confidential: in this hospital, a ward's name says who is where."
+      hint: Save the guidance as it is written.
+    look: { component: guidance }
+    show: { component: guidance }
+    explain: >-
+      What counts as confidential in your work, you tell the reviewer in your own words: your guidance goes with its
+      instructions at every review. Here it is written for you: save it. A real reviewer follows what it says; the
+      Tutorial Reviewer, which is simulated, only checks that some guidance is saved. In your own dashboard it is in
+      Rules, under Local reviewer.
+  - kind: watch
+    title: A ward nobody listed
+    agent: { clear: true, files: [handover.md], says: ["New conversation."] }
+    prompt: read handover.md and tell me what the night shift needs
+    button: Send it
+    model:
+      - { id: note, tool: { name: Read, input: { file_path: handover.md } } }
+      - id: needs
+        text: >-
+          {{received:OTHER_WARD}} is short of one nurse tonight, and the agency sends one at 23:00. {{received:WARD}}
+          has two beds free.
+    show: { component: review, exchange: needs, highlight: ["{{value:ward}}", "{{value:other_ward}}"] }
+    explain: >-
+      With your guidance, the reviewer found both wards and Latet masked them: {{value:ward}}, and
+      {{value:other_ward}}, which it had never seen. The model got {{received:OTHER_WARD}} for {{value:other_ward}}.
+      Your terms mask the words you list; guidance describes a kind of value, and holds for the ones you did not list.
+    checks:
+      - model_received: { not_contains: ["{{value:ward}}", "{{value:other_ward}}"] }
+      - exchange: { ref: needs, mode: rewrite, masked_rules: [llm:confidential] }
+      - shown: { marked: ["{{value:ward}}", "{{value:other_ward}}"] }
+      - agent_got: { turn: needs }
+end:
+  learned:
+    - >-
+      The local reviewer, a language model on your computer, finds what has no shape a pattern knows: an email address
+      written out, an IBAN with a mistake, a name or a diagnosis in a sentence.
+    - >-
+      Your guidance tells it what else is confidential in your work, in your own words, and holds for values you
+      never listed.
+    - >-
+      Your own local reviewer runs on your computer, with llama.cpp, Ollama or LM Studio: you set it up in Rules,
+      under Local reviewer, and choose there what it masks by itself (the rest, it only suggests).
+  where:
+    - { label: "The local reviewer and your guidance, in Rules", to: "/rules#reviewer" }
+    - { label: "The ticket, with what the reviewer found", to: "exchange:summary" }
+    - { label: "The handover note, both wards masked", to: "exchange:needs" }
+  next: images

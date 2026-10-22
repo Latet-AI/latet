@@ -1,0 +1,176 @@
+---
+title: Funktionsweise
+description: Ersatzwerte, Client-Modus, Gateway-Modus und reine Prüfung, mit einem Schritt-für-Schritt-Beispiel anhand eines Schlüssels aus einer .env-Datei.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet sitzt zwischen Ihrem Agenten und dem Anbieter des Modells. Eine einzige Engine erkennt sensible
+Werte, ersetzt sie auf dem Hinweg durch Ersatzwerte und setzt auf dem Rückweg die Originale wieder
+ein. Wo das geschieht, hängt vom Agenten ab: im Agenten selbst (**Client-Modus**) oder in einem
+Proxy (**Gateway-Modus**). Beide laufen auf Ihrem Rechner oder, wenn Ihr Rechner mit einem
+[Latet-Server](../server/) verbunden ist, auf diesem Server.
+
+## Ersatzwerte
+
+Ein Ersatzwert ist ein erfundener Wert im selben Format wie das Original:
+
+| Art | Original (bleibt auf Ihrem Rechner) | Ersatzwert (an den Anbieter gesendet) |
+| --- | --- | --- |
+| API-Schlüssel | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
+| Passwort in einer URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| E-Mail-Adresse | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
+| Telefonnummer | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
+| IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
+| Ihr Benutzername in einem Pfad | <span class="real">`C:\Users\ecarter\shop\app.py`</span> | <span class="fake">`C:\Users\oliver75\shop\app.py`</span> |
+
+<small>Die Werte sind nur Beispiele. Ihre Ersatzwerte sind andere, denn sie werden aus einem
+Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
+
+- **Formaterhaltend.** Ein Schlüssel behält sein Präfix (`pk_`, `ghp_`, `sk-ant-api03-`...), seine
+  Länge und seinen Zeichensatz. Eine E-Mail-Adresse bleibt eine E-Mail-Adresse: Eine öffentliche
+  Webmail-Domain wie `gmail.com` bleibt erhalten, jede andere Domain wird zu einer erfundenen unter
+  `.example`. IBANs, Kartennummern, nationale Identifikationsnummern, Steuernummern und
+  Umsatzsteuer-Identifikationsnummern erhalten gültige Prüfziffern, und öffentliche IP-Adressen
+  wandern in die Bereiche, die für Dokumentation reserviert sind. Das Modell kann den Code und die
+  Konfiguration rund um diese Werte weiterhin nachvollziehen.
+- **Deterministisch.** Dasselbe Original erhält auf Ihrem Rechner immer denselben Ersatzwert,
+  sodass das Modell einem Wert über Dateien und Runden der Unterhaltung hinweg folgen und Latet ihn
+  dem Original wieder zuordnen kann. Frühere Runden werden Byte für Byte identisch erneut gesendet,
+  daher funktioniert der Prompt-Cache des Anbieters weiter.
+- **Lokal.** Die Tabelle der Originale und Ersatzwerte, der **Tresor**, verlässt Ihren Rechner nie.
+  Die Originale darin sind auf der Festplatte verschlüsselt, mit einem Schlüssel, der im
+  Anmeldedatenspeicher Ihres Betriebssystems liegt oder, wo es keinen gibt (ein Linux-Rechner ohne
+  Schlüsselbund des Desktops, der Container), in einer Datei, die nur Sie lesen können, `root.key`,
+  im Datenordner von Latet.
+- **Auf eine Unterhaltung beschränkt.** Für einen Ersatzwert wird das Original nur in der
+  Unterhaltung wieder eingesetzt, der er gezeigt wurde.
+
+### Über die Zeit hinweg gleich
+
+Ein Ersatzwert wird aus dem Wert und aus dem Stammschlüssel Ihrer Installation abgeleitet, nicht
+zufällig gezogen, und der Tresor bleibt ohne Ablaufdatum auf der Festplatte: Der Verlauf des
+Dashboards wird nach `retention_days` bereinigt, der Tresor nicht. Ein Wert erhält also denselben
+Ersatzwert heute, nach einem Neustart und wenn Sie eine Unterhaltung Tage später fortsetzen:
+- **Eine Sitzung fortsetzen:** Der Verlauf der Sitzung enthält bereits die Ersatzwerte, neuer Text
+  wird mit denselben maskiert, und in den Antworten des Modells werden die Originale wie zuvor
+  wieder eingesetzt. Die Domain einer E-Mail-Adresse in Ihrer CLAUDE.md ist in jeder Runde dieselbe
+  erfundene Domain, wo immer sie sonst noch vorkommt.
+- **Ein Wert, den Latet gelernt hat, wird ab dann überall maskiert,** auch wenn die Regel, die ihn
+  gefunden hat, nicht mehr existiert.
+- **Was einen Ersatzwert ändert:**
+  - **ein anderer Stammschlüssel**, auf einem neuen Rechner oder bei verlorenem
+    Anmeldedatenspeicher: neue Ersatzwerte, und für die alten in einer fortgesetzten Unterhaltung
+    werden die Originale nicht mehr wieder eingesetzt. Übertragen Sie den Tresor zusammen mit
+    seinem Schlüssel:
+    [`latet backup latet.backup --vault`](../export-import/#ihre-installation-für-einen-anderen-rechner),
+    dann dort `latet restore latet.backup`;
+  - **ein Wert, den Sie durchlassen**, geht ab dann im Klartext hinaus, während der Verlauf seinen
+    Ersatzwert behält.
+- **Was ihn nicht ändert:** *Vergessen* im Tresor. Derselbe Wert erhält wieder denselben Ersatzwert.
+
+Die Domain eines Unternehmens für sich allein (`api.acme-intra.com`) wird maskiert, wenn sie einer
+Ihrer [Begriffe](../detection/) ist oder sobald Latet sie in einer E-Mail-Adresse gesehen hat. Die
+Domain Ihres eigenen Unternehmens, aus der E-Mail-Adresse Ihres Git-Autors, wird von Anfang an
+überall maskiert, wo sie vorkommt.
+
+## Client-Modus: Claude Code
+
+Claude Code fügt jeder Anfrage einen Attributionsblock mit einem Fingerabdruck hinzu, der aus der
+Unterhaltung abgeleitet ist, und der [Gateway-Leitfaden](https://code.claude.com/docs/en/llm-gateway-protocol)
+von Anthropic verlangt, dass ein Gateway Anfragen untersucht, ohne sie zu verändern. Deshalb
+schreibt Latet die Anfragen von Claude Code nicht um: Das Latet-Plugin maskiert die Inhalte
+**in Claude Code, bevor die Anfrage erstellt wird**, und der lokale Daemon prüft nur, was
+hinausgeht. Das funktioniert mit einem Pro- oder Max-Abonnement ebenso wie mit einem API-Schlüssel
+(siehe [Claude Code](../../agents/claude-code/#pro--und-max-abonnements)).
+
+Folgendes geschieht mit einem Schlüssel aus einer `.env`-Datei:
+
+<Steps>
+
+1. Die `.env` Ihres Projekts enthält
+   <code>PAYMENTS_API_KEY=<span class="real">pk_9f2c4e7a1b3d5f8e0a6c</span></code>. Sie bitten
+   Claude Code: *"Füge den Payments-Schlüssel aus `.env` in `config/local.toml` ein."*
+
+2. Claude Code liest `.env` mit seinem Tool Read. Bevor das Tool-Ergebnis Teil der Unterhaltung
+   wird, übergibt das Plugin es dem lokalen Daemon, der den Schlüssel findet und durch den
+   Ersatzwert <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> ersetzt. Das Paar wird im Tresor
+   gespeichert.
+
+3. Claude Code erstellt die Anfrage wie gewohnt. Sie enthält nur den Ersatzwert. Kurz bevor die
+   Anfrage hinausgeht, unterzieht das Plugin sie einer abschließenden Prüfung. Da
+   `ANTHROPIC_BASE_URL` auf den Latet-Daemon (`127.0.0.1:5283`) zeigt, läuft die Anfrage danach
+   durch den Daemon, der **nur prüft**: Er sucht nach sensiblen Werten im Klartext, leitet die Bytes
+   unverändert weiter und zeichnet den Austausch für das [Dashboard](../../dashboard/) auf.
+
+4. Anthropic erhält <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> und sonst nichts. Das
+   Modell sieht den echten Schlüssel nie.
+
+5. Das Modell antwortet mit einem Tool-Aufruf, der `config/local.toml` bearbeitet und
+   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code> schreibt. Bevor das
+   Tool auf Ihrem Rechner läuft, setzt das Plugin das Original in die Argumente des Tool-Aufrufs
+   wieder ein, sodass die Datei auf der Festplatte <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>
+   enthält. Auch in dem Text, den Ihr Terminal anzeigt, wird das Original wieder eingesetzt.
+
+6. Der Verlauf der Unterhaltung behält den Ersatzwert, daher bleibt jede spätere Anfrage maskiert.
+   Taucht in einer ausgehenden Anfrage doch einmal ein Original im Klartext auf, etwa über einen
+   Weg, den das Plugin nicht abdeckt, stoppt die abschließende Prüfung des Plugins die Anfrage,
+   bevor sie gesendet wird. Der Daemon ist eine zweite Prüfung dahinter.
+
+</Steps>
+
+Blockieren ist das Einzige, was der Daemon im Client-Modus tun kann: Er ändert nie ein Byte, daher
+erreicht jede Anfrage Anthropic genau so, wie Claude Code sie erstellt hat.
+
+**Wenn der Daemon nicht läuft**, versucht das Plugin, ihn zu starten. Gelingt das nicht, hält das
+Plugin Inhalte zurück, statt sie unmaskiert zu senden: Ihr Prompt wird nicht gesendet, ein
+Tool-Ergebnis, das es nicht maskieren kann, wird durch einen Hinweis ersetzt, ein Tool-Aufruf, in
+dem es die Originale nicht wieder einsetzen kann, wird abgelehnt, und eine Anfrage, die es nicht
+prüfen kann, bleibt auf Ihrem Rechner.
+
+## Gateway-Modus: alle anderen Agenten
+
+Codex, OpenCode, [Hermes Agent, OpenClaw und andere Agenten](../../agents/autonomous-agents/) sowie
+Ihre eigenen Skripte sprechen ihren Anbieter über eine Basis-URL an, die Sie ändern können. Hier ist
+der lokale Daemon die Stelle, an der maskiert wird. Derselbe Schlüssel aus `.env`, diesmal mit Codex:
+
+<Steps>
+
+1. Codex sendet seine Anfrage an `127.0.0.1:5283` statt an den Anbieter: über einen WebSocket, wenn
+   Sie sich mit ChatGPT anmelden, als HTTP-Anfrage mit einem API-Schlüssel.
+
+2. Der Daemon dekodiert die Anfrage (auch komprimierte Bodys) und findet
+   <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> in der Ausgabe des Befehls, mit dem Codex
+   `.env` gelesen hat. Er ersetzt den Schlüssel durch <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>
+   und leitet die Anfrage an den Anbieter weiter.
+
+3. Das Modell streamt einen Patch zurück, der den Ersatzwert in `config/local.toml` schreibt. Der
+   Daemon setzt das Original im gestreamten Text und in den Argumenten der Tool-Aufrufe wieder ein,
+   bevor Codex sie sieht, auch wenn ein Ersatzwert auf zwei Chunks verteilt ist.
+
+4. Codex wendet den Patch mit dem echten Schlüssel an. Seine eigene Kopie der Unterhaltung enthält
+   jetzt das Original. Wenn Codex diesen Verlauf erneut sendet, maskiert der Daemon ihn wieder, und
+   das Modell erhält genau die Bytes zurück, die es geschrieben hat.
+
+</Steps>
+
+Der Anbieter sieht immer nur Ersatzwerte, der Agent immer nur Originale. Thinking-Blöcke und
+verschlüsseltes Reasoning werden unverändert durchgereicht.
+
+Eine abschließende Prüfung liest dann die Texte jeder Anfrage, bevor sie hinausgeht, die Texte,
+die Latet maskiert, wie im Client-Modus, und stoppt eine, die einen Wert im Klartext hinauslassen
+würde, mit dem Grund. Wenn der Daemon eine Anfrage nicht maskieren kann, lehnt er sie ab, statt sie
+unmaskiert zu senden: Ein Body, den er nicht dekodieren kann, oder ein Wert, den er nicht ersetzen
+kann, endet in einem Fehler, der besagt, dass nichts gesendet wurde.
+
+<Aside type="tip">
+	Führen Sie `latet dashboard` aus, um beide Seiten jeder Anfrage zu sehen: das Original auf Ihrem
+	Rechner und das, was an den Anbieter gesendet wurde. Siehe die [Anleitung zum Dashboard](../../dashboard/).
+</Aside>
+
+## Was bestimmt, was maskiert wird
+
+- [Erkennung](../detection/): wie Werte erkannt werden.
+- [Profile und Richtlinien](../profiles/): wie viel maskiert wird und was mit jedem erkannten Wert
+  geschieht.
+- [Was geschützt ist und was nicht](../protection-scope/): die Grenzen dieses Ansatzes.

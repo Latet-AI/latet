@@ -1,0 +1,188 @@
+name: Release
+
+# Runs on a version tag (v1.2.3). The GitHub release it makes is where Latet is installed from: the
+# installers and `latet upgrade` take the wheel of the latest release, which carries the dashboard.
+# The same wheel goes to PyPI as `latet`. PyPI publishing uses trusted publishing: configure the
+# "pypi" environment and a trusted publisher for this workflow on pypi.org before the first tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check:i18n
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-web
+          path: src/latet/web
+          if-no-files-found: error
+
+  docs:
+    # The documentation of this version, which the daemon serves at /_latet/docs/ and every link of the dashboard
+    # opens: built under that base, checked (and its inline scripts hashed in .csp.json), and the dashboard's links
+    # checked against it in all five languages.
+    runs-on: ubuntu-latest
+    env:
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build:bundle
+        working-directory: docs
+      - run: python3 scripts/check_docs_bundle.py
+      - run: python3 scripts/gen_docs_anchors.py --check --root src/latet/docs
+      - run: python3 scripts/check_docs_anchors.py --root src/latet/docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-bundle
+          path: src/latet/docs
+          # .csp.json: the hashes the daemon's policy lists; without it the daemon serves no documentation.
+          include-hidden-files: true
+          if-no-files-found: error
+
+  build:
+    needs: [dashboard, docs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard-web
+          path: src/latet/web
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-bundle
+          path: src/latet/docs
+      - name: Check the tag matches the package and plugin versions
+        run: |
+          version="$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
+          plugin="$(python3 -c "import json; print(json.load(open('src/latet/claude_plugin/.claude-plugin/plugin.json'))['version'])")"
+          market="$(python3 -c "import json; print(json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['version'])")"
+          hook="$(sed -n "s/^const PLUGIN_VERSION = '\(.*\)'$/\1/p" src/latet/claude_plugin/hooks/register.ts)"
+          for v in "$plugin" "$market" "$hook"; do test "$v" = "$version" || { echo "plugin version $v != $version"; exit 1; }; done
+      - run: uv build
+      - name: The wheel carries the dashboard
+        run: python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'latet/web/index.html' in names, 'dashboard missing'"
+      - name: The wheel carries the docs
+        run: python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert {'latet/docs/index.html', 'latet/docs/.csp.json'} <= set(names), 'documentation missing'"
+      - name: SBOM (CycloneDX) of the installed wheel
+        run: |
+          uv venv sbom-env
+          uv pip install --python sbom-env dist/*.whl
+          uvx --from cyclonedx-bom cyclonedx-py environment sbom-env --output-format JSON --output-file dist/latet.cdx.json
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: rm -f dist/*.cdx.json
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ghcr.io/latet-ai/latet:${{ steps.meta.outputs.version }}
+            ghcr.io/latet-ai/latet:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/Latet-AI/latet
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.licenses=LicenseRef-Latet-Sustainable-Use-1.0
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/latet-ai/latet
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  github-release:
+    needs: [pypi, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: gh release create "$GITHUB_REF_NAME" dist/* scripts/install.sh scripts/install.ps1 --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

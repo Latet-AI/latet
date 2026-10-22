@@ -1,0 +1,36 @@
+title: Vos propres termes
+learn:
+- Pourquoi un nom de code part en clair, alors que c'est un secret
+- Comment ajouter un mot à vos termes, pour que Latet le masque désormais
+- Où se trouvent vos termes dans le tableau de bord
+steps:
+- title: Un nom de code part en clair
+  explain: 'Le modèle a reçu {{value:codename}} sans modification : Latet n''a rien trouvé à masquer, car un nom de code est un mot comme un autre et vous seul savez que c''est un secret. Dans la requête qu''affiche Latet, le nom est en clair dans le fichier que l''agent a lu. Ensuite, vous apprenez ce mot à Latet.'
+  prompt: lis roadmap.md et dis-moi ce qui sort en premier
+  button: Envoyer
+  says:
+  - Je consulte la roadmap.
+  turns:
+    first:
+      text: '{{received:CODENAME}} sort en premier, en mars : le nouveau checkout.'
+- title: En faire l'un de vos termes
+  explain: 'Vous seul savez quels mots sont secrets. Ajoutez {{value:codename}} à vos termes et enregistrez : Latet masque désormais ce mot, dans chaque requête. Ensuite, l''agent pose une question sur ce nom dans une nouvelle conversation.'
+  hint: Dans Termes personnalisés, ajoutez {{value:codename}}, puis enregistrez.
+- title: Un nom que le modèle n'a jamais vu
+  explain: 'L''agent affiche {{value:codename}} parce que Latet remet le vrai nom en place dans la réponse. Le modèle a reçu {{received:ASKED}} : dans la requête qu''affiche Latet, c''est ce qui figure à la place du nom. Pour le modèle, c''est un nom qu''il n''a jamais vu, il ne peut donc pas dire ce qui sort après.'
+  prompt: qu'est-ce qui sort après {{value:codename}} ?
+  button: Envoyer
+  says:
+  - Nouvelle conversation.
+  turns:
+    again:
+      text: '{{received:ASKED}}, qu''est-ce que c''est ? Je n''en ai aucune idée.'
+end:
+  learned:
+  - Un nom de code part en clair, car aucune règle ne peut savoir qu'un de vos mots est un secret.
+  - Ajoutez-le à vos termes, et Latet le masque désormais, dans chaque requête.
+  - Ce qui a déjà été envoyé reste tel quel, alors ajoutez vos termes avant d'en avoir besoin.
+  where:
+  - Vos termes, sur la page Règles
+  - La requête avec le nom masqué
+  - Chaque valeur que Latet a remplacée

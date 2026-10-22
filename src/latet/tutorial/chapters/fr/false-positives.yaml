@@ -1,0 +1,30 @@
+title: Une valeur masquée pour rien
+learn:
+- Pourquoi Latet masque parfois une valeur qui n'est pas sensible
+- Ce que fait Non sensible, et quand l'utiliser
+- Où se trouvent, dans le tableau de bord, les valeurs que vous laissez passer
+steps:
+- title: Une carte de test, masquée
+  explain: '{{value:card}} est la carte de test de Stripe, qui ne débite personne, mais elle ressemble à n''importe quel numéro de carte. Latet l''a masquée, et le modèle a reçu {{received:CARD}}, qu''il prend désormais pour la carte d''un client. Dans la requête qu''affiche Latet, la carte est marquée là où elle a été masquée. Ensuite, vous indiquez à Latet qu''elle n''est pas sensible.'
+  prompt: lis tests/test_checkout.py et ajoute un test pour un remboursement
+  button: Envoyer
+  says:
+  - Je lis d'abord le fichier de test.
+  turns:
+    refused:
+      text: Ce n'est pas la carte de test de Stripe, il peut donc s'agir de celle d'un client. Je ne mettrai pas une vraie carte dans un test.
+- title: Non sensible
+  explain: 'Cliquez sur le numéro de carte et choisissez Non sensible. L''agent relit alors le fichier, et cette fois la carte part en clair, puisque vous l''avez marquée Non sensible : dans la requête qu''affiche Latet, elle est en clair dans le fichier que l''agent a lu. Tout autre numéro de carte reste masqué. Utilisez Non sensible pour des valeurs comme celle-ci, jamais pour une clé ou les données de quelqu''un.'
+  prompt: c'est la carte de test de Stripe, je l'ai marquée Non sensible. relis le fichier et ajoute le test du remboursement
+  hint: Cliquez sur le numéro de carte dans la requête, puis choisissez Non sensible.
+  turns:
+    again:
+      text: 'Compris : {{received:CARD}} est la carte de test de Stripe. J''ajoute le test du remboursement.'
+end:
+  learned:
+  - Latet masque ce qui semble sensible, et il arrive que ce soit une valeur qui ne l'est pas.
+  - Non sensible laisse désormais passer cette seule valeur ; les autres du même type restent masquées.
+  - C'est fait pour des valeurs comme une carte de test, jamais pour une clé ou les données de quelqu'un.
+  where:
+  - Les valeurs que vous laissez passer, sur la page Règles
+  - La requête avec la carte en clair

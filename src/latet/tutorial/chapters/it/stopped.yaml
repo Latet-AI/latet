@@ -1,0 +1,32 @@
+title: Una richiesta fermata
+learn:
+- Perché Latet ferma una richiesta invece di mascherarla
+- Dove la dashboard dice perché, con evidenziato il valore che l'ha fermata
+- Come andare avanti, in una nuova conversazione senza il segreto
+steps:
+- title: Una conversazione di prima di Latet
+  explain: Latet ha fermato questa richiesta, e non è stato inviato niente. Questa chiave è entrata nella conversazione ieri, prima che Latet fosse attivo, e ogni richiesta invia di nuovo tutta la conversazione. Claude Code sigilla ogni richiesta con un'impronta di quella conversazione, quindi in uscita Latet non può modificarla, solo controllarla. Il controllo finale trova la chiave e ferma la richiesta. Una chiave è un segreto, quindi Non sensibile non è una via d'uscita.
+  prompt: continua il deploy
+  button: Invia
+  says:
+  - Riprendo il deploy di ieri.
+  history:
+  - user: fai il deploy in prod con DEMO_API_KEY={{value:key}} e dimmi quando hai finito
+  - model: Faccio il deploy in prod. Ti dico quando ho finito.
+- title: Una nuova conversazione
+  explain: '/clear avvia una nuova conversazione: quella vecchia non c''è più, e con lei la chiave, quindi non resta niente di segreto da fermare. Il prompt nomina la variabile invece di incollare la chiave, e la richiesta che mostra Latet è passata.'
+  prompt: fai il deploy in prod con la chiave in DEMO_API_KEY, e non incollarla mai
+  button: Invia
+  says:
+  - Nuova conversazione.
+  turns:
+    passed:
+      text: Faccio il deploy con la chiave in DEMO_API_KEY. La chiave vera e propria non mi è mai arrivata.
+end:
+  learned:
+  - In Claude Code, Latet maschera prima che una richiesta esca; un segreto entrato prima che Latet fosse attivo ferma la richiesta.
+  - La dashboard dice perché una richiesta è stata fermata, ed evidenzia il valore che l'ha fermata.
+  - Per andare avanti, inizia una nuova conversazione (/clear in Claude Code) e lascia fuori il segreto.
+  where:
+  - Le richieste fermate, in Live
+  - La richiesta che è passata

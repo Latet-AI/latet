@@ -1,0 +1,176 @@
+---
+title: Quickstart
+description: Try Latet with a harmless canary value without changing any of your agents' settings, then turn it on for every session.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet does not have to change your agents' settings for you to try it. First see it work on one
+session, with a made-up key; then turn it on for every session, when you are ready.
+
+## Try it without changing anything
+
+<Steps>
+
+1. **Install Latet** with the [one-line installer](../installation/#one-line-installer): it
+   installs the latest release from GitHub, and changes none of your agents' settings. On macOS
+   and Linux, open a new terminal first. Then download the models that find names and read the text in images, the
+   [recommended setup from day one](../installation/#recommended-names-and-images-from-day-one):
+   `latet ner install` and `latet ocr install`.
+
+2. **See it at work.** New to Latet? `latet tutorial` shows it at work in about 30 minutes, in
+   your browser: a pretend agent and a pretend model, the real Latet between them, and invented
+   data. Nothing leaves your computer, and none of your settings change. See
+   [Tutorial](../tutorial/).
+
+3. **Make a canary.** In a scratch folder, create a `.env` file with a made-up key:
+
+   ```sh title=".env"
+   DEMO_API_KEY=demo_7Hq2LmX9pR4tV8nB3cK6
+   ```
+
+4. **Start your agent through Latet, for this session only.** In that folder:
+
+   ```sh
+   latet claude                 # Claude Code, with the plugin and the verify-only daemon
+   latet codex                  # or the Codex CLI
+   latet opencode               # or OpenCode, API-key providers
+   latet gemini                 # or Gemini CLI, with an API key or Vertex AI
+   ```
+
+   The wrapper starts the daemon and gives the agent what it needs for this session only. None of
+   the agent's settings change: when the session ends, the agent works as before. Every other
+   argument passes through, as in `latet claude --resume`.
+
+   Then ask the agent: *"Read `.env` and copy the key into `config.local.json`."*
+
+5. **Check the result.**
+
+   - Run `latet dashboard` and open the latest request on the **Live** page. Where your `.env`
+     content was, the provider received a fake of the same shape, for example
+     `demo_9Tz6ZsM0aB8uA6vS8gA0`, labelled `ASSIGNED_SECRET`. Your fake will differ: surrogates
+     are derived from a key created on your machine.
+   - `config.local.json` on disk contains the real key, `demo_7Hq2LmX9pR4tV8nB3cK6`, because
+     Latet put it back locally before the agent's tool wrote the file.
+   - The agent's answer on your screen shows the real key as well. One exception: in Claude Code's
+     print mode (`claude -p`) the printed answer keeps the fake. See
+     [Claude Code](../../agents/claude-code/#limits).
+
+</Steps>
+
+`claude` started on its own does not go through Latet: only the wrapper does, until you run
+`latet global-install`.
+
+## Turn it on for every session
+
+<Steps>
+
+1. **Route your agents through Latet for good.**
+
+   ```sh
+   latet global-install
+   ```
+
+   It shows everything it would change, then asks once:
+
+   - **Each agent it finds** (Claude Code, Codex, OpenCode), routed through Latet: the Latet
+     plugin in every Claude Code session, the others pointed at the local daemon. Each one's
+     settings are backed up first.
+   - **Start at login**: the daemon starts when you log in.
+   - **Profile**: `balanced`, or the one you set, and the countries whose national ID and tax
+     numbers it recognises: your own country, when it is one of the 15 Latet knows, with the United
+     States and the UK; otherwise Italy, the United States and the UK. VAT numbers are recognised
+     for the 27 EU countries, the United Kingdom, Switzerland and Norway. See
+     [Profiles and policies](../../concepts/profiles/).
+   - **Your identity**: your OS user names, your host name and your git author, masked. Latet
+     detects them each time it starts, so a new git email is masked too.
+   - **Auto mode reviewer**: your OS user name and paths, which no plugin can mask, stay local
+     when Claude Code's auto mode asks its reviewer; auto mode then cannot approve actions by
+     itself. The dashboard's **Rules** page can let them through one by one.
+   - **Names and addresses**: the local model that finds names and street addresses (about
+     1.6 GB), downloaded with `--ner` if you have not downloaded it yet.
+   - **Text in images**: the text recognition models (about 31 MB), downloaded with `--ocr` if you
+     have not downloaded them yet.
+   - **Port**: the port the daemon listens on: 5283, or a free one next to it if another program
+     uses it (your agents follow).
+
+   It also says how to take it all away: `latet global-uninstall`. Options change
+   the defaults, such as `--agents claude --no-autostart`; `--yes` applies it without asking.
+
+2. **Restart your agents** so they pick up the new configuration. From now on every session goes
+   through Latet, in the terminal and in the IDE.
+
+3. **Check that everything is wired up.**
+
+   ```sh
+   latet doctor
+   ```
+
+   On a working setup every line starts with `OK`:
+
+   ```text
+   [OK  ] Daemon: running on 127.0.0.1:5283, masking
+   [OK  ] Plugin bridge: token accepted
+   [OK  ] Start at login: installed
+   [OK  ] Masking self-test: 3 values masked and restored (balanced profile)
+   [OK  ] Claude Code: 2.1.291 (Claude Code) - applied
+   ```
+
+   A `WARN` or `FAIL` line names the command that fixes it.
+
+</Steps>
+
+`latet agents apply codex` (or `claude`, `opencode`) routes one agent: run it for an agent you
+install later. Without a name, it routes every one that is installed.
+
+`latet global-install` sets up Claude Code, Codex and OpenCode. The other tools keep Latet's address
+in one of these other ways:
+
+| How | Tools | How long |
+| --- | --- | --- |
+| `latet global-install` sets it up | Claude Code, Codex, OpenCode | For good |
+| You set it once, in the tool's own settings | GitHub Copilot in VS Code and JetBrains IDEs, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands | For good, while those settings say so; a project's own settings can point Kilo Code, Junie CLI or Continue elsewhere |
+| Environment variables only | Gemini CLI, Qwen Code, Aider, your scripts and SDKs | For each command you start with `latet run`, or for a shell with `latet env` |
+| You set its variables in your shell | The GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL` and the others) | For each shell that sets them |
+
+**Gemini CLI is not available in global mode.** Start it with `latet gemini`: it reads its address
+only from the environment and from one `.env` file, and a project's own `.env` would hide a setting
+made for good, without a word. See [Gemini CLI and Google GenAI](../../agents/gemini/).
+
+For your own scripts and SDKs, `latet run` sets `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` and
+`GOOGLE_GEMINI_BASE_URL` for one command: `latet run python report.py`. See
+[OpenAI-compatible & OpenRouter](../../agents/openai-compatible/). Autonomous agents such as
+Hermes Agent and OpenClaw take Latet's address in their own settings: see
+[Autonomous agents](../../agents/autonomous-agents/). So do GitHub Copilot, JetBrains' Junie and AI
+Assistant, Zed, Cline, Continue and other tools: see
+[GitHub Copilot, JetBrains, Zed and other tools](../../agents/other-tools/).
+
+## Undo everything
+
+```sh
+latet global-uninstall
+```
+
+It reverts every agent, byte for byte, removes the start at login and stops the daemon. Your
+rules stay in `config.yaml`, for `latet claude`. Tools you pointed at Latet in their own settings
+keep its address: put theirs back. See [Uninstall](../uninstall/).
+
+<Aside type="tip">
+	To see exactly what reached the model at any time, run `latet dashboard`. The
+	[dashboard guide](../../dashboard/) explains each page.
+</Aside>
+
+## Next steps
+
+- [How it works](../../concepts/how-it-works/): what happens to the key, step by step.
+- [What is and isn't protected](../../concepts/protection-scope/): know the limits before you rely
+  on it.
+- [Projects](../../concepts/projects/): a `latet.yaml` with a project's own terms and formats,
+  shared through its repository.
+- [Production data](../../concepts/production-data/): for agents that read databases and logs.
+- [Local reviewer](../../concepts/llm-review/): a language model of yours that reads every text
+  before it leaves.
+- Agent guides: [Claude Code](../../agents/claude-code/), [Codex](../../agents/codex/),
+  [OpenCode](../../agents/opencode/), [autonomous agents](../../agents/autonomous-agents/),
+  [OpenAI-compatible and OpenRouter](../../agents/openai-compatible/),
+  [GitHub Copilot, JetBrains, Zed and other tools](../../agents/other-tools/).

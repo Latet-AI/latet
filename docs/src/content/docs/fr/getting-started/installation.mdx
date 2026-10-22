@@ -1,0 +1,197 @@
+---
+title: Installation
+description: Installez Latet avec le script d'installation en une ligne, ou exécutez-le depuis une copie locale du dépôt.
+---
+
+## Prérequis
+
+- Windows, macOS ou Linux. Aucun droit d'administrateur : tout s'installe dans votre compte
+  utilisateur.
+- Python 3.12 ou plus récent. Vous n'avez pas à l'installer vous-même :
+  [uv](https://docs.astral.sh/uv/) récupère un Python adapté quand il le faut.
+- Au moins un agent pris en charge : [Claude Code](../../agents/claude-code/),
+  [Codex](../../agents/codex/), [OpenCode](../../agents/opencode/),
+  [Gemini CLI](../../agents/gemini/), ou un outil qui accepte une adresse compatible OpenAI,
+  Anthropic ou Gemini (voir [GitHub Copilot, JetBrains, Zed et autres
+  outils](../../agents/other-tools/)).
+
+## Script d'installation en une ligne
+
+Sur macOS et Linux :
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.sh | sh
+```
+
+Sur Windows (PowerShell) :
+
+```powershell
+irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | iex
+```
+
+Le script fait deux choses, dans cet ordre :
+
+1. Il installe uv, le gestionnaire d'outils Python, s'il n'est pas encore sur votre machine.
+2. Il installe la dernière [version](https://github.com/Latet-AI/latet/releases) de Latet depuis
+   GitHub comme outil en ligne de commande isolé, avec uv. La détection locale des noms et la
+   lecture du texte des images sont incluses ; leurs modèles ne sont téléchargés que lorsque vous le
+   demandez. Là où elles ne peuvent pas être installées, Latet est installé sans elles, et le script
+   le signale à la fin ; un Latet déjà installé avec elles reste en revanche tel quel. Si une
+   version plus ancienne de Latet tourne, le script l'arrête, et ne la relance pas. Pour mettre à
+   niveau, `latet upgrade` est la meilleure voie. Après que le script a mis à niveau un Latet,
+   lancez `latet start`, et `latet agents apply claude` si Claude Code passe par Latet pour de bon,
+   afin qu'il reçoive le nouveau plugin.
+
+Sous macOS et Linux, ouvrez ensuite un nouveau terminal : le script ajoute Latet à votre `PATH` pour
+les terminaux que vous ouvrirez après, pas pour celui où il s'est exécuté.
+S'il ne trouve toujours pas `latet`, lancez `uv tool update-shell` et ouvrez-en un autre.
+
+Le script ne change rien d'autre : aucun réglage de vos agents, rien qui démarre à l'ouverture de
+session. Vous découvrez Latet ? [`latet tutorial`](../tutorial/) vous le montre à l'œuvre en 30 minutes
+environ. Faites ensuite passer une session par Latet avec `latet claude` ou `latet codex`, comme le
+montre le [Démarrage rapide](../quickstart/#lessayer-sans-rien-changer), puis faites passer
+vos agents par Latet pour de bon avec `latet global-install` quand il convient à votre travail.
+
+Deux variables d'environnement modifient ce que fait le script :
+
+| Variable | Effet |
+| --- | --- |
+| `LATET_NO_MODIFY_PATH=1` | Laisser votre `PATH` et le profil de votre shell tels quels. Si le script installe uv, définissez aussi `UV_NO_MODIFY_PATH=1`, pour le propre programme d'installation d'uv. |
+| `LATET_SOURCE` | Ce qu'il faut installer à la place de la dernière version : un fichier wheel, ou une spécification de paquet comme `latet @ <url>`. |
+
+## Recommandé : les noms et les images dès le premier jour
+
+Les motifs trouvent ce qui a un format : une clé, une adresse e-mail, un IBAN. Deux choses n'en ont
+pas, et demandent un modèle qui tourne sur votre machine :
+
+- **Les noms et les adresses postales** dans du texte libre, comme
+  *Emily Carter habite au 42 Mill Lane* : le modèle local de noms les trouve.
+- **Le texte des captures d'écran**, comme un IBAN sur une facture : la reconnaissance de texte le
+  lit, et Latet recouvre chaque valeur sur l'image par sa valeur factice. Sans elle, les images
+  partent telles quelles.
+
+Le script d'installation installe ce dont tous deux ont besoin pour tourner. Téléchargez leurs
+modèles une seule fois :
+
+```sh
+latet ner install   # the name model, about 1.6 GB
+latet ocr install   # the text recognition models, about 31 MB
+```
+
+Ou laissez `latet global-install --ner --ocr` les télécharger avec le reste de sa configuration.
+Tous deux tournent uniquement sur cette machine : les modèles viennent une seule fois de
+huggingface.co, à une révision fixée et vérifiés avec des SHA-256 fixés, et rien n'est envoyé nulle
+part. [Détection des noms](#détection-des-noms) et [Le texte des images](#le-texte-des-images), ci-dessous,
+en disent plus sur chacun.
+
+## Mettre à jour
+
+```sh
+latet upgrade
+```
+
+Cette commande installe la dernière version depuis GitHub comme le fait le script d'installation,
+détection locale des noms et lecture du texte des images comprises. Elle arrête d'abord le daemon (Windows ne
+peut pas remplacer des fichiers en cours d'utilisation), installe le nouveau plugin Claude Code si
+vous utilisez Claude Code, puis redémarre le daemon. Un Latet installé sans la détection des noms ni
+la lecture du texte des images les obtient ainsi. Là où la nouvelle version ne peut pas les avoir,
+un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles.
+
+## Installer avec un agent IA
+
+Demandez à votre agent IA de suivre
+[`llms-install.md`](https://github.com/Latet-AI/latet/blob/main/llms-install.md) dans le dépôt. Il
+installe Latet, qui ne change rien à lui seul, puis vous explique comment continuer : le voir à
+l'œuvre d'abord avec `latet tutorial` ; l'essayer une session à la fois, sans qu'aucun réglage de vos
+agents ne change ; l'avoir activé à chaque session ; configurer vos autres outils ; télécharger les
+modèles locaux. Il attend votre choix, et ne lance `latet global-install` avec vos réponses que si
+vous choisissez chaque session, par exemple :
+
+```sh
+latet global-install --yes --profile balanced --agents claude,codex --auto-mode-review block --ner --ocr
+```
+
+## L'exécuter dans Docker
+
+Pour ne pas avoir Python sur votre machine, exécutez plutôt le daemon dans un conteneur et
+dirigez-y vos agents : voir [Docker](../docker/).
+
+## Détection des noms
+
+Les noms et les adresses postales dans du texte libre, comme *Emily Carter habite au 42 Mill Lane*,
+demandent un modèle statistique, que Latet exécute sur votre machine. Les secrets et les données
+structurées comme les adresses e-mail et les IBAN n'en ont pas besoin ; les noms, si : il vaut donc
+la peine de l'avoir dès le premier jour.
+
+```sh
+latet ner install   # downloads the model once (about 1.6 GB)
+```
+
+Il fonctionne grâce au composant optionnel `ner` (ONNX Runtime et un tokeniseur), que le script
+d'installation fournit avec Latet.
+
+- Le modèle est [Privacy Filter](https://huggingface.co/openai/privacy-filter) d'OpenAI, sous
+  licence Apache-2.0, dans sa version ONNX int8 : il lit de nombreuses langues, dont l'italien,
+  l'anglais, le français, l'allemand et l'espagnol. Il vient de huggingface.co à une révision fixée,
+  et chaque fichier est vérifié avec un SHA-256 fixé avant d'être utilisé. Tant que le daemon
+  tourne, il occupe jusqu'à environ 2 Go de mémoire.
+- Après le téléchargement, il tourne sur votre processeur. Rien n'est envoyé nulle part, et Latet ne
+  se connecte à huggingface.co que lorsque vous lancez `latet ner install`.
+- Un daemon en cours d'exécution commence à l'utiliser immédiatement. `latet ner status` indique
+  s'il est utilisé ; `latet ner remove` le supprime. Pour le garder installé sans l'utiliser,
+  définissez `ner: off` dans la [configuration](../../reference/configuration/).
+
+Ce qu'il recherche dépend du [profil](../../concepts/profiles/) ; voir
+[Détection](../../concepts/detection/#noms).
+
+## Le texte des images
+
+Les captures d'écran contiennent aussi des valeurs : une adresse e-mail dans un terminal, un IBAN
+sur une facture. Latet peut lire le texte des images sur votre machine et le masquer, en recouvrant
+chaque valeur sur l'image par sa valeur factice.
+
+```sh
+latet ocr install   # downloads the models once (about 31 MB)
+```
+
+Les modèles sont PP-OCRv6 small de PaddleOCR, sous licence Apache-2.0, téléchargés depuis
+huggingface.co à une révision fixée et vérifiés avec des SHA-256 fixés ; ils tournent sur votre
+processeur, grâce au composant optionnel `ocr` (ONNX Runtime et Pillow) que le script
+d'installation fournit avec Latet. Voir [Captures d'écran et images](../../concepts/images/).
+
+## Un relecteur local (facultatif)
+
+Si vous faites tourner un modèle de langage sur votre propre serveur (llama.cpp, Ollama, LM Studio),
+Latet peut lui faire lire chaque texte avant son départ et masquer ce qui échappe aux détecteurs :
+des noms cités en passant, des informations de santé, un mot de passe écrit dans une phrase. Rien à
+installer dans Latet : activez-le sur la page **Règles** du tableau de bord, ou consultez
+[Relecteur local](../../concepts/llm-review/).
+
+## Exécuter depuis les sources
+
+Pour les contributeurs, ou pour essayer des modifications qui ne sont pas encore dans une version
+publiée.
+
+```sh
+git clone https://github.com/Latet-AI/latet.git
+cd latet
+uv sync
+uv run latet version
+uv run latet serve      # the daemon in the foreground on http://127.0.0.1:5283; Ctrl+C stops it
+```
+
+Placez `uv run` devant chaque commande : `uv run latet global-install`, `uv run latet claude`, etc.
+Deux choses diffèrent d'une copie installée :
+
+- **Démarrez vous-même le daemon.** Quand le daemon ne tourne pas, le plugin Claude Code le démarre
+  avec la commande `latet`, et dans une copie locale du dépôt cette commande n'est pas dans votre
+  `PATH`. Lancez `uv run latet start`, ou laissez `uv run latet global-install` le démarrer à
+  l'ouverture de session. `uv run latet claude` le démarre aussi.
+- **Compilez les fichiers web du tableau de bord.** Dans `dashboard/`, lancez `npm ci` puis
+  `npm run build` (Node.js 22.12 ou plus récent). D'ici là, `latet dashboard` ouvre une page qui
+  indique que les fichiers manquent, et `latet tutorial` avertit que sa page ne s'affichera pas.
+  Un Latet installé depuis l'adresse du dépôt (`git+https://...`) ne les a pas non plus.
+
+Le démarrage à l'ouverture de session lance le daemon depuis l'environnement virtuel de la copie
+locale : lancez donc `uv run latet global-uninstall` avant de déplacer ou de supprimer la copie
+locale. Voir [Contribuer](../../contributing/) pour le processus de développement.

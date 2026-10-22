@@ -1,0 +1,120 @@
+---
+title: Revisore Live
+description: Tu come ultimo controllo. Ogni nuovo testo attende la tua approvazione nella dashboard prima di uscire.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+I rilevatori di Latet e il [revisore locale](../llm-review/) mascherano ciò che riconoscono. Il
+Revisore Live aggiunge te: ogni nuovo testo che un agente sta per inviare attende nella dashboard
+finché non lo approvi. Vedi l'originale accanto a ciò che uscirà, e puoi mascherare altro prima che
+parta.
+
+## Attivalo
+
+Nella dashboard, attiva **Revisore Live** nella pagina **Approvazioni** o **Live**. Oppure in
+[config.yaml](../../reference/configuration/#live_review):
+
+```yaml
+live_review:
+  enabled: true
+```
+
+Tieni aperta la dashboard mentre lavori (`latet dashboard`). La voce **Approvazioni** del menu mostra
+quanti testi sono in attesa, e lo stesso fa il titolo della scheda del browser. Con *Avvisami* il
+browser ti avverte anche quando arriva un testo mentre sei in un'altra scheda.
+
+## Cosa attende, e cosa vedi
+
+<Screenshot name="approvals" alt="La pagina Approvazioni: due testi in attesa a sinistra; a destra l'originale di un prompt accanto a ciò che sarà inviato, con un nome suggerito dal revisore locale mascherato a mano, e i pulsanti Approva e Non inviare" caption="Approvazioni: un nome suggerito dal revisore locale, mascherato prima che il prompt esca." />
+
+Ogni testo che non ha scritto il modello, la prima volta che viene inviato:
+- i tuoi prompt e allegati;
+- le istruzioni che riceve l'agente (il suo prompt di sistema, il tuo CLAUDE.md);
+- ciò che recuperano gli strumenti dell'agente: file, risultati delle query, pagine web.
+
+`kinds` sceglie tra questi. Un testo che hai approvato non attende di nuovo nella stessa
+conversazione, anche quando l'agente lo reinvia come cronologia.
+
+Il testo letto in uno [screenshot o in un'immagine](../images/) attende con l'immagine sopra: un
+riquadro mostra dove ogni valore riceve il suo valore fittizio, e un valore che mascheri nel suo
+testo viene coperto anche sull'immagine.
+
+Ogni testo mostra l'**Originale**, e ciò che **Sarà inviato**, con ciò che hanno mascherato Latet e il
+revisore locale. Ciò che il revisore locale ha trovato e non ha mascherato da solo è evidenziato
+nell'originale, pronto da mascherare con un clic. Quando il revisore non ha potuto leggere un testo
+(il suo server è spento, o la sua risposta non è affidabile), il testo non viene fermato come
+succederebbe senza di te: ti aspetta con un avvertimento, e decidi tu.
+
+Mentre un testo attende, ciò che sarà inviato segue le tue regole. Quando segni un valore come
+*Non sensibile*, mascheri un valore in un altro testo o cambi un'impostazione, i testi ancora in
+attesa lo mostrano subito, in ogni dashboard aperta, e partono così quando li approvi.
+
+## Cosa puoi fare
+
+- **Approva** il testo così com'è.
+- **Maschera la selezione:** seleziona un valore nell'originale e scegli cos'è (una persona, un
+  indirizzo email, un nome in codice...). Esce come valore fittizio, che Latet sceglie quando approvi.
+- **Non inviare:** non ne esce niente. Un prompt che fermi non viene inviato, e un file o l'output di
+  uno strumento arriva invece al modello come un breve avviso.
+- **Su un'immagine:** trascina un rettangolo su qualsiasi sua parte, che viene coperta con una barra,
+  oppure spunta *Non inviare questa immagine*: il resto della richiesta esce, e il modello riceve una
+  breve nota al posto dell'immagine. *Come esce ora* mostra l'immagine come l'ha mascherata Latet. La
+  tua decisione viene conservata, sigillata, per quell'immagine: inviata di nuovo, anche dopo un
+  riavvio, esce allo stesso modo.
+- **Approva tutte quelle in attesa**, così come le ha mascherate Latet.
+- **Con la tastiera**, una volta attivate le sue [scorciatoie](../../dashboard/#scorciatoie-da-tastiera):
+  A approva, X non invia, M maschera.
+
+Ciò che cambi viene controllato dal daemon. Puoi solo aggiungere mascheramenti: un valore già
+mascherato non può tornare in chiaro, e un valore fittizio già in uso non può essere mascherato di
+nuovo. Una selezione diventa parole intere, perché Latet maschera un valore ovunque compaia come
+parola intera. Un valore viene mascherato come un solo tipo, e uno che hai segnato come
+*Non sensibile* va prima tolto da **Regole**. Se un valore che hai mascherato uscirebbe comunque
+in chiaro, il testo viene invece trattenuto. Un valore che mascheri viene
+conservato nella cassaforte come i valori trovati dai rilevatori. Da quel momento viene mascherato
+ovunque compaia, in ogni conversazione, e il controllo finale lo ferma se sta per uscire in chiaro.
+*Maschera sempre* lo rende anche uno dei tuoi termini, per un progetto o ovunque, così resta
+mascherato anche dopo che la cassaforte lo ha dimenticato.
+
+## Quando non rispondi
+
+Un testo attende per tutto il tempo necessario. Non ne esce niente finché non rispondi.
+
+- **Fermi l'agente** (Esc in Claude Code): non viene inviato niente, e il testo viene tolto dalla coda
+  entro un minuto.
+- **Nessuna dashboard è aperta:** Claude Code lo dice, e il testo continua ad attendere finché non ne
+  apri una.
+- **Un limite di tempo,** se lo vuoi: dopo `timeout_s` secondi il testo non viene inviato.
+
+```yaml
+live_review:
+  enabled: true
+  auto_approve_clean: true   # a text in which nothing was found leaves without asking you
+  timeout_s: 300             # not set: until you answer
+```
+
+## Dove avviene
+
+- **In Claude Code,** nella fase di mascheramento del plugin, prima che Claude Code costruisca la
+  richiesta. Esamini pezzo per pezzo ogni prompt, file e output di uno strumento, man mano che
+  arriva. Claude Code costruisce poi la richiesta con il testo che hai approvato, quindi nessuna
+  richiesta viene modificata dopo essere stata costruita. Mentre un testo attende la tua approvazione
+  nella dashboard, la riga di stato di Claude Code dice *waiting for your approval in the dashboard*.
+- **Per gli agenti che passano dal gateway** (Codex, OpenCode, Hermes Agent...), nel daemon: i nuovi
+  testi di una richiesta attendono insieme, e la richiesta esce una volta che li hai approvati. Alcuni
+  agenti rinunciano a una richiesta che impiega troppo tempo, e possono riprovarla; non viene inviato
+  niente finché non la approvi.
+
+## In un progetto
+
+Nelle tue impostazioni per un progetto, `live_review: true` o `false` lo attiva o lo disattiva in quel
+progetto. Il [`latet.yaml`](../projects/) di un progetto non può attivarlo: controllare o no ogni
+testo è una scelta tua, non del repository.
+
+## Comandi
+
+| Comando | Cosa fa |
+| --- | --- |
+| `latet status` | Dice se il Revisore Live è attivo, quanti testi sono in attesa e quante dashboard sono aperte |
+| `latet doctor` | Avvisa quando il Revisore Live è attivo e nessuna dashboard è aperta |

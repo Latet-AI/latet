@@ -1,0 +1,38 @@
+title: Un agent qui assouplit vos règles
+learn:
+- Pourquoi un agent peut même modifier les réglages de Latet
+- Ce qui arrive à une modification qui réduit la protection, quel qu'en soit l'auteur
+- Où approuver la modification, ou l'annuler
+steps:
+- title: Une modification qui réduit la protection
+  explain: 'Le modèle a reçu les adresses e-mail du test masquées, et il voulait les vraies. L''agent a donc lancé `latet config set policies "{EMAIL: allow}"`, qui laisse partir en clair toutes les adresses e-mail. La commande a indiqué que la modification réduit la protection et attend votre approbation.'
+  prompt: le test d'import des e-mails échoue, corrige-le coûte que coûte
+  button: Envoyer
+  says:
+  - Je regarde le test qui échoue.
+  turns:
+    asked:
+      text: Le test a besoin de vraies adresses e-mail et Latet les masque, je lui ai donc demandé de les laisser passer. La modification attend votre approbation.
+- title: À vous de décider
+  explain: 'Un agent peut lancer les commandes de Latet, comme vous. Mais une modification qui réduit la protection ne s''applique jamais d''elle-même : elle attend ici, avec ce qu''elle réduit. Un garde-fou contre les erreurs, pas un verrou : un agent agit avec vos droits. L''annuler conserve vos réglages : c''est la réponse sûre ici.'
+  hint: 'Annulez la modification : c''est la réponse sûre.'
+- title: Ce qu'est devenue la modification
+  explain: 'L''agent a interrogé Latet avec `latet config get policies` : vous avez annulé la modification, donc vos réglages sont tels qu''ils étaient, et les adresses e-mail restent masquées.'
+  prompt: qu'est devenue ta modification ?
+  button: Envoyer
+  says:
+  - Je vérifie.
+  otherwise:
+    approved: Vous avez approuvé la modification, donc les adresses e-mail partent désormais en clair, quel que soit l'agent. Dans le bac à sable, rien n'a quitté votre machine, car le modèle est fictif. Recommencez pour réessayer, et choisissez L'annuler.
+  turns:
+    told:
+      text: 'Annulée : les adresses e-mail restent masquées. Je corrige le test sans les vraies.'
+      approved: 'Approuvée : les adresses e-mail partent désormais en clair, le test peut donc avoir les vraies.'
+end:
+  learned:
+  - Un agent agit avec vos droits, il peut donc modifier les réglages de Latet, comme vous.
+  - Une modification qui réduit la protection attend votre approbation, quel qu'en soit l'auteur ; d'ici là, rien ne change.
+  - L'annuler remet config.yaml tel qu'il était ; Approuver applique la modification.
+  where:
+  - Les modifications qui vous attendent, sur la page Approbations
+  - Vos réglages, sur la page Règles

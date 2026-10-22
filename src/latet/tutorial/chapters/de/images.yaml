@@ -1,0 +1,26 @@
+title: Screenshots
+learn:
+- Was Latet mit einem Screenshot macht, den Ihr Agent sendet
+- Wo das Dashboard das Bild zeigt, samt dem darin gelesenen Text
+- Was Latet nicht liest
+steps:
+- title: Ein Screenshot wird mit überdeckten Werten gesendet
+  explain: Der Agent hat den Screenshot unverändert gesendet. Latet hat auf Ihrem Rechner den Text darin gelesen, eine E-Mail-Adresse, eine IBAN und eine Telefonnummer gefunden und jeden dieser Werte mit seinem Ersatzwert überdeckt, bevor das Bild Ihren Rechner verließ. Der Bereich von Latet zeigt das Bild, wie es auf Ihrem Rechner ist und wie es gesendet wurde, und den darin gelesenen Text.
+  prompt: warum wurde die Zahlung in payment.png abgelehnt?
+  button: Senden
+  says:
+  - Ich sehe mir den Screenshot an.
+  turns:
+    why:
+      text: Die Bank des Empfängers hat das Konto geschlossen, daher konnte die Zahlung nicht ausgeführt werden. Frag den Kunden nach einem anderen Konto und schick die Zahlung dann noch einmal.
+- title: Fragen Sie Latet
+  explain: Klicken Sie auf einen hervorgehobenen Wert in dem Text, den Latet im Bild gelesen hat. Latet sagt Ihnen, worum es sich handelt, welche Regel den Wert gefunden hat und was an seiner Stelle gesendet wurde.
+  hint: Klicken Sie auf {{value:email}} im Text, der im Bild gelesen wurde.
+end:
+  learned:
+  - Ist die Texterkennung installiert, liest Latet auf Ihrem Rechner den Text in einem Screenshot und überdeckt jeden Wert mit seinem Ersatzwert, bevor das Bild Ihren Rechner verlässt.
+  - Das Dashboard zeigt das Bild, wie es gesendet wurde, und den darin gelesenen Text, in dem jeder Wert hervorgehoben ist.
+  - 'Ein PDF oder ein per Adresse eingebundenes Bild wird nicht gelesen: Es wird unverändert gesendet, mit der Markierung Nicht gelesen, es sei denn, die Einstellung Bilder und PDFs unter Regeln steht auf Nur maskiert oder Nicht senden; dann wird die Anfrage nicht gesendet.'
+  where:
+  - Bilder und PDFs, unter Regeln
+  - Die Anfrage mit dem Screenshot

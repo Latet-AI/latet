@@ -1,0 +1,30 @@
+title: Un valor enmascarado sin necesidad
+learn:
+- Por qué Latet a veces enmascara un valor que no es sensible
+- Qué hace No sensible y cuándo usarlo
+- Dónde están en el panel los valores que dejas pasar
+steps:
+- title: Una tarjeta de prueba, enmascarada
+  explain: '{{value:card}} es la tarjeta de prueba de Stripe, con la que no se cobra nada a nadie, pero parece un número de tarjeta cualquiera. Latet la ha enmascarado, y el modelo ha recibido {{received:CARD}}, que ahora toma por la tarjeta de un cliente. En la petición que muestra Latet, la tarjeta está marcada donde se ha enmascarado. A continuación, le dices a Latet que no es sensible.'
+  prompt: lee tests/test_checkout.py y añade un test para un reembolso
+  button: Enviar
+  says:
+  - Primero leo el archivo de test.
+  turns:
+    refused:
+      text: Esa no es la tarjeta de prueba de Stripe, así que puede ser la de un cliente. No voy a poner una tarjeta real en un test.
+- title: No sensible
+  explain: 'Haz clic en el número de la tarjeta y elige No sensible. Después, el agente vuelve a leer el archivo, y esta vez la tarjeta sale en claro, porque la has marcado como No sensible: la petición que muestra Latet la tiene en claro en el archivo que ha leído. Cualquier otro número de tarjeta sigue enmascarado. Usa No sensible para valores como este, nunca para una clave ni para los datos de alguien.'
+  prompt: es la tarjeta de prueba de Stripe, la he marcado como No sensible. vuelve a leer el archivo y añade el test del reembolso
+  hint: Haz clic en el número de la tarjeta en la petición y después elige No sensible.
+  turns:
+    again:
+      text: 'Entendido: {{received:CARD}} es la tarjeta de prueba de Stripe. Añado el test del reembolso.'
+end:
+  learned:
+  - Latet enmascara lo que parece sensible, y de vez en cuando se trata de un valor que no lo es.
+  - No sensible deja pasar ese valor concreto a partir de entonces; los demás de su tipo siguen enmascarados.
+  - Sirve para valores como una tarjeta de prueba, nunca para una clave ni para los datos de alguien.
+  where:
+  - Los valores que dejas pasar, en Reglas
+  - La petición con la tarjeta en claro

@@ -1,0 +1,32 @@
+title: Une requête arrêtée
+learn:
+- Pourquoi Latet arrête une requête au lieu de la masquer
+- Où le tableau de bord indique pourquoi, en marquant la valeur qui l'a arrêtée
+- Comment continuer, dans une nouvelle conversation sans le secret
+steps:
+- title: Une conversation d'avant Latet
+  explain: 'Latet a arrêté cette requête, et rien n''a été envoyé. Cette clé est entrée dans la conversation hier, avant l''activation de Latet, et chaque requête renvoie toute la conversation. Claude Code scelle chaque requête avec une empreinte de cette conversation : à la sortie, Latet ne peut donc pas modifier la requête, seulement la vérifier. La vérification finale trouve la clé et arrête la requête. Une clé est un secret, donc Non sensible n''est pas une porte de sortie.'
+  prompt: continue le déploiement
+  button: Envoyer
+  says:
+  - Je reprends le déploiement d'hier.
+  history:
+  - user: déploie en prod avec DEMO_API_KEY={{value:key}} et dis-moi quand c'est fait
+  - model: Je déploie en prod. Je vous préviens quand c'est fait.
+- title: Une nouvelle conversation
+  explain: '/clear démarre une nouvelle conversation : l''ancienne a disparu, et la clé avec elle, il ne reste donc rien de secret à arrêter. Le prompt nomme la variable au lieu de coller la clé, et la requête qu''affiche Latet est passée.'
+  prompt: déploie en prod avec la clé de DEMO_API_KEY, et ne la colle jamais
+  button: Envoyer
+  says:
+  - Nouvelle conversation.
+  turns:
+    passed:
+      text: Je déploie avec la clé de DEMO_API_KEY. La clé elle-même ne m'est jamais parvenue.
+end:
+  learned:
+  - Dans Claude Code, Latet masque avant qu'une requête ne parte ; un secret entré avant l'activation de Latet arrête la requête.
+  - Le tableau de bord indique pourquoi une requête a été arrêtée, et marque la valeur qui l'a arrêtée.
+  - Pour continuer, démarrez une nouvelle conversation (/clear dans Claude Code) et n'y mettez pas le secret.
+  where:
+  - Les requêtes arrêtées, sur la page En direct
+  - La requête qui est passée

@@ -1,0 +1,26 @@
+title: Capturas de pantalla
+learn:
+- Qué hace Latet con una captura de pantalla que envía tu agente
+- Dónde muestra el panel la imagen y el texto leído en ella
+- Qué no lee Latet
+steps:
+- title: Una captura de pantalla sale con los valores cubiertos
+  explain: El agente ha enviado la captura de pantalla tal cual. Latet ha leído en tu equipo el texto que contiene, ha encontrado una dirección de correo electrónico, un IBAN y un número de teléfono, y ha cubierto cada uno con su valor ficticio antes de que saliera la imagen. El recuadro de Latet muestra la imagen tal como está en tu equipo y tal como se envió, y el texto leído en ella.
+  prompt: ¿por qué se ha rechazado el pago de payment.png?
+  button: Enviar
+  says:
+  - Miro la captura de pantalla.
+  turns:
+    why:
+      text: El banco del beneficiario ha cerrado la cuenta, así que el pago no se ha podido completar. Pide al cliente otra cuenta y luego vuelve a enviar el pago.
+- title: Pregunta a Latet
+  explain: Haz clic en un valor resaltado del texto que Latet ha leído en la imagen. Latet te dice qué es, qué regla lo ha detectado y qué se ha enviado en su lugar.
+  hint: Haz clic en {{value:email}} dentro del texto leído en la imagen.
+end:
+  learned:
+  - Con el reconocimiento de texto instalado, Latet lee en tu equipo el texto de una captura de pantalla y cubre cada valor con su valor ficticio antes de que salga la imagen.
+  - El panel muestra la imagen tal como se envió, y el texto leído en ella con cada valor marcado.
+  - 'Un PDF, o una imagen indicada por su dirección, no se lee: sale tal cual, con el indicador No inspeccionado, a menos que el ajuste Imágenes y PDF de Reglas esté en Solo enmascaradas o No enviar, y en ese caso la petición no se envía.'
+  where:
+  - Imágenes y PDF, en Reglas
+  - La petición con la captura de pantalla

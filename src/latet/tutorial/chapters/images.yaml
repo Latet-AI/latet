@@ -1,0 +1,68 @@
+# The tutorial's ninth chapter: a screenshot an agent sends. Every value is invented and drawn in the picture
+# (scripts/tutorial_screenshot.py): an address at acme.com (the tutorial's company: Latet takes an address at a
+# `.example` domain for an example, and leaves it), the documented example IBAN (valid, and no bank's), and a phone
+# number of the range Ofcom keeps for fiction. Latet reads the picture with your own text recognition models, which the
+# chapter needs (`latet ocr install`); the tests read it with a fake reader set to what the models read
+# (tests/data/tutorial/payment-ocr.json). The model answers in words: it cannot read inside an image, and the chapter
+# does not pretend it can.
+id: images
+title: Screenshots
+minutes: 3
+phase: 2
+needs: [ocr]
+learn:
+  - What Latet does with a screenshot your agent sends
+  - Where the dashboard shows the image, and the text read in it
+  - What Latet does not read
+values:
+  email: amelia.hughes@acme.com
+  iban: GB82 WEST 1234 5698 7654 32
+  phone: "+44 20 7946 0321"
+settings: { ocr: auto }
+pictures:
+  payment.png: payment.png
+steps:
+  - kind: watch
+    title: A screenshot leaves covered
+    agent: { files: [payment.png], says: ["I'll look at the screenshot."] }
+    prompt: why was the payment in payment.png refused?
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: payment.png } } }
+      - id: why
+        text: >-
+          The receiving bank closed the account, so the payment could not go through. Ask the customer for another
+          account, then send it again.
+    show:
+      component: images
+      exchange: why
+      original: payment.png
+      highlight: ["{{value:email}}", "{{value:iban}}", "{{value:phone}}"]
+    explain: >-
+      The agent sent the screenshot as it is. Latet read the text in it on your computer, found an e-mail address,
+      an IBAN and a phone number, and covered each with its fake before the image left. Latet's pane shows the image
+      as it is on your computer and as it was sent, and the text read in it.
+    checks:
+      - exchange: { ref: why, mode: rewrite, flags: ["image:masked"], masked_rules: [pii:email, pii:iban, pii:phone] }
+      - shown: { marked: ["{{value:email}}", "{{value:iban}}", "{{value:phone}}"] }
+      - agent_got: { turn: why }
+  - kind: do
+    title: Ask Latet
+    wait: { pin: "{{value:email}}", hint: "Click {{value:email}} in the text read from the image." }
+    show: previous
+    explain: >-
+      Click a highlighted value in the text Latet read from the image. Latet says what it is, which rule found it,
+      and what was sent instead.
+end:
+  learned:
+    - >-
+      With text recognition installed, Latet reads the text in a screenshot on your computer, and covers each value
+      with its fake before the image leaves.
+    - The dashboard shows the image as it was sent, and the text read in it with each value marked.
+    - >-
+      A PDF, or an image sent by its address, is not read: it leaves as it is, marked Not inspected, unless Images and
+      PDFs in Rules is set to Only masked or Don't send, and then the request is not sent.
+  where:
+    - { label: "Images and PDFs, in Rules", to: "/rules#data" }
+    - { label: "The request with the screenshot", to: "exchange:why" }
+  next: null

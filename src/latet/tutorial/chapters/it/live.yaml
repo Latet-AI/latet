@@ -1,0 +1,29 @@
+title: Il Revisore Live
+learn:
+- Come una richiesta può aspettarti prima di uscire
+- Come mascherare a mano un valore che nessuna regola può conoscere
+- Cosa fanno Approva, Approva tutte e Non inviare
+steps:
+- title: Una richiesta ti aspetta
+  explain: 'Con il Revisore Live attivo, la richiesta ti aspetta in Approvazioni prima di uscire. Latet maschera l''indirizzo email, ma niente gli dice che {{value:name}} è il nome di un cliente: questa sandbox non ha il rilevamento dei nomi. Seleziona il nome, scegli Persone, poi Approva: il modello riceve un valore fittizio al suo posto, e il nome va nella cassaforte, mascherato da quel momento in poi. Non inviare fermerebbe la richiesta.'
+  prompt: scrivi una bozza di risposta a {{value:name}}, ha ricevuto un doppio addebito. la sua email è {{value:email}}
+  button: Invia
+  says:
+  - Preparo una bozza della risposta.
+  hint: Seleziona {{value:name}} nel testo, scegli Persone, poi Approva.
+  otherwise:
+    in_clear: 'Hai approvato la richiesta così com''era, quindi il modello ha ricevuto {{value:name}} in chiaro: Latet ha mascherato solo l''indirizzo email. Nella sandbox niente è uscito dal tuo computer, perché il modello è simulato; uno reale ora avrebbe il nome. Ricomincia per riprovare, e maschera il nome prima di approvare.'
+    part_in_clear: 'Una parte del nome è rimasta in chiaro, e il modello l''ha ricevuta così com''era. Ricomincia per riprovare: seleziona tutto il nome, {{value:name}}, poi approva.'
+    not_sent: 'Hai scelto Non inviare: la richiesta non è stata inviata, il modello non ha ricevuto niente, e l''agente ne è stato informato. Latet mostra perché è stata fermata. Ricomincia per riprovare: maschera il nome, poi approva.'
+  turns:
+    draft:
+      text: 'Bozza: Gentile {{received:WHO}}, ci scusiamo per il doppio addebito; il rimborso è in arrivo. Inviala a {{received:MAIL}}.'
+end:
+  learned:
+  - Con il Revisore Live attivo, ogni nuovo testo ti aspetta in Approvazioni prima di uscire.
+  - Un valore che mascheri a mano va nella cassaforte, e da quel momento viene mascherato ovunque.
+  - Approva invia la richiesta così come la vedi, Approva tutte invia tutto ciò che è in attesa così come l'ha mascherato Latet, Non inviare la ferma.
+  where:
+  - Ciò che ti aspetta, in Approvazioni
+  - 'Attivalo davvero, in Regole: per tutti i progetti, o per uno solo'
+  - La richiesta, così come è uscita

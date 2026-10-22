@@ -1,0 +1,30 @@
+title: Données de production
+learn:
+- Ce que fait le mode données strict du résultat d'une requête de base de données
+- Quelles colonnes peuvent être envoyées en clair au modèle, et comment les choisir
+- Où votre choix est conservé
+steps:
+- title: Une requête de base de données en production
+  explain: 'Le mode données strict est activé dans ce chapitre : chaque valeur d''une table qu''affiche un outil part masquée, y compris les ID et les dates. Le modèle a reçu {{received:ID}} pour l''ID {{value:id}} et {{received:PLAN}} pour la formule {{value:plan}}, il n''a donc trouvé aucun client pro, et sa réponse est fausse. Les noms et les adresses e-mail sont protégés, mais le modèle ne peut pas faire son travail.'
+  prompt: combien de nos clients les plus récents ont la formule pro ?
+  button: Envoyer
+  says:
+  - J'interroge la table customers.
+  turns:
+    table:
+      text: 'Aucun : pas une seule ligne n''indique pro.'
+- title: Laisser en clair les ID, les dates et les formules
+  explain: 'Un ID, la date d''un événement ou une formule ne disent rien d''une personne, le modèle peut donc les avoir en clair. Latet propose ces colonnes, garde masqués les noms et les adresses e-mail, et vous laisse décider pour les montants. Laissez en clair les colonnes proposées, et l''agent relance la requête de base de données : elles partent en clair, les colonnes qui concernent des personnes restent masquées, et le modèle peut répondre.'
+  prompt: réessaie
+  hint: 'Laissez en clair les 3 colonnes que propose Latet : id, signup_date et plan_type.'
+  turns:
+    again:
+      text: 'Deux sur cinq : les clients 1001 et 1004, avec la formule pro depuis janvier et depuis mars. Qui ils sont, je ne peux toujours pas le dire.'
+end:
+  learned:
+  - Le mode données strict masque chaque valeur d'une table qu'affiche un outil, donc le modèle ne peut pas non plus lire un ID ou une date.
+  - Les ID, les dates d'événements et les états ne disent rien d'une personne ; laissez-les en clair, et les données des personnes restent masquées.
+  - Ce que vous laissez en clair devient une règle de champ, sous Données de production sur la page Règles, où vous pouvez revenir dessus.
+  where:
+  - Le mode données strict et vos règles de champ, sur la page Règles
+  - La seconde requête de base de données, avec les ID, les dates et les formules en clair

@@ -1,0 +1,118 @@
+---
+title: Latet
+description: Un firewall locale per la privacy degli agenti AI. I segreti e i dati personali vengono sostituiti con valori fittizi realistici prima che escano dal tuo computer, e ripristinati localmente.
+template: splash
+hero:
+  title: Un firewall locale per la privacy degli agenti AI
+  tagline: Gli agenti di programmazione e gli agenti autonomi leggono i tuoi file, database, log e caselle di posta, e inviano tutto a un modello nel cloud. Latet sostituisce ogni segreto e ogni dato personale con un valore fittizio realistico prima che esca dal tuo computer, e rimette localmente il valore reale, così il tuo agente continua a lavorare normalmente.
+  image:
+    light: ../../../assets/logo.png
+    dark: ../../../assets/logo-white.png
+    alt: Il marchio di Latet, una L e una T attorno a un occhio il cui sguardo si scompone in pixel
+  actions:
+    - text: Inizia
+      link: getting-started/installation/
+      icon: right-arrow
+    - text: Come funziona
+      link: concepts/how-it-works/
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import ProductVideo from '../../../components/ProductVideo.astro';
+import Screenshot from '../../../components/Screenshot.astro';
+
+<ProductVideo />
+
+## Cosa protegge
+
+Gli agenti AI leggono al posto tuo, e gli agenti autonomi come Hermes Agent, OpenClaw, Goose e
+OpenHands lo fanno da soli, per ore, senza che nessuno legga ogni passaggio. Ogni richiesta viene
+controllata prima di uscire, qualunque sia la fonte del testo che contiene:
+
+| Cosa esce dal tuo computer | Per esempio | Cosa fa Latet |
+| --- | --- | --- |
+| I tuoi prompt | *"Invia l'IBAN <span class="real">GB82 WEST 1234 5698 7654 32</span> a <span class="real">Emily Carter</span>"* | Ogni valore diventa un valore fittizio dello stesso formato, il nome tramite il modello locale facoltativo per i nomi; la risposta torna con quelli reali |
+| I file che l'agente legge | `.env`, `config.yaml`, fixture di test, un'esportazione dei clienti | Chiavi, password, stringhe di connessione e dati personali vengono mascherati; nei file che l'agente scrive tornano i valori reali |
+| Output dei comandi e log | `docker logs`, uno stack trace, `kubectl describe` | Token, indirizzi email, indirizzi IP pubblici e numeri identificativi al loro interno vengono mascherati |
+| Query sui database | `psql`, o un server MCP che risponde a `SELECT * FROM customers` | Le colonne segrete sempre; con la [modalità dati rigorosa](concepts/production-data/) ogni valore, con valori fittizi che mantengono funzionanti join e conteggi |
+| Pagine web | Un pannello di amministrazione che l'agente apre con uno strumento di navigazione web | I dati personali nel testo della pagina vengono mascherati |
+| Istruzioni | CLAUDE.md, AGENTS.md, il prompt di sistema | Il tuo nome, il nome utente, il nome host e il dominio aziendale vengono mascherati |
+| Cronologia | Una sessione ripresa dieci giorni dopo | Lo stesso valore riceve lo stesso valore fittizio, ogni volta |
+| Screenshot | Lo screenshot di una fattura | Con il [riconoscimento del testo](concepts/images/) facoltativo, il testo che contiene viene letto sul tuo computer e ogni valore viene coperto con il suo valore fittizio; i PDF vengono segnalati, o non inviati (`images: block`) |
+| Ciò che nessun pattern individua | *"Mark dell'ufficio vendite sta facendo colloqui di nascosto con un concorrente"* | Il [revisore locale](concepts/llm-review/) facoltativo, un modello linguistico tuo, lo trova prima che esca, seguendo le istruzioni di Latet e [le tue indicazioni](concepts/llm-review/#le-tue-indicazioni): cosa conta come sensibile nel tuo lavoro, ovunque o in un solo progetto |
+
+## Come protegge
+
+<CardGrid>
+	<Card title="Rileva prima che qualcosa esca" icon="magnifier">
+		Segreti (chiavi API, token, password, chiavi private, credenziali nelle stringhe di connessione),
+		dati personali (email, numeri di telefono, IBAN, numeri di carta, numeri di partita IVA, i numeri
+		identificativi e fiscali di 15 paesi), i tuoi termini e formati, e l'identità di questo computer.
+	</Card>
+	<Card title="Li sostituisce con valori fittizi realistici" icon="random">
+		Ogni valore diventa un valore fittizio deterministico dello stesso formato, identico ogni volta,
+		così il codice e la configurazione continuano ad avere senso per il modello.
+	</Card>
+	<Card title="Ripristina sul tuo computer" icon="laptop">
+		Gli originali vengono rimessi localmente, nelle risposte, nell'output in streaming e negli
+		argomenti delle chiamate agli strumenti, così i file che il tuo agente scrive contengono i valori
+		reali.
+	</Card>
+	<Card title="Si adatta a ogni progetto" icon="setting">
+		Un `latet.yaml` in un repository aggiunge i termini e i formati del progetto, condivisi con il
+		team, e non può mai ridurre la protezione.
+	</Card>
+	<Card title="Legge i dati in base alla loro struttura" icon="document">
+		Le colonne segrete del risultato di una query vengono sempre mascherate, e la modalità dati
+		rigorosa maschera ogni valore delle tabelle, del JSON e dei log che un agente legge.
+	</Card>
+	<Card title="Esamina ciò che nessun pattern individua" icon="approve-check-circle">
+		Se vuoi, un modello linguistico su un tuo server legge ogni testo prima che esca: nomi citati di
+		sfuggita, dettagli sulla salute, una password scritta in una frase.
+	</Card>
+	<Card title="Ti mostra le prove" icon="list-format">
+		Una [dashboard](dashboard/) locale mostra esattamente cosa è stato inviato al provider e come è
+		stato mascherato ogni valore.
+	</Card>
+</CardGrid>
+
+## Guarda cosa è uscito dal tuo computer
+
+`latet dashboard` apre una pagina locale con ogni richiesta inviata dai tuoi agenti: l'originale sul
+tuo computer accanto a ciò che ha ricevuto il modello, con ogni valore mascherato contrassegnato dal
+suo tipo e dalla regola che l'ha individuato.
+
+<Screenshot name="exchange" alt="Uno scambio nella dashboard: ogni blocco della richiesta com'è su questo computer, accanto a ciò che è stato inviato al modello, con ogni valore mascherato evidenziato" />
+
+## Agenti
+
+| Agente | Come passa da Latet |
+| --- | --- |
+| [Claude Code](agents/claude-code/): CLI, VS Code, JetBrains, con un abbonamento Pro o Max o una chiave API | Modalità client: il plugin di Latet maschera dentro Claude Code; il daemon controlla ogni richiesta |
+| [Codex](agents/codex/): CLI e Desktop, con ChatGPT o una chiave API | Gateway: il daemon maschera e ripristina |
+| [OpenCode](agents/opencode/), con i provider che usano una chiave API | Gateway |
+| [Gemini CLI](agents/gemini/), con una chiave API o Vertex AI | Gateway, con `latet gemini` |
+| [Hermes Agent, OpenClaw, Goose, OpenHands](agents/autonomous-agents/) e qualsiasi agente che accetti un URL di base compatibile con OpenAI | Gateway, con la tua chiave API di OpenAI, OpenRouter o Anthropic |
+| [Script e SDK](agents/openai-compatible/): gli SDK di OpenAI, Anthropic e Google GenAI, LangChain, LangGraph, AutoGen, CrewAI, Aider, ecc. | Gateway, con `latet run` |
+| [GitHub Copilot, JetBrains, Zed e altri strumenti](agents/other-tools/): Copilot in VS Code e la sua CLI, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush | Gateway, con la tua chiave API; i suggerimenti inline di Copilot non sono coperti |
+
+Non coperti: Chat e Cowork di Claude Desktop con l'accesso a Claude, le sessioni cloud, Cursor,
+Windsurf e gli altri strumenti le cui richieste partono dai server del produttore: vedi
+[cosa Latet non può proteggere](agents/other-tools/#cosa-latet-non-può-proteggere).
+
+<CardGrid>
+	<LinkCard
+		title="Abbonamenti Claude Pro e Max"
+		description="Claude Code funziona senza modifiche e accede con il proprio login; ogni richiesta esce così come l'ha costruita Claude Code."
+		href="agents/claude-code/#abbonamenti-pro-e-max"
+	/>
+	<LinkCard
+		title="Cosa è protetto e cosa no"
+		description="Latet maschera ciò che i suoi rilevatori riconoscono. Conosci i limiti prima di farci affidamento."
+		href="concepts/protection-scope/"
+	/>
+</CardGrid>
+
+Tutto avviene sul tuo computer: non c'è nessun servizio cloud di Latet, nessuna telemetria e nessuna
+statistica di utilizzo.

@@ -1,0 +1,44 @@
+---
+// The product video in the page's language, as a short web video (a sixth of the README's GIF): English where a
+// language has no encode. Shown by ProductVideo.astro on the public site.
+import type { ImageMetadata } from 'astro';
+
+const mp4s = import.meta.glob<string>('../assets/media/*/latet-product.mp4', { query: '?url', import: 'default', eager: true });
+const webms = import.meta.glob<string>('../assets/media/*/latet-product.webm', { query: '?url', import: 'default', eager: true });
+const posters = import.meta.glob<ImageMetadata>('../assets/media/*/latet-product-poster.webp', { import: 'default', eager: true });
+
+const lang = Astro.locals.starlightRoute.lang;
+const pick = <T,>(files: Record<string, T>, name: string): T =>
+	files[`../assets/media/${lang}/${name}`] ?? files[`../assets/media/en/${name}`]!;
+const mp4 = pick(mp4s, 'latet-product.mp4');
+const webm = pick(webms, 'latet-product.webm');
+const poster = pick(posters, 'latet-product-poster.webp');
+---
+
+<figure class="media-frame">
+	<video
+		autoplay
+		muted
+		loop
+		playsinline
+		controls
+		preload="metadata"
+		poster={poster.src}
+		width="960"
+		height="540"
+		aria-label={Astro.locals.t('latet.video.label')}
+	>
+		<source src={webm} type="video/webm" />
+		<source src={mp4} type="video/mp4" />
+	</video>
+</figure>
+
+<script>
+	// No motion for those who asked for none: the poster, and the controls to play it.
+	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+		for (const video of document.querySelectorAll<HTMLVideoElement>('.media-frame video[autoplay]')) {
+			video.pause();
+			video.removeAttribute('autoplay');
+		}
+	}
+</script>

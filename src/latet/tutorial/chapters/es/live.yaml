@@ -1,0 +1,29 @@
+title: El Revisor en directo
+learn:
+- Cómo puede una petición esperarte antes de salir
+- Cómo enmascarar a mano un valor que ninguna regla puede conocer
+- Qué hacen Aprobar, Aprobar todas y No enviar
+steps:
+- title: Una petición te espera
+  explain: 'Con el Revisor en directo activado, la petición te espera en Aprobaciones antes de salir. Latet enmascara la dirección de correo electrónico, pero nada le indica que {{value:name}} sea el nombre de un cliente: este entorno aislado no tiene detección de nombres. Selecciona el nombre, elige Personas y haz clic en Aprobar: el modelo recibe un valor ficticio en su lugar, y el nombre va a la caja fuerte, enmascarado a partir de entonces. No enviar detendría la petición.'
+  prompt: redacta una respuesta para {{value:name}}, le han cobrado dos veces. su correo es {{value:email}}
+  button: Enviar
+  says:
+  - Preparo un borrador de la respuesta.
+  hint: Selecciona {{value:name}} en el texto, elige Personas y haz clic en Aprobar.
+  otherwise:
+    in_clear: 'Has aprobado la petición tal como estaba, así que el modelo ha recibido {{value:name}} en claro: Latet solo ha enmascarado la dirección de correo electrónico. En el entorno aislado no ha salido nada de tu equipo, porque el modelo es simulado; uno real tendría ahora el nombre. Empieza de nuevo para intentarlo otra vez y enmascara el nombre antes de aprobar.'
+    part_in_clear: 'Una parte del nombre se ha quedado en claro, y el modelo la ha recibido tal cual. Empieza de nuevo para intentarlo otra vez: selecciona el nombre completo, {{value:name}}, y después aprueba.'
+    not_sent: 'Has elegido No enviar: la petición no se ha enviado, el modelo no ha recibido nada y se le ha dicho al agente. Latet muestra por qué se ha detenido. Empieza de nuevo para intentarlo otra vez: enmascara el nombre y después aprueba.'
+  turns:
+    draft:
+      text: 'Borrador: Hola, {{received:WHO}}: lamentamos que se le haya cobrado dos veces; el reembolso está en camino. Envíalo a {{received:MAIL}}.'
+end:
+  learned:
+  - Con el Revisor en directo activado, cada texto nuevo te espera en Aprobaciones antes de salir.
+  - Un valor que enmascaras a mano va a la caja fuerte y, a partir de entonces, se enmascara en todas partes.
+  - Aprobar envía la petición tal como se muestra, Aprobar todas envía todo lo que está en espera tal como lo ha enmascarado Latet, y No enviar la detiene.
+  where:
+  - Lo que te espera, en Aprobaciones
+  - 'Actívalo de verdad, en Reglas: para todos los proyectos o para uno'
+  - La petición, tal como salió

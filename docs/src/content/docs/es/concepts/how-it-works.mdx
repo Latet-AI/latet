@@ -1,0 +1,174 @@
+---
+title: Cómo funciona
+description: Valores ficticios, modo cliente, modo puerta de enlace y solo verificación, con un ejemplo paso a paso de una clave de un archivo .env.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet se sitúa entre tu agente y el proveedor del modelo. Un único motor detecta los valores
+sensibles, los sustituye por valores ficticios a la ida y restaura los originales a la vuelta. Dónde
+ocurre esto depende del agente: dentro del agente (**modo cliente**) o en un proxy
+(**modo puerta de enlace**). Los dos se ejecutan en tu equipo o, cuando tu equipo está conectado a un
+[servidor Latet](../server/), en ese servidor.
+
+## Valores ficticios
+
+Un valor ficticio es un valor inventado con el mismo formato que el original:
+
+| Tipo | Original (se queda en tu equipo) | Valor ficticio (se envía al proveedor) |
+| --- | --- | --- |
+| Clave de API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
+| Contraseña en una URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Correo electrónico | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
+| Número de teléfono | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
+| IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
+| Tu nombre de usuario en una ruta | <span class="real">`C:\Users\ecarter\shop\app.py`</span> | <span class="fake">`C:\Users\oliver75\shop\app.py`</span> |
+
+<small>Los valores son ilustrativos. Tus valores ficticios son distintos: se derivan de una clave
+creada en tu equipo.</small>
+
+- **Conserva el formato.** Una clave mantiene su prefijo (`pk_`, `ghp_`, `sk-ant-api03-`...), su
+  longitud y su juego de caracteres. Un correo electrónico sigue siendo un correo electrónico: un
+  dominio de webmail público como `gmail.com` se mantiene, y cualquier otro dominio pasa a ser uno
+  ficticio bajo `.example`. Los IBAN, los números de tarjeta, los números de identificación
+  nacional, los números fiscales y los números de IVA reciben dígitos de control válidos, y las
+  direcciones IP públicas pasan a los rangos reservados para documentación. El modelo puede seguir
+  razonando sobre el código y la configuración que los rodean.
+- **Determinista.** En tu equipo, el mismo original recibe siempre el mismo valor ficticio, así que
+  el modelo puede seguir un valor entre archivos y turnos, y Latet puede volver del valor ficticio al
+  original. Los turnos anteriores se vuelven a enviar idénticos byte a byte, así que la caché de
+  prompts del proveedor sigue funcionando.
+- **Local.** La tabla de originales y valores ficticios, la **caja fuerte**, nunca sale de tu equipo.
+  Los originales que contiene están cifrados en el disco, con una clave guardada en el almacén de
+  credenciales de tu sistema operativo o, donde no lo hay (un equipo Linux sin llavero de escritorio,
+  el contenedor), en un archivo legible solo por ti, `root.key`, en la carpeta de datos de Latet.
+- **Acotado.** Un valor ficticio solo se restaura en la conversación a la que se mostró.
+
+### El mismo a lo largo del tiempo
+
+Un valor ficticio se deriva del valor y de la clave raíz de tu instalación, no se elige al azar, y
+la caja fuerte se guarda en el disco sin caducidad: el historial del panel se depura pasado el plazo
+de `retention_days`, la caja fuerte no. Así, un valor recibe el mismo valor ficticio hoy, después de
+un reinicio y cuando reanudas una conversación días más tarde:
+- **Reanudar una sesión:** su historial ya contiene los valores ficticios, el texto nuevo se
+  enmascara con los mismos y las respuestas del modelo se restauran como antes. El dominio de una
+  dirección de correo electrónico de tu CLAUDE.md es el mismo dominio ficticio en cada turno y en
+  cualquier otro sitio donde aparezca.
+- **Un valor que Latet ha aprendido se enmascara en todas partes a partir de entonces,** incluso
+  cuando la regla que lo encontró ya no existe.
+- **Qué cambia un valor ficticio:**
+  - **otra clave raíz**, en un equipo nuevo o tras perder el almacén de credenciales: valores
+    ficticios nuevos, y los antiguos de una conversación reanudada ya no se restauran. Traslada la
+    caja fuerte junto con su clave:
+    [`latet backup latet.backup --vault`](../export-import/#tu-instalación-para-otro-equipo) y
+    después `latet restore latet.backup` en el otro equipo;
+  - **un valor que dejas pasar** sale en claro a partir de entonces, mientras que el historial
+    conserva su valor ficticio.
+- **Qué no lo cambia:** *Olvidar* en la caja fuerte. El mismo valor vuelve a recibir el mismo valor
+  ficticio.
+
+El dominio de una empresa por sí solo (`api.acme-intra.com`) se enmascara cuando es uno de tus
+[términos](../detection/), o una vez que Latet lo ha visto en una dirección de correo electrónico.
+El dominio de tu propia empresa, tomado del correo electrónico de tu autor de git, se enmascara
+desde el principio, dondequiera que aparezca.
+
+## Modo cliente: Claude Code
+
+Claude Code añade a cada petición un bloque de atribución con una huella digital derivada de la
+conversación, y la [guía de puertas de enlace](https://code.claude.com/docs/en/llm-gateway-protocol)
+de Anthropic pide a una puerta de enlace que inspeccione las peticiones sin modificarlas. Por eso
+Latet no reescribe las peticiones de Claude Code: el plugin de Latet enmascara el contenido
+**dentro de Claude Code, antes de que se construya la petición**, y el daemon local solo comprueba
+lo que sale. Esto funciona con una suscripción Pro o Max igual que con una clave de API (consulta
+[Claude Code](../../agents/claude-code/#suscripciones-pro-y-max)).
+
+Esto es lo que le ocurre a una clave de un archivo `.env`:
+
+<Steps>
+
+1. El `.env` de tu proyecto contiene
+   <code>PAYMENTS_API_KEY=<span class="real">pk_9f2c4e7a1b3d5f8e0a6c</span></code>. Le pides a
+   Claude Code: *"Añade la clave de pagos de `.env` a `config/local.toml`."*
+
+2. Claude Code lee `.env` con su herramienta Read. Antes de que el resultado de la herramienta entre
+   en la conversación, el plugin se lo pasa al daemon local, que encuentra la clave y la cambia por
+   el valor ficticio <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. El par se guarda en la caja
+   fuerte.
+
+3. Claude Code construye la petición como de costumbre. Solo contiene el valor ficticio. Justo antes
+   de que la petición salga, el plugin hace una comprobación final sobre ella. Como
+   `ANTHROPIC_BASE_URL` apunta al daemon de Latet (`127.0.0.1:5283`), la petición pasa después por
+   el daemon, que funciona en modo **solo verificación**: busca valores sensibles en claro, reenvía
+   los bytes sin cambios y registra el intercambio para el [panel](../../dashboard/).
+
+4. Anthropic recibe <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> y nada más. El modelo nunca
+   ve la clave real.
+
+5. El modelo responde con una llamada a una herramienta que edita `config/local.toml` y escribe
+   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Antes de que la
+   herramienta se ejecute en tu equipo, el plugin restaura el original en los argumentos de la
+   llamada, así que el archivo en el disco contiene <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>.
+   El texto que se muestra en tu terminal también se restaura.
+
+6. El historial de la conversación conserva el valor ficticio, así que todas las peticiones
+   posteriores siguen enmascaradas. Si alguna vez un original aparece en claro en una petición
+   saliente, por ejemplo a través de un canal que el plugin no cubre, la comprobación final del
+   plugin detiene la petición antes de que se envíe. El daemon es una segunda comprobación detrás
+   de ella.
+
+</Steps>
+
+En modo cliente, lo único que puede hacer el daemon es bloquear: nunca cambia un byte, así que cada
+petición llega a Anthropic exactamente como la construyó Claude Code.
+
+**Si el daemon no se está ejecutando**, el plugin intenta iniciarlo. Si no lo consigue, el plugin
+retiene el contenido en lugar de enviarlo sin enmascarar: tu prompt no se envía, un resultado de una
+herramienta que no puede enmascarar se sustituye por un aviso, una llamada a una herramienta que no
+puede restaurar se rechaza y una petición que no puede comprobar se queda en tu equipo.
+
+## Modo puerta de enlace: todos los demás agentes
+
+Codex, OpenCode, [Hermes Agent, OpenClaw y otros agentes](../../agents/autonomous-agents/) y tus
+propios scripts se comunican con su proveedor a través de una URL base que puedes cambiar. Aquí es
+el daemon local el que enmascara. La misma clave de `.env`, esta vez con Codex:
+
+<Steps>
+
+1. Codex envía su petición a `127.0.0.1:5283` en lugar de al proveedor: por un WebSocket cuando
+   inicias sesión con ChatGPT, como petición HTTP con una clave de API.
+
+2. El daemon decodifica la petición (también los cuerpos comprimidos) y encuentra
+   <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> en la salida del comando que Codex ejecutó
+   para leer `.env`. Sustituye la clave por <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> y
+   reenvía la petición al proveedor.
+
+3. El modelo devuelve en streaming un parche que escribe el valor ficticio en `config/local.toml`.
+   El daemon restaura el original en el texto transmitido y en los argumentos de las llamadas a
+   herramientas antes de que Codex los vea, incluso cuando un valor ficticio queda dividido entre
+   dos fragmentos.
+
+4. Codex aplica el parche con la clave real. Su propia copia de la conversación contiene ahora el
+   original. Cuando Codex vuelve a enviar ese historial, el daemon lo vuelve a enmascarar, y el
+   modelo recibe exactamente los bytes que escribió.
+
+</Steps>
+
+El proveedor solo ve valores ficticios; el agente solo ve originales. Los bloques de thinking y el
+razonamiento cifrado pasan intactos.
+
+Después, una comprobación final lee los textos de cada petición antes de que salga, los que Latet
+enmascara, como en el modo cliente, y detiene la que dejaría salir un valor en claro, diciendo por
+qué. Cuando el daemon no puede enmascarar una petición, la rechaza en lugar de enviarla sin
+enmascarar: un cuerpo que no puede decodificar, o un valor que no puede sustituir, termina en un
+error que indica que no se ha enviado nada.
+
+<Aside type="tip">
+	Ejecuta `latet dashboard` para ver los dos lados de cada petición: el original en tu equipo y lo
+	que se envió al proveedor. Consulta la [guía del panel](../../dashboard/).
+</Aside>
+
+## Qué decide lo que se enmascara
+
+- [Detección](../detection/): cómo se reconocen los valores.
+- [Perfiles y políticas](../profiles/): cuánto enmascarar y qué hacer con cada detección.
+- [Qué está protegido y qué no](../protection-scope/): los límites de este enfoque.

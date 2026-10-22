@@ -1,0 +1,94 @@
+# The tutorial's first chapter. Every value is invented. The key matches no provider's format: gitleaks' generic
+# rule finds it, as Latet does, and it holds none of that rule's stopwords ("demo", "example"...), which would
+# hide it. The fakes the model gets come from the sandbox's fixed key: the same at every run.
+id: basics
+title: The basics
+minutes: 5
+phase: 1
+learn:
+  - What the model gets instead of a key, an email address or a phone number
+  - Why the files the agent writes still hold the real values
+  - Where the dashboard shows each value, and the rule that found it
+values:
+  key: 3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ
+  email: james.wilson@acme.com
+  phone: "+44 20 7946 0958"
+settings: {}
+files:
+  .env: |
+    # billing service
+    BILLING_URL=https://billing.example.test/api
+    DEMO_API_KEY={{value:key}}
+  notes.md: |
+    prod config before Friday.
+received:
+  DEMO_API_KEY: { pattern: 'DEMO_API_KEY=(\S+)', in: tool_result }
+  EMAIL: { pattern: '([\w.+-]+@[\w-]+(?:\.[\w-]+)+)', in: user }
+  PHONE: { pattern: '(\+\d[\d ]{8,}\d)', in: user }
+steps:
+  - kind: watch
+    title: A key leaves as a fake
+    agent: { files: [.env], says: ["I'll read .env first."] }
+    prompt: read .env and set up config.local.json for prod
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: .env } } }
+      - id: write
+        text: Got the key. Writing the config.
+        tool:
+          name: Write
+          input:
+            file_path: config.local.json
+            content: '{"billing_url": "https://billing.example.test/api", "api_key": "{{received:DEMO_API_KEY}}"}'
+    show: { exchange: write, part: request, highlight: ["{{value:key}}"] }
+    explain: >-
+      The agent read .env and sent it to the model. Before it left, Latet swapped the key for a fake
+      of the same shape. The request Latet shows has both: your computer's text, and what the model got.
+    checks:
+      - model_received: { not_contains: ["{{value:key}}"] }
+      - received: { name: DEMO_API_KEY, not: "{{value:key}}" }
+      - exchange: { ref: write, mode: rewrite, masked_classes: [SECRET] }
+      - shown: { marked: ["{{value:key}}"] }
+  - kind: watch
+    title: The file holds the real key
+    button: Let it write
+    model:
+      - { id: done, text: "Done. config.local.json is ready for prod." }
+    show: { exchange: write, part: response, highlight: ["{{value:key}}"] }
+    explain: >-
+      The model put its fake ({{received:DEMO_API_KEY}}) in the Write call. Latet put the real key
+      back before the agent ran it, so the file works.
+    checks:
+      - file: { path: config.local.json, contains: ["{{value:key}}"] }
+      - agent_got: { contains: ["{{value:key}}"] }
+      - shown: { marked: ["{{value:key}}"] }
+  - kind: do
+    title: Ask Latet
+    wait: { pin: "{{value:key}}" }
+    show: previous
+    explain: Click the highlighted value. Latet says what it is, which rule found it, and what was sent instead.
+  - kind: watch
+    title: People too
+    prompt: "email {{value:email}} the invoice, his number is {{value:phone}}"
+    button: Send it
+    model:
+      - id: email
+        text: "I can't send emails, but I noted {{received:EMAIL}} and {{received:PHONE}}."
+    show: { exchange: email, part: request, highlight: ["{{value:email}}", "{{value:phone}}"] }
+    explain: >-
+      The address and the number left as fakes too. The agent still shows you the real ones: Latet
+      restored them in the answer.
+    checks:
+      - model_received: { not_contains: ["{{value:email}}", "{{value:phone}}"] }
+      - exchange: { ref: email, masked_types: [EMAIL, PHONE] }
+      - shown: { marked: ["{{value:email}}", "{{value:phone}}"] }
+end:
+  learned:
+    - The model gets fakes of the same shape; the real values stay on your computer.
+    - What comes back is restored, so the files your agent writes hold the real values.
+    - "The dashboard shows every request: your computer's text, and what the model got."
+  where:
+    - { label: "Every request, as it happens", to: /live }
+    - { label: "The request with the key", to: "exchange:write" }
+    - { label: "Every value Latet replaced", to: /vault }
+  next: terms

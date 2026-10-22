@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+# Byte-exact protocol fixtures and vendored rules: never convert line endings.
+tests/golden/** -text
+src/latet/engine/detectors/gitleaks/*.toml -text
+*.png binary
+*.ttf binary
+*.ico binary

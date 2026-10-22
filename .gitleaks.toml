@@ -1,0 +1,15 @@
+# Scan this repository with the default rules, except where fake credentials live on purpose.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures and the vendored ruleset contain fake, generated credentials."
+paths = [
+  '''^tests/''',
+  '''^src/latet/engine/detectors/gitleaks/gitleaks\.toml$''',
+  '''^notes/spike''',
+  # Documentation examples: made-up keys that show what gets masked.
+  '''^docs/src/content/docs/''',
+  # The tutorial's chapters: invented keys that show Latet at work.
+  '''^src/latet/tutorial/chapters/''',
+]

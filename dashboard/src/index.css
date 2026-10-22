@@ -1,0 +1,932 @@
+@import 'tailwindcss';
+
+/* Dark mode follows data-theme on <html>, which the app resolves from the OS or the toggle. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  --color-*: initial;
+  --text-*: initial;
+  --font-*: initial;
+
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --font-display: Montserrat, 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Mono', 'Cascadia Code', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --text-micro: 11px;
+  --text-micro--line-height: 15px;
+  --text-meta: 12px;
+  --text-meta--line-height: 17px;
+  --text-ui: 13px;
+  --text-ui--line-height: 19px;
+  --text-body: 14px;
+  --text-body--line-height: 21px;
+  --text-title: 15px;
+  --text-title--line-height: 21px;
+  --text-page: 20px;
+  --text-page--line-height: 26px;
+  --text-figure: 28px;
+  --text-figure--line-height: 32px;
+  --text-code: 12.5px;
+  --text-code--line-height: 20px;
+
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  /* Linea's radii: soft corners, as on latet.ai. */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-well: var(--well);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-wash: var(--wash);
+  --color-wash-2: var(--wash-2);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-real: var(--real);
+  --color-real-low: var(--real-low);
+  --color-real-ink: var(--real-ink);
+  --color-fake: var(--fake);
+  --color-fake-low: var(--fake-low);
+  --color-fake-ink: var(--fake-ink);
+  --color-nav: var(--nav);
+  --color-nav-ink: var(--nav-ink);
+  --color-data: var(--data);
+  --color-secret: var(--c-secret);
+  --color-pii: var(--c-pii);
+  --color-identity: var(--c-identity);
+  --color-custom: var(--c-custom);
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-warn: var(--warn);
+  --color-warn-ink: var(--warn-ink);
+  --color-crit: var(--crit);
+  --color-crit-ink: var(--crit-ink);
+  --color-transparent: transparent;
+  --color-white: #fff;
+}
+
+/* ---- Tokens ------------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+  --canvas: #fbfcfb;
+  --surface: #ffffff;
+  --well: #f3f6f5;
+  --raised: #ffffff;
+  --ink: #111a17;
+  --ink-2: #44524d;
+  --ink-3: #5f6d68;
+  --line: #e6ece9;
+  --line-2: #c9d2ce;
+  --field: #808e89;
+  --wash: rgb(17 26 23 / 0.045);
+  --wash-2: rgb(17 26 23 / 0.08);
+  --shadow: 0 1px 2px rgb(17 26 23 / 0.06), 0 8px 24px rgb(17 26 23 / 0.12);
+  /* The soft lift of a panel, as on the site. */
+  --shadow-soft: 0 1px 2px rgb(10 16 15 / 0.06), 0 8px 24px rgb(10 16 15 / 0.08);
+  /* The lift of the chosen choice of a segmented control (.seg-item), as on the site. */
+  --seg-shadow: 0 1px 2px rgb(10 16 15 / 0.08);
+  /* The green of the logo and the documentation. */
+  --brand: #0b7a4b;
+  --brand-ink: #075c38;
+  --focus: #0b7a4b;
+  /*
+   * The two tones of Latet, as on the site: the value as it is on your machine (real, warm) and the value that
+   * leaves (fake, green). -low is the wash behind a text, -ink the text on it.
+   */
+  --real: #a4520f;
+  --real-low: #fbecd9;
+  --real-ink: #7a3b08;
+  --fake: #0b7a4b;
+  --fake-low: #e2f6ec;
+  --fake-ink: #075c38;
+  /* The menu's current page: a quiet green wash, with no line beside it. */
+  --nav: #e2f6ec;
+  --nav-ink: #075c38;
+  /* Single-series chart marks: ink, like a redaction bar. */
+  --data: #3d4a45;
+  /* Entity classes: validated as a set, all pairs, under protan and deutan simulation (src/theme.test.ts). */
+  --c-secret: #bf4213;
+  --c-pii: #3280dd;
+  --c-identity: #22997a;
+  --c-custom: #5839a1;
+  /* Status: always with an icon and a label. */
+  --good: #0ca30c;
+  --good-ink: #0b7a0b;
+  --warn: #b7770e;
+  --warn-ink: #8a5a00;
+  --crit: #d03b3b;
+  --crit-ink: #b42323;
+  --crit-solid: #b42323;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --canvas: #0a100f;
+    --surface: #111917;
+    --well: #0d1412;
+    --raised: #18221f;
+    --ink: #e9efec;
+    --ink-2: #a9b6b1;
+    --ink-3: #8c9a95;
+    --line: #22302c;
+    --line-2: #2e3f3a;
+    --field: #5f716b;
+    --wash: rgb(233 239 236 / 0.05);
+    --wash-2: rgb(233 239 236 / 0.09);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.5);
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45);
+    --seg-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    --brand: #2ee59d;
+    --brand-ink: #8bf0c6;
+    --focus: #2ee59d;
+    --real: #f0a860;
+    --real-low: #3a2611;
+    --real-ink: #ffc766;
+    --fake: #2ee59d;
+    --fake-low: #0e2a1f;
+    --fake-ink: #8bf0c6;
+    --nav: #0e2a1f;
+    --nav-ink: #8bf0c6;
+    --data: #b4bfba;
+    --c-secret: #e16a3e;
+    --c-pii: #4495ea;
+    --c-identity: #25a37e;
+    --c-custom: #7d56b8;
+    --good: #2fb52f;
+    --good-ink: #3cc13c;
+    --warn: #fab219;
+    --warn-ink: #fab219;
+    --crit: #e05252;
+    --crit-ink: #ef6b6b;
+    --crit-solid: #b83232;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0a100f;
+  --surface: #111917;
+  --well: #0d1412;
+  --raised: #18221f;
+  --ink: #e9efec;
+  --ink-2: #a9b6b1;
+  --ink-3: #8c9a95;
+  --line: #22302c;
+  --line-2: #2e3f3a;
+  --field: #5f716b;
+  --wash: rgb(233 239 236 / 0.05);
+  --wash-2: rgb(233 239 236 / 0.09);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.5);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.45);
+  --seg-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --brand: #2ee59d;
+  --brand-ink: #8bf0c6;
+  --focus: #2ee59d;
+  --real: #f0a860;
+  --real-low: #3a2611;
+  --real-ink: #ffc766;
+  --fake: #2ee59d;
+  --fake-low: #0e2a1f;
+  --fake-ink: #8bf0c6;
+  --nav: #0e2a1f;
+  --nav-ink: #8bf0c6;
+  --data: #b4bfba;
+  --c-secret: #e16a3e;
+  --c-pii: #4495ea;
+  --c-identity: #25a37e;
+  --c-custom: #7d56b8;
+  --good: #2fb52f;
+  --good-ink: #3cc13c;
+  --warn: #fab219;
+  --warn-ink: #fab219;
+  --crit: #e05252;
+  --crit-ink: #ef6b6b;
+  --crit-solid: #b83232;
+}
+
+/* ---- Base --------------------------------------------------------------------------------- */
+
+@layer base {
+  html {
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 19px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--canvas);
+    min-height: 100vh;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 35%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* ---- Components --------------------------------------------------------------------------- */
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 11px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line-2);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--text-ui);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  .btn:hover {
+    background: color-mix(in oklab, var(--ink) 4%, var(--surface));
+  }
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* Busy: the button stays where it is (and keeps the focus on it) while what it started goes on. */
+  .btn[aria-busy='true'] {
+    cursor: progress;
+  }
+  .btn-primary {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--surface);
+  }
+  .btn-primary:hover {
+    background: color-mix(in oklab, var(--ink) 86%, var(--surface));
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-2);
+  }
+  .btn-ghost:hover {
+    background: var(--wash);
+    color: var(--ink);
+  }
+  .btn-danger {
+    color: var(--crit-ink);
+  }
+  .btn-destructive {
+    background: var(--crit-solid);
+    border-color: var(--crit-solid);
+    color: #fff;
+  }
+  .btn-destructive:hover {
+    background: color-mix(in oklab, var(--crit-solid) 88%, #000);
+  }
+  .btn-quiet-danger:hover {
+    color: var(--crit-ink);
+  }
+  .btn-sm {
+    height: 26px;
+    padding: 0 8px;
+    font-size: var(--text-meta);
+    gap: 5px;
+  }
+  .btn-icon {
+    width: 30px;
+    padding: 0;
+  }
+  .btn-sm.btn-icon {
+    width: 26px;
+  }
+
+  .field {
+    height: 30px;
+    padding: 0 9px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--field);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--text-ui);
+    min-width: 0;
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+  .field:focus-visible {
+    outline-offset: 0;
+    border-color: var(--focus);
+  }
+  select.field {
+    padding-right: 26px;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+      linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+    background-position:
+      calc(100% - 14px) 50%,
+      calc(100% - 10px) 50%;
+    background-size:
+      4px 4px,
+      4px 4px;
+    background-repeat: no-repeat;
+  }
+  textarea.field {
+    height: auto;
+    padding: 8px 10px;
+    line-height: 20px;
+  }
+
+  .label {
+    font-size: var(--text-meta);
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .well {
+    background: var(--well);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  /*
+   * Tabs (role="tablist"): a quiet row on a line, the selected one underlined in the brand's green and set in a
+   * heavier weight, so that it is not shown by color alone. A row too wide for the screen scrolls on its own.
+   */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    flex: none;
+    padding: 9px 12px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: var(--text-ui);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tab:hover {
+    color: var(--ink);
+  }
+  .tab[aria-selected='true'] {
+    color: var(--ink);
+    border-bottom-color: var(--brand);
+    font-weight: 500;
+  }
+  /* The row scrolls, so a ring outside the tab would be cut off at its edge: it is drawn inside. */
+  .tab:focus-visible {
+    outline-offset: -2px;
+  }
+
+  /*
+   * A segmented control: a few choices in a well, the pressed one raised. A choice is a button (aria-pressed) or the
+   * label of a radio (`Segmented` in components/ui.tsx), raised while its radio is checked.
+   */
+  .seg {
+    display: inline-flex;
+    vertical-align: middle;
+    gap: 3px;
+    padding: 3px;
+    background: var(--well);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
+  .seg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: calc(var(--radius-md) - 3px);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: var(--text-ui);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  .seg-item:hover {
+    color: var(--ink);
+  }
+  .seg-item[aria-pressed='true'],
+  .seg-item:has(> input:checked) {
+    background: var(--raised);
+    color: var(--ink);
+    font-weight: 500;
+    box-shadow: var(--seg-shadow);
+  }
+  .seg-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* The bar of actions at the foot of a page: it stays in view while the page scrolls under it. */
+  .actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: color-mix(in oklab, var(--canvas) 95%, transparent);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(4px);
+  }
+
+  /* A key, in a shortcut hint: it takes the color of what it sits in (a button, a line of text). */
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border: 1px solid color-mix(in oklab, currentColor 45%, transparent);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-micro);
+    line-height: 1;
+    font-weight: 500;
+    font-variant-ligatures: none;
+    color: inherit;
+  }
+
+  .code {
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    line-height: var(--text-code--line-height);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+    font-variant-ligatures: none;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  /* Small inline tag: kinds, transports, counts. */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: var(--text-micro);
+    line-height: 1;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* The class swatch: a short bar, like the bars of the logo. */
+  .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 4px;
+    border-radius: 1px;
+    background: var(--tone, var(--ink-3));
+    flex: none;
+  }
+
+  /* A masked value in a text: tinted, with a bar under it in the class color. */
+  .mask {
+    color: inherit;
+    background-color: color-mix(in oklab, var(--tone) 13%, transparent);
+    box-shadow: inset 0 -2px 0 var(--tone);
+    border-radius: 2px;
+    cursor: default;
+    transition: background-color 80ms ease-out;
+  }
+  .mask[data-dashed] {
+    box-shadow: none;
+    background-image: linear-gradient(to right, var(--tone) 60%, transparent 0);
+    background-size: 6px 2px;
+    background-repeat: repeat-x;
+    background-position: 0 100%;
+  }
+  .mask:hover,
+  .mask:focus-visible,
+  .mask[data-active] {
+    background-color: color-mix(in oklab, var(--tone) 30%, transparent);
+    outline: none;
+  }
+  .mask:focus-visible {
+    box-shadow:
+      inset 0 -2px 0 var(--tone),
+      0 0 0 2px var(--focus);
+  }
+  /* A value that stopped the request: masked by nothing, so a box around it in the color of a stop. */
+  .mask-stopped {
+    background-color: color-mix(in oklab, var(--tone) 16%, transparent);
+    box-shadow: inset 0 0 0 1.5px var(--tone);
+    cursor: pointer;
+  }
+  .mask-stopped:focus-visible {
+    box-shadow:
+      inset 0 0 0 1.5px var(--tone),
+      0 0 0 2px var(--focus);
+  }
+  /* One-way redaction: the marker sent upstream, drawn as a solid bar. */
+  .mask-redacted {
+    background-color: var(--ink);
+    color: var(--surface);
+    box-shadow: none;
+    padding: 0 1px;
+  }
+  .mask-redacted:hover,
+  .mask-redacted[data-active] {
+    background-color: color-mix(in oklab, var(--ink) 80%, var(--tone));
+  }
+  /* The vault no longer holds the value: the original side can only show what was sent. */
+  .mask-gone {
+    background-color: transparent;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      color-mix(in oklab, var(--tone) 32%, transparent) 3px 4px
+    );
+  }
+  /* A value found in a response by matching a known surrogate. */
+  .mask-soft {
+    background-color: color-mix(in oklab, var(--tone) 9%, transparent);
+    box-shadow: inset 0 -1px 0 var(--tone);
+  }
+
+  /* What the local reviewer suggested and nothing masked yet (Approvals): a dotted line, no tint. */
+  .mask-suggested {
+    color: inherit;
+    background-color: transparent;
+    background-image: linear-gradient(to right, var(--brand-ink) 50%, transparent 0);
+    background-size: 4px 2px;
+    background-repeat: repeat-x;
+    background-position: 0 100%;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .mask-suggested:hover,
+  .mask-suggested:focus-visible {
+    background-color: color-mix(in oklab, var(--brand) 18%, transparent);
+    outline: none;
+  }
+  /* A value you masked (Approvals): replaced by a fake when you approve. */
+  .mask-pending {
+    color: inherit;
+    background-color: color-mix(in oklab, var(--brand) 22%, transparent);
+    box-shadow: inset 0 0 0 1px var(--brand-ink);
+    border-radius: 2px;
+  }
+
+  .fn {
+    font-family: var(--font-sans);
+    font-size: 9px;
+    line-height: 0;
+    vertical-align: super;
+    color: var(--ink-3);
+    margin-left: 1px;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* What Latet cannot show: diagonal hatching. */
+  .hatch {
+    background-color: var(--well);
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 6px,
+      color-mix(in oklab, var(--ink) 7%, transparent) 6px 7px
+    );
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--text-ui);
+  }
+  .data-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+    text-align: left;
+    font-weight: 500;
+    font-size: var(--text-meta);
+    color: var(--ink-2);
+    padding: 0 10px;
+    height: 34px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .data-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .data-table tbody tr[data-href] {
+    cursor: pointer;
+  }
+  .data-table tbody tr:hover td {
+    background: var(--wash);
+  }
+  .data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .link {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--line-2);
+    text-underline-offset: 3px;
+  }
+  .link:hover {
+    text-decoration-color: var(--ink-2);
+  }
+
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 30px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    background: var(--field);
+    transition: background-color 120ms ease-out;
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+    transition: transform 120ms ease-out;
+  }
+  input:checked + .switch {
+    background: var(--ink);
+  }
+  input:checked + .switch::after {
+    transform: translateX(12px);
+  }
+  input:focus-visible + .switch {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  input:disabled + .switch {
+    opacity: 0.45;
+  }
+
+  [data-tone='secret'] {
+    --tone: var(--c-secret);
+  }
+  [data-tone='pii'] {
+    --tone: var(--c-pii);
+  }
+  [data-tone='identity'] {
+    --tone: var(--c-identity);
+  }
+  [data-tone='custom'] {
+    --tone: var(--c-custom);
+  }
+  [data-tone='data'] {
+    --tone: var(--data);
+  }
+  [data-tone='neutral'] {
+    --tone: var(--ink-3);
+  }
+  [data-tone='crit'] {
+    --tone: var(--crit);
+  }
+
+  .floating {
+    background: var(--raised);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    color: var(--ink);
+  }
+}
+
+/* A row that just arrived on the Live page: a brand bar at its left edge fades out. */
+@keyframes arrive-row {
+  from {
+    background-color: color-mix(in oklab, var(--brand) 9%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes arrive-bar {
+  from {
+    box-shadow: inset 3px 0 0 var(--brand);
+  }
+  to {
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+.arrived td {
+  animation: arrive-row 2.4s ease-out backwards;
+}
+.arrived td:first-child {
+  animation:
+    arrive-row 2.4s ease-out backwards,
+    arrive-bar 2.4s ease-out backwards;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes reveal-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.countdown {
+  transform-origin: left;
+  animation: reveal-countdown linear forwards;
+}
+
+/*
+ * The tutorial: what a step asks you to look at is outlined in the brand's green, and pulses. Under reduced motion the
+ * global rule above cuts the animations to nothing, and the outline stays, still. No animation here is
+ * held back with a delay but the lines of the agent's pane, whose delays that rule does not cut: they go below.
+ */
+@keyframes tutorial-ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+@keyframes tutorial-breathe {
+  0%,
+  100% {
+    outline-color: var(--brand);
+  }
+  50% {
+    outline-color: color-mix(in oklab, var(--brand) 20%, transparent);
+  }
+}
+[data-tutorial-pulse] {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+  animation: tutorial-ring 1.6s ease-out infinite;
+}
+/* A value in a text: its underline is a box-shadow, so the outline breathes instead. */
+mark[data-tutorial-pulse] {
+  outline-offset: 1px;
+  animation: tutorial-breathe 1.6s ease-in-out infinite;
+}
+
+/*
+ * Latet's pane, when its text changes (a new step, or a step's result in the place of what it asked): a green
+ * background and border that fade out, so the eye goes there. Under reduced motion, a still green border
+ * instead, until the text changes again.
+ */
+@keyframes tutorial-flash {
+  from {
+    background-color: color-mix(in oklab, var(--brand) 16%, var(--surface));
+    border-color: var(--brand);
+  }
+}
+.tutorial-flash {
+  animation: tutorial-flash 1.8s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-flash {
+    animation: none;
+    border-color: var(--brand);
+  }
+}
+
+/* A line of the agent's pane as it arrives: the lines of a step come one after the other. */
+@keyframes tutorial-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.tutorial-line-in {
+  animation: tutorial-line-in 240ms ease-out backwards;
+}
+@keyframes tutorial-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.tutorial-caret {
+  animation: tutorial-caret 1.1s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-line-in {
+    animation-delay: 0s !important;
+  }
+}
+
+@keyframes bar-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* The logo fades in when the page opens. */
+.logo-in {
+  animation: logo-in 600ms cubic-bezier(0.2, 0.7, 0.2, 1) 120ms both;
+}
+@keyframes logo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -1,0 +1,38 @@
+title: Ein Agent, der Ihre Regeln lockert
+learn:
+- Warum ein Agent die Einstellungen von Latet überhaupt ändern kann
+- Was mit einer Änderung geschieht, die den Schutz verringert, ganz gleich, wer sie vornimmt
+- Wo Sie die Änderung freigeben oder rückgängig machen
+steps:
+- title: Eine Änderung, die den Schutz verringert
+  explain: 'Das Modell hat die E-Mail-Adressen des Tests maskiert erhalten und wollte die echten. Also hat der Agent `latet config set policies "{EMAIL: allow}"` ausgeführt, einen Befehl, der jede E-Mail-Adresse im Klartext durchlässt. Der Befehl hat gemeldet, dass die Änderung den Schutz verringert und auf Ihre Freigabe wartet.'
+  prompt: der Test für den E-Mail-Import schlägt fehl, reparier ihn um jeden Preis
+  button: Senden
+  says:
+  - Ich sehe mir den fehlschlagenden Test an.
+  turns:
+    asked:
+      text: Der Test braucht echte E-Mail-Adressen, und Latet maskiert sie, daher habe ich Latet gebeten, sie durchzulassen. Die Änderung wartet auf deine Freigabe.
+- title: Sie entscheiden
+  explain: 'Ein Agent kann die eigenen Befehle von Latet ausführen, genau wie Sie. Aber eine Änderung, die den Schutz verringert, wird nie von selbst wirksam, sondern wartet hier und zeigt, was sie verringert. Eine Leitplanke gegen Fehler, kein Schloss: Ein Agent läuft mit Ihren Rechten. Rückgängig machen behält Ihre Einstellungen bei: hier die sichere Antwort.'
+  hint: 'Machen Sie die Änderung rückgängig: Das ist die sichere Antwort.'
+- title: Was aus der Änderung wurde
+  explain: 'Der Agent hat Latet mit `latet config get policies` gefragt: Sie haben die Änderung rückgängig gemacht, daher sind Ihre Einstellungen so, wie sie waren, und E-Mail-Adressen bleiben maskiert.'
+  prompt: was ist aus deiner Änderung geworden?
+  button: Senden
+  says:
+  - Ich sehe nach.
+  otherwise:
+    approved: Sie haben die Änderung freigegeben, daher werden E-Mail-Adressen jetzt im Klartext gesendet, von jedem Agenten. In der Sandbox hat nichts Ihren Rechner verlassen, denn das Modell ist simuliert. Beginnen Sie neu, um es noch einmal zu versuchen, und wählen Sie Rückgängig machen.
+  turns:
+    told:
+      text: 'Rückgängig gemacht: E-Mail-Adressen bleiben maskiert. Ich repariere den Test ohne die echten.'
+      approved: 'Freigegeben: E-Mail-Adressen werden jetzt im Klartext gesendet, also kann der Test die echten bekommen.'
+end:
+  learned:
+  - Ein Agent läuft mit Ihren Rechten, daher kann er die Einstellungen von Latet ändern, genau wie Sie.
+  - Eine Änderung, die den Schutz verringert, wartet auf Ihre Freigabe, ganz gleich, wer sie vorgenommen hat; bis dahin ändert sich nichts.
+  - Rückgängig machen setzt config.yaml auf den vorherigen Stand zurück; Freigeben wendet die Änderung an.
+  where:
+  - Änderungen, die auf Sie warten, unter Freigaben
+  - Ihre Einstellungen, unter Regeln

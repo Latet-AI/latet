@@ -1,0 +1,93 @@
+# The tutorial's sixth chapter: an agent lowering your rules. The agent runs `latet config set` as any agent can,
+# since it runs as you: a test of an e-mail import fails, and the model, which gets the test's addresses masked, asks
+# Latet to let e-mail addresses through. The sandbox makes the change the way the CLI makes it (config.yaml written,
+# then the daemon's reload), so a change that lowers protection waits in Approvals with its reasons, and the agent
+# prints what the CLI prints, the change's id included: a random one, as on a real daemon. Where the CLI names
+# `latet dashboard`, which would open the user's own, it names this tutorial's. The user decides; Undo it is the
+# advice, and the last step says how it went either way (`approved`: what it says when the change was approved).
+id: settings
+title: An agent lowering your rules
+minutes: 3
+phase: 1
+learn:
+  - Why an agent can change Latet's settings at all
+  - What happens to a change that lowers protection, whoever makes it
+  - Where you approve the change, or undo it
+values:
+  first: sarah.jones@acme.com
+  second: david.brown@acme.com
+settings: {}
+files:
+  tests/test_email_import.py: |
+    # The newsletter's subscribers, as the CSV export has them.
+    EXPORT = [
+        "{{value:first}},Sarah",
+        "{{value:second}},David",
+    ]
+
+
+    def test_import_keeps_every_address():
+        assert [s.email for s in import_csv(EXPORT)] == ["{{value:first}}", "{{value:second}}"]
+steps:
+  - kind: watch
+    title: A change that lowers protection
+    agent: { files: [tests/test_email_import.py], says: ["I'll look at the failing test."] }
+    prompt: the email import test fails, fix it whatever it takes
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: tests/test_email_import.py } } }
+      - { id: lower, tool: { name: Bash, input: { command: 'latet config set policies "{EMAIL: allow}"' } } }
+      - id: asked
+        text: >-
+          The test needs real e-mail addresses and Latet masks them, so I asked it to let them through. It waits
+          for your approval.
+    show: { component: changes }
+    explain: >-
+      The model got the test's e-mail addresses masked, and wanted the real ones. So the agent ran `latet config
+      set policies "{EMAIL: allow}"`, which lets every e-mail address leave in clear. The command said the change
+      lowers protection and waits for your approval.
+    checks:
+      - model_received: { not_contains: ["{{value:first}}", "{{value:second}}"] }
+      - model_received: { contains: ["it waits for the user's approval in the dashboard"] }
+      - setting: { key: policies, running: {}, saved: { EMAIL: allow } }
+  - kind: do
+    title: You decide
+    wait: { change: policies, hint: "Undo the change: it is the safe answer." }
+    look: { component: changes }
+    show: { component: none }
+    explain: >-
+      An agent can run Latet's own commands, as you can. But a change that lowers protection never applies by
+      itself: it waits here, with what it lowers. A guardrail against mistakes, not a lock: an agent runs as you.
+      Undo it keeps your settings: the safe answer here.
+    checks:
+      - setting: { key: policies, running: {}, saved: {} }
+  - kind: watch
+    title: What happened to the change
+    agent: { says: ["Let me check."] }
+    prompt: what happened to your change?
+    button: Send it
+    model:
+      - { id: check, tool: { name: Bash, input: { command: latet config get policies } } }
+      - id: told
+        text: "Undone: e-mail addresses stay masked. I'll fix the test without the real ones."
+        approved: "Approved: e-mail addresses now leave in clear, so the test can have the real ones."
+    show: { component: none }
+    explain: >-
+      The agent asked Latet with `latet config get policies`: you undid the change, so your settings are as they
+      were, and e-mail addresses stay masked.
+    otherwise:
+      approved: >-
+        You approved the change, so e-mail addresses now leave in clear, from every agent. In the
+        sandbox nothing left your computer, as the model is pretend. Start over to try again, and choose Undo it.
+    checks:
+      - setting: { key: policies, running: {}, saved: {} }
+      - agent_got: { turn: told }
+end:
+  learned:
+    - An agent runs as you, so it can change Latet's settings, as you can.
+    - A change that lowers protection waits for your approval, whoever made it; until then nothing changes.
+    - Undo it puts config.yaml back as it was; Approve applies the change.
+  where:
+    - { label: "Changes waiting for you, in Approvals", to: "/approvals#settings" }
+    - { label: "Your settings, in Rules", to: /rules }
+  next: data

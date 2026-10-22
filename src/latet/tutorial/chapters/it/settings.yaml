@@ -1,0 +1,38 @@
+title: Un agente che allenta le tue regole
+learn:
+- Come mai un agente può cambiare le impostazioni di Latet
+- Cosa succede a una modifica che riduce la protezione, chiunque la faccia
+- Dove approvi la modifica, o la annulli
+steps:
+- title: Una modifica che riduce la protezione
+  explain: 'Il modello ha ricevuto mascherati gli indirizzi email del test, e voleva quelli reali. Così l''agente ha eseguito `latet config set policies "{EMAIL: allow}"`, che fa uscire in chiaro ogni indirizzo email. Il comando ha detto che la modifica riduce la protezione e attende la tua approvazione.'
+  prompt: il test dell'import delle email fallisce, sistemalo a ogni costo
+  button: Invia
+  says:
+  - Guardo il test che fallisce.
+  turns:
+    asked:
+      text: Il test ha bisogno di indirizzi email reali e Latet li maschera, quindi gli ho chiesto di lasciarli passare. La modifica attende la tua approvazione.
+- title: Decidi tu
+  explain: 'Un agente può eseguire i comandi di Latet, come puoi fare tu. Ma una modifica che riduce la protezione non si applica mai da sola: aspetta qui, e mostra cosa riduce. Un guardrail contro gli errori, non un lucchetto: un agente agisce con i tuoi permessi. Annullala mantiene le tue impostazioni: qui è la risposta sicura.'
+  hint: 'Annulla la modifica: è la risposta sicura.'
+- title: Che fine ha fatto la modifica
+  explain: 'L''agente l''ha chiesto a Latet con `latet config get policies`: hai annullato la modifica, quindi le tue impostazioni sono rimaste com''erano, e gli indirizzi email restano mascherati.'
+  prompt: che fine ha fatto la tua modifica?
+  button: Invia
+  says:
+  - Fammi controllare.
+  otherwise:
+    approved: Hai approvato la modifica, quindi ora gli indirizzi email escono in chiaro, da ogni agente. Nella sandbox niente è uscito dal tuo computer, perché il modello è simulato. Ricomincia per riprovare, e scegli Annullala.
+  turns:
+    told:
+      text: 'Annullata: gli indirizzi email restano mascherati. Sistemo il test senza quelli reali.'
+      approved: 'Approvata: ora gli indirizzi email escono in chiaro, quindi il test può avere quelli reali.'
+end:
+  learned:
+  - Un agente agisce con i tuoi permessi, quindi può cambiare le impostazioni di Latet, come puoi fare tu.
+  - Una modifica che riduce la protezione attende la tua approvazione, chiunque l'abbia fatta; fino ad allora non cambia niente.
+  - Annullala riporta config.yaml com'era; Approva applica la modifica.
+  where:
+  - Le modifiche che ti aspettano, in Approvazioni
+  - Le tue impostazioni, in Regole

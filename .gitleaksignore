@@ -1,0 +1,6 @@
+# gitleaks: findings checked by hand, none a credential (gitleaks 8.30.1, every branch, 2026-10-10).
+# A made-up key of an example in the README of 2026-10-06, since rewritten:
+85856c43dbd28d063c418313438bb9693427f375:README.md:generic-api-key:88
+4727836f03aba01af72fa615f60bfb075234f6ba:README.md:generic-api-key:164
+# The alphabet of the French VAT number's key, a constant of its check:
+dbe520006922198e415751db07ce2d2acbe94e05:src/latet/engine/detectors/ids/vat.py:generic-api-key:151

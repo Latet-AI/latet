@@ -1,0 +1,32 @@
+title: Una petición detenida
+learn:
+- Por qué Latet detiene una petición en lugar de enmascararla
+- Dónde dice el panel por qué, con el valor que la ha detenido marcado
+- Cómo seguir, en una conversación nueva sin el secreto
+steps:
+- title: Una conversación de antes de Latet
+  explain: Latet ha detenido esta petición, y no se ha enviado nada. Esta clave entró en la conversación ayer, antes de que Latet estuviera activo, y cada petición vuelve a enviar toda la conversación. Claude Code sella cada petición con una huella digital de esa conversación, así que, a la salida, Latet no puede modificarla, solo comprobarla. La comprobación final encuentra la clave y detiene la petición. Una clave es un secreto, así que No sensible no es la solución.
+  prompt: continúa con el despliegue
+  button: Enviar
+  says:
+  - Retomo el despliegue de ayer.
+  history:
+  - user: despliega en prod con DEMO_API_KEY={{value:key}} y avísame cuando acabe
+  - model: Desplegando en prod. Te aviso cuando acabe.
+- title: Una conversación nueva
+  explain: '/clear empieza una conversación nueva: la anterior ya no está, y la clave tampoco, así que no queda nada secreto que detener. El prompt nombra la variable en lugar de pegar la clave, y la petición que muestra Latet ha pasado.'
+  prompt: despliega en prod con la clave de DEMO_API_KEY y no la pegues nunca
+  button: Enviar
+  says:
+  - Conversación nueva.
+  turns:
+    passed:
+      text: Desplegando con la clave de DEMO_API_KEY. La clave en sí nunca me ha llegado.
+end:
+  learned:
+  - En Claude Code, Latet enmascara antes de que salga una petición; un secreto de antes de que Latet estuviera activo detiene la petición.
+  - El panel dice por qué se ha detenido una petición y marca el valor que la ha detenido.
+  - Para seguir, empieza una conversación nueva (/clear en Claude Code) y deja el secreto fuera de ella.
+  where:
+  - Las peticiones detenidas, en la página En directo
+  - La petición que ha pasado

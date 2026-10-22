@@ -1,0 +1,313 @@
+---
+title: Dashboard guide
+description: The local dashboard shows exactly what was sent upstream and how each value was masked.
+---
+
+import Screenshot from '../../components/Screenshot.astro';
+
+The dashboard is a local web page served by the Latet daemon. It answers one question:
+**what did my agent actually send?**
+
+## Opening it
+
+```sh
+latet dashboard
+```
+
+The command starts the daemon if needed, asks it for a one-time login link and opens it in your
+browser. The link works once, for two minutes; the session it opens ends 12 hours after you sign
+in, whether you use it or not. `latet dashboard --print-url` prints the link instead, for another
+browser.
+
+The page lives at `http://127.0.0.1:5283/_latet/ui/` (5283 is the default port; the sidebar shows
+the one in use). Opening that address without the link shows a page asking you to run
+`latet dashboard`.
+
+## On a Latet server
+
+On a computer connected to a [Latet server](../concepts/server/), `latet dashboard` opens your own
+dashboard on the server, at the server's address, through a one-time link as on a computer. It shows
+your space: the requests of your computers, your vault and your own settings. The sidebar names the
+server and who is signed in, with **Sign out**, which ends this browser's session on every instance
+of the server. Your rules on **Rules** are your own: to use a team's rules, import its rules file
+with **Import rules**. The server's administrators set where the local reviewer runs, which
+**Rules** marks *Set for everyone on this server* under *Reviewers*, and the destinations set for
+everyone, which **Protected agents** marks *Set for everyone* and which you cannot remove. The
+dashboard does not read a project's files on your computer: it neither writes its `latet.yaml` nor
+drafts recognizers from them. On a server a project's *Import settings* is refused, since the server
+cannot read the project's files; *Export these settings* still works, and **Import rules** on the
+global rules adds a file to your own rules. On a server, **Protected agents** has no agents table,
+since your agents run on your own computers: it gives the `latet doctor` command to run on each of
+them, and lists your destinations. An API key stands for a program and has no dashboard: the
+administrators set its settings. A sign-in link that does not sign you in says why: it
+was used already, it is more than two minutes old or it was opened from another site's page; too
+many links were tried from your address (wait a minute); or the server was busy (try again in a
+moment). [Set up and administer a Latet server](../getting-started/server/) is the administrators'
+guide.
+
+## What you will see
+
+### Live
+
+<Screenshot name="live" alt="The Live page: each request with its agent, model, timing, tokens, masked values and flags" caption="Live: every request as it happens." />
+
+Every exchange as it happens: agent, provider, model, how long it took and how much of
+that was Latet, token usage (including prompt-cache reads), how many values were masked, and
+flags such as *Blocked*, *Not inspected* (PDFs, images not read), *Image: masked*, *Withheld* (the
+[dump guard](../concepts/production-data/#the-dump-guard)), *From the history* (a conversation that
+began before Latet was on: see [Troubleshooting](../troubleshooting/#every-request-of-a-conversation-is-blocked)),
+*Auto mode review* or *Unknown route*.
+
+### Request detail
+
+For one exchange, each text block of the request side by side: the original
+on your machine, and exactly what was sent upstream, with every surrogate highlighted and labelled
+with the kind of value it replaced, the part of Latet that found it (secrets, personal data, ID
+and VAT numbers, your identity, your terms, your recognizers, the name model, the local reviewer,
+you in the Live Reviewer, your field rules or strict data mode) and the rule. It also says how the
+value was found in that text: by a detector, elsewhere in the same text, as a value already in the
+vault, as a surrogate sent back, masked by the Claude Code plugin, or restored in the answer. A
+value [strict data mode](../concepts/production-data/) masked offers *Don't mask* its column, *in
+this project* in an exchange of a project and *anywhere* otherwise, and under a tool's output it
+masked, *Choose the columns to keep in clear* proposes the
+columns that could go in clear (ids, dates, states, counts), with the local reviewer's opinion if
+you ask: see [Choosing the columns to keep in clear](../concepts/production-data/#choosing-the-columns-to-keep-in-clear).
+Strict data mode itself is set in Rules, not here: see
+[In an exchange](../concepts/production-data/#in-an-exchange).
+What the [local reviewer](../concepts/llm-review/) said of each block is listed too:
+what it masked, and what it only suggested, with *Always mask* and *Not sensitive*. In an
+exchange of a [project](../concepts/projects/), these apply to *This project* (the default) or
+*Everywhere*. Below, the model's answer as it
+wrote it and as your agent received it, tool calls included. Credentials in headers are never
+recorded.
+
+In client mode (Claude Code), the plugin masks text before the daemon sees it: the daemon records
+the request exactly as it left, and rebuilds the originals from the vault for you to compare.
+
+<Screenshot name="exchange" alt="One exchange: each block of the request as it is on this machine, next to what was sent to the model, with every masked value highlighted" caption="An exchange: the original on the left, what the model received on the right." />
+
+<Screenshot name="inspector" alt="A masked value clicked: its type, the rule that found it, the real value, and Always mask or Not sensitive for this project or everywhere" caption="Click a masked value: what it is, which rule found it, and what to do about it." />
+
+### After sending
+
+When the local reviewer, reading in the background, finds values in a text
+that left already, **Live** says so, with a link to the session's latest exchange: they are
+masked from the next request on.
+
+### Blocked requests
+
+On top, in plain words: what happened, what it meant for you (a request
+that never left; for Claude Code's auto mode check, an action auto mode refused), and what
+you can do, with a button where one setting changes it. Below, what would have left, with the
+values that stopped it boxed in red: click one to see what it is, and choose *Not sensitive* if it
+is not, and the next identical request goes through. With `history: metadata`, which keeps no
+texts, they are listed by type and length only. The reason Latet gave the agent is there too.
+Requests stopped inside Claude Code by the plugin's own final check show up here too.
+
+### Approvals
+
+Two tabs, each with the number waiting. Under *Texts*, with the
+[Live Reviewer](../concepts/live-review/) on, every new text waits before it leaves: the original
+next to what will be sent, to approve, mask more in, or stop; an image with the boxes where its
+values are covered, to cover more by hand or not send. Under *Settings*, a change to your settings
+that lowers protection waits, whoever made it (an agent's command, `config.yaml` edited by hand),
+with what it lowers, and the local reviewer's guidance it writes before and after
+([Agents and your settings](../concepts/agents-and-settings/)). The page opens on *Texts*, or on
+*Settings* when only a change waits; a change that arrives while you review texts adds to the
+count of *Settings* and leaves you where you are. In a window narrower than 1100 px (half a
+screen, a phone), *Texts* shows one text at a time: which it is of how many wait, the original
+above what will be sent, and a bar at the bottom with *Approve*, *Don't send*, and the previous
+and the next text. A text can be decided once it has shown for 0.4 seconds, so that a double
+click on *Approve* does not approve the next one unseen; after a decision, the keyboard focus is
+on the text that shows next.
+
+### Sessions
+
+One conversation at a time. Blocks resent with every turn are marked as such, so
+what is *new* in each request stands out.
+
+### Vault
+
+Every value Latet knows and its surrogate. Originals are revealed on request only.
+*Forget* removes a value from the vault, and from the whole history with it. The values come fifty a
+page, the newest first, with the page links under the table.
+
+### Rules of a project
+
+The selector at the top of **Rules** switches from the global rules to
+one [project](../concepts/projects/)'s, in the same tabs. Above them are the project's folder, its
+`latet.yaml` and, under *What is not applied*, what its files say but cannot apply.
+
+- **Overview:** what is in effect there, all layers together, and your settings for the project
+  as a whole: *Export these settings* and *Import settings* move them to a colleague's copy of
+  the project, and *Remove your settings* takes them away.
+- **Protection** and **Reviewers:** your own settings for the project, with the sections of the
+  global rules: Latet on, secrets only or off there (first in *Protection*), production data, how
+  much the local reviewer reads there, your guidance to it there and the Live Reviewer.
+- **Terms**, **Recognizers**, **Allowed values** and **Policies:** a table each of every rule that
+  applies there, a row per source, its **From** column saying where it comes from: *yours, for*
+  the project, *latet.yaml*, or *global* with a padlock. The *From* filter keeps those of one
+  source, and each tab counts yours and all of them (*1 yours · 4 in all*). A row is changed where
+  it is born: a global one opens read only, with *Open in the global rules*; a row of `latet.yaml`
+  is saved to the file when the dashboard may write it; a new row (*Add for* the project) goes to
+  your own settings for the project, unless *Save to* says `latet.yaml`, read by everyone who
+  reads the repository. Before a save to `latet.yaml`, the panel says whether the save creates
+  the file or writes it again whole (its comments after the first lines are not kept), and a
+  delete or a turn-off of rows selected says how many of them are in the file. Values never to
+  mask come from the global rules and from yours alone, since a repository file cannot set them.
+  In *Policies*, *In force here* says which action applies in the project, and a row whose action
+  is not the one in force there says so next to its action. On a Latet server a project's tables
+  have no *Import*: your settings for a project are imported on your computer.
+- **Repository file:** the project's `latet.yaml`, with what adds protection and is not a list.
+  *Suggest recognizers* drafts some from the project's files and opens each in the *Recognizers*
+  tab, *Save to* set to `latet.yaml`; the file is written for you when the project's folder is on
+  this machine.
+
+As in the global rules, a dot marks a tab with unsaved changes, the search finds sections and rows
+in any tab, and *Save your settings*, at the bottom of the tabs without tables, saves those of
+every such tab at once; in the *Repository file* tab, *Save latet.yaml* saves the file alone. A
+save in a panel keeps what you changed and did not save elsewhere, unless that setting changed
+meanwhile: then the page says which tab lost it. The **Live** page filters by project, and an
+exchange says which of the project's settings a rule comes from, with a link to the tab where it
+is edited.
+
+### Rules
+
+The [profile](../concepts/profiles/), the personal-data types to detect and the
+countries whose ID numbers to recognise, your custom terms and
+[recognizers](../concepts/custom-recognizers/) (with a *Try it* panel), allow lists and policies,
+[production data](../concepts/production-data/) (strict data mode, field rules, the dump guard,
+[images](../concepts/images/) and text recognition), the [local reviewer](../concepts/llm-review/) (with your guidance, its own
+instructions shown read-only as they are sent, *Try it* on a sample or a text of yours, and *Draft
+from a description* for recognizers), local name detection, what Claude Code's
+[auto mode reviewer](../agents/claude-code/) may
+receive, and how much history to keep. Changes apply at once to new requests, without a restart.
+The sections are in tabs: *Protection* (the profile first), *Terms*, *Recognizers*, *Allowed
+values*, *Policies*, *Reviewers* and *Advanced*, each list's tab with its count.
+
+Each list is a table built for hundreds of rows: its own search, which reads the values (a term,
+a type, a name, a pattern), filters that fit the list (a term's type, a recognizer's state, a
+value or a pattern...), columns sorted with a click on their header, pages of fifty, and a
+checkbox per row. The rows selected are deleted, a recognizer turned on or off, or copied to
+your own settings for a project (*Copy to a project…*), at once after a confirmation. A click on
+a row, or Enter, opens it in a panel on the right with every field of it, the whole value of a
+long one included; *Add* opens the same panel empty. A new policy's type is picked from the menu,
+or typed with *Another type…* for a type Latet finds that the menu does not list, such as a
+secret's. *Try it*, on a pattern of values never masked, says whether the pattern lets a value
+through, or that it cannot be tried here when it uses a form only Latet reads. A panel's *Save*
+applies the change at once, made on your settings as they are now: when they changed meanwhile
+(another tab, an agent's change applied) and the row did not, it is saved all the same; when the
+row changed, the panel says so and shows it as it is now. A panel closed with changes not saved
+asks first, and so does leaving the page with them, or closing the browser's tab. On a phone the
+panel covers the page, *Close* at the top and its buttons at the bottom.
+
+A dot marks a tab without a table that has unsaved changes, and *Save rules*, at the bottom of
+those tabs, saves them all at once; a panel's save keeps them, unless one of those settings
+changed meanwhile, and then the page says which tab lost its change. The search above the tabs
+finds a section by its title or its description and the rows of the tables, whatever their tab,
+and says in which tabs it found rows. *Export rules* and *Import rules*, at the top, give a
+colleague your rules in a file; an import shows what it would add before anything changes
+([Export and import](../concepts/export-import/)). The *Terms*, *Recognizers* and *Allowed
+values* tables have an *Import* and an *Export* of their own: the terms as CSV
+(`value,type,case_sensitive,whole_word`, so a client list pastes in one go), the values as CSV
+(`kind,value`), the recognizers as a rules file. *Export* writes the rows the table shows, as
+filtered, with the guards of *Export rules*: the terms and the values are in the file in clear,
+as the export says, a cell a spreadsheet would run as a formula is written after a quote, and a
+recognizer whose examples hold a value Latet has seen for real is left out, and named. *Import*
+adds to the list, never replaces it, and shows first what it would add; the *Recognizers* table
+imports a file of recognizers alone.
+
+<Screenshot name="rules" alt="The Terms tab of Rules: a table of the terms with a search, a filter and a checkbox per row, and one term open in the side panel on the right, with its fields and Save" caption="A list of the rules as a table, a row open in its panel." />
+
+### Playground
+
+Paste a text and see how your rules, or another profile, would mask it, as a
+prompt, an attachment, a tool output or a system prompt. Nothing typed there is written to disk,
+to the vault or to the history, and it never reaches a model.
+
+### Protected agents
+
+Which agents are routed through Latet and where each one's requests go, and the
+result of the health checks. In the agents table, **Through Latet** says Yes when an agent's
+requests pass through Latet and leave masked, Partly when only part of Latet's settings are in
+place, No when they go to the provider unprotected, With latet gemini when Gemini CLI goes through
+Latet only when started with that command, and Not installed when the agent is not on this
+computer; for Partly and No, the agent's notes give the command that sets it right. **Where requests go** lists your [company endpoints](../agents/company-endpoints/):
+each destination's address, the agent whose settings named it and when it was last used. *Remove*
+takes away that one destination and no other. One still in use cannot be removed: Claude Code's or
+Codex's settings, or your organization's managed settings, point at it, or it was registered since
+Latet started, by a `latet claude` or `latet codex` session, `latet agents apply` or
+`latet global-install`. Latet does not see a destination that only another agent uses (OpenCode,
+Hermes, a program started with `latet run`): check that none does before you remove it. Each
+exchange says where it went (**Sent to**), and whether Latet signed it for Amazon Bedrock.
+
+### Stats
+
+For today or the last days: exchanges, masked values and blocked requests per day;
+values masked by type; exchanges by agent; latency and Latet's overhead (median and 95th
+percentile); how much of the prompt was served from the provider's cache.
+
+## Keyboard shortcuts
+
+On **Approvals**, the keyboard can decide the texts waiting once you turn its shortcuts on: they are off
+at first. *Keyboard shortcuts*, above the texts, lists them, with the switch that turns them on; this
+browser keeps your choice, and while they are on the button says *Shortcuts on*.
+
+| Key | What it does |
+|---|---|
+| <kbd>A</kbd> | Approve the text shown |
+| <kbd>X</kbd> | Don't send it |
+| <kbd>J</kbd> / <kbd>K</kbd> | The next text / the previous one |
+| <kbd>M</kbd> | Mask the text selected in the original, or else the first suggestion |
+| <kbd>Shift</kbd>+<kbd>A</kbd> | Approve all waiting, once you confirm |
+| <kbd>?</kbd> | The list of shortcuts |
+
+A key never acts while you type in a field, with Ctrl, Alt or Cmd held, or in the tutorial's queue.
+Enter approves nothing: the *Approve* button sends a text as it is.
+
+## Privacy of the dashboard itself
+
+What follows is about the dashboard on your own computer. For a Latet server's dashboard, see
+[Latet on a server](../concepts/server/).
+
+- It listens on `127.0.0.1` only; in the [container image](../getting-started/docker/) it listens
+  inside the container, whose port you publish on `127.0.0.1` only. Requests whose `Host` is not
+  this machine are refused, which defeats DNS rebinding.
+- Access needs the one-time link, then an `HttpOnly`, `SameSite=Strict` session cookie. Every change
+  also needs a header that pages from other sites cannot send. Pages from other sites cannot use the
+  daemon's proxy routes either: requests that carry browser headers are refused.
+- The page loads nothing from the internet: no fonts, scripts or analytics from third parties.
+- The history keeps requests as they left your machine (already masked), and blocked requests as
+  they would have left, so you can see what was stopped. It is encrypted with AES-GCM, under a key
+  derived from the same root key as the vault's. Originals are looked up in the vault when you open
+  a request, so a value you forget disappears from the history too.
+- What the history keeps is chosen under History in **Rules**, in the *Advanced* tab: *Everything*
+  (the text blocks, the answers and the timings, so you can see exactly what was sent), *Metadata
+  only* (counts, timings and flags, no text) or *Nothing* (exchanges are not recorded, and **Live**
+  stays empty).
+- History is kept for 14 days by default; *Keep for*, under History in **Rules**, sets 1 to 365
+  days. Blocks resent with every turn are stored once.
+- You can clear the history at any time from the dashboard; the vault is kept.
+
+## Languages
+
+The dashboard comes in English, Italian, German, French and Spanish. It opens in the language you
+chose, else in the first of your browser's languages it has, else in English; the language menu in the
+sidebar, above the theme switch, changes it at once, and your browser keeps the choice. Dates and
+numbers follow the language. What the daemon says (its errors, the doctor's checks) stays in English.
+To add a language, see [Contributing](../contributing/#how-to-add-a-language).
+
+## The documentation
+
+*Documentation*, at the top right of every page, opens the part of this guide that explains the
+page. A *?* beside the title of a section of **Rules**, and at the top of a rule's panel, opens the
+documentation of that section, and *Why*, in a notice that says what happened (a request stopped, a
+tool output withheld, a change that waits for your approval), the page that explains it. Each opens
+in a new tab, in the dashboard's language.
+
+What opens is the documentation of the Latet you run: each install serves its own, at
+`/_latet/docs/` (`http://127.0.0.1:5283/_latet/docs/` on the default port), and a Latet server
+serves its own the same way. It works without a network and asks nothing of any other host; the
+one exception is the product video, a link to watch it on docs.latet.ai. An install that does not
+carry it, such as one from a checkout where it was not built, opens the same pages on
+docs.latet.ai, which describe the latest version.

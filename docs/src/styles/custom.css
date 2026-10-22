@@ -1,0 +1,212 @@
+/* The site's colours and type, from the logo and the product video: a near-black tinted green, one green, and a
+   warm orange for a value that must not leave. Text keeps at least 7:1 contrast with its background, links and
+   secondary text at least 4.5:1, in both themes. Inter for the text, Montserrat for the titles, JetBrains Mono for
+   code: the site serves them itself (astro.config.mjs), with no request to anyone else. */
+:root {
+	--sl-font: 'Inter Variable';
+	--sl-font-mono: 'JetBrains Mono';
+	--latet-font-display: 'Montserrat', var(--__sl-font);
+
+	--sl-color-white: #f4f8f6;
+	--sl-color-gray-1: #e9efec;
+	--sl-color-gray-2: #c5cfcb;
+	--sl-color-gray-3: #97a6a1;
+	--sl-color-gray-4: #5f6e69;
+	--sl-color-gray-5: #22302c;
+	--sl-color-gray-6: #111917;
+	--sl-color-black: #0a100f;
+
+	--sl-color-accent-low: #0e2a1f;
+	--sl-color-accent: #2ee59d;
+	--sl-color-accent-high: #8bf0c6;
+
+	--sl-color-orange-low: #3a2611;
+	--sl-color-orange: #f0a860;
+	--sl-color-orange-high: #f6c999;
+
+	--sl-color-bg-inline-code: #17211e;
+
+	/* A value as it is on your machine, and its fake as the model gets it. */
+	--latet-real: #f0a860;
+	--latet-fake: #2ee59d;
+	/* The mark's mosaic behind the home page's hero, and the glow behind the mark. */
+	--latet-grid: #17211e;
+	--latet-glow: rgb(46 229 157 / 0.16);
+}
+
+:root[data-theme='light'] {
+	--sl-color-white: #0a100f;
+	--sl-color-gray-1: #17211e;
+	--sl-color-gray-2: #2b3834;
+	--sl-color-gray-3: #4f5d58;
+	--sl-color-gray-4: #7f8c88;
+	--sl-color-gray-5: #c9d2ce;
+	--sl-color-gray-6: #e6ece9;
+	--sl-color-gray-7: #f3f6f5;
+	--sl-color-black: #fbfcfb;
+
+	--sl-color-accent-low: #e2f6ec;
+	--sl-color-accent: #0b7a4b;
+	--sl-color-accent-high: #075c38;
+
+	--sl-color-orange-low: #fbecd9;
+	--sl-color-orange: #c9741f;
+	--sl-color-orange-high: #7a3d0a;
+
+	--sl-color-bg-inline-code: #eef2f0;
+
+	--latet-real: #a4520f;
+	--latet-fake: #0b7a4b;
+	--latet-grid: #e6ece9;
+	--latet-glow: transparent;
+}
+
+/* Titles in Montserrat, as in the video: the page's title the heaviest. */
+:is(h1, h2, h3, h4, h5, h6),
+.sidebar-content .large,
+.sl-link-button,
+.card .title {
+	font-family: var(--latet-font-display);
+}
+
+h1#_top {
+	font-weight: 900;
+	letter-spacing: -0.03em;
+}
+
+.sl-markdown-content h2:not(:where(.not-content *)) {
+	font-weight: 800;
+	letter-spacing: -0.015em;
+}
+
+.sl-markdown-content :is(h3, h4, h5, h6):not(:where(.not-content *)),
+.card .title {
+	font-weight: 700;
+}
+
+/* The page you are on: a quiet green, with the green line on its side. */
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover,
+.sidebar-content a[aria-current='page']:focus {
+	color: var(--sl-color-accent-high);
+	background-color: var(--sl-color-accent-low);
+	box-shadow: inset 3px 0 0 var(--sl-color-accent);
+}
+
+[dir='rtl'] .sidebar-content a[aria-current='page'] {
+	box-shadow: inset -3px 0 0 var(--sl-color-accent);
+}
+
+.sl-link-button {
+	font-weight: 600;
+}
+
+.sl-link-button.primary,
+.sl-link-button.primary:hover {
+	background: var(--sl-color-accent);
+	border-color: var(--sl-color-accent);
+	color: var(--sl-color-black);
+}
+
+/* One green for every card, where Starlight takes a colour each. */
+.card {
+	--sl-card-border: var(--sl-color-accent);
+	--sl-card-bg: var(--sl-color-accent-low);
+}
+
+.card .icon {
+	color: var(--sl-color-text-accent);
+}
+
+.starlight-aside--note {
+	--sl-color-asides-text-accent: var(--sl-color-accent-high);
+	--sl-color-asides-border: var(--sl-color-accent);
+	background-color: var(--sl-color-accent-low);
+}
+
+/* A value as it is on your machine, and its fake as the model gets it: the warm one stays, the green one leaves. */
+.real {
+	color: var(--latet-real);
+}
+
+.fake {
+	color: var(--latet-fake);
+}
+
+/* An image drawn for one theme only (the screenshots come in light and dark). */
+:root[data-theme='light'] .dark-only,
+:root[data-theme='dark'] .light-only {
+	display: none;
+}
+
+/* The home page: the title in Montserrat 900, and behind the hero alone, never behind the page's text, the mark's
+   mosaic and a soft glow where the mark stands. */
+.hero {
+	position: relative;
+	isolation: isolate;
+}
+
+.hero::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	background-image:
+		radial-gradient(circle at 80% 50%, var(--latet-glow), transparent 30%),
+		linear-gradient(var(--latet-grid) 1px, transparent 1px),
+		linear-gradient(90deg, var(--latet-grid) 1px, transparent 1px);
+	background-size:
+		100% 100%,
+		24px 24px,
+		24px 24px;
+	mask-image: linear-gradient(to bottom, transparent, #000 15%, #000 85%, transparent);
+}
+
+.hero h1 {
+	font-weight: 900;
+	letter-spacing: -0.035em;
+}
+
+.hero .tagline {
+	color: var(--sl-color-gray-3);
+}
+
+/* The home page's mark, a little smaller than Starlight's hero images. */
+.hero > img {
+	max-width: min(70%, 18rem);
+}
+
+.media-frame {
+	margin-block: 1.5rem;
+}
+
+.media-frame video,
+.media-frame img {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 0.75rem;
+	border: 1px solid var(--sl-color-hairline-light);
+	box-shadow: var(--sl-shadow-md);
+}
+
+.media-frame figcaption {
+	margin-top: 0.5rem;
+	font-size: var(--sl-text-sm);
+	color: var(--sl-color-gray-3);
+	text-align: center;
+}
+
+@media (max-width: 50rem) {
+	.hero > img {
+		max-width: 9rem;
+	}
+
+	/* The mark stands above the title on a narrow screen. */
+	.hero::before {
+		background-image:
+			radial-gradient(circle at 50% 18%, var(--latet-glow), transparent 35%),
+			linear-gradient(var(--latet-grid) 1px, transparent 1px),
+			linear-gradient(90deg, var(--latet-grid) 1px, transparent 1px);
+	}
+}

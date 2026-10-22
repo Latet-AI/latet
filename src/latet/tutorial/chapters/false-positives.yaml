@@ -1,0 +1,78 @@
+# The tutorial's third chapter: a value masked for nothing, and Not sensitive. Stripe's test card is a card number to
+# every detector, so it is masked; it is also known to everyone and charges nobody, so masking it only confuses the
+# model. The model's first answer holds no fake: it goes back with the rest of the conversation, and the dashboard
+# would take a fake in it for one the plugin put there (the sandbox has no plugin). Once the card is Not sensitive,
+# the agent reads the file again: the model gets the card itself, in a new tool output.
+id: false-positives
+title: A value masked for nothing
+minutes: 3
+phase: 1
+learn:
+  - Why Latet sometimes masks a value that is not sensitive
+  - What Not sensitive does, and when to use it
+  - Where the values you let through are in the dashboard
+values:
+  card: "4242 4242 4242 4242"
+settings: {}
+files:
+  tests/test_checkout.py: |
+    # Stripe's test card: it charges nobody.
+    TEST_CARD = "{{value:card}}"
+
+
+    def test_checkout_takes_a_card():
+        assert checkout(TEST_CARD, amount=2000).paid
+received:
+  CARD: { pattern: 'TEST_CARD = "([\d ]+)"', in: tool_result }
+steps:
+  - kind: watch
+    title: A test card, masked
+    agent: { files: [tests/test_checkout.py], says: ["I'll read the test file first."] }
+    prompt: read tests/test_checkout.py and add a test for a refund
+    button: Send it
+    model:
+      - { id: read, tool: { name: Read, input: { file_path: tests/test_checkout.py } } }
+      - id: refused
+        text: "That is not Stripe's test card, so it may be a customer's. I won't put a real card in a test."
+    show: { exchange: refused, part: request, highlight: ["{{value:card}}"] }
+    explain: >-
+      {{value:card}} is Stripe's test card, which charges nobody, but it looks like any card number. Latet
+      masked it, and the model got {{received:CARD}}, which it now takes for a customer's card. In the request
+      Latet shows, the card is marked where it was masked. Next, you tell Latet it is not sensitive.
+    checks:
+      - model_received: { not_contains: ["{{value:card}}"] }
+      - received: { name: CARD, not: "{{value:card}}" }
+      - exchange: { ref: refused, mode: rewrite, masked_types: [CREDIT_CARD] }
+      - shown: { marked: ["{{value:card}}"] }
+  - kind: do
+    title: Not sensitive
+    wait: { allow: "{{value:card}}", hint: "Click the card number in the request, then choose Not sensitive." }
+    look: { exchange: refused, part: request, highlight: ["{{value:card}}"] }
+    agent: { files: [tests/test_checkout.py] }
+    prompt: it's Stripe's test card, I marked it Not sensitive. read the file again and add the refund test
+    model:
+      - { id: reread, tool: { name: Read, input: { file_path: tests/test_checkout.py } } }
+      - id: again
+        text: "Got it: {{received:CARD}} is Stripe's test card. Adding the refund test."
+    show: { exchange: again, part: request, highlight: ["{{value:card}}"] }
+    explain: >-
+      Click the card number and choose Not sensitive. The agent then reads the file again, and this time the
+      card goes in clear, as you marked it Not sensitive: the request Latet shows has it in clear in the file
+      it read. Every other card number is still masked. Use it for values like this one, never for a key or
+      someone's data.
+    checks:
+      - rules: { allowed: "{{value:card}}" }
+      - model_received: { contains: ["{{value:card}}"] }
+      - received: { name: CARD, equals: "{{value:card}}" }
+      - exchange: { ref: again, mode: rewrite }
+      - shown: { clear: ["{{value:card}}"] }
+      - agent_got: { turn: again }
+end:
+  learned:
+    - Latet masks what looks sensitive, and now and then that is a value that is not.
+    - Not sensitive lets that one value through from then on; the others of its kind stay masked.
+    - It is for values like a test card, never for a key or someone's data.
+  where:
+    - { label: "The values you let through, in Rules", to: "/rules#allow" }
+    - { label: "The request with the card in clear", to: "exchange:again" }
+  next: stopped

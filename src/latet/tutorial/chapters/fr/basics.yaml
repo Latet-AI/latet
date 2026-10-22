@@ -1,0 +1,39 @@
+title: Les bases
+learn:
+- Ce que reçoit le modèle à la place d'une clé, d'une adresse e-mail ou d'un numéro de téléphone
+- Pourquoi les fichiers qu'écrit l'agent contiennent malgré tout les vraies valeurs
+- Où le tableau de bord affiche chaque valeur, et la règle qui l'a trouvée
+steps:
+- title: Une clé part sous forme de valeur factice
+  explain: 'L''agent a lu .env et l''a envoyé au modèle. Avant son départ, Latet a remplacé la clé par une valeur factice du même format. La requête qu''affiche Latet contient les deux : le texte tel qu''il est sur votre machine, et ce que le modèle a reçu.'
+  prompt: lis .env et prépare config.local.json pour la prod
+  button: Envoyer
+  says:
+  - Je lis d'abord .env.
+  turns:
+    write:
+      text: J'ai la clé. J'écris la configuration.
+- title: Le fichier contient la vraie clé
+  explain: 'Le modèle a mis sa valeur factice ({{received:DEMO_API_KEY}}) dans l''appel à Write. Latet a remis la vraie clé en place avant que l''agent n''exécute cet appel : le fichier fonctionne donc.'
+  button: Le laisser écrire
+  turns:
+    done:
+      text: C'est fait. config.local.json est prêt pour la prod.
+- title: Demander à Latet
+  explain: Cliquez sur la valeur mise en évidence. Latet indique ce que c'est, quelle règle l'a trouvée, et ce qui a été envoyé à sa place.
+- title: Les personnes aussi
+  explain: 'L''adresse et le numéro sont eux aussi partis sous forme de valeurs factices. L''agent vous montre pourtant les vraies valeurs : Latet les a remises en place dans la réponse.'
+  prompt: envoie la facture par e-mail à {{value:email}}, son numéro est {{value:phone}}
+  button: Envoyer
+  turns:
+    email:
+      text: Je ne peux pas envoyer d'e-mails, mais j'ai noté {{received:EMAIL}} et {{received:PHONE}}.
+end:
+  learned:
+  - Le modèle reçoit des valeurs factices du même format ; les vraies valeurs restent sur votre machine.
+  - Ce qui revient est remis en place, donc les fichiers qu'écrit votre agent contiennent les vraies valeurs.
+  - 'Le tableau de bord affiche chaque requête : le texte tel qu''il est sur votre machine, et ce que le modèle a reçu.'
+  where:
+  - Chaque requête, en direct
+  - La requête avec la clé
+  - Chaque valeur que Latet a remplacée

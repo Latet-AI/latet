@@ -1,0 +1,30 @@
+title: Datos de producción
+learn:
+- Qué hace el modo de datos estricto con el resultado de una consulta
+- Qué columnas pueden llegar al modelo en claro y cómo elegirlas
+- Dónde se guarda tu elección
+steps:
+- title: Una consulta en producción
+  explain: 'En este capítulo el modo de datos estricto está activado: cada valor de una tabla que muestra una herramienta sale enmascarado, también los identificadores y las fechas. El modelo ha recibido {{received:ID}} en lugar del identificador {{value:id}} y {{received:PLAN}} en lugar del plan {{value:plan}}, así que no ha encontrado a nadie con el plan pro, y su respuesta es incorrecta. Los nombres y las direcciones de correo electrónico están a salvo, pero el modelo no puede hacer su trabajo.'
+  prompt: ¿cuántos de nuestros clientes más recientes tienen el plan pro?
+  button: Enviar
+  says:
+  - Consulto la tabla customers.
+  turns:
+    table:
+      text: 'Ninguno: ninguna fila dice pro.'
+- title: Deja en claro identificadores, fechas y planes
+  explain: 'Un identificador, la fecha de un evento o un plan no dicen nada de una persona, así que el modelo puede tenerlos en claro. Latet propone esas columnas, mantiene enmascarados los nombres y las direcciones de correo electrónico, y deja los importes en tus manos. Deja en claro las columnas propuestas, y el agente vuelve a ejecutar la consulta: salen en claro, las columnas de las personas siguen enmascaradas y el modelo puede responder.'
+  prompt: vuelve a intentarlo
+  hint: 'Deja en claro las 3 columnas que propone Latet: id, signup_date y plan_type.'
+  turns:
+    again:
+      text: 'Dos de los cinco: los clientes 1001 y 1004, con el plan pro desde enero y desde marzo. Quiénes son, sigo sin poder saberlo.'
+end:
+  learned:
+  - El modo de datos estricto enmascara cada valor de una tabla que muestra una herramienta, así que el modelo tampoco puede leer un identificador ni una fecha.
+  - Los identificadores, las fechas de eventos y los estados no dicen nada de una persona; déjalos en claro, y los datos de las personas siguen enmascarados.
+  - Lo que dejas en claro es una regla de campo, en la sección Datos de producción de Reglas, donde puedes quitarla.
+  where:
+  - El modo de datos estricto y tus reglas de campo, en Reglas
+  - La segunda consulta, con identificadores, fechas y planes en claro

@@ -1,0 +1,353 @@
+---
+title: Anleitung zum Dashboard
+description: Das lokale Dashboard zeigt genau, was an den Anbieter gesendet wurde und wie jeder Wert maskiert wurde.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+Das Dashboard ist eine lokale Webseite, die der Daemon von Latet bereitstellt. Es beantwortet eine
+Frage: **Was hat mein Agent tatsächlich gesendet?**
+
+## Das Dashboard öffnen
+
+```sh
+latet dashboard
+```
+
+Der Befehl startet bei Bedarf den Daemon, fordert bei ihm einen Einmal-Link zur Anmeldung an und
+öffnet ihn in Ihrem Browser. Der Link funktioniert einmal, zwei Minuten lang; die Sitzung, die er
+öffnet, endet 12 Stunden nach Ihrer Anmeldung, ob Sie sie nutzen oder nicht.
+`latet dashboard --print-url` gibt den Link stattdessen aus, für einen anderen Browser.
+
+Die Seite liegt unter `http://127.0.0.1:5283/_latet/ui/` (5283 ist der Standardport; die
+Seitenleiste zeigt den verwendeten). Wenn Sie diese Adresse ohne den Link öffnen, erscheint eine
+Seite, die Sie bittet, `latet dashboard` auszuführen.
+
+## Auf einem Latet-Server
+
+Auf einem Rechner, der mit einem [Latet-Server](../concepts/server/) verbunden ist, öffnet
+`latet dashboard` Ihr eigenes Dashboard auf dem Server, unter der Adresse des Servers, über einen
+Einmal-Link wie auf einem Rechner. Es zeigt Ihren Bereich: die Anfragen Ihrer Rechner, Ihren Tresor
+und Ihre eigenen Einstellungen. Die Seitenleiste nennt den Server und wer angemeldet ist, mit
+**Abmelden**, das die Sitzung dieses Browsers auf jeder Instanz des Servers beendet. Ihre Regeln
+unter **Regeln** gehören Ihnen allein: Um die Regeln eines Teams zu verwenden, importieren Sie seine
+Regeldatei mit **Regeln importieren**. Die Administratoren des Servers legen fest, wo der lokale
+Prüfer läuft, was **Regeln** unter *Prüfer* mit *Auf diesem Server für alle festgelegt*
+kennzeichnet, sowie die für alle festgelegten Ziele, die **Geschützte Agenten** mit *Für alle
+festgelegt* kennzeichnet und die Sie nicht entfernen können. Das Dashboard liest keine Dateien eines
+Projekts auf Ihrem Rechner: Es schreibt weder seine `latet.yaml` noch entwirft es Erkenner aus
+ihnen. Auf einem Server wird *Einstellungen importieren* eines Projekts abgelehnt, weil der Server
+die Dateien des Projekts nicht lesen kann; *Diese Einstellungen exportieren* funktioniert weiterhin,
+und **Regeln importieren** bei den globalen Regeln fügt Ihren eigenen Regeln eine Datei hinzu. Auf
+einem Server hat **Geschützte Agenten** keine Agententabelle, weil Ihre Agenten auf Ihren eigenen
+Rechnern laufen: Die Seite nennt den Befehl `latet doctor`, den Sie auf jedem davon ausführen, und
+listet Ihre Ziele auf. Ein API-Schlüssel steht für ein Programm und hat kein Dashboard: Die
+Administratoren legen seine Einstellungen fest. Ein Anmeldelink, der Sie nicht anmeldet, sagt, warum: Er wurde
+schon benutzt, ist älter als zwei Minuten oder wurde von der Seite einer anderen Website geöffnet; von
+Ihrer Adresse wurden zu viele Links versucht (warten Sie eine Minute); oder der Server war ausgelastet
+(versuchen Sie es gleich noch einmal). [Einen Latet-Server einrichten und
+verwalten](../getting-started/server/) ist die Anleitung für die Administratoren.
+
+## Was Sie sehen
+
+### Live
+
+<Screenshot name="live" alt="Die Seite Live: jede Anfrage mit ihrem Agenten, Modell, Zeitverhalten, Tokens, maskierten Werten und Markierungen" caption="Live: jede Anfrage in Echtzeit." />
+
+Jeder Austausch in Echtzeit: Agent, Anbieter, Modell, wie lange er gedauert hat und wie
+viel davon auf Latet entfiel, Token-Verbrauch (einschließlich der aus dem Prompt-Cache gelesenen
+Tokens), wie viele Werte maskiert wurden, und Markierungen wie *Blockiert*, *Nicht gelesen* (PDFs,
+nicht gelesene Bilder), *Bild: maskiert*, *Zurückgehalten* (der
+[Dump-Schutz](../concepts/production-data/#der-dump-schutz)), *Aus dem Verlauf* (eine Unterhaltung,
+die begann, bevor Latet aktiv war: siehe [Fehlerbehebung](../troubleshooting/#jede-anfrage-einer-unterhaltung-wird-blockiert)),
+*Auto-Modus-Prüfung* oder *Unbekannte Route*.
+
+### Details einer Anfrage
+
+Für einen Austausch jeder Textblock der Anfrage nebeneinander: das
+Original auf Ihrem Rechner und genau das, was an den Anbieter gesendet wurde, mit jedem Ersatzwert
+hervorgehoben und gekennzeichnet mit der Art des Werts, den er ersetzt hat, dem Teil von Latet, der
+ihn gefunden hat (geheime Werte, personenbezogene Daten, ID-Nummern und USt-IdNr., Ihre Identität,
+Ihre Begriffe, Ihre Erkenner, das Namensmodell, der lokale Prüfer, Sie im Live-Prüfer, Ihre
+Feldregeln oder der strikte Datenmodus), und der Regel. Dort steht auch, wie der Wert in diesem
+Text gefunden wurde: von einem Detektor, an anderer Stelle im selben Text, als Wert, der schon im
+Tresor stand, als zurückgesendeter Ersatzwert, maskiert vom Plugin für Claude Code oder in der
+Antwort wieder eingesetzt. Bei einem Wert, den der
+[strikte Datenmodus](../concepts/production-data/) maskiert hat, steht für seine Spalte *Nicht
+maskieren* zur Wahl, *in diesem Projekt* bei einem Austausch eines Projekts und *nirgends* sonst,
+und unter einer Tool-Ausgabe, die er maskiert hat, schlägt
+*Spalten auswählen, die im Klartext bleiben* die Spalten vor, die im Klartext bleiben könnten (IDs,
+Datumsangaben, Status, Zählwerte), auf Wunsch mit der Einschätzung des lokalen Prüfers: siehe
+[Die Spalten wählen, die im Klartext bleiben](../concepts/production-data/#die-spalten-wählen-die-im-klartext-bleiben).
+Den strikten Datenmodus selbst legen Sie unter Regeln fest, nicht hier: siehe
+[In einem Austausch](../concepts/production-data/#in-einem-austausch).
+Aufgeführt ist auch, was der [lokale Prüfer](../concepts/llm-review/) zu jedem Block gesagt
+hat: was er maskiert und was er nur vorgeschlagen hat, mit *Immer maskieren* und *Nicht sensibel*.
+Bei einem Austausch eines [Projekts](../concepts/projects/) gelten diese für *Dieses Projekt* (die
+Voreinstellung) oder *Überall*. Darunter die Antwort des Modells, so wie es sie geschrieben und wie
+Ihr Agent sie erhalten hat, einschließlich der Tool-Aufrufe. Zugangsdaten in Headern werden nie
+aufgezeichnet.
+
+Im Client-Modus (Claude Code) maskiert das Plugin den Text, bevor der Daemon ihn sieht: Der Daemon
+zeichnet die Anfrage genau so auf, wie sie den Rechner verlassen hat, und rekonstruiert die Originale
+aus dem Tresor, damit Sie vergleichen können.
+
+<Screenshot name="exchange" alt="Ein Austausch: jeder Block der Anfrage so, wie er auf diesem Rechner aussieht, neben dem, was an das Modell gesendet wurde, mit allen maskierten Werten hervorgehoben" caption="Ein Austausch: links das Original, rechts, was das Modell erhalten hat." />
+
+<Screenshot name="inspector" alt="Ein angeklickter maskierter Wert: sein Typ, die Regel, die ihn gefunden hat, der echte Wert und Immer maskieren oder Nicht sensibel für dieses Projekt oder überall" caption="Klicken Sie auf einen maskierten Wert: was er ist, welche Regel ihn gefunden hat und was Sie damit tun können." />
+
+### Nach dem Senden
+
+Findet der lokale Prüfer, der im Hintergrund liest, Werte in einem Text, der
+den Rechner schon verlassen hat, weist **Live** darauf hin, mit einem Link zum neuesten Austausch
+der Sitzung: Ab der nächsten Anfrage werden sie maskiert.
+
+### Blockierte Anfragen
+
+Oben in einfachen Worten: was passiert ist, was das für Sie bedeutete
+(eine Anfrage, die den Rechner nie verlassen hat; bei der Prüfung im Auto-Modus von Claude Code
+eine Aktion, die der Auto-Modus abgelehnt hat) und was Sie tun können, mit einer Schaltfläche, wo
+eine einzige Einstellung das ändert. Darunter, was den Rechner verlassen hätte, mit den Werten, die
+die Anfrage gestoppt haben, rot umrandet: Klicken Sie auf einen, um zu sehen, was er ist, und
+wählen Sie *Nicht sensibel*, wenn er es nicht ist; dann geht die nächste identische Anfrage durch.
+Mit `history: metadata`, das keine Texte aufbewahrt, sind sie nur nach Typ und Länge aufgeführt.
+Die Begründung, die Latet dem Agenten gegeben hat, steht ebenfalls dort. Auch Anfragen, die in
+Claude Code von der abschließenden Prüfung des Plugins selbst gestoppt wurden, erscheinen hier.
+
+### Freigaben
+
+Zwei Tabs, jeder mit der Zahl dessen, was wartet. Unter *Texte* wartet bei
+eingeschaltetem [Live-Prüfer](../concepts/live-review/) jeder neue Text, bevor er den Rechner
+verlässt: das Original neben dem, was gesendet wird, zum Freigeben, zum Maskieren weiterer Werte
+oder zum Stoppen; ein Bild mit den Rahmen, wo seine Werte überdeckt sind, um von Hand weitere zu
+überdecken oder es nicht zu senden. Unter *Einstellungen* wartet eine Änderung an Ihren
+Einstellungen, die den Schutz verringert, ganz gleich, wer sie vorgenommen hat (der Befehl eines
+Agenten, eine von Hand bearbeitete `config.yaml`), mit dem, was sie verringert, und den Hinweisen
+für den lokalen Prüfer, die sie schreibt, vorher und nachher
+([Agenten und Ihre Einstellungen](../concepts/agents-and-settings/)). Die Seite öffnet sich auf
+*Texte*, oder auf *Einstellungen*, wenn nur eine Änderung wartet; eine Änderung, die eintrifft,
+während Sie Texte prüfen, erhöht die Zahl bei *Einstellungen* und lässt Sie, wo Sie sind. In einem
+Fenster, das schmaler als 1100 px ist (ein halber Bildschirm, ein Telefon), zeigt *Texte* einen
+Text nach dem anderen: der wievielte er von wie vielen wartenden ist, das Original über dem, was
+gesendet wird, und unten eine Leiste mit *Freigeben*, *Nicht senden* sowie dem vorherigen und dem
+nächsten Text. Über einen Text lässt sich erst entscheiden, wenn er 0,4 Sekunden zu sehen war,
+damit ein Doppelklick auf *Freigeben* nicht ungesehen den nächsten freigibt; nach einer
+Entscheidung liegt der Tastaturfokus auf dem Text, der als Nächstes erscheint.
+
+### Sitzungen
+
+Jeweils eine Unterhaltung. Blöcke, die mit jeder Anfrage erneut gesendet werden,
+sind als solche gekennzeichnet, sodass in jeder Anfrage hervorsticht, was *neu* ist.
+
+### Tresor
+
+Jeder Wert, den Latet kennt, und sein Ersatzwert. Originale werden nur auf Wunsch
+angezeigt. *Vergessen* entfernt einen Wert aus dem Tresor und damit aus dem gesamten Verlauf.
+Die Werte kommen zu fünfzig pro Seite, die neuesten zuerst, mit den Seitenlinks unter der Tabelle.
+
+### Regeln eines Projekts
+
+Die Auswahl oben auf der Seite **Regeln** wechselt von den globalen
+Regeln zu denen eines [Projekts](../concepts/projects/), in denselben Tabs. Darüber stehen der
+Ordner des Projekts, seine `latet.yaml` und unter *Was nicht angewendet wird*, was seine Dateien
+vorgeben, aber nicht anwenden können.
+
+- **Übersicht:** was dort wirksam ist, alle Ebenen zusammen, und Ihre Einstellungen für das
+  Projekt als Ganzes: *Diese Einstellungen exportieren* und *Einstellungen importieren* übertragen
+  sie in die Kopie des Projekts bei einem Kollegen, und *Ihre Einstellungen entfernen* löscht sie.
+- **Schutz** und **Prüfer:** Ihre eigenen Einstellungen für das Projekt, mit den Abschnitten der
+  globalen Regeln: Latet dort ein, nur für Geheimnisse oder aus (zuerst unter *Schutz*),
+  Produktionsdaten, wie viel der lokale Prüfer dort liest, Ihre Hinweise für ihn dort und der
+  Live-Prüfer.
+- **Begriffe**, **Erkenner**, **Zugelassene Werte** und **Richtlinien:** je eine Tabelle aller
+  Regeln, die dort gelten, eine Zeile pro Quelle, und die Spalte **Herkunft** sagt, woher sie
+  stammt: *Ihre, für* das Projekt, *latet.yaml* oder *global* mit einem Schloss. Der Filter
+  *Herkunft* behält die einer Quelle, und jeder Tab zählt die eigenen und alle
+  (*1 eigene · 4 insgesamt*). Eine Zeile wird dort geändert, wo sie entsteht: Eine globale öffnet
+  sich schreibgeschützt, mit *In den globalen Regeln öffnen*; eine Zeile der `latet.yaml` wird in
+  die Datei gespeichert, wenn das Dashboard sie schreiben darf; eine neue Zeile (*Für* das Projekt
+  *hinzufügen*) kommt in Ihre eigenen Einstellungen für das Projekt, außer *Speichern in* sagt
+  `latet.yaml`, die jeder liest, der das Repository liest. Vor dem Speichern in die `latet.yaml`
+  sagt der Bereich, ob das Speichern die Datei anlegt oder sie ganz neu schreibt (ihre Kommentare
+  nach den ersten Zeilen bleiben nicht erhalten), und ein Löschen oder Ausschalten ausgewählter
+  Zeilen sagt, wie viele davon in der Datei stehen. Werte, die nie maskiert werden, stammen nur aus
+  den globalen Regeln und aus Ihren, da eine Repository-Datei sie nicht setzen kann. Unter
+  *Richtlinien* sagt *Hier in Kraft*, welche Aktion im Projekt gilt, und eine Zeile, deren Aktion
+  dort nicht die geltende ist, sagt es neben ihrer Aktion. Auf einem Latet-Server haben die
+  Tabellen eines Projekts kein *Importieren*: Ihre Einstellungen für ein Projekt werden auf Ihrem
+  Rechner importiert.
+- **Repository-Datei:** die `latet.yaml` des Projekts, mit dem, was Schutz hinzufügt und keine
+  Liste ist. *Erkenner vorschlagen* entwirft einige aus den Dateien des Projekts und öffnet jeden
+  im Tab *Erkenner*, *Speichern in* auf `latet.yaml`; die Datei wird für Sie geschrieben, wenn der
+  Ordner des Projekts auf diesem Rechner liegt.
+
+Wie in den globalen Regeln markiert ein Punkt einen Tab mit ungespeicherten Änderungen, die Suche
+findet Abschnitte und Zeilen in jedem Tab, und *Ihre Einstellungen speichern* unten in den Tabs
+ohne Tabelle speichert die Änderungen all dieser Tabs auf einmal; im Tab *Repository-Datei*
+speichert *latet.yaml speichern* nur die Datei. Ein Speichern in einem Bereich behält, was Sie
+anderswo geändert und nicht gespeichert haben, außer diese Einstellung hat sich inzwischen
+geändert: Dann sagt die Seite, welcher Tab es verloren hat. Die Seite **Live** filtert nach
+Projekt, und ein Austausch zeigt, aus welchen Einstellungen des Projekts eine Regel stammt, mit
+einem Link zu dem Tab, in dem sie bearbeitet wird.
+
+### Regeln
+
+Das [Profil](../concepts/profiles/), die zu erkennenden Typen personenbezogener Daten
+und die Länder, deren Identifikationsnummern erkannt werden, Ihre eigenen Begriffe und
+[Erkenner](../concepts/custom-recognizers/) (mit einem Bereich *Ausprobieren*), Zulassungslisten und
+Richtlinien, [Produktionsdaten](../concepts/production-data/) (strikter Datenmodus, Feldregeln, der
+Dump-Schutz, [Bilder](../concepts/images/) und Texterkennung), der
+[lokale Prüfer](../concepts/llm-review/) (mit Ihren Hinweisen, seinen eigenen Anweisungen,
+schreibgeschützt so angezeigt, wie sie gesendet werden, *Ausprobieren* an einem Beispiel oder an
+einem Text von Ihnen und *Entwurf aus einer Beschreibung* für Erkenner), die lokale
+Namenserkennung, was der [Prüfer des Auto-Modus](../agents/claude-code/) von Claude Code erhalten
+darf, und wie viel Verlauf aufbewahrt wird. Änderungen gelten sofort für neue Anfragen,
+ohne Neustart. Die Abschnitte stehen in Tabs: *Schutz* (das Profil zuerst), *Begriffe*,
+*Erkenner*, *Zugelassene Werte*, *Richtlinien*, *Prüfer* und *Erweitert*, der Tab jeder Liste mit
+ihrer Anzahl.
+
+Jede Liste ist eine Tabelle für Hunderte von Zeilen: eine eigene Suche, die die Werte liest (einen
+Begriff, einen Typ, einen Namen, ein Muster), Filter, die zur Liste passen (der Typ eines
+Begriffs, der Zustand eines Erkenners, ein Wert oder ein Muster...), Spalten, die ein Klick auf
+ihre Überschrift sortiert, Seiten zu fünfzig und ein Kontrollkästchen pro Zeile. Die ausgewählten
+Zeilen werden gelöscht, ein Erkenner ein- oder ausgeschaltet oder in Ihre eigenen Einstellungen
+für ein Projekt kopiert (*In ein Projekt kopieren…*), sofort nach einer Bestätigung. Ein Klick auf
+eine Zeile, oder Enter, öffnet sie in einem Bereich rechts mit jedem ihrer Felder, auch dem ganzen
+Wert einer langen Zeile; *Hinzufügen* öffnet denselben Bereich leer. Der Typ einer neuen
+Richtlinie wird im Menü gewählt oder mit *Ein anderer Typ…* eingegeben, für einen Typ, den Latet
+findet und das Menü nicht aufführt, etwa den eines Geheimnisses. *Ausprobieren* an einem Muster
+für nie maskierte Werte sagt, ob das Muster einen Wert durchlässt, oder dass es sich hier nicht
+ausprobieren lässt, wenn es eine Form nutzt, die nur Latet liest. Das *Speichern* eines Bereichs
+wendet die Änderung sofort an, gemacht an Ihren Einstellungen, wie sie jetzt sind: Haben sie sich
+inzwischen geändert (ein anderer Browser-Tab, eine angewendete Änderung eines Agenten) und die
+Zeile nicht, wird sie trotzdem gespeichert; hat sich die Zeile geändert, sagt der Bereich es und
+zeigt sie so, wie sie jetzt ist. Ein Bereich, der mit ungespeicherten Änderungen geschlossen wird,
+fragt zuerst, ebenso das Verlassen der Seite mit diesen Änderungen oder das Schließen des
+Browser-Tabs. Auf einem Telefon deckt der Bereich die Seite ab, *Schließen* oben und seine
+Schaltflächen unten.
+
+Ein Punkt markiert einen Tab ohne Tabelle mit ungespeicherten Änderungen, und *Regeln speichern*
+unten in diesen Tabs speichert sie alle auf einmal; das Speichern eines Bereichs behält sie, außer
+eine dieser Einstellungen hat sich inzwischen geändert, und dann sagt die Seite, welcher Tab seine
+Änderung verloren hat. Die Suche über den Tabs findet einen Abschnitt an seinem Titel oder seiner
+Beschreibung und die Zeilen der Tabellen, in welchem Tab sie auch stehen, und sagt, in welchen
+Tabs sie Zeilen gefunden hat. *Regeln exportieren* und *Regeln importieren* oben auf der Seite
+geben einem Kollegen Ihre Regeln in einer Datei; ein Import zeigt, was er hinzufügen würde, bevor
+sich etwas ändert ([Export und Import](../concepts/export-import/)). Die Tabellen *Begriffe*,
+*Erkenner* und *Zugelassene Werte* haben ein eigenes *Exportieren* und *Importieren*: die Begriffe
+als CSV (`value,type,case_sensitive,whole_word`, sodass sich eine Kundenliste in einem Zug
+einfügen lässt), die Werte als CSV (`kind,value`), die Erkenner als Regeldatei. *Exportieren*
+schreibt die Zeilen, die die Tabelle zeigt, mit den aktiven Filtern und den Vorkehrungen von
+*Regeln exportieren*: Die Begriffe und die Werte stehen im Klartext in der Datei, wie der Export
+sagt, eine Zelle, die eine Tabellenkalkulation als Formel ausführen würde, wird nach einem
+Apostroph geschrieben, und ein Erkenner, dessen Beispiele einen Wert enthalten, den Latet
+tatsächlich gesehen hat, bleibt draußen und wird genannt. *Importieren* fügt der Liste hinzu,
+ersetzt sie nie und zeigt zuerst, was es hinzufügen würde; die Tabelle *Erkenner* importiert eine
+Datei, die nur Erkenner enthält.
+
+<Screenshot name="rules" alt="Der Tab Begriffe der Regeln: eine Tabelle der Begriffe mit einer Suche, einem Filter und einem Kontrollkästchen pro Zeile, und ein Begriff im Bereich rechts geöffnet, mit seinen Feldern und Speichern" caption="Eine Liste der Regeln als Tabelle, eine Zeile in ihrem Bereich geöffnet." />
+
+### Testbereich
+
+Fügen Sie einen Text ein, und sehen Sie, wie Ihre Regeln oder ein anderes Profil
+ihn maskieren würden, als Prompt, Anhang, Ausgabe eines Tools oder Systemprompt. Nichts, was Sie
+dort eingeben, wird auf die Festplatte, in den Tresor oder in den Verlauf geschrieben, und es
+erreicht nie ein Modell.
+
+### Geschützte Agenten
+
+Welche Agenten über Latet geleitet werden und wohin die Anfragen jedes einzelnen
+gehen, sowie das Ergebnis der Prüfungen. In der Agententabelle zeigt **Über Latet** Ja, wenn die
+Anfragen eines Agenten über Latet laufen und maskiert hinausgehen, Teilweise, wenn nur ein Teil der
+Einstellungen von Latet vorhanden ist, Nein, wenn sie ungeschützt an den Anbieter gehen, Mit
+latet gemini, wenn Gemini CLI nur dann über Latet läuft, wenn es mit diesem Befehl gestartet wird,
+und Nicht installiert, wenn der Agent nicht auf diesem Rechner ist; bei Teilweise und Nein nennen
+die Hinweise des Agenten den Befehl, der das richtet.
+**Wohin Anfragen gehen** listet Ihre
+[Unternehmens-Endpunkte](../agents/company-endpoints/) auf: die Adresse jedes Ziels, den Agenten,
+in dessen Einstellungen es stand, und wann es zuletzt verwendet wurde. *Entfernen* nimmt genau
+dieses eine Ziel heraus und kein anderes. Ein Ziel, das noch in Gebrauch ist, lässt sich nicht
+entfernen: Die Einstellungen von Claude Code oder Codex oder die verwalteten Einstellungen Ihrer
+Organisation zeigen darauf, oder es wurde seit dem Start von Latet registriert, durch eine Sitzung
+mit `latet claude` oder `latet codex`, durch `latet agents apply` oder `latet global-install`.
+Latet sieht kein Ziel, das nur ein anderer Agent verwendet (OpenCode, Hermes, ein mit `latet run`
+gestartetes Programm): Vergewissern Sie sich, dass keiner es verwendet, bevor Sie es entfernen. Jeder
+Austausch zeigt, wohin er ging (**Gesendet an**), und ob Latet ihn für Amazon Bedrock signiert hat.
+
+### Statistik
+
+Für heute oder die letzten Tage: Austausche, maskierte Werte und blockierte
+Anfragen pro Tag; maskierte Werte nach Typ; Austausche nach Agent; Latenz und Overhead von Latet
+(Median und 95. Perzentil); wie viel des Prompts aus dem Cache des Anbieters bedient wurde.
+
+## Tastenkürzel
+
+Unter **Freigaben** können Sie die wartenden Texte mit der Tastatur entscheiden, sobald Sie die
+Tastenkürzel einschalten: Anfangs sind sie aus. *Tastenkürzel* über den Texten listet sie auf, mit dem
+Schalter, der sie einschaltet; dieser Browser merkt sich Ihre Wahl, und solange sie an sind, zeigt die
+Schaltfläche *Tastenkürzel an*.
+
+| Taste | Was sie tut |
+|---|---|
+| <kbd>A</kbd> | Den gezeigten Text freigeben |
+| <kbd>X</kbd> | Ihn nicht senden |
+| <kbd>J</kbd> / <kbd>K</kbd> | Der nächste Text / der vorherige |
+| <kbd>M</kbd> | Den im Original markierten Text maskieren, sonst den ersten Vorschlag |
+| <kbd>Umschalt</kbd>+<kbd>A</kbd> | Alle wartenden freigeben, nach einer Rückfrage |
+| <kbd>?</kbd> | Die Liste der Tastenkürzel |
+
+Eine Taste wirkt nie, während Sie in einem Feld tippen, wenn Strg, Alt oder Cmd gedrückt ist, oder in
+der Warteschlange des Tutorials. Enter gibt nichts frei: Die Schaltfläche *Freigeben* sendet einen Text
+unverändert.
+
+## Der Datenschutz des Dashboards selbst
+
+Das Folgende betrifft das Dashboard auf Ihrem eigenen Rechner. Zum Dashboard eines Latet-Servers siehe
+[Latet auf einem Server](../concepts/server/).
+
+- Es lauscht nur auf `127.0.0.1`; im [Container-Image](../getting-started/docker/) lauscht es im
+  Container, dessen Port Sie nur auf `127.0.0.1` veröffentlichen. Anfragen, deren `Host` nicht
+  dieser Rechner ist, werden abgewiesen, was DNS-Rebinding vereitelt.
+- Der Zugriff erfordert den Einmal-Link, danach ein Sitzungs-Cookie mit `HttpOnly` und
+  `SameSite=Strict`. Jede Änderung erfordert zudem einen Header, den Seiten anderer Websites nicht
+  senden können. Auch die Proxy-Routen des Daemons können Seiten anderer Websites nicht nutzen:
+  Anfragen mit Browser-Headern werden abgewiesen.
+- Die Seite lädt nichts aus dem Internet: keine Schriften, Skripte oder Analysedienste von Dritten.
+- Der Verlauf bewahrt Anfragen so auf, wie sie Ihren Rechner verlassen haben (bereits maskiert), und
+  blockierte Anfragen so, wie sie ihn verlassen hätten, damit Sie sehen können, was gestoppt wurde.
+  Er ist mit AES-GCM verschlüsselt, unter einem Schlüssel, der vom selben Stammschlüssel abgeleitet
+  ist wie der des Tresors. Originale werden im Tresor nachgeschlagen, wenn Sie eine Anfrage öffnen,
+  daher verschwindet ein Wert, den Sie vergessen, auch aus dem Verlauf.
+- Was der Verlauf aufbewahrt, wählen Sie unter Verlauf in **Regeln**, im Tab *Erweitert*: *Alles*
+  (die Textblöcke, die Antworten und die Zeiten, damit Sie genau sehen, was gesendet wurde), *Nur
+  Metadaten* (Zähler, Zeiten und Markierungen, kein Text) oder *Nichts* (Austausche werden nicht
+  aufgezeichnet, und **Live** bleibt leer).
+- Der Verlauf wird standardmäßig 14 Tage lang aufbewahrt; *Aufbewahren für* unter Verlauf in
+  **Regeln** stellt 1 bis 365 Tage ein. Blöcke, die mit jeder Anfrage erneut gesendet werden, werden
+  nur einmal gespeichert.
+- Sie können den Verlauf jederzeit im Dashboard löschen; der Tresor bleibt erhalten.
+
+## Sprachen
+
+Das Dashboard gibt es auf Englisch, Italienisch, Deutsch, Französisch und Spanisch. Es öffnet sich in
+der Sprache, die Sie gewählt haben, sonst in der ersten Sprache Ihres Browsers, die es anbietet,
+sonst auf Englisch; das Sprachmenü in der Seitenleiste, über dem Schalter für das Farbschema,
+wechselt sie sofort, und Ihr Browser merkt sich die Wahl. Datumsangaben und Zahlen folgen der
+Sprache. Was der Daemon sagt (seine Fehlermeldungen, die Prüfungen von doctor), bleibt auf Englisch.
+Wie Sie eine Sprache hinzufügen, steht unter [Mitwirken](../contributing/#so-fügen-sie-eine-sprache-hinzu).
+
+## Die Dokumentation
+
+*Dokumentation*, oben rechts auf jeder Seite, öffnet den Teil dieses Leitfadens, der die Seite
+erklärt. Ein *?* neben dem Titel eines Abschnitts der **Regeln** und oben im Bereich einer Regel
+öffnet die Dokumentation dieses Abschnitts, und *Warum* in einem Hinweis, der sagt, was passiert
+ist (eine gestoppte Anfrage, eine zurückgehaltene Tool-Ausgabe, eine Änderung, die auf Ihre Freigabe
+wartet), die Seite, die es erklärt. Jeder Link öffnet sich in einem neuen Tab, in der Sprache des
+Dashboards.
+
+Es öffnet sich die Dokumentation des Latet, das Sie verwenden: Jede Installation stellt ihre eigene
+bereit, unter `/_latet/docs/` (`http://127.0.0.1:5283/_latet/docs/` auf dem Standardport), und ein
+Latet-Server stellt seine eigene ebenso bereit. Sie funktioniert ohne Netzwerk und fragt keinen
+anderen Host an; die einzige Ausnahme ist das Produktvideo, ein Link, um es auf docs.latet.ai
+anzusehen. Eine Installation, die sie nicht enthält, etwa eine aus einem Checkout, in dem sie nicht
+gebaut wurde, öffnet dieselben Seiten auf docs.latet.ai, die die neueste Version beschreiben.

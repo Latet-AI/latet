@@ -1,0 +1,30 @@
+title: Ein grundlos maskierter Wert
+learn:
+- Warum Latet manchmal einen Wert maskiert, der nicht sensibel ist
+- Was Nicht sensibel bewirkt und wann Sie es verwenden
+- Wo Sie im Dashboard die Werte finden, die Sie durchlassen
+steps:
+- title: Eine Testkarte, maskiert
+  explain: '{{value:card}} ist die Testkarte von Stripe, mit der niemandem etwas berechnet wird, aber sie sieht aus wie jede andere Kartennummer. Latet hat sie maskiert, und das Modell hat {{received:CARD}} erhalten und hält diese Nummer jetzt für die Karte eines Kunden. In der Anfrage, die Latet anzeigt, ist die Karte dort hervorgehoben, wo sie maskiert wurde. Als Nächstes sagen Sie Latet, dass sie nicht sensibel ist.'
+  prompt: lies tests/test_checkout.py und füge einen Test für eine Rückerstattung hinzu
+  button: Senden
+  says:
+  - Ich lese zuerst die Testdatei.
+  turns:
+    refused:
+      text: Das ist nicht die Testkarte von Stripe, also gehört sie vielleicht einem Kunden. Ich schreibe keine echte Karte in einen Test.
+- title: Nicht sensibel
+  explain: 'Klicken Sie auf die Kartennummer, und wählen Sie Nicht sensibel. Dann liest der Agent die Datei erneut, und diesmal wird die Karte im Klartext gesendet, weil Sie sie als Nicht sensibel markiert haben: In der Anfrage, die Latet anzeigt, steht sie im Klartext in der Datei, die der Agent gelesen hat. Jede andere Kartennummer wird weiterhin maskiert. Verwenden Sie Nicht sensibel für Werte wie diesen, nie für einen Schlüssel oder die Daten einer Person.'
+  prompt: das ist die Testkarte von Stripe, ich habe sie als Nicht sensibel markiert. lies die Datei noch mal und füge den Test für die Rückerstattung hinzu
+  hint: Klicken Sie in der Anfrage auf die Kartennummer, und wählen Sie dann Nicht sensibel.
+  turns:
+    again:
+      text: 'Verstanden: {{received:CARD}} ist die Testkarte von Stripe. Ich füge den Test für die Rückerstattung hinzu.'
+end:
+  learned:
+  - Latet maskiert, was sensibel aussieht, und hin und wieder ist das ein Wert, der es nicht ist.
+  - Nicht sensibel lässt genau diesen einen Wert von da an durch; die anderen seiner Art bleiben maskiert.
+  - Das ist für Werte wie eine Testkarte gedacht, nie für einen Schlüssel oder die Daten einer Person.
+  where:
+  - Die Werte, die Sie durchlassen, unter Regeln
+  - Die Anfrage mit der Karte im Klartext

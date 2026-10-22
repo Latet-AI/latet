@@ -1,0 +1,29 @@
+title: Le Relecteur en direct
+learn:
+- Comment une requête peut vous attendre avant de partir
+- Comment masquer à la main une valeur qu'aucune règle ne peut connaître
+- Ce que font Approuver, Tout approuver et Ne pas envoyer
+steps:
+- title: Une requête vous attend
+  explain: 'Quand le Relecteur en direct est activé, la requête vous attend sur la page Approbations avant de partir. Latet masque l''adresse e-mail, mais rien ne lui indique que le nom {{value:name}} est celui d''un client : ce bac à sable n''a pas de détection des noms. Sélectionnez le nom, choisissez Personnes, puis cliquez sur Approuver : le modèle reçoit une valeur factice à sa place, et le nom, placé dans le coffre-fort, est désormais masqué. Ne pas envoyer arrêterait la requête.'
+  prompt: rédige une réponse à {{value:name}}, elle a été débitée deux fois. son adresse est {{value:email}}
+  button: Envoyer
+  says:
+  - Je rédige un brouillon de réponse.
+  hint: Sélectionnez {{value:name}} dans le texte, choisissez Personnes, puis cliquez sur Approuver.
+  otherwise:
+    in_clear: 'Vous avez approuvé la requête telle quelle, donc le modèle a reçu {{value:name}} en clair : Latet n''a masqué que l''adresse e-mail. Dans le bac à sable, rien n''a quitté votre machine, car le modèle est fictif ; un vrai modèle aurait maintenant le nom. Recommencez pour réessayer, et masquez le nom avant d''approuver.'
+    part_in_clear: 'Une partie du nom est restée en clair, et le modèle l''a reçue telle quelle. Recommencez pour réessayer : sélectionnez le nom entier, {{value:name}}, puis approuvez.'
+    not_sent: 'Vous avez choisi Ne pas envoyer : la requête n''a pas été envoyée, le modèle n''a rien reçu, et l''agent en a été informé. Latet montre pourquoi elle a été arrêtée. Recommencez pour réessayer : masquez le nom, puis approuvez.'
+  turns:
+    draft:
+      text: 'Brouillon : Bonjour {{received:WHO}}, nous sommes désolés pour ce double débit ; le remboursement est en cours. Envoyez-le à {{received:MAIL}}.'
+end:
+  learned:
+  - Quand le Relecteur en direct est activé, chaque nouveau texte vous attend sur la page Approbations avant de partir.
+  - Une valeur que vous masquez à la main va dans le coffre-fort, et elle est désormais masquée partout.
+  - Approuver envoie la requête telle que vous la voyez, Tout approuver envoie tout ce qui attend tel que Latet l'a masqué, Ne pas envoyer l'arrête.
+  where:
+  - Ce qui vous attend, sur la page Approbations
+  - 'L''activer pour de vrai, sur la page Règles : pour tous les projets, ou pour un seul'
+  - La requête, telle qu'elle est partie

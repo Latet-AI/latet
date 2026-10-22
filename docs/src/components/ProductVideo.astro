@@ -1,0 +1,24 @@
+---
+// The product video in the page's language (ProductVideoPlayer.astro). In the copy Latet serves itself
+// (`npm run build:bundle`), a link to watch it on this page of docs.latet.ai instead: the package carries no video, and
+// nothing is asked of another host until the link is clicked.
+import ProductVideoPlayer from './ProductVideoPlayer.astro';
+
+const bundle: boolean = import.meta.env.LATET_DOCS_BUNDLE;
+// This page on the public site, where the video plays: its address without the bundle's base.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const path = Astro.url.pathname.startsWith(`${base}/`) ? Astro.url.pathname.slice(base.length) : Astro.url.pathname;
+const publicPage = new URL(path, 'https://docs.latet.ai').href;
+---
+
+{
+	bundle ? (
+		<p class="video-link">
+			<a href={publicPage} rel="noreferrer">
+				{Astro.locals.t('latet.video.watch')} ↗
+			</a>
+		</p>
+	) : (
+		<ProductVideoPlayer />
+	)
+}

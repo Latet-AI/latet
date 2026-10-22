@@ -1,0 +1,179 @@
+---
+title: Comment ça marche
+description: Valeurs factices, mode client, mode passerelle et vérification seule, avec un exemple pas à pas d'une clé tirée d'un fichier .env.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet se place entre votre agent et le fournisseur du modèle. Un même moteur détecte les valeurs
+sensibles, les remplace par des valeurs factices à l'aller et remet les originaux en place au retour.
+L'endroit où cela se passe dépend de l'agent : dans l'agent (**mode client**) ou dans un proxy
+(**mode passerelle**). Les deux s'exécutent sur votre machine ou, quand votre ordinateur est connecté
+à un [serveur Latet](../server/), sur ce serveur.
+
+## Valeurs factices
+
+Une valeur factice est une fausse valeur du même format que l'original :
+
+| Type | Original (reste sur votre machine) | Valeur factice (envoyée au fournisseur) |
+| --- | --- | --- |
+| Clé d'API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
+| Mot de passe dans une URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Adresse e-mail | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
+| Numéro de téléphone | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
+| IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
+| Votre nom d'utilisateur dans un chemin | <span class="real">`C:\Users\ecarter\shop\app.py`</span> | <span class="fake">`C:\Users\oliver75\shop\app.py`</span> |
+
+<small>Les valeurs sont données à titre d'exemple. Vos valeurs factices sont différentes : elles sont
+dérivées d'une clé créée sur votre machine.</small>
+
+- **Même format.** Une clé garde son préfixe (`pk_`, `ghp_`, `sk-ant-api03-`...), sa longueur et son
+  jeu de caractères. Une adresse e-mail reste une adresse e-mail : un domaine de messagerie publique
+  comme `gmail.com` est conservé, tout autre domaine devient un domaine factice sous `.example`. Les
+  IBAN, les numéros de carte, les numéros d'identité nationaux, les numéros fiscaux et les numéros de
+  TVA reçoivent des chiffres de contrôle valides, et les adresses IP publiques passent dans les plages
+  réservées à la documentation. Le modèle peut toujours raisonner sur le code et la configuration qui
+  les entourent.
+- **Déterministe.** Sur votre machine, le même original reçoit toujours la même valeur factice : le
+  modèle peut ainsi suivre une valeur d'un fichier et d'un tour à l'autre, et Latet peut retrouver
+  l'original. Les tours précédents sont renvoyés octet pour octet, et le cache de prompts du
+  fournisseur continue donc de fonctionner.
+- **En local.** La table des originaux et des valeurs factices, le **coffre-fort**, ne quitte jamais
+  votre machine. Les originaux qu'elle contient sont chiffrés sur le disque, avec une clé conservée
+  dans le magasin d'identifiants de votre système d'exploitation ou, quand il n'y en a pas (une machine
+  Linux sans trousseau de bureau, le conteneur), dans un fichier lisible par vous seul, `root.key`,
+  dans le dossier de données de Latet.
+- **Cloisonnée.** Une valeur factice n'est remplacée par l'original que dans la conversation à
+  laquelle elle a été montrée.
+
+### La même au fil du temps
+
+Une valeur factice est dérivée de la valeur et de la clé racine de votre installation, et non tirée
+au hasard, et le coffre-fort est conservé sur le disque sans date d'expiration : l'historique du
+tableau de bord est purgé après `retention_days`, le coffre-fort ne l'est pas. Une valeur reçoit donc
+la même valeur factice aujourd'hui, après un redémarrage, et quand vous reprenez une conversation des
+jours plus tard :
+- **Reprendre une session :** son historique contient déjà les valeurs factices, le nouveau texte est
+  masqué avec les mêmes, et les vraies valeurs sont remises en place dans les réponses du modèle
+  comme avant. Le domaine d'une adresse e-mail de votre CLAUDE.md est le même domaine factice à chaque
+  tour, partout ailleurs où il apparaît.
+- **Une valeur que Latet a apprise est ensuite masquée partout,** même quand la règle qui l'a trouvée
+  n'existe plus.
+- **Ce qui change une valeur factice :**
+  - **une autre clé racine**, sur une nouvelle machine ou après la perte du magasin d'identifiants :
+    de nouvelles valeurs factices, et les anciennes, dans une conversation reprise, ne sont plus
+    remplacées par les originaux. Déplacez le coffre-fort avec sa clé :
+    [`latet backup latet.backup --vault`](../export-import/#votre-installation-pour-une-autre-machine),
+    puis `latet restore latet.backup` sur l'autre machine ;
+  - **une valeur que vous laissez passer** part en clair à partir de là, tandis que l'historique
+    conserve sa valeur factice.
+- **Ce qui ne la change pas :** *Oublier* dans le coffre-fort. La même valeur reçoit à nouveau la
+  même valeur factice.
+
+Le domaine d'une entreprise pris isolément (`api.acme-intra.com`) est masqué s'il fait partie de vos
+[termes](../detection/), ou dès que Latet l'a vu dans une adresse e-mail. Le domaine de votre propre
+entreprise, tiré de l'adresse e-mail de votre auteur git, est masqué partout où il apparaît dès le
+départ.
+
+## Mode client : Claude Code
+
+Claude Code ajoute à chaque requête un bloc d'attribution avec une empreinte dérivée de la
+conversation, et le [guide des passerelles](https://code.claude.com/docs/en/llm-gateway-protocol)
+d'Anthropic demande à une passerelle d'inspecter les requêtes sans les modifier. Latet ne réécrit donc
+pas les requêtes de Claude Code : le plugin de Latet masque le contenu **dans Claude Code, avant que
+la requête ne soit construite**, et le daemon local se contente de vérifier ce qui sort. Cela
+fonctionne avec un abonnement Pro ou Max comme avec une clé d'API (voir
+[Claude Code](../../agents/claude-code/#abonnements-pro-et-max)).
+
+Voici ce qui arrive à une clé tirée d'un fichier `.env` :
+
+<Steps>
+
+1. Le `.env` de votre projet contient
+   <code>PAYMENTS_API_KEY=<span class="real">pk_9f2c4e7a1b3d5f8e0a6c</span></code>. Vous demandez à
+   Claude Code : *"Ajoutez la clé des paiements de `.env` à `config/local.toml`."*
+
+2. Claude Code lit `.env` avec son outil Read. Avant que le résultat de l'outil n'entre dans la
+   conversation, le plugin le passe au daemon local, qui trouve la clé et la remplace par la valeur
+   factice <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. La paire est enregistrée dans le
+   coffre-fort.
+
+3. Claude Code construit la requête comme d'habitude. Elle ne contient que la valeur factice. Juste
+   avant que la requête ne parte, le plugin effectue sur elle une vérification finale. Comme
+   `ANTHROPIC_BASE_URL` pointe vers le daemon de Latet (`127.0.0.1:5283`), la requête passe ensuite
+   par le daemon, qui fonctionne **en vérification seule** : il cherche des valeurs sensibles en
+   clair, transmet les octets sans les modifier et enregistre l'échange pour le
+   [tableau de bord](../../dashboard/).
+
+4. Anthropic reçoit <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> et rien d'autre. Le modèle ne
+   voit jamais la vraie clé.
+
+5. Le modèle répond par un appel d'outil qui modifie `config/local.toml` et écrit
+   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Avant que l'outil ne
+   s'exécute sur votre machine, le plugin remet l'original en place dans les arguments de l'appel
+   d'outil : le fichier sur le disque contient donc <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>.
+   Le texte affiché dans votre terminal retrouve lui aussi la vraie valeur.
+
+6. L'historique de la conversation conserve la valeur factice : chaque requête suivante reste donc
+   masquée. Si un original apparaît un jour en clair dans une requête sortante, par exemple par un
+   canal que le plugin ne couvre pas, la vérification finale du plugin arrête la requête avant son
+   envoi. Le daemon est une seconde vérification derrière elle.
+
+</Steps>
+
+En mode client, le daemon ne peut que bloquer : il ne change jamais un octet, et chaque requête
+arrive donc chez Anthropic exactement telle que Claude Code l'a construite.
+
+**Si le daemon ne tourne pas**, le plugin essaie de le démarrer. S'il n'y parvient pas, le plugin
+retient le contenu au lieu de l'envoyer sans le masquer : votre prompt n'est pas envoyé, un résultat
+d'outil qu'il ne peut pas masquer est remplacé par un avis, un appel d'outil dans lequel il ne peut
+pas remettre les originaux en place est refusé, et une requête qu'il ne peut pas vérifier reste sur
+votre machine.
+
+## Mode passerelle : tous les autres agents
+
+Codex, OpenCode, [Hermes Agent, OpenClaw et autres agents](../../agents/autonomous-agents/), ainsi
+que vos propres scripts, communiquent avec leur fournisseur par une URL de base que vous pouvez
+changer. Ici, c'est le daemon local qui masque. La même clé du `.env`, cette fois avec Codex :
+
+<Steps>
+
+1. Codex envoie sa requête à `127.0.0.1:5283` au lieu du fournisseur : par un WebSocket quand vous
+   vous connectez avec ChatGPT, sous forme de requête HTTP avec une clé d'API.
+
+2. Le daemon décode la requête (corps compressés compris) et trouve
+   <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> dans la sortie de la commande que Codex a
+   exécutée pour lire `.env`. Il remplace la clé par <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>
+   et transmet la requête au fournisseur.
+
+3. Le modèle renvoie en streaming un patch qui écrit la valeur factice dans `config/local.toml`. Le
+   daemon remet l'original en place dans le texte en streaming et dans les arguments des appels
+   d'outils avant que Codex ne les voie, même quand une valeur factice est coupée entre deux
+   fragments.
+
+4. Codex applique le patch avec la vraie clé. Sa propre copie de la conversation contient maintenant
+   l'original. Quand Codex renvoie cet historique, le daemon le masque à nouveau, et le modèle
+   retrouve exactement les octets qu'il a écrits.
+
+</Steps>
+
+Le fournisseur ne voit jamais que des valeurs factices ; l'agent ne voit jamais que des originaux. Les
+blocs de réflexion et le raisonnement chiffré passent sans modification.
+
+Une vérification finale lit ensuite les textes de chaque requête avant son départ, ceux que Latet
+masque, comme en mode client, et arrête celle qui laisserait sortir une valeur en clair, en disant
+pourquoi. Quand le daemon ne peut pas masquer une requête, il la refuse au lieu de l'envoyer sans la
+masquer : un corps qu'il ne peut pas décoder, ou une valeur qu'il ne peut pas remplacer, se termine
+par une erreur qui indique que rien n'a été envoyé.
+
+<Aside type="tip">
+	Lancez `latet dashboard` pour voir les deux côtés de chaque requête : l'original sur votre machine,
+	et ce qui a été envoyé au fournisseur. Consultez le [guide du tableau de bord](../../dashboard/).
+</Aside>
+
+## Ce qui décide de ce qui est masqué
+
+- [Détection](../detection/) : comment les valeurs sont reconnues.
+- [Profils et politiques](../profiles/) : dans quelle mesure masquer, et que faire de chaque
+  détection.
+- [Ce qui est protégé et ce qui ne l'est pas](../protection-scope/) : les limites de cette approche.

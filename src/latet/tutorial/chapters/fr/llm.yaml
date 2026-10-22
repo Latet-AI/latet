@@ -1,0 +1,37 @@
+title: Le relecteur local
+learn:
+- Ce que le relecteur local trouve et que les motifs de Latet ne peuvent pas trouver
+- Comment vos consignes lui indiquent ce qui est aussi confidentiel dans votre travail
+- Où le tableau de bord affiche vos consignes et ce qu'a trouvé le relecteur
+steps:
+- title: Ce qu'aucun motif ne trouve
+  explain: 'Les motifs de Latet n''ont rien trouvé ici : l''adresse e-mail est écrite en toutes lettres, l''IBAN contient une faute de frappe (ses chiffres de contrôle ne correspondent pas, donc aucun motif ne le prend pour un IBAN), et un nom ou un diagnostic n''a aucun format. Le relecteur local a lu le ticket avant l''envoi, comme le ferait une personne, et a trouvé les quatre valeurs, que Latet a masquées : le modèle a reçu {{received:NAME}} pour le nom. {{value:ward}} est parti en clair : rien ne dit au relecteur que, dans cet hôpital, le nom d''un service révèle qui se trouve où.'
+  prompt: lis ticket-4182.md et résume-le
+  button: Envoyer
+  says:
+  - Je lis le ticket.
+  turns:
+    summary:
+      text: '{{received:NAME}} n''arrive pas à accéder au portail patients depuis lundi et a besoin des résultats de ses analyses de sang avant vendredi ({{received:CONDITION}}). Répondez à {{received:WRITTEN}} ; le remboursement du parking est à verser sur {{received:ACCOUNT}}.'
+- title: Vos consignes
+  explain: 'Ce qui est confidentiel dans votre travail, vous le dites au relecteur avec vos propres mots : vos consignes accompagnent ses instructions à chaque relecture. Ici, elles sont écrites pour vous : enregistrez-les. Un vrai relecteur suit ce qu''elles disent ; le Tutorial Reviewer, qui est fictif, vérifie seulement que des consignes sont enregistrées. Dans votre propre tableau de bord, elles se trouvent sous Relecteur local, sur la page Règles.'
+  hint: Enregistrez les consignes telles qu'elles sont écrites.
+  guidance: 'Les noms des services sont confidentiels : dans cet hôpital, le nom d''un service révèle qui se trouve où.'
+- title: Un service que personne n'a listé
+  explain: 'Avec vos consignes, le relecteur a trouvé les deux services, et Latet les a masqués : {{value:ward}}, et {{value:other_ward}}, qu''il n''avait jamais vu. Le modèle a reçu {{received:OTHER_WARD}} pour {{value:other_ward}}. Vos termes masquent les mots que vous listez ; les consignes décrivent un type de valeur, et valent aussi pour les valeurs que vous n''avez pas listées.'
+  prompt: lis handover.md et dis-moi ce dont l'équipe de nuit a besoin
+  button: Envoyer
+  says:
+  - Nouvelle conversation.
+  turns:
+    needs:
+      text: '{{received:OTHER_WARD}} a un infirmier de moins cette nuit, et l''agence en envoie un à 23 h. {{received:WARD}} a deux lits libres.'
+end:
+  learned:
+  - 'Le relecteur local, un modèle de langage sur votre machine, trouve ce qui n''a aucun format connu des motifs : une adresse e-mail écrite en toutes lettres, un IBAN avec une erreur, un nom ou un diagnostic dans une phrase.'
+  - Vos consignes lui indiquent, avec vos propres mots, ce qui est aussi confidentiel dans votre travail, et valent aussi pour des valeurs que vous n'avez jamais listées.
+  - 'Votre propre relecteur local tourne sur votre machine, avec llama.cpp, Ollama ou LM Studio : vous le configurez sous Relecteur local, sur la page Règles, et vous y choisissez ce qu''il masque de lui-même (le reste, il se contente de le suggérer).'
+  where:
+  - Le relecteur local et vos consignes, sur la page Règles
+  - Le ticket, avec ce qu'a trouvé le relecteur
+  - La note de relève, avec les deux services masqués

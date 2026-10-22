@@ -1,0 +1,175 @@
+---
+title: Come funziona
+description: Valori fittizi, modalità client, modalità gateway e sola verifica, con un esempio passo per passo di una chiave presa da un file .env.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Latet si trova tra il tuo agente e il provider del modello. Un unico motore rileva i valori sensibili,
+li sostituisce con valori fittizi all'andata e rimette gli originali al ritorno. Dove questo avviene
+dipende dall'agente: dentro l'agente (**modalità client**) o in un proxy (**modalità gateway**).
+Entrambe girano sul tuo computer o, quando il tuo computer è connesso a un
+[server Latet](../server/), su quel server.
+
+## Valori fittizi
+
+Un valore fittizio è un valore inventato con lo stesso formato dell'originale:
+
+| Tipo | Originale (resta sul tuo computer) | Valore fittizio (inviato al provider) |
+| --- | --- | --- |
+| Chiave API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
+| Password in un URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Email | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
+| Numero di telefono | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
+| IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
+| Il tuo nome utente in un percorso | <span class="real">`C:\Users\ecarter\shop\app.py`</span> | <span class="fake">`C:\Users\oliver75\shop\app.py`</span> |
+
+<small>I valori sono solo un esempio. I tuoi valori fittizi sono diversi: derivano da una chiave
+creata sul tuo computer.</small>
+
+- **Conserva il formato.** Una chiave mantiene il suo prefisso (`pk_`, `ghp_`, `sk-ant-api03-`...),
+  la sua lunghezza e il suo insieme di caratteri. Un'email resta un'email: un dominio di webmail
+  pubblica come `gmail.com` viene mantenuto, ogni altro dominio diventa un dominio fittizio sotto
+  `.example`. IBAN, numeri di carta, numeri identificativi nazionali, numeri fiscali e partite IVA
+  ricevono cifre di controllo valide, e gli indirizzi IP pubblici passano agli intervalli riservati
+  alla documentazione. Il modello può ancora ragionare sul codice e sulla configurazione intorno a
+  questi valori.
+- **Deterministico.** Sul tuo computer lo stesso originale riceve sempre lo stesso valore fittizio,
+  così il modello può seguire un valore tra file e turni diversi, e Latet può ricondurlo
+  all'originale. I turni precedenti vengono inviati di nuovo identici byte per byte, così la cache
+  dei prompt del provider continua a funzionare.
+- **Locale.** La tabella degli originali e dei valori fittizi, la **cassaforte**, non esce mai dal
+  tuo computer. Gli originali che contiene sono cifrati sul disco, con una chiave conservata
+  nell'archivio delle credenziali del tuo sistema operativo o, dove non ce n'è uno (un computer Linux
+  senza portachiavi del desktop, il container), in un file leggibile solo da te, `root.key`, nella
+  cartella dei dati di Latet.
+- **Circoscritto.** Un valore fittizio viene ripristinato solo nella conversazione a cui è stato
+  mostrato.
+
+### Lo stesso nel tempo
+
+Un valore fittizio deriva dal valore e dalla chiave radice della tua installazione, non viene estratto
+a caso, e la cassaforte resta sul disco senza scadenza: la cronologia della dashboard viene ripulita
+dopo `retention_days`, la cassaforte no. Così un valore riceve lo stesso valore fittizio oggi, dopo un
+riavvio e quando riprendi una conversazione giorni dopo:
+- **Riprendere una sessione:** la sua cronologia contiene già i valori fittizi, il testo nuovo viene
+  mascherato con gli stessi, e le risposte del modello vengono ripristinate come prima. Il dominio di
+  un indirizzo email nel tuo CLAUDE.md è lo stesso dominio fittizio in ogni turno, ovunque altro
+  compaia.
+- **Un valore che Latet ha imparato viene mascherato ovunque da quel momento in poi,** anche quando la
+  regola che l'ha trovato non c'è più.
+- **Cosa cambia un valore fittizio:**
+  - **un'altra chiave radice**, su un nuovo computer o dopo aver perso l'archivio delle credenziali:
+    valori fittizi nuovi, e quelli vecchi in una conversazione ripresa non vengono più ripristinati.
+    Sposta la cassaforte insieme alla sua chiave:
+    [`latet backup latet.backup --vault`](../export-import/#la-tua-installazione-per-un-altro-computer),
+    poi `latet restore latet.backup` sull'altro computer;
+  - **un valore che lasci passare** esce in chiaro da quel momento in poi, mentre la cronologia
+    conserva il suo valore fittizio.
+- **Cosa non lo cambia:** *Dimentica* nella cassaforte. Lo stesso valore riceve di nuovo lo stesso
+  valore fittizio.
+
+Il dominio di un'azienda, quando compare da solo (`api.acme-intra.com`), viene mascherato se è uno
+dei tuoi [termini](../detection/), o dopo che Latet l'ha visto in un indirizzo email. Il dominio
+della tua azienda, preso dall'email del tuo autore git, viene mascherato ovunque compaia fin
+dall'inizio.
+
+## Modalità client: Claude Code
+
+Claude Code aggiunge a ogni richiesta un blocco di attribuzione con un'impronta digitale derivata
+dalla conversazione, e la [guida ai gateway](https://code.claude.com/docs/en/llm-gateway-protocol) di
+Anthropic chiede a un gateway di ispezionare le richieste senza modificarle. Per questo Latet non
+riscrive le richieste di Claude Code: il plugin di Latet maschera i contenuti **dentro Claude Code,
+prima che la richiesta venga costruita**, e il daemon locale controlla soltanto ciò che esce. Funziona
+con un abbonamento Pro o Max come con una chiave API (vedi
+[Claude Code](../../agents/claude-code/#abbonamenti-pro-e-max)).
+
+Ecco cosa succede a una chiave presa da un file `.env`:
+
+<Steps>
+
+1. Il `.env` del tuo progetto contiene
+   <code>PAYMENTS_API_KEY=<span class="real">pk_9f2c4e7a1b3d5f8e0a6c</span></code>. Chiedi a Claude
+   Code: *"Aggiungi la chiave dei pagamenti da `.env` a `config/local.toml`."*
+
+2. Claude Code legge `.env` con il suo strumento Read. Prima che il risultato dello strumento entri
+   nella conversazione, il plugin lo passa al daemon locale, che trova la chiave e la sostituisce con
+   il valore fittizio <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. La coppia viene salvata
+   nella cassaforte.
+
+3. Claude Code costruisce la richiesta come al solito. La richiesta contiene solo il valore fittizio.
+   Subito prima che esca, il plugin esegue su di essa un controllo finale. Poiché
+   `ANTHROPIC_BASE_URL` punta al daemon di Latet (`127.0.0.1:5283`), la richiesta passa poi dal
+   daemon, che lavora **in sola verifica**: cerca valori sensibili in chiaro, inoltra i byte senza
+   modificarli e registra lo scambio per la [dashboard](../../dashboard/).
+
+4. Anthropic riceve <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> e nient'altro. Il modello
+   non vede mai la chiave reale.
+
+5. Il modello risponde con una chiamata a uno strumento che modifica `config/local.toml` e scrive
+   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Prima che lo strumento
+   venga eseguito sul tuo computer, il plugin rimette l'originale negli argomenti della chiamata, così
+   il file sul disco contiene <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>. Anche il testo
+   mostrato nel tuo terminale viene ripristinato.
+
+6. La cronologia della conversazione conserva il valore fittizio, così ogni richiesta successiva
+   resta mascherata. Se un originale dovesse mai comparire in chiaro in una richiesta in uscita, per
+   esempio attraverso una via che il plugin non copre, il controllo finale del plugin ferma la
+   richiesta prima che venga inviata. Il daemon è un secondo controllo dietro al plugin.
+
+</Steps>
+
+In modalità client il daemon può solo bloccare: non cambia mai un byte, quindi ogni richiesta arriva
+ad Anthropic esattamente come Claude Code l'ha costruita.
+
+**Se il daemon non è in esecuzione**, il plugin prova ad avviarlo. Se non ci riesce, il plugin
+trattiene i contenuti invece di inviarli senza mascherarli: il tuo prompt non viene inviato, un
+risultato di uno strumento che non può mascherare viene sostituito da un avviso, una chiamata a uno
+strumento che non può ripristinare viene rifiutata e una richiesta che non può controllare resta sul
+tuo computer.
+
+## Modalità gateway: tutti gli altri agenti
+
+Codex, OpenCode, [Hermes Agent, OpenClaw e altri agenti](../../agents/autonomous-agents/) e i tuoi
+script parlano con il loro provider attraverso un URL di base che puoi cambiare. Qui è il daemon
+locale a mascherare. La stessa chiave di `.env`, questa volta con Codex:
+
+<Steps>
+
+1. Codex invia la sua richiesta a `127.0.0.1:5283` invece che al provider: tramite WebSocket quando
+   accedi con ChatGPT, come richiesta HTTP con una chiave API.
+
+2. Il daemon decodifica la richiesta (anche i corpi compressi) e trova
+   <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> nell'output del comando che Codex ha eseguito
+   per leggere `.env`. Sostituisce la chiave con <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> e
+   inoltra la richiesta al provider.
+
+3. Il modello restituisce in streaming una patch che scrive il valore fittizio in `config/local.toml`.
+   Il daemon rimette l'originale nel testo in streaming e negli argomenti delle chiamate agli
+   strumenti prima che Codex li veda, anche quando un valore fittizio è diviso tra due frammenti.
+
+4. Codex applica la patch con la chiave reale. La sua copia della conversazione ora contiene
+   l'originale. Quando Codex invia di nuovo quella cronologia, il daemon la maschera di nuovo, e il
+   modello riceve esattamente i byte che aveva scritto.
+
+</Steps>
+
+Il provider vede sempre e solo valori fittizi; l'agente vede sempre e solo gli originali. I blocchi
+di thinking e il ragionamento cifrato passano intatti.
+
+Un controllo finale legge poi i testi di ogni richiesta prima che esca, quelli che Latet maschera,
+come in modalità client, e ferma quella che lascerebbe uscire un valore in chiaro, dicendo perché.
+Quando il daemon non può mascherare una richiesta, la rifiuta invece di inviarla senza mascherarla:
+un corpo che non riesce a decodificare, o un valore che non riesce a sostituire, finisce in un errore
+che dice che non è stato inviato niente.
+
+<Aside type="tip">
+	Esegui `latet dashboard` per vedere i due lati di ogni richiesta: l'originale sul tuo computer e
+	ciò che è stato inviato al provider. Vedi la [guida alla dashboard](../../dashboard/).
+</Aside>
+
+## Cosa decide che cosa viene mascherato
+
+- [Rilevamento](../detection/): come vengono riconosciuti i valori.
+- [Profili e criteri](../profiles/): quanto mascherare, e cosa fare di ogni rilevamento.
+- [Cosa è protetto e cosa no](../protection-scope/): i limiti di questo approccio.

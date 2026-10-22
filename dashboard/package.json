@@ -1,0 +1,52 @@
+{
+  "name": "latet-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "type": "module",
+  "description": "Local web dashboard of Latet: what left your machine, and how it was masked.",
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "build": "tsc -b && vite build && node scripts/keep-gitkeep.mjs",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
+    "ui-checks": "node scripts/ui-checks.mjs",
+    "docs-checks": "node scripts/docs-checks.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/montserrat": "^5.3.0",
+    "i18next": "^26.4.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-i18next": "^17.0.16",
+    "react-router": "^7.18.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^10.12.0",
+    "eslint-plugin-i18next": "^6.1.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "playwright": "1.58.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.3",
+    "vitest": "^4.1.11"
+  }
+}

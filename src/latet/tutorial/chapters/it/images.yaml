@@ -1,0 +1,26 @@
+title: Screenshot
+learn:
+- Cosa fa Latet con uno screenshot che invia il tuo agente
+- Dove la dashboard mostra l'immagine, e il testo letto al suo interno
+- Cosa non legge Latet
+steps:
+- title: Uno screenshot esce con i valori coperti
+  explain: L'agente ha inviato lo screenshot così com'è. Latet ha letto sul tuo computer il testo dello screenshot, vi ha trovato un indirizzo email, un IBAN e un numero di telefono, e ha coperto ognuno con il suo valore fittizio prima che l'immagine uscisse. Il riquadro di Latet mostra l'immagine com'è sul tuo computer e come è stata inviata, e il testo letto al suo interno.
+  prompt: perché il pagamento in payment.png è stato rifiutato?
+  button: Invia
+  says:
+  - Guardo lo screenshot.
+  turns:
+    why:
+      text: La banca del beneficiario ha chiuso il conto, quindi il pagamento non poteva andare a buon fine. Chiedi al cliente un altro conto, poi invia di nuovo il pagamento.
+- title: Chiedi a Latet
+  explain: Fai clic su un valore evidenziato nel testo che Latet ha letto nell'immagine. Latet ti dice cos'è, quale regola l'ha trovato e cosa è stato inviato al suo posto.
+  hint: Fai clic su {{value:email}} nel testo letto nell'immagine.
+end:
+  learned:
+  - Con il riconoscimento del testo installato, Latet legge sul tuo computer il testo di uno screenshot, e copre ogni valore con il suo valore fittizio prima che l'immagine esca.
+  - La dashboard mostra l'immagine come è stata inviata, e il testo letto al suo interno con ogni valore evidenziato.
+  - 'Un PDF, o un''immagine indicata dal suo indirizzo, non viene letto: esce così com''è, con la segnalazione Non ispezionato, a meno che in Regole la voce Immagini e PDF non sia impostata su Solo mascherati o Non inviare, e in quel caso la richiesta non viene inviata.'
+  where:
+  - Immagini e PDF, in Regole
+  - La richiesta con lo screenshot

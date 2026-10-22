@@ -1,0 +1,350 @@
+---
+title: Guide du tableau de bord
+description: Le tableau de bord local montre exactement ce qui a été envoyé au fournisseur et comment chaque valeur a été masquée.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+Le tableau de bord est une page web locale servie par le daemon Latet. Il répond à une question :
+**qu'a réellement envoyé mon agent ?**
+
+## L'ouvrir
+
+```sh
+latet dashboard
+```
+
+La commande démarre le daemon si besoin, lui demande un lien de connexion à usage unique et l'ouvre
+dans votre navigateur. Le lien ne fonctionne qu'une fois, pendant deux minutes ; la session qu'il
+ouvre prend fin 12 heures après votre connexion, que vous l'utilisiez ou non.
+`latet dashboard --print-url` affiche plutôt le lien, pour un autre navigateur.
+
+La page se trouve à l'adresse `http://127.0.0.1:5283/_latet/ui/` (5283 est le port par défaut ; la
+barre latérale montre celui qui est utilisé). Ouvrir cette adresse sans le lien affiche une page qui
+vous demande de lancer `latet dashboard`.
+
+## Sur un serveur Latet
+
+Sur une machine connectée à un [serveur Latet](../concepts/server/), `latet dashboard` ouvre votre
+propre tableau de bord sur le serveur, à l'adresse du serveur, par un lien à usage unique comme sur
+une machine. Il montre votre espace : les requêtes de vos machines, votre coffre-fort et vos propres
+réglages. La barre latérale nomme le serveur et la personne connectée, avec **Se déconnecter**, qui
+met fin à la session de ce navigateur sur chaque instance du serveur. Vos règles dans **Règles** ne
+sont qu'à vous : pour utiliser les règles d'une équipe, importez son fichier de règles avec
+**Importer des règles**. Les administrateurs du serveur définissent où tourne le relecteur local, que
+**Règles** signale par *Défini pour tout le monde sur ce serveur* sous *Relecteurs*, et les
+destinations définies pour tout le monde, que **Agents protégés** signale par *Définie pour tout le
+monde* et que vous ne pouvez pas supprimer. Le tableau de bord ne lit pas les fichiers d'un projet
+sur votre machine : il n'écrit pas son `latet.yaml` et n'en tire pas de reconnaisseurs. Sur un
+serveur, *Importer des réglages* d'un projet est refusé, puisque le serveur ne peut pas lire les
+fichiers du projet ; *Exporter ces réglages* fonctionne toujours, et **Importer des règles** sur les
+règles globales ajoute un fichier à vos propres règles. Sur un serveur, **Agents protégés** n'a pas
+de tableau des agents, puisque vos agents tournent sur vos propres machines : la page donne la
+commande `latet doctor` à lancer sur chacune d'elles, et liste vos destinations. Une clé d'API
+représente un programme et n'a pas de tableau de bord : ce sont les administrateurs qui définissent
+ses réglages. Un lien de connexion qui ne vous connecte pas
+dit pourquoi : il a déjà servi, il a plus de deux minutes ou il a été ouvert depuis la page d'un
+autre site ; trop de liens ont été essayés depuis votre adresse (attendez une minute) ; ou le serveur
+était occupé (réessayez dans un instant). [Configurer et administrer un serveur
+Latet](../getting-started/server/) est le guide des administrateurs.
+
+## Ce que vous verrez
+
+### En direct
+
+<Screenshot name="live" alt="La page En direct : chaque requête avec son agent, son modèle, sa durée, ses jetons, ses valeurs masquées et ses indicateurs" caption="En direct : chaque requête en temps réel." />
+
+Chaque échange en temps réel : agent, fournisseur, modèle, sa durée et la part de
+Latet dans cette durée, la consommation de jetons (lectures du cache de prompts comprises), le
+nombre de valeurs masquées, et des indicateurs comme *Bloquée*, *Non inspecté* (PDF, images non
+lues), *Image : masquée*, *Sortie retenue* (le
+[garde-fou anti-extraction](../concepts/production-data/#le-garde-fou-anti-extraction)), *Dans l'historique*
+(une conversation commencée avant que Latet soit activé : voir
+[Dépannage](../troubleshooting/#chaque-requête-dune-conversation-est-bloquée)),
+*Relecture du mode auto* ou *Route inconnue*.
+
+### Détail d'une requête
+
+Pour un échange, chaque bloc de texte de la requête côte à côte :
+l'original sur votre machine, et exactement ce qui a été envoyé au fournisseur, chaque valeur
+factice étant mise en évidence et étiquetée avec le type de valeur qu'elle a remplacé, la partie
+de Latet qui l'a trouvée (secrets, données personnelles, numéros d'identité et de TVA, votre
+identité, vos termes, vos reconnaisseurs, le modèle de noms, le relecteur local, vous dans le
+Relecteur en direct, vos règles de champ ou le mode données strict) et la règle. Il indique aussi
+comment la valeur a été trouvée dans ce texte : par un détecteur, ailleurs dans le même texte, comme
+valeur déjà présente dans le coffre-fort, comme valeur factice renvoyée, masquée par le plugin
+Claude Code, ou remise en place dans la réponse. Une valeur masquée par le
+[mode données strict](../concepts/production-data/) propose *Ne pas masquer* sa colonne, *dans ce
+projet* dans un échange d'un projet et *partout* sinon, et sous la sortie d'un outil qu'il a
+masquée, *Choisir les colonnes à laisser en clair* propose les colonnes qui pourraient passer en clair (ID,
+dates, états, comptages), avec l'avis du relecteur local si vous le demandez : voir
+[Choisir les colonnes à laisser en clair](../concepts/production-data/#choisir-les-colonnes-à-laisser-en-clair).
+Le mode données strict lui-même se règle sur la page Règles, pas ici : voir
+[Dans un échange](../concepts/production-data/#dans-un-échange).
+Ce que le [relecteur local](../concepts/llm-review/) a dit de chaque bloc est aussi
+listé : ce qu'il a masqué, et ce qu'il a seulement suggéré, avec *Toujours masquer* et
+*Non sensible*. Dans un échange d'un [projet](../concepts/projects/), ces choix s'appliquent à
+*Ce projet* (par défaut) ou à *Partout*. En dessous, la réponse du modèle telle qu'il l'a écrite
+et telle que votre agent l'a reçue, appels d'outils compris. Les identifiants présents dans les
+en-têtes ne sont jamais enregistrés.
+
+En mode client (Claude Code), le plugin masque le texte avant que le daemon ne le voie : le daemon
+enregistre la requête exactement telle qu'elle est partie, et reconstitue les originaux à partir du
+coffre-fort pour que vous puissiez comparer.
+
+<Screenshot name="exchange" alt="Un échange : chaque bloc de la requête tel qu'il est sur cette machine, à côté de ce qui a été envoyé au modèle, chaque valeur masquée étant mise en évidence" caption="Un échange : l'original à gauche, ce que le modèle a reçu à droite." />
+
+<Screenshot name="inspector" alt="Une valeur masquée sur laquelle on a cliqué : son type, la règle qui l'a trouvée, la vraie valeur, et Toujours masquer ou Non sensible pour ce projet ou partout" caption="Cliquez sur une valeur masquée : ce qu'elle est, quelle règle l'a trouvée, et que faire." />
+
+### Après l'envoi
+
+Quand le relecteur local, qui lit en arrière-plan, trouve des valeurs dans un
+texte déjà parti, **En direct** le signale, avec un lien vers le dernier échange de la session :
+elles sont masquées à partir de la requête suivante.
+
+### Requêtes bloquées
+
+En haut, en termes simples : ce qui s'est passé, ce que cela implique pour
+vous (une requête qui n'est jamais partie ; pour la vérification du mode auto de Claude Code, une
+action que le mode auto a refusée), et ce que vous pouvez faire, avec un bouton quand un réglage
+suffit à le changer. En dessous, ce qui serait parti, les valeurs qui l'ont arrêtée étant
+encadrées en rouge : cliquez sur l'une d'elles pour voir ce qu'elle est, et choisissez
+*Non sensible* si elle ne l'est pas : la requête identique suivante passera. Avec
+`history: metadata`, qui ne conserve aucun texte, elles ne sont listées que par type et longueur.
+Le motif que Latet a donné à l'agent y figure aussi. Les requêtes arrêtées dans Claude Code par la
+vérification finale du plugin lui-même apparaissent ici aussi.
+
+### Approbations
+
+Deux onglets, chacun avec le nombre de ce qui attend. Dans *Textes*, quand le
+[Relecteur en direct](../concepts/live-review/) est activé, chaque nouveau texte attend avant son
+départ : l'original à côté de ce qui sera envoyé, à approuver, à masquer davantage ou à arrêter ;
+une image avec les cadres où ses valeurs sont recouvertes, pour en recouvrir davantage à la main
+ou ne pas l'envoyer. Dans *Réglages*, une modification de vos réglages qui réduit la protection
+attend, quel qu'en soit l'auteur (la commande d'un agent, `config.yaml` modifié à la main), avec
+ce qu'elle réduit, et les consignes du relecteur local qu'elle écrit, avant et après
+([Les agents et vos réglages](../concepts/agents-and-settings/)). La page s'ouvre sur *Textes*, ou
+sur *Réglages* quand seule une modification attend ; une modification qui arrive pendant que vous
+relisez des textes augmente le nombre de *Réglages* et vous laisse où vous êtes. Dans une fenêtre
+de moins de 1100 px de large (une moitié d'écran, un téléphone), *Textes* montre un texte à la
+fois : lequel c'est parmi combien qui attendent, l'original au-dessus de ce qui sera envoyé, et en
+bas une barre avec *Approuver*, *Ne pas envoyer*, et le texte précédent et le suivant. Un texte
+peut être décidé une fois affiché depuis 0,4 seconde, pour qu'un double clic sur *Approuver*
+n'approuve pas le suivant sans que vous l'ayez vu ; après une décision, le focus du clavier est
+sur le texte qui s'affiche ensuite.
+
+### Sessions
+
+Une conversation à la fois. Les blocs renvoyés à chaque tour sont marqués comme
+tels, si bien que ce qui est *nouveau* dans chaque requête ressort.
+
+### Coffre-fort
+
+Chaque valeur que Latet connaît et sa valeur factice. Les originaux ne sont
+affichés que sur demande. *Oublier* retire une valeur du coffre-fort, et avec elle de tout
+l'historique. Les valeurs viennent cinquante par page, les plus récentes d'abord, avec les liens
+vers les pages sous le tableau.
+
+### Règles d'un projet
+
+Le sélecteur en haut de **Règles** passe des règles globales à celles d'un
+[projet](../concepts/projects/), dans les mêmes onglets. Au-dessus d'eux figurent le dossier du
+projet, son `latet.yaml` et, sous *Ce qui n'est pas appliqué*, ce que ses fichiers disent mais ne
+peuvent pas appliquer.
+
+- **Vue d'ensemble :** ce qui y est en vigueur, toutes couches réunies, et vos réglages pour le
+  projet dans leur ensemble : *Exporter ces réglages* et *Importer des réglages* les transfèrent
+  vers la copie du projet d'un collègue, et *Supprimer vos réglages* les retire.
+- **Protection** et **Relecteurs :** vos propres réglages pour le projet, avec les sections des
+  règles globales : Latet activé, secrets uniquement ou désactivé dans ce projet (en premier dans
+  *Protection*), données de production, ce que le relecteur local y lit, vos consignes pour lui
+  dans ce projet et le Relecteur en direct.
+- **Termes**, **Reconnaisseurs**, **Valeurs autorisées** et **Politiques :** un tableau chacun de
+  toutes les règles qui s'appliquent dans ce projet, une ligne par source, dont la colonne
+  **Origine** dit d'où elle vient : *les vôtres, pour* le projet, *latet.yaml*, ou *globale* avec un
+  cadenas. Le filtre *Origine* garde celles d'une source, et chaque onglet compte les vôtres et
+  toutes (*1 à vous · 4 au total*). Une ligne se modifie là où elle naît : une ligne globale
+  s'ouvre en lecture seule, avec *Ouvrir dans les règles globales* ; une ligne de `latet.yaml`
+  s'enregistre dans le fichier quand le tableau de bord peut l'écrire ; une nouvelle ligne
+  (*Ajouter pour* le projet) va dans vos propres réglages pour le projet, sauf si *Enregistrer
+  dans* dit `latet.yaml`, que lit quiconque lit le dépôt. Avant un enregistrement dans
+  `latet.yaml`, le panneau dit si l'enregistrement crée le fichier ou le réécrit en entier (ses
+  commentaires après les premières lignes ne sont pas conservés), et une suppression ou une
+  désactivation des lignes sélectionnées dit combien d'entre elles sont dans le fichier. Les
+  valeurs à ne jamais masquer viennent seulement des règles globales et des vôtres, car un fichier
+  du dépôt ne peut pas les définir. Dans *Politiques*, *En vigueur ici* dit quelle action
+  s'applique dans le projet, et une ligne dont l'action n'est pas celle en vigueur le dit à côté de
+  son action. Sur un serveur Latet, les tableaux d'un projet n'ont pas d'*Importer* : vos réglages
+  pour un projet s'importent sur votre ordinateur.
+- **Fichier du dépôt :** le `latet.yaml` du projet, avec ce qui ajoute de la protection et n'est
+  pas une liste. *Suggérer des reconnaisseurs* en rédige quelques-uns à partir des fichiers du
+  projet et ouvre chacun dans l'onglet *Reconnaisseurs*, *Enregistrer dans* sur `latet.yaml` ; le
+  fichier est écrit pour vous quand le dossier du projet se trouve sur cette machine.
+
+Comme dans les règles globales, un point marque un onglet qui a des modifications non
+enregistrées, la recherche trouve des sections et des lignes quel que soit leur onglet, et
+*Enregistrer vos réglages*, en bas des onglets sans tableau, enregistre celles de tous ces onglets
+à la fois ; dans l'onglet *Fichier du dépôt*, *Enregistrer latet.yaml* n'enregistre que le
+fichier. Un enregistrement dans un panneau garde ce que vous avez modifié ailleurs sans
+l'enregistrer, sauf si ce réglage a changé entre-temps : la page dit alors quel onglet l'a perdu.
+La page **En direct** filtre par projet, et un échange indique de quels réglages du projet vient
+une règle, avec un lien vers l'onglet où elle se modifie.
+
+### Règles
+
+Le [profil](../concepts/profiles/), les types de données personnelles à détecter et
+les pays dont les numéros d'identité sont à reconnaître, vos termes personnalisés et vos
+[reconnaisseurs](../concepts/custom-recognizers/) (avec un panneau *Essai*), les listes
+d'autorisation et les politiques, les [données de production](../concepts/production-data/) (mode
+données strict, règles de champ, garde-fou anti-extraction, [images](../concepts/images/) et
+reconnaissance de texte), le [relecteur local](../concepts/llm-review/) (avec vos consignes, ses
+propres instructions affichées en lecture seule telles qu'elles sont envoyées, *Essayer* sur un
+échantillon ou sur un texte à vous, et *Brouillon à partir d'une description* pour les
+reconnaisseurs), la détection locale des noms, ce que le
+[relecteur du mode auto](../agents/claude-code/) de Claude Code peut recevoir, et ce qu'il faut
+garder de l'historique. Les modifications s'appliquent immédiatement aux nouvelles requêtes, sans
+redémarrage. Les sections sont réparties en onglets : *Protection* (le profil en premier),
+*Termes*, *Reconnaisseurs*, *Valeurs autorisées*, *Politiques*, *Relecteurs* et *Avancé*, l'onglet
+de chaque liste avec son nombre.
+
+Chaque liste est un tableau fait pour des centaines de lignes : une recherche à lui, qui lit les
+valeurs (un terme, un type, un nom, un motif), des filtres qui conviennent à la liste (le type
+d'un terme, l'état d'un reconnaisseur, une valeur ou un motif...), des colonnes triées d'un clic
+sur leur en-tête, des pages de cinquante et une case à cocher par ligne. Les lignes sélectionnées
+sont supprimées, un reconnaisseur activé ou désactivé, ou copiées dans vos propres réglages pour
+un projet (*Copier dans un projet…*), tout de suite après une confirmation. Un clic sur une ligne,
+ou Entrée, l'ouvre dans un panneau à droite avec chacun de ses champs, la valeur entière d'une
+longue ligne comprise ; *Ajouter* ouvre le même panneau vide. Le type d'une nouvelle politique se
+choisit dans le menu, ou se tape avec *Un autre type…* pour un type que Latet trouve et que le
+menu ne propose pas, comme celui d'un secret. L'*Essai* d'un motif de valeurs à ne jamais masquer
+dit si le motif laisse passer une valeur, ou qu'il ne peut pas être essayé ici quand il utilise
+une forme que seul Latet lit. L'*Enregistrer* d'un panneau applique la modification tout de suite,
+faite sur vos réglages tels qu'ils sont maintenant : s'ils ont changé entre-temps (un autre onglet
+du navigateur, une modification d'un agent appliquée) et pas la ligne, elle est enregistrée quand
+même ; si la ligne a changé, le panneau le dit et la montre telle qu'elle est maintenant. Un
+panneau fermé avec des modifications non enregistrées demande d'abord, tout comme quitter la page
+avec ces modifications ou fermer l'onglet du navigateur. Sur un téléphone, le panneau couvre la
+page, *Fermer* en haut et ses boutons en bas.
+
+Un point marque un onglet sans tableau qui a des modifications non enregistrées, et *Enregistrer
+les règles*, en bas de ces onglets, les enregistre toutes à la fois ; l'enregistrement d'un panneau
+les garde, sauf si l'un de ces réglages a changé entre-temps, et la page dit alors quel onglet a
+perdu sa modification. La recherche au-dessus des onglets trouve une section par son titre ou sa
+description et les lignes des tableaux, quel que soit leur onglet, et dit dans quels onglets elle
+a trouvé des lignes. *Exporter les règles* et *Importer des règles*, en haut, donnent vos règles à
+un collègue dans un fichier ; une importation montre ce qu'elle ajouterait avant que rien ne
+change ([Exportation et importation](../concepts/export-import/)). Les tableaux *Termes*,
+*Reconnaisseurs* et *Valeurs autorisées* ont leur propre *Exporter* et *Importer* : les termes en
+CSV (`value,type,case_sensitive,whole_word`, pour qu'une liste de clients se colle d'un coup), les
+valeurs en CSV (`kind,value`), les reconnaisseurs en fichier de règles. *Exporter* écrit les lignes
+que le tableau montre, avec les filtres actifs et les précautions d'*Exporter les règles* : les
+termes et les valeurs sont en clair dans le fichier, comme l'exportation le dit, une cellule
+qu'un tableur exécuterait comme une formule est écrite après une apostrophe, et un reconnaisseur
+dont les exemples contiennent une valeur que Latet a vraiment vue reste dehors, et il est nommé.
+*Importer* ajoute à la liste, ne la remplace jamais, et montre d'abord ce qu'il ajouterait ; le
+tableau *Reconnaisseurs* importe un fichier de reconnaisseurs seuls.
+
+<Screenshot name="rules" alt="L'onglet Termes de Règles : un tableau des termes avec une recherche, un filtre et une case à cocher par ligne, et un terme ouvert dans le panneau à droite, avec ses champs et Enregistrer" caption="Une liste des règles en tableau, une ligne ouverte dans son panneau." />
+
+### Banc d'essai
+
+Collez un texte et voyez comment vos règles, ou un autre profil, le
+masqueraient, comme requête, pièce jointe, sortie d'un outil ou prompt système. Rien de ce qui y
+est saisi n'est écrit sur le disque, dans le coffre-fort ni dans l'historique, et cela n'atteint
+jamais un modèle.
+
+### Agents protégés
+
+Quels agents passent par Latet et où vont les requêtes de chacun, et le résultat
+des vérifications. Dans le tableau des agents, **Passe par Latet** indique Oui quand les requêtes
+d'un agent passent par Latet et partent masquées, En partie quand une partie seulement des réglages
+de Latet est en place, Non quand elles vont au fournisseur sans protection, Avec latet gemini quand
+Gemini CLI ne passe par Latet que lancé avec cette commande, et Non installé quand l'agent n'est pas
+sur cet ordinateur ; pour En partie et Non, les notes de l'agent donnent la commande qui corrige
+cela. **Où vont les requêtes** liste vos
+[points de terminaison d'entreprise](../agents/company-endpoints/) : l'adresse de chaque
+destination, l'agent dont les réglages la mentionnaient et sa dernière utilisation. *Supprimer*
+retire cette seule destination et aucune autre. Une destination encore utilisée ne peut pas être
+supprimée : les réglages de Claude Code ou de Codex, ou les réglages gérés de votre organisation,
+pointent vers elle, ou elle a été enregistrée depuis le démarrage de Latet, par une session
+`latet claude` ou `latet codex`, par `latet agents apply` ou par `latet global-install`. Latet ne
+voit pas une destination que seul un autre agent utilise (OpenCode, Hermes, un programme lancé
+avec `latet run`) : vérifiez qu'aucun ne l'utilise avant de la supprimer. Chaque échange indique
+où il est allé (**Envoyée à**), et si Latet l'a signé pour Amazon Bedrock.
+
+### Statistiques
+
+Pour aujourd'hui ou les derniers jours : échanges, valeurs masquées et requêtes
+bloquées par jour ; valeurs masquées par type ; échanges par agent ; latence et temps ajouté par
+Latet (médiane et 95e centile) ; la part du prompt servie depuis le cache du fournisseur.
+
+## Raccourcis clavier
+
+Dans **Approbations**, le clavier peut décider des textes en attente, une fois ses raccourcis activés :
+ils sont désactivés au départ. *Raccourcis clavier*, au-dessus des textes, les liste, avec
+l'interrupteur qui les active ; ce navigateur garde votre choix, et tant qu'ils sont activés le bouton
+indique *Raccourcis activés*.
+
+| Touche | Ce qu'elle fait |
+|---|---|
+| <kbd>A</kbd> | Approuver le texte affiché |
+| <kbd>X</kbd> | Ne pas l'envoyer |
+| <kbd>J</kbd> / <kbd>K</kbd> | Le texte suivant / le précédent |
+| <kbd>M</kbd> | Masquer le texte sélectionné dans l'original, sinon la première suggestion |
+| <kbd>Maj</kbd>+<kbd>A</kbd> | Tout approuver, après confirmation |
+| <kbd>?</kbd> | La liste des raccourcis |
+
+Une touche n'agit jamais pendant que vous tapez dans un champ, avec Ctrl, Alt ou Cmd enfoncé, ni dans
+la file du tutoriel. Entrée n'approuve rien : le bouton *Approuver* envoie un texte tel quel.
+
+## La confidentialité du tableau de bord lui-même
+
+Ce qui suit concerne le tableau de bord sur votre propre machine. Pour le tableau de bord d'un serveur
+Latet, voir [Latet sur un serveur](../concepts/server/).
+
+- Il n'écoute que sur `127.0.0.1` ; dans l'[image de conteneur](../getting-started/docker/), il écoute
+  à l'intérieur du conteneur, dont vous publiez le port sur `127.0.0.1` seulement. Les requêtes dont
+  le `Host` n'est pas cette machine sont refusées, ce qui déjoue le DNS rebinding.
+- L'accès exige le lien à usage unique, puis un cookie de session `HttpOnly`, `SameSite=Strict`.
+  Chaque modification exige aussi un en-tête que les pages d'autres sites ne peuvent pas envoyer.
+  Les pages d'autres sites ne peuvent pas non plus utiliser les routes de proxy du daemon : les
+  requêtes qui portent des en-têtes de navigateur sont refusées.
+- La page ne charge rien depuis internet : ni polices, ni scripts, ni outils de mesure d'audience de
+  tiers.
+- L'historique conserve les requêtes telles qu'elles ont quitté votre machine (déjà masquées), et
+  les requêtes bloquées telles qu'elles seraient parties, pour que vous puissiez voir ce qui a été
+  arrêté. Il est chiffré en AES-GCM, avec une clé dérivée de la même clé racine que celle du
+  coffre-fort. Les originaux sont recherchés dans le coffre-fort quand vous ouvrez une requête : une
+  valeur que vous oubliez disparaît donc aussi de l'historique.
+- Ce que conserve l'historique se choisit sous Historique dans **Règles**, dans l'onglet *Avancé* :
+  *Tout* (les blocs de texte, les réponses et les durées, pour voir exactement ce qui a été envoyé),
+  *Métadonnées uniquement* (décomptes, durées et indicateurs, aucun texte) ou *Rien* (les échanges ne
+  sont pas enregistrés, et **En direct** reste vide).
+- L'historique est conservé 14 jours par défaut ; *Conserver pendant*, sous Historique dans
+  **Règles**, le règle de 1 à 365 jours. Les blocs renvoyés à chaque tour sont stockés une seule fois.
+- Vous pouvez effacer l'historique à tout moment depuis le tableau de bord ; le coffre-fort est
+  conservé.
+
+## Langues
+
+Le tableau de bord existe en anglais, en italien, en allemand, en français et en espagnol. Il
+s'ouvre dans la langue que vous avez choisie, sinon dans la première des langues de votre navigateur
+qu'il propose, sinon en anglais ; le menu des langues dans la barre latérale, au-dessus du sélecteur
+de thème, la change immédiatement, et votre navigateur garde ce choix. Les dates et les nombres
+suivent la langue. Ce que dit le daemon (ses erreurs, les vérifications de doctor) reste en anglais.
+Pour ajouter une langue, voir [Contribuer](../contributing/#comment-ajouter-une-langue).
+
+## La documentation
+
+*Documentation*, en haut à droite de chaque page, ouvre la partie de ce guide qui explique la page.
+Un *?* à côté du titre d'une section de **Règles**, et en haut du panneau d'une règle, ouvre la
+documentation de cette section, et *Pourquoi*, dans un avis qui dit ce qui s'est passé (une requête
+arrêtée, la sortie d'un outil retenue, une modification qui attend votre approbation), la page qui
+l'explique. Chacun s'ouvre dans un nouvel onglet, dans la langue du tableau de bord.
+
+Ce qui s'ouvre est la documentation du Latet que vous utilisez : chaque installation sert la sienne,
+à `/_latet/docs/` (`http://127.0.0.1:5283/_latet/docs/` sur le port par défaut), et un serveur Latet
+sert la sienne de la même façon. Elle fonctionne sans réseau et ne demande rien à aucun autre hôte ;
+la seule exception est la vidéo de présentation, un lien pour la regarder sur docs.latet.ai. Une
+installation qui ne la contient pas, comme une installation depuis une copie du dépôt où elle n'a pas
+été construite, ouvre les mêmes pages sur docs.latet.ai, qui décrivent la dernière version.

@@ -1,0 +1,124 @@
+---
+title: Relecteur en direct
+description: Vous comme dernière vérification. Chaque nouveau texte attend votre approbation dans le tableau de bord avant de partir.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Les détecteurs de Latet et le [relecteur local](../llm-review/) masquent ce qu'ils reconnaissent. Le
+Relecteur en direct vous fait entrer en jeu : chaque nouveau texte qu'un agent s'apprête à envoyer
+attend dans le tableau de bord jusqu'à ce que vous l'approuviez. Vous voyez l'original à côté de ce
+qui partira, et vous pouvez masquer davantage avant son départ.
+
+## L'activer
+
+Dans le tableau de bord, activez le **Relecteur en direct** sur la page **Approbations** ou
+**En direct**. Ou dans [config.yaml](../../reference/configuration/#live_review) :
+
+```yaml
+live_review:
+  enabled: true
+```
+
+Gardez le tableau de bord ouvert pendant que vous travaillez (`latet dashboard`). L'entrée
+**Approbations** du menu indique combien de textes attendent, tout comme le titre de l'onglet du
+navigateur. Avec *M'avertir*, le navigateur vous prévient aussi quand un texte arrive alors que vous
+êtes dans un autre onglet.
+
+## Ce qui attend, et ce que vous voyez
+
+<Screenshot name="approvals" alt="La page Approbations : deux textes en attente à gauche ; à droite, l'original d'un prompt à côté de ce qui sera envoyé, avec un nom suggéré par le relecteur local masqué à la main, et les boutons Approuver et Ne pas envoyer" caption="Approbations : un nom suggéré par le relecteur local, masqué avant le départ du prompt." />
+
+Chaque texte que le modèle n'a pas écrit, la première fois qu'il est envoyé :
+- vos prompts et vos pièces jointes ;
+- les instructions que reçoit l'agent (son prompt système, votre CLAUDE.md) ;
+- ce que récupèrent les outils de l'agent : fichiers, résultats de requêtes de base de données, pages web.
+
+`kinds` choisit parmi eux. Un texte que vous avez approuvé n'attend plus dans la même conversation,
+même quand l'agent le renvoie dans l'historique.
+
+Le texte lu dans une [capture d'écran ou une image](../images/) attend avec l'image au-dessus : un
+cadre indique où chaque valeur reçoit sa valeur factice, et une valeur que vous masquez dans son texte
+est aussi recouverte sur l'image.
+
+Chaque texte affiche l'**Original**, et ce qui **Sera envoyé**, avec ce que Latet et le relecteur local
+ont masqué. Ce que le relecteur local a trouvé sans le masquer de lui-même est mis en évidence dans
+l'original, prêt à être masqué d'un clic. Quand le relecteur n'a pas pu lire un texte (son serveur est
+éteint, ou sa réponse n'est pas fiable), le texte n'est pas arrêté comme il le serait sans vous : il
+vous attend avec un avertissement, et c'est vous qui décidez.
+
+Tant qu'un texte attend, ce qui sera envoyé suit vos règles. Quand vous marquez une valeur
+*Non sensible*, masquez une valeur dans un autre texte ou changez un réglage, les textes encore en
+attente le montrent aussitôt, dans chaque tableau de bord ouvert, et partent ainsi quand vous les
+approuvez.
+
+## Ce que vous pouvez faire
+
+- **Approuver** le texte tel quel.
+- **Masquer la sélection :** sélectionnez une valeur dans l'original et choisissez ce que c'est (une
+  personne, une adresse e-mail, un nom de code...). Elle part sous forme de valeur factice, que Latet
+  choisit quand vous approuvez.
+- **Ne pas envoyer :** rien n'en part. Un prompt que vous arrêtez n'est pas envoyé, et un fichier ou
+  une sortie d'outil parvient à la place au modèle sous la forme d'un court avis.
+- **Sur une image :** tracez un rectangle sur n'importe quelle partie de l'image, qui est alors
+  recouverte d'une barre, ou cochez *Ne pas envoyer cette image* : le reste de la requête part, et le
+  modèle reçoit une courte note à la place de l'image. *Telle qu'elle part* affiche l'image telle que
+  Latet l'a masquée. Votre décision est conservée, scellée, pour cette image : renvoyée, même après un
+  redémarrage, elle part de la même façon.
+- **Tout approuver** : tous les textes en attente, tels que Latet les a masqués.
+- **Au clavier**, une fois ses [raccourcis](../../dashboard/#raccourcis-clavier) activés : A approuve, X
+  n'envoie pas, M masque.
+
+Ce que vous modifiez est vérifié par le daemon. Vous pouvez seulement ajouter du masquage : une valeur
+déjà masquée ne peut pas être remise en clair, et une valeur factice déjà utilisée ne peut pas être
+masquée à nouveau. Une sélection s'étend aux mots entiers, puisque Latet masque une valeur partout où
+elle apparaît en tant que mot entier. Une valeur n'est masquée que
+sous un seul type, et une valeur que vous avez marquée *Non sensible* doit d'abord être retirée de
+**Règles**. Si une valeur que vous avez masquée devait malgré tout partir en clair, le texte est
+retenu à la place. Une valeur que vous masquez est conservée dans le coffre-fort comme les valeurs que
+trouvent les détecteurs. Elle est masquée partout où elle apparaît à partir de ce moment, dans chaque
+conversation, et la vérification finale l'arrête si elle s'apprête à partir en clair.
+*Toujours masquer* en fait aussi l'un de vos termes, pour un projet ou partout, pour qu'elle reste
+masquée même après que vous l'avez oubliée du coffre-fort.
+
+## Quand vous ne répondez pas
+
+Un texte attend aussi longtemps qu'il le faut. Rien n'en part tant que vous n'avez pas répondu.
+
+- **Vous arrêtez l'agent** (Esc dans Claude Code) : rien n'est envoyé, et le texte quitte la file
+  d'attente en moins d'une minute.
+- **Aucun tableau de bord n'est ouvert :** Claude Code vous le signale, et le texte continue d'attendre
+  jusqu'à ce que vous en ouvriez un.
+- **Un délai,** si vous en voulez un : au-delà de `timeout_s` secondes, le texte n'est pas envoyé.
+
+```yaml
+live_review:
+  enabled: true
+  auto_approve_clean: true   # a text in which nothing was found leaves without asking you
+  timeout_s: 300             # not set: until you answer
+```
+
+## Où cela se passe
+
+- **Dans Claude Code,** à l'étape de masquage du plugin, avant que Claude Code ne construise la
+  requête. Vous relisez morceau par morceau chaque prompt, chaque fichier et chaque sortie d'outil, à
+  mesure qu'ils arrivent. Claude Code construit ensuite la requête avec le texte que vous avez
+  approuvé : aucune requête n'est donc modifiée après sa construction. Pendant qu'un texte attend, la
+  ligne d'état de Claude Code affiche *waiting for your approval in the dashboard*.
+- **Pour les agents qui passent par la passerelle** (Codex, OpenCode, Hermes Agent...), dans le
+  daemon : les nouveaux textes d'une requête attendent ensemble, et la requête part une fois que vous
+  les avez approuvés. Certains agents abandonnent une requête qui prend trop de temps, et peuvent la
+  relancer ; rien n'est envoyé tant que vous ne l'avez pas approuvée.
+
+## Dans un projet
+
+Dans vos propres réglages pour un projet, `live_review: true` ou `false` l'active ou le désactive dans
+ce projet. Le [`latet.yaml`](../projects/) d'un projet ne peut pas l'activer : vérifier ou non chaque
+texte est votre choix, pas celui du dépôt.
+
+## Commandes
+
+| Commande | Ce qu'elle fait |
+| --- | --- |
+| `latet status` | Indique si le Relecteur en direct est activé, combien de textes attendent et combien de tableaux de bord sont ouverts |
+| `latet doctor` | Avertit quand le Relecteur en direct est activé et qu'aucun tableau de bord n'est ouvert |

@@ -1,0 +1,362 @@
+{
+  "it": {
+    "agents/claude-code/": {
+      "auto-modes-reviewer": "il-revisore-della-modalità-auto"
+    },
+    "concepts/agents-and-settings/": {
+      "what-waits-for-you": "cosa-attende-la-tua-approvazione"
+    },
+    "concepts/custom-recognizers/": {
+      "for-one-project": "per-un-solo-progetto",
+      "what-a-recognizer-has": "cosa-contiene-un-riconoscitore"
+    },
+    "concepts/detection/": {
+      "names": "nomi",
+      "personal-data": "dati-personali",
+      "this-machines-identity": "lidentità-di-questo-computer",
+      "when-two-detectors-find-the-same-text": "quando-due-rilevatori-trovano-lo-stesso-testo",
+      "your-own-terms": "i-tuoi-termini"
+    },
+    "concepts/export-import/": {
+      "your-rules-for-a-colleague": "le-tue-regole-per-un-collega"
+    },
+    "concepts/images/": {
+      "the-settings": "le-impostazioni",
+      "what-happens-to-an-image": "cosa-succede-a-unimmagine"
+    },
+    "concepts/live-review/": {
+      "in-a-project": "in-un-progetto",
+      "what-waits-and-what-you-see": "cosa-attende-e-cosa-vedi",
+      "what-you-can-do": "cosa-puoi-fare",
+      "when-you-do-not-answer": "quando-non-rispondi"
+    },
+    "concepts/llm-review/": {
+      "faster-by-reading-less": "più-veloce-leggendo-meno",
+      "in-a-project": "in-un-progetto",
+      "turn-it-on": "attivalo",
+      "what-it-masks-by-itself": "cosa-maschera-da-solo",
+      "what-it-reads-and-when": "cosa-legge-e-quando",
+      "your-guidance": "le-tue-indicazioni"
+    },
+    "concepts/production-data/": {
+      "choosing-the-columns-to-keep-in-clear": "scegliere-le-colonne-da-lasciare-in-chiaro",
+      "field-rules": "regole-di-campo",
+      "files-that-count-as-data": "file-che-contano-come-dati",
+      "in-a-project": "in-un-progetto",
+      "in-an-exchange": "in-uno-scambio",
+      "strict-data-mode": "modalità-dati-rigorosa",
+      "the-dump-guard": "la-protezione-dai-dump",
+      "web-addresses-that-count-as-data": "indirizzi-web-che-contano-come-dati",
+      "which-tools": "quali-strumenti"
+    },
+    "concepts/profiles/": {
+      "allow-lists": "valori-consentiti",
+      "fine-tuning": "regolazione-fine",
+      "policies": "criteri",
+      "profiles": "profili"
+    },
+    "concepts/projects/": {
+      "secrets-only-or-latet-off-in-a-project": "solo-segreti-o-latet-disattivato-in-un-progetto",
+      "the-project-file": "il-file-del-progetto",
+      "your-settings-for-a-project": "le-tue-impostazioni-per-un-progetto"
+    },
+    "concepts/protection-scope/": {
+      "not-protected": "non-protetto"
+    },
+    "dashboard/": {
+      "approvals": "approvazioni",
+      "live": "live",
+      "on-a-latet-server": "su-un-server-latet",
+      "opening-it": "aprirla",
+      "playground": "laboratorio",
+      "privacy-of-the-dashboard-itself": "la-privacy-della-dashboard-stessa",
+      "protected-agents": "agenti-protetti",
+      "request-detail": "dettaglio-della-richiesta",
+      "rules": "regole",
+      "rules-of-a-project": "regole-di-un-progetto",
+      "sessions": "sessioni",
+      "stats": "statistiche",
+      "vault": "cassaforte"
+    },
+    "troubleshooting/": {
+      "a-request-was-blocked": "una-richiesta-è-stata-bloccata",
+      "a-tool-output-was-withheld": "loutput-di-uno-strumento-è-stato-trattenuto",
+      "an-image-was-withheld": "unimmagine-è-stata-trattenuta",
+      "auto-mode-says-its-reviewer-is-temporarily-unavailable": "la-modalità-auto-dice-che-il-suo-revisore-è-temporaneamente-non-disponibile",
+      "claude-code-says-its-requests-go-around-latet": "claude-code-dice-che-le-sue-richieste-aggirano-latet",
+      "every-request-of-a-conversation-is-blocked": "ogni-richiesta-di-una-conversazione-viene-bloccata",
+      "the-local-reviewer-stopped-a-request": "il-revisore-locale-ha-fermato-una-richiesta",
+      "what-about-images-and-pdfs": "e-le-immagini-e-i-pdf"
+    }
+  },
+  "de": {
+    "agents/claude-code/": {
+      "auto-modes-reviewer": "der-prüfer-des-auto-modus"
+    },
+    "concepts/agents-and-settings/": {
+      "what-waits-for-you": "was-auf-sie-wartet"
+    },
+    "concepts/custom-recognizers/": {
+      "for-one-project": "für-ein-einzelnes-projekt",
+      "what-a-recognizer-has": "woraus-ein-erkenner-besteht"
+    },
+    "concepts/detection/": {
+      "names": "namen",
+      "personal-data": "personenbezogene-daten",
+      "this-machines-identity": "die-identität-dieses-rechners",
+      "when-two-detectors-find-the-same-text": "wenn-zwei-detektoren-denselben-text-finden",
+      "your-own-terms": "ihre-eigenen-begriffe"
+    },
+    "concepts/export-import/": {
+      "your-rules-for-a-colleague": "ihre-regeln-für-kollegen"
+    },
+    "concepts/images/": {
+      "the-settings": "die-einstellungen",
+      "what-happens-to-an-image": "was-mit-einem-bild-geschieht"
+    },
+    "concepts/live-review/": {
+      "in-a-project": "in-einem-projekt",
+      "what-waits-and-what-you-see": "was-wartet-und-was-sie-sehen",
+      "what-you-can-do": "was-sie-tun-können",
+      "when-you-do-not-answer": "wenn-sie-nicht-antworten"
+    },
+    "concepts/llm-review/": {
+      "faster-by-reading-less": "schneller-wenn-er-weniger-liest",
+      "in-a-project": "in-einem-projekt",
+      "turn-it-on": "einschalten",
+      "what-it-masks-by-itself": "was-er-selbst-maskiert",
+      "what-it-reads-and-when": "was-er-liest-und-wann",
+      "your-guidance": "ihre-hinweise"
+    },
+    "concepts/production-data/": {
+      "choosing-the-columns-to-keep-in-clear": "die-spalten-wählen-die-im-klartext-bleiben",
+      "field-rules": "feldregeln",
+      "files-that-count-as-data": "dateien-die-als-daten-gelten",
+      "in-a-project": "in-einem-projekt",
+      "in-an-exchange": "in-einem-austausch",
+      "strict-data-mode": "strikter-datenmodus",
+      "the-dump-guard": "der-dump-schutz",
+      "web-addresses-that-count-as-data": "webadressen-die-als-daten-gelten",
+      "which-tools": "welche-tools"
+    },
+    "concepts/profiles/": {
+      "allow-lists": "zulassungslisten",
+      "fine-tuning": "feinabstimmung",
+      "policies": "richtlinien",
+      "profiles": "profile"
+    },
+    "concepts/projects/": {
+      "secrets-only-or-latet-off-in-a-project": "nur-geheimnisse-oder-latet-aus-in-einem-projekt",
+      "the-project-file": "die-projektdatei",
+      "your-settings-for-a-project": "ihre-einstellungen-für-ein-projekt"
+    },
+    "concepts/protection-scope/": {
+      "not-protected": "nicht-geschützt"
+    },
+    "dashboard/": {
+      "approvals": "freigaben",
+      "live": "live",
+      "on-a-latet-server": "auf-einem-latet-server",
+      "opening-it": "das-dashboard-öffnen",
+      "playground": "testbereich",
+      "privacy-of-the-dashboard-itself": "der-datenschutz-des-dashboards-selbst",
+      "protected-agents": "geschützte-agenten",
+      "request-detail": "details-einer-anfrage",
+      "rules": "regeln",
+      "rules-of-a-project": "regeln-eines-projekts",
+      "sessions": "sitzungen",
+      "stats": "statistik",
+      "vault": "tresor"
+    },
+    "troubleshooting/": {
+      "a-request-was-blocked": "eine-anfrage-wurde-blockiert",
+      "a-tool-output-was-withheld": "eine-tool-ausgabe-wurde-zurückgehalten",
+      "an-image-was-withheld": "ein-bild-wurde-zurückgehalten",
+      "auto-mode-says-its-reviewer-is-temporarily-unavailable": "der-auto-modus-meldet-sein-prüfer-sei-vorübergehend-nicht-verfügbar",
+      "claude-code-says-its-requests-go-around-latet": "claude-code-meldet-dass-seine-anfragen-an-latet-vorbeigehen",
+      "every-request-of-a-conversation-is-blocked": "jede-anfrage-einer-unterhaltung-wird-blockiert",
+      "the-local-reviewer-stopped-a-request": "der-lokale-prüfer-hat-eine-anfrage-gestoppt",
+      "what-about-images-and-pdfs": "was-ist-mit-bildern-und-pdfs"
+    }
+  },
+  "fr": {
+    "agents/claude-code/": {
+      "auto-modes-reviewer": "le-relecteur-du-mode-auto"
+    },
+    "concepts/agents-and-settings/": {
+      "what-waits-for-you": "ce-qui-vous-attend"
+    },
+    "concepts/custom-recognizers/": {
+      "for-one-project": "pour-un-seul-projet",
+      "what-a-recognizer-has": "ce-que-contient-un-reconnaisseur"
+    },
+    "concepts/detection/": {
+      "names": "noms",
+      "personal-data": "données-personnelles",
+      "this-machines-identity": "lidentité-de-cette-machine",
+      "when-two-detectors-find-the-same-text": "quand-deux-détecteurs-trouvent-le-même-texte",
+      "your-own-terms": "vos-propres-termes"
+    },
+    "concepts/export-import/": {
+      "your-rules-for-a-colleague": "vos-règles-pour-un-collègue"
+    },
+    "concepts/images/": {
+      "the-settings": "les-réglages",
+      "what-happens-to-an-image": "ce-qui-arrive-à-une-image"
+    },
+    "concepts/live-review/": {
+      "in-a-project": "dans-un-projet",
+      "what-waits-and-what-you-see": "ce-qui-attend-et-ce-que-vous-voyez",
+      "what-you-can-do": "ce-que-vous-pouvez-faire",
+      "when-you-do-not-answer": "quand-vous-ne-répondez-pas"
+    },
+    "concepts/llm-review/": {
+      "faster-by-reading-less": "plus-rapide-en-lisant-moins",
+      "in-a-project": "dans-un-projet",
+      "turn-it-on": "lactiver",
+      "what-it-masks-by-itself": "ce-quil-masque-de-lui-même",
+      "what-it-reads-and-when": "ce-quil-lit-et-quand",
+      "your-guidance": "vos-consignes"
+    },
+    "concepts/production-data/": {
+      "choosing-the-columns-to-keep-in-clear": "choisir-les-colonnes-à-laisser-en-clair",
+      "field-rules": "règles-de-champ",
+      "files-that-count-as-data": "fichiers-qui-comptent-comme-données",
+      "in-a-project": "dans-un-projet",
+      "in-an-exchange": "dans-un-échange",
+      "strict-data-mode": "mode-données-strict",
+      "the-dump-guard": "le-garde-fou-anti-extraction",
+      "web-addresses-that-count-as-data": "adresses-web-qui-comptent-comme-données",
+      "which-tools": "quels-outils"
+    },
+    "concepts/profiles/": {
+      "allow-lists": "listes-dautorisation",
+      "fine-tuning": "réglage-fin",
+      "policies": "politiques",
+      "profiles": "profils"
+    },
+    "concepts/projects/": {
+      "secrets-only-or-latet-off-in-a-project": "secrets-uniquement-ou-latet-désactivé-dans-un-projet",
+      "the-project-file": "le-fichier-du-projet",
+      "your-settings-for-a-project": "vos-réglages-pour-un-projet"
+    },
+    "concepts/protection-scope/": {
+      "not-protected": "non-protégé"
+    },
+    "dashboard/": {
+      "approvals": "approbations",
+      "live": "en-direct",
+      "on-a-latet-server": "sur-un-serveur-latet",
+      "opening-it": "louvrir",
+      "playground": "banc-dessai",
+      "privacy-of-the-dashboard-itself": "la-confidentialité-du-tableau-de-bord-lui-même",
+      "protected-agents": "agents-protégés",
+      "request-detail": "détail-dune-requête",
+      "rules": "règles",
+      "rules-of-a-project": "règles-dun-projet",
+      "sessions": "sessions",
+      "stats": "statistiques",
+      "vault": "coffre-fort"
+    },
+    "troubleshooting/": {
+      "a-request-was-blocked": "une-requête-a-été-bloquée",
+      "a-tool-output-was-withheld": "une-sortie-doutil-a-été-retenue",
+      "an-image-was-withheld": "une-image-a-été-retenue",
+      "auto-mode-says-its-reviewer-is-temporarily-unavailable": "le-mode-auto-dit-que-son-relecteur-est-temporairement-indisponible",
+      "claude-code-says-its-requests-go-around-latet": "claude-code-dit-que-ses-requêtes-contournent-latet",
+      "every-request-of-a-conversation-is-blocked": "chaque-requête-dune-conversation-est-bloquée",
+      "the-local-reviewer-stopped-a-request": "le-relecteur-local-a-arrêté-une-requête",
+      "what-about-images-and-pdfs": "et-les-images-et-les-pdf-"
+    }
+  },
+  "es": {
+    "agents/claude-code/": {
+      "auto-modes-reviewer": "el-revisor-del-modo-automático"
+    },
+    "concepts/agents-and-settings/": {
+      "what-waits-for-you": "lo-que-espera-tu-aprobación"
+    },
+    "concepts/custom-recognizers/": {
+      "for-one-project": "para-un-solo-proyecto",
+      "what-a-recognizer-has": "qué-tiene-un-reconocedor"
+    },
+    "concepts/detection/": {
+      "names": "nombres",
+      "personal-data": "datos-personales",
+      "this-machines-identity": "la-identidad-de-este-equipo",
+      "when-two-detectors-find-the-same-text": "cuando-dos-detectores-encuentran-el-mismo-texto",
+      "your-own-terms": "tus-propios-términos"
+    },
+    "concepts/export-import/": {
+      "your-rules-for-a-colleague": "tus-reglas-para-un-compañero"
+    },
+    "concepts/images/": {
+      "the-settings": "los-ajustes",
+      "what-happens-to-an-image": "qué-le-pasa-a-una-imagen"
+    },
+    "concepts/live-review/": {
+      "in-a-project": "en-un-proyecto",
+      "what-waits-and-what-you-see": "qué-espera-y-qué-ves",
+      "what-you-can-do": "qué-puedes-hacer",
+      "when-you-do-not-answer": "cuando-no-respondes"
+    },
+    "concepts/llm-review/": {
+      "faster-by-reading-less": "más-rápido-leyendo-menos",
+      "in-a-project": "en-un-proyecto",
+      "turn-it-on": "actívalo",
+      "what-it-masks-by-itself": "qué-enmascara-por-su-cuenta",
+      "what-it-reads-and-when": "qué-lee-y-cuándo",
+      "your-guidance": "tus-indicaciones"
+    },
+    "concepts/production-data/": {
+      "choosing-the-columns-to-keep-in-clear": "elegir-las-columnas-que-dejar-en-claro",
+      "field-rules": "reglas-de-campo",
+      "files-that-count-as-data": "archivos-que-cuentan-como-datos",
+      "in-a-project": "en-un-proyecto",
+      "in-an-exchange": "en-un-intercambio",
+      "strict-data-mode": "modo-de-datos-estricto",
+      "the-dump-guard": "la-protección-contra-volcados",
+      "web-addresses-that-count-as-data": "direcciones-web-que-cuentan-como-datos",
+      "which-tools": "qué-herramientas"
+    },
+    "concepts/profiles/": {
+      "allow-lists": "listas-de-permitidos",
+      "fine-tuning": "ajuste-fino",
+      "policies": "políticas",
+      "profiles": "perfiles"
+    },
+    "concepts/projects/": {
+      "secrets-only-or-latet-off-in-a-project": "solo-secretos-o-latet-desactivado-en-un-proyecto",
+      "the-project-file": "el-archivo-del-proyecto",
+      "your-settings-for-a-project": "tus-ajustes-para-un-proyecto"
+    },
+    "concepts/protection-scope/": {
+      "not-protected": "no-protegido"
+    },
+    "dashboard/": {
+      "approvals": "aprobaciones",
+      "live": "en-directo",
+      "on-a-latet-server": "en-un-servidor-latet",
+      "opening-it": "abrirlo",
+      "playground": "banco-de-pruebas",
+      "privacy-of-the-dashboard-itself": "la-privacidad-del-propio-panel",
+      "protected-agents": "agentes-protegidos",
+      "request-detail": "detalle-de-la-petición",
+      "rules": "reglas",
+      "rules-of-a-project": "reglas-de-un-proyecto",
+      "sessions": "sesiones",
+      "stats": "estadísticas",
+      "vault": "caja-fuerte"
+    },
+    "troubleshooting/": {
+      "a-request-was-blocked": "se-ha-bloqueado-una-petición",
+      "a-tool-output-was-withheld": "se-ha-retenido-la-salida-de-una-herramienta",
+      "an-image-was-withheld": "se-ha-retenido-una-imagen",
+      "auto-mode-says-its-reviewer-is-temporarily-unavailable": "el-modo-automático-dice-que-su-revisor-no-está-disponible-temporalmente",
+      "claude-code-says-its-requests-go-around-latet": "claude-code-dice-que-sus-peticiones-no-pasan-por-latet",
+      "every-request-of-a-conversation-is-blocked": "se-bloquean-todas-las-peticiones-de-una-conversación",
+      "the-local-reviewer-stopped-a-request": "el-revisor-local-ha-detenido-una-petición",
+      "what-about-images-and-pdfs": "y-las-imágenes-y-los-pdf"
+    }
+  }
+}

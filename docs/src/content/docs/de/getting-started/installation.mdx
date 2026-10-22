@@ -1,0 +1,197 @@
+---
+title: Installation
+description: Installieren Sie Latet mit einem einzigen Befehl, oder führen Sie es aus einem Checkout des Quellcodes aus.
+---
+
+## Voraussetzungen
+
+- Windows, macOS oder Linux. Keine Administratorrechte nötig: Alles wird in Ihr Benutzerkonto
+  installiert.
+- Python 3.12 oder neuer. Sie müssen es nicht selbst installieren:
+  [uv](https://docs.astral.sh/uv/) holt bei Bedarf ein passendes Python.
+- Mindestens ein unterstützter Agent: [Claude Code](../../agents/claude-code/),
+  [Codex](../../agents/codex/), [OpenCode](../../agents/opencode/),
+  [Gemini CLI](../../agents/gemini/) oder ein Tool, das eine OpenAI-, Anthropic- oder
+  Gemini-kompatible Adresse annimmt (siehe [GitHub Copilot, JetBrains, Zed und andere
+  Tools](../../agents/other-tools/)).
+
+## Installation mit einem Befehl
+
+Unter macOS und Linux:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.sh | sh
+```
+
+Unter Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | iex
+```
+
+Das Skript erledigt zwei Dinge, in dieser Reihenfolge:
+
+1. Es installiert uv, den Python-Werkzeugmanager, falls es auf Ihrem Rechner noch fehlt.
+2. Es installiert mit uv die neueste [Version](https://github.com/Latet-AI/latet/releases) von
+   Latet aus GitHub als isoliertes Kommandozeilen-Tool. Die lokale Namenserkennung und die
+   Texterkennung in Bildern sind dabei; ihre Modelle werden erst heruntergeladen, wenn Sie es
+   verlangen. Wo sie sich nicht installieren lassen, wird Latet ohne sie installiert, und das Skript
+   weist am Ende darauf hin; ein Latet, das bereits mit ihnen installiert ist, bleibt dagegen, wie
+   es war. Läuft ein älteres Latet, beendet das Skript es und startet es nicht wieder. Zum
+   Aktualisieren ist `latet upgrade` der bessere Weg. Nachdem das Skript ein Latet aktualisiert hat,
+   führen Sie `latet start` aus, und `latet agents apply claude`, wenn Claude Code dauerhaft über
+   Latet läuft, damit es das neue Plugin erhält.
+
+Öffnen Sie unter macOS und Linux danach ein neues Terminal: Das Skript trägt Latet in Ihren `PATH`
+für die Terminals ein, die Sie als Nächstes öffnen, nicht für das, in dem es lief.
+Findet auch dieses `latet` nicht, führen Sie `uv tool update-shell` aus und öffnen Sie ein weiteres.
+
+Sonst ändert das Skript nichts: keine Einstellungen Ihrer Agenten, nichts, was bei der Anmeldung
+startet. Neu bei Latet? [`latet tutorial`](../tutorial/) zeigt es in etwa 30 Minuten bei der Arbeit. Lassen
+Sie dann eine Sitzung mit `latet claude` oder `latet codex` über Latet laufen, wie der
+[Schnellstart](../quickstart/#ausprobieren-ohne-etwas-zu-ändern) zeigt, und leiten Sie Ihre Agenten
+mit `latet global-install` dauerhaft über Latet, sobald es zu Ihrer Arbeit passt.
+
+Zwei Umgebungsvariablen ändern, was das Skript tut:
+
+| Variable | Wirkung |
+| --- | --- |
+| `LATET_NO_MODIFY_PATH=1` | Lässt Ihren `PATH` und Ihr Shell-Profil unverändert. Wenn das Skript uv installiert, setzen Sie auch `UV_NO_MODIFY_PATH=1`, für den eigenen Installer von uv. |
+| `LATET_SOURCE` | Was statt der neuesten Version installiert wird: eine Wheel-Datei oder eine Anforderung wie `latet @ <url>`. |
+
+## Empfohlen: Namen und Bilder vom ersten Tag an
+
+Muster finden, was ein festes Format hat: einen Schlüssel, eine E-Mail-Adresse, eine IBAN. Zwei
+Dinge haben keines und brauchen ein Modell, das auf Ihrem Rechner läuft:
+
+- **Namen und Anschriften** in freiem Text, etwa *Emily Carter wohnt in der 42 Mill Lane*: Das
+  lokale Namensmodell findet sie.
+- **Der Text in Screenshots**, etwa eine IBAN auf einer Rechnung: Die Texterkennung liest ihn, und
+  Latet überdeckt jeden Wert im Bild mit seinem Ersatzwert. Ohne sie verlassen Bilder den Rechner
+  unverändert.
+
+Das Installationsskript installiert, worauf beide laufen. Laden Sie ihre Modelle einmal herunter:
+
+```sh
+latet ner install   # the name model, about 1.6 GB
+latet ocr install   # the text recognition models, about 31 MB
+```
+
+Oder lassen Sie `latet global-install --ner --ocr` sie zusammen mit dem Rest der Einrichtung
+herunterladen. Beide laufen nur auf diesem Rechner: Die Modelle kommen einmalig von huggingface.co,
+in einer festgelegten Revision und geprüft gegen festgelegte SHA-256-Prüfsummen, und nichts wird
+irgendwohin gesendet. [Namenserkennung](#namenserkennung) und [Text in Bildern](#text-in-bildern)
+weiter unten sagen mehr zu beiden.
+
+## Aktualisierung
+
+```sh
+latet upgrade
+```
+
+Der Befehl installiert die neueste Version von GitHub wie das Installationsskript, einschließlich
+der lokalen Namenserkennung und der Texterkennung in Bildern. Er beendet zuerst den Daemon (Windows
+kann Dateien, die in Gebrauch sind, nicht ersetzen), installiert das neue Plugin für Claude Code,
+wenn Sie Claude Code verwenden, und startet den Daemon wieder. Ein Latet, das ohne Namenserkennung
+oder Texterkennung in Bildern installiert wurde, erhält sie auf diesem Weg. Wo die neue Version sie
+nicht haben kann, bleibt ein Latet, das sie hat, wie es war, und eines ohne sie wird ohne sie
+aktualisiert.
+
+## Mit einem KI-Agenten installieren
+
+Bitten Sie Ihren KI-Agenten,
+[`llms-install.md`](https://github.com/Latet-AI/latet/blob/main/llms-install.md) im Repository zu
+befolgen. Er installiert Latet, das allein nichts ändert, und erklärt Ihnen dann, wie Sie
+weitermachen können: es zuerst mit `latet tutorial` bei der Arbeit sehen; es Sitzung für Sitzung
+ausprobieren, ohne dass eine Einstellung Ihrer Agenten geändert wird; es in jeder Sitzung
+einschalten; Ihre anderen Tools einrichten; die lokalen Modelle herunterladen. Er wartet auf Ihre
+Wahl und führt `latet global-install` mit Ihren Antworten nur aus, wenn Sie jede Sitzung wählen, zum
+Beispiel:
+
+```sh
+latet global-install --yes --profile balanced --agents claude,codex --auto-mode-review block --ner --ocr
+```
+
+## In Docker ausführen
+
+Um Python von Ihrem Rechner fernzuhalten, führen Sie den Daemon stattdessen als Container aus und
+richten Ihre Agenten auf ihn aus: siehe [Docker](../docker/).
+
+## Namenserkennung
+
+Namen und Anschriften in freiem Text, etwa *Emily Carter wohnt in der 42 Mill Lane*, brauchen ein
+statistisches Modell, das Latet auf Ihrem Rechner ausführt. Geheime Werte und strukturierte Daten wie
+E-Mail-Adressen und IBANs brauchen es nicht; Namen schon, daher lohnt es sich vom ersten Tag an.
+
+```sh
+latet ner install   # downloads the model once (about 1.6 GB)
+```
+
+Es läuft mit dem Extra `ner` (ONNX Runtime und einem Tokenizer), das vom Installationsskript
+zusammen mit Latet installiert wird.
+
+- Das Modell ist [Privacy Filter](https://huggingface.co/openai/privacy-filter) von OpenAI, unter der
+  Lizenz Apache-2.0, in seinem int8-ONNX-Build: Es liest viele Sprachen, darunter Italienisch,
+  Englisch, Französisch, Deutsch und Spanisch. Es kommt von huggingface.co in einer festgelegten
+  Revision, und jede Datei wird vor der Verwendung gegen eine festgelegte SHA-256-Prüfsumme geprüft.
+  Während der Daemon läuft, belegt es bis zu etwa 2 GB Arbeitsspeicher.
+- Nach dem Download läuft es auf Ihrer CPU. Nichts wird irgendwohin gesendet, und Latet verbindet
+  sich nur dann mit huggingface.co, wenn Sie `latet ner install` ausführen.
+- Ein laufender Daemon verwendet es sofort. `latet ner status` zeigt, ob es in Gebrauch ist;
+  `latet ner remove` löscht es. Um es installiert, aber ungenutzt zu lassen, setzen Sie `ner: off`
+  in der [Konfiguration](../../reference/configuration/).
+
+Wonach es sucht, hängt vom [Profil](../../concepts/profiles/) ab; siehe
+[Erkennung](../../concepts/detection/#namen).
+
+## Text in Bildern
+
+Auch Screenshots enthalten Werte: eine E-Mail-Adresse in einem Terminal, eine IBAN auf einer
+Rechnung. Latet kann den Text in Bildern auf Ihrem Rechner lesen und maskieren, indem es jeden Wert
+im Bild mit seinem Ersatzwert überdeckt.
+
+```sh
+latet ocr install   # downloads the models once (about 31 MB)
+```
+
+Die Modelle sind PP-OCRv6 small von PaddleOCR, unter der Lizenz Apache-2.0, von huggingface.co in
+einer festgelegten Revision und gegen festgelegte SHA-256-Prüfsummen geprüft; sie laufen auf Ihrer
+CPU, mit dem Extra `ocr` (ONNX Runtime und Pillow), das das Installationsskript zusammen mit Latet
+installiert. Siehe [Screenshots und Bilder](../../concepts/images/).
+
+## Ein lokaler Prüfer (optional)
+
+Wenn Sie ein Sprachmodell auf Ihrem eigenen Server betreiben (llama.cpp, Ollama, LM Studio), kann
+Latet es jeden Text lesen lassen, bevor er den Rechner verlässt, und maskieren, was die Detektoren
+übersehen: beiläufig erwähnte Namen, Gesundheitsangaben, ein Passwort, das in einem Satz steht. In
+Latet ist nichts zu installieren: Schalten Sie den lokalen Prüfer auf der Seite **Regeln** des
+Dashboards ein; mehr dazu unter [Lokaler Prüfer](../../concepts/llm-review/).
+
+## Aus dem Quellcode ausführen
+
+Für Mitwirkende, oder um Änderungen auszuprobieren, die noch in keiner veröffentlichten Version
+enthalten sind.
+
+```sh
+git clone https://github.com/Latet-AI/latet.git
+cd latet
+uv sync
+uv run latet version
+uv run latet serve      # the daemon in the foreground on http://127.0.0.1:5283; Ctrl+C stops it
+```
+
+Stellen Sie jedem Befehl `uv run` voran: `uv run latet global-install`, `uv run latet claude` und so
+weiter. Zwei Dinge unterscheiden sich von einer installierten Kopie:
+
+- **Starten Sie den Daemon selbst.** Wenn der Daemon nicht läuft, startet ihn das Plugin für Claude
+  Code mit dem Befehl `latet`, und in einem Checkout ist dieser Befehl nicht in Ihrem `PATH`. Führen
+  Sie `uv run latet start` aus, oder lassen Sie ihn von `uv run latet global-install` bei der
+  Anmeldung starten. Auch `uv run latet claude` startet ihn.
+- **Bauen Sie die Webdateien des Dashboards.** Führen Sie in `dashboard/` zuerst `npm ci` und dann
+  `npm run build` aus (Node.js 22.12 oder neuer). Bis dahin öffnet `latet dashboard` eine Seite, die
+  meldet, dass die Dateien fehlen, und `latet tutorial` warnt, dass seine Seite nicht angezeigt wird.
+  Auch einem Latet, das über die Adresse des Repositorys installiert wurde (`git+https://...`), fehlen sie.
+
+Der Autostart bei der Anmeldung startet den Daemon aus der virtuellen Umgebung des Checkouts; führen
+Sie daher `uv run latet global-uninstall` aus, bevor Sie den Checkout verschieben oder löschen. Zum
+Entwicklungsablauf siehe [Mitwirken](../../contributing/).

@@ -1,0 +1,239 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run pyright
+      - run: uv run python scripts/gen_reference.py --check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run pytest -q
+        env:
+          HYPOTHESIS_PROFILE: ci
+
+  server:
+    # The tests of a Latet server's backends, against PostgreSQL and Valkey as service containers, Valkey asking for a
+    # password as a server's does, and a PostgreSQL that speaks TLS, which the services script starts with a
+    # certificate it makes. A server's test that would be skipped here fails the job (LATET_TEST_REQUIRE_SERVICES).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: latet
+          POSTGRES_PASSWORD: latet-tests-only
+          POSTGRES_DB: latet
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U latet -d latet" --health-interval 2s --health-timeout 5s --health-retries 30
+      valkey:
+        image: valkey/valkey:9.1-alpine
+        env:
+          VALKEY_EXTRA_FLAGS: --requirepass latet-tests-only
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "valkey-cli -a latet-tests-only ping" --health-interval 2s --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: A PostgreSQL that speaks TLS
+        run: |
+          uv run python scripts/server-services.py up postgres-tls
+          uv run python scripts/server-services.py env postgres-tls >> "$GITHUB_ENV"
+      - run: uv run pytest -q -m server
+        env:
+          LATET_TEST_DATABASE_URL: postgresql://latet:latet-tests-only@127.0.0.1:55432/latet
+          LATET_TEST_VALKEY_URL: redis://:latet-tests-only@127.0.0.1:56379/0
+          LATET_TEST_REQUIRE_SERVICES: "1"
+          HYPOTHESIS_PROFILE: ci
+
+  claude-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate src/latet/claude_plugin
+      - run: claude plugin test
+        working-directory: src/latet/claude_plugin
+
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --wheel -o dist
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          LATET_SOURCE="$(ls dist/*.whl)" LATET_NO_MODIFY_PATH=1 sh scripts/install.sh
+          "$(uv tool dir --bin)/latet" --help
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:LATET_NO_MODIFY_PATH = "1"
+          ./scripts/install.ps1 -Source (Get-ChildItem dist/*.whl)[0].FullName
+          & "$((uv tool dir --bin).Trim())/latet.exe" --help
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check:i18n
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-web
+          path: src/latet/web
+          if-no-files-found: error
+
+  docs-bundle:
+    # The documentation the daemon serves at /_latet/docs/: built as the release builds it, checked, and every link of
+    # the dashboard checked against it in all five languages (a heading renamed fails here, naming the link).
+    runs-on: ubuntu-latest
+    env:
+      ASTRO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build:bundle
+        working-directory: docs
+      - run: python3 scripts/check_docs_bundle.py
+      - run: python3 scripts/gen_docs_anchors.py --check --root src/latet/docs
+      - run: python3 scripts/check_docs_anchors.py --root src/latet/docs
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: latet:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start it as compose.yaml does
+        run: |
+          docker run -d --name latet -p 127.0.0.1:5283:5283 --read-only --tmpfs /tmp --cap-drop ALL             --security-opt no-new-privileges:true --init -v latet-data:/data -v latet-config:/config latet:ci
+          for i in $(seq 1 30); do docker exec latet latet status && break; sleep 1; done
+          docker exec latet latet status
+      - name: Runs as a user without privileges
+        run: test "$(docker exec latet id -u)" = "10001"
+      - name: Masks a value sent from the host
+        run: |
+          token="$(docker exec latet cat /data/bridge.token)"
+          canary="ghp_""R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
+          body="{\"session\":\"ci\",\"items\":[{\"text\":\"key $canary\",\"kind\":\"user_text\"}]}"
+          out="$(curl -sf http://127.0.0.1:5283/_latet/engine/v1/mask -H "x-latet-token: $token" -H 'content-type: application/json' -d "$body")"
+          echo "$out" | grep -q '"count":1'
+          ! echo "$out" | grep -q "$canary"
+      - name: Refuses a request for another host name
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:5283/_latet/health)" = "403"
+      - name: Doctor, agent instructions, healthcheck
+        run: |
+          docker exec latet latet doctor
+          docker exec latet latet agents print --json | python3 -c "import json, sys; assert json.load(sys.stdin)['claude']['env']['LATET_AUTOSTART'] == '0'"
+          for i in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' latet)" = healthy ] && exit 0; sleep 3; done
+          docker inspect -f '{{json .State.Health}}' latet
+          exit 1
+      - name: Logs
+        if: failure()
+        run: docker logs latet
+      - name: Server profile with file secrets, two instances and TLS
+        # The script captures initialization's one-time token privately with Docker logging disabled,
+        # and tears down only its unique Compose project. No user .env or Docker config is loaded.
+        run: python3 scripts/container_server_smoke.py --docker "$(command -v docker)" --work-dir "$RUNNER_TEMP" --image latet:ci
+
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --locked
+      - run: npm ci
+        working-directory: docs
+      - run: npm ci
+        working-directory: dashboard
+      - run: uv run python scripts/gen_notices.py --check

@@ -1,0 +1,109 @@
+# The tutorial's seventh chapter: production data, with strict data mode guided. The customers are invented. Strict data
+# mode masks every value of the table psql prints, ids and dates too, so the model cannot answer. The user keeps in
+# clear the columns the columns panel proposes (ids, dates of events, states: `plan_type` names its values as states,
+# a column called `plan` would be the user's call), and the next query leaves with them in clear and the people's
+# masked. The model's first answer holds no fake: it goes back with the rest of the conversation (see terms.yaml).
+id: data
+title: Production data
+minutes: 4
+phase: 1
+learn:
+  - What strict data mode does with the result of a query
+  - Which columns can go to the model in clear, and how to choose them
+  - Where your choice is kept
+values:
+  table: |2
+      id  |     name     |         email         | signup_date | plan_type | amount
+    ------+--------------+-----------------------+-------------+-----------+--------
+     1001 | Mary Johnson | mary.johnson@acme.com | 2025-01-14  | pro       |  49.00
+     1002 | James Smith  | james.smith@acme.com  | 2025-02-03  | free      |   0.00
+     1003 | Linda Brown  | linda.brown@acme.com  | 2025-02-21  | team      | 199.00
+     1004 | Kevin Hughes | kevin.hughes@acme.com | 2025-03-09  | pro       |  49.00
+     1005 | Susan Clark  | susan.clark@acme.com  | 2025-03-30  | free      |   0.00
+    (5 rows)
+  # The first customer's values, as the table has them.
+  id: "1001"
+  name: Mary Johnson
+  email: mary.johnson@acme.com
+  date: "2025-01-14"
+  plan: pro
+  amount: "49.00"
+settings:
+  data: strict
+received:
+  ID: { pattern: '(?m)^ *(\d+) \|', in: tool_result }
+  PLAN: { pattern: '(?m)^ *\d+ \|(?:[^|\n]*\|){3} (\w+)', in: tool_result }
+steps:
+  - kind: watch
+    title: A query on production
+    agent:
+      says: ["I'll query the customers table."]
+      bash: { 'psql -c "select * from customers limit 5"': "{{value:table}}" }
+    prompt: how many of our newest customers are on the pro plan?
+    button: Send it
+    model:
+      - { id: query, tool: { name: Bash, input: { command: 'psql -c "select * from customers limit 5"' } } }
+      - { id: table, text: "None of them: not one row says pro." }
+    show:
+      exchange: table
+      part: request
+      highlight: ["{{value:id}}", "{{value:name}}", "{{value:date}}", "{{value:plan}}"]
+    explain: >-
+      Strict data mode is on in this chapter: every value of a table a tool prints leaves masked, ids and dates too.
+      The model got {{received:ID}} for the id {{value:id}} and {{received:PLAN}} for the plan {{value:plan}}, so it
+      found nobody on pro, and its answer is wrong. The names and email addresses are safe, but the model cannot
+      do its job.
+    checks:
+      - model_received:
+          not_contains:
+            ["{{value:id}}", "{{value:name}}", "{{value:email}}", "{{value:date}}", "{{value:amount}}", "| pro "]
+      - received: { name: ID, not: "{{value:id}}" }
+      - received: { name: PLAN, not: "{{value:plan}}" }
+      - exchange:
+          ref: table
+          mode: rewrite
+          masked_rules: [strict:id, strict:name, pii:email, strict:signup_date, strict:plan_type, strict:amount]
+      - shown: { marked: ["{{value:id}}", "{{value:name}}", "{{value:email}}", "{{value:date}}", "{{value:amount}}"] }
+  - kind: do
+    title: Keep ids, dates and plans in clear
+    wait:
+      fields: [id, signup_date, plan_type]
+      hint: "Keep the 3 columns Latet proposes in clear: id, signup_date and plan_type."
+    look: { component: columns, exchange: table }
+    prompt: try again
+    agent: { bash: { 'psql -c "select * from customers limit 5"': "{{value:table}}" } }
+    model:
+      - { id: again-query, tool: { name: Bash, input: { command: 'psql -c "select * from customers limit 5"' } } }
+      - id: again
+        text: >-
+          Two of the five: customers 1001 and 1004, on pro since January and March. Who they are, I still can't
+          tell.
+    show:
+      exchange: again
+      part: request
+      highlight: ["{{value:id}}", "{{value:date}}", "{{value:plan}}", "{{value:name}}"]
+    explain: >-
+      An id, the date of an event or a plan says nothing about a person, so the model can have them in clear.
+      Latet proposes those columns, keeps the names and email addresses masked, and leaves the amounts to you.
+      Keep the proposed ones, and the agent runs the query again: they leave in clear, the people's columns stay
+      masked, and the model can answer.
+    checks:
+      - model_received:
+          contains: ["{{value:id}}", "{{value:date}}", "| pro "]
+          not_contains: ["{{value:name}}", "{{value:email}}", "{{value:amount}}"]
+      - received: { name: ID, equals: "{{value:id}}" }
+      - received: { name: PLAN, equals: "{{value:plan}}" }
+      - exchange: { ref: again, mode: rewrite, masked_rules: [strict:name, pii:email, strict:amount] }
+      - shown:
+          clear: ["{{value:id}}", "{{value:date}}"]
+          marked: ["{{value:name}}", "{{value:email}}", "{{value:amount}}"]
+      - agent_got: { turn: again }
+end:
+  learned:
+    - Strict data mode masks every value of a table a tool prints, so the model cannot read an id or a date either.
+    - Ids, dates of events and states say nothing about a person; keep them in clear, and the people's stay masked.
+    - What you keep in clear is a field rule, under Production data in Rules, where you can take it back.
+  where:
+    - { label: "Strict data mode and your field rules, in Rules", to: "/rules#data" }
+    - { label: "The second query, with ids, dates and plans in clear", to: "exchange:again" }
+  next: llm
