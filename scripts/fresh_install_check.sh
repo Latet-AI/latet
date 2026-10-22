@@ -12,6 +12,12 @@ for found in uv python3.12 python3.13 python3.14; do
         exit 1
     fi
 done
+for found in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do  # where the installer looks for uv besides the PATH
+    if [ -e "$found" ]; then
+        echo "$found is here already: this is not a computer without uv." >&2
+        exit 1
+    fi
+done
 
 LATET_SOURCE="latet[ner,ocr] @ file://$wheel" LATET_NO_MODIFY_PATH=1 UV_NO_MODIFY_PATH=1 \
     sh "$(dirname "$0")/install.sh"
