@@ -1242,6 +1242,19 @@ def test_a_certificate_shown_a_byte_at_a_time_is_not_waited_for_past_its_time(tr
     assert time.monotonic() - started < 4.0
 
 
+@pytest.mark.parametrize("cut", [ssl.SSLWantReadError, ssl.SSLWantWriteError])
+def test_a_handshake_python_ends_wanting_more_at_its_time_is_a_timeout(monkeypatch, cut):
+    """On Windows, Python 3.12's ssl can end a handshake its socket's time cut short wanting to read or write, not with
+    a timeout: it is one all the same, and said as one."""
+
+    def cut_short(address, **kwargs):
+        raise cut("The operation did not complete (read) (_ssl.c:1010)")
+
+    monkeypatch.setattr(ssl, "get_server_certificate", cut_short)
+    with pytest.raises(TimeoutError, match="1 seconds"):
+        certificates.fetch("https://127.0.0.1:9", timeout=1.0)
+
+
 @pytest.mark.parametrize(
     "answer",
     [

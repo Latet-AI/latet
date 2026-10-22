@@ -42,7 +42,11 @@ def fetch(url: str, timeout: float = 5.0) -> tuple[str, str]:
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("only an https:// server has a certificate")
-    pem = ssl.get_server_certificate((parsed.hostname, parsed.port or 443), timeout=timeout)
+    try:
+        pem = ssl.get_server_certificate((parsed.hostname, parsed.port or 443), timeout=timeout)
+    except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
+        # On Windows, Python 3.12's ssl can end a handshake its socket's time cut short wanting more, not timed out.
+        raise TimeoutError(f"the server did not show its certificate within {timeout:g} seconds") from None
     return pem, fingerprint_of(pem)
 
 

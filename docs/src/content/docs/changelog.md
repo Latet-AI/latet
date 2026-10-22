@@ -18,6 +18,9 @@ for Windows, your own name models, more agents, and the documentation in more la
   (`No module named 'latet'`). It now installs the release in a window of its own once the command
   has ended, then starts Latet again, and the window says how it went. A Latet 0.9.0 or 0.9.1 on
   Windows upgrades by running the installer again.
+- Fixed: on Windows, Python 3.12's ssl could end the reading of a server's certificate that came too
+  slowly with an error about TLS that said nothing useful; it now says the server did not show its
+  certificate in time.
 
 ## 0.9.1 (2026-10-22)
 
