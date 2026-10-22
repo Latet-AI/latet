@@ -177,3 +177,17 @@ def test_the_note_after_a_restore_names_every_model_and_key_each_machine_keeps_f
     from latet.cli.backup import NOT_MOVED
 
     assert "latet ner install" in NOT_MOVED and "latet ocr install" in NOT_MOVED and "latet llm key" in NOT_MOVED
+
+
+@pytest.mark.parametrize("settings", ["terms: [Mercury Labs\n", "terms:\n  - value: Mercury Labs\nsince: 2024-13-45\n"])
+def test_a_backups_settings_that_are_not_yaml_restore_nothing_and_are_never_quoted(settings, capsys):
+    import typer
+
+    from latet.cli.backup import _restored_config
+
+    with pytest.raises(typer.Exit) as stopped:
+        _restored_config(settings.encode(), [])
+    assert stopped.value.exit_code == 1
+    said = capsys.readouterr()
+    assert "Nothing was restored: its settings are not valid YAML (line " in said.out + said.err
+    assert "Mercury" not in said.out + said.err

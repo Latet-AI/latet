@@ -45,6 +45,10 @@ from .conftest import deliver, dump, identity_in, valkey_dump
 
 pytestmark = pytest.mark.server
 
+# How long the event loop may wait while the queue's thread keeps a burst of large batches: 0.03 to 0.1 s on a Windows
+# computer that runs other work, 0.6 s when that work ran on the loop, as it did before Task 16.
+LOOP_HELD = 0.25
+
 MASTER = MasterKey([b"\x05" * 32])
 OTHER_KEY = b"\x08" * 32  # another identity's root key
 EMILY, DANIEL = "u_emilycarte", "u_danielokaf"
@@ -205,6 +209,7 @@ def test_how_a_change_ended_first_is_how_it_ended(db):
     assert settled["c_unknown0001"] == "rejected"
 
 
+@pytest.mark.timing
 async def test_storing_a_large_batch_leaves_the_event_loop_to_the_other_requests(db, queues, monkeypatch):
     """Task 16 measured the loop held 0.24 s by a batch with images, and up to 2.6 s by a burst of them: their JSON,
     their sealing and their weighing, and the round trip that sends them, run in worker threads (``store``), the event
@@ -234,7 +239,7 @@ async def test_storing_a_large_batch_leaves_the_event_loop_to_the_other_requests
     finally:
         ticking = False
         await beating
-    assert max(gaps) < 0.1, f"the loop was held {max(gaps):.3f} s"
+    assert max(gaps) < LOOP_HELD, f"the loop was held {max(gaps):.3f} s"
     assert sorted(x.id for x in b.waiting()) == sorted(batch.id for batch in burst)
     assert all(not batch.future.done() for batch in burst) and a.holding
     heavy = _batch()
@@ -244,6 +249,7 @@ async def test_storing_a_large_batch_leaves_the_event_loop_to_the_other_requests
     assert b.get(heavy.id) is None
 
 
+@pytest.mark.timing
 async def test_a_request_opening_large_batches_leaves_the_loop_to_the_others_and_tells_the_dashboards_from_the_queue(
     db, queues, monkeypatch
 ):
@@ -290,7 +296,7 @@ async def test_a_request_opening_large_batches_leaves_the_loop_to_the_others_and
         ticking = False
         await beating
         approvals.close()
-    assert max(gaps) < 0.1, f"the loop was held {max(gaps):.3f} s"
+    assert max(gaps) < LOOP_HELD, f"the loop was held {max(gaps):.3f} s"
     assert opened == burst and sorted(x.id for x in b.waiting()) == sorted(batch.id for batch in burst)
     assert told == [("pending", False)] * 3  # each told once, from the queue's thread
     heavy = _batch()

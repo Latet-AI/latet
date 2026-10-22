@@ -32,6 +32,7 @@ from pydantic import (
     model_validator,
 )
 from yaml.composer import ComposerError
+from yaml.constructor import ConstructorError
 from yaml.reader import ReaderError
 
 from latet.engine.detectors.base import quiet_options
@@ -66,6 +67,14 @@ class _NoAliases(yaml.SafeLoader):
             event = self.peek_event()
             raise ComposerError(None, None, "aliases (*name) are not allowed", event.start_mark)
         return super().compose_node(parent, index)
+
+    def construct_object(self, node: Any, deep: bool = False) -> Any:
+        """PyYAML builds a date, a time or a number with Python's own types, outside its errors: one they cannot hold
+        (2024-13-45, an offset of a whole day, 5,000 digits) is a YAML error at its place, in words of its own."""
+        try:
+            return super().construct_object(node, deep)
+        except (ValueError, OverflowError):
+            raise ConstructorError(None, None, "a date, a time or a number out of range", node.start_mark) from None
 
 
 def load_yaml(text: str) -> Any:
