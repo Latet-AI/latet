@@ -2,12 +2,16 @@
 conversations each value of the vault was shown to."""
 
 import asyncio
+import itertools
 import json
+import time
+import types
 
 from starlette.requests import Request
 
 from latet.api.rest import Dashboard
 from latet.config import Config, IdentityConfig
+from latet.engine import vault as vault_module
 from latet.engine.types import EntityClass, SlotKind
 from latet.runtime import make_runtime
 
@@ -131,7 +135,11 @@ async def test_vault_values_made_in_the_same_instant_keep_one_order_across_pages
     assert shown == order and len(set(shown)) == len(order)
 
 
-async def test_the_vault_counts_the_conversations_of_the_values_on_a_later_page(live):
+async def test_the_vault_counts_the_conversations_of_the_values_on_a_later_page(live, monkeypatch):
+    # The vault's clock moves at every value it makes: Windows's moves in steps of about 16 ms, and values made in one
+    # step come in the order of their ids, which put the address shown twice on the first page.
+    ticks, start = itertools.count(), time.time()
+    monkeypatch.setattr(vault_module, "time", types.SimpleNamespace(time=lambda: start + next(ticks) / 1000))
     engine, vault = live.built.engine, live.built.vault
     for conversation in ("conv-1", "conv-2"):
         engine.mask_text(f"mail {EMAIL}", SlotKind.USER_TEXT, engine.session(conversation))

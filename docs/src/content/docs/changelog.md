@@ -24,7 +24,8 @@ for Windows, your own name models, more agents, and the documentation in more la
   5,000 digits) in `config.yaml`, a server's settings, a rules file or a backup stopped Latet with a Python
   traceback. It is now said as a mistake in the YAML, with its line and column, never quoted.
 - Two server tests of how long the event loop waits allow a quarter of a second, which a busy computer needs,
-  well under the six tenths the loop waited before the work moved off it.
+  well under the six tenths the loop waited before the work moved off it, and a test of the dashboard's vault
+  pages no longer depends on Windows's clock, which moves in steps of about 16 ms.
 
 ## 0.9.4 (2026-10-23)
 
