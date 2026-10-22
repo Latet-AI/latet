@@ -17,6 +17,10 @@ for Windows, your own name models, more agents, and the documentation in more la
   `~/.local/share` can be changed by their group, as those systems make them (mode 0775). The group
   there holds the person alone, so nobody else can change them: Latet no longer warns when a folder's
   group is the person's own and nobody else is in it.
+- OpenCode Desktop counts as OpenCode: `latet agents status`, `latet doctor` and
+  `latet global-install` said it was not installed when the `opencode` command was not there, though
+  the app reads the same configuration and `latet agents apply opencode` routes it. The OpenCode guide
+  says so.
 - CI installs Latet on computers with neither uv nor Python (Ubuntu and Debian in clean containers,
   macOS and Windows with the system's own folders alone), as a person meets the installer there.
 

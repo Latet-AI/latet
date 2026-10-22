@@ -39,6 +39,11 @@ latet opencode
 latet opencode run "add the payments key from .env to config/local.toml"
 ```
 
+**OpenCode Desktop** legge la stessa configurazione globale: `latet agents apply opencode` (o
+`latet global-install`) lo fa passare da Latet dopo che hai riavviato l'app, mentre `latet opencode`
+avvia solo OpenCode da riga di comando. `latet agents revert opencode` toglie di nuovo gli indirizzi
+di Latet e lascia il resto del file com'è.
+
 ## Limiti
 
 - **Passano da Latet solo questi tre provider.** Con un modello di qualsiasi altro provider (Amazon
