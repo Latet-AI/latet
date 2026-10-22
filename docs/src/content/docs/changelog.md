@@ -11,6 +11,15 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.3 (2026-10-22)
+
+- Fixed: on Ubuntu, Debian and Fedora, `latet doctor` warned every person that `~/.local` and
+  `~/.local/share` can be changed by their group, as those systems make them (mode 0775). The group
+  there holds the person alone, so nobody else can change them: Latet no longer warns when a folder's
+  group is the person's own and nobody else is in it.
+- CI installs Latet on computers with neither uv nor Python (Ubuntu and Debian in clean containers,
+  macOS and Windows with the system's own folders alone), as a person meets the installer there.
+
 ## 0.9.2 (2026-10-22)
 
 - Fixed: on Windows, `latet upgrade` ran uv from the Latet it was replacing, and Windows replaces no
