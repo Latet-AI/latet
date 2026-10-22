@@ -1,6 +1,6 @@
 {
   "name": "latet",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Local privacy firewall: masks secrets and personal data before Claude Code sends them, and restores them locally.",
   "author": { "name": "Latet" },
   "homepage": "https://github.com/Latet-AI/latet",

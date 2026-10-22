@@ -25,13 +25,15 @@ sind alles, was es braucht.
 Ein Pro- oder Max-Abonnement von Claude funktioniert nur in Claude Code, wie es die Bedingungen von
 Anthropic vorsehen, daher nutzen diese Agenten einen API-Schlüssel: Sie erreichen Claude-Modelle
 über OpenRouter oder mit einem API-Schlüssel von Anthropic. Der Schlüssel geht über Latet an den
-Anbieter und wird nie protokolliert oder im Dashboard angezeigt.
+Anbieter und wird nie protokolliert oder im Dashboard angezeigt. Hermes Agent mit Anmeldung über
+ChatGPT braucht keinen Schlüssel: Er läuft mit dieser Anmeldung über Latet, wie Codex
+([weiter unten](#mit-chatgpt-angemeldet)).
 
 ## Hermes Agent
 
 Hermes liest sein Modell und seinen Endpunkt aus `config.yaml` in seinem Ordner: `~/.hermes` unter
 macOS und Linux, `%LOCALAPPDATA%\hermes` unter Windows (`HERMES_HOME` legt einen anderen fest).
-Richten Sie einen benutzerdefinierten Anbieter auf Latet aus:
+Mit einem API-Schlüssel richten Sie einen benutzerdefinierten Anbieter auf Latet aus:
 
 ```yaml title="config.yaml"
 model:
@@ -44,6 +46,33 @@ model:
 `hermes model` stellt dasselbe interaktiv ein. `OPENAI_BASE_URL` in der Umgebung genügt nicht:
 Hermes beachtet diese Variable nur für seinen Anbieter `openai-api`, daher würde
 `latet run hermes` einen benutzerdefinierten Anbieter nicht über Latet leiten.
+
+### Mit ChatGPT angemeldet
+
+Hermes mit Anmeldung über Ihr ChatGPT-Konto (sein Anbieter `openai-codex`) läuft über Latet, unter
+der Adresse, die auch Codex nutzt. Fügen Sie `.env` im Ordner von Hermes eine Zeile hinzu:
+
+```sh title="~/.hermes/.env"
+HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
+```
+
+Hermes liest die Datei von selbst neu ein: Seine nächste Nachricht läuft über Latet. Die Variable
+leitet jede Anfrage um, die Hermes mit dieser Anmeldung sendet: das Gespräch und die Arbeit, die er
+nebenbei demselben Modell übergibt, etwa den Titel einer Sitzung, die Zusammenfassung eines langen
+Kontexts oder das Lesen eines Bildes oder einer Webseite. Sie hat Vorrang vor `model.base_url` in
+`config.yaml`, das Sie lassen können, wie es ist.
+
+- **Ein Latet 0.9.3 oder älter** gibt Hermes die Ersatzwerte statt der echten Werte zurück:
+  Aktualisieren Sie Latet zuerst (`latet upgrade`).
+- **Ein Ersatzanbieter mit eigener `base_url`** behält diese Adresse: Setzen Sie in
+  `fallback_providers` auch dort die Adresse von Latet, oder entfernen Sie die Zeile. Sonst geht eine
+  Anfrage, die auf ihn ausweicht, ohne jede Maskierung an ChatGPT.
+- Wenn Latet nicht läuft, kann Hermes das Modell nicht erreichen. Das ist Absicht: Nichts geht
+  unmaskiert hinaus.
+- Im Dashboard erscheinen die Anfragen von Hermes unter Codex oder unter einem anderen Agenten:
+  Hermes nennt seinen Namen nur der Adresse von ChatGPT selbst.
+
+Live getestet: Hermes Agent mit Anmeldung über ChatGPT.
 
 ## OpenClaw
 

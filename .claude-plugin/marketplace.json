@@ -9,7 +9,7 @@
       "name": "latet",
       "source": "./src/latet/claude_plugin",
       "description": "Masks secrets and personal data before Claude Code sends them; restores them locally. Requires the Latet daemon (github.com/Latet-AI/latet).",
-      "version": "0.9.3"
+      "version": "0.9.4"
     }
   ]
 }

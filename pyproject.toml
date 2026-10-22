@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "latet"
-version = "0.9.3"
+version = "0.9.4"
 description = "A local privacy firewall for AI agents: masks secrets and personal data before they reach the model and restores them locally."
 readme = "README.md"
 requires-python = ">=3.12"
