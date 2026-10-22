@@ -103,6 +103,7 @@ async def _gateway(provider: _Provider) -> AsyncIterator[tuple[httpx.AsyncClient
         yield client, mediator
 
 
+@pytest.mark.timing
 @pytest.mark.parametrize("shape", ["whole", "event", "pieces"])
 async def test_what_the_model_wrote_in_an_answer_as_large_as_is_read_is_read_while_the_event_loop_runs(shape):
     items = _items(WRITTEN_BYTES - 2**20, 15 if shape == "pieces" else 12)  # in pieces, each quote escaped again

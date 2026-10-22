@@ -125,3 +125,10 @@ def test_what_json_has_no_name_for_is_refused_by_its_type(value):
 def test_a_key_that_is_no_text_and_details_that_are_no_mapping_are_refused(details):
     with pytest.raises(TypeError):
         _details(details)
+
+
+def test_details_nested_deeper_than_a_response_encodes_are_no_row_on_any_computer():
+    """How deep Python's JSON reader goes depends on the computer (on Linux it reads a nesting of 5,000 levels): the
+    log keeps what a response encodes, 64 levels, and a row nested deeper is one that does not hold, everywhere."""
+    assert audit._object('{"a": ' + "[" * 100 + "]" * 100 + "}") is None
+    assert audit._object('{"a": ' + "[" * 60 + "]" * 60 + "}") is not None

@@ -946,6 +946,7 @@ def _block(mib: int) -> str:
     return (line * (mib * 1048576 // len(line) + 1))[: mib * 1048576]
 
 
+@pytest.mark.timing
 def test_a_large_block_that_names_no_secret_is_read_quickly_and_holds_up_no_other_thread():
     # Whether a text names a secret is asked of the whole text, which Python's re read in a third of a second for
     # 4 MiB, holding the interpreter all along: every other thread waited, an event loop's too.
@@ -1271,6 +1272,7 @@ asyncio.run(main())
     [("strict", "note", 2_000), ("normal", "secret_password", 2_000)],
     ids=["strict-data-mode", "a-field-named-like-a-secret"],
 )
+@pytest.mark.timing
 def test_a_documents_values_under_one_long_key_cost_what_their_values_do(data, ending, masked):
     # The key's path was made, cut, hashed into the cache's key and read word by word again for each value under it:
     # 45 ms a value for these 200 KB, minutes for the 2,000. In an interpreter of its own, which a timeout ends.

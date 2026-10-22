@@ -106,6 +106,8 @@ class FileIO:
     def __init__(self, monkeypatch, path, limit):
         self.path, self.limit = path, limit
         self.descriptors = set()
+        # The secret's descriptors still open: once closed, its number may be the next folder pytest's clean-up opens.
+        self.live = set()
         self.closed = []
         self.read_sizes = []
         self.consumed = 0
@@ -125,10 +127,11 @@ class FileIO:
         descriptor = self.real_open(path, flags, *args, **kwargs)
         if os.fspath(path) == os.fspath(self.path):
             self.descriptors.add(descriptor)
+            self.live.add(descriptor)
         return descriptor
 
     def read(self, descriptor, size):
-        if descriptor not in self.descriptors:
+        if descriptor not in self.live:
             return self.real_read(descriptor, size)
         self.read_sizes.append(size)
         assert len(self.read_sizes) <= 64, "reader failed to stop at EOF or its finite byte ceiling"
@@ -142,16 +145,17 @@ class FileIO:
 
     def fstat(self, descriptor):
         info = self.real_fstat(descriptor)
-        if descriptor in self.descriptors:
+        if descriptor in self.live:
             if self.fstat_error:
                 raise OSError(errno.EIO, SENTINEL, str(self.path))
             return _info(info, mode=self.post_mode, size=self.post_size)
         return info
 
     def close(self, descriptor):
-        if descriptor not in self.descriptors:
+        if descriptor not in self.live:
             return self.real_close(descriptor)
         self.closed.append(descriptor)
+        self.live.discard(descriptor)
         self.real_close(descriptor)
         if self.close_error:
             raise OSError(errno.EIO, SENTINEL, str(self.path))

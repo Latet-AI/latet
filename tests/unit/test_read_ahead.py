@@ -4,6 +4,7 @@ that time is withheld: nothing it would have found leaves in clear. A text maske
 strict data mode masks whole is read all the same, since what the model finds there is what the vault learns."""
 
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -163,6 +164,17 @@ def test_a_document_the_model_cannot_read_in_its_time_is_withheld_and_leaves_so_
     assert "303 texts" in done.text and report.degraded == ["ner"] and session.runs == []  # 301 notes, 2 keys
     again, _ = _masked(mediator, _rows(300))  # sent again in its conversation: as it left
     assert again.text == done.text
+
+
+def test_a_document_given_no_time_is_withheld_on_a_clock_that_has_not_moved(monkeypatch):
+    """Windows' clock moves in steps of about 16 ms: a time of none is spent on the clock's same step, not only once
+    it has moved on."""
+    monkeypatch.setattr(mediate, "DOCUMENT_READ_SECONDS", 0.0)
+    now = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: now)
+    model, session = _model()
+    done, _ = _masked(_mediator(model), _rows(300))
+    assert done.withheld and NAME not in done.text and session.runs == []
 
 
 def test_a_document_the_plugin_has_masked_past_the_time_is_withheld(monkeypatch):

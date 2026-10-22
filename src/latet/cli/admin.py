@@ -596,7 +596,7 @@ def upgrade() -> None:
     had = ner.runtime_available() or models.runtime_available()
     typer.echo(f"Latet {release.version}, from {release.wheel}")
     daemon.stop()
-    install = [uv, "tool", "install", "--upgrade", "--python", ">=3.12"]
+    install = [uv, "tool", "install", "--upgrade", "--python", releases.PYTHONS]
     done = subprocess.run([*install, release.requirement()], check=False)  # noqa: S603
     off = False  # installed without name detection and the text in images
     if done.returncode != 0 and not had:

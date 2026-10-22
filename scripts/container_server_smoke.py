@@ -165,7 +165,14 @@ def initialization_command(
     return [*command, image, "server", "init"]
 
 
-def certificate_command(docker: str, image: str, project: str, directory: Path, url: str) -> list[str]:
+def folder_owner(directory: Path) -> str:
+    """The folder's owner as Docker's --user takes it: `latet server certificate` writes its key only into a folder of
+    its own user that nobody else can write, so the one-shot runs as that user, with no capability past it."""
+    found = directory.stat()
+    return f"{found.st_uid}:{found.st_gid}"
+
+
+def certificate_command(docker: str, image: str, project: str, directory: Path, url: str, *, user: str) -> list[str]:
     return [
         docker,
         "run",
@@ -190,7 +197,7 @@ def certificate_command(docker: str, image: str, project: str, directory: Path, 
         "--security-opt",
         "no-new-privileges:true",
         "--user",
-        "0:0",
+        user,
         "--entrypoint",
         "latet",
         "--mount",
@@ -399,8 +406,26 @@ def captured(
         if not reader.is_alive():
             process.stdout.close()
         if reader.is_alive() or overflow.is_set() or read_failed.is_set() or process.returncode or timed_out:
-            raise RuntimeError("container smoke command failed or exceeded its bound")
+            raise RuntimeError(
+                f"container smoke command {step(command)} failed or exceeded its bound (exit {process.returncode}, "
+                f"timed out {timed_out}, over its output bound {overflow.is_set()})"
+            )
         return bytes(output)
+
+
+def step(command: list[str]) -> str:
+    """The step a command is, in words that hold no value it was given: Docker's or Compose's subcommand, and for an
+    exec its service and the command it runs there, never the paths, names or variables around them."""
+    words = command[1:]
+    if "--config" in words[:1]:
+        words = words[2:]
+    if "compose" in words[:1] or "--profile" in words:
+        rest = words[words.index("--profile") + 2 :] if "--profile" in words else words[1:]
+        if rest[:1] == ["exec"]:
+            service = [word for word in rest[1:] if not word.startswith("-")][:2]
+            return "compose exec " + " ".join(service)
+        return "compose " + (rest[0] if rest else "")
+    return words[0] if words else ""
 
 
 def request(
@@ -469,10 +494,7 @@ def run_smoke(
     (run / "compose-empty.env").touch()
     secret_dir, cert_dir = run / "secrets", run / "certs"
     secret_dir.mkdir(mode=0o700)
-    cert_dir.mkdir()
-    # The cap-free certificate helper cannot override a host UID's DAC permissions.
-    # This bind alone is writable inside the private 0700 run parent; the CLI writes its key 0600.
-    cert_dir.chmod(0o777)
+    cert_dir.mkdir(mode=0o700)  # written by the certificate one-shot as its owner; Caddy reads it as root
     files = {name: secret_dir / filename for name, filename in FILES.items()}
     generated_secrets = [CANARY]
     for name, path in files.items():
@@ -559,7 +581,9 @@ def run_smoke(
         )
 
     try:
-        certificate = certificate_command(docker, image, project, cert_dir, environment["LATET_SERVER_URL"])
+        certificate = certificate_command(
+            docker, image, project, cert_dir, environment["LATET_SERVER_URL"], user=folder_owner(cert_dir)
+        )
         call(*certificate[1:])
         rendered = json.loads(compose("config", "--format", "json"))
         startup_deadline = time.monotonic() + 180
@@ -619,6 +643,7 @@ def run_smoke(
                 time.sleep(min(2, startup_remaining()))
         summary["proxy_readiness"] = True
         shared = request(port, context, "GET", ADMIN + "/shared", admin)
+        # Settings alone: the Community Edition shares no protection rule (the canary is a secret under every profile).
         request(
             port,
             context,
@@ -628,7 +653,6 @@ def run_smoke(
             {
                 **shared["settings"],
                 "etag": shared["etag"],
-                "profile": "secrets",
                 "upstreams": [{"name": "smoke", "url": f"http://{address}3:8000"}],
             },
         )
@@ -801,10 +825,16 @@ def main() -> None:
             str(args.compose_executable) if args.compose_executable else None,
             retain_evidence=args.retain_evidence,
         )
-    except Exception:
+    except Exception as exc:
         if args.retain_evidence:
             raise SystemExit(1) from None
-        raise SystemExit("Server container smoke failed; captured credentials and child output are private.") from None
+        # The script's own failures say a step in fixed words; anything else is named by its type alone.
+        said = (
+            str(exc) if isinstance(exc, RuntimeError) and str(exc).startswith("container smoke") else type(exc).__name__
+        )
+        raise SystemExit(
+            f"Server container smoke failed: {said}. Captured credentials and child output are private."
+        ) from None
     if not args.retain_evidence:
         print("Server container smoke passed.")
 

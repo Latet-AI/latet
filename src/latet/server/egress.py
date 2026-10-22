@@ -215,6 +215,14 @@ class _Lookups:
         lookup.add_done_callback(lambda done: self._ended(key, who, done))
         return lookup
 
+    def waited_out(self, host: str, port: int, lookup: Future[list[Address]]) -> None:
+        """A request waited ``RESOLVE_SECONDS`` for ``lookup`` in vain: no later request joins it, whatever the clock
+        says (Windows' moves in steps of about 16 ms, and one that comes as the bound ends could read it as begun less
+        than ``RESOLVE_SECONDS`` ago). It still counts for its holder until its thread ends."""
+        with self._lock:
+            if (found := self._pending.get((host, port))) is not None and found[0] is lookup:
+                del self._pending[(host, port)]
+
     def _ended(self, key: tuple[str, int], who: str, lookup: Future[list[Address]]) -> None:
         """In the thread that ends a lookup: its name may be asked for anew, and its holder's count goes down."""
         with self._lock:
@@ -396,7 +404,12 @@ async def pin(url: str, *, holder: str | None = None) -> tuple[str, str, dict[st
     if address is not None:
         found = [address]
     else:
-        found = await _answer(_LOOKUPS.start(host, port, holder), host, RESOLVE_SECONDS)
+        lookup = _LOOKUPS.start(host, port, holder)
+        try:
+            found = await _answer(lookup, host, RESOLVE_SECONDS)
+        except EgressRefused:
+            _LOOKUPS.waited_out(host, port, lookup)
+            raise
         if not found:
             raise EgressRefused(f"{host} does not resolve")
     if any(_translatable(a) for a in found):

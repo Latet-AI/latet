@@ -234,15 +234,30 @@ def _details(details: Mapping[str, Any] | None) -> dict[str, Any]:
     return kept
 
 
+def _nested_beyond(value: Any, most: int) -> bool:
+    """Whether ``value`` nests deeper than ``most``, counted without recursion."""
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > most:
+            return True
+        if isinstance(item, dict):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+    return False
+
+
 def _object(text: str) -> dict[str, Any] | None:
     """The details a row says, read from their JSON text; None when they are no object, or when Python cannot read
     them (a writer of the table can put there a number of thousands of digits, or a nesting deeper than its
-    recursion): that is a row that does not hold, and not an error that ends a walk or a read of the log."""
+    recursion), or when they nest deeper than a response encodes (``_json_parts``), however deep the computer's JSON
+    reader goes: that is a row that does not hold, and not an error that ends a walk or a read of the log."""
     try:
         found = json.loads(text)
     except (ValueError, RecursionError):
         return None
-    return found if isinstance(found, dict) else None
+    return found if isinstance(found, dict) and not _nested_beyond(found, 64) else None
 
 
 def _same(found: str, expected: str) -> bool:

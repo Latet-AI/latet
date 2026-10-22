@@ -26,6 +26,9 @@ ELSEWHERE = {
     "assets": [{"name": "latet.whl", "browser_download_url": "https://evil.example/latet-1.2.0-py3-none-any.whl"}],
 }
 TUTORIAL = "New to Latet? 'latet tutorial' shows it at work in about 30 minutes."
+# The Pythons CI tests Latet on. uv takes the newest Python it finds or can download, and on a newer one (3.15 on
+# GitHub's macOS runner) dependencies such as google-re2 have no wheel yet and cannot be built.
+PYTHONS = "--python >=3.12,<3.14"
 
 
 def _tutorial_first(said: str) -> bool:
@@ -317,6 +320,15 @@ def test_install_sh_takes_a_release_wheel_as_it_is(sh_stand):
     done = _run_sh(stand)
     assert done.returncode == 0, done.stdout + done.stderr
     assert stand.install_arguments() and not any("--reinstall" in line for line in stand.install_arguments())
+
+
+def test_install_sh_asks_uv_for_a_python_latet_is_tested_on(sh_stand):
+    stand = sh_stand()
+    stand.fail(f"latet[ner,ocr] @ {WHEEL}")
+    done = _run_sh(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert len(stand.install_arguments()) == 2  # with names and images, then without
+    assert all(PYTHONS in line for line in stand.install_arguments()), stand.install_arguments()
 
 
 def test_install_sh_installs_what_latet_source_names_and_asks_github_nothing(sh_stand):
@@ -659,6 +671,15 @@ def test_install_ps1_takes_a_release_wheel_as_it_is(ps_stand):
     done = _run_ps(stand)
     assert done.returncode == 0, done.stdout + done.stderr
     assert stand.install_arguments() and not any("--reinstall" in line for line in stand.install_arguments())
+
+
+def test_install_ps1_asks_uv_for_a_python_latet_is_tested_on(ps_stand):
+    stand = ps_stand()
+    stand.fail(f"latet[ner,ocr] @ {WHEEL}")
+    done = _run_ps(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert len(stand.install_arguments()) == 2  # with names and images, then without
+    assert all(PYTHONS in line for line in stand.install_arguments()), stand.install_arguments()
 
 
 def test_install_ps1_installs_what_latet_source_names_and_asks_github_nothing(ps_stand):

@@ -76,6 +76,7 @@ class _Ticks:
         return max(self.late, default=0.0)
 
 
+@pytest.mark.timing
 async def test_a_new_value_among_100000_secrets_holds_the_event_loop_for_tens_of_milliseconds_at_most():
     old = _secrets(100_000, 1)
     vault = _vault_of(old)

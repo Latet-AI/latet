@@ -174,8 +174,9 @@ def _settings_env(folder: Path) -> dict:
 
 
 def _letters(text: str) -> str:
-    """``text``'s letters and digits alone: what Typer's error box says, however it folded the lines."""
-    return re.sub(r"[^A-Za-z0-9]", "", text)
+    """``text``'s letters and digits alone: what Typer's error box says, however it folded the lines and whatever
+    colours it gave them (on GitHub Actions it colours its box, even for a test's runner)."""
+    return re.sub(r"[^A-Za-z0-9]", "", re.sub(r"\x1b\[[0-9;]*m", "", text))
 
 
 # --- the addresses ---------------------------------------------------------------------------------------------------

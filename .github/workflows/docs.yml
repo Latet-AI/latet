@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run workflow on main deploys the documentation again without a commit.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -50,8 +52,11 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    # Only from main, and only from a public repository (a private fork builds but does not deploy).
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+    # Only from main, pushed or run by hand, and only from a public repository (a private fork builds but does not
+    # deploy).
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+      && github.event.repository.private == false
     runs-on: ubuntu-latest
     permissions:
       pages: write

@@ -8,6 +8,7 @@ import random
 import string
 import time
 
+import pytest
 import re2
 
 from latet.engine.detectors import terms as terms_module
@@ -32,6 +33,7 @@ def _found(detector: TermsDetector, text: str) -> set[str]:
     return {text[s.start : s.end] for s in detector.detect(text, DetectContext())}
 
 
+@pytest.mark.timing
 async def test_thirty_thousand_long_terms_hold_the_event_loop_for_tens_of_milliseconds_at_most():
     values = _long_terms(30_000, 1)
     terms = [Term(v, "CLIENT", whole_word=False) for v in values]

@@ -11,6 +11,23 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.1 (2026-10-22)
+
+Fixes found by the first runs of CI on GitHub's Linux, macOS and Windows runners.
+
+- Fixed: the installers and `latet upgrade` took the newest Python uv found or could download, and on
+  one newer than Latet's dependencies have wheels for (3.15 on GitHub's macOS runner) google-re2 had
+  to be built, and could not be: the install stopped. They ask for Python 3.12 or 3.13, the versions
+  Latet is tested on, and uv fetches one where there is none.
+- Fixed: on Windows, whose clock moves in steps of about 16 ms, a document or an image given no time
+  left to be read was read all the same: a deadline is now reached at its own instant.
+- Fixed: on a Latet server, a request that came just as another had waited in vain for a name to
+  resolve could wait for that same lookup, and be refused too; a lookup a request has waited out is
+  now joined by no later one, and the next request asks the name server anew.
+- On a Latet server, the administration log reads an entry's details 64 levels deep at most on every
+  computer, as its responses encode them: deeper, the entry is one that does not hold, wherever the
+  server runs.
+
 ## 0.9.0 (2026-10-22)
 
 The first release, its changes listed by milestone, newest first.

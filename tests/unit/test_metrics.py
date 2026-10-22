@@ -121,11 +121,13 @@ def _scrape(client, token=TOKEN, **headers):
     return client.get(METRICS, headers={"authorization": f"Bearer {token}", **headers})
 
 
-def _settled(client, clock, wanted, token=TOKEN):
-    """A scrape once what it reads of the stores is in: the first scrape starts those reads, and none waits for them."""
+def _settled(client, clock, *wanted, token=TOKEN):
+    """A scrape once what it reads of the stores is in: the first scrape starts those reads, and none waits for them;
+    each store's read may come in at another scrape, so a test waits for every line it reads. Each of ``wanted`` is a
+    whole line: a gauge's help can quote a line (``latet_audit_chain_known 0``) before its value is in."""
     for _ in range(300):
         answer = _scrape(client, token)
-        if wanted in answer.text:
+        if all(line in answer.text.splitlines() for line in wanted):
             return answer.text
         clock.advance(1.5)  # past the second in which a text is served again
         time.sleep(0.01)
@@ -374,7 +376,17 @@ def test_the_metrics_answer_their_token_alone_on_their_own_socket_whatever_the_h
     assert refused.status_code == 401 and refused.headers["www-authenticate"] == "Bearer"
     assert refused.json() == {"error": "unauthorized"}  # nothing of the settings
     instance.get(f"/u/{ROUTE}/anthropic/v1/messages")
-    text = _settled(prometheus, clock, "latet_identities_enabled 7")
+    text = _settled(
+        prometheus,
+        clock,
+        "latet_identities_enabled 7",
+        "latet_spaces_open 3",
+        "latet_database_up 1",
+        "latet_valkey_up 1",
+        "latet_bus_rejected 2",
+        "latet_audit_chain_ok 1",
+        "latet_audit_chain_known 1",
+    )
     answer = _scrape(prometheus)
     assert answer.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
     for one in (refused, answer):
@@ -767,7 +779,7 @@ def test_a_chain_read_that_hangs_changes_neither_a_renders_time_nor_the_chains_g
         assert "latet_audit_chain_ok 1" in text and "latet_audit_chain_known 1" in text
         clock.now = read_at + 185  # and no longer
         text = metrics.render()
-        assert "latet_audit_chain_ok" not in text and "latet_audit_chain_known 0" in text
+        assert "latet_audit_chain_ok" not in text and "latet_audit_chain_known 0" in text.splitlines()
     finally:
         stuck.set()
 

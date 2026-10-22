@@ -8,6 +8,7 @@ import builtins
 import importlib.util
 import io
 import json
+import math
 import os
 import runpy
 import ssl
@@ -503,12 +504,16 @@ def test_helper_original_deadline_terminates_while_crypto_import_is_blocked(help
     original_binding = claude_bridge._read_binding
     first, exits, answers, failures, binding_reads = True, [], [], [], []
 
+    def coarse():  # Windows' clock moves in steps of about 16 ms
+        return math.floor(original_clock() / 0.016) * 0.016
+
     def clock():
         nonlocal first
         if first:
             first = False
-            return original_clock()
-        return original_clock() + 29.95
+            return coarse()
+        # Past the end once the watchdog has fired: the wait that fired may end on a step before the end it waited for.
+        return coarse() + (30.05 if terminated.is_set() else 29.95)
 
     def load(name, globals=None, locals=None, fromlist=(), level=0):
         if name == module and globals is not None and globals.get("__name__") == "__main__":

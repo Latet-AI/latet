@@ -122,6 +122,7 @@ def _streamed(text: str) -> str:
     )
 
 
+@pytest.mark.timing
 async def test_a_json_answer_near_the_bound_is_restored_whole_while_the_event_loop_runs():
     provider = _Provider()
     async with _gateway(provider) as (client, _):
@@ -137,6 +138,7 @@ async def test_a_json_answer_near_the_bound_is_restored_whole_while_the_event_lo
     assert max(gaps) < min(HELD, took / 4)
 
 
+@pytest.mark.timing
 async def test_one_event_of_a_stream_of_megabytes_is_restored_whole_while_the_event_loop_runs():
     provider = _Provider()
     async with _gateway(provider) as (client, _):
@@ -152,6 +154,7 @@ async def test_one_event_of_a_stream_of_megabytes_is_restored_whole_while_the_ev
     assert max(gaps) < min(HELD, took / 4)
 
 
+@pytest.mark.timing
 async def test_an_event_of_megabytes_the_end_of_a_stream_completes_is_restored_whole_while_the_event_loop_runs(
     monkeypatch,
 ):
@@ -317,6 +320,7 @@ async def _turn(app, frame: dict) -> list[str]:
     return sent
 
 
+@pytest.mark.timing
 async def test_a_websocket_message_of_megabytes_is_restored_whole_while_the_event_loop_runs():
     frame = {
         "type": "response.create",

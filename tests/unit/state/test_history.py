@@ -80,10 +80,11 @@ def test_the_recorder_asks_its_backends_what_was_recorded_and_whether_to_prune(t
     # Refused the lock: what is a day past the retention, and only that. The whole of it once, under the lock.
     assert len(pruned) == 2 and pruned[0] <= time.time() - 86400 and pruned[1] is None
     assert not sent.first("unscoped", store.block_id("call Ada Byron"))  # recorded in its conversation already
-    [second, first] = store.list()[0]
+    # In the order they were recorded: two exchanges of one instant are in either order by their time (Windows' clock
+    # moves in steps of about 16 ms).
+    first, second = store.in_order("unscoped")
     # The text is new to its conversation the first time and not the second: the flag each block was recorded with.
-    assert [store.detail(x["id"])["request"]["slots"][0]["new"] for x in (first, second)] == [True, False]
-    assert len(store.in_order("unscoped")) == 2
+    assert [store.detail(x)["request"]["slots"][0]["new"] for x in (first, second)] == [True, False]
     store.close()
 
 

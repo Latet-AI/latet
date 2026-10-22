@@ -402,7 +402,7 @@ class OnnxOcr:
         plan = plan or tiles.tiling(width, height, self.MAX_SIDE)
         found = []
         for x0, y0, x1, y1 in plan.regions:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 raise OcrTooLong("reading the image took longer than a read may take")
             boxes = self._boxes(rgb[y0:y1, x0:x1], deadline, options)
             found.append([(a + x0, b + y0, c + x0, d + y0) for a, b, c, d in boxes])
@@ -429,7 +429,7 @@ class OnnxOcr:
         x = (img[..., ::-1].astype(np.float32) / 255 - MEAN) / STD  # the model reads BGR
         run = options if options is not None else self._run_options
         prob = self._det.run(None, {"x": x.transpose(2, 0, 1)[None]}, run)[0][0, 0]
-        if deadline is not None and time.monotonic() > deadline:  # between the detection and its post-processing
+        if deadline is not None and time.monotonic() >= deadline:  # between the detection and its post-processing
             raise OcrTooLong("reading the image took longer than a read may take")
         sx, sy = nw / width, nh / height
         found = []
@@ -474,7 +474,7 @@ class OnnxOcr:
         run = options if options is not None else self._run_options
         lines: list[OcrLine | None] = [None] * len(boxes)
         for batch in batches:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 raise OcrTooLong("reading the image took longer than a read may take")
             width = self._width(max(ratios[i] for i in batch))
             x = np.zeros((len(batch), 3, self.HEIGHT, width), np.float32)

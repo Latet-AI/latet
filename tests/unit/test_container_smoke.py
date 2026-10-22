@@ -93,10 +93,38 @@ def test_init_is_created_with_logging_disabled_and_precreated_key(smoke, tmp_pat
         smoke.initialization_command("docker", "latet:ci", "e0c-t15-owned", "owned-back", env, {})
 
 
+def test_certificate_is_made_by_the_owner_of_its_folder(smoke, tmp_path):
+    """`latet server certificate` writes its key only into a folder of its own user that nobody else can write: the
+    one-shot runs as the folder's owner, and the folder stays 0700, never opened to everyone for it."""
+    directory = tmp_path / "certs"
+    directory.mkdir(mode=0o700)
+    found = directory.stat()
+    assert smoke.folder_owner(directory) == f"{found.st_uid}:{found.st_gid}"
+    command = smoke.certificate_command(
+        "docker", "latet:ci", "e0c-t15-owned", directory, "https://localhost:18443", user="1001:118"
+    )
+    assert command[command.index("--user") + 1] == "1001:118"
+
+
+def test_a_failed_command_is_named_by_its_step_and_never_by_what_it_was_given(smoke, tmp_path):
+    def compose(*arguments):
+        return smoke.compose_command("docker", tmp_path, tmp_path / "run", "e0c-t15-owned", *arguments)
+
+    assert smoke.step(compose("exec", "-T", "latet-server-1", "latet", "server", "ready")) == (
+        "compose exec latet-server-1 latet"
+    )
+    assert smoke.step(compose("up", "-d", "--wait", "postgres")) == "compose up"
+    certificate = smoke.certificate_command("docker", "latet:ci", "p", tmp_path, "https://localhost:1", user="1:1")
+    assert smoke.step(["docker", "--config", str(tmp_path), *certificate[1:]]) == "run"
+
+
 def test_certificate_oneshot_is_owned_bounded_and_restricted(smoke, tmp_path):
     assert hasattr(smoke, "certificate_command"), "the actual bounded certificate command has not been shipped"
     directory = tmp_path / "certs"
-    command = smoke.certificate_command("docker", "latet:ci", "e0c-t15-owned", directory, "https://localhost:18443")
+    directory.mkdir()
+    command = smoke.certificate_command(
+        "docker", "latet:ci", "e0c-t15-owned", directory, "https://localhost:18443", user=smoke.folder_owner(directory)
+    )
     assert command[:2] == ["docker", "run"]
     assert command[command.index("--name") + 1] == "e0c-t15-owned-cert"
     assert command[command.index("--label") + 1] == "com.docker.compose.project=e0c-t15-owned"

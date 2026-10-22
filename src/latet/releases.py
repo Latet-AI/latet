@@ -23,6 +23,9 @@ LATEST_PAGE = f"{PAGE}/latest"
 _DOWNLOADS = f"{PAGE}/download/"  # a wheel is taken from Latet's own releases only
 _TAG = re.compile(rf"{re.escape(PAGE)}/tag/(v[0-9][0-9A-Za-z.+-]*)")
 EXTRAS = "ner,ocr"
+# The Pythons Latet is tested on, as the installers ask: uv takes the newest Python it finds or can download, and on a
+# newer one Latet's dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
+PYTHONS = ">=3.12,<3.14"
 
 
 class ReleaseError(Exception):

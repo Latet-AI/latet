@@ -273,7 +273,7 @@ class OnnxTokenModel:
     def _rows(self, rows: list[int], encoded: list[Any], out: list[list[Token] | None], deadline: float | None) -> None:
         """The texts ``rows`` (each a window or less) read in one run, as rows padded to the longest, each row's
         padding and the other rows masked from it: what a row gives is what its text gives read alone."""
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             raise PastDeadline()
         np = self._np
         ids = np.zeros((len(rows), max(len(encoded[i].ids) for i in rows)), dtype=np.int64)
@@ -322,7 +322,7 @@ class OnnxTokenModel:
         n = len(ids)
         found: list[tuple[int, int, int, list[str], list[float]]] = []  # centrality, start, end, labels, scores
         for start in windows(n, self.WINDOW, self.STRIDE):
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 raise PastDeadline()
             window = np.array([ids[start : start + self.WINDOW]], dtype=np.int64)
             logits = session.run(None, {"input_ids": window, "attention_mask": np.ones_like(window)})[0][0]
@@ -627,7 +627,7 @@ class NerDetector:
                 ahead.update(zip(todo, found, strict=True))
                 return True
             for text in todo:  # a model that reads one text at a time: the time is checked between two
-                if time.monotonic() > deadline:
+                if time.monotonic() >= deadline:
                     return False
                 try:
                     ahead[text] = self.model.predict(text, max_tokens=self.max_tokens)

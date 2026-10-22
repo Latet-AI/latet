@@ -463,6 +463,7 @@ async def _relayed(transform, wire: bytes) -> bytes:
     return b"".join(out)
 
 
+@pytest.mark.timing
 async def test_one_identity_restoring_many_answers_leaves_another_identitys_small_answer_fast(monkeypatch):
     """An identity's answers are restored a bounded step at a time, one of its answers at a time on the event loop, the
     others waiting their turn: however many streams of tiny events it has, another identity's small answer waits for a

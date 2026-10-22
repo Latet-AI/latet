@@ -31,7 +31,7 @@ latet status
 latet start
 ```
 
-`latet status` prints `running: Latet 0.9.0 on 127.0.0.1:5283 (masking), pid 12345`, or
+`latet status` prints `running: Latet 0.9.1 on 127.0.0.1:5283 (masking), pid 12345`, or
 `not running`. If you want to stop using Latet instead, run `latet global-uninstall` first: it reverts your
 agents. See [Uninstall](../getting-started/uninstall/).
 

@@ -9,6 +9,7 @@ import collections
 import ipaddress
 import threading
 import time
+import types
 
 import pytest
 from hypothesis import given
@@ -291,6 +292,30 @@ async def test_a_request_joins_a_lookup_begun_within_the_bound_and_never_an_olde
 
     monkeypatch.setattr(egress, "resolve", resolver)
     monkeypatch.setattr(egress, "RESOLVE_SECONDS", 0.3)
+    try:
+        with pytest.raises(EgressRefused, match="in time"):
+            await egress.pin("https://gw.acme.com/v1", holder="u_emilycarte")
+        assert (await egress.pin("https://gw.acme.com/v1", holder="u_emilycarte"))[0] == f"https://{PUBLIC}/v1"
+        assert asked["gw.acme.com"] == 2
+    finally:
+        stuck.set()
+
+
+async def test_a_lookup_a_request_has_waited_out_is_joined_by_no_later_one_whatever_the_clock_says(monkeypatch):
+    """Windows' clock moves in steps of about 16 ms: a request that comes as the bound ends can read the stuck lookup
+    as begun less than ``RESOLVE_SECONDS`` ago. A lookup a request has waited out is joined by no later one."""
+    stuck, asked = threading.Event(), collections.Counter()
+
+    def resolver(host, port):
+        asked[host] += 1
+        if asked[host] == 1:
+            stuck.wait(30)
+        return [ipaddress.ip_address(PUBLIC)]
+
+    now = time.monotonic()
+    monkeypatch.setattr(egress, "resolve", resolver)
+    monkeypatch.setattr(egress, "RESOLVE_SECONDS", 0.3)
+    monkeypatch.setattr(egress, "time", types.SimpleNamespace(monotonic=lambda: now))  # a clock that has not moved
     try:
         with pytest.raises(EgressRefused, match="in time"):
             await egress.pin("https://gw.acme.com/v1", holder="u_emilycarte")

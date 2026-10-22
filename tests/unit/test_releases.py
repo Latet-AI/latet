@@ -129,7 +129,8 @@ def upgrade(monkeypatch):
     return calls, failing
 
 
-INSTALL = ["/tools/uv", "tool", "install", "--upgrade", "--python", ">=3.12"]
+# The Pythons CI tests Latet on: on a newer one, dependencies such as google-re2 may have no wheel yet.
+INSTALL = ["/tools/uv", "tool", "install", "--upgrade", "--python", ">=3.12,<3.14"]
 
 
 def test_upgrade_installs_the_latest_release_with_names_and_images(upgrade):

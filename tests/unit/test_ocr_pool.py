@@ -237,8 +237,11 @@ def test_the_deadline_is_checked_before_the_first_tile_and_before_a_tiles_detect
     real = ocr_module.db.boxes
     monkeypatch.setattr(ocr_module.db, "boxes", lambda *args: processed.append(1) or real(*args))
     spent = stand_in_ocr()
-    with pytest.raises(OcrTooLong):
-        spent.read(blank_image(), budget=1e-6)
+    now = time.monotonic()
+    with monkeypatch.context() as frozen:  # Windows' clock moves in steps of about 16 ms: no time is spent on one step
+        frozen.setattr(time, "monotonic", lambda: now)
+        with pytest.raises(OcrTooLong):
+            spent.read(blank_image(), budget=0.0)
     assert spent._det.runs == 0
     slow = stand_in_ocr(det=ModelSession(lines_map, seconds=0.3))  # a run that ignores its end
     with pytest.raises(OcrTooLong):

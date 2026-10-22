@@ -147,13 +147,16 @@ fi
 
 MODELS=""  # set: name detection and the text in images are in, their models are the next step
 OFF=""  # set: installed without them, as uv could not install them here
+# The Pythons Latet is tested on. uv takes the newest Python it finds or can download, and on a newer one Latet's
+# dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
+PYTHONS=">=3.12,<3.14"
 echo "Installing Latet ($SOURCE)..."
 if [ -n "${LATET_SOURCE:-}" ]; then
     set -- --reinstall-package latet  # a clone keeps its version while its code changes: built again, every time
 else
     set --
 fi
-if "$UV" tool install --upgrade --python ">=3.12" "$@" "$SOURCE"; then
+if "$UV" tool install --upgrade --python "$PYTHONS" "$@" "$SOURCE"; then
     if [ -n "$PLAIN" ] || { [ -n "$NER" ] && [ -n "$OCR" ]; }; then
         MODELS=1
     fi
@@ -163,7 +166,7 @@ elif [ -n "$HAD" ]; then
     exit 1
 elif [ -n "$PLAIN" ]; then
     echo "Local name detection and the text in images cannot be installed here: installing Latet without them..."
-    "$UV" tool install --upgrade --python ">=3.12" "$PLAIN"
+    "$UV" tool install --upgrade --python "$PYTHONS" "$PLAIN"
     OFF=1
 else
     exit 1

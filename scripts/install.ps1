@@ -127,9 +127,12 @@ if ($existing) {
 }
 
 Write-Host "Installing Latet ($($sources[0]))..."
+# The Pythons Latet is tested on. uv takes the newest Python it finds or can download, and on a newer one Latet's
+# dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
+$pythons = ">=3.12,<3.14"
 # A clone keeps its version while its code changes: what LATET_SOURCE names is built again, every time.
 $rebuild = if ($Source) { @("--reinstall-package", "latet") } else { @() }
-& $uv tool install --upgrade --python ">=3.12" @rebuild $sources[0]
+& $uv tool install --upgrade --python $pythons @rebuild $sources[0]
 # True: name detection and the text in images are in, their models are the next step.
 $models = $LASTEXITCODE -eq 0 -and ($sources.Count -gt 1 -or ($ner -and $ocr))
 $off = $false  # True: installed without them, as uv could not install them here
@@ -139,7 +142,7 @@ if ($LASTEXITCODE -ne 0 -and $had) {
 }
 if ($LASTEXITCODE -ne 0 -and $sources.Count -gt 1) {
     Write-Host "Local name detection and the text in images cannot be installed here: installing Latet without them..."
-    & $uv tool install --upgrade --python ">=3.12" $sources[1]
+    & $uv tool install --upgrade --python $pythons $sources[1]
     $off = $LASTEXITCODE -eq 0
 }
 if ($LASTEXITCODE -ne 0) { throw "uv tool install failed (exit code $LASTEXITCODE)." }

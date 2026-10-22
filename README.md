@@ -279,7 +279,7 @@ goes through it (`latet run python summarize.py`). A program that does not read 
 ## Install
 
 Requirements: Windows, macOS or Linux. The installers set up [uv](https://docs.astral.sh/uv/), which
-also provides a suitable Python (3.12 or newer).
+also provides a Python Latet is tested on (3.12 or 3.13).
 
 On macOS and Linux:
 

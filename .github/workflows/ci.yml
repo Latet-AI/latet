@@ -41,7 +41,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
-      - run: uv run pytest -q
+      # The bounds on how long the event loop waits run on Linux: the noise of the macOS and Windows runners breaks them.
+      - run: uv run pytest -q ${{ matrix.os != 'ubuntu-latest' && '-m "not timing"' || '' }}
         env:
           HYPOTHESIS_PROFILE: ci
 
