@@ -8,6 +8,8 @@ import json
 import statistics
 import time
 
+import pytest
+
 from latet.config import Config
 from latet.engine.build import build
 from latet.engine.detectors.base import DetectContext
@@ -18,6 +20,8 @@ from latet.gateway.routes import Upstream
 
 from ..conftest import ROOT_KEY
 from .test_terms_bench import bench  # scripts/terms_bench.py
+
+pytestmark = pytest.mark.timing  # every test here is a budget of time
 
 UPSTREAM = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
 HEADERS = {"x-api-key": "test", "content-type": "application/json"}

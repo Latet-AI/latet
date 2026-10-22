@@ -3,9 +3,13 @@ reload, upgrade."""
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
@@ -14,6 +18,7 @@ from latet.cli.main import app
 
 if TYPE_CHECKING:
     from latet.config import AutoModeReview, Config
+    from latet.releases import Release
     from latet.server.connection import _PreparedConnection
 
 agents_app = typer.Typer(help="Configure agents to go through Latet (global mode).", no_args_is_help=True)
@@ -569,7 +574,8 @@ def global_uninstall() -> None:
 def upgrade() -> None:
     """Install the latest release of Latet from GitHub, with local name detection and the text in images.
 
-    It stops the daemon first, so Windows can replace its files, and starts it again after. Where name
+    It stops the daemon first and starts it again after. On Windows, which replaces no file of a program
+    that runs, it installs the release in a window of its own once the command has ended. Where name
     detection and the text in images cannot be installed, a Latet that has neither is installed without
     them; one that has them is left as it was.
     """
@@ -596,6 +602,9 @@ def upgrade() -> None:
     had = ner.runtime_available() or models.runtime_available()
     typer.echo(f"Latet {release.version}, from {release.wheel}")
     daemon.stop()
+    if _running_files_stay():
+        _upgrade_in_a_window(uv, release, had)
+        return
     install = [uv, "tool", "install", "--upgrade", "--python", releases.PYTHONS]
     done = subprocess.run([*install, release.requirement()], check=False)  # noqa: S603
     off = False  # installed without name detection and the text in images
@@ -631,6 +640,33 @@ def upgrade() -> None:
             "Off: name detection and the text in images, which uv could not install here. `latet upgrade` tries again.",
             fg="yellow",
         )
+
+
+def _running_files_stay() -> bool:
+    """Whether this system replaces no file of a program that runs (Windows): `latet upgrade` runs from the Latet it
+    replaces, so there it hands the upgrade to a window of its own."""
+    return sys.platform == "win32"
+
+
+def _upgrade_in_a_window(uv: str, release: Release, had: bool) -> None:
+    """The upgrade, on Windows: ``upgrade.ps1``, copied out of the folder it replaces, in a new window, which waits for
+    this command and its launcher to end before uv replaces their files (run from here, uv could not remove that
+    folder and left it half gone)."""
+    from latet import releases
+
+    script = Path(tempfile.gettempdir()) / f"latet-upgrade-{os.getpid()}.ps1"
+    script.write_bytes((Path(__file__).parent / "upgrade.ps1").read_bytes())
+    command = [
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+        "-WaitFor", f"{os.getpid()},{os.getppid()}", "-Uv", uv, "-Pythons", releases.PYTHONS,
+        "-Full", release.requirement(), "-Plain", release.requirement(extras=False), "-Had", "1" if had else "0",
+        "-Latet", shutil.which("latet") or "latet", "-Version", release.version,
+    ]  # fmt: skip
+    subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))  # noqa: S603
+    typer.echo(
+        f"Latet {release.version} is installed in a new window once this command has ended: Windows replaces no file "
+        "of the Latet that runs it. That window starts Latet again, and says how it went."
+    )
 
 
 def _install_port(current: int, option: str | None) -> tuple[int, str | None]:

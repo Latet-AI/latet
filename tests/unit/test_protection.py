@@ -284,6 +284,7 @@ def test_weighing_a_folder_changes_neither_side_of_the_change():
         assert before.policies == {} and after.policies == {}
 
 
+@pytest.mark.timing
 def test_a_check_at_the_projects_cap_whose_top_lowers_a_stricter_folder_takes_milliseconds():
     folders = [ProjectEntry(path=f"/home/emily/client-{i:05d}", profile=Profile.MAX,
                             terms=[TermConfig(value=f"Client Name {i:05d}")]) for i in range(200)]  # fmt: skip
@@ -313,6 +314,7 @@ def _fastest(work, times: int = 3):
     return answer, min(took)
 
 
+@pytest.mark.timing
 def test_a_change_of_every_entry_at_the_projects_cap_is_weighed_and_composed_in_a_fraction_of_a_second():
     """A-12: a waiting change that touches every entry cost 1.2-1.3 s per weighing and 3.6-3.7 s per composition at the
     projects' cap, on every instance, while each folder's rules were laid over a deep copy of the settings."""
@@ -332,6 +334,7 @@ def test_a_change_of_every_entry_at_the_projects_cap_is_weighed_and_composed_in_
     assert took < 0.75, f"{took:.2f} s"
 
 
+@pytest.mark.timing
 def test_settings_with_tens_of_thousands_of_terms_are_weighed_in_linear_time():
     # Each list compared item by item against the other was quadratic: 7.8 s for these, on every instance that holds a
     # space, at each re-application of it. About 0.05 s now alone, two or three times that in a whole run of the tests.

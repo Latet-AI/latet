@@ -95,7 +95,11 @@ détection locale des noms et lecture du texte des images comprises. Elle arrêt
 peut pas remplacer des fichiers en cours d'utilisation), installe le nouveau plugin Claude Code si
 vous utilisez Claude Code, puis redémarre le daemon. Un Latet installé sans la détection des noms ni
 la lecture du texte des images les obtient ainsi. Là où la nouvelle version ne peut pas les avoir,
-un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles.
+un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles. Sous
+Windows, qui ne remplace aucun fichier d'un programme en cours d'exécution, la mise à jour se poursuit
+dans une fenêtre à part une fois la commande terminée, et cette fenêtre dit comment elle s'est passée.
+Un Latet 0.9.0 ou 0.9.1 sous Windows se met à jour en relançant le script d'installation : son propre
+`latet upgrade` pourrait le laisser incapable de démarrer.
 
 ## Installer avec un agent IA
 

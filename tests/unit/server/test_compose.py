@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from latet.config import Config, Destination, LlmReview, Policy, Profile, ProjectEntry, TermConfig
 from latet.protection import loosened
 from latet.server.shared import composed, repinned
@@ -216,6 +218,7 @@ def _projects_in_full(old: Config, new: Config) -> list[str]:
     return out
 
 
+@pytest.mark.timing
 def test_a_check_at_the_projects_cap_weighs_the_folders_that_changed_and_answers_as_in_full():
     from latet import protection
 
@@ -257,6 +260,7 @@ def test_a_composition_under_thirty_thousand_terms_with_a_change_waiting_takes_a
     assert min(took) < 1.0, f"{min(took):.2f} s"
 
 
+@pytest.mark.timing
 def test_a_composition_at_the_projects_cap_takes_milliseconds():
     shared = Config(terms=CUSTOMERS[1:])  # the administrator dropped a shared term: a change waits for her
     approved = _at_the_cap()
