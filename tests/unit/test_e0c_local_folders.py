@@ -156,7 +156,8 @@ def test_on_macos_a_private_folder_refusal_names_the_folder_and_the_fix(computer
 
 
 @POSIX
-def test_on_posix_the_namespace_words_name_the_mode_and_the_fix(computer):
+def test_on_posix_the_namespace_words_name_the_mode_and_the_fix(computer, monkeypatch):
+    monkeypatch.setattr(folders, "_group_is_mine_alone", lambda gid: False)  # a group other accounts are in
     shared = computer / "shared"
     shared.mkdir()
     shared.chmod(0o775)
