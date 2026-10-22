@@ -218,7 +218,8 @@ the daemon stops. Your rules stay in config.yaml, for `latet claude` and the oth
 
 Install the latest release of Latet from GitHub, with local name detection and the text in images.
 
-It stops the daemon first, so Windows can replace its files, and starts it again after. Where name
+It stops the daemon first and starts it again after. On Windows, which replaces no file of a program
+that runs, it installs the release in a window of its own once the command has ended. Where name
 detection and the text in images cannot be installed, a Latet that has neither is installed without
 them; one that has them is left as it was.
 

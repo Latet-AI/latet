@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` imprime `running: Latet 0.9.1 on 127.0.0.1:5283 (masking), pid 12345` si está en
+`latet status` imprime `running: Latet 0.9.2 on 127.0.0.1:5283 (masking), pid 12345` si está en
 marcha, o `not running` si no lo está. Si lo que quieres es dejar de usar Latet, ejecuta antes
 `latet global-uninstall`: devuelve tus agentes a su configuración anterior. Consulta
 [Desinstalación](../getting-started/uninstall/).
@@ -433,8 +433,13 @@ también lo necesita: hasta entonces, `latet tutorial` avisa de que su página n
 
 ### Una actualización falla en Windows porque hay archivos en uso
 
-Usa `latet upgrade`: detiene el daemon antes de sustituir sus archivos, y lo vuelve a iniciar
-después.
+Usa `latet upgrade`: detiene el daemon, instala la nueva versión en una ventana propia cuando el
+comando ha terminado (Windows no sustituye ningún archivo de un programa en ejecución) y vuelve a
+iniciar Latet.
+
+Un Latet 0.9.0 o 0.9.1 actualizado en Windows con su propio `latet upgrade` puede quedarse sin poder
+arrancar, y `latet` responde `No module named 'latet'`: vuelve a ejecutar el instalador, que instala
+la última versión entera.
 
 ### No se puede averiguar cuál es la última versión
 

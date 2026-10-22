@@ -93,7 +93,10 @@ y la lectura de texto en imágenes incluidas. Primero detiene el daemon (Windows
 archivos que están en uso), instala el nuevo plugin de Claude Code si usas Claude Code y vuelve a
 iniciar el daemon. Un Latet instalado sin detección de nombres o sin lectura de texto en imágenes las
 obtiene así. Donde la nueva versión no puede tenerlas, un Latet que las tiene se queda como estaba, y
-uno que no las tiene se actualiza sin ellas.
+uno que no las tiene se actualiza sin ellas. En Windows, que no sustituye ningún archivo de un
+programa en ejecución, la actualización sigue en una ventana propia cuando el comando ha terminado, y
+esa ventana dice cómo ha ido. Un Latet 0.9.0 o 0.9.1 en Windows se actualiza volviendo a ejecutar el
+instalador: su propio `latet upgrade` podría dejarlo sin poder arrancar.
 
 ## Instalar con un agente de IA
 

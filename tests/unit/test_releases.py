@@ -2,14 +2,18 @@
 dashboard), with local name detection and the text in images. What `latet upgrade` installs, and what the
 commands say when those two are missing."""
 
+import os
 import shutil
 import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 import httpx
 import pytest
 from typer.testing import CliRunner
 
-import latet.cli.admin  # noqa: F401 - registers upgrade
+import latet.cli.admin as admin  # registers upgrade
 from latet import releases
 from latet.cli.main import app
 
@@ -126,6 +130,7 @@ def upgrade(monkeypatch):
     monkeypatch.setattr(daemon, "start", lambda: calls.append(["daemon start"]))
     monkeypatch.setattr(ner, "runtime_available", lambda: False)
     monkeypatch.setattr(models, "runtime_available", lambda: False)
+    monkeypatch.setattr(admin, "_running_files_stay", lambda: False)  # macOS and Linux; Windows has tests of its own
     return calls, failing
 
 
@@ -201,6 +206,130 @@ def test_an_upgrade_that_fails_starts_the_old_latet_again(upgrade):
     result = CliRunner().invoke(app, ["upgrade"])
     assert result.exit_code == 1 and "as it was" in result.output
     assert calls[-1] == ["daemon start"] and ["/tools/latet", "agents", "refresh"] not in calls
+
+
+# --- latet upgrade on Windows ---------------------------------------------------------------------------
+# Windows replaces no file of a program that runs, and `latet upgrade` runs from the Latet it replaces: run there,
+# uv could not remove that Latet's folder and left it half gone (0.9.0, 2026-10-22). The upgrade goes on in a window
+# of its own (upgrade.ps1), once the command and its launcher have ended.
+
+
+@pytest.fixture
+def windows(upgrade, monkeypatch):
+    started: list[tuple[list[str], dict]] = []
+    monkeypatch.setattr(admin, "_running_files_stay", lambda: True)
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: started.append((list(argv), kwargs)))
+    return upgrade[0], started
+
+
+def _argument(argv: list[str], name: str) -> str:
+    return argv[argv.index(name) + 1]
+
+
+def test_on_windows_the_upgrade_goes_on_in_a_window_of_its_own_once_this_command_has_ended(windows):
+    calls, started = windows
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 0, result.output
+    assert calls == [["daemon stop"]]  # never uv from here, nor a start
+    [(argv, kwargs)] = started
+    assert argv[:5] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    script = Path(argv[5])
+    assert script.read_bytes() == (Path(admin.__file__).parent / "upgrade.ps1").read_bytes()
+    assert script.parent == Path(tempfile.gettempdir())  # never in the folder the upgrade replaces
+    assert str(os.getpid()) in _argument(argv, "-WaitFor").split(",")
+    assert _argument(argv, "-Uv") == "/tools/uv" and _argument(argv, "-Latet") == "/tools/latet"
+    assert _argument(argv, "-Pythons") == releases.PYTHONS
+    assert _argument(argv, "-Full") == f"latet[ner,ocr] @ {WHEEL}" and _argument(argv, "-Plain") == f"latet @ {WHEEL}"
+    assert _argument(argv, "-Had") == "0" and _argument(argv, "-Version") == "1.2.0"
+    assert kwargs.get("creationflags") == getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    assert "new window" in result.output
+    script.unlink()
+
+
+def test_on_windows_the_window_is_told_the_latet_that_runs_has_names_and_images(windows, monkeypatch):
+    from latet.engine.detectors import ner
+
+    _, started = windows
+    monkeypatch.setattr(ner, "runtime_available", lambda: True)
+    assert CliRunner().invoke(app, ["upgrade"]).exit_code == 0
+    [(argv, _)] = started
+    assert _argument(argv, "-Had") == "1"
+    Path(argv[5]).unlink()
+
+
+POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
+
+
+def _stand_ins(tmp_path: Path, failing: tuple[str, ...] = ()) -> tuple[Path, Path, Path]:
+    """uv and latet as PowerShell scripts that write each call they get, one a line; uv fails for ``failing``."""
+    log = tmp_path / "calls.log"
+    uv, latet = tmp_path / "uv.ps1", tmp_path / "latet.ps1"
+    refused = ", ".join(f"'{item}'" for item in failing) or "''"
+    uv.write_text(
+        f"Add-Content -LiteralPath '{log}' ('uv ' + ($args -join ' '))\nif (@({refused}) -contains $args[-1]) {{ exit 1 }}\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    latet.write_text(f"Add-Content -LiteralPath '{log}' ('latet ' + ($args -join ' '))\n", encoding="utf-8")
+    return log, uv, latet
+
+
+def _window(tmp_path: Path, uv: Path, latet: Path, had: str = "0", wait: str = "none") -> subprocess.CompletedProcess:
+    assert POWERSHELL is not None
+    script = Path(admin.__file__).parent / "upgrade.ps1"
+    return subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-WaitFor", wait,
+         "-Uv", str(uv), "-Pythons", releases.PYTHONS, "-Full", f"latet[ner,ocr] @ {WHEEL}",
+         "-Plain", f"latet @ {WHEEL}", "-Had", had, "-Latet", str(latet), "-Version", "1.2.0", "-Quiet"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )  # fmt: skip
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
+def test_the_window_installs_the_release_then_has_the_new_version_apply_the_integrations_and_start(tmp_path):
+    log, uv, latet = _stand_ins(tmp_path)
+    done = _window(tmp_path, uv, latet)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"uv tool install --upgrade --python {releases.PYTHONS} latet[ner,ocr] @ {WHEEL}",
+        "latet agents refresh",
+        "latet start",
+    ]
+    assert "Latet 1.2.0 installed." in done.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
+def test_the_window_goes_on_without_names_and_images_where_they_cannot_be_installed(tmp_path):
+    log, uv, latet = _stand_ins(tmp_path, failing=(f"latet[ner,ocr] @ {WHEEL}",))
+    done = _window(tmp_path, uv, latet)
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert calls[1] == f"uv tool install --upgrade --python {releases.PYTHONS} latet @ {WHEEL}"
+    assert calls[2:] == ["latet agents refresh", "latet start"]
+    assert "Off: name detection and the text in images" in done.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
+def test_the_window_never_takes_away_names_or_images_and_starts_the_latet_that_was_there(tmp_path):
+    log, uv, latet = _stand_ins(tmp_path, failing=(f"latet[ner,ocr] @ {WHEEL}",))
+    done = _window(tmp_path, uv, latet, had="1")
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"uv tool install --upgrade --python {releases.PYTHONS} latet[ner,ocr] @ {WHEEL}",
+        "latet start",
+    ]
+    assert "Latet is as it was." in done.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
+def test_the_window_waits_for_the_command_that_started_it_to_end(tmp_path):
+    ended = tmp_path / "ended"
+    command = subprocess.Popen(
+        [sys.executable, "-c", f"import time, pathlib; time.sleep(2); pathlib.Path({str(ended)!r}).touch()"]
+    )
+    log, uv, latet = _stand_ins(tmp_path)
+    uv.write_text(f"Add-Content -LiteralPath '{log}' ('ended before uv: ' + (Test-Path -LiteralPath '{ended}'))\n")
+    _window(tmp_path, uv, latet, wait=f"{command.pid}")
+    command.wait(10)
+    assert log.read_text(encoding="utf-8").splitlines()[0] == "ended before uv: True"
 
 
 # --- the extras, when they are missing ------------------------------------------------------------------

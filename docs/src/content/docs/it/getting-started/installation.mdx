@@ -92,7 +92,10 @@ Installa l'ultima versione da GitHub come fa l'installer, compresi il rilevament
 il testo nelle immagini. Prima ferma il daemon (Windows non può sostituire i file in uso), installa
 il nuovo plugin di Claude Code se usi Claude Code, e riavvia il daemon. Un Latet installato senza
 rilevamento dei nomi o testo nelle immagini li ottiene così. Dove la nuova versione non può averli,
-un Latet che li ha resta com'era, e uno che non li ha viene aggiornato senza.
+un Latet che li ha resta com'era, e uno che non li ha viene aggiornato senza. Su Windows, che non
+sostituisce i file di un programma in esecuzione, l'aggiornamento prosegue in una finestra a parte
+quando il comando è finito, e quella finestra dice com'è andata. Un Latet 0.9.0 o 0.9.1 su Windows si
+aggiorna rilanciando l'installer: il suo `latet upgrade` potrebbe lasciarlo senza avviarsi.
 
 ## Installa con un agente AI
 

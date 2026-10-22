@@ -11,6 +11,14 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.2 (2026-10-22)
+
+- Fixed: on Windows, `latet upgrade` ran uv from the Latet it was replacing, and Windows replaces no
+  file of a program that runs: uv could not remove that Latet's folder, and left it unable to start
+  (`No module named 'latet'`). It now installs the release in a window of its own once the command
+  has ended, then starts Latet again, and the window says how it went. A Latet 0.9.0 or 0.9.1 on
+  Windows upgrades by running the installer again.
+
 ## 0.9.1 (2026-10-22)
 
 Fixes found by the first runs of CI on GitHub's Linux, macOS and Windows runners.
