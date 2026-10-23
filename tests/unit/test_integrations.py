@@ -114,6 +114,15 @@ def test_opencode_desktop_alone_counts_as_opencode_installed(isolated, monkeypat
     assert not OpenCode().detect().installed
 
 
+def test_opencodes_chatgpt_sign_in_is_said_to_be_on_the_roadmap_not_in_a_version(isolated, monkeypatch):
+    """The note named a version (v1.1) that no longer comes next: Latet's versions are 0.9.x, and 1.0.0 is the
+    Enterprise release. The OpenCode guide says the ChatGPT sign-in is on the roadmap."""
+    monkeypatch.setattr(agents.shutil, "which", lambda name: None)
+    monkeypatch.setattr(agents, "_opencode_desktop", lambda: None)
+    [note] = [note for note in OpenCode().detect().notes if "ChatGPT" in note]
+    assert note == "API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (on the roadmap)."
+
+
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code is not installed")
 def test_claude_code_plugin_and_env_round_trip(isolated):

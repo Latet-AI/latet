@@ -34,7 +34,7 @@ function bridge(
       }
     }
     if (path === 'rehydrate') reply = { items: body.items.map((t) => t.replaceAll('FAKE-999', 'SECRET-123')), restored: 1 }
-    if (path === 'ping') reply = { ok: true, version: '0.9.6' }
+    if (path === 'ping') reply = { ok: true, version: '0.9.7' }
     if (path === 'outbound') {
       const fake = body.values.some((v) => v.includes('FAKE-999'))
       reply = fake ? { found: ['PERSON'], reason: `Latet stopped this ${body.tool} call.` } : { found: [], reason: null }
@@ -344,7 +344,7 @@ function liveBridge(on, decide: 'approve' | 'reject', calls: string[] = [], view
     calls.push(path)
     const body = e.init?.body ? JSON.parse(e.init.body) : {}
     let reply: unknown = { pending: 'b1', viewers }
-    if (path === 'ping') reply = { ok: true, version: '0.9.6' }
+    if (path === 'ping') reply = { ok: true, version: '0.9.7' }
     if (path === 'route-check') reply = { ok: true, reason: null, toast: null }
     if (path === 'instructions') reply = { findings: [] }
     if (path === 'approvals/wait') {
@@ -550,7 +550,7 @@ test('an image result is refused when the daemon cannot mask it', async ($, on) 
   on('http.fetch', ($, e) => {
     if (down) return { deny: 'connection refused' }
     const path = e.url.split('/_latet/engine/v1/')[1]
-    if (path === 'ping') return { value: { status: 200, ok: true, headers: {}, text: '{"version":"0.9.6"}' } }
+    if (path === 'ping') return { value: { status: 200, ok: true, headers: {}, text: '{"version":"0.9.7"}' } }
     if (path === 'route-check') return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true}' } }
     if (path === 'instructions') return { value: { status: 200, ok: true, headers: {}, text: '{"findings":[]}' } }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ items: [], restored: 0 }) } }
@@ -640,7 +640,7 @@ function checking(on, status: number, calls: string[] = []) {
     calls.push(path)
     const body = e.init?.body ? JSON.parse(e.init.body) : {}
     if (path === 'route-check') return { value: { status, ok: status < 300, headers: {}, text: '{"error":"no"}' } }
-    let reply: unknown = { ok: true, version: '0.9.6', findings: [] }
+    let reply: unknown = { ok: true, version: '0.9.7', findings: [] }
     if (path === 'mask') reply = { items: body.items.map((i) => ({ text: i.text.replaceAll('SECRET-123', 'FAKE-999'), count: 1 })) }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(reply) } }
   })

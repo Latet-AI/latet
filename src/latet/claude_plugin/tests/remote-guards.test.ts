@@ -76,7 +76,7 @@ for (const source of ['user', 'project', 'local', 'flag', 'policy']) {
       const path = e.url.split('/_latet/engine/v1/')[1]
       const body = e.init?.body ? JSON.parse(e.init.body) : {}
       if (path === 'route-check') inspected = body.sources
-      const result = path === 'ping' ? { version: '0.9.6' } : path === 'instructions' ? { findings: [] } : { ok: true }
+      const result = path === 'ping' ? { version: '0.9.7' } : path === 'instructions' ? { findings: [] } : { ok: true }
       return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(result) } }
     })
     await $.session.start({ cwd: '/task6-project', surface: 'terminal', isInteractive: true })

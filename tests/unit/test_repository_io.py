@@ -410,6 +410,7 @@ def test_a_folder_no_check_may_name_starts_no_helper(monkeypatch):
         assert not outcome.complete and started == []
 
 
+@pytest.mark.timing  # 1.5 s of slack over its 0.5 s deadline, which a busy computer has gone past
 def test_a_helper_that_never_answers_is_ended_at_its_ready_deadline(tmp_path, monkeypatch):
     children = []
 
