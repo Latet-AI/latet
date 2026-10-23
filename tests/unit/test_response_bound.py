@@ -497,7 +497,9 @@ async def test_one_identity_restoring_many_answers_leaves_another_identitys_smal
     assert b"[DONE]" in answer and not any(stream.stopped for stream in streams)
     assert max(count for who, count in steps if who == "heavy") <= RESTORED_EVENTS_AT_ONCE  # a bounded step
     assert meanwhile <= 4  # a step or two of the heavy identity's, not one of each of its eight streams
-    assert took < 0.25
+    # The steps counted above are what holds; the clock only backs them up. 0.25 s went past on GitHub's Linux runner
+    # (0.45 s), and a wait of a step of each stream was seconds.
+    assert took < 1.0
 
 
 def test_an_answer_of_more_events_than_latet_reads_is_stopped_with_a_clear_error(monkeypatch):

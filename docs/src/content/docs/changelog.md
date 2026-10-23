@@ -15,9 +15,10 @@ for Windows, your own name models, more agents, and the documentation in more la
 
 - `latet doctor`, `latet agents status` and the dashboard no longer say that OpenCode's ChatGPT sign-in is planned for
   v1.1: it is on the [roadmap](../roadmap/), as the OpenCode guide says.
-- Three tests that failed now and then no longer do: the installer's PowerShell tests read the shell's own modules
+- Four tests that failed now and then no longer do: the installer's PowerShell tests read the shell's own modules
   alone (GitHub's Windows runner analysed hundreds of others first, past the time a test waits), the test of a helper
-  that never answers is a timing test, and the parallel runner's timeout test gives pytest the time to start.
+  that never answers is a timing test, the parallel runner's timeout test gives pytest the time to start, and the test
+  of one identity restoring many answers leans on the steps it counts, its clock allowing a second.
 
 ## 0.9.6 (2026-10-23)
 
