@@ -440,6 +440,10 @@ def _run_ps(stand: Stand, shell: str | None = None, **env: str):
         "PATH": os.pathsep.join([str(stand.bin), system32]),
         **stand.homes(),
         "PSModuleAnalysisCachePath": str(stand.home / "local" / "ModuleAnalysisCache"),
+        # The shell's own modules alone, which is all the installer uses: each stand's analysis cache starts empty, and
+        # GitHub's Windows runner keeps hundreds of modules in Program Files that PowerShell would analyse first, past
+        # the time a test waits.
+        "PSModulePath": str(Path(shell).parent / "Modules"),
         "TMPDIR": stand.temp.as_posix(),
         "TMP": str(stand.temp),
         "TEMP": str(stand.temp),

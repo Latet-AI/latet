@@ -403,7 +403,9 @@ def test_timeout_reaps_owned_grandchild_and_leaves_unrelated_process_alive(synth
     )
     unrelated = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(60)"])
     try:
-        result, summary = run("--child-seconds", "3")
+        # Long enough for the collection child to start pytest on a busy Windows computer (3 s ended it there first, and
+        # the case never ran), far short of the case's 60 s sleep.
+        result, summary = run("--child-seconds", "12")
         assert result.returncode != 0
         assert summary is not None and summary["success"] is False
         assert unrelated.poll() is None

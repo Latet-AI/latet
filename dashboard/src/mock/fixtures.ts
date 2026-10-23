@@ -1324,7 +1324,7 @@ export const integrations: Integrations = {
       installed: false,
       version: null,
       status: 'not installed',
-      notes: ["API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (planned for v1.1)."],
+      notes: ["API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (on the roadmap)."],
     },
   ],
   destinations: [

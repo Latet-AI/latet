@@ -750,7 +750,7 @@ class OpenCode:
                 "restarted; `latet opencode` starts the command-line OpenCode only."
             )
         info.notes.append(
-            "API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (planned for v1.1)."
+            "API-key providers only: OpenCode's ChatGPT sign-in plugin cannot be routed (on the roadmap)."
         )
         return info
 

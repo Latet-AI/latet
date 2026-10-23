@@ -11,6 +11,14 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.7 (2026-10-23)
+
+- `latet doctor`, `latet agents status` and the dashboard no longer say that OpenCode's ChatGPT sign-in is planned for
+  v1.1: it is on the [roadmap](../roadmap/), as the OpenCode guide says.
+- Three tests that failed now and then no longer do: the installer's PowerShell tests read the shell's own modules
+  alone (GitHub's Windows runner analysed hundreds of others first, past the time a test waits), the test of a helper
+  that never answers is a timing test, and the parallel runner's timeout test gives pytest the time to start.
+
 ## 0.9.6 (2026-10-23)
 
 - `latet copilot` starts GitHub Copilot CLI through Latet with a provider of your own
