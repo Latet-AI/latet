@@ -11,6 +11,17 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.6 (2026-10-23)
+
+- `latet copilot` starts GitHub Copilot CLI through Latet with a provider of your own
+  (`COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`): it points
+  `COPILOT_PROVIDER_BASE_URL` at Latet for that session, OpenAI's, Anthropic's and OpenRouter's to
+  Latet's own routes and another address to one of your destinations. Signed in with GitHub, on a
+  Copilot plan's models, Copilot CLI sends to GitHub's Copilot service, which Latet cannot go in front
+  of: `latet copilot` says so and starts nothing, where `latet run copilot` started it unprotected.
+  The Copilot CLI guide shows it in PowerShell too. See
+  [other tools](../agents/other-tools/#github-copilot-cli).
+
 ## 0.9.5 (2026-10-23)
 
 - Fixed: on Windows, `latet server install` refused the folder it installs to, `C:\ProgramData\Latet`, on

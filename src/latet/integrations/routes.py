@@ -567,6 +567,76 @@ def detect_codex(
     return route
 
 
+# --- GitHub Copilot CLI ---------------------------------------------------------------------------------
+
+# Copilot CLI's providers of your own (COPILOT_PROVIDER_TYPE) and the address each has when COPILOT_PROVIDER_BASE_URL
+# names none: OpenAI's (Chat Completions or Responses) and Anthropic's (Messages).
+COPILOT_PROVIDERS = {"openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com"}
+# The providers Latet has a route of its own for, by origin: an address there goes to that route, its path kept.
+_OWN_ROUTES = {
+    "https://api.openai.com": "/openai",
+    "https://api.anthropic.com": "/anthropic",
+    "https://openrouter.ai": "/openrouter",
+}
+COPILOT_SIGNED_IN = (
+    "Latet cannot go in front of Copilot CLI signed in with GitHub: it sends to GitHub's Copilot service, which Latet "
+    "does not read, so nothing would be masked. Give it a provider of your own (COPILOT_PROVIDER_TYPE openai or "
+    "anthropic, COPILOT_PROVIDER_API_KEY and COPILOT_MODEL; COPILOT_PROVIDER_BASE_URL for OpenRouter or another "
+    "address), then run latet copilot again: https://docs.latet.ai/agents/other-tools/#github-copilot-cli"
+)
+
+
+@dataclass
+class CopilotRoute:
+    """Where Copilot CLI's provider of your own goes, and the address that puts Latet in front of it."""
+
+    base: str | None = None  # COPILOT_PROVIDER_BASE_URL for the session; None: the one given is left as it is
+    summary: str = ""
+    notes: list[str] = field(default_factory=list)
+    problem: str | None = None
+
+
+def copilot_given(env: Mapping[str, str]) -> bool:
+    """Whether Copilot CLI is given a provider of its own; without one it signs in with GitHub."""
+    return bool(
+        (env.get("COPILOT_PROVIDER_TYPE") or "").strip() or (env.get("COPILOT_PROVIDER_BASE_URL") or "").strip()
+    )
+
+
+def detect_copilot(
+    env: Mapping[str, str], config: Config, destination: Registrar, address: str | None = None
+) -> CopilotRoute:
+    """Where Copilot CLI sends its requests with the provider ``env`` gives it (COPILOT_PROVIDER_TYPE and
+    COPILOT_PROVIDER_BASE_URL), and the address that sends them through Latet: OpenAI's, Anthropic's and OpenRouter's
+    to Latet's own routes, another address to a destination of yours (added when new, as for Codex). One of Latet or on
+    this computer is left as it is; none is a problem, as Copilot then signs in with GitHub."""
+    if not copilot_given(env):
+        return CopilotRoute(problem=COPILOT_SIGNED_IN)
+    latet = address or f"http://127.0.0.1:{config.port}"
+    server = address if address is not None and _here(address) is None else None
+    kind = (env.get("COPILOT_PROVIDER_TYPE") or "openai").strip().lower()
+    url = (env.get("COPILOT_PROVIDER_BASE_URL") or "").strip() or COPILOT_PROVIDERS.get(kind)
+    if url is None:
+        return CopilotRoute(
+            problem="COPILOT_PROVIDER_TYPE names a provider whose address Latet does not know: set "
+            "COPILOT_PROVIDER_BASE_URL to its address"
+        )
+    if is_latet(url, config.port, server):
+        return CopilotRoute(summary=f"{_host(url)}: through Latet already")
+    if this_machine(url) and not _declared(url, config):
+        return CopilotRoute(summary=f"{_host(url)}, on this computer: left as it is", notes=[local_note(url)])
+    if problem := _unroutable(url, "COPILOT_PROVIDER_BASE_URL"):
+        return CopilotRoute(problem=problem)
+    parts = _parts(url)
+    assert parts is not None  # _unroutable read it
+    route = _OWN_ROUTES.get(f"{parts.scheme}://{parts.netloc}".lower())
+    if route is not None and not (parts.query or parts.fragment):
+        base = f"{latet}{route}{parts.path.rstrip('/')}"
+    else:
+        base = f"{latet}/{destination(url)}"
+    return CopilotRoute(base=base, summary=f"{_host(url)}: Latet goes in front of it")
+
+
 # --- the plugin's check, at the start of a Claude Code session ----------------------------------------
 
 _FILES = {

@@ -107,22 +107,41 @@ chats y los mensajes de commit, a los modelos de GitHub; para que se queden en t
 
 ## GitHub Copilot CLI
 
-La CLI de Copilot acepta un proveedor propio a través de variables de entorno:
+La CLI de Copilot pasa por Latet con un proveedor propio: una clave de OpenAI, Anthropic u
+OpenRouter, u otra dirección, definida en variables de entorno. Con la sesión de GitHub iniciada, con
+los modelos de un plan de Copilot, envía al servicio Copilot de GitHub, delante del cual Latet no
+puede ponerse: `latet copilot` lo dice y no inicia nada.
 
 ```sh
-export COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:5283/openai/v1
 export COPILOT_PROVIDER_TYPE=openai          # Chat Completions
 export COPILOT_PROVIDER_API_KEY=...          # your OpenAI key
 export COPILOT_MODEL=gpt-5.1
 export COPILOT_OFFLINE=true                  # no GitHub sign-in, no telemetry
-copilot
+latet copilot
 ```
 
-`COPILOT_PROVIDER_WIRE_API=responses` usa la Responses API en su lugar. Para Anthropic, define
-`COPILOT_PROVIDER_TYPE=anthropic` y `COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:5283/anthropic`, con
-tu clave de Anthropic. El modelo tiene que admitir la llamada a herramientas y el streaming. Sin
-`COPILOT_OFFLINE=true`, la CLI sigue enviando telemetría a GitHub, y funciones como `/delegate`
-necesitan que inicies sesión en GitHub; tus prompts solo van a tu proveedor.
+En PowerShell:
+
+```powershell
+$env:COPILOT_PROVIDER_TYPE = "openai"
+$env:COPILOT_PROVIDER_API_KEY = "..."        # your OpenAI key
+$env:COPILOT_MODEL = "gpt-5.1"
+$env:COPILOT_OFFLINE = "true"
+latet copilot
+```
+
+`latet copilot` dirige la dirección del proveedor a Latet solo para esa sesión: las de OpenAI,
+Anthropic y OpenRouter van a las rutas propias de Latet, otra dirección se convierte en uno de tus
+destinos, y una en este ordenador se queda como está. Con OpenRouter, define
+`COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` y tu clave de OpenRouter; para Anthropic,
+`COPILOT_PROVIDER_TYPE=anthropic` y tu clave de Anthropic. Para iniciar `copilot` tú mismo, define en
+su lugar `COPILOT_PROVIDER_BASE_URL` con la dirección de Latet: `http://127.0.0.1:5283/openai/v1`,
+`/openrouter/api/v1` o `/anthropic`.
+
+`COPILOT_PROVIDER_WIRE_API=responses` usa la Responses API en su lugar. El modelo tiene que admitir
+la llamada a herramientas y el streaming. Sin `COPILOT_OFFLINE=true`, la CLI sigue enviando
+telemetría a GitHub, y funciones como `/delegate` necesitan que inicies sesión en GitHub; tus prompts
+solo van a tu proveedor.
 
 ## GitHub Copilot en los IDE de JetBrains y en Visual Studio
 

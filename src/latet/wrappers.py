@@ -36,10 +36,17 @@ EXTRA_CA_VARS: dict[str, tuple[str, ...]] = {
     "codex": ("CODEX_CA_CERTIFICATE",),
     "opencode": ("NODE_EXTRA_CA_CERTS",),
     "gemini": ("NODE_EXTRA_CA_CERTS",),
+    "copilot": ("NODE_EXTRA_CA_CERTS",),
 }
 # Whether Claude Code takes NODE_EXTRA_CA_CERTS from its settings.json, as `latet agents apply claude` writes it.
 CLAUDE_SETTINGS_CA = True
-_NAMES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI"}
+_NAMES = {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "gemini": "Gemini CLI",
+    "copilot": "Copilot CLI",
+}
 # Why an agent applied for good will not reach a server whose self-signed certificate this computer pinned: it reads
 # no extra certificate from its own files. The way that changes nothing on this computer first (`latet <agent>`), then
 # the company's authority; the computer's store only for a certificate constrained to the server's host (STORE).
@@ -473,7 +480,7 @@ def run(argv: list[str], extra_env: dict[str, str]) -> int:
     return subprocess.call([exe, *argv[1:]], env=env)  # noqa: S603 - the user's own command
 
 
-AGENTS = ("claude", "codex", "opencode", "gemini")
+AGENTS = ("claude", "codex", "opencode", "gemini", "copilot")
 
 
 def agent_of(command: str) -> str | None:
@@ -781,7 +788,7 @@ def _space_call(
 
 
 def destination_for(
-    url: str, agent: str, config: Config | None = None, *, _prepared: _PreparedConnection | None = None
+    url: str, agent: str | None, config: Config | None = None, *, _prepared: _PreparedConnection | None = None
 ) -> str:
     """The name of the daemon's destination for ``url``, or the space's on a server: added when new (that lowers
     nothing). Raises DaemonError for an answer that is not a destination's name of Latet's shape (it goes into an
