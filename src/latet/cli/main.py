@@ -684,6 +684,45 @@ def _gemini(args: list[str], exe: str = "gemini") -> int:
     return _launch([exe, *args], env)
 
 
+def _copilot(args: list[str], exe: str = "copilot") -> int:
+    import os
+
+    from latet import wrappers
+    from latet.config import load_config
+    from latet.integrations.routes import COPILOT_SIGNED_IN, copilot_given, detect_copilot
+
+    _require(exe)
+    if not copilot_given(os.environ):  # signed in with GitHub: said before a daemon is started for nothing
+        typer.secho(f"{COPILOT_SIGNED_IN}.", fg="red", err=True)
+        return 2
+    _ensure_daemon()
+    config = load_config()
+    try:
+        route = detect_copilot(
+            os.environ,
+            config,
+            lambda url: wrappers.destination_for(url, None, config),
+            address=wrappers.base_url(config),
+        )
+    except wrappers.DaemonError as exc:
+        typer.secho(f"Latet could not set Copilot CLI's route: {exc}", fg="red", err=True)
+        return 2
+    if route.problem:
+        typer.secho(f"Latet cannot go in front of Copilot CLI: {route.problem}.", fg="red", err=True)
+        return 2
+    for note in route.notes:
+        typer.secho(f"Latet: {note}", fg="yellow", err=True)
+    env = {"COPILOT_PROVIDER_BASE_URL": route.base} if route.base is not None else {}
+    said: list[str] = []
+    env.update(wrappers.extra_ca_env("copilot", said))
+    typer.secho(f"Copilot CLI: {route.summary}.", dim=True, err=True)
+    for line in said:
+        typer.secho(f"Latet: {line}.", fg="yellow", err=True)
+    if (why := wrappers.untrusting("copilot")) is not None:
+        typer.secho(f"Latet: {why}.", fg="yellow", err=True)
+    return _launch([exe, *args], env)
+
+
 @app.command(context_settings=_PASS)
 def claude(ctx: typer.Context) -> None:
     """Run Claude Code through Latet, for this session only (plugin + verify-only gateway); arguments pass through."""
@@ -708,7 +747,13 @@ def gemini(ctx: typer.Context) -> None:
     raise typer.Exit(_gemini(list(ctx.args)))
 
 
-_AGENTS = {"claude": _claude, "codex": _codex, "opencode": _opencode, "gemini": _gemini}
+@app.command(context_settings=_PASS)
+def copilot(ctx: typer.Context) -> None:
+    """Run GitHub Copilot CLI through Latet, for this session only (a provider of your own); arguments pass through."""
+    raise typer.Exit(_copilot(list(ctx.args)))
+
+
+_AGENTS = {"claude": _claude, "codex": _codex, "opencode": _opencode, "gemini": _gemini, "copilot": _copilot}
 
 
 @app.command(context_settings=_PASS)
@@ -716,8 +761,8 @@ def run(ctx: typer.Context) -> None:
     """Run a script or tool with OPENAI_BASE_URL, ANTHROPIC_BASE_URL and GOOGLE_GEMINI_BASE_URL pointing at Latet.
 
     For programs that read those variables, such as the OpenAI, Anthropic and Google GenAI SDKs: their
-    requests go through Latet. Any other program runs as usual. `latet run claude`, `codex`, `opencode`
-    or `gemini` is `latet claude`, `latet codex`, `latet opencode` or `latet gemini`.
+    requests go through Latet. Any other program runs as usual. `latet run claude`, `codex`, `opencode`,
+    `gemini` or `copilot` is `latet claude`, `latet codex`, `latet opencode`, `latet gemini` or `latet copilot`.
     """
     from latet import wrappers
 

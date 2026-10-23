@@ -18,6 +18,7 @@ description: Reference for the latet command line.
 | `latet codex` | Run the Codex CLI through Latet, for this session only; arguments pass through. |
 | `latet opencode` | Run OpenCode through Latet, for this session only (API-key providers); arguments pass through. |
 | `latet gemini` | Run Gemini CLI through Latet, for this session only (an API key or Vertex AI); arguments pass through. |
+| `latet copilot` | Run GitHub Copilot CLI through Latet, for this session only (a provider of your own); arguments pass through. |
 | `latet run` | Run a script or tool with OPENAI_BASE_URL, ANTHROPIC_BASE_URL and GOOGLE_GEMINI_BASE_URL pointing at Latet. |
 | `latet reload` | Apply the configuration file to the running daemon, without a restart. |
 | `latet doctor` | Check the daemon, the plugin bridge, masking and the agent integrations. |
@@ -189,13 +190,19 @@ Run Gemini CLI through Latet, for this session only (an API key or Vertex AI); a
 
 Every other argument is passed to the command as is.
 
+## `latet copilot`
+
+Run GitHub Copilot CLI through Latet, for this session only (a provider of your own); arguments pass through.
+
+Every other argument is passed to the command as is.
+
 ## `latet run`
 
 Run a script or tool with OPENAI_BASE_URL, ANTHROPIC_BASE_URL and GOOGLE_GEMINI_BASE_URL pointing at Latet.
 
 For programs that read those variables, such as the OpenAI, Anthropic and Google GenAI SDKs: their
-requests go through Latet. Any other program runs as usual. `latet run claude`, `codex`, `opencode`
-or `gemini` is `latet claude`, `latet codex`, `latet opencode` or `latet gemini`.
+requests go through Latet. Any other program runs as usual. `latet run claude`, `codex`, `opencode`,
+`gemini` or `copilot` is `latet claude`, `latet codex`, `latet opencode`, `latet gemini` or `latet copilot`.
 
 Every other argument is passed to the command as is.
 

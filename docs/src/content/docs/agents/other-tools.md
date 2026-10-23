@@ -104,22 +104,40 @@ model, set
 
 ## GitHub Copilot CLI
 
-The Copilot CLI takes a provider of your own from environment variables:
+The Copilot CLI goes through Latet with a provider of your own: an OpenAI, Anthropic or OpenRouter
+key, or another address, given in environment variables. Signed in with GitHub, on the models of a
+Copilot plan, it sends to GitHub's Copilot service, which Latet cannot go in front of: `latet copilot`
+says so and starts nothing.
 
 ```sh
-export COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:5283/openai/v1
 export COPILOT_PROVIDER_TYPE=openai          # Chat Completions
 export COPILOT_PROVIDER_API_KEY=...          # your OpenAI key
 export COPILOT_MODEL=gpt-5.1
 export COPILOT_OFFLINE=true                  # no GitHub sign-in, no telemetry
-copilot
+latet copilot
 ```
 
-`COPILOT_PROVIDER_WIRE_API=responses` uses the Responses API instead. For Anthropic, set
-`COPILOT_PROVIDER_TYPE=anthropic` and `COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:5283/anthropic`,
-with your Anthropic key. The model must support tool calling and streaming. Without
-`COPILOT_OFFLINE=true`, the CLI still sends telemetry to GitHub, and features such as `/delegate`
-need a GitHub sign-in; your prompts go only to your provider.
+In PowerShell:
+
+```powershell
+$env:COPILOT_PROVIDER_TYPE = "openai"
+$env:COPILOT_PROVIDER_API_KEY = "..."        # your OpenAI key
+$env:COPILOT_MODEL = "gpt-5.1"
+$env:COPILOT_OFFLINE = "true"
+latet copilot
+```
+
+`latet copilot` points the provider's address at Latet for that session alone: OpenAI's, Anthropic's
+and OpenRouter's go to Latet's own routes, another address becomes one of your destinations, and one
+on this computer is left as it is. With OpenRouter, set
+`COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` and your OpenRouter key; for Anthropic,
+`COPILOT_PROVIDER_TYPE=anthropic` and your Anthropic key. To start `copilot` yourself instead, set
+`COPILOT_PROVIDER_BASE_URL` to Latet's address for it: `http://127.0.0.1:5283/openai/v1`,
+`/openrouter/api/v1` or `/anthropic`.
+
+`COPILOT_PROVIDER_WIRE_API=responses` uses the Responses API instead. The model must support tool
+calling and streaming. Without `COPILOT_OFFLINE=true`, the CLI still sends telemetry to GitHub, and
+features such as `/delegate` need a GitHub sign-in; your prompts go only to your provider.
 
 ## GitHub Copilot in JetBrains IDEs and Visual Studio
 
