@@ -57,9 +57,10 @@ da Beispiele erfunden sein sollten.
 
 **Was den Schutz verringern würde, wird aufgelistet und ausgelassen:** die Ausnahmen, ein
 schwächerer Wert, die Hinweise für den Prüfer, ein Erkenner, der durchlässt, was er findet
-(`policy: allow`), ein im Klartext gelassenes Feld. `--all` oder *Auch diese anwenden* im Dashboard
-wendet sie ebenfalls an. Führt ein Agent oder ein Skript den Import aus, macht `--all` den ganzen
-Import zu einer einzigen Änderung, die wie jede
+(`policy: allow`), ein Begriff oder eine Feldregel mit einem Typ, den Ihre Richtlinien durchlassen
+(das Gefundene bliebe im Klartext), ein im Klartext gelassenes Feld. `--all` oder *Auch diese
+anwenden* im Dashboard wendet sie ebenfalls an. Führt ein Agent oder ein Skript den Import aus,
+macht `--all` den ganzen Import zu einer einzigen Änderung, die wie jede
 [Änderung, die den Schutz verringert](../agents-and-settings/), auf Ihre Freigabe wartet: Was den
 Schutz erhöht, wartet mit ihr, und nichts vom Import gilt, bis Sie sie freigeben. `--dry-run` zeigt
 nur, was ein Import tun würde.

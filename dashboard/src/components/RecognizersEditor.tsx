@@ -50,15 +50,18 @@ function Field({ label, help, children }: { label: string; help?: string; childr
   )
 }
 
-/** Every field of a recognizer, as the form edits it: what it finds, how it checks, what happens to its values. */
+/** Every field of a recognizer, as the form edits it: what it finds, how it checks, what happens to its values. In a
+ * repository file (`repo`), what it finds cannot be let through: a latet.yaml sets such a recognizer aside. */
 export function RecognizerFields({
   draft,
   set,
   checksums,
+  repo = false,
 }: {
   draft: RecognizerDraft
   set: (patch: Partial<RecognizerDraft>) => void
   checksums: ChecksumInfo[]
+  repo?: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -153,7 +156,8 @@ export function RecognizerFields({
           options={[
             { value: '', label: t('rules.recognizers.policyDefault') },
             { value: 'redact', label: t('rules.recognizers.policyRedact') },
-            { value: 'allow', label: t('rules.recognizers.policyAllow') },
+            // Shown in a repository file only when a hand-written one says so: its save is refused, and says why.
+            ...(repo && draft.policy !== 'allow' ? [] : [{ value: 'allow' as const, label: t('rules.recognizers.policyAllow') }]),
           ]}
         />
       </div>

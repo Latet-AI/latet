@@ -19,6 +19,7 @@ from latet.engine.detectors.structural import AssignmentDetector, CredentialDete
 from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, Term, TermsDetector
 from latet.engine.masker import AllowList, Masker
 from latet.engine.pipeline import Engine
+from latet.engine.types import Policy
 from latet.engine.vault import Vault
 from latet.engine.verifier import Verifier
 
@@ -42,6 +43,17 @@ def reserved_types() -> set[str]:
     structural = {"PASSWORD", "ASSIGNED_SECRET", "PRIVATE_KEY", "URL_PASSWORD", "JWT", "BEARER_TOKEN"}
     identity = {"USERNAME", "HOSTNAME", "PERSON", "DOMAIN", "STREET_ADDRESS", "CITY", "CUSTOM"}
     return set(ALL_PII) | structural | identity | rule_types() | LATET_TYPES
+
+
+def detected_types() -> set[str]:
+    """Types Latet's own detectors give values, which ``reserved_types`` leaves free for a recognizer to take: strict
+    data mode's DATA and a field rule's FIELD (``FieldDetector``), the name detector's ZIPCODE (``ner``), the local
+    reviewer's categories (``reviewer.CATEGORY_TYPES``). A recognizer of one makes its own policy the type's default,
+    which those values follow: a change of such a recognizer is weighed for them (``protection``). Not reserved: a
+    recognizer of one keeps compiling."""
+    from latet.engine.reviewer.reviewer import CATEGORY_TYPES
+
+    return {"DATA", "FIELD", "ZIPCODE"} | {etype for etype, _ in CATEGORY_TYPES.values()}
 
 
 def recognizers_for(config: Config) -> tuple[list[Recognizer], list[Status]]:
@@ -73,6 +85,7 @@ def detectors_for(
             tools=config.data_tools,
             files=config.data_files,
             hosts=config.data_hosts,
+            policies=policies_of(config, recognizers or []),
         ),
     ]
     if config.profile != Profile.SECRETS:
@@ -110,6 +123,11 @@ def detectors_for(
     return detectors
 
 
+def policies_of(config: Config, recognizers: list[Recognizer]) -> dict[str, Policy]:
+    """Each type's policy in ``config``: a recognizer's own is its type's default; an entry in `policies` wins."""
+    return {r.etype: r.spec.policy for r in recognizers if r.spec.policy is not None} | dict(config.policies)
+
+
 def build_masker(
     config: Config,
     vault: Vault,
@@ -121,8 +139,7 @@ def build_masker(
     """The masker of a configuration (the global one, or a project's), and its recognizers as loaded. ``bounded``: its
     terms matched within an RE2 budget sized to them (a project's masker in an identity's space on a server)."""
     recognizers, statuses = recognizers_for(config)
-    # A recognizer's own policy is its type's default; an entry in `policies` wins.
-    policies = {r.etype: r.spec.policy for r in recognizers if r.spec.policy is not None} | dict(config.policies)
+    policies = policies_of(config, recognizers)
     masker = Masker(
         vault,
         detectors_for(config, identity, models, recognizers, bounded=bounded),

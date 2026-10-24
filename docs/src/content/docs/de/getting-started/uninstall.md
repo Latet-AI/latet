@@ -24,10 +24,10 @@ Dieser eine Befehl:
 - beendet den Daemon.
 
 Er ändert nicht die Tools, die Sie selbst auf Latet gerichtet haben, in ihren eigenen Einstellungen
-oder in Ihrer Shell: GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Junie, Android Studio,
-Hermes Agent, OpenClaw, Goose, OpenHands, Aider und eine Zeile `latet env` in Ihrem Shell-Profil.
-Stellen Sie in jedem davon die eigene Adresse wieder ein, sonst scheitern sie mit Verbindungsfehlern,
-sobald der Daemon beendet ist.
+oder in Ihrer Shell: GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie,
+Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands, Aider und eine Zeile `latet env` in Ihrem
+Shell-Profil. Stellen Sie in jedem davon die eigene Adresse wieder ein, sonst scheitern sie mit
+Verbindungsfehlern, sobald der Daemon beendet ist.
 
 Er gibt für jeden Teil aus, was er getan hat, zum Beispiel:
 

@@ -1,6 +1,6 @@
 ---
 title: GitHub Copilot, JetBrains, Zed und andere Tools
-description: GitHub Copilot, JetBrains Junie und AI Assistant, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush, Android Studio und Claude Desktop über das Gateway von Latet leiten, und welche Tools Latet nicht schützen kann.
+description: GitHub Copilot, JetBrains Junie und AI Assistant, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush, Prime Agent, Android Studio und Claude Desktop über das Gateway von Latet leiten, und welche Tools Latet nicht schützen kann.
 sidebar:
   label: Copilot, JetBrains und mehr
 ---
@@ -45,6 +45,7 @@ spricht. Der Anbieter erhielt Ersatzwerte, und das Tool zeigte die echten Werte.
 | Continue | Jede Anfrage eines Modells, dessen `apiBase` Latet ist | Nichts | Die CLI |
 | Qwen Code | Jede Anfrage | Eine E-Mail-Adresse, die Sie im Prompt eintippen | Ja |
 | Crush | Jede Anfrage | Nichts | Ja |
+| Prime Agent | Jede Anfrage an Anthropic, OpenAI und OpenRouter, mit einem API-Schlüssel | Prime Inference und ein ChatGPT-Abonnement; mit einem Claude-Abonnement werden Anfragen geprüft, nicht maskiert | Ja |
 | Android Studio | Chat und Agent-Modus, mit einem Third-Party Remote Provider | Die eigenen Funktionen von Gemini | Nein |
 | Claude Desktop über ein Gateway | Jede Anfrage wird geprüft und gestoppt, wenn ein sensibler Wert darin steht | Die Maskierung, außerhalb des Code-Tabs | Nein |
 
@@ -337,6 +338,33 @@ hat:
 Für Anthropic verwenden Sie `"type": "anthropic"` mit `http://127.0.0.1:5283/anthropic`. Der Typ
 `openai` von Crush spricht die Responses API, und der Typ `openrouter` akzeptiert keine Base-URL:
 Erreichen Sie OpenRouter mit `openai-compat` und `http://127.0.0.1:5283/openrouter/api/v1`.
+
+## Prime Agent
+
+Prime Agent liest die Adresse jedes Anbieters aus `models.json` in `~/.prime/agent`
+(unter Windows `%USERPROFILE%\.prime\agent`). Geben Sie seinen eingebauten Anbietern die Adresse
+von Latet:
+
+```json title="~/.prime/agent/models.json"
+{
+  "providers": {
+    "anthropic": { "baseUrl": "http://127.0.0.1:5283/anthropic" },
+    "openai": { "baseUrl": "http://127.0.0.1:5283/openai/v1" },
+    "openrouter": { "baseUrl": "http://127.0.0.1:5283/openrouter/api/v1" }
+  }
+}
+```
+
+Danach läuft jedes Modell dieser Anbieter über Latet, mit dem API-Schlüssel, den Sie Prime Agent mit
+`/login` oder in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` und `OPENROUTER_API_KEY` gegeben haben.
+
+**Mit einem Abonnement statt eines Schlüssels.** Mit einem Claude-Abonnement angemeldet, gibt sich
+Prime Agent gegenüber Anthropic als Claude Code aus. Seine Anfragen laufen trotzdem über Latet, das
+Anfragen mit einem Claude-Abonnement prüft und nie umschreibt: Eine, die einen geheimen Wert oder
+personenbezogene Daten im Klartext enthalten würde, wird gestoppt, mit einer Meldung statt einer
+Antwort. Verwenden Sie einen API-Schlüssel, damit sie maskiert werden. Anfragen mit einem
+ChatGPT-Abonnement und die an Prime Inference, den eigenen Dienst von Prime Intellect, laufen nicht
+über Latet.
 
 ## Android Studio
 

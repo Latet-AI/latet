@@ -55,7 +55,7 @@ from latet.config import (
 )
 from latet.engine.detectors.terms import TERM_LONGEST
 from latet.logline import Paced
-from latet.protection import loosened
+from latet.protection import folders_let_through, found_type, keeps_in_clear, lets_through, loosened
 from latet.server import egress
 from latet.server.master import MasterKeyError
 
@@ -713,11 +713,6 @@ def repinned(config: Config, shared: Config) -> Config:
     )
 
 
-def _keeps_in_clear(recognizer: Any) -> bool:
-    """A recognizer whose own policy lets what it finds through."""
-    return isinstance(recognizer, dict) and str(recognizer.get("policy") or "").lower() == Policy.ALLOW.value
-
-
 def _pii_of(config: Config) -> list[str]:
     """The personal-data types ``config`` detects."""
     from latet.engine.detectors.pii import effective_pii
@@ -769,9 +764,17 @@ def _composed_key(key: str, found: Config, base: Config, now: Any, then: Any) ->
                 seen.add(mark)
                 merged.append(item)
         if key == "recognizers":  # one of hers that leaves what it finds in clear waits
-            return [item for item in merged if _identity_of(key, item) in known or not _keeps_in_clear(item)]
-        if key == "fields":  # as one of hers whose values stay in clear in strict data mode
-            return [item for item in merged if _identity_of(key, item) in known or item.mask]
+            return [item for item in merged if _identity_of(key, item) in known or not keeps_in_clear(item)]
+        if key in ("terms", "fields"):  # as one of hers of a type let through, at the top or in a folder of hers
+            through = lets_through(base) | lets_through(found) | folders_let_through([*base.projects, *found.projects])
+            if key == "terms":
+                return [item for item in merged if item.value in known or found_type(item) not in through]
+            # and one whose values stay in clear in strict data mode
+            return [
+                item
+                for item in merged
+                if _identity_of(key, item) in known or (item.mask and found_type(item) not in through)
+            ]
         return merged
     if key == "pii":
         types = list(dict.fromkeys([*_pii_of(base), *_pii_of(found)]))

@@ -148,6 +148,23 @@ describe('noticeReason', () => {
     await inEveryLanguage(keys)
   })
 
+  it('says why a repository file\'s entry that would leave values in clear is set aside, in each language', async () => {
+    // A recognizer that lets what it finds through, or a term or a field rule of a type let through there.
+    const key = noticeReason({ ...notice('repo_in_clear'), source: 'repo', key: 'recognizers.quiet', level: 'ignored' })
+    expect(key).toBe('projects.repoInClear')
+    await inEveryLanguage([key])
+  })
+
+  it('says that a latet.yaml recognizer of the name or type of yours applies under its own, in each language', async () => {
+    // Of a latet.yaml's recognizer and one of yours of one name or type, both apply: the file's under a name and a type
+    // of its own (the notice's detail names them, and the words show them), both types at the stricter policy when the
+    // type is shared; of one name alone, nothing else changes.
+    const apart = noticeReason({ ...notice('recognizer_apart'), source: 'repo', key: 'recognizers.badge-team', level: 'changed', detail: { name: 'badge-team', type: 'BADGE_REPO' } })
+    const renamed = noticeReason({ ...notice('recognizer_renamed'), source: 'repo', key: 'recognizers.badge', level: 'changed', detail: { name: 'badge-repo', type: 'BADGE2' } })
+    expect([apart, renamed]).toEqual(['projects.recognizerApart', 'projects.recognizerRenamed'])
+    await inEveryLanguage([apart!, renamed!])
+  })
+
   it('leaves every other notice to its own words', () => {
     expect(noticeReason(notice())).toBeNull()
     expect(noticeReason(notice('something else'))).toBeNull()
@@ -163,6 +180,13 @@ describe('detailReason', () => {
     expect(detailValues(destination)).toEqual({ setting: 'upstreams.0', url: 'http://10.0.0.5' })
     expect(detailValues(key)).toEqual({ setting: 'llm_review.api_key_file', url: '' })
     await inEveryLanguage(keys)
+  })
+
+  it('says why a save of a repository file was refused for an entry that would leave values in clear', async () => {
+    const field = { loc: ['settings', 'fields', 'password'], msg: 'English words', type: 'value_error', reason: 'repo_in_clear' }
+    expect(detailReason(field)).toBe('errors.repoInClear')
+    expect(detailValues(field)).toEqual({ setting: 'settings.fields.password', url: '' })
+    await inEveryLanguage([detailReason(field)])
   })
 
   it('leaves every other field to its own words', () => {

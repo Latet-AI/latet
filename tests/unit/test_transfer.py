@@ -144,9 +144,10 @@ def test_what_is_stricter_at_the_top_and_lowers_a_stricter_folder_of_yours_is_he
 
 def test_what_is_stricter_at_the_top_and_lowers_a_stricter_repository_seen_is_held_back():
     """A repository seen with a latet.yaml of its own at the max profile detects every country's ID numbers there: a
-    list of personal-data types written out at the top is used as it is there too, and detects fewer; and a recognizer
-    added at the top of the type of the repository's own puts that one out of use there. Weighed in the repositories
-    seen, as a change of config.yaml is, both are held back; a term is added."""
+    list of personal-data types written out at the top is used as it is there too, and detects fewer. Weighed in the
+    repositories seen, as a change of config.yaml is, it is held back; a term is added, and so is a recognizer of the
+    type of the repository's own, which applies there with the file's, laid apart (Ruling 098-R3), where before it put
+    the file's out of use and was held back."""
     badge = {"name": "badge", "pattern": "BD-[0-9]{6}"}
     repository = ("/work/acme", ProjectSettings(profile=Profile.MAX, recognizers=[badge]))
     text = yaml.safe_dump({
@@ -159,8 +160,8 @@ def test_what_is_stricter_at_the_top_and_lowers_a_stricter_repository_seen_is_he
     alone = merge_rules(Config(), settings)  # with no repository seen: all of it adds
     assert len(alone.report.added) == 3 and alone.report.held == []
     merged = merge_rules(Config(), settings, repositories=[repository])
-    assert [s.split(":")[0] for s in merged.report.added] == ["terms"]
-    assert sorted(s.split(":")[0] for s in merged.report.held) == ["personal-data types", "recognizer door-badge"]
+    assert [s.split(":")[0] for s in merged.report.added] == ["terms", "recognizer door-badge"]
+    assert [s.split(":")[0] for s in merged.report.held] == ["personal-data types"]
     assert loosened(Config(), merged.protective, [repository]) == [] and merged.protective.pii is None
     assert "BE_NATIONAL_NUMBER" in (merged.full.pii or [])  # applied when asked for, and waits
 
@@ -234,6 +235,39 @@ def test_a_recognizer_named_or_typed_as_yours_is_kept_as_yours():
     assert len(merged.report.skipped) == 2 and merged.report.added == []
     assert [r["name"] for r in merged.protective.recognizers] == ["badge", "ticket"]
     assert [r["name"] for r in merged.full.recognizers] == ["badge", "ticket", "acme-code"]
+
+
+IBAN = "IT60X0542811101000000123456"
+TYPED_URL = yaml.safe_dump({
+    "latet_rules": FORMAT,
+    "terms": [{"value": IBAN, "type": "URL"}, {"value": "Fonderia Brambilla", "type": "CLIENT"}],
+    "fields": [{"name": "password", "type": "URL"}, {"name": "ssn"}],
+})  # fmt: skip
+
+
+def test_a_term_or_a_field_rule_of_a_type_you_let_through_is_held_back():
+    """You let URLs through: a term or a field rule typed URL would leave what it finds in clear (an IBAN, a password),
+    so it is held back, as a recognizer that lets what it finds through is; the others are added."""
+    mine = Config(policies={"URL": "allow"})
+    settings, _ = read_rules(TYPED_URL)
+    merged = merge_rules(mine, settings)
+    assert merged.report.added == ["terms: Fonderia Brambilla", "field rule ssn"]
+    assert merged.report.held == [
+        f"terms that leave what they find in clear (policy allow): {IBAN}",
+        "field rule password: leaves what it finds in clear (policy allow)",
+    ]
+    assert loosened(mine, merged.protective) == []
+    assert [t.value for t in merged.full.terms] == ["Fonderia Brambilla", IBAN]  # applied when asked for, and waits
+    assert [f.name for f in merged.full.fields] == ["ssn", "password"]
+    # Into a project whose own policy lets URLs through, the same; at the top, they are held back for that folder.
+    shop = Config(projects=[ProjectEntry(path="C:/work/shop", policies={"URL": "allow"})])
+    into = merge_rules(shop, settings, "C:/work/shop")
+    assert into.report.added == ["terms: Fonderia Brambilla", "field rule ssn"] and len(into.report.held) == 2
+    top = merge_rules(shop, settings)
+    assert top.report.added == ["terms: Fonderia Brambilla", "field rule ssn"]
+    assert top.report.held == [f"terms: {IBAN}", "field rule password"]
+    assert loosened(shop, top.protective) == [] and loosened(shop, top.full)
+    assert merge_rules(Config(), settings).report.held == []  # URLs masked: all of it adds
 
 
 def test_what_cannot_be_read():

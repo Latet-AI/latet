@@ -142,7 +142,7 @@ export function recognizersSpec(t: Translate, key: (words: string) => string, sc
 }
 
 /** A recognizer's panel: how it loaded when it was last saved, every field of the editor, what it lacks, and Try it. */
-function RecognizerPanelFields({ draft, set, problem, row, scope }: FieldsProps<Draft, RecognizerEntry>) {
+function RecognizerPanelFields({ draft, set, problem, row, scope, source }: FieldsProps<Draft, RecognizerEntry>) {
   const { t } = useTranslation()
   const settings = scope.kind === 'global' ? scope.settings : scope.global
   const status = row ? statusesOf(scope, row.source).find((s) => s.name === row.item.name) : undefined
@@ -161,7 +161,12 @@ function RecognizerPanelFields({ draft, set, problem, row, scope }: FieldsProps<
           </ul>
         </div>
       )}
-      <RecognizerFields draft={draft} set={(patch) => set((current) => ({ ...current, ...patch }))} checksums={settings.checksums ?? []} />
+      <RecognizerFields
+        draft={draft}
+        set={(patch) => set((current) => ({ ...current, ...patch }))}
+        checksums={settings.checksums ?? []}
+        repo={source === 'repo'}
+      />
       {problem}
       <div className="border-t border-line pt-4">
         <RecognizerTry draft={draft} />

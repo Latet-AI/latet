@@ -22,11 +22,11 @@ Cette seule commande :
 - supprime le démarrage à l'ouverture de session ;
 - arrête le daemon.
 
-Elle ne change pas les outils que vous avez pointés vers Latet vous-même, dans leurs propres réglages
-ou dans votre shell : GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Junie, Android Studio,
-Hermes Agent, OpenClaw, Goose, OpenHands, Aider, et une ligne `latet env` dans le profil de votre shell.
-Remettez l'adresse propre à chacun, sinon ils échouent avec des erreurs de connexion une fois le daemon
-arrêté.
+Elle ne change pas les outils que vous avez pointés vers Latet vous-même, dans leurs propres
+réglages ou dans votre shell : GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent,
+Junie, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands, Aider, et une ligne `latet env`
+dans le profil de votre shell. Remettez l'adresse propre à chacun, sinon ils échouent avec des
+erreurs de connexion une fois le daemon arrêté.
 
 Elle affiche ce qu'elle a fait pour chaque partie, par exemple :
 

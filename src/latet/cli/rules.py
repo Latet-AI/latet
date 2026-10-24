@@ -199,6 +199,21 @@ def _recognizers_of(where: str, project: Path | None, repo: Path | None) -> list
     return list(load_config().recognizers)
 
 
+def _in_clear_in_repo(repo: Path | None, recognizers: list[Any], entries: list[Any]) -> list[str]:
+    """The names of ``entries`` that a project file holding ``recognizers`` would set aside for leaving what they find
+    in clear there (``projects._layer``), weighed with your settings as they are now, as the daemon reads the file."""
+    from latet.cli.project import load_repo, repo_file_for
+    from latet.config import load_config
+    from latet.projects import IN_CLEAR_REASON, effective_config, personal_for
+
+    path = repo_file_for(repo)
+    config = load_config()
+    settings = load_repo(path).model_copy(update={"recognizers": recognizers})
+    _, notices = effective_config(config, settings, personal_for(config.projects, str(path.parent)))
+    aside = {n.key.removeprefix("recognizers.") for n in notices if n.reason == IN_CLEAR_REASON}
+    return [str(e.get("name")) for e in entries if isinstance(e, dict) and str(e.get("name")) in aside]
+
+
 def _save_recognizers(where: str, project: Path | None, repo: Path | None, entries: list[Any]) -> None:
     from latet.cli.project import load_repo, locate, personal_entry, repo_file_for, save_repo
     from latet.config import load_config
@@ -250,14 +265,28 @@ def rules_add(
         raise typer.Exit(ERRORS)
     current = _recognizers_of(where, project, repo)
     by_name = {e.get("name"): i for i, e in enumerate(current) if isinstance(e, dict)}
+    said = []
     for entry in entries:
         name = entry.get("name") if isinstance(entry, dict) else None
         if name in by_name:
             current[by_name[name]] = entry
-            typer.echo(f"{name}: updated")
+            said.append(f"{name}: updated")
         else:
             current.append(entry)
-            typer.echo(f"{name}: added")
+            said.append(f"{name}: added")
+    # A latet.yaml sets aside a recognizer that would leave what it finds in clear there: written, it would do nothing.
+    if where == "repo" and (in_clear := _in_clear_in_repo(repo, current, entries)):
+        for name in in_clear:
+            typer.secho(
+                f"{name}: a repository file cannot hold a recognizer that would leave what it finds in clear there "
+                "(its own policy allow, or a type your settings let through): add it to your own settings for the "
+                "project (--project), where a change that lowers protection waits for your approval.",
+                fg="red",
+            )
+        typer.secho("Nothing was added.", fg="red")
+        raise typer.Exit(ERRORS)
+    for line in said:
+        typer.echo(line)
     _save_recognizers(where, project, repo, current)
     if _outcome(report) == WARNINGS:
         typer.secho("Some examples fail: `latet rules test` shows why.", fg="yellow")

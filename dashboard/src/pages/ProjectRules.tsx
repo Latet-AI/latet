@@ -528,14 +528,18 @@ function Notices({ notices }: { notices: ProjectNotice[] }) {
       <ul className="mt-3 space-y-1.5" aria-label={t('projects.notices')}>
         {notices.map((n, i) => {
           const reason = noticeReason(n) // one the daemon gives a reason for: in your language, not in its English
-          const message = reason !== null ? t(reason) : n.message
+          const message = reason !== null ? t(reason, n.detail ?? {}) : n.message
           return (
             <li key={i} className={`flex items-start gap-2 text-meta ${n.level === 'error' ? 'text-crit-ink' : 'text-ink-2'}`}>
               <Icon name={n.level === 'error' ? 'x' : 'info'} size={13} className={`mt-0.5 flex-none ${n.level === 'error' ? '' : 'text-warn'}`} />
               <span>
                 <span className="font-medium">{n.source === 'repo' ? t('projects.fromRepo') : t('projects.fromPersonal')}</span>
                 {n.key && <code className="mono mx-1">{n.key}</code>}
-                {n.level === 'ignored' ? t('projects.ignored', { message }) : t('projects.error', { message })}
+                {n.level === 'ignored'
+                  ? t('projects.ignored', { message })
+                  : n.level === 'changed'
+                    ? t('projects.changed', { message })
+                    : t('projects.error', { message })}
               </span>
             </li>
           )

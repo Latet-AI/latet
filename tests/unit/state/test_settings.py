@@ -409,6 +409,46 @@ def test_a_term_made_to_match_fewer_forms_waits_at_a_reload(tmp_path, option):
         rt.close()
 
 
+def test_a_term_of_a_type_your_policies_let_through_waits_at_a_reload(tmp_path):
+    """You let URLs through (``policies: {URL: allow}``). An agent adds to config.yaml a term holding an IBAN, typed
+    URL, and runs `latet reload`: the term's span outranks the IBAN's detection and its type is let through, so the
+    IBAN would leave in clear. It waits for you, and meanwhile the IBAN stays masked."""
+    iban = "IT60X0542811101000000123456"
+    mine = Config(identity=IdentityConfig(enabled=False), policies={"URL": "allow"})
+    rt = make_runtime(mine, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY)
+    try:
+        save_config(mine.model_copy(update={"terms": [TermConfig(value=iban, type="URL")]}), rt.config_file)
+        assert not _reload(rt)["applied"]
+        [change] = rt.mediator.approvals.changes.values()
+        assert change.loosened == ["terms: 1 that leave what they find in clear (policy allow)"]
+        session = rt.built.engine.session("cc:s1")
+        assert iban not in rt.built.engine.mask_text(f"wire it to {iban}", SlotKind.USER_TEXT, session).text
+    finally:
+        rt.close()
+
+
+def test_a_recognizer_retyped_to_a_terms_type_waits_at_a_reload(tmp_path):
+    """Round 5 (C1): a recognizer's own policy is its type's default, and the type's terms follow it. An agent retypes
+    `hosts` (``policy: allow``) in config.yaml to LEDGER, the type of a term holding an IBAN, and runs `latet reload`:
+    the IBAN would leave in clear. It waits for you, said as the policy LEDGER ends up with; meanwhile the IBAN stays
+    masked."""
+    iban = "IT60X0542811101000000123456"
+    hosts = {"name": "hosts", "type": "INTERNAL_HOST", "pattern": r"\bsrv-[0-9]{4}\b", "policy": "allow"}
+    mine = Config(
+        identity=IdentityConfig(enabled=False), terms=[TermConfig(value=iban, type="LEDGER")], recognizers=[hosts]
+    )
+    rt = make_runtime(mine, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY)
+    try:
+        save_config(mine.model_copy(update={"recognizers": [{**hosts, "type": "LEDGER"}]}), rt.config_file)
+        assert not _reload(rt)["applied"]
+        [change] = rt.mediator.approvals.changes.values()
+        assert change.loosened == ["policy for LEDGER: from mask to allow"]
+        session = rt.built.engine.session("cc:s1")
+        assert iban not in rt.built.engine.mask_text(f"wire it to {iban}", SlotKind.USER_TEXT, session).text
+    finally:
+        rt.close()
+
+
 def _masked_in(rt, folder: str, address: str) -> bool:
     """Whether a private address in a tool's output of a conversation in ``folder`` leaves masked."""
     engine = rt.built.engine

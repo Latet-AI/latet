@@ -19,7 +19,7 @@ import secrets
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeGuard
@@ -34,6 +34,7 @@ from latet.config import (
     REVIEW_MODES,
     TERM_WITHOUT_LETTERS,
     Config,
+    FieldRule,
     IdentityConfig,
     Profile,
     ProjectEntry,
@@ -41,7 +42,7 @@ from latet.config import (
     join_guidance,
     write_atomic,
 )
-from latet.engine.build import build_masker
+from latet.engine.build import build_masker, reserved_types
 from latet.engine.detectors.base import DetectContext, quiet_options
 from latet.engine.detectors.ids import types_for
 from latet.engine.detectors.pii import ALL_PII, effective_pii
@@ -67,7 +68,15 @@ from latet.project_file import (  # noqa: F401 - _problem, Remembered: re-export
     read_remembered,
     repo_settings,
 )
-from latet.protection import lowered_in_project
+from latet.protection import (
+    found_type,
+    keeps_in_clear,
+    lets_through,
+    lowered_in_project,
+    policies_in_force,
+    recognizer_type,
+    recognizers_in_force,
+)
 from latet.schema import PROJECT_SCHEMA_URL
 from latet.state.local import REPOSITORIES_KEPT, LocalRepositories, own_file, rememberable
 from latet.vision.policy import IMAGES_RANK, image_policy
@@ -324,6 +333,37 @@ def _read_remembered(folder: str) -> Remembered:
 
 # --- merging ------------------------------------------------------------------------------------------
 
+# The layers a project's field rules come from (``FieldRule._layer``): yours (your global rules, your settings for the
+# folder), your settings taken as only adding, a repository file. Of one field the stricter rule of the first that
+# matches in each applies, yours when as strict.
+YOURS_LAYER, ADDING_LAYER, FILE_LAYER = 0, 1, 2
+# Why a repository file's recognizer is laid under a type of its own, or a name of its own alone (``Notice.reason``,
+# level ``changed``, its detail the name and the type in use): one of yours has its type, or its name, and both apply
+# (``_apart``, Ruling 098-R3). The dashboard words each.
+APART_REASON = "recognizer_apart"
+RENAMED_REASON = "recognizer_renamed"
+_NAME_LONGEST = _TYPE_LONGEST = 64  # a recognizer's name and type (``recognizers.NAME``, ``TYPE``)
+
+
+def _of_layer(rule: FieldRule, layer: int) -> FieldRule:
+    """``rule`` as a rule of ``layer`` (a copy: the settings' own rule stays as it is)."""
+    copy = rule.model_copy()
+    copy._layer = layer
+    return copy
+
+
+def file_rules(config: Config) -> list[FieldRule]:
+    """The field rules a repository file laid in ``config``, a project's rules in effect (``effective_config``): the
+    ones that apply there, which mask, not the ones set aside. A column one of them matches stays masked there whatever
+    your rules say, the stricter applying (the dashboard's columns say so)."""
+    return [rule for rule in config.fields if rule._layer == FILE_LAYER]
+
+
+# Why an entry of a repository file is set aside (``Notice.reason``): it would leave values in clear there, a recognizer
+# that lets what it finds through, or a term or a field rule of a type left in clear. The dashboard words it.
+IN_CLEAR_REASON = "repo_in_clear"
+_IN_YOURS = "put it in your own settings for the project, where a change that lowers protection waits for your approval"
+
 
 def _layer(
     config: Config,
@@ -332,15 +372,24 @@ def _layer(
     extra_pii: list[str],
     *,
     adding: bool = False,
+    through: Collection[str] = (),
+    held: Collection[tuple[str, str]] | None = None,
 ) -> list[Notice]:
     """Apply one layer onto ``config``. The repository's may only make it stricter. ``adding``: your own entry taken
     as a repository file's is, only where it adds protection (``effective_config(only_adding=True)``), and its Live
-    Reviewer turned on with it, which only adds protection too."""
+    Reviewer turned on with it, which only adds protection too. ``through``: the types left in clear in the folder in
+    the end (``_left_in_clear``), of which a repository file's recognizer, term or field rule is set aside, as its
+    recognizer that lets what it finds through is: any would leave values in clear there, where nothing is weighed as a
+    change. ``held``: the values and types whose terms this layer leaves to the ones before it (by default, every one
+    they hold)."""
     strict = source == "repo"
     out: list[Notice] = []
 
     def ignore(key: str, message: str) -> None:
         out.append(Notice(source, key, "ignored", message))
+
+    def set_aside(key: str, message: str) -> None:
+        out.append(Notice(source, key, "ignored", f"{message}: {_IN_YOURS}", IN_CLEAR_REASON))
 
     if s.profile is not None and s.profile != config.profile:
         if strict and _STRICTNESS[s.profile] < _STRICTNESS[config.profile]:
@@ -373,7 +422,7 @@ def _layer(
         else:
             config.ner = s.ner
     if s.terms:
-        have = {(t.value, t.type.upper()) for t in config.terms}
+        have = set(held) if held is not None else {(t.value, found_type(t)) for t in config.terms}
         usable = []
         for place, t in enumerate(s.terms, 1):
             if not has_letter_or_digit(t.value):
@@ -381,14 +430,29 @@ def _layer(
             elif len(t.value) > TERM_LONGEST:  # by its place: compiled, it could leave the project no rule (S-03)
                 out.append(Notice(source, "terms", "error", f"entry {place} holds more than {TERM_LONGEST} characters: "
                                   "left out"))  # fmt: skip
+            elif strict and found_type(t) in through:  # by its place: a term is a value
+                set_aside(f"terms.{place}", "a repository file cannot hold a term of a type left in clear there")
             else:
                 usable.append(t)
         new = [t for t in usable if (t.value, t.type.upper()) not in have]
         config.terms = [*config.terms, *new]
     if s.recognizers:
-        config.recognizers = [*config.recognizers, *s.recognizers]  # a name already in use: that entry is off
+        recognizers = list(s.recognizers)
+        if strict:
+            for recognizer in [r for r in recognizers if isinstance(r, dict)]:
+                if keeps_in_clear(recognizer):
+                    why = "a repository file cannot let what a recognizer finds through (policy: allow)"
+                elif through and recognizer_type(recognizer) in through:  # its span outranks what else finds a value
+                    why = "a repository file cannot hold a recognizer of a type left in clear there"
+                else:
+                    continue
+                recognizers.remove(recognizer)
+                set_aside(f"recognizers.{recognizer.get('name')}", why)
+        config.recognizers = [*config.recognizers, *recognizers]  # a name already in use: that entry is off
+    # A repository file's policy is weighed against the one in force, a recognizer's own included (its type's default).
+    in_force = policies_in_force(config) if strict and s.policies else {}
     for etype, policy in s.policies.items():
-        current = config.policies.get(etype, Policy.MASK)
+        current = in_force.get(etype, Policy.MASK) if strict else config.policies.get(etype, Policy.MASK)
         if strict and _POLICY_STRICTNESS[policy] < _POLICY_STRICTNESS[current]:
             ignore(f"policies.{etype}", f"a repository file can only make {etype} stricter than {current.value}")
         else:
@@ -405,9 +469,15 @@ def _layer(
                 ignore(
                     f"fields.{rule.name}", "a repository file cannot keep a field in clear: put it in your own settings"
                 )
+            elif strict and found_type(rule) in through:
+                set_aside(
+                    f"fields.{rule.name}", "a repository file cannot hold a field rule of a type left in clear there"
+                )
             else:
                 kept.append(rule)
-        config.fields = [*kept, *config.fields]  # the nearer layer first: the first rule that matches wins
+        if strict:  # weighed against yours, field by field: the stricter applies (``FieldDetector``, 098-R2)
+            kept = [_of_layer(rule, ADDING_LAYER if adding else FILE_LAYER) for rule in kept]
+        config.fields = [*kept, *config.fields]  # the nearer layer first: of yours, the first that matches wins
     if s.dump_guard is not None:
         if not strict:
             config.dump_guard = s.dump_guard or None
@@ -466,9 +536,12 @@ def effective_config(
     *,
     only_adding: bool = False,
 ) -> tuple[Config, list[Notice]]:
-    """The rules in a project: the global ones, then the repository file's (only stricter), then yours. With
-    ``only_adding`` yours too are taken as a repository file's are, only where they add protection, your Live Reviewer
-    turned on there among them (what a Latet server applies while it cannot tell that you are in that folder:
+    """The rules in a project: the global ones, then the repository file's (only stricter), then yours. Where one rule
+    of a kind applies, the file's never loosens yours, nor yours the file's: for a field, the stricter of your first
+    rule that matches it and the file's (``FieldDetector``, Ruling 098-R2); of a recognizer of the file and one of yours
+    of one name or type, both, the file's laid apart under a name and a type of its own (``_apart``, Ruling 098-R3).
+    With ``only_adding`` yours too are taken as a repository file's are, only where they add protection, your Live
+    Reviewer turned on there among them (what a Latet server applies while it cannot tell that you are in that folder:
     ``Projects.scope_for``).
 
     Laid over a shallow copy of ``base``: each list a layer adds to is replaced, never changed in place, and the one
@@ -479,14 +552,163 @@ def effective_config(
     config = base.model_copy(update={"projects": [], "policies": dict(base.policies)})
     notices: list[Notice] = []
     extra_pii: list[str] = []
+    strict = [s for s in (repo, personal if only_adding else None) if s is not None]
+    lists = any(s.terms or s.fields or s.recognizers for s in strict)
+    through = _left_in_clear(base, repo, personal, only_adding) if lists else frozenset()
+    start = len(config.recognizers)
     if repo is not None:
-        notices += _layer(config, repo, "repo", extra_pii)
+        notices += _layer(config, repo, "repo", extra_pii, through=through)
+    filed = len(config.recognizers)
     if personal is not None:
-        notices += _layer(config, personal, "repo" if only_adding else "personal", extra_pii, adding=only_adding)
+        source: Literal["repo", "personal"] = "repo" if only_adding else "personal"
+        # Your terms for the folder are left to the global ones alone: an entry of the file of one of their values and
+        # types applies with yours, adding forms to them, never in their place (its case its own, yours not).
+        held = {(t.value, found_type(t)) for t in base.terms} if personal.terms else None
+        notices += _layer(config, personal, source, extra_pii, adding=only_adding, through=through, held=held)
+    notices += _apart(config, start, filed)
     if extra_pii:
         current = effective_pii(config.pii, config.id_regions, every_region=config.profile == Profile.MAX)
         config.pii = list(dict.fromkeys([*current, *extra_pii]))
     return config, notices
+
+
+def _left_in_clear(
+    base: Config, repo: ProjectSettings | None, personal: ProjectEntry | None, only_adding: bool
+) -> frozenset[str]:
+    """The types left in clear in a folder in the end: as the policies of every layer and the recognizers in use there
+    lay them (``lets_through``, as the engine does), your settings for the folder after the repository file, the
+    file's recognizers laid apart as they end up (``_apart``). A recognizer, a term or a field rule of one, in a layer
+    that may only add protection, would leave what it finds in clear. A recognizer that layer sets aside for its own
+    `allow` lets nothing through, so it adds no type: a term of its type there masks. Weighed on a copy holding no lists
+    but the recognizers."""
+    light = base.model_copy(update={"projects": [], "policies": dict(base.policies), "terms": [], "fields": []})
+    layers: list[tuple[ProjectSettings | None, Literal["repo", "personal"], bool]] = [
+        (repo, "repo", False),
+        (personal, "repo" if only_adding else "personal", only_adding),
+    ]
+    start = filed = len(light.recognizers)
+    for i, (settings, source, adding) in enumerate(layers):
+        if settings is not None:
+            rules = ProjectSettings(policies=dict(settings.policies), recognizers=list(settings.recognizers))
+            _layer(light, rules, source, [], adding=adding)
+        if i == 0:  # the repository file's, laid
+            filed = len(light.recognizers)
+    _apart(light, start, filed)
+    return lets_through(light)
+
+
+def _policy_of(config: Config, etype: str, recognizer: dict[str, Any]) -> Policy:
+    """The policy in force for ``recognizer``, of type ``etype``: the entry of `policies` for its type, else its own,
+    else mask (as a build lays them, ``build.policies_of``)."""
+    if etype in config.policies:
+        return config.policies[etype]
+    own = str(recognizer.get("policy") or "").lower()
+    return Policy(own) if own in {policy.value for policy in Policy} else Policy.MASK
+
+
+def _declared_type(recognizer: dict[str, Any]) -> str:
+    """The type a recognizer is written with: its `type`, else its name in capitals (``RecognizerSpec.etype``)."""
+    return str(recognizer.get("type") or str(recognizer.get("name") or "").upper().replace("-", "_"))
+
+
+def _own(base: str, suffix: str, longest: int, taken: set[str]) -> str:
+    """``base`` with ``suffix`` (`badge-repo`, `BADGE_REPO`), within ``longest`` characters and not in ``taken``, which
+    it joins: numbered (`badge-repo-2`) where taken."""
+    tail, n = suffix, 1
+    while True:
+        candidate = base[: longest - len(tail)].rstrip(suffix[0]) + tail
+        if candidate not in taken:
+            taken.add(candidate)
+            return candidate
+        n += 1
+        tail = f"{suffix}{suffix[0]}{n}"
+
+
+def _apart(config: Config, start: int, filed: int) -> list[Notice]:
+    """Of a repository file's recognizer (laid from ``start`` to ``filed``) and one of yours (the global ones before,
+    your settings for the folder after) of one name or one type, both apply (Ruling 098-R3): yours stays as it is, and
+    the file's is laid after yours under a name or a type of its own, derived from its own (`badge-repo`,
+    `BADGE_REPO`, made unique where taken: by a recognizer, by `policies`, by a term or a field rule), where a build
+    keeps the first of a name or a type alone; of one type, both types take the stricter of the two policies in force,
+    an entry of `policies` for the type reaching both (the file's carries it as its own, yours by an entry). Said by a
+    notice that names no value, its detail the name and the type in use. By type, only yours that a build keeps count
+    (``recognizers_in_force``: enabled, compiling, not shadowed): one that is off takes no type. By name, every global
+    entry counts, kept or not: a build keeps the first of a name whether or not it keeps the entry, so one of yours that
+    is off or broken held the file's name all the same (your settings for the folder come after the file's). A file
+    recognizer whose type's policy in force is `allow` is left as it is: the real pass sets it aside for leaving values
+    in clear (``_layer``, ``through``), and the pass that works out ``through`` must not make a type of its own that
+    lets values through. Before, the first of a name or a type was the one in use: the file's left a badge you redact
+    in clear, yours left a team's redacting recognizer of more forms out."""
+    recognizers = config.recognizers
+    theirs = recognizers[start:filed]
+    if not theirs:
+        return []
+    kept = recognizers_in_force([*recognizers[:start], *recognizers[filed:]]).values()
+    yours_by_type = {etype: r for r in kept if (etype := recognizer_type(r)) is not None}
+    in_use = {str(r.get("name")) for r in yours_by_type.values()}  # names of yours a build keeps in use
+    yours_names = in_use | {str(r.get("name")) for r in recognizers[:start] if isinstance(r, dict)}
+    if not yours_names:
+        return []
+    names = {str(r.get("name")) for r in recognizers if isinstance(r, dict)}
+    types = {*reserved_types(), *config.policies}
+    for recognizer in recognizers:
+        if isinstance(recognizer, dict):
+            types.update(t for t in (_declared_type(recognizer), recognizer_type(recognizer)) if t is not None)
+    used = False  # whether the types the terms and field rules use were added to ``types`` (once a type is derived)
+    renamed: dict[str, str] = {}  # the file's name: its name here
+    retyped: dict[str, tuple[str, Policy] | None] = {}  # the file's type: its type here and the policy both take
+    apart: list[dict[str, Any]] = []
+    moved: set[int] = set()
+    out: list[Notice] = []
+    for file_one in theirs:
+        if not isinstance(file_one, dict):
+            continue
+        name, etype = str(file_one.get("name")), recognizer_type(file_one)
+        by_name, by_type = name in yours_names, etype is not None and etype in yours_by_type
+        if not (by_name or by_type):
+            continue
+        if by_type and etype is not None:
+            if etype not in retyped:
+                policies = (_policy_of(config, etype, yours_by_type[etype]), _policy_of(config, etype, file_one))
+                stricter = max(policies, key=_POLICY_STRICTNESS.__getitem__)
+                if stricter == Policy.ALLOW:
+                    retyped[etype] = None  # let through: set aside, never under a type of its own
+                else:
+                    if not used:
+                        types.update(found_type(term) for term in config.terms)
+                        types.update(found_type(rule) for rule in config.fields)
+                        used = True
+                    if _POLICY_STRICTNESS[policies[0]] < _POLICY_STRICTNESS[stricter]:
+                        config.policies[etype] = stricter  # yours' type too: a value both find, whichever names it
+                    retyped[etype] = _own(etype, "_REPO", _TYPE_LONGEST, types), stricter
+            if retyped[etype] is None:
+                continue
+        copy = dict(file_one)
+        if by_name:
+            if name not in renamed:
+                renamed[name] = _own(name, "-repo", _NAME_LONGEST, names)
+            copy["name"] = renamed[name]
+            if etype is not None and not copy.get("type"):
+                copy["type"] = etype  # derived from its name: the type stays what it was
+        if by_type and etype is not None and (own := retyped[etype]) is not None:
+            copy["type"], copy["policy"] = own[0], own[1].value
+        moved.add(id(file_one))
+        apart.append(copy)
+        detail = {"name": str(copy["name"]), "type": str(copy.get("type") or _declared_type(file_one))}
+        if by_type:
+            said = f"applied here as {detail['name']} (type {detail['type']}): a recognizer of yours of its name or "
+            said += "its type is in use, and both apply, both types at the stricter policy of the two"
+            reason = APART_REASON
+        elif name in in_use:
+            said = f"applied here as {detail['name']}: a recognizer of yours of its name is in use, and both apply"
+            reason = RENAMED_REASON
+        else:  # a global entry of yours that is off or broken: a build keeps the first of a name all the same
+            said = f"applied here as {detail['name']}: an entry of yours of its name, not in use, holds the name"
+            reason = RENAMED_REASON
+        out.append(Notice("repo", f"recognizers.{name}", "changed", said, reason, detail))
+    if apart:
+        config.recognizers = [*(r for r in recognizers if id(r) not in moved), *apart]
+    return out
 
 
 def _a_folder(cwd: Any) -> TypeGuard[str]:
@@ -1192,7 +1414,9 @@ class Projects:
         )  # fmt: skip
 
     def _scope(self, config: Config, enabled: bool) -> tuple[Scope, list[Status]]:
-        dumped = json.dumps(config.model_dump(mode="json"), sort_keys=True, default=str)
+        # With the layer each field rule came from, which a dump leaves out and which decides which applies (098-R2).
+        layers = [rule._layer for rule in config.fields]
+        dumped = json.dumps([config.model_dump(mode="json"), layers], sort_keys=True, default=str)
         key = hashlib.sha256(f"{self._generation}|{enabled}|{dumped}".encode()).hexdigest()[:16]
         found = self._scopes.get(key)
         if found is None:

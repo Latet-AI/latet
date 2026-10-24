@@ -82,19 +82,24 @@ _LOOSENING = {
 
 @dataclass(frozen=True, slots=True)
 class Notice:
-    """Something in a project's settings that is not applied, or not as written. ``reason``: why, for one the
-    dashboard words in its reader's language (its message is the daemon's English)."""
+    """Something in a project's settings that is not applied (``ignored``, ``error``), or not as written (``changed``:
+    a repository file's recognizer laid under a name and a type of its own). ``reason``: why, for one the dashboard
+    words in its reader's language (its message is the daemon's English); ``detail``: what those words name (the name
+    and the type a recognizer is in use under), never a value."""
 
     source: Literal["repo", "personal"]
     key: str
-    level: Literal["ignored", "error"]
+    level: Literal["ignored", "error", "changed"]
     message: str
     reason: str | None = None
+    detail: dict[str, str] | None = None
 
-    def as_dict(self) -> dict[str, str]:
-        out = {"source": self.source, "key": self.key, "level": self.level, "message": self.message}
+    def as_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"source": self.source, "key": self.key, "level": self.level, "message": self.message}
         if self.reason is not None:
             out["reason"] = self.reason
+        if self.detail is not None:
+            out["detail"] = dict(self.detail)
         return out
 
 

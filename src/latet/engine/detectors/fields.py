@@ -22,7 +22,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import urllib.parse
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -32,7 +32,7 @@ from latet.config import FieldRule
 from latet.engine import document
 from latet.engine.detectors.base import DetectContext, quiet_options
 from latet.engine.detectors.structural import _PLACEHOLDER, _key_kind, connection_secrets
-from latet.engine.types import EntityClass, SlotKind, Span
+from latet.engine.types import EntityClass, Policy, SlotKind, Span
 
 # Tools that read files: what they return is code or documents, never "data" for strict mode.
 FILE_TOOLS = frozenset(
@@ -553,21 +553,44 @@ class FieldDetector:
         tools: Sequence[str] = (),
         files: Sequence[str] = (),
         hosts: Sequence[str] = (),
+        policies: Mapping[str, Policy] | None = None,
     ) -> None:
+        """``policies``: each type's policy where the rules apply, which says how strict a rule is (``_rank``)."""
         self.rules = [(_pattern(r.name), r) for r in rules]
+        self.layered = any(r._layer for r in rules)
+        self.policies = dict(policies or {})
         self.strict = strict
         self.tools = [t.lower() for t in tools]
         self.files = list(files)
         self.hosts = list(hosts)
 
     def _rule(self, field: str) -> FieldRule | None:
+        """The rule a field's values follow: the first that matches it, of yours; and in a project whose rules come from
+        layers that may only add protection (a repository file: ``FieldRule._layer``), the stricter of the first that
+        matches in each layer, yours when as strict (Ruling 098-R2), so that no layer loosens another's rule for the
+        field, whatever their order."""
         if not self.rules:
             return None
         name, last = _utf8(field.lower()), _utf8(_last(field).lower())
+        if not self.layered:
+            for regex, rule in self.rules:
+                if regex.fullmatch(name) is not None or regex.fullmatch(last) is not None:
+                    return rule
+            return None
+        firsts: dict[int, FieldRule] = {}
         for regex, rule in self.rules:
-            if regex.fullmatch(name) is not None or regex.fullmatch(last) is not None:
-                return rule
-        return None
+            if rule._layer not in firsts and (regex.fullmatch(name) is not None or regex.fullmatch(last) is not None):
+                firsts[rule._layer] = rule
+        # By layer, yours first: max keeps the first of the strictest.
+        return max((firsts[layer] for layer in sorted(firsts)), key=self._rank, default=None)
+
+    def _rank(self, rule: FieldRule) -> tuple[int, bool]:
+        """How strict a rule is: its values in clear (`mask: false`, or of a type let through), masked, or redacted,
+        as its type's policy says; then a secret's (one in clear stops the request) over another's."""
+        if not rule.mask:
+            return 0, rule.secret
+        policy = self.policies.get((rule.type or "FIELD").upper(), Policy.MASK)
+        return {Policy.ALLOW: 0, Policy.MASK: 1, Policy.REDACT: 2}[Policy(policy)], rule.secret
 
     def strict_for(self, ctx: DetectContext) -> bool:
         """This text is masked as data: in strict data mode, a tool's output, not a file it read nor a web page unless

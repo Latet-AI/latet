@@ -152,7 +152,8 @@
       "upstreams_other": "{{count}} Ziele"
     },
     "destinationRefused": "{{url}}: Ein eigenes Ziel auf diesem Server braucht eine verwendbare Adresse, die über https erreicht wird und weder zum Server selbst noch in sein Netzwerk führt. Ein Ziel, das im Klartext oder im Netzwerk erreicht wird, können seine Administratoren für alle festlegen.",
-    "reviewerKeyServer": "{{setting}}: Auf einem Server legt keine Einstellung fest, woher der Schlüssel des lokalen Prüfers gelesen wird. Der Server gibt ihn, wie seine Administratoren ihn festlegen."
+    "reviewerKeyServer": "{{setting}}: Auf einem Server legt keine Einstellung fest, woher der Schlüssel des lokalen Prüfers gelesen wird. Der Server gibt ihn, wie seine Administratoren ihn festlegen.",
+    "repoInClear": "{{setting}}: Eine Datei im Repository kann das nicht enthalten, weil dort Werte im Klartext blieben (ein Erkenner, der durchlässt, was er findet, oder ein Erkenner, ein Begriff oder eine Feldregel mit einem Typ, der durchgelassen wird). Tragen Sie es in Ihren Einstellungen für das Projekt ein, wo eine Änderung, die den Schutz verringert, auf Ihre Freigabe wartet."
   },
   "auth": {
     "title": "Öffnen Sie das Dashboard über Ihr Terminal",
@@ -965,6 +966,8 @@
       "notLoaded": "Latet wurde seit diesem Austausch neu gestartet, und die Einstellungen von {{project}} werden bei seiner nächsten Sitzung geladen: Vorerst kann die Auswahl nur in den globalen Regeln gespeichert werden.",
       "held_one": "Eine Regel dieses Projekts hält {{columns}} maskiert, und sie hat Vorrang vor den globalen Regeln: Wählen Sie dafür Dieses Projekt.",
       "held_other": "Regeln dieses Projekts halten {{columns}} maskiert, und sie haben Vorrang vor den globalen Regeln: Wählen Sie dafür Dieses Projekt.",
+      "heldByFile_one": "Die latet.yaml dieses Projekts hält die Spalte {{columns}} maskiert: Nichts, was Sie hier wählen, ändert das dort.",
+      "heldByFile_other": "Die latet.yaml dieses Projekts hält die Spalten {{columns}} maskiert: Nichts, was Sie hier wählen, ändert das dort.",
       "resends": "Dieser Agent sendet mit jeder Anfrage die ganze Unterhaltung: Ab der nächsten Anfrage werden auch die Ausgaben, die schon darin stehen, mit diesen Spalten im Klartext gesendet."
     },
     "strict": {
@@ -1738,16 +1741,20 @@
     "folder": "Ordner",
     "file": "latet.yaml",
     "noFile": "Noch keine: Wenn Sie die Regeln unter Repository-Datei speichern, wird sie angelegt",
-    "notices": "Was nicht angewendet wird",
+    "notices": "Was nicht oder anders als geschrieben angewendet wird",
     "fromRepo": "latet.yaml",
     "fromPersonal": "Ihre Einstellungen",
     "ignored": "ignoriert: {{message}}",
     "error": "Fehler: {{message}}",
+    "changed": "nicht wie geschrieben: {{message}}",
     "pastShare": "Sie nutzen den gesamten Speicher, den der Server einer Person gibt, daher wurden die Regeln dieses Ordners nicht erstellt und seine Texte werden abgelehnt. Sie werden bei der nächsten Verwendung des Ordners erstellt, sobald Sie weniger nutzen: Vergessen Sie einige Werte im Tresor, oder entfernen Sie einige Regeln oder Projekte.",
     "unbuilt": "Seine Regeln konnten nicht erstellt werden, daher werden seine Texte abgelehnt, bis sie erstellt werden können.",
     "repoCannotSet": "Eine Datei im Repository kann das nicht festlegen, tragen Sie es daher in Ihren Einstellungen für das Projekt ein.",
     "repoWholeLatet": "Eine Einstellung für ganz Latet, daher legt nur Ihre config.yaml sie fest.",
     "repoUnknown": "Keine Einstellung, die Latet kennt.",
+    "repoInClear": "Eine Datei im Repository kann das nicht enthalten, weil dort Werte im Klartext blieben: Tragen Sie es in Ihren Einstellungen für das Projekt ein, wo eine Änderung, die den Schutz verringert, auf Ihre Freigabe wartet.",
+    "recognizerApart": "In diesem Projekt als {{name}} angewendet, Typ {{type}}: Ein Erkenner von Ihnen hat seinen Namen oder seinen Typ, also gelten beide, und beide Typen nehmen die strengere der beiden Richtlinien.",
+    "recognizerRenamed": "In diesem Projekt als {{name}} angewendet, weil ein Eintrag von Ihnen seinen Namen schon trägt: Der der Datei gilt unter seinem eigenen, mit seinem Typ ({{type}}) und seiner Richtlinie; Ihrer gilt, wo er in Gebrauch ist, wie zuvor.",
     "scope": {
       "label": "Regeln für",
       "global": "Alles (globale Regeln)",

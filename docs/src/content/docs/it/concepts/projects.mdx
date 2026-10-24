@@ -66,7 +66,8 @@ policies: {EMAIL: redact}
 **Un valore sostituisce il tuo solo quando è più rigoroso:**
 - `profile`: secrets, poi balanced, poi max (che lì attiva la modalità dati rigorosa, a meno che
   `data` non sia impostato);
-- `policies`: allow, poi mask, poi redact;
+- `policies`: allow, poi mask, poi redact, rispetto al criterio in vigore lì (compreso quello di un
+  riconoscitore);
 - `include_private_ips`: solo `true`;
 - `ner`: solo `auto`;
 - `data`: solo `strict`; `images`: solo meno immagini, `mask` poi `block`; `ocr`: solo `auto`;
@@ -75,8 +76,21 @@ policies: {EMAIL: redact}
   [Revisore locale](../llm-review/#in-un-progetto)).
 
 **Una lista si aggiunge alla tua:** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
-`data_files`, `data_hosts` e `fields` (solo le regole che mascherano). Un riconoscitore con un nome
-già in uso viene disattivato.
+`data_files`, `data_hosts` e `fields` (solo le regole che mascherano). Un riconoscitore delle tue
+impostazioni per il progetto con un nome o un tipo che uno dei tuoi globali usa già viene
+disattivato. Uno del file con il nome o il tipo di uno dei tuoi, globale o per il progetto, si
+applica comunque, con un nome o un tipo proprio (`badge-repo`, `BADGE_REPO`): si applicano
+entrambi; a parità di tipo, entrambi i tipi prendono il più severo dei due criteri; e la pagina del
+progetto lo dice, con il nome e il tipo in uso. Per un campo si applica la più severa tra la tua
+regola e quella del file, la tua a parità.
+
+**Ciò che lì lascerebbe dei valori in chiaro viene messo da parte:** un riconoscitore che lascia
+passare ciò che trova (`policy: allow`), e un riconoscitore, un termine o una regola di campo di un
+tipo lasciato in chiaro in quella cartella, dai tuoi criteri o dalle tue impostazioni per il
+progetto. `latet project check` e la dashboard dicono quale, e dove metterlo invece: nelle tue
+impostazioni per il progetto, dove una modifica che riduce la protezione attende la tua
+approvazione. La dashboard non scrive una voce del genere nel file; una che il file contiene già
+resta, per chi non lascia passare il suo tipo.
 
 **Ciò che un file del repository non può impostare viene ignorato:** valori e pattern da non
 mascherare mai, regole dei segreti disattivate, gli strumenti coperti dalla modalità dati rigorosa

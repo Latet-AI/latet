@@ -71,7 +71,8 @@ on the change:
 | Not valid | Nothing is saved; it prints which key and why | 2 |
 
 Lowering protection means, for example: a value never to mask (`allow_values`), a lower profile,
-a term or recognizer removed, a policy set to `allow`, the local reviewer or the Live Reviewer turned
+a term or recognizer removed, a policy set to `allow`, a term or a field rule of a type whose policy
+is `allow` (what it finds would leave in clear), the local reviewer or the Live Reviewer turned
 off or reading less, Latet off in a project, the local reviewer's server on another machine, any
 change to the local reviewer's guidance, more images sent (`images`), the text in images no longer
 read (`ocr: off`), the local reviewer no longer shown the images or shown them on another machine

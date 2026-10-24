@@ -1,6 +1,6 @@
 ---
 title: GitHub Copilot, JetBrains, Zed y otras herramientas
-description: Pasa por la puerta de enlace de Latet GitHub Copilot, Junie y AI Assistant de JetBrains, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush, Android Studio y Claude Desktop, y consulta qué herramientas no puede proteger Latet.
+description: Pasa por la puerta de enlace de Latet GitHub Copilot, Junie y AI Assistant de JetBrains, Zed, Cline, Kilo Code, Continue, Qwen Code, Crush, Prime Agent, Android Studio y Claude Desktop, y consulta qué herramientas no puede proteger Latet.
 sidebar:
   label: Copilot, JetBrains y más
 ---
@@ -46,6 +46,7 @@ valores reales.
 | Continue | Cada petición de un modelo cuyo `apiBase` es Latet | Nada | La CLI |
 | Qwen Code | Cada petición | Una dirección de correo electrónico escrita en el prompt | Sí |
 | Crush | Cada petición | Nada | Sí |
+| Prime Agent | Cada petición a Anthropic, OpenAI y OpenRouter, con una clave de API | Prime Inference y una suscripción de ChatGPT; con una suscripción de Claude, las peticiones se comprueban, no se enmascaran | Sí |
 | Android Studio | El chat y el modo agente, con un proveedor remoto de terceros | Las funciones propias de Gemini | No |
 | Claude Desktop en una puerta de enlace | Cada petición se comprueba, y se detiene si llevaría un valor sensible | El enmascaramiento, fuera de la pestaña Code | No |
 
@@ -333,6 +334,31 @@ entorno:
 Para Anthropic, usa `"type": "anthropic"` con `http://127.0.0.1:5283/anthropic`. El tipo `openai` de
 Crush habla la Responses API, y su tipo `openrouter` no acepta una URL base: llega a OpenRouter con
 `openai-compat` y `http://127.0.0.1:5283/openrouter/api/v1`.
+
+## Prime Agent
+
+Prime Agent lee la dirección de cada proveedor de `models.json`, en `~/.prime/agent`
+(`%USERPROFILE%\.prime\agent` en Windows). Da a sus proveedores integrados la dirección de Latet:
+
+```json title="~/.prime/agent/models.json"
+{
+  "providers": {
+    "anthropic": { "baseUrl": "http://127.0.0.1:5283/anthropic" },
+    "openai": { "baseUrl": "http://127.0.0.1:5283/openai/v1" },
+    "openrouter": { "baseUrl": "http://127.0.0.1:5283/openrouter/api/v1" }
+  }
+}
+```
+
+A partir de ahí, cada modelo de estos proveedores pasa por Latet, con la clave de API que diste a
+Prime Agent con `/login` o en `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` y `OPENROUTER_API_KEY`.
+
+**Con una suscripción en lugar de una clave.** Con la sesión iniciada en una suscripción de Claude,
+Prime Agent se presenta ante Anthropic como Claude Code. Sus peticiones pasan igualmente por Latet,
+que comprueba las peticiones hechas con una suscripción de Claude y nunca las reescribe: la que
+llevaría un secreto o datos personales en claro se detiene, con un mensaje en lugar de una respuesta.
+Usa una clave de API para que se enmascaren. Las peticiones hechas con una suscripción de ChatGPT, y
+las que van a Prime Inference, el servicio propio de Prime Intellect, no pasan por Latet.
 
 ## Android Studio
 

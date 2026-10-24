@@ -156,7 +156,8 @@
       "upstreams_other": "{{count}} destinazioni"
     },
     "destinationRefused": "{{url}}: su questo server una destinazione tua richiede un indirizzo utilizzabile, raggiunto in https, che non porti né al server stesso né dentro la sua rete. Una destinazione raggiunta in chiaro o dentro la rete può essere impostata per tutti dai suoi amministratori.",
-    "reviewerKeyServer": "{{setting}}: su un server nessuna impostazione dice da dove leggere la chiave del revisore locale. La dà il server, come la impostano i suoi amministratori."
+    "reviewerKeyServer": "{{setting}}: su un server nessuna impostazione dice da dove leggere la chiave del revisore locale. La dà il server, come la impostano i suoi amministratori.",
+    "repoInClear": "{{setting}}: un file del repository non può contenerlo, perché lì lascerebbe dei valori in chiaro (un riconoscitore che lascia passare ciò che trova, o un riconoscitore, un termine o una regola di campo di un tipo che si lascia passare). Mettilo nelle tue impostazioni per il progetto, dove una modifica che riduce la protezione attende la tua approvazione."
   },
   "auth": {
     "title": "Apri la dashboard dal terminale",
@@ -1009,6 +1010,9 @@
       "held_one": "Una regola di questo progetto tiene mascherata la colonna {{columns}}, e viene prima delle regole globali: per questa colonna scegli Questo progetto.",
       "held_many": "Alcune regole di questo progetto tengono mascherate le colonne {{columns}}, e vengono prima delle regole globali: per queste colonne scegli Questo progetto.",
       "held_other": "Alcune regole di questo progetto tengono mascherate le colonne {{columns}}, e vengono prima delle regole globali: per queste colonne scegli Questo progetto.",
+      "heldByFile_one": "Il latet.yaml di questo progetto tiene mascherata la colonna {{columns}}: nulla di ciò che scegli qui lo cambia lì.",
+      "heldByFile_many": "Il latet.yaml di questo progetto tiene mascherate le colonne {{columns}}: nulla di ciò che scegli qui lo cambia lì.",
+      "heldByFile_other": "Il latet.yaml di questo progetto tiene mascherate le colonne {{columns}}: nulla di ciò che scegli qui lo cambia lì.",
       "resends": "Questo agente invia tutta la conversazione con ogni richiesta: dalla prossima, anche gli output già presenti partono con queste colonne in chiaro."
     },
     "strict": {
@@ -1803,16 +1807,20 @@
     "folder": "Cartella",
     "file": "latet.yaml",
     "noFile": "Non c'è ancora: viene creato quando salvi le regole in File del repository",
-    "notices": "Cosa non viene applicato",
+    "notices": "Cosa non viene applicato, o non come scritto",
     "fromRepo": "latet.yaml",
     "fromPersonal": "Le tue impostazioni",
     "ignored": "ignorato: {{message}}",
     "error": "errore: {{message}}",
+    "changed": "non come scritto: {{message}}",
     "pastShare": "usi tutta la memoria che il server dà a una persona, quindi le regole di questa cartella non sono state costruite e i suoi testi vengono rifiutati. Vengono costruite al prossimo uso della cartella, quando ne usi meno: dimentica alcuni valori in Cassaforte, oppure togli alcune regole o alcuni progetti.",
     "unbuilt": "non è stato possibile costruire le sue regole, quindi i suoi testi vengono rifiutati finché non sarà possibile.",
     "repoCannotSet": "un file del repository non può impostarlo, quindi mettilo nelle tue impostazioni per il progetto.",
     "repoWholeLatet": "un'impostazione di tutto Latet, quindi solo il tuo config.yaml la imposta.",
     "repoUnknown": "non è un'impostazione che Latet conosce.",
+    "repoInClear": "un file del repository non può contenerlo, perché lì lascerebbe dei valori in chiaro: mettilo nelle tue impostazioni per il progetto, dove una modifica che riduce la protezione attende la tua approvazione.",
+    "recognizerApart": "applicato in questo progetto come {{name}}, tipo {{type}}: un tuo riconoscitore ha il suo nome o il suo tipo, quindi si applicano entrambi, ed entrambi i tipi prendono il più severo dei due criteri.",
+    "recognizerRenamed": "applicato in questo progetto come {{name}}, perché una tua voce ha già il suo nome: quello del file si applica con il proprio, con il suo tipo ({{type}}) e il suo criterio; il tuo, dove è in uso, si applica come prima.",
     "scope": {
       "label": "Regole di",
       "global": "Tutto (regole globali)",

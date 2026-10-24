@@ -152,7 +152,8 @@
       "upstreams_other": "{{count}} destinations"
     },
     "destinationRefused": "{{url}}: a destination of your own on this server needs an address that can be used, reached over https, and leading neither to the server itself nor inside its network. A destination reached in clear or inside the network can be set for everyone by its administrators.",
-    "reviewerKeyServer": "{{setting}}: on a server no setting says where the local reviewer's key is read from. The server gives it, as its administrators set it."
+    "reviewerKeyServer": "{{setting}}: on a server no setting says where the local reviewer's key is read from. The server gives it, as its administrators set it.",
+    "repoInClear": "{{setting}}: a repository file cannot hold this, as it would leave values in clear there (a recognizer that lets what it finds through, or a recognizer, a term or a field rule of a type let through). Put it in your own settings for the project, where a change that lowers protection waits for your approval."
   },
   "auth": {
     "title": "Open the dashboard from your terminal",
@@ -965,6 +966,8 @@
       "notLoaded": "Latet restarted since this exchange, and the settings of {{project}} load at its next session: for now the choice can go only in the global rules.",
       "held_one": "A rule of this project keeps {{columns}} masked, and it comes before the global rules: choose This project for it.",
       "held_other": "Rules of this project keep {{columns}} masked, and they come before the global rules: choose This project for them.",
+      "heldByFile_one": "This project's latet.yaml keeps the column {{columns}} masked: nothing you choose here changes that there.",
+      "heldByFile_other": "This project's latet.yaml keeps the columns {{columns}} masked: nothing you choose here changes that there.",
       "resends": "This agent sends the whole conversation with each request: from the next one, the outputs already in it also go with these columns in clear."
     },
     "strict": {
@@ -1738,16 +1741,20 @@
     "folder": "Folder",
     "file": "latet.yaml",
     "noFile": "None yet: saving the rules under Repository file creates it",
-    "notices": "What is not applied",
+    "notices": "What is not applied, or not as written",
     "fromRepo": "latet.yaml",
     "fromPersonal": "Your settings",
     "ignored": "ignored: {{message}}",
     "error": "error: {{message}}",
+    "changed": "not as written: {{message}}",
     "pastShare": "you use all the memory the server gives one person, so the rules of this folder were not built and its texts are refused. They are built at the folder's next use once you use less: forget some values in Vault, or remove some rules or projects.",
     "unbuilt": "its rules could not be built, so its texts are refused until they can be.",
     "repoCannotSet": "a repository file cannot set this, so put it in your own settings for the project.",
     "repoWholeLatet": "a setting of the whole of Latet, so only your config.yaml sets it.",
     "repoUnknown": "not a setting Latet knows.",
+    "repoInClear": "a repository file cannot hold this, as it would leave values in clear there: put it in your own settings for the project, where a change that lowers protection waits for your approval.",
+    "recognizerApart": "applied in this project as {{name}}, type {{type}}: a recognizer of yours has its name or its type, so both apply, and both types take the stricter of the two policies.",
+    "recognizerRenamed": "applied in this project as {{name}}, since an entry of yours already has its name: the file's applies under its own, with its type ({{type}}) and its policy; yours, where it is in use, applies as before.",
     "scope": {
       "label": "Rules of",
       "global": "Everything (global rules)",

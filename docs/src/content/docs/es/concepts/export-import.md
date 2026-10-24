@@ -58,11 +58,12 @@ inventados.
 
 **Lo que reduciría la protección se enumera y se deja fuera:** las excepciones, un valor más débil,
 las indicaciones del revisor, un reconocedor que deja pasar lo que encuentra (`policy: allow`), un
-campo que se deja en claro. `--all`, o *Aplicar también estas* en el panel, también los aplica. Si
-la importación la ejecuta un agente o un script, `--all` convierte toda la importación en un solo
-cambio, que espera tu aprobación como cualquier
-[cambio que reduce la protección](../agents-and-settings/): lo que añade protección espera con él,
-y nada de la importación se aplica hasta que lo apruebes. `--dry-run` solo indica lo que haría una
+término o una regla de campo de un tipo que tus políticas dejan pasar (lo que encuentra quedaría en
+claro), un campo que se deja en claro. `--all`, o *Aplicar también estas* en el panel, también los
+aplica. Si la importación la ejecuta un agente o un script, `--all` convierte toda la importación en
+un solo cambio, que espera tu aprobación como cualquier
+[cambio que reduce la protección](../agents-and-settings/): lo que añade protección espera con él, y
+nada de la importación se aplica hasta que lo apruebes. `--dry-run` solo indica lo que haría una
 importación.
 
 ```text

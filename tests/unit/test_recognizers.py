@@ -7,7 +7,7 @@ import yaml
 from typer.testing import CliRunner
 
 from latet.config import Config, load_config, save_config
-from latet.engine.build import build
+from latet.engine.build import build, detected_types, reserved_types
 from latet.engine.detectors import checksums
 from latet.engine.detectors.recognizers import MAX_PATTERN, compile_all, compile_one
 from latet.engine.types import EntityClass, Policy, SlotKind
@@ -34,6 +34,18 @@ CARD_REF = {
 
 def _masker(*recognizers, **config):
     return build(Config(recognizers=list(recognizers), **config), Vault(ROOT_KEY)).masker
+
+
+def test_the_types_latets_own_detectors_give_that_a_recognizer_may_take_are_known():
+    """Ruling 098-R4: the types Latet's own detectors give values that `reserved_types` leaves free for a recognizer to
+    take, whose own policy then becomes the type's default: strict data mode's and a field rule's (``FieldDetector``),
+    the name detector's, the local reviewer's categories. Known, so that a change of such a recognizer is weighed for
+    those values; not reserved, so a recognizer of one keeps compiling."""
+    own = {"DATA", "FIELD", "ZIPCODE", "ID_NUMBER", "HEALTH", "SENSITIVE", "FINANCIAL", "SECRET", "ORG", "CONFIDENTIAL"}
+    assert own <= detected_types()
+    assert not (own & reserved_types())
+    found, status = compile_one({"name": "rows", "type": "DATA", "pattern": r"\bRW-[0-9]{4}\b"}, reserved_types())
+    assert found is not None and status.state == "active"
 
 
 def test_a_recognizer_masks_with_its_own_type_rule_and_fakes():

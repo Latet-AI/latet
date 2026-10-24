@@ -27,12 +27,16 @@ const NOTICES: Record<string, string> = {
   repo_cannot_set: tk('projects.repoCannotSet'), // a latet.yaml sets what only your own settings for the project may set
   repo_whole_latet: tk('projects.repoWholeLatet'), // a latet.yaml sets a setting of the whole of Latet (its port...)
   repo_unknown: tk('projects.repoUnknown'), // a latet.yaml sets what Latet does not know
+  repo_in_clear: tk('projects.repoInClear'), // a latet.yaml entry would leave values in clear there: set aside
+  recognizer_apart: tk('projects.recognizerApart'), // a latet.yaml recognizer of the type of yours: both apply, apart
+  recognizer_renamed: tk('projects.recognizerRenamed'), // one of the name of yours alone: both apply, its name its own
 }
 
-// A field of a save refused (`details[].reason`), on a Latet server.
+// A field of a save refused (`details[].reason`): on a Latet server, or in a project's latet.yaml on this machine.
 const DETAILS: Record<string, string> = {
   destination_refused: tk('errors.destinationRefused'), // a destination of your own that only the server would reach
   reviewer_key_server: tk('errors.reviewerKeyServer'), // a setting that names where the local reviewer's key is read from
+  repo_in_clear: tk('errors.repoInClear'), // an entry a latet.yaml would set aside for leaving values in clear
 }
 
 // The lists a save may remove items set for everyone from: the destinations alone, since a Latet server sets no rule

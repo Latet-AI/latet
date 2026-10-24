@@ -232,8 +232,9 @@ fields:
 - `mask: false` lascia un campo in chiaro nella modalità dati rigorosa. Va nelle tue impostazioni, non
   nel `latet.yaml` di un progetto, che può solo aggiungere protezione.
 
-Vince la prima regola che corrisponde a un campo: le tue impostazioni per un progetto vengono prima
-del suo `latet.yaml`, ed entrambi prima delle tue regole globali.
+Per un campo si confrontano la tua prima regola che gli corrisponde (prima le tue impostazioni per
+un progetto, poi le tue regole globali) e la prima del `latet.yaml` del progetto che gli
+corrisponde: si applica la più severa (oscurato, poi mascherato, poi in chiaro), la tua a parità.
 
 ## Scegliere le colonne da lasciare in chiaro
 
@@ -259,9 +260,11 @@ prima di applicare.
 
 Le colonne proposte in chiaro sono già selezionate. *Lascia 2 colonne in chiaro* aggiunge una regola
 per ognuna, come `{name: status, mask: false}`, in cima alle tue impostazioni per il progetto
-(*Questo progetto*) o alle tue regole globali (*Ovunque*): vince la prima regola che corrisponde,
-quindi una regola più ampia come `note_*` non la maschera di nuovo. Gli output successivi mostrano
-quelle colonne così come sono. Non si applica nulla finché non fai clic.
+(*Questo progetto*) o alle tue regole globali (*Ovunque*): tra le tue regole vince la prima che
+corrisponde, quindi una tua regola più ampia come `note_*` non la maschera di nuovo; una regola del
+`latet.yaml` del progetto che maschera la colonna continua a valere lì, qualunque cosa tu scelga.
+Gli output successivi mostrano quelle colonne così come sono. Non si applica nulla finché non fai
+clic.
 
 - **Calcolato quando apri l'elenco.** Le colonne vengono lette dall'output che conserva la cronologia,
   sul tuo computer, e non viene salvato nulla di nuovo. Con `history: metadata` o `off` non c'è
@@ -269,9 +272,10 @@ quelle colonne così come sono. Non si applica nulla finché non fai clic.
 - **Il parere del revisore locale, se lo chiedi.** Con il [revisore locale](../llm-review/) attivo,
   *Chiedi al revisore locale* gli invia i nomi delle colonne e alcuni valori di ognuna, e mostra il
   suo parere accanto alle proposte. Non viene mai applicato da solo.
-- **Le regole di un progetto vengono prima.** Le tue impostazioni per un progetto e il suo
-  `latet.yaml` vengono prima delle tue regole globali: una colonna che uno dei due maschera lì resta
-  mascherata, qualunque cosa aggiunga *Ovunque*, e l'elenco lo dice.
+- **Le regole di un progetto restano.** Una colonna che le tue impostazioni per un progetto
+  mascherano lì resta mascherata, qualunque cosa aggiunga *Ovunque*: l'elenco lo dice, e *Questo
+  progetto* la cambia. Una colonna che il `latet.yaml` del progetto maschera lì resta mascherata
+  qualunque cosa tu scelga, e l'elenco dice quale.
 - **Dopo un riavvio,** le impostazioni di un progetto si caricano alla sua sessione successiva: fino
   ad allora la scelta può andare solo nelle tue regole globali.
 - **Codex e OpenCode** inviano tutta la conversazione con ogni richiesta, e Latet la maschera di nuovo
@@ -325,7 +329,7 @@ progetto può solo aggiungere protezione:
 | `data_tools` | ignorato | aggiunto ai tuoi |
 | `data_files` | aggiunto | aggiunto ai tuoi |
 | `data_hosts` | aggiunto | aggiunto ai tuoi |
-| `fields` | solo regole che mascherano | qualsiasi regola, `mask: false` compreso |
+| `fields` | solo regole che mascherano, di un tipo mascherato lì | qualsiasi regola, `mask: false` compreso |
 | `dump_guard` | solo più basso | qualsiasi valore; 0 la disattiva |
 | `images` | solo meno immagini: `mask`, poi `block` | `allow`, `mask` o `block` |
 | `ocr` | solo `auto` | `auto` o `off` |

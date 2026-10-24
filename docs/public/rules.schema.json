@@ -430,7 +430,7 @@
       "type": "array"
     },
     "recognizers": {
-      "description": "Recognizers for this project (a name already in use turns the entry off).",
+      "description": "Recognizers for this project (a name or a type a global one uses turns the entry off; a repository file's of the name or the type of one of yours applies under a name and a type of its own, such as `badge-repo` and `BADGE_REPO`, both types at the stricter of the two policies).",
       "items": {
         "$ref": "#/$defs/Recognizer"
       },

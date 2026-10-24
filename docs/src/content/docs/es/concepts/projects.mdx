@@ -68,7 +68,8 @@ policies: {EMAIL: redact}
 **Un valor sustituye al tuyo solo cuando es más estricto:**
 - `profile`: secrets, después balanced, después max (que ahí activa el modo de datos estricto, salvo
   que `data` esté definido);
-- `policies`: allow, después mask, después redact;
+- `policies`: allow, después mask, después redact, frente a la política en vigor allí (incluida la
+  propia de un reconocedor);
 - `include_private_ips`: solo `true`;
 - `ner`: solo `auto`;
 - `data`: solo `strict`; `images`: solo menos imágenes, `mask` y después `block`; `ocr`: solo
@@ -77,8 +78,20 @@ policies: {EMAIL: redact}
   [Revisor local](../llm-review/#en-un-proyecto)).
 
 **Una lista se suma a la tuya:** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
-`data_files`, `data_hosts` y `fields` (solo las reglas que enmascaran). Un reconocedor cuyo nombre ya
-está en uso se desactiva.
+`data_files`, `data_hosts` y `fields` (solo las reglas que enmascaran). Un reconocedor de tus
+ajustes para el proyecto cuyo nombre o tipo ya usa uno de los tuyos globales se desactiva. Uno del
+archivo con el nombre o el tipo de uno de los tuyos, global o para el proyecto, se aplica de todos
+modos, con un nombre o un tipo propio (`badge-repo`, `BADGE_REPO`): se aplican los dos; a igualdad
+de tipo, ambos tipos toman la más estricta de las dos políticas; y la página del proyecto lo
+indica, con el nombre y el tipo en uso. Para un campo se aplica la más estricta entre tu regla y la
+del archivo, la tuya a igualdad.
+
+**Lo que allí dejaría valores en claro se deja aparte:** un reconocedor que deja pasar lo que
+encuentra (`policy: allow`), y un reconocedor, un término o una regla de campo de un tipo que se
+deja en claro en esa carpeta, por tus políticas o tus ajustes para el proyecto.
+`latet project check` y el panel dicen cuál, y dónde ponerlo en su lugar: en tus ajustes para el
+proyecto, donde un cambio que reduce la protección espera tu aprobación. El panel no escribe una
+entrada así en el archivo; la que el archivo ya contiene se queda, para quien no deja pasar su tipo.
 
 **Lo que un archivo del repositorio no puede definir se ignora:** los valores y los patrones que no
 se enmascaran nunca, las reglas de secretos desactivadas, las herramientas que cubre el modo de datos

@@ -215,11 +215,11 @@ the command that fixes it. Report any `FAIL` to the user with its line.
   start it. Do not write `GOOGLE_GEMINI_BASE_URL` into a `.env` file or the user's profile: a
   project's own `.env` would hide it without a word.
 - **Tools that take a base URL in their own settings**: GitHub Copilot in VS Code and JetBrains IDEs,
-  Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Android Studio, Hermes
-  Agent, OpenClaw, Goose, OpenHands, Aider. Give the user the setting for each tool they use, from
-  <https://docs.latet.ai/agents/other-tools/> and <https://docs.latet.ai/agents/autonomous-agents/>.
-  Change a tool's settings for them only if they ask, and back the file up first. Keep their API key
-  where it is: Latet forwards it.
+  Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Android
+  Studio, Hermes Agent, OpenClaw, Goose, OpenHands, Aider. Give the user the setting for each tool
+  they use, from <https://docs.latet.ai/agents/other-tools/> and
+  <https://docs.latet.ai/agents/autonomous-agents/>. Change a tool's settings for them only if they
+  ask, and back the file up first. Keep their API key where it is: Latet forwards it.
 - **Their own scripts, SDKs and agent frameworks** (the OpenAI, Anthropic and Google GenAI SDKs,
   LangChain, LangGraph, AutoGen, CrewAI), **Qwen Code and the GitHub Copilot CLI** take Latet's address
   from the environment: `latet run <command>` for one command, `latet env` for a shell. See

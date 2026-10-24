@@ -301,7 +301,7 @@ def merge_rules(
     in every folder of yours and in ``repositories``, the folders seen whose repository has a latet.yaml
     of its own (``Projects.repositories``), as a change of config.yaml is (``Runtime.propose``)."""
     from latet.engine.detectors.pii import effective_pii
-    from latet.protection import loosened
+    from latet.protection import folders_let_through, found_type, lets_through, loosened
 
     current = _applies(base, root)
     report = Report()
@@ -309,7 +309,8 @@ def merge_rules(
     holds: list[Change] = []
     # Whether each addition can lower protection in a folder of yours: what changes the settings a folder's own are laid
     # over (a value, a policy, the personal-data types and their countries, a recognizer named or typed as one of a
-    # folder's). Terms, phone countries and field rules that mask only add, there as at the top.
+    # folder's). Terms, phone countries and field rules that mask only add, there as at the top, but for a term or a
+    # field rule of a type the folder's own settings let through.
     reach: list[bool] = []
 
     def add(sentence: str, change: Change, *, folders: bool = True) -> None:
@@ -342,11 +343,23 @@ def merge_rules(
             add(f"personal-data types: {_some(new_pii)}", lambda t: setattr(t, "pii", [*listed, *new_pii]))
         else:  # a project's list adds to the global one
             add(f"personal-data types: {_some(new_pii)}", lambda t: setattr(t, "pii", [*t.pii, *new_pii]))
-    have = {(t.value, t.type.upper()) for t in current.terms}
-    terms = [t for t in imported.terms if (t.value, t.type.upper()) not in have]
-    if terms:
-        change = lambda t: t.terms.extend(x.model_copy() for x in terms)  # noqa: E731
-        add(f"terms: {_some([t.value for t in terms])}", change, folders=False)
+    # A term or a field rule of a type let through leaves what it finds in clear: here, it is held back; of a type a
+    # folder of yours, or a repository's seen, lets through, it is weighed there.
+    through = lets_through(current)
+    in_folders = folders_let_through([*base.projects, *(repo for _, repo in repositories)]) if root is None else set()
+    anywhere, in_a_folder = through | in_folders, in_folders - through
+    have = {(t.value, found_type(t)) for t in current.terms}
+    terms = [t for t in imported.terms if (t.value, found_type(t)) not in have]
+    for group, reaches in (
+        ([t for t in terms if found_type(t) not in anywhere], False),
+        ([t for t in terms if found_type(t) in in_a_folder], True),
+    ):
+        if group:
+            change = lambda t, group=group: t.terms.extend(x.model_copy() for x in group)  # noqa: E731
+            add(f"terms: {_some([t.value for t in group])}", change, folders=reaches)
+    if kept := [t for t in terms if found_type(t) in through]:
+        change = lambda t: t.terms.extend(x.model_copy() for x in kept)  # noqa: E731
+        hold(f"terms that leave what they find in clear (policy allow): {_some([t.value for t in kept])}", change)
     # A recognizer added at the top comes before a folder's own there, a repository's too: one of its name or type puts
     # that one out of use.
     folders = (
@@ -356,7 +369,7 @@ def merge_rules(
     )
     theirs = {str(r.get("name")) for r in folders} | {_rtype(r) for r in folders}
     _recognizers(current, imported, report, add, hold, theirs)
-    _fields(current, imported, report, add, hold)
+    _fields(current, imported, report, add, hold, through, in_folders)
     _exceptions(current, imported, hold)
     guidance = imported.review_guidance
     if guidance and guidance not in (current.llm_review.guidance or ""):
@@ -478,7 +491,7 @@ def _recognizers(
 ) -> None:
     """``theirs``: the names and types of the recognizers of your folders' own settings, which a recognizer added at the
     top of one of them puts out of use there."""
-    from latet.protection import _keeps_in_clear
+    from latet.protection import keeps_in_clear
 
     names = {str(r.get("name")): r for r in current.recognizers if isinstance(r, dict)}
     types = {_rtype(r) for r in current.recognizers if isinstance(r, dict)}
@@ -493,7 +506,7 @@ def _recognizers(
             continue
         names[name] = recognizer
         types.add(etype)
-        if _keeps_in_clear(recognizer):
+        if keeps_in_clear(recognizer):
             hold(
                 f"recognizer {name}: leaves what it finds in clear (policy allow)", _appended("recognizers", recognizer)
             )
@@ -501,18 +514,34 @@ def _recognizers(
             add(f"recognizer {name}", _appended("recognizers", recognizer), folders=bool({name, etype} & theirs))
 
 
-def _fields(current: Config, imported: ProjectSettings, report: Report, add: Any, hold: Any) -> None:
+def _fields(
+    current: Config,
+    imported: ProjectSettings,
+    report: Report,
+    add: Any,
+    hold: Any,
+    through: Collection[str],
+    in_folders: Collection[str],
+) -> None:
+    """``through``: the types the rules in use let through, whose field rules leave what they find in clear;
+    ``in_folders``: those a folder of yours, or a repository's seen, may let through (``folders_let_through``)."""
+    from latet.protection import found_type
+
     names = {f.name.casefold(): f for f in current.fields}
     for rule in imported.fields:
         if rule.name.casefold() in names:
-            if names[rule.name.casefold()] != rule:
+            if names[rule.name.casefold()].model_dump() != rule.model_dump():  # as written, wherever it applies
                 report.skipped.append(f"field rule {rule.name}: yours, for the same field, is kept")
             continue
         names[rule.name.casefold()] = rule
-        if rule.mask:  # a folder's field rules come first, and this one adds a field: it only adds there too
-            add(f"field rule {rule.name}", _appended("fields", rule.model_copy()), folders=False)
-        else:
+        etype = found_type(rule)
+        if not rule.mask:
             hold(f"field rule {rule.name}: its values kept in clear in strict data mode", _appended("fields", rule))
+        elif etype in through:
+            hold(f"field rule {rule.name}: leaves what it finds in clear (policy allow)", _appended("fields", rule))
+        else:  # a folder's field rules come first, and this one adds a field: it only adds there, unless of a type
+            # the folder lets through
+            add(f"field rule {rule.name}", _appended("fields", rule.model_copy()), folders=etype in in_folders)
 
 
 def _exceptions(current: Config, imported: ProjectSettings, hold: Any) -> None:

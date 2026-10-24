@@ -42,11 +42,12 @@ vornimmt:
   läuft er mit den Einstellungen, die Sie zuletzt freigegeben haben.
 
 Den Schutz verringern heißt zum Beispiel: ein Wert, der nie maskiert werden soll, ein niedrigeres
-Profil, ein entfernter Begriff oder Erkenner, eine Richtlinie auf `allow`, der lokale Prüfer oder
-der Live-Prüfer ausgeschaltet oder so eingestellt, dass er weniger liest, Latet in einem Projekt
-ausgeschaltet, der Server des lokalen Prüfers auf einen anderen Rechner verlegt oder
-[seine Hinweise](../llm-review/#ihre-hinweise) geändert: Freier Text könnte ihm sagen, nichts zu
-melden, daher wartet jede Änderung, und das Dashboard zeigt die Hinweise vorher und nachher.
+Profil, ein entfernter Begriff oder Erkenner, eine Richtlinie auf `allow`, ein Begriff oder eine
+Feldregel mit einem Typ, dessen Richtlinie `allow` ist (das Gefundene bliebe im Klartext), der
+lokale Prüfer oder der Live-Prüfer ausgeschaltet oder so eingestellt, dass er weniger liest, Latet
+in einem Projekt ausgeschaltet, der Server des lokalen Prüfers auf einen anderen Rechner verlegt
+oder [seine Hinweise](../llm-review/#ihre-hinweise) geändert: Freier Text könnte ihm sagen, nichts
+zu melden, daher wartet jede Änderung, und das Dashboard zeigt die Hinweise vorher und nachher.
 Dasselbe gilt für ein [Ziel](../../agents/company-endpoints/), das auf eine andere Adresse verlegt
 oder entfernt wird: Ein Agent, der darauf zeigt, würde seine Anfragen und seine Schlüssel
 woandershin senden, daher zeigt das Dashboard die Adresse vorher und nachher.

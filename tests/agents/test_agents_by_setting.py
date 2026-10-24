@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 import uvicorn
@@ -264,6 +265,54 @@ def test_junie_cli(gateway, upstream, tmp_path, api, path, ending):
             "--output-format", "json", "--task", PROMPT]  # fmt: skip
     done = _run(argv, env, tmp_path)
     _assert_masked_and_restored(done, upstream, before, ending)
+
+
+def _prime_agent(tmp_path, provider: str, base: str, **keys: str) -> subprocess.CompletedProcess[str]:
+    """``PROMPT`` given to Prime Agent, its built-in ``provider`` given the address ``base`` in
+    `~/.prime/agent/models.json`. Offline: no model catalog, update or telemetry; the model is described in `models.json`
+    too. Its Python kernel, which Prime Agent downloads on its first run, is the one that run left in
+    `~/.prime/agent/kernel-venv`, or at `PRIME_AGENT_KERNEL_VENV`."""
+    prime = _tool("prime-agent", "Prime Agent")
+    kernel = os.environ.get("PRIME_AGENT_KERNEL_VENV") or str(Path.home() / ".prime" / "agent" / "kernel-venv")
+    if not Path(kernel).is_dir():
+        pytest.skip("Prime Agent's Python kernel is not set up: run Prime Agent once")
+    home = _home(tmp_path)
+    agent = home / ".prime" / "agent"
+    agent.mkdir(parents=True)
+    setting = {"baseUrl": base, "models": [{"id": "your-model"}]}
+    (agent / "models.json").write_text(json.dumps({"providers": {provider: setting}}), "utf-8")
+    env = _env(**_windows_home(home), PRIME_AGENT_CODING_AGENT_DIR=str(agent), PRIME_AGENT_KERNEL_VENV=kernel,
+               PRIME_AGENT_TELEMETRY="0", PI_OFFLINE="1", **keys)  # fmt: skip
+    try:
+        argv = [prime, "-p", "--offline", "--no-session", "--provider", provider, "--model", "your-model", PROMPT]
+        return _run(argv, env, tmp_path)
+    finally:
+        _run([prime, "shutdown", "--force"], env, tmp_path)  # the background service a run may have started
+
+
+@pytest.mark.parametrize(
+    ("provider", "route", "ending"),
+    [
+        ("anthropic", "anthropic", "/v1/messages"),
+        ("openai", "openai/v1", "/v1/responses"),
+        ("openrouter", "openrouter/api/v1", "/v1/chat/completions"),
+    ],
+)
+def test_prime_agent(gateway, upstream, tmp_path, provider, route, ending):
+    """Prime Agent with an API key, on its built-in Anthropic, OpenAI and OpenRouter providers."""
+    keys = {"ANTHROPIC_API_KEY": "sk-ant-test", "OPENAI_API_KEY": "sk-test", "OPENROUTER_API_KEY": "sk-or-test"}
+    before = len(upstream.requests)
+    done = _prime_agent(tmp_path, provider, f"{gateway}/{route}", **keys)
+    _assert_masked_and_restored(done, upstream, before, ending)
+
+
+def test_prime_agent_claude_plan(gateway, upstream, tmp_path):
+    """Prime Agent signed in with a Claude plan: its requests then carry Claude Code's token, which Latet checks and
+    never rewrites. The one with sensitive values is stopped, and the provider receives nothing."""
+    before = len(upstream.requests)
+    done = _prime_agent(tmp_path, "anthropic", f"{gateway}/anthropic", ANTHROPIC_OAUTH_TOKEN="sk-ant-oat01-test")
+    assert done.returncode != 0 and "sensitive values would leave in clear" in done.stderr, done.stderr[-2000:]
+    assert not upstream.requests[before:]
 
 
 # The autonomous agents, set up as docs/src/content/docs/agents/autonomous-agents.md says: a failure here may be the

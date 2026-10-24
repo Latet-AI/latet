@@ -68,7 +68,8 @@ policies: {EMAIL: redact}
 **Une valeur ne remplace la vôtre que si elle est plus stricte :**
 - `profile` : secrets, puis balanced, puis max (qui y active le mode données strict, sauf si `data`
   est défini) ;
-- `policies` : allow, puis mask, puis redact ;
+- `policies` : allow, puis mask, puis redact, par rapport à la politique en vigueur (celle d'un
+  reconnaisseur comprise) ;
 - `include_private_ips` : seulement `true` ;
 - `ner` : seulement `auto` ;
 - `data` : seulement `strict` ; `images` : seulement moins d'images, `mask` puis `block` ; `ocr` :
@@ -78,8 +79,21 @@ policies: {EMAIL: redact}
   [Relecteur local](../llm-review/#dans-un-projet)).
 
 **Une liste s'ajoute à la vôtre :** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
-`data_files`, `data_hosts` et `fields` (seulement les règles qui masquent). Un reconnaisseur dont le
-nom est déjà utilisé est désactivé.
+`data_files`, `data_hosts` et `fields` (seulement les règles qui masquent). Un reconnaisseur de vos
+réglages pour le projet dont le nom ou le type est déjà utilisé par un des vôtres globaux est
+désactivé. Un reconnaisseur du fichier portant le nom ou le type d'un des vôtres, global ou pour le
+projet, s'applique tout de même, sous un nom ou un type qui lui est propre (`badge-repo`,
+`BADGE_REPO`) : les deux s'appliquent ; à type égal, les deux types prennent la plus stricte des
+deux politiques ; et la page du projet l'indique, avec le nom et le type utilisés. Pour un champ, la
+plus stricte de votre règle et de celle du fichier s'applique, la vôtre à égalité.
+
+**Ce qui y laisserait des valeurs en clair est mis de côté :** un reconnaisseur qui laisse passer ce
+qu'il trouve (`policy: allow`), et un reconnaisseur, un terme ou une règle de champ d'un type laissé
+en clair dans ce dossier, par vos politiques ou vos réglages pour le projet. `latet project check`
+et le tableau de bord disent lequel, et où le mettre à la place : dans vos réglages pour le projet,
+où une modification qui réduit la protection attend votre approbation. Le tableau de bord n'écrit
+pas une telle entrée dans le fichier ; celle que le fichier contient déjà reste, pour qui ne laisse
+pas passer son type.
 
 **Ce qu'un fichier de dépôt ne peut pas régler est ignoré :** les valeurs et les motifs à ne jamais
 masquer, les règles de secrets désactivées, les outils que couvre le mode données strict

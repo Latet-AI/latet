@@ -64,6 +64,7 @@ from latet.gateway.recorder import original_range, reconstruct, replacement_dict
 from latet.http_inputs import bounded_body, same_etag
 from latet.logline import Paced, described
 from latet.projects import (
+    IN_CLEAR_REASON,
     PROJECT_FILE,
     REPO_KEYS,
     UNCHECKED,
@@ -72,7 +73,10 @@ from latet.projects import (
     ProjectFileUnreadable,
     RepositoriesUnchecked,
     RepositoryScan,
+    effective_config,
+    file_rules,
     file_tag,
+    personal_for,
     render_project_file,
     repo_settings,
     repository_states,
@@ -437,6 +441,7 @@ def _column_view(column: Column) -> dict[str, Any]:
         "detail": column.detail,
         "kept_now": column.kept_now,
         "everywhere": column.everywhere,
+        "held_by_file": column.held_by_file,
         "examples": column.examples,
     }
 
@@ -541,6 +546,21 @@ def _unchecked() -> JSONResponse:
     """A change of the settings (a reload, an import) weighed on repositories that could not all be read now
     (``RepositoriesUnchecked``): nothing applied, opened for you or kept as approved; tried again once they can be."""
     return JSONResponse({"error": UNCHECKED, "reason": UNCHECKED_REASON}, status_code=503, headers={"Retry-After": "1"})
+
+
+def _added_by(key: str, saved: ProjectSettings, held: ProjectSettings | None) -> bool:
+    """Whether the entry of a repository file's notice (``recognizers.<name>``, ``terms.<place>``, ``fields.<name>``)
+    is one ``saved`` adds or changes, not one the file ``held`` already as it is."""
+    kind, _, which = key.partition(".")
+    before = held if held is not None else ProjectSettings()
+    if kind == "terms":
+        place = int(which) - 1 if which.isdigit() else -1
+        return not 0 <= place < len(saved.terms) or saved.terms[place] not in before.terms
+    if kind == "fields":
+        return any(f not in before.fields for f in saved.fields if f.name == which)
+    if kind == "recognizers":
+        return any(r not in before.recognizers for r in saved.recognizers if str(r.get("name")) == which)
+    return True
 
 
 # A project's latet.yaml there that was not read as a project's file (``ProjectFileUnreadable``): nothing is saved over
@@ -1364,11 +1384,14 @@ class Dashboard:
         slot, project = found.slot, found.project
         original, spans = reconstruct(slot["masked"], slot["replacements"], self.rt.built.vault)
         masker = project.scope.masker if project is not None and project.scope is not None else self.rt.built.masker
-        nearer = []  # the rules of the project's own layers: they come before the global ones
-        if project is not None:
-            nearer += project.personal.fields if project.personal is not None else []
-            nearer += [r for r in project.repo.fields if r.mask] if project.repo is not None else []
-        columns = propose(columns_of(original, strict_values(original, spans)), masker, found.config.fields, nearer)
+        # What a rule for everywhere would not change there: your rules for the project, which come before the global
+        # ones (a rule for the project does change it); and what no choice of yours changes there: the latet.yaml's
+        # rules in effect, which apply when stricter than yours (Ruling 098-R2), not the ones set aside.
+        nearer = project.personal.fields if project is not None and project.personal is not None else []
+        held = file_rules(found.config) if project is not None else []
+        columns = propose(
+            columns_of(original, strict_values(original, spans)), masker, found.config.fields, nearer, held
+        )
         around = {
             "strict": found.strict,
             "applies": found.applies,
@@ -2114,6 +2137,16 @@ class Dashboard:
         ]
         kept = [t.value for t in project.repo.terms] if project.repo is not None else []
         details += term_errors((t.value for t in parsed.terms), ("settings", "terms"), kept)
+        # What the save adds to the file that would be set aside there for leaving values in clear: never written, each
+        # said by its place. What the file holds already stays, its notice said where it is set aside (the dashboard
+        # sends the whole file: a teammate's entry, set aside only where your settings let its type through, is theirs).
+        config = self.rt.config
+        _, laid = await self._in_pool(effective_config, config, parsed, personal_for(config.projects, project.root))
+        details += [
+            {"loc": ["settings", *n.key.split(".", 1)], "msg": n.message, "type": "value_error", "reason": n.reason}
+            for n in laid
+            if n.reason == IN_CLEAR_REASON and _added_by(n.key, parsed, project.repo)
+        ]
         if details:
             return JSONResponse({"error": "invalid settings", "details": details}, 400)
         path = project.repo_file or Path(project.root) / PROJECT_FILE

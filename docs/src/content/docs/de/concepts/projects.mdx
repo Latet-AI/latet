@@ -69,7 +69,8 @@ policies: {EMAIL: redact}
 **Ein Wert ersetzt Ihren nur, wenn er strenger ist:**
 - `profile`: secrets, dann balanced, dann max (das dort den strikten Datenmodus einschaltet, sofern
   `data` nicht gesetzt ist);
-- `policies`: allow, dann mask, dann redact;
+- `policies`: allow, dann mask, dann redact, gemessen an der dort geltenden Richtlinie (auch der
+  eigenen eines Erkenners);
 - `include_private_ips`: nur `true`;
 - `ner`: nur `auto`;
 - `data`: nur `strict`; `images`: nur weniger Bilder, `mask`, dann `block`; `ocr`: nur `auto`;
@@ -78,8 +79,21 @@ policies: {EMAIL: redact}
   [Lokaler Prüfer](../llm-review/#in-einem-projekt)).
 
 **Eine Liste wird zu Ihrer hinzugefügt:** `pii`, `id_regions`, `phone_regions`, `terms`,
-`recognizers`, `data_files`, `data_hosts` und `fields` (nur Regeln, die maskieren). Ein Erkenner,
-dessen Name schon vergeben ist, wird ausgeschaltet.
+`recognizers`, `data_files`, `data_hosts` und `fields` (nur Regeln, die maskieren). Ein Erkenner
+Ihrer Einstellungen für das Projekt, dessen Name oder Typ einer Ihrer globalen schon verwendet,
+wird ausgeschaltet. Einer der Datei mit dem Namen oder dem Typ eines Ihrer Erkenner, global oder
+für das Projekt, gilt trotzdem, unter einem eigenen Namen oder Typ (`badge-repo`, `BADGE_REPO`):
+Beide gelten; bei demselben Typ nehmen beide Typen die strengere der beiden Richtlinien; und die
+Seite des Projekts sagt es, mit dem Namen und dem Typ in Gebrauch. Für ein Feld gilt die strengere
+von Ihrer Regel und der der Datei, bei gleicher Ihre.
+
+**Was dort Werte im Klartext ließe, wird beiseitegelegt:** ein Erkenner, der durchlässt, was er
+findet (`policy: allow`), und ein Erkenner, ein Begriff oder eine Feldregel mit einem Typ, der in
+diesem Ordner im Klartext bleibt, durch Ihre Richtlinien oder Ihre Einstellungen für das Projekt.
+`latet project check` und das Dashboard sagen, welche, und wohin sie stattdessen gehören: in Ihre
+Einstellungen für das Projekt, wo eine Änderung, die den Schutz verringert, auf Ihre Freigabe
+wartet. Das Dashboard schreibt einen solchen Eintrag nicht in die Datei; einer, den die Datei schon
+enthält, bleibt, für alle, die seinen Typ nicht durchlassen.
 
 **Was eine Datei im Repository nicht festlegen darf, wird ignoriert:** Werte und Muster, die nie
 maskiert werden, ausgeschaltete Regeln für geheime Werte, die Tools, die der strikte Datenmodus
