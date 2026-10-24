@@ -36,9 +36,15 @@ export function resends(agent: Agent): boolean {
   return agent === 'codex' || agent === 'opencode' || agent === 'gemini-cli' || agent === 'tutorial-agent'
 }
 
-/** The checked columns a rule for everywhere would not change there: a rule of the project's own comes first. */
+/** The checked columns a rule for everywhere would not change there, a rule of your settings for the project coming
+ * first: a rule for the project does. Not the ones its latet.yaml holds (`heldByFile`), which no choice changes. */
 export function heldByProject(columns: readonly OutputColumn[], checked: ReadonlySet<string>): string[] {
-  return columns.filter((c) => checked.has(c.name) && !c.everywhere).map((c) => c.name)
+  return columns.filter((c) => checked.has(c.name) && !c.everywhere && !c.held_by_file).map((c) => c.name)
+}
+
+/** The checked columns the project's latet.yaml keeps masked there, whatever is chosen here: the stricter rule applies. */
+export function heldByFile(columns: readonly OutputColumn[], checked: ReadonlySet<string>): string[] {
+  return columns.filter((c) => checked.has(c.name) && c.held_by_file).map((c) => c.name)
 }
 
 /**

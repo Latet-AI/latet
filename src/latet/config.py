@@ -25,6 +25,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     SerializerFunctionWrapHandler,
     ValidationError,
     field_validator,
@@ -540,6 +541,11 @@ class FieldRule(BaseModel):
         description="`false` keeps its values in clear in strict data mode (only in your own settings).",
     )
     secret: bool = Field(default=False, description="Its values are secrets: one in clear blocks the request.")
+    # The layer of a project's rules it came from, set where they are laid (``projects._layer``), never written or read:
+    # YOURS (your global rules and your settings for the folder), or a layer that may only add protection (a repository
+    # file, your settings taken as only adding). For one field, the first rule of each layer that matches is weighed,
+    # and the stricter applies, yours when as strict (``FieldDetector``, Ruling 098-R2).
+    _layer: int = PrivateAttr(default=0)
 
 
 def _entries(places: list[int]) -> str:
@@ -611,7 +617,10 @@ class ProjectSettings(BaseModel):
     ner: Literal["auto", "off"] | None = Field(default=None, description="Local name and address detection.")
     terms: list[TermConfig] = Field(default_factory=list, description="Values to always mask in this project.")
     recognizers: list[dict[str, Any]] = Field(
-        default_factory=list, description="Recognizers for this project (a name already in use turns the entry off)."
+        default_factory=list,
+        description="Recognizers for this project (a name or a type a global one uses turns the entry off; a "
+        "repository file's of the name or the type of one of yours applies under a name and a type of its own, such "
+        "as `badge-repo` and `BADGE_REPO`, both types at the stricter of the two policies).",
     )
     allow_values: list[str] = Field(default_factory=list, description="Values never to mask in this project.")
     allow_patterns: list[str] = Field(

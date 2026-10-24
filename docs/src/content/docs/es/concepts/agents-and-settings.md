@@ -40,14 +40,15 @@ Un cambio que **reduce** la protección no se aplica hasta que lo apruebas, lo h
   con los últimos ajustes que aprobaste.
 
 Son cambios que reducen la protección, por ejemplo, un valor que no se enmascara nunca, un perfil
-más bajo, un término o un reconocedor eliminado, una política cambiada a `allow`, el revisor local o
-el Revisor en directo desactivados o leyendo menos, Latet desactivado en un proyecto, el servidor
-del revisor local trasladado a otro equipo, o un cambio en [sus indicaciones](../llm-review/#tus-indicaciones):
-un texto libre podría decirle que no señale nada, así que cualquier cambio espera, y el panel
-muestra las indicaciones antes y después. Lo mismo vale para un
-[destino](../../agents/company-endpoints/) trasladado a otra dirección, o eliminado: un agente que
-apunta a él enviaría sus peticiones, y sus claves, a otro sitio, así que el panel muestra la
-dirección antes y después.
+más bajo, un término o un reconocedor eliminado, una política cambiada a `allow`, un término o una
+regla de campo de un tipo cuya política es `allow` (lo que encuentra quedaría en claro), el revisor
+local o el Revisor en directo desactivados o leyendo menos, Latet desactivado en un proyecto, el
+servidor del revisor local trasladado a otro equipo, o un cambio en
+[sus indicaciones](../llm-review/#tus-indicaciones): un texto libre podría decirle que no señale
+nada, así que cualquier cambio espera, y el panel muestra las indicaciones antes y después. Lo mismo
+vale para un [destino](../../agents/company-endpoints/) trasladado a otra dirección, o eliminado: un
+agente que apunta a él enviaría sus peticiones, y sus claves, a otro sitio, así que el panel muestra
+la dirección antes y después.
 
 El cambio espera en la página **Aprobaciones** del panel, en *Ajustes*, con lo que reduce, de dónde
 viene (el agente que ejecutó el comando, cuando Latet puede saberlo) y qué ajustes toca. **Aprobar**

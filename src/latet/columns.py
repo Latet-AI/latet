@@ -91,7 +91,8 @@ class Column:
     reason: str = "unclear"  # keep: dates, ids... | mask: people, person, sensitive... | ask: repeats, amounts...
     detail: str | None = None  # what was found (EMAIL), or the values that repeat
     kept_now: bool = False  # a rule of yours keeps it in clear already
-    everywhere: bool = True  # a rule for everywhere would change it here (no rule of the project's comes first)
+    everywhere: bool = True  # a rule for everywhere would change it here (no rule of the project's holds it)
+    held_by_file: bool = False  # the project's latet.yaml masks it: no choice of yours changes it here
     examples: list[str] = field(default_factory=list)  # up to three of its values
 
 
@@ -219,15 +220,22 @@ def _proposal(column: Column, masker: Masker) -> tuple[Proposal, str, str | None
 
 
 def propose(
-    columns: Sequence[Column], masker: Masker, fields: Sequence[FieldRule] = (), nearer: Sequence[FieldRule] = ()
+    columns: Sequence[Column],
+    masker: Masker,
+    fields: Sequence[FieldRule] = (),
+    nearer: Sequence[FieldRule] = (),
+    held: Sequence[FieldRule] = (),
 ) -> list[Column]:
-    """Each column with its proposal and reason, worked out from its name and its values; whether a rule
-    of yours (``fields``, the project's in effect) keeps it in clear already; and whether a rule for
-    everywhere would change it there (``nearer``: the rules of the project's own layers, which come first)."""
-    rules, near = FieldDetector(fields), FieldDetector(nearer)
+    """Each column with its proposal and reason, worked out from its name and its values; whether a rule of yours
+    (``fields``, the project's in effect) keeps it in clear already; whether the project's latet.yaml masks it
+    (``held``: the file's rules in effect there), which no choice of yours changes, the stricter rule applying (Ruling
+    098-R2); and whether a rule for everywhere would change it there (``nearer``: your rules for the project, which come
+    before the global ones; a rule for the project does)."""
+    rules, near, file = FieldDetector(fields, policies=masker.policies), FieldDetector(nearer), FieldDetector(held)
     for column in columns:
         column.proposal, column.reason, column.detail = _proposal(column, masker)
         rule = rules._rule(column.name)
         column.kept_now = rule is not None and not rule.mask
-        column.everywhere = near._rule(column.name) is None
+        column.held_by_file = file._rule(column.name) is not None
+        column.everywhere = near._rule(column.name) is None and not column.held_by_file
     return list(columns)

@@ -216,8 +216,9 @@ fields:
 - `mask: false` keeps a field in clear in strict data mode. It belongs in your own settings, not in
   a project's `latet.yaml`, which can only add protection.
 
-The first rule that matches a field wins: your settings for a project come before its
-`latet.yaml`, and both before your global rules.
+For a field, your first rule that matches it (your settings for a project first, then your global
+rules) and the first of the project's `latet.yaml` that matches it are weighed: the stricter applies
+(redacted, then masked, then in clear), yours when they are as strict.
 
 ## Choosing the columns to keep in clear
 
@@ -241,18 +242,19 @@ look at the values shown beside each column before you apply.
 
 The columns proposed in clear come checked. *Keep 2 columns in clear* adds a rule for each, such as
 `{name: status, mask: false}`, at the top of your settings for the project (*This project*) or of your
-global rules (*Everywhere*): the first rule that matches wins, so a broader rule such as `note_*`
-does not mask it again. The next outputs show those columns as they are. Nothing applies until you
-click.
+global rules (*Everywhere*): of your rules, the first that matches wins, so a broader rule of yours
+such as `note_*` does not mask it again; a rule of the project's `latet.yaml` that masks the column
+still holds there, whatever you choose. The next outputs show those columns as they are. Nothing
+applies until you click.
 
 - **Worked out when you open the list.** The columns are read from the output the history keeps,
   on your machine, and nothing new is stored. With `history: metadata` or `off` there is no list.
 - **The local reviewer's opinion, if you ask.** With the [local reviewer](../llm-review/) on, *Ask
   the local reviewer* sends it the column names and a few values of each, and shows its opinion
   beside the proposals. It is never applied by itself.
-- **A project's own rules come first.** Your settings for a project and its `latet.yaml` come
-  before your global rules: a column one of them masks stays masked there whatever *Everywhere*
-  adds, and the list says so.
+- **A project's own rules hold.** A column your settings for a project mask stays masked there
+  whatever *Everywhere* adds: the list says so, and *This project* changes it. A column the
+  project's `latet.yaml` masks stays masked there whatever you choose, and the list says which.
 - **After a restart,** a project's settings load at its next session: until then the choice can go
   only in your global rules.
 - **Codex and OpenCode** send the whole conversation with each request, and Latet masks it again
@@ -302,7 +304,7 @@ add protection:
 | `data_tools` | ignored | added to yours |
 | `data_files` | added | added to yours |
 | `data_hosts` | added | added to yours |
-| `fields` | only rules that mask | any rule, `mask: false` included |
+| `fields` | only rules that mask, of a type masked there | any rule, `mask: false` included |
 | `dump_guard` | only lower | any value; 0 turns it off |
 | `images` | only fewer: `mask`, then `block` | `allow`, `mask` or `block` |
 | `ocr` | only `auto` | `auto` or `off` |

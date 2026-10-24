@@ -959,6 +959,26 @@ async function projectNewRowSavesToTheChosenPlace({ page, app, go }) {
   assert.equal(await readOnly.getByRole('radiogroup', { name: saveTo }).count(), 0, 'latet.yaml is offered where it cannot be written')
 }
 
+/**
+ * A recognizer saved to latet.yaml cannot let what it finds through: a repository file sets such a recognizer aside, so
+ * its panel offers the choice for your settings for the project alone.
+ */
+async function repoRecognizerOffersNoLetThrough({ page, app, go }) {
+  const project = await app(firstProject)
+  await go(`/rules?project=${encodeURIComponent(project)}#project-recognizers`)
+  const section = page.locator('#project-recognizers')
+  await section.getByRole('table').waitFor()
+  await section.getByRole('button', { name: await word(app, 'rules.table.addFor', { project: 'billing-app' }), exact: true }).click()
+  const panel = page.getByRole('dialog', { name: await word(app, 'rules.recognizers.new') })
+  const policy = panel.getByRole('radiogroup', { name: await word(app, 'rules.recognizers.policy') })
+  const allow = await word(app, 'rules.recognizers.policyAllow')
+  await policy.waitFor()
+  assert.equal(await policy.getByRole('radio', { name: allow }).count(), 1, 'your settings for the project do not offer it')
+  await panel.getByRole('radiogroup', { name: await word(app, 'rules.saveTo.title') }).locator('label').filter({ hasText: await word(app, 'rules.saveTo.repo') }).click()
+  await panel.getByText(await word(app, 'rules.saveTo.repoHelp')).waitFor()
+  assert.equal(await policy.getByRole('radio', { name: allow }).count(), 0, 'latet.yaml offers to let what it finds through')
+}
+
 /** In the Repository file tab, Suggest recognizers opens a draft in the Recognizers tab's panel, latet.yaml chosen. */
 async function projectSuggestionOpensInThePanel({ page, open, app }) {
   const project = await app(firstProject)
@@ -2528,6 +2548,7 @@ const CHECKS = [
   projectGlobalRowIsReadOnly,
   projectNewRowSavesToTheChosenPlace,
   saveToSaysLatetYamlIsCreated,
+  repoRecognizerOffersNoLetThrough,
   projectSuggestionOpensInThePanel,
   projectPanelSaveKeepsTheSaveBarEdits,
   approvalsTabsCountAndOpenOnTexts,

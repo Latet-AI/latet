@@ -117,7 +117,7 @@ function remote(on: On, options: Options = {}) {
     calls.push(input)
     let response: unknown
     switch (input.op) {
-      case 'ping': response = { ok: true, version: '0.9.7' }; break
+      case 'ping': response = { ok: true, version: '0.9.8' }; break
       case 'route-check': response = options.verdict === undefined ? { ok: true } : options.verdict; break
       case 'scope': response = { ok: true }; break
       case 'instructions': response = { findings: [] }; break

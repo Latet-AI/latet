@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import type { OutputColumn, OutputShape, ProjectDetail, Slot } from '../api/types'
-import { hasStrictValues, heldByProject, holdsStructure, initialChecks, resends, rulesWith, strictLayer, strictOn, whereChoices } from './columns'
+import { hasStrictValues, heldByFile, heldByProject, holdsStructure, initialChecks, resends, rulesWith, strictLayer, strictOn, whereChoices } from './columns'
 
 const column = (name: string, proposal: OutputColumn['proposal'], extra: Partial<OutputColumn> = {}): OutputColumn => ({
   name,
@@ -11,6 +11,7 @@ const column = (name: string, proposal: OutputColumn['proposal'], extra: Partial
   detail: null,
   kept_now: false,
   everywhere: true,
+  held_by_file: false,
   examples: [],
   ...extra,
 })
@@ -52,10 +53,15 @@ describe('strict data mode, guided', () => {
     expect(resends('claude-code')).toBe(false)
   })
 
-  it('names the columns a rule of the project keeps masked whatever the global rules say', () => {
-    const columns = [column('stato', 'keep', { everywhere: false }), column('id', 'keep')]
-    expect(heldByProject(columns, new Set(['stato', 'id']))).toEqual(['stato'])
+  it('names the columns a rule of the project keeps masked whatever the global rules say, apart from the ones its latet.yaml holds', () => {
+    // A column the project's latet.yaml masks stays masked whatever you choose: said as the file's, not as a column to
+    // choose This project for.
+    const file = column('cliente', 'keep', { everywhere: false, held_by_file: true })
+    const columns = [column('stato', 'keep', { everywhere: false }), file, column('id', 'keep')]
+    expect(heldByProject(columns, new Set(['stato', 'cliente', 'id']))).toEqual(['stato'])
+    expect(heldByFile(columns, new Set(['stato', 'cliente', 'id']))).toEqual(['cliente'])
     expect(heldByProject(columns, new Set(['id']))).toEqual([])
+    expect(heldByFile(columns, new Set(['id']))).toEqual([])
   })
 
   it('shows the columns only on a tool output with values strict data mode masked', () => {

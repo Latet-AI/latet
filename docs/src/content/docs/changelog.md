@@ -11,6 +11,55 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.8 (2026-10-24)
+
+- Prime Agent goes through Latet: give its built-in Anthropic, OpenAI and OpenRouter providers
+  Latet's address in `~/.prime/agent/models.json`, and its requests are masked with an API key;
+  signed in with a Claude plan, its requests are checked and stopped as Claude Code's. See
+  [GitHub Copilot, JetBrains and more](../agents/other-tools/#prime-agent).
+- Fixed: a term or a field rule given a type your policies let through (`allow`) left what it found
+  in clear, and the change applied at once, even when an agent made it. With URLs let through, a
+  field rule `{name: password, type: URL}` sent passwords in clear, and a client's term retyped `URL`
+  sent the client's name. Such a change now lowers protection and waits for your approval, also in a
+  project whose own policy lets the type through; an import holds such a term or field rule back.
+- Fixed: a repository's `latet.yaml`, which may only add protection, could leave values in clear in
+  that repository: a recognizer of its own with `policy: allow` and a field rule for `password` of
+  its type sent every password in clear, and nothing waited for anyone. A project file now sets
+  aside a recognizer that lets what it finds through, and a recognizer, a term or a field rule of a
+  type left in clear there by your policies, each with a notice saying where to put it instead (your
+  own settings for the project); the dashboard does not write a new one into the file, and `latet
+  rules add --repo` refuses such a recognizer. A term typed `EMAIL` set aside so, where e-mail
+  addresses are let through and not detected, no longer masks its domain elsewhere in the text. A
+  project file's policy is weighed against the one in force too: it can no longer turn a
+  recognizer's own `redact` into `mask`. A project file and your own settings no longer loosen each
+  other: for a column, the stricter of your rule and the file's applies (redacted, then masked, then
+  in clear), yours when they are as strict; of the file's recognizer and one of yours with the same
+  name or type, global or for the folder, both apply, the file's under a name or a type of its own
+  (`badge-repo`, `BADGE_REPO`), of one type both types at the stricter of the two policies, and the
+  project's page says so; and the file's term of a value of yours adds forms to yours, never takes
+  one away. Before, the first recognizer of a name or a type was the only one in use: a file's
+  recognizer named as one of yours put yours out of use (a badge you redact, in clear), and one of
+  yours put the team's out, with the forms only it found. A team's file no longer silences a
+  recognizer of yours, so your settings apply as written there (a recognizer of yours whose type
+  you let through finds its values in clear, where a team's file happened to keep it out of use);
+  nor does a global entry of yours that is turned off silence the team's recognizer of its name. See
+  [Projects](../concepts/projects/).
+- Changed: a recognizer renamed, given a stricter policy of its own, or retyped between two types
+  with no policy of their own no longer waits for your approval: it finds the same values, at a
+  policy as strict. One retyped waits when it loosens the policy of a type whose values something
+  else finds, said as that type's policy: a type a term or a field rule uses, one `policies` names,
+  or one Latet's own detectors give (strict data mode's `DATA`, the name detector's `ZIPCODE`, the
+  local reviewer's `SECRET`, `ORG`, `HEALTH` and the others), as in `policy for DATA: from mask to
+  allow`; any other type it loosens is said as a recognizer changed, as before (the vault finds
+  remembered values again under the type they were found as). So do one turned off, one finding
+  fewer values, one removed, and one added whose type your policies let through.
+- Fixed: for a column a project's `latet.yaml` masks, the columns list of an exchange advised
+  choosing *This project*, which changes nothing there (the file's rule holds, being stricter), and
+  counted a rule of the file set aside for its type. It now says the file keeps the column masked.
+- Fixed: taking away an entry of `policies` that held a recognizer's own `policy: allow` back let
+  what the recognizer finds through, and nothing waited for you. It is now said as the policy the
+  type ends up with (`policy for BADGE: from mask to allow`), and waits for your approval.
+
 ## 0.9.7 (2026-10-23)
 
 - `latet doctor`, `latet agents status` and the dashboard no longer say that OpenCode's ChatGPT sign-in is planned for

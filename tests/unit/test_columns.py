@@ -114,11 +114,22 @@ def test_a_column_kept_in_clear_today_says_so():
 
 
 def test_a_rule_of_the_project_comes_before_one_for_everywhere():
-    """Your settings for a project, and its repository file, come before the global rules: a column
-    one of them matches is not changed by a rule for everywhere."""
+    """Your settings for a project come before the global rules: a column one of them matches is not changed by a rule
+    for everywhere."""
     nearer = [FieldRule(name="stato", mask=True)]
     found = {c.name: c for c in propose(columns_of(ORDERS), build(Config(), Vault(ROOT_KEY)).masker, [], nearer)}
     assert not found["stato"].everywhere and found["id"].everywhere
+
+
+def test_a_column_the_repository_file_masks_is_held_by_the_file_whatever_you_choose():
+    """Re-review minor 1 (Ruling 098-R2): a column the project's latet.yaml masks stays masked there whatever you choose,
+    This project or Everywhere, the stricter rule applying. It is said held by the file, not as a column to choose This
+    project for, which changes nothing for it."""
+    nearer, held = [FieldRule(name="stato")], [FieldRule(name="cliente")]
+    found = {c.name: c for c in propose(columns_of(ORDERS), build(Config(), Vault(ROOT_KEY)).masker, [], nearer, held)}
+    assert not found["stato"].everywhere and not found["stato"].held_by_file
+    assert not found["cliente"].everywhere and found["cliente"].held_by_file
+    assert found["id"].everywhere and not found["id"].held_by_file
 
 
 def test_the_values_strict_data_mode_masked():

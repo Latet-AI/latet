@@ -65,7 +65,8 @@ policies: {EMAIL: redact}
 **A value replaces yours only when it is stricter:**
 - `profile`: secrets, then balanced, then max (which turns strict data mode on there, unless `data`
   is set);
-- `policies`: allow, then mask, then redact;
+- `policies`: allow, then mask, then redact, against the policy in force there (a recognizer's own
+  included);
 - `include_private_ips`: only `true`;
 - `ner`: only `auto`;
 - `data`: only `strict`; `images`: only fewer, `mask` then `block`; `ocr`: only `auto`;
@@ -74,8 +75,19 @@ policies: {EMAIL: redact}
   [Local reviewer](../llm-review/#in-a-project)).
 
 **A list is added to yours:** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
-`data_files`, `data_hosts` and `fields` (only rules that mask). A recognizer whose name is already in
-use is turned off.
+`data_files`, `data_hosts` and `fields` (only rules that mask). A recognizer of your settings for
+the project whose name or type a global one of yours uses is turned off. One of the file whose name
+or type one of yours uses, global or for the project, applies all the same, under a name or a type
+of its own (`badge-repo`, `BADGE_REPO`): both apply; of one type, both types take the stricter of
+the two policies; and the project's page says so, with the name and the type in use. For a field,
+the stricter of your rule and the file's applies, yours when they are as strict.
+
+**What would leave values in clear there is set aside:** a recognizer that lets what it finds
+through (`policy: allow`), and a recognizer, a term or a field rule of a type left in clear in that
+folder, by your policies or your settings for the project. `latet project check` and the dashboard
+say which, and where to put it instead: your own settings for the project, where a change that
+lowers protection waits for your approval. The dashboard does not write such an entry into the file;
+one the file holds already stays, for whoever does not let its type through.
 
 **What a repository file cannot set is ignored:** values and patterns never to mask, secret rules
 turned off, the tools strict data mode covers (`data_tools`), Latet off, the Live Reviewer, guidance

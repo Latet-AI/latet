@@ -72,7 +72,7 @@ export function mockColumns(
           : ['ask', ASK[name] ?? 'unclear', null]
     const count = values.filter((v) => masked.has(v)).length
     const kept_now = fields ? isUnlocked(fields, name) : name === 'id'
-    return { name, masked: count, proposal, reason, detail, kept_now, everywhere: true, examples: values.slice(0, 3) }
+    return { name, masked: count, proposal, reason, detail, kept_now, everywhere: true, held_by_file: false, examples: values.slice(0, 3) }
   })
   // The mock's tool outputs with a structure are a query's: strict data mode covers them. Its file reads are not JSON
   // nor a psql table, so they have no columns here.

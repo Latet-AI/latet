@@ -39,14 +39,15 @@ Una modifica che **riduce** la protezione non si applica finché non la approvi,
   ultime impostazioni che hai approvato.
 
 Ridurre la protezione significa, per esempio, un valore da non mascherare mai, un profilo più basso,
-un termine o un riconoscitore rimosso, un criterio impostato su `allow`, il revisore locale o il
-Revisore Live disattivato o che legge di meno, Latet disattivato in un progetto, il server del
-revisore locale spostato su un altro computer, o [le sue indicazioni](../llm-review/#le-tue-indicazioni)
-modificate: un testo libero potrebbe dirgli di non segnalare nulla, quindi qualsiasi modifica
-attende, e la dashboard mostra le indicazioni prima e dopo. Lo stesso vale per una
-[destinazione](../../agents/company-endpoints/) spostata a un altro indirizzo, o rimossa: un agente
-che vi punta invierebbe le sue richieste, e le sue chiavi, da un'altra parte, quindi la dashboard
-mostra l'indirizzo prima e dopo.
+un termine o un riconoscitore rimosso, un criterio impostato su `allow`, un termine o una regola di
+campo di un tipo il cui criterio è `allow` (ciò che trova resterebbe in chiaro), il revisore locale
+o il Revisore Live disattivato o che legge di meno, Latet disattivato in un progetto, il server del
+revisore locale spostato su un altro computer, o
+[le sue indicazioni](../llm-review/#le-tue-indicazioni) modificate: un testo libero potrebbe dirgli
+di non segnalare nulla, quindi qualsiasi modifica attende, e la dashboard mostra le indicazioni
+prima e dopo. Lo stesso vale per una [destinazione](../../agents/company-endpoints/) spostata a un
+altro indirizzo, o rimossa: un agente che vi punta invierebbe le sue richieste, e le sue chiavi, da
+un'altra parte, quindi la dashboard mostra l'indirizzo prima e dopo.
 
 La modifica attende nella pagina **Approvazioni** della dashboard, in *Impostazioni*, con ciò che
 riduce, da dove viene (l'agente che ha eseguito il comando, quando Latet riesce a capirlo) e quali

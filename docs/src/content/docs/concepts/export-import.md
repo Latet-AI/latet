@@ -52,8 +52,9 @@ Latet has seen for real is left out, since examples should be invented.
   for, is left out: yours is kept.
 
 **What would lower protection is listed and left out:** the exceptions, a weaker value, the
-reviewer's guidance, a recognizer that lets what it finds through (`policy: allow`), a field kept in
-clear. `--all`, or *Apply these too* in the dashboard, applies them as well. Run by an agent or a
+reviewer's guidance, a recognizer that lets what it finds through (`policy: allow`), a term or a
+field rule of a type your policies let through (it would leave what it finds in clear), a field kept
+in clear. `--all`, or *Apply these too* in the dashboard, applies them as well. Run by an agent or a
 script, `--all` makes the whole import one change, which waits for your approval like any
 [change that lowers protection](../agents-and-settings/): what adds protection waits with it, and
 nothing of the import applies until you approve it. `--dry-run` only says what an import would do.

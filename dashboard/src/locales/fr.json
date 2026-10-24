@@ -156,7 +156,8 @@
       "upstreams_other": "{{count}} destinations"
     },
     "destinationRefused": "{{url}} : une destination à vous sur ce serveur demande une adresse utilisable, jointe en https, qui ne mène ni au serveur lui-même ni à l'intérieur de son réseau. Une destination jointe en clair ou à l'intérieur du réseau peut être définie pour tout le monde par ses administrateurs.",
-    "reviewerKeyServer": "{{setting}} : sur un serveur, aucun réglage n'indique où lire la clé du relecteur local. Le serveur la fournit, telle que ses administrateurs la définissent."
+    "reviewerKeyServer": "{{setting}} : sur un serveur, aucun réglage n'indique où lire la clé du relecteur local. Le serveur la fournit, telle que ses administrateurs la définissent.",
+    "repoInClear": "{{setting}} : un fichier du dépôt ne peut pas le contenir, car il y laisserait des valeurs en clair (un reconnaisseur qui laisse passer ce qu'il trouve, ou un reconnaisseur, un terme ou une règle de champ d'un type que l'on laisse passer). Mettez-le dans vos réglages pour le projet, où une modification qui réduit la protection attend votre approbation."
   },
   "auth": {
     "title": "Ouvrez le tableau de bord depuis votre terminal",
@@ -1009,6 +1010,9 @@
       "held_one": "Une règle de ce projet garde la colonne {{columns}} masquée, et elle passe avant les règles globales : choisissez Ce projet pour cette colonne.",
       "held_many": "Des règles de ce projet gardent les colonnes {{columns}} masquées, et elles passent avant les règles globales : choisissez Ce projet pour ces colonnes.",
       "held_other": "Des règles de ce projet gardent les colonnes {{columns}} masquées, et elles passent avant les règles globales : choisissez Ce projet pour ces colonnes.",
+      "heldByFile_one": "Le latet.yaml de ce projet garde la colonne {{columns}} masquée : rien de ce que vous choisissez ici ne le change là.",
+      "heldByFile_many": "Le latet.yaml de ce projet garde les colonnes {{columns}} masquées : rien de ce que vous choisissez ici ne le change là.",
+      "heldByFile_other": "Le latet.yaml de ce projet garde les colonnes {{columns}} masquées : rien de ce que vous choisissez ici ne le change là.",
       "resends": "Cet agent envoie toute la conversation avec chaque requête : dès la prochaine, les sorties qu'elle contient déjà partent aussi avec ces colonnes en clair."
     },
     "strict": {
@@ -1803,16 +1807,20 @@
     "folder": "Dossier",
     "file": "latet.yaml",
     "noFile": "Aucun pour l'instant : enregistrer les règles sous Fichier du dépôt le crée",
-    "notices": "Ce qui n'est pas appliqué",
+    "notices": "Ce qui n'est pas appliqué, ou pas tel quel",
     "fromRepo": "latet.yaml",
     "fromPersonal": "Vos réglages",
     "ignored": "ignoré : {{message}}",
     "error": "erreur : {{message}}",
+    "changed": "pas tel quel : {{message}}",
     "pastShare": "vous utilisez toute la mémoire que le serveur donne à une personne : les règles de ce dossier n'ont pas été construites et ses textes sont refusés. Elles le seront à la prochaine utilisation du dossier, une fois que vous en utiliserez moins : oubliez quelques valeurs dans le Coffre-fort, ou retirez quelques règles ou projets.",
     "unbuilt": "ses règles n'ont pas pu être construites : ses textes sont refusés jusqu'à ce qu'elles puissent l'être.",
     "repoCannotSet": "un fichier du dépôt ne peut pas le définir, mettez-le donc dans vos réglages pour le projet.",
     "repoWholeLatet": "un réglage de tout Latet, donc seul votre config.yaml le définit.",
     "repoUnknown": "ce n'est pas un réglage que Latet connaît.",
+    "repoInClear": "un fichier du dépôt ne peut pas le contenir, car il y laisserait des valeurs en clair : mettez-le dans vos réglages pour le projet, où une modification qui réduit la protection attend votre approbation.",
+    "recognizerApart": "appliqué dans ce projet sous le nom {{name}}, type {{type}} : un de vos reconnaisseurs porte son nom ou son type, donc les deux s'appliquent, et les deux types prennent la plus stricte des deux politiques.",
+    "recognizerRenamed": "appliqué dans ce projet sous le nom {{name}}, car une de vos entrées porte déjà son nom : celui du fichier s'applique sous le sien, avec son type ({{type}}) et sa politique ; le vôtre, là où il est utilisé, s'applique comme avant.",
     "scope": {
       "label": "Règles de",
       "global": "Tout (règles globales)",

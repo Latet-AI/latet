@@ -232,8 +232,9 @@ fields:
 - `mask: false` laisse un champ en clair en mode données strict. Sa place est dans vos propres
   réglages, pas dans le `latet.yaml` d'un projet, qui ne peut qu'ajouter de la protection.
 
-La première règle qui correspond à un champ l'emporte : vos réglages pour un projet passent avant son
-`latet.yaml`, et les deux avant vos règles globales.
+Pour un champ, votre première règle qui lui correspond (d'abord vos réglages pour un projet, puis
+vos règles globales) et la première du `latet.yaml` du projet qui lui correspond sont comparées : la
+plus stricte s'applique (caviardé, puis masqué, puis en clair), la vôtre à égalité.
 
 ## Choisir les colonnes à laisser en clair
 
@@ -260,9 +261,10 @@ valeurs affichées à côté de chaque colonne avant d'appliquer.
 
 Les colonnes proposées en clair sont déjà cochées. *Laisser 2 colonnes en clair* ajoute une règle pour
 chacune, comme `{name: status, mask: false}`, en tête de vos réglages pour le projet (*Ce projet*) ou
-de vos règles globales (*Partout*) : la première règle qui correspond l'emporte, donc une règle plus
-large comme `note_*` ne la masque pas à nouveau. Les sorties suivantes montrent ces colonnes telles
-quelles. Rien ne s'applique tant que vous n'avez pas cliqué.
+de vos règles globales (*Partout*) : parmi vos règles, la première qui correspond l'emporte, donc une
+règle plus large de vous comme `note_*` ne la masque pas à nouveau ; une règle du `latet.yaml` du
+projet qui masque la colonne continue de s'y appliquer, quoi que vous choisissiez. Les sorties
+suivantes montrent ces colonnes telles quelles. Rien ne s'applique tant que vous n'avez pas cliqué.
 
 - **Calculée à l'ouverture de la liste.** Les colonnes sont lues dans la sortie que conserve
   l'historique, sur votre machine, et rien de nouveau n'est stocké. Avec `history: metadata` ou `off`,
@@ -270,9 +272,10 @@ quelles. Rien ne s'applique tant que vous n'avez pas cliqué.
 - **L'avis du relecteur local, si vous le demandez.** Avec le [relecteur local](../llm-review/)
   activé, *Demander au relecteur local* lui envoie les noms des colonnes et quelques valeurs de
   chacune, et affiche son avis à côté des propositions. Il n'est jamais appliqué tout seul.
-- **Les règles propres à un projet passent en premier.** Vos réglages pour un projet et son
-  `latet.yaml` passent avant vos règles globales : une colonne que l'un d'eux masque y reste masquée,
-  quoi qu'ajoute *Partout*, et la liste l'indique.
+- **Les règles propres à un projet tiennent.** Une colonne que vos réglages pour un projet masquent y
+  reste masquée, quoi qu'ajoute *Partout* : la liste l'indique, et *Ce projet* la change. Une colonne
+  que le `latet.yaml` du projet masque y reste masquée quoi que vous choisissiez, et la liste dit
+  laquelle.
 - **Après un redémarrage,** les réglages d'un projet se chargent à sa session suivante : d'ici là, le
   choix ne peut aller que dans vos règles globales.
 - **Codex et OpenCode** envoient toute la conversation avec chaque requête, et Latet la masque de
@@ -327,7 +330,7 @@ projet ne peut qu'ajouter de la protection :
 | `data_tools` | ignoré | ajouté aux vôtres |
 | `data_files` | ajouté | ajouté aux vôtres |
 | `data_hosts` | ajouté | ajouté aux vôtres |
-| `fields` | seulement les règles qui masquent | toute règle, `mask: false` compris |
+| `fields` | seulement les règles qui masquent, d'un type masqué là | toute règle, `mask: false` compris |
 | `dump_guard` | seulement plus bas | toute valeur ; 0 le désactive |
 | `images` | seulement moins d'images : `mask`, puis `block` | `allow`, `mask` ou `block` |
 | `ocr` | seulement `auto` | `auto` ou `off` |

@@ -58,9 +58,10 @@ exemples doivent être inventés.
 
 **Ce qui réduirait la protection est listé et laissé de côté :** les exceptions, une valeur plus
 faible, les consignes du relecteur, un reconnaisseur qui laisse passer ce qu'il trouve
-(`policy: allow`), un champ laissé en clair. `--all`, ou *Les appliquer aussi* dans le tableau de
-bord, les applique également. Si c'est un agent ou un script qui lance l'importation, `--all` fait de
-toute l'importation une seule modification, qui attend votre approbation comme toute
+(`policy: allow`), un terme ou une règle de champ d'un type que vos politiques laissent passer (ce
+qu'il trouve resterait en clair), un champ laissé en clair. `--all`, ou *Les appliquer aussi* dans
+le tableau de bord, les applique également. Si c'est un agent ou un script qui lance l'importation,
+`--all` fait de toute l'importation une seule modification, qui attend votre approbation comme toute
 [modification qui réduit la protection](../agents-and-settings/) : ce qui ajoute de la protection
 attend avec elle, et rien de l'importation ne s'applique tant que vous ne l'avez pas approuvée.
 `--dry-run` indique seulement ce que ferait une importation.

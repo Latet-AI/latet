@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` affiche `running: Latet 0.9.7 on 127.0.0.1:5283 (masking), pid 12345` quand le daemon
+`latet status` affiche `running: Latet 0.9.8 on 127.0.0.1:5283 (masking), pid 12345` quand le daemon
 tourne, ou `not running` sinon. Si vous voulez plutôt cesser d'utiliser Latet, lancez d'abord
 `latet global-uninstall` : il remet vos agents comme ils étaient. Voir
 [Désinstallation](../getting-started/uninstall/).

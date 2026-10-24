@@ -156,7 +156,8 @@
       "upstreams_other": "{{count}} destinos"
     },
     "destinationRefused": "{{url}}: en este servidor, un destino tuyo necesita una dirección que se pueda usar, alcanzada por https, que no lleve ni al propio servidor ni al interior de su red. Sus administradores pueden establecer para todos un destino alcanzado en claro o dentro de la red.",
-    "reviewerKeyServer": "{{setting}}: en un servidor ningún ajuste indica de dónde se lee la clave del revisor local. La da el servidor, como la establecen sus administradores."
+    "reviewerKeyServer": "{{setting}}: en un servidor ningún ajuste indica de dónde se lee la clave del revisor local. La da el servidor, como la establecen sus administradores.",
+    "repoInClear": "{{setting}}: un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro (un reconocedor que deja pasar lo que encuentra, o un reconocedor, un término o una regla de campo de un tipo que se deja pasar). Ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección espera tu aprobación."
   },
   "auth": {
     "title": "Abre el panel desde tu terminal",
@@ -1009,6 +1010,9 @@
       "held_one": "Una regla de este proyecto mantiene enmascarada la columna {{columns}}, y tiene prioridad sobre las reglas globales: elige Este proyecto para ella.",
       "held_many": "Hay reglas de este proyecto que mantienen enmascaradas las columnas {{columns}}, y tienen prioridad sobre las reglas globales: elige Este proyecto para ellas.",
       "held_other": "Hay reglas de este proyecto que mantienen enmascaradas las columnas {{columns}}, y tienen prioridad sobre las reglas globales: elige Este proyecto para ellas.",
+      "heldByFile_one": "El latet.yaml de este proyecto mantiene enmascarada la columna {{columns}}: nada de lo que elijas aquí lo cambia ahí.",
+      "heldByFile_many": "El latet.yaml de este proyecto mantiene enmascaradas las columnas {{columns}}: nada de lo que elijas aquí lo cambia ahí.",
+      "heldByFile_other": "El latet.yaml de este proyecto mantiene enmascaradas las columnas {{columns}}: nada de lo que elijas aquí lo cambia ahí.",
       "resends": "Este agente envía toda la conversación con cada petición: a partir de la próxima, las salidas que ya contiene también se envían con estas columnas en claro."
     },
     "strict": {
@@ -1803,16 +1807,20 @@
     "folder": "Carpeta",
     "file": "latet.yaml",
     "noFile": "Todavía no existe: se crea al guardar las reglas en Archivo del repositorio",
-    "notices": "Lo que no se aplica",
+    "notices": "Lo que no se aplica, o no tal como está escrito",
     "fromRepo": "latet.yaml",
     "fromPersonal": "Tus ajustes",
     "ignored": "ignorado: {{message}}",
     "error": "error: {{message}}",
+    "changed": "no tal como está escrito: {{message}}",
     "pastShare": "usas toda la memoria que el servidor da a una persona, así que las reglas de esta carpeta no se han construido y sus textos se rechazan. Se construirán en el próximo uso de la carpeta, cuando uses menos: olvida algunos valores en Caja fuerte, o quita algunas reglas o proyectos.",
     "unbuilt": "sus reglas no se han podido construir, así que sus textos se rechazan hasta que se puedan construir.",
     "repoCannotSet": "un archivo del repositorio no puede establecerlo, así que ponlo en tus ajustes para el proyecto.",
     "repoWholeLatet": "un ajuste de todo Latet, así que solo tu config.yaml lo establece.",
     "repoUnknown": "no es un ajuste que Latet conozca.",
+    "repoInClear": "un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro: ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección espera tu aprobación.",
+    "recognizerApart": "aplicado en este proyecto como {{name}}, tipo {{type}}: un reconocedor tuyo tiene su nombre o su tipo, así que se aplican los dos, y ambos tipos toman la más estricta de las dos políticas.",
+    "recognizerRenamed": "aplicado en este proyecto como {{name}}, porque una entrada tuya ya tiene su nombre: el del archivo se aplica con el suyo, con su tipo ({{type}}) y su política; el tuyo, donde está en uso, se aplica como antes.",
     "scope": {
       "label": "Reglas de",
       "global": "Todo (reglas globales)",

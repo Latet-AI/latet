@@ -392,6 +392,18 @@ class FakeUpstream:
         events.append(
             {"type": "response.output_item.added", "sequence_number": next(seq), "output_index": 0, "item": msg}
         )
+        # The message's part opens and closes as OpenAI's do: Prime Agent adds a delta only to a part already open
+        part = {"type": "output_text", "text": "", "annotations": []}
+        events.append(
+            {
+                "type": "response.content_part.added",
+                "sequence_number": next(seq),
+                "item_id": "msg_1",
+                "output_index": 0,
+                "content_index": 0,
+                "part": part,
+            }
+        )
         for piece in _pieces(echo):
             events.append(
                 {
@@ -411,6 +423,16 @@ class FakeUpstream:
                 "output_index": 0,
                 "content_index": 0,
                 "text": echo,
+            }
+        )
+        events.append(
+            {
+                "type": "response.content_part.done",
+                "sequence_number": next(seq),
+                "item_id": "msg_1",
+                "output_index": 0,
+                "content_index": 0,
+                "part": {**part, "text": echo},
             }
         )
         done_msg = {**msg, "content": [{"type": "output_text", "text": echo}]}

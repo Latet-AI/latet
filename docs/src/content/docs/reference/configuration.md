@@ -107,8 +107,9 @@ See [Custom recognizers](../../concepts/custom-recognizers/) for how to write on
 ## `fields` items
 
 A rule for the values of one field of a tool's output: a column of a table, a JSON key or path,
-the key of `key=value`. The first rule that matches a field wins; your own settings for a project
-come before its `latet.yaml`, and both before the global rules. See
+the key of `key=value`. Of your rules (your own settings for a project first, then the global rules)
+the first that matches a field applies, and a project's `latet.yaml`'s first too: the stricter of
+the two, yours when as strict. See
 [Production data](../../concepts/production-data/).
 
 | Key | Type | Default | Description |
@@ -183,7 +184,7 @@ a value replaces the global one, a list is added to it. See [Projects](../../con
 | `include_private_ips` | true or false | not set | Also mask private IP addresses. |
 | `ner` | `auto` or `off` | not set | Local name and address detection. |
 | `terms` | list of object | `[]` | Values to always mask in this project. |
-| `recognizers` | list of map of text to Any | `[]` | Recognizers for this project (a name already in use turns the entry off). |
+| `recognizers` | list of map of text to Any | `[]` | Recognizers for this project (a name or a type a global one uses turns the entry off; a repository file's of the name or the type of one of yours applies under a name and a type of its own, such as `badge-repo` and `BADGE_REPO`, both types at the stricter of the two policies). |
 | `allow_values` | list of text | `[]` | Values never to mask in this project. |
 | `allow_patterns` | list of text | `[]` | Regular expressions (RE2) of values never to mask in this project. |
 | `policies` | map of text to `mask` or `redact` or `allow` | `{}` | Per type: `mask`, `redact` or `allow`. |
@@ -231,7 +232,7 @@ check` says what and why. Its [JSON Schema](https://docs.latet.ai/project.schema
 | `include_private_ips` | true or false | not set | Also mask private IP addresses. |
 | `ner` | `auto` or `off` | not set | Local name and address detection. |
 | `terms` | list of object | `[]` | Values to always mask in this project. |
-| `recognizers` | list of map of text to Any | `[]` | Recognizers for this project (a name already in use turns the entry off). |
+| `recognizers` | list of map of text to Any | `[]` | Recognizers for this project (a name or a type a global one uses turns the entry off; a repository file's of the name or the type of one of yours applies under a name and a type of its own, such as `badge-repo` and `BADGE_REPO`, both types at the stricter of the two policies). |
 | `policies` | map of text to `mask` or `redact` or `allow` | `{}` | Per type: `mask`, `redact` or `allow`. |
 | `data` | `normal` or `strict` | not set | `strict` masks every value of tool outputs that are tables, JSON or `key=value`. |
 | `data_files` | list of text | `[]` | The files strict data mode covers when a tool reads them (path patterns such as `*.json`), besides the global ones. |

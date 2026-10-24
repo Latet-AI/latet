@@ -37,13 +37,14 @@ A change that **lowers** protection does not apply until you approve it, whoever
   you approved last.
 
 Lowering protection means, for example, a value never to mask, a lower profile, a term or
-recognizer removed, a policy set to `allow`, the local reviewer or the Live Reviewer turned off or
+recognizer removed, a policy set to `allow`, a term or a field rule of a type whose policy is
+`allow` (what it finds would leave in clear), the local reviewer or the Live Reviewer turned off or
 reading less, Latet off in a project, the local reviewer's server moved to another machine, or
 [its guidance](../llm-review/#your-guidance) changed: free text could tell it to report nothing, so
 any change waits, and the dashboard shows the guidance before and after. The same goes for a
-[destination](../../agents/company-endpoints/) moved to another address, or removed: an agent pointed
-at it would send its requests, and its keys, somewhere else, so the dashboard shows the address before
-and after.
+[destination](../../agents/company-endpoints/) moved to another address, or removed: an agent
+pointed at it would send its requests, and its keys, somewhere else, so the dashboard shows the
+address before and after.
 
 The change waits on the **Approvals** page of the dashboard, under *Settings*, with what it lowers,
 where it comes from (the agent that ran the command, when Latet can tell) and which settings it

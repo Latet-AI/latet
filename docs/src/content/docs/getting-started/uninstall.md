@@ -23,9 +23,9 @@ This one command:
 - stops the daemon.
 
 It does not change the tools you pointed at Latet yourself, in their own settings or in your shell:
-GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Junie, Android Studio, Hermes Agent,
-OpenClaw, Goose, OpenHands, Aider, and a `latet env` line in your shell profile. Put back their own
-address in each, or they fail with connection errors once the daemon is stopped.
+GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie, Android Studio, Hermes
+Agent, OpenClaw, Goose, OpenHands, Aider, and a `latet env` line in your shell profile. Put back
+their own address in each, or they fail with connection errors once the daemon is stopped.
 
 It prints what it did for each part, for example:
 

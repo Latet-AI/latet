@@ -236,8 +236,9 @@ fields:
 - `mask: false` deja un campo en claro en el modo de datos estricto. Va en tus propios ajustes, no
   en el `latet.yaml` de un proyecto, que solo puede añadir protección.
 
-Gana la primera regla que coincide con un campo: tus ajustes para un proyecto van antes que su
-`latet.yaml`, y ambos antes que tus reglas globales.
+Para un campo se comparan tu primera regla que coincide con él (primero tus ajustes para un
+proyecto, luego tus reglas globales) y la primera del `latet.yaml` del proyecto que coincide con él:
+se aplica la más estricta (ocultado, luego enmascarado, luego en claro), la tuya a igualdad.
 
 ## Elegir las columnas que dejar en claro
 
@@ -264,18 +265,20 @@ junto a cada columna antes de aplicar.
 
 Las columnas propuestas en claro vienen marcadas. *Dejar 2 columnas en claro* añade una regla para
 cada una, como `{name: status, mask: false}`, al principio de tus ajustes para el proyecto
-(*Este proyecto*) o de tus reglas globales (*En todas partes*): gana la primera regla que coincide,
-así que una regla más amplia como `note_*` no la vuelve a enmascarar. Las salidas siguientes
-muestran esas columnas tal cual. No se aplica nada hasta que haces clic.
+(*Este proyecto*) o de tus reglas globales (*En todas partes*): de tus reglas gana la primera que
+coincide, así que una regla tuya más amplia como `note_*` no la vuelve a enmascarar; una regla del
+`latet.yaml` del proyecto que enmascara la columna sigue valiendo ahí, elijas lo que elijas. Las
+salidas siguientes muestran esas columnas tal cual. No se aplica nada hasta que haces clic.
 
 - **Se calcula cuando abres la lista.** Las columnas se leen de la salida que conserva el
   historial, en tu equipo, y no se guarda nada nuevo. Con `history: metadata` u `off` no hay lista.
 - **La opinión del revisor local, si la pides.** Con el [revisor local](../llm-review/) activado,
   *Preguntar al revisor local* le envía los nombres de las columnas y algunos valores de cada una, y
   muestra su opinión junto a las propuestas. Nunca se aplica por sí sola.
-- **Las reglas propias de un proyecto van primero.** Tus ajustes para un proyecto y su `latet.yaml`
-  van antes que tus reglas globales: una columna que uno de ellos enmascara sigue enmascarada ahí,
-  añada lo que añada *En todas partes*, y la lista lo indica.
+- **Las reglas propias de un proyecto se mantienen.** Una columna que tus ajustes para un proyecto
+  enmascaran sigue enmascarada ahí, añada lo que añada *En todas partes*: la lista lo indica, y
+  *Este proyecto* la cambia. Una columna que el `latet.yaml` del proyecto enmascara sigue
+  enmascarada ahí elijas lo que elijas, y la lista dice cuál.
 - **Después de un reinicio,** los ajustes de un proyecto se cargan en su siguiente sesión: hasta
   entonces, la elección solo puede ir en tus reglas globales.
 - **Codex y OpenCode** envían toda la conversación con cada petición, y Latet la vuelve a enmascarar
@@ -330,7 +333,7 @@ del proyecto solo puede añadir protección:
 | `data_tools` | se ignora | se suma al tuyo |
 | `data_files` | se suma | se suma al tuyo |
 | `data_hosts` | se suma | se suma al tuyo |
-| `fields` | solo reglas que enmascaran | cualquier regla, incluida `mask: false` |
+| `fields` | solo reglas que enmascaran, de un tipo enmascarado allí | cualquier regla, incluida `mask: false` |
 | `dump_guard` | solo más bajo | cualquier valor; 0 la desactiva |
 | `images` | solo menos imágenes: `mask` y después `block` | `allow`, `mask` o `block` |
 | `ocr` | solo `auto` | `auto` u `off` |

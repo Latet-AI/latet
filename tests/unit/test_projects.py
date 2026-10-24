@@ -3,6 +3,7 @@
 import errno
 import logging
 import os
+import re
 import shutil
 import signal
 import stat
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from latet.config import Config, ProjectEntry, ProjectSettings, TermConfig
+from latet.config import Config, FieldRule, ProjectEntry, ProjectSettings, TermConfig
 from latet.engine.build import build
 from latet.engine.pipeline import Engine
 from latet.engine.types import Policy, SlotKind
@@ -108,6 +109,398 @@ def test_a_repository_files_ignored_settings_carry_the_reason_the_dashboard_word
         "whatever": "repo_unknown",
     }
     assert all(n.as_dict()["reason"] == reasons[n.key] for n in notices if n.level == "ignored")
+
+
+QUIET = {"name": "quiet", "type": "QUIET", "pattern": r"\bNEVER-\d{40}\b", "policy": "allow"}
+AMOUNT = {"name": "amount", "type": "INTERNAL_ID", "pattern": "[0-9]{5}[.][0-9]{2}"}
+SECRET_JSON = '{"user": "emily", "password": "Wq7-hunter2-Zx9!"}'
+IN_CLEAR = "repo_in_clear"
+
+
+def _sent(config: Config, text: str, kind: SlotKind = SlotKind.TOOL_RESULT) -> tuple[str, list[str]]:
+    """``text`` masked as ``config`` masks it, and the types the final check finds left in clear in it."""
+    built = build(config.model_copy(update={"identity": config.identity.model_copy(update={"enabled": False})}),
+                  Vault(ROOT_KEY))  # fmt: skip
+    masked = built.engine.mask_text(text, kind, built.engine.session("s")).text
+    return masked, [leak.etype for leak in built.verifier.verify([(masked, kind, False)], "s").blocking]
+
+
+def test_a_repository_file_cannot_leave_a_password_in_clear_through_a_type_of_its_own(tmp_path):
+    """0.9.8: a latet.yaml held a recognizer that lets what it finds through and a field rule for `password` of its
+    type: in that repository every password left in clear, past the final check, and nothing waited for anyone. The
+    recognizer is set aside, with a notice saying where to put it instead; set aside, it lets nothing through, so the
+    field rule masks as its type says, and the password stays masked."""
+    root = _repo(
+        tmp_path,
+        "recognizers:\n  - {name: quiet, type: QUIET, pattern: '\\bNEVER-\\d{40}\\b', policy: allow}\n"
+        "fields:\n  - {name: password, type: QUIET}\n",
+    )
+    settings, _ = read_project_file(root / PROJECT_FILE)
+    config, notices = effective_config(Config(), settings, None)
+    assert "hunter2" not in _sent(config, SECRET_JSON)[0]
+    assert [(n.key, n.reason) for n in notices] == [("recognizers.quiet", IN_CLEAR)]
+    assert config.recognizers == [] and [f.name for f in config.fields] == ["password"]
+    assert all(n.level == "ignored" and "your own settings" in n.message for n in notices)
+
+
+@pytest.mark.parametrize(
+    ("mine", "repo", "personal", "key"),
+    [
+        # A recognizer whose own policy lets what it finds through.
+        (Config(), ProjectSettings(recognizers=[QUIET]), None, "recognizers.quiet"),
+        # A term of a type let through: by your own policies, by the file's own recognizer, by your settings for it.
+        (Config(policies={"URL": "allow"}), ProjectSettings(terms=[TermConfig(value="Acme Corp", type="url")]), None, "terms.1"),
+        # A recognizer of a type let through there: by your own policies, by your settings for the folder.
+        (Config(policies={"INTERNAL_ID": "allow"}), ProjectSettings(recognizers=[AMOUNT]), None, "recognizers.amount"),
+        (Config(), ProjectSettings(recognizers=[AMOUNT]), ProjectEntry(path="/work/acme", policies={"INTERNAL_ID": "allow"}), "recognizers.amount"),
+        (Config(), ProjectSettings(recognizers=[AMOUNT]), None, None),  # its type masked: it stays
+        # A recognizer set aside lets nothing through: a term of its type masks, and stays (review minor 1).
+        (Config(), ProjectSettings(recognizers=[QUIET], terms=[TermConfig(value="Acme Corp", type="QUIET")]), None, "recognizers.quiet"),
+        (
+            Config(),
+            ProjectSettings(terms=[TermConfig(value="Acme Corp", type="URL")]),
+            ProjectEntry(path="/work/acme", policies={"URL": "allow"}),
+            "terms.1",
+        ),
+        # A field rule of a type let through, whether it masks or not: by your own policies, by a recognizer's own.
+        (Config(policies={"URL": "allow"}), ProjectSettings(fields=[FieldRule(name="password", type="URL")]), None, "fields.password"),
+        (
+            Config(recognizers=[QUIET]),
+            ProjectSettings(fields=[FieldRule(name="token")], policies={}),
+            None,
+            None,  # FIELD is masked: nothing set aside
+        ),
+        (Config(policies={"FIELD": "allow"}), ProjectSettings(fields=[FieldRule(name="token")]), None, "fields.token"),
+        (Config(recognizers=[QUIET]), ProjectSettings(fields=[FieldRule(name="password", type="quiet")]), None, "fields.password"),
+    ],
+    ids=["recognizer", "term-policy", "recognizer-policy", "recognizer-personal", "recognizer-masked",
+         "term-own-recognizer", "term-personal", "field-policy", "field-masked", "field-default-type", "field-recognizer"],
+)  # fmt: skip
+def test_a_repository_file_sets_aside_what_would_leave_values_in_clear(mine, repo, personal, key):
+    config, notices = effective_config(mine, repo, personal)
+    set_aside = [n for n in notices if n.reason == IN_CLEAR]
+    assert [n.key for n in set_aside] == ([key] if key else [])
+    assert all(n.source == "repo" and n.level == "ignored" for n in set_aside)
+    assert not any("Acme" in n.message or "NEVER" in n.message for n in notices)  # never a value
+    if key and key.startswith("terms."):
+        assert "Acme Corp" not in [t.value for t in config.terms]
+    if key and key.startswith("fields."):
+        assert config.fields == []
+
+
+def test_a_repository_recognizer_of_a_type_let_through_there_is_set_aside():
+    """Review B1: a latet.yaml recognizer with no policy of its own, of a type your policies let through, found a
+    table's balance and left it in clear in strict data mode, where it was masked everywhere else. Set aside, the
+    balance stays masked there; a term of the type of a recognizer set aside for its own `allow` masks, and stays."""
+    table = '{"customer": "Fonderia Brambilla", "balance": "48213.55"}'
+    mine = Config(profile="max", policies={"INTERNAL_ID": "allow"})
+    assert "48213.55" not in _sent(mine, table)[0]
+    config, notices = effective_config(mine, ProjectSettings(recognizers=[AMOUNT]), None)
+    assert "48213.55" not in _sent(config, table)[0]
+    assert [(n.key, n.reason) for n in notices] == [("recognizers.amount", IN_CLEAR)]
+    top = Config(recognizers=[{"name": "acme-mask", "type": "ACME_REF", "pattern": "ACME-[0-9]{6}", "policy": "mask"}])
+    repo = ProjectSettings(
+        recognizers=[{"name": "acme-ref", "type": "ACME_REF", "pattern": "REF-[0-9]{6}", "policy": "allow"}],
+        terms=[TermConfig(value="Fonderia Brambilla", type="ACME_REF")],
+    )
+    config, notices = effective_config(top, repo, None)
+    assert [n.key for n in notices] == ["recognizers.acme-ref"]
+    assert "Fonderia Brambilla" not in _sent(config, "invoice for Fonderia Brambilla", SlotKind.USER_TEXT)[0]
+
+
+BADGE_REDACTED = {"name": "badge", "type": "BADGE", "pattern": "BD-[0-9]{6}", "policy": "redact"}
+
+
+@pytest.mark.parametrize(
+    "theirs",
+    [
+        {"name": "badge", "type": "BADGE2", "pattern": "ZZQX-[0-9]{9}"},  # its name, a pattern that never matches
+        {"name": "other", "type": "BADGE", "pattern": "BD-[0-9]{6}", "policy": "mask"},  # its type, a fake for it
+    ],
+    ids=["same-name", "same-type"],
+)
+def test_your_recognizers_for_a_folder_win_over_the_repository_files(theirs):
+    """Review B2: the file was laid before your settings for its folder, and the first recognizer of a name or a type
+    is the one in use: a latet.yaml recognizer of the name of yours put yours out of use (the badge in clear), one of
+    its type made a reversible fake where you redact. Yours come first, as the global ones do."""
+    yours = ProjectEntry(path="/work/acme", recognizers=[BADGE_REDACTED])
+    alone, _ = effective_config(Config(projects=[yours]), None, yours)
+    assert _sent(alone, "badge BD-381904", SlotKind.USER_TEXT)[0] == "badge [REDACTED:BADGE]"
+    config, _ = effective_config(Config(projects=[yours]), ProjectSettings(recognizers=[theirs]), yours)
+    assert _sent(config, "badge BD-381904", SlotKind.USER_TEXT)[0] == "badge [REDACTED:BADGE]"
+
+
+WIDE, NARROW = r"\bBD-[0-9]{6,8}\b", r"\bBD-[0-9]{6}\b"
+EMPID = r"\bEMP-[0-9]{5}\b"
+NEVER = r"\bQQZX-[0-9]{30}\b"
+BADGES = "badge BD-1234567 and BD-123456"
+APART, RENAMED = "recognizer_apart", "recognizer_renamed"
+
+
+def _badge(name: str, pattern: str = NARROW, **more: object) -> dict[str, object]:
+    return {"name": name, "type": "BADGE", "pattern": pattern, **more}
+
+
+@pytest.mark.parametrize(
+    ("mine", "theirs", "top", "text", "masked_097", "redacted", "apart"),
+    [
+        # A tie (one type, one policy), the file's pattern broader or yours: 0.9.7 kept the file's, laid first.
+        ([_badge("mine")], [_badge("team", WIDE)], [], BADGES, ["BD-1234567", "BD-123456"], [], [("team", APART)]),
+        ([_badge("mine", WIDE)], [_badge("team")], [], BADGES, ["BD-123456"], [], [("team", APART)]),
+        ([_badge("mine", policy="redact")], [_badge("team", WIDE, policy="redact")], [], BADGES, [], ["BD-1234567", "BD-123456"], [("team", APART)]),
+        ([_badge("mine", WIDE, policy="redact")], [_badge("team", policy="redact")], [], BADGES, [], ["BD-123456"], [("team", APART)]),
+        # One name, two types: 0.9.7 found the file's values alone, yours alone finds yours.
+        ([{"name": "badge", "type": "EMPID", "pattern": EMPID}], [_badge("badge")], [], "BD-123456 EMP-12345", ["BD-123456"], [], [("badge", RENAMED)]),
+        # Yours of its name that a build does not keep (off, broken, shadowed by a global one): the file's stays as it is.
+        ([_badge("team", enabled=False)], [_badge("team")], [], BADGES, ["BD-123456"], [], []),
+        ([_badge("team", "(", policy="redact")], [_badge("team")], [], BADGES, ["BD-123456"], [], []),
+        ([_badge("old")], [_badge("team")], [{"name": "old", "type": "OLDREF", "pattern": r"\bOLD-[0-9]{6}\b"}], BADGES, ["BD-123456"], [], []),
+        # One of yours against two of the file's: a redacting one of its type, one of its name of another type.
+        ([_badge("b")], [_badge("a", policy="redact"), {"name": "b", "type": "EMPID", "pattern": EMPID}], [], "BD-123456 EMP-12345", ["EMP-12345"], ["BD-123456"], [("a", APART), ("b", RENAMED)]),
+        # B2: the file's of the name or the type of a badge you redact, finding nothing or masking (0.9.7: in clear, a fake).
+        ([_badge("badge", policy="redact")], [{"name": "badge", "type": "BADGE2", "pattern": r"\bZZQX-[0-9]{9}\b"}], [], "badge BD-381904 ref ZZQX-123456789", ["ZZQX-123456789"], ["BD-381904"], [("badge", RENAMED)]),
+        ([_badge("badge", policy="redact")], [_badge("other", policy="mask")], [], "badge BD-381904", [], ["BD-381904"], [("other", APART)]),
+        # The file's of a stricter policy finding nothing, of your type or your name (re-review, Important 3).
+        ([_badge("badge")], [_badge("other", NEVER, policy="redact")], [], "badge BD-381904", [], [], [("other", APART)]),
+        ([_badge("badge")], [{"name": "badge", "type": "ZZQ", "pattern": NEVER, "policy": "redact"}], [], "badge BD-381904", [], [], [("badge", RENAMED)]),
+        # The mirror of N4: yours redacting and narrower, the team's masking and broader (0.9.7: two fakes).
+        ([_badge("badge-mine", policy="redact")], [_badge("badge-team", WIDE)], [], BADGES, ["BD-1234567", "BD-123456"], ["BD-123456"], [("badge-team", APART)]),
+        # N4 itself: the team's redacting and broader, yours narrower (0.9.7: redacted twice).
+        ([_badge("badge-mine")], [_badge("badge-team", WIDE, policy="redact")], [], BADGES, [], ["BD-1234567", "BD-123456"], [("badge-team", APART)]),
+        # The file's of the name or the type of a global one of yours (0.9.7: the file's off).
+        ([], [_badge("other", WIDE)], [_badge("badge", policy="redact")], BADGES, [], ["BD-123456"], [("other", APART)]),
+    ],
+    ids=["tie-file-broader", "tie-yours-broader", "tie-redact-file-broader", "tie-redact-yours-broader", "same-name-other-types",
+         "yours-off", "yours-broken", "yours-shadowed", "one-of-yours-two-of-the-files", "b2-same-name", "b2-same-type",
+         "finds-nothing-same-type", "finds-nothing-same-name", "n4-mirror", "n4", "global"],
+)  # fmt: skip
+def test_a_files_recognizer_and_yours_of_one_name_or_type_both_apply(
+    mine, theirs, top, text, masked_097, redacted, apart
+):
+    """Ruling 098-R3: of a repository file's recognizer and one of yours (global, or for the folder) of one name or one
+    type, both apply: yours as it is, the file's under a name and a type of its own, both types at the stricter of the
+    two policies in force. So a project masks at least what 0.9.7 masked (``masked_097``: the values it masked, and
+    ``redacted``: the ones it or yours alone redact) and at least what yours alone mask. The file's entries laid apart
+    are said, naming no value; one of yours a build does not keep (off, broken, shadowed) counts for nothing."""
+    yours = ProjectEntry(path="/work/acme", recognizers=mine)
+    base = Config(recognizers=top, projects=[yours])
+    alone = _sent(effective_config(base, None, yours)[0], text, SlotKind.USER_TEXT)[0]
+    config, notices = effective_config(base, ProjectSettings(recognizers=theirs), yours)
+    both = _sent(config, text, SlotKind.USER_TEXT)[0]
+    values = re.findall(r"\b[A-Z]+-[0-9]+\b", text)  # whole: BD-123456 is inside BD-1234567
+    left_alone, left_both = re.findall(r"\b[A-Z]+-[0-9]+\b", alone), re.findall(r"\b[A-Z]+-[0-9]+\b", both)
+    for value in values:
+        if value in masked_097 or value in redacted or value not in left_alone:
+            assert value not in left_both, (value, both, alone)
+    assert both.count("[REDACTED:") >= max(len(redacted), alone.count("[REDACTED:")), (both, alone)
+    said = [n for n in notices if n.reason in (APART, RENAMED)]
+    assert [(n.key, n.reason) for n in said] == [(f"recognizers.{name}", reason) for name, reason in apart]
+    assert all(n.source == "repo" and n.level == "changed" and "BD-" not in n.message for n in said)
+    assert all(n.detail is not None and set(n.detail) == {"name", "type"} for n in said)  # the dashboard shows them
+    assert len([n for n in notices if n.key.startswith("recognizers.")]) == len(apart)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"name": "team", "type": "OLDREF", "pattern": r"\bOLD-[0-9]{6}\b", "enabled": False},
+        {"name": "team", "type": "OLDREF", "pattern": "("},
+        {"name": "team", "type": "OLDREF", "pattern": "[a-z]+"},
+    ],
+    ids=["off", "broken", "too-broad"],
+)
+def test_a_global_entry_of_the_files_name_that_a_build_does_not_keep_takes_the_files_recognizer_out_no_more(entry):
+    """Round 5 (M1): a build keeps the first of a name whether or not it keeps the entry, so a global entry of yours
+    that is off, broken or too broad put the file's recognizer of its name out of use (in 0.9.7 too). The file's is laid
+    under a name of its own whenever an earlier global entry holds its name, and applies."""
+    yours = ProjectEntry(path="/work/acme")
+    config, notices = effective_config(
+        Config(recognizers=[entry], projects=[yours]), ProjectSettings(recognizers=[_badge("team", WIDE)]), yours
+    )
+    masked = _sent(config, BADGES, SlotKind.USER_TEXT)[0]
+    assert "BD-1234567" not in masked and "BD-123456" not in re.findall(r"\b[A-Z]+-[0-9]+\b", masked), masked
+    assert [(r["name"], r.get("type")) for r in config.recognizers] == [("team", "OLDREF"), ("team-repo", "BADGE")]
+    assert [(n.key, n.reason, n.detail) for n in notices] == [
+        ("recognizers.team", RENAMED, {"name": "team-repo", "type": "BADGE"})
+    ]
+
+
+def test_the_light_pass_invents_no_type_let_through_and_the_derived_type_takes_no_term_or_field_rule():
+    """Round 5 (I1): with BADGE let through by your policies, a BADGE recognizer of yours and the file's, the pass that
+    works out the types left in clear laid the file's apart as BADGE_REPO with policy allow, so the file's term or field
+    rule typed BADGE_REPO was set aside and left in clear, which 0.9.7 masked; and the derived type took a term of yours
+    typed BADGE_REPO, redacted where you mask. A file recognizer whose type's policy in force is allow is left alone
+    (the real pass sets it aside), and the derived type is unique against the types terms and field rules use too."""
+    mine, team = [_badge("mine")], _badge("team", WIDE)
+    yours = ProjectEntry(path="/work/acme", recognizers=mine, policies={"BADGE": "allow"})
+    file = ProjectSettings(recognizers=[team], terms=[TermConfig(value="Fonderia Brambilla", type="BADGE_REPO")])
+    config, notices = effective_config(Config(projects=[yours]), file, yours)
+    assert "Fonderia Brambilla" not in _sent(config, "invoice for Fonderia Brambilla", SlotKind.USER_TEXT)[0]
+    assert [(n.key, n.reason) for n in notices] == [("recognizers.team", IN_CLEAR)]
+    file = ProjectSettings(recognizers=[team], fields=[FieldRule(name="cliente", type="BADGE_REPO")])
+    config, notices = effective_config(Config(profile="max", projects=[yours]), file, yours)
+    assert "Fonderia Brambilla" not in _sent(config, '{"cliente": "Fonderia Brambilla", "n": "1"}')[0]
+    assert [(n.key, n.reason) for n in notices] == [("recognizers.team", IN_CLEAR)]
+    # Your own term typed BADGE_REPO where the team's redacting recognizer is laid apart: the copy takes another type.
+    yours = ProjectEntry(
+        path="/work/acme", recognizers=mine, terms=[TermConfig(value="Fonderia Brambilla", type="BADGE_REPO")]
+    )
+    config, _ = effective_config(
+        Config(projects=[yours]), ProjectSettings(recognizers=[{**team, "policy": "redact"}]), yours
+    )
+    assert [(r["name"], r["type"]) for r in config.recognizers] == [("mine", "BADGE"), ("team", "BADGE_REPO_2")]
+    masked = _sent(config, "invoice for Fonderia Brambilla " + BADGES, SlotKind.USER_TEXT)[0]
+    assert (
+        "Fonderia Brambilla" not in masked and "[REDACTED:BADGE_REPO]" not in masked and masked.count("[REDACTED:") == 2
+    )
+
+
+def test_the_files_recognizer_laid_apart_keeps_its_own_name_and_type_but_for_what_yours_take():
+    """Laid apart, the file's recognizer takes a name of its own only when yours has its name, and a type of its own only
+    when yours has its type (`badge-repo`, `BADGE_REPO`, made unique where taken, by a recognizer or by `policies`),
+    and comes after yours, so that yours names a value both find. Of one type, both take the stricter of the two policies
+    in force, an entry of `policies` for the type reaching both: the file's carries it as its own, yours by an entry."""
+    yours = ProjectEntry(path="/work/acme", recognizers=[{"name": "badge", "type": "MINE", "pattern": NARROW}])
+    # Its name taken, its type free: the type stays its own, written out (it was derived from the name).
+    file = ProjectSettings(recognizers=[{"name": "badge", "pattern": r"\bZZQX-[0-9]{9}\b"}])
+    config, notices = effective_config(Config(projects=[yours]), file, yours)
+    assert [(r["name"], r.get("type")) for r in config.recognizers] == [("badge", "MINE"), ("badge-repo", "BADGE")]
+    assert [(n.reason, n.detail) for n in notices] == [(RENAMED, {"name": "badge-repo", "type": "BADGE"})]
+    assert notices[0].as_dict()["detail"] == {"name": "badge-repo", "type": "BADGE"}
+    # Its name and its type taken: the names and types in the list, and the types `policies` names, are never taken.
+    top = Config(recognizers=[{"name": "zz", "type": "BADGE_REPO", "pattern": r"\bZZ-[0-9]{4}\b"}], projects=[yours])
+    yours = ProjectEntry(
+        path="/work/acme", recognizers=[_badge("badge"), {"name": "team", "type": "OTHER", "pattern": EMPID}]
+    )
+    file = ProjectSettings(
+        recognizers=[_badge("team", WIDE, policy="redact"), {"name": "team-repo", "pattern": r"\bZZQX-[0-9]{9}\b"}]
+    )
+    config, notices = effective_config(top.model_copy(update={"projects": [yours]}), file, yours)
+    assert [(r["name"], r.get("type")) for r in config.recognizers] == [
+        ("zz", "BADGE_REPO"), ("team-repo", None), ("badge", "BADGE"), ("team", "OTHER"), ("team-repo-2", "BADGE_REPO_2"),
+    ]  # fmt: skip
+    assert config.recognizers[-1]["policy"] == "redact" and config.policies["BADGE"] == Policy.REDACT
+    assert [(n.key, n.reason, n.level) for n in notices] == [("recognizers.team", APART, "changed")]
+    assert "team-repo-2" in notices[0].message and "BADGE_REPO_2" in notices[0].message
+    assert notices[0].detail == {"name": "team-repo-2", "type": "BADGE_REPO_2"}
+    masked = _sent(config, BADGES, SlotKind.USER_TEXT)[0]
+    assert masked == "badge [REDACTED:BADGE_REPO_2] and [REDACTED:BADGE]"  # yours names the value both find
+    # An entry of `policies` for the type is the policy in force for both, over the file's own.
+    file = ProjectSettings(recognizers=[_badge("team", WIDE, policy="redact")])
+    yours = ProjectEntry(path="/work/acme", recognizers=[_badge("badge")], policies={"BADGE": "mask"})
+    config, _ = effective_config(Config(projects=[yours]), file, yours)
+    assert (config.policies["BADGE"], config.recognizers[-1]["policy"]) == (Policy.MASK, "mask")
+    assert "BADGE_REPO" not in config.policies and "[REDACTED" not in _sent(config, BADGES, SlotKind.USER_TEXT)[0]
+    # A duplicate within the file stays one: the second of a type the file holds twice is off, as it was.
+    file = ProjectSettings(recognizers=[_badge("a"), _badge("b", WIDE)])
+    yours = ProjectEntry(path="/work/acme", recognizers=[_badge("mine")])
+    config, _ = effective_config(Config(projects=[yours]), file, yours)
+    assert [(r["name"], r["type"]) for r in config.recognizers] == [
+        ("mine", "BADGE"),
+        ("a", "BADGE_REPO"),
+        ("b", "BADGE_REPO"),
+    ]
+    assert "BD-1234567" in _sent(config, BADGES, SlotKind.USER_TEXT)[0]
+
+
+def test_a_repository_files_term_never_narrows_yours_for_its_folder():
+    """Found with B2: a folder's terms were added only where no layer before held their value and type, and the file
+    comes first: its entry of a value of yours, its case its own, was the one in force, and `ACME CORP` left in clear.
+    Both entries apply, as two of one value always do: the file adds forms to yours, never takes one away."""
+    yours = ProjectEntry(path="/work/acme", terms=[TermConfig(value="Acme Corp", type="CLIENT")])
+    exact = TermConfig(value="Acme Corp", type="CLIENT", case_sensitive=True)
+    config, _ = effective_config(Config(projects=[yours]), ProjectSettings(terms=[exact]), yours)
+    masked = _sent(config, "ACME CORP and Acme Corp", SlotKind.USER_TEXT)[0]
+    assert "ACME CORP" not in masked and "Acme Corp" not in masked
+    wider = ProjectEntry(path="/work/acme", terms=[exact])
+    config, _ = effective_config(Config(projects=[wider]), ProjectSettings(terms=yours.terms), wider)
+    assert "ACME CORP" not in _sent(config, "ACME CORP", SlotKind.USER_TEXT)[0]  # the file's adds a form
+
+
+CODENAME_ROW = '{"codename": "Bluefin-Harbor-7781", "status": "open"}'
+
+
+def test_your_global_choice_to_see_a_column_does_not_loosen_a_repository_files_rule():
+    """Re-review N1 (Ruling 098-R2): your global `mask: false` for a column a team's latet.yaml masks: 0.9.7 masked it
+    in that repository, the order of 8bbdf51b left it in clear on upgrade with no change by anyone. Of your first rule
+    that matches and the file's, the stricter applies."""
+    mine = Config(profile="max", fields=[FieldRule(name="codename", mask=False)])
+    assert "Bluefin-Harbor-7781" in _sent(mine, CODENAME_ROW)[0]
+    config, _ = effective_config(mine, ProjectSettings(fields=[FieldRule(name="codename")]), None)
+    assert "Bluefin-Harbor-7781" not in _sent(config, CODENAME_ROW)[0]
+
+
+def test_a_global_rule_added_does_not_turn_a_repository_files_redaction_into_a_fake():
+    """Re-review N2: the file redacts `salary` (its type PAY, its policy redact); a global `sal*` added made it a
+    reversible fake there, and nothing weighed it as a lowering, so an agent applied it unasked. The stricter applies."""
+    pay = '{"salary": "52000", "status": "open"}'
+    file = ProjectSettings(fields=[FieldRule(name="salary", type="PAY")], policies={"PAY": "redact"})
+    for mine in (Config(profile="max"), Config(profile="max", fields=[FieldRule(name="sal*")])):
+        config, _ = effective_config(mine, file, None)
+        assert '"salary": "[REDACTED:PAY]"' in _sent(config, pay)[0], mine.fields
+
+
+def test_in_the_safe_scope_the_stricter_of_every_layer_applies():
+    """Re-review N3: on a server, while it cannot tell that you are in a folder, your settings for it are taken as only
+    adding (``only_adding``): your folder masks `codename`, your global rules keep it in clear. 0.9.7 masked it there."""
+    entry = ProjectEntry(path="C:/work/acme", fields=[FieldRule(name="codename")], policies={"URL": "allow"})
+    mine = Config(profile="max", fields=[FieldRule(name="codename", mask=False)], projects=[entry])
+    for only_adding in (False, True):
+        config, _ = effective_config(mine, None, entry, only_adding=only_adding)
+        assert "Bluefin-Harbor-7781" not in _sent(config, CODENAME_ROW)[0], only_adding
+
+
+def test_your_rules_for_a_project_still_keep_a_column_in_clear_against_your_global_ones():
+    """As in 0.9.7: your `mask: false` for a project (the columns panel's *This project*) comes before your global
+    rules; a repository file's masking rule for that column still applies, being stricter."""
+    mine = Config(profile="max", fields=[FieldRule(name="codename")])
+    clear = ProjectEntry(path="/work/acme", fields=[FieldRule(name="codename", mask=False)])
+    config, _ = effective_config(mine, None, clear)
+    assert "Bluefin-Harbor-7781" in _sent(config, CODENAME_ROW)[0]
+    config, _ = effective_config(mine, ProjectSettings(fields=[FieldRule(name="code*")]), clear)
+    assert "Bluefin-Harbor-7781" not in _sent(config, CODENAME_ROW)[0]
+
+
+def test_your_field_rules_win_over_the_repository_files():
+    """Ruling 098-R1 (review minor 4): a latet.yaml's field rule came before yours, global or for the folder, and the
+    first rule that matches a field wins: `sal*` in the file turned your redacted `salary` into a reversible fake. Yours
+    come first; the file's still masks a field yours do not match."""
+    row = '{"name": "x", "salary": "52000", "bonus": "7000"}'
+    yours = Config(fields=[FieldRule(name="salary", type="SALARY")], policies={"SALARY": "redact"})
+    file = ProjectSettings(fields=[FieldRule(name="sal*"), FieldRule(name="bonus", type="BONUS")])
+    for mine, entry in (
+        (yours, None),
+        (Config(policies={"SALARY": "redact"}), ProjectEntry(path="/work/acme", fields=yours.fields)),
+    ):
+        config, _ = effective_config(mine, file, entry)
+        masked = _sent(config, row)[0]
+        assert '"salary": "[REDACTED:SALARY]"' in masked and "7000" not in masked, masked
+
+
+def test_a_repository_files_masked_terms_and_stricter_rules_still_apply():
+    """What masks still applies: a term of a type masked there, one of a type the file itself masks over your policy
+    (URL let through by you, masked by the file), a field rule that masks, a stricter policy."""
+    repo = ProjectSettings(
+        terms=[TermConfig(value="Project Falcon", type="PROJECT"), TermConfig(value="Acme Corp", type="URL")],
+        fields=[FieldRule(name="salary", type="SALARY")],
+        policies={"URL": "mask", "EMAIL": "redact"},
+    )
+    config, notices = effective_config(Config(policies={"URL": "allow"}), repo, None)
+    assert notices == []
+    assert [t.value for t in config.terms] == ["Project Falcon", "Acme Corp"]
+    assert [f.name for f in config.fields] == ["salary"]
+    assert (config.policies["URL"], config.policies["EMAIL"]) == (Policy.MASK, Policy.REDACT)
+    masked = _sent(config, "Acme Corp and Project Falcon", SlotKind.USER_TEXT)[0]
+    assert "Acme Corp" not in masked and "Project Falcon" not in masked
+
+
+def test_a_repository_file_cannot_set_a_policy_looser_than_a_recognizers_own():
+    """A recognizer's own policy is its type's default: a latet.yaml's `mask` for a type your recognizer redacts made
+    its values reversible fakes there, where they were redacted. Weighed against the policy in force, it is ignored."""
+    badge = {"name": "badge", "type": "BADGE", "pattern": r"\bBD-\d{6}\b", "policy": "redact"}
+    config, notices = effective_config(Config(recognizers=[badge]), ProjectSettings(policies={"BADGE": "mask"}), None)
+    assert [n.key for n in notices] == ["policies.BADGE"] and "BADGE" not in config.policies
+    assert _sent(config, "badge BD-381904", SlotKind.USER_TEXT)[0] == "badge [REDACTED:BADGE]"
 
 
 def test_a_repository_file_cannot_make_anything_weaker():
@@ -999,6 +1392,42 @@ def test_rules_add_to_a_project_or_its_repository(isolated):
     assert _cli("rules", "remove", "badge", "--repo", str(root)).exit_code == 0
     assert read_project_file(root / PROJECT_FILE)[0].recognizers == []
     assert _cli("rules", "add", str(rule), "--repo", str(root), "--project", str(root)).exit_code == 2
+
+
+def test_rules_add_to_a_repository_refuses_a_recognizer_that_lets_what_it_finds_through(isolated):
+    """A latet.yaml cannot hold a recognizer whose own policy is allow (it is set aside there): `latet rules add
+    --repo` says so and writes nothing; into your own settings for the project, it goes."""
+    from latet.config import load_config
+
+    root = _repo(isolated)
+    rule = isolated / "rule.yaml"
+    rule.write_text(
+        "name: quiet\ntype: QUIET\npattern: 'QT-[0-9]{6}'\npolicy: allow\n"
+        "examples:\n  match: ['QT-123456']\n  no_match: ['QT-12']\n",
+        "utf-8",
+    )
+    refused = _cli("rules", "add", str(rule), "--repo", str(root))
+    assert refused.exit_code == 2 and "quiet" in refused.output and "--project" in refused.output
+    assert not (root / PROJECT_FILE).exists()
+    assert _cli("rules", "add", str(rule), "--project", str(root)).exit_code == 0
+    assert [r["name"] for r in load_config().projects[0].recognizers] == ["quiet"]
+
+
+def test_rules_add_to_a_repository_refuses_a_recognizer_of_a_type_your_policies_let_through(isolated):
+    """Review B1: a recognizer with no policy of its own, of a type your policies let through, would leave what it finds
+    in clear in the repository (set aside there): `latet rules add --repo` refuses it, and writes nothing."""
+    from latet.config import save_config
+
+    root = _repo(isolated)
+    save_config(Config(policies={"INTERNAL_ID": "allow"}), Path(os.environ["LATET_CONFIG"]))
+    rule = isolated / "rule.yaml"
+    rule.write_text(
+        "name: amount\ntype: INTERNAL_ID\npattern: 'AM-[0-9]{6}'\nexamples:\n  match: ['AM-123456']\n  no_match: ['AM-12']\n",
+        "utf-8",
+    )
+    refused = _cli("rules", "add", str(rule), "--repo", str(root))
+    assert refused.exit_code == 2 and "amount" in refused.output and "--project" in refused.output
+    assert not (root / PROJECT_FILE).exists()
 
 
 def test_the_project_schema_lists_only_what_the_file_may_set():

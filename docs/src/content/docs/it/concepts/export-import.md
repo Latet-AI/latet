@@ -57,9 +57,10 @@ Latet ha visto davvero viene escluso, perché gli esempi devono essere inventati
 
 **Ciò che ridurrebbe la protezione viene elencato ed escluso:** le eccezioni, un valore più debole,
 le indicazioni del revisore, un riconoscitore che lascia passare ciò che trova (`policy: allow`), un
-campo lasciato in chiaro. `--all`, o *Applica anche queste* nella dashboard, applica anche quelle. Se
-a eseguire l'importazione è un agente o uno script, `--all` fa dell'intera importazione una sola
-modifica, che attende la tua approvazione come qualsiasi
+termine o una regola di campo di un tipo che i tuoi criteri lasciano passare (lascerebbe in chiaro
+ciò che trova), un campo lasciato in chiaro. `--all`, o *Applica anche queste* nella dashboard,
+applica anche quelle. Se a eseguire l'importazione è un agente o uno script, `--all` fa dell'intera
+importazione una sola modifica, che attende la tua approvazione come qualsiasi
 [modifica che riduce la protezione](../agents-and-settings/): ciò che aggiunge protezione attende
 con lei, e nulla dell'importazione si applica finché non la approvi. `--dry-run` dice soltanto cosa
 farebbe un'importazione.

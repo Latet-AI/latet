@@ -362,8 +362,10 @@ export interface OutputColumn {
   detail: string | null
   /** A rule in effect there keeps it in clear already. */
   kept_now: boolean
-  /** A rule for everywhere would change it there: false when a rule of the project's own matches it first. */
+  /** A rule for everywhere would change it there: false when a rule of the project's own holds it. */
   everywhere: boolean
+  /** The project's latet.yaml masks it: no choice here changes it there (the stricter rule applies). */
+  held_by_file: boolean
   /** Up to three of its values, in clear. */
   examples: string[]
 }
@@ -715,10 +717,14 @@ export interface ProjectSummary {
 export interface ProjectNotice {
   source: 'repo' | 'personal'
   key: string
-  level: 'ignored' | 'error'
+  /** Not applied (`ignored`, `error`), or applied but not as written (`changed`: a latet.yaml recognizer laid under a
+   * name and a type of its own). */
+  level: 'ignored' | 'error' | 'changed'
   message: string
   /** Why, for a notice the dashboard words in your language (lib/refused.ts); its message is the daemon's English. */
   reason?: string
+  /** What those words name (a recognizer's name and type in use), never a value. */
+  detail?: Record<string, string>
 }
 
 export interface ProjectDetail extends ProjectSummary {

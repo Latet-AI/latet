@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api/client'
 import type { Agent, ColumnOpinions, ColumnProposal, ColumnReason, OutputColumns } from '../../api/types'
 import { tk } from '../../i18n'
-import { hasStrictValues, heldByProject, initialChecks, resends, rulesWith, whereChoices } from '../../lib/columns'
+import { hasStrictValues, heldByFile, heldByProject, initialChecks, resends, rulesWith, whereChoices } from '../../lib/columns'
 import { canKeep } from '../../lib/fields'
 import { useMe } from '../../lib/me'
 import { savedChangePending } from '../../lib/refused'
@@ -129,6 +129,7 @@ function ColumnsChoice({ data, exchangeId, slot, agent, onSaved }: ColumnsPanelP
   const choices = whereChoices(data.project)
   const projectId = choices.project && where === 'project' ? (data.project?.id ?? null) : null
   const held = projectId ? [] : heldByProject(data.columns, checked)
+  const heldFile = heldByFile(data.columns, checked) // whatever the choice: the file's rule holds there
 
   const toggle = (name: string, on: boolean) =>
     setChecked((current) => {
@@ -258,6 +259,7 @@ function ColumnsChoice({ data, exchangeId, slot, agent, onSaved }: ColumnsPanelP
       <div className="mt-2 max-w-[90ch] space-y-1 text-meta text-ink-3">
         {choices.notLoaded && <p>{t('exchange.columns.notLoaded', { project: data.project?.name ?? '' })}</p>}
         {held.length > 0 && <p>{t('exchange.columns.held', { columns: fmt.list(held), count: held.length })}</p>}
+        {heldFile.length > 0 && <p>{t('exchange.columns.heldByFile', { columns: fmt.list(heldFile), count: heldFile.length })}</p>}
         {resends(agent) && <p>{t('exchange.columns.resends')}</p>}
       </div>
     </>

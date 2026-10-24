@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from latet.config import Config, Destination, LlmReview, Policy, Profile, ProjectEntry, TermConfig
+from latet.config import Config, Destination, FieldRule, LlmReview, Policy, Profile, ProjectEntry, TermConfig
 from latet.protection import loosened
 from latet.server.shared import composed, repinned
 
@@ -54,11 +54,49 @@ def test_a_setting_tightened_applies_and_one_loosened_waits():
     assert out.include_private_ips is True  # what the administrator tightened, at once
 
 
+def test_a_recognizer_retyped_to_a_type_latets_own_detectors_give_waits_in_a_composition():
+    """Ruling 098-R4 (N1): on a server, `hosts` (policy allow) retyped DATA with strict data mode on would send every
+    value strict data mode masks in clear at once (`composed` applies what lowers nothing). The snapshot's recognizer
+    stays until the change is approved; what was tightened with it applies."""
+    hosts = {"name": "hosts", "type": "INTERNAL_HOST", "pattern": r"\bsrv-[0-9]{4}\b", "policy": "allow"}
+    approved = Config(profile=Profile.MAX, recognizers=[hosts])
+    found = Config(profile=Profile.MAX, recognizers=[{**hosts, "type": "DATA"}], include_private_ips=True)
+    out = composed(found, approved, Config())
+    assert [(r["name"], r["type"]) for r in out.recognizers] == [("hosts", "INTERNAL_HOST")]
+    assert out.include_private_ips is True and loosened(approved, out) == []
+
+
 def test_a_policy_takes_the_stricter_of_the_two_by_type():
     approved = Config(policies={"EMAIL": Policy.MASK, "PHONE": Policy.REDACT})
     found = Config(policies={"EMAIL": Policy.ALLOW, "PHONE": Policy.MASK, "IBAN": Policy.REDACT})
     out = composed(found, approved, Config())
     assert out.policies == {"EMAIL": Policy.MASK, "PHONE": Policy.REDACT, "IBAN": Policy.REDACT}
+
+
+def test_a_term_or_a_field_rule_of_hers_of_a_type_let_through_waits_and_the_rest_applies(caplog):
+    """A term or a field rule of hers whose type her policies let through leaves what it finds in clear: it waits, as a
+    recognizer of hers that does; her other additions apply, and the composition falls back to nothing."""
+    iban = "IT60X0542811101000000123456"
+    approved = Config(policies={"URL": Policy.ALLOW}, terms=[TermConfig(value="Project Atlas")])
+    found = Config(
+        policies={"URL": Policy.ALLOW},
+        terms=[TermConfig(value="Project Atlas"), TermConfig(value=iban, type="URL"), TermConfig(value="Mercury Labs")],
+        fields=[FieldRule(name="password", type="URL"), FieldRule(name="ssn")],
+        include_private_ips=True,
+    )
+    shop = [ProjectEntry(path="/home/emily/shop", policies={"URL": Policy.ALLOW})]
+    with caplog.at_level(logging.WARNING):
+        out = composed(found, approved, Config())
+        # Of a type her folder's own policy lets through, added at the top: it waits too.
+        in_shop = composed(
+            Config(terms=[TermConfig(value=iban, type="URL"), TermConfig(value="Mercury Labs")], projects=shop),
+            Config(projects=shop),
+            Config(),
+        )
+    assert _terms(out) == ["Mercury Labs", "Project Atlas"] and [f.name for f in out.fields] == ["ssn"]
+    assert out.include_private_ips is True and loosened(approved, out) == []
+    assert _terms(in_shop) == ["Mercury Labs"] and loosened(Config(projects=shop), in_shop) == []
+    assert "the approved ones apply" not in caplog.text
 
 
 def test_the_reviewer_runs_where_the_server_says_and_its_own_settings_are_weighed():
@@ -258,6 +296,33 @@ def test_a_composition_under_thirty_thousand_terms_with_a_change_waiting_takes_a
         took.append(time.perf_counter() - started)
     assert len(out.terms) == 30_001 and {"Customer Company 00000", "Mercury Labs"} <= set(_terms(out))
     assert min(took) < 1.0, f"{min(took):.2f} s"
+
+
+@pytest.mark.timing
+def test_a_composition_under_thirty_thousand_terms_with_folders_that_let_a_type_through_takes_a_fraction_of_a_second():
+    """Important 1 of the 0.9.8 review: with 20 folders of hers letting e-mail addresses through, her term added under
+    30,000 shared terms sent each folder to a weighing in full at every step of the composition: 4.37 s at each
+    re-application of her space, on every instance, against 0.12 s before. Only what changed at the top, of a type
+    such a folder lets through, is weighed there; one such of hers waits."""
+    many = [TermConfig(value=f"Customer Company {i:05d}", type="ORG") for i in range(30_000)]
+    folders = [
+        ProjectEntry(path=f"/home/emily/mail-{i:02d}", policies={"EMAIL": Policy.ALLOW}, terms=[TermConfig(value=f"Desk {i:02d}")])
+        for i in range(20)
+    ]  # fmt: skip
+    shared = Config(terms=many[1:])  # the administrator dropped a shared term: a change waits for her
+    approved = Config(terms=many, projects=folders)
+    for hers, kept in (
+        (TermConfig(value="Mercury Labs"), True),
+        (TermConfig(value="ops@acme-intra.it", type="EMAIL"), False),  # in clear in her folders: it waits
+    ):
+        found = Config(terms=[*many[1:], hers], projects=folders)
+        took = []
+        for _ in range(3):  # the shortest: what it costs, Python's collection of the test run's memory aside
+            started = time.perf_counter()
+            out = composed(found, approved, shared)
+            took.append(time.perf_counter() - started)
+        assert "Customer Company 00000" in _terms(out) and (hers.value in _terms(out)) is kept
+        assert min(took) < 1.0, f"{hers.value}: {min(took):.2f} s"
 
 
 @pytest.mark.timing

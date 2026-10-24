@@ -234,8 +234,9 @@ fields:
 - `mask: false` lässt ein Feld im strikten Datenmodus im Klartext. Das gehört in Ihre eigenen
   Einstellungen, nicht in die `latet.yaml` eines Projekts, die nur Schutz hinzufügen kann.
 
-Die erste Regel, die auf ein Feld passt, gewinnt: Ihre Einstellungen für ein Projekt kommen vor
-seiner `latet.yaml`, und beide vor Ihren globalen Regeln.
+Für ein Feld werden Ihre erste Regel, die darauf passt (zuerst Ihre Einstellungen für ein Projekt,
+dann Ihre globalen Regeln), und die erste der `latet.yaml` des Projekts, die darauf passt,
+verglichen: Es gilt die strengere (geschwärzt, dann maskiert, dann im Klartext), bei gleicher Ihre.
 
 ## Die Spalten wählen, die im Klartext bleiben
 
@@ -263,9 +264,10 @@ die Werte an, die neben jeder Spalte angezeigt werden, bevor Sie die Auswahl anw
 Die Spalten, die im Klartext vorgeschlagen werden, sind bereits angehakt.
 *2 Spalten im Klartext lassen* fügt für jede eine Regel hinzu, etwa `{name: status, mask: false}`,
 ganz oben in Ihren Einstellungen für das Projekt (*Dieses Projekt*) oder in Ihren globalen Regeln
-(*Überall*): Die erste passende Regel gewinnt, daher maskiert eine allgemeinere Regel wie `note_*`
-sie nicht wieder. Die nächsten Ausgaben zeigen diese Spalten unverändert. Nichts gilt, bevor Sie
-klicken.
+(*Überall*): Von Ihren Regeln gewinnt die erste passende, daher maskiert eine allgemeinere Regel von
+Ihnen wie `note_*` sie nicht wieder; eine Regel der `latet.yaml` des Projekts, die die Spalte
+maskiert, gilt dort weiterhin, was auch immer Sie wählen. Die nächsten Ausgaben zeigen diese Spalten
+unverändert. Nichts gilt, bevor Sie klicken.
 
 - **Ermittelt, wenn Sie die Liste öffnen.** Die Spalten werden aus der Ausgabe gelesen, die der
   Verlauf aufbewahrt, auf Ihrem Rechner, und nichts Neues wird gespeichert. Mit `history: metadata`
@@ -273,9 +275,10 @@ klicken.
 - **Die Einschätzung des lokalen Prüfers, wenn Sie fragen.** Ist der [lokale Prüfer](../llm-review/)
   eingeschaltet, sendet ihm *Lokalen Prüfer fragen* die Spaltennamen und einige Werte jeder Spalte
   und zeigt seine Einschätzung neben den Vorschlägen an. Sie wird nie von selbst übernommen.
-- **Die eigenen Regeln eines Projekts kommen zuerst.** Ihre Einstellungen für ein Projekt und seine
-  `latet.yaml` kommen vor Ihren globalen Regeln: Eine Spalte, die eines von beiden maskiert, bleibt
-  dort maskiert, was auch immer *Überall* hinzufügt, und die Liste weist darauf hin.
+- **Die eigenen Regeln eines Projekts bleiben.** Eine Spalte, die Ihre Einstellungen für ein Projekt
+  maskieren, bleibt dort maskiert, was auch immer *Überall* hinzufügt: Die Liste weist darauf hin,
+  und *Dieses Projekt* ändert sie. Eine Spalte, die die `latet.yaml` des Projekts maskiert, bleibt
+  dort maskiert, was auch immer Sie wählen, und die Liste sagt, welche.
 - **Nach einem Neustart** werden die Einstellungen eines Projekts bei seiner nächsten Sitzung
   geladen: Bis dahin kann die Auswahl nur in Ihre globalen Regeln gehen.
 - **Codex und OpenCode** senden mit jeder Anfrage die ganze Unterhaltung, und Latet maskiert sie
@@ -330,7 +333,7 @@ Projektdatei kann nur Schutz hinzufügen:
 | `data_tools` | ignoriert | zu Ihren hinzugefügt |
 | `data_files` | hinzugefügt | zu Ihren hinzugefügt |
 | `data_hosts` | hinzugefügt | zu Ihren hinzugefügt |
-| `fields` | nur Regeln, die maskieren | jede Regel, `mask: false` eingeschlossen |
+| `fields` | nur Regeln, die maskieren, mit einem dort maskierten Typ | jede Regel, `mask: false` eingeschlossen |
 | `dump_guard` | nur niedriger | jeder Wert; 0 schaltet ihn aus |
 | `images` | nur weniger Bilder: `mask`, dann `block` | `allow`, `mask` oder `block` |
 | `ocr` | nur `auto` | `auto` oder `off` |

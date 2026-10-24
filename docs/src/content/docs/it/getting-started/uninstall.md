@@ -23,9 +23,10 @@ Quest'unico comando:
 - ferma il daemon.
 
 Non cambia gli strumenti che hai puntato tu su Latet, nelle loro impostazioni o nella tua shell:
-GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Junie, Android Studio, Hermes Agent,
-OpenClaw, Goose, OpenHands, Aider, e una riga `latet env` nel profilo della tua shell. Rimetti in
-ciascuno il suo indirizzo, altrimenti falliscono con errori di connessione quando il daemon è fermo.
+GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie, Android Studio, Hermes
+Agent, OpenClaw, Goose, OpenHands, Aider, e una riga `latet env` nel profilo della tua shell.
+Rimetti in ciascuno il suo indirizzo, altrimenti falliscono con errori di connessione quando il
+daemon è fermo.
 
 Stampa cosa ha fatto per ciascuna parte, per esempio:
 

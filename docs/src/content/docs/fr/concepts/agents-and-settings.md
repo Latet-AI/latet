@@ -41,14 +41,15 @@ quel qu'en soit l'auteur :
   avec les derniers réglages que vous avez approuvés.
 
 Réduire la protection, c'est par exemple une valeur à ne jamais masquer, un profil plus bas, un terme
-ou un reconnaisseur supprimé, une politique définie sur `allow`, le relecteur local ou le Relecteur en
-direct désactivé ou qui lit moins, Latet désactivé dans un projet, le serveur du relecteur local
-déplacé vers une autre machine, ou [ses consignes](../llm-review/#vos-consignes) modifiées : un texte
-libre pourrait lui dire de ne rien signaler, donc toute modification attend, et le tableau de bord
-affiche les consignes avant et après. Il en va de même pour une
-[destination](../../agents/company-endpoints/) déplacée vers une autre adresse, ou supprimée : un agent
-qui pointe vers elle enverrait ses requêtes, et ses clés, ailleurs, donc le tableau de bord affiche
-l'adresse avant et après.
+ou un reconnaisseur supprimé, une politique définie sur `allow`, un terme ou une règle de champ d'un
+type dont la politique est `allow` (ce qu'il trouve resterait en clair), le relecteur local ou le
+Relecteur en direct désactivé ou qui lit moins, Latet désactivé dans un projet, le serveur du
+relecteur local déplacé vers une autre machine, ou [ses consignes](../llm-review/#vos-consignes)
+modifiées : un texte libre pourrait lui dire de ne rien signaler, donc toute modification attend, et
+le tableau de bord affiche les consignes avant et après. Il en va de même pour une
+[destination](../../agents/company-endpoints/) déplacée vers une autre adresse, ou supprimée : un
+agent qui pointe vers elle enverrait ses requêtes, et ses clés, ailleurs, donc le tableau de bord
+affiche l'adresse avant et après.
 
 La modification attend sur la page **Approbations** du tableau de bord, dans *Réglages*, avec ce
 qu'elle réduit, d'où elle vient (l'agent qui a lancé la commande, quand Latet peut le savoir) et

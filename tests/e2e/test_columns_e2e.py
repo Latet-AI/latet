@@ -73,10 +73,14 @@ def _login(client, rt):
     client.get(f"/_latet/ui/login?code={code.json()['code']}", follow_redirects=False)
 
 
-def _orders_exchange(client, rt, tool: str = "run_sql", output: str = ORDERS) -> tuple[str, int]:
-    """A chat whose tool ran a query: the exchange's id, and the index of the tool's output in it."""
+def _orders_exchange(
+    client, rt, tool: str = "run_sql", output: str = ORDERS, folder: str | None = None
+) -> tuple[str, int]:
+    """A chat whose tool ran a query (``folder``: its working directory): the exchange's id, and the index of the
+    tool's output in it."""
     call = {"id": "call_1", "type": "function", "function": {"name": tool, "arguments": "{}"}}
     messages = [
+        *([{"role": "system", "content": f"Working directory: {folder}"}] if folder else []),
         {"role": "user", "content": "show me the orders"},
         {"role": "assistant", "content": None, "tool_calls": [call]},
         {"role": "tool", "tool_call_id": "call_1", "content": output},
@@ -107,6 +111,28 @@ def test_the_columns_of_an_output_masked_in_strict_data_mode(tmp_path, monkeypat
         assert client.get(f"{API}/exchanges/{exchange}/columns", params={"slot": 0}).status_code == 404
         review = client.post(f"{API}/exchanges/{exchange}/columns/review", params={"slot": slot}, headers=UI)
         assert review.status_code == 409
+    rt.close()
+
+
+def test_a_column_a_repository_file_masks_is_said_held_by_the_file_whatever_you_choose(tmp_path, monkeypatch, upstream):
+    """Review minor 4 and re-review minor 1 (Ruling 098-R2): a column a project's latet.yaml masks stays masked there
+    whatever you choose, for this project or for everywhere, the stricter of the two rules applying: the panel says the
+    file holds it (where it advised This project, which changes nothing for it), and that a rule for everywhere would
+    change a column the file has no rule for. A rule of the file set aside there (its type let through by your
+    policies) holds nothing."""
+    root = tmp_path / "shop"
+    (root / ".git").mkdir(parents=True)
+    (root / "latet.yaml").write_text("fields: [{name: stato}, {name: cliente, type: URL}]\n", "utf-8")
+    rt = _daemon(tmp_path, monkeypatch, upstream, policies={"URL": "allow"})
+    with TestClient(create_app(rt.gateway), base_url="http://127.0.0.1:5283") as client:
+        _login(client, rt)
+        exchange, slot = _orders_exchange(client, rt, folder=str(root))
+        answer = client.get(f"{API}/exchanges/{exchange}/columns", params={"slot": slot}).json()
+        found = {c["name"]: c for c in answer["columns"]}
+        assert answer["project"] is not None and answer["project"]["loaded"] is True
+        assert found["stato"]["everywhere"] is False and found["stato"]["held_by_file"] is True
+        assert found["creato_il"]["everywhere"] is True and found["creato_il"]["held_by_file"] is False
+        assert found["cliente"]["everywhere"] is True and found["cliente"]["held_by_file"] is False
     rt.close()
 
 

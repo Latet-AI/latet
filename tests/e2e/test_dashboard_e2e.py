@@ -842,6 +842,56 @@ def test_projects_api_writes_only_what_adds_protection(client, runtime, tmp_path
     assert client.get(f"{API}/projects/missing").status_code == 404
 
 
+def test_projects_api_writes_nothing_in_a_repository_file_that_would_leave_values_in_clear(client, runtime, tmp_path):
+    """0.9.8: a recognizer that lets what it finds through, or a term or a field rule of a type let through there,
+    would be set aside in a latet.yaml: the dashboard's save of the file refuses it, each with the reason it words in
+    its reader's language, and writes nothing; one that masks is saved."""
+    root = _project(tmp_path, "profile: max\n")
+    _login(client, runtime)
+    runtime.update_config(lambda c: c.model_copy(update={"policies": {"URL": "allow"}}))
+    project = client.post(f"{API}/projects", json={"path": str(root)}, headers=UI_HEADERS).json()
+    pid, tag = project["id"], project["repo"]["tag"]
+    quiet = {"name": "quiet", "type": "QUIET", "pattern": "QT-[0-9]{6}", "policy": "allow"}
+    for settings, place in (
+        ({"recognizers": [quiet]}, ["settings", "recognizers", "quiet"]),
+        ({"terms": [{"value": "Acme Corp", "type": "URL"}]}, ["settings", "terms", "1"]),
+        ({"fields": [{"name": "password", "type": "URL"}]}, ["settings", "fields", "password"]),
+    ):
+        refused = client.put(f"{API}/projects/{pid}/repo", json={"settings": settings, "tag": tag}, headers=UI_HEADERS)
+        assert refused.status_code == 400, settings
+        [detail] = refused.json()["details"]
+        assert detail["loc"] == place and detail["reason"] == "repo_in_clear" and "Acme" not in detail["msg"]
+    assert (root / "latet.yaml").read_text("utf-8") == "profile: max\n"  # nothing written
+    masked = {"terms": [{"value": "Acme Corp", "type": "CLIENT"}], "fields": [{"name": "salary", "type": "SALARY"}]}
+    ok = client.put(f"{API}/projects/{pid}/repo", json={"settings": masked, "tag": tag}, headers=UI_HEADERS)
+    assert ok.status_code == 200 and ok.json()["repo"]["settings"]["terms"] == masked["terms"]
+
+
+def test_projects_api_keeps_what_the_file_holds_already_and_refuses_only_what_a_save_adds(client, runtime, tmp_path):
+    """Review B3: the dashboard saves latet.yaml whole. A teammate's term typed EMAIL, set aside where you let e-mail
+    addresses through (said by its notice), stays in the file when you save it with a term of yours added: refusing it
+    would push you to take away a masking the others have. A term typed EMAIL that your save adds is refused alone."""
+    root = _project(tmp_path, "terms:\n  - {value: ops@acme-intra.it, type: EMAIL}\n")
+    _login(client, runtime)
+    runtime.update_config(lambda c: c.model_copy(update={"policies": {"EMAIL": "allow"}}))
+    project = client.post(f"{API}/projects", json={"path": str(root)}, headers=UI_HEADERS).json()
+    project = client.get(f"{API}/projects/{project['id']}", headers=UI_HEADERS).json()
+    assert [(n["key"], n.get("reason")) for n in project["notices"]] == [("terms.1", "repo_in_clear")]
+    pid, whole = project["id"], project["repo"]["settings"]
+    mine = {**whole, "terms": [*whole["terms"], {"value": "Acme Corp", "type": "CLIENT"}]}
+    saved = client.put(
+        f"{API}/projects/{pid}/repo", json={"settings": mine, "tag": project["repo"]["tag"]}, headers=UI_HEADERS
+    )
+    assert saved.status_code == 200, saved.json()
+    assert [t["value"] for t in saved.json()["repo"]["settings"]["terms"]] == ["ops@acme-intra.it", "Acme Corp"]
+    more = {**mine, "terms": [*mine["terms"], {"value": "billing@acme-intra.it", "type": "EMAIL"}]}
+    refused = client.put(
+        f"{API}/projects/{pid}/repo", json={"settings": more, "tag": saved.json()["repo"]["tag"]}, headers=UI_HEADERS
+    )
+    assert refused.status_code == 400
+    assert [d["loc"] for d in refused.json()["details"]] == [["settings", "terms", "3"]]
+
+
 def test_latet_off_in_a_project_sends_it_as_it_is(client, runtime, upstream, tmp_path):
     root = _project(tmp_path, "")
     _login(client, runtime)
