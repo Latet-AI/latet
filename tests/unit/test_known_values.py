@@ -14,7 +14,7 @@ import re2
 from latet.engine import known as known_module
 from latet.engine import vault as vault_module
 from latet.engine.masker import Masker
-from latet.engine.types import EntityClass, SlotKind
+from latet.engine.types import EntityClass, Policy, SlotKind
 from latet.engine.vault import Entity, Vault
 
 from ..conftest import ROOT_KEY
@@ -293,3 +293,126 @@ def test_a_reading_of_many_parts_pauses_after_each_compile(monkeypatch):
     assert len(compiled) == 8 and len(paused) == 6  # the fresh part's two compiles: no pause
     vault.matchers.current()
     assert len(compiled) == 8 and len(paused) == 6  # nothing changed: nothing compiled
+
+
+# --- values that overlap ---------------------------------------------------------------------------------------------
+
+_OVERLAPS = {
+    "names": (("PERSON", EntityClass.NER), ("Anna Maria", "Maria Rossi"), "ticket for Anna Maria Rossi today"),
+    "customers": (
+        ("CUSTOMER", EntityClass.CUSTOM),
+        ("Project Falcon", "Falcon Ridge Holdings"),
+        "notes on Project Falcon Ridge Holdings",
+    ),
+    "secrets": (
+        ("API_KEY", EntityClass.SECRET),
+        ("tok_ABCD1234efgh", "1234efgh5678WXYZ"),
+        "key=tok_ABCD1234efgh5678WXYZ!",
+    ),
+}
+_UNIONS = {
+    "names": "Anna Maria Rossi",
+    "customers": "Project Falcon Ridge Holdings",
+    "secrets": "tok_ABCD1234efgh5678WXYZ",
+}
+
+
+@pytest.mark.parametrize("case", list(_OVERLAPS))
+@pytest.mark.parametrize("parts", [1, 2])
+def test_known_values_that_overlap_are_masked_as_their_union_whatever_their_parts(case, parts):
+    """Two values of the vault that overlap in a text (`Anna Maria`, `Maria Rossi`) are both found, so that the whole
+    of them is masked, in one part as in two (0.9.8 found the first alone in one part: `Rossi` left in clear)."""
+    kind, values, text = _OVERLAPS[case]
+    vault = Vault(ROOT_KEY)
+    vault.intern(*kind, values[0])
+    if parts == 2:
+        vault.matchers.current()  # read: the next value goes to another part
+    vault.intern(*kind, values[1])
+    masker = Masker(vault, [])
+    assert len(vault.matchers.current().known._parts) == parts
+    assert sorted(text[s.start : s.end] for s in masker.known_in(text)) == sorted(values)
+    masked = masker.mask(text, SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    assert replacement.original == _UNIONS[case]
+    assert masked.text == text.replace(_UNIONS[case], replacement.replacement)
+
+
+def test_a_value_inside_and_a_value_across_others_are_all_found():
+    vault = Vault(ROOT_KEY)
+    for value in ("Maria Rossi", "Anna Maria", "Rossi Bianchi", "Maria"):
+        vault.intern("PERSON", EntityClass.NER, value)
+    text = "da Anna Maria Rossi Bianchi, poi Maria"
+    found = sorted((s.start, s.end) for s in Masker(vault, []).known_in(text))
+    # The values one after the other cover every letter: `Maria Rossi`, across them, adds a blank alone.
+    assert found == [(3, 13), (14, 27), (33, 38)]
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT).text
+    assert not {"Anna", "Maria", "Rossi", "Bianchi"} & set(masked.replace(",", " ").split())
+
+
+def test_a_value_repeated_whose_occurrences_overlap_others_is_masked_occurrence_by_occurrence():
+    """`Mario Rossi` repeated, with `Rossi Mario` known too: each occurrence is masked as 0.9.8 masked it, with the same
+    fake, never the whole run as one value; three-word values that overlap at each word, likewise."""
+    vault = Vault(ROOT_KEY)
+    mario = vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    vault.intern("PERSON", EntityClass.NER, "Rossi Mario")
+    text = "names: Mario Rossi Mario Rossi Mario Rossi Mario Rossi end"
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    assert [r.original for r in masked.replacements] == ["Mario Rossi"] * 4
+    assert masked.text == text.replace("Mario Rossi", mario.surrogate)
+    many = Vault(ROOT_KEY)
+    for i in range(3_000):
+        many.intern("PERSON", EntityClass.NER, f"w{i} w{i + 1} w{i + 2}")
+    words = " ".join(f"w{i}" for i in range(3_002))
+    done = Masker(many, []).mask(words, SlotKind.TOOL_RESULT)
+    assert len(done.replacements) == 1_000 and {r.policy for r in done.replacements} == {Policy.MASK}
+    assert max(len(r.original) for r in done.replacements) <= len("w2997 w2998 w2999 w3000 w3001")
+
+
+def test_a_run_of_overlaps_across_values_is_masked_in_unions_no_longer_than_two_values():
+    """Values that overlap one another all along (`a1 b1`, `b1 c1`, ...): every letter is masked, and what merges into
+    one value never runs past the next value found one after the other."""
+    vault = Vault(ROOT_KEY)
+    words = [f"x{i}" for i in range(60)]
+    for i in range(0, 59):
+        vault.intern("PERSON", EntityClass.NER, f"{words[i]} {words[i + 1]}")
+    text = " ".join(words[i] for i in (0, 1, 2) * 20)  # x0 x1 x2 x0 x1 x2 ...
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    assert not any(w in masked.text.split() for w in words[:3])
+    assert max(len(r.original) for r in masked.replacements) <= len("x0 x1 x2")
+
+
+_NAME, _SECRET = ("PERSON", EntityClass.NER), ("API_KEY", EntityClass.SECRET)
+# A text of 1 MB of one unit repeated, and the values that overlap in it: each place a value begins at is found, at a
+# cost of about 10 microseconds each, 0.9.8's too ("many": a value at each word, 180,000 of them).
+_DENSE = {
+    "pair": (_NAME, ("Anna Maria", "Maria Rossi"), "Anna Maria Rossi "),
+    "many": (_NAME, [f"w{i} w{i + 1} w{i + 2}" for i in range(1_000)], " ".join(f"w{i}" for i in range(1_002)) + " "),
+    "secret": (_SECRET, ("tok_ABCD1234efgh",), "tok_ABCD1234efgh"),
+    "self-overlapping": (_SECRET, ("a" * 64,), "a"),
+    "two-self-overlapping": (_SECRET, ("ab" * 40, "ba" * 40), "ab"),
+}
+
+
+@pytest.mark.timing
+@pytest.mark.parametrize("case", list(_DENSE))
+def test_overlapping_values_are_found_in_a_time_in_proportion_to_the_text(case):
+    """One value repeated, many that overlap, values that overlap themselves at every character: the values are found
+    in a time in proportion to the text, the overlaps looked for within a bound (past it, the values one after the
+    other, as 0.9.8 found them)."""
+    import time
+
+    kind, values, unit = _DENSE[case]
+    vault = Vault(ROOT_KEY)
+    for value in values:
+        vault.intern(*kind, value)
+    masker = Masker(vault, [])
+    text = unit * (1_000_000 // len(unit))
+    masker.known_in(text[:1000])  # compiled before the clock starts
+    took = []
+    for _ in range(3):  # the fastest of three: a runner's noise slows one run, never the matcher
+        began = time.perf_counter()
+        found = masker.known_in(text)
+        took.append(time.perf_counter() - began)
+    assert found and min(took) < 5.0, took  # generous for CI; up to about 2 s locally (a value at each word)
+    covered = sorted((s.start, s.end) for s in found)
+    assert covered[0][0] <= len(unit) and covered[-1][1] >= len(text) - len(unit)  # from its start to its end

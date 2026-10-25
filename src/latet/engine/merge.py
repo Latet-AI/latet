@@ -5,12 +5,14 @@ from __future__ import annotations
 import bisect
 from collections.abc import Iterable
 
-from latet.engine.escapes import breaks
+from latet.engine.escapes import breaks, decoded
 from latet.engine.types import EntityClass, Span
 
 
-def _rank(span: Span) -> tuple[int, int, float]:
-    return (int(span.eclass), span.length, span.score)
+def _rank(span: Span) -> tuple[int, int, float, bool]:
+    # Alike otherwise, a value found as it is written names the result over one found where escapes read as what they
+    # stand for: a value of a structure stays as written in it.
+    return (int(span.eclass), span.length, span.score, span.value is None)
 
 
 def merge_spans(spans: Iterable[Span], text: str | None = None) -> list[Span]:
@@ -21,10 +23,15 @@ def merge_spans(spans: Iterable[Span], text: str | None = None) -> list[Span]:
 
     With ``text``, a value of a structure (STRUCT) holding findings of their own, like a note with a
     phone number in it, is cut around them first: the phone number keeps its type, and the rest of
-    the note is masked as the note.
+    the note is masked as the note. And a group that holds a value written in escapes (``Span.value``) reads
+    as its escapes read, where its ends are not inside one.
     """
     if text is not None:
         spans = _carve(list(spans), text)
+    return _merged(spans, text)
+
+
+def _merged(spans: Iterable[Span], text: str | None) -> list[Span]:
     ordered = sorted(spans, key=lambda s: (s.start, -s.end))
     merged: list[Span] = []
     group: list[Span] = []
@@ -35,11 +42,11 @@ def merge_spans(spans: Iterable[Span], text: str | None = None) -> list[Span]:
             group_end = max(group_end, span.end)
             continue
         if group:
-            merged.append(_collapse(group))
+            merged.append(_collapse(group, text))
         group = [span]
         group_end = span.end
     if group:
-        merged.append(_collapse(group))
+        merged.append(_collapse(group, text))
     return merged
 
 
@@ -53,7 +60,7 @@ def _carve(spans: list[Span], text: str) -> list[Span]:
     if len(structs) == len(spans) and not gaps:
         return spans
     gap_ends = [end for _, end in gaps]
-    others = merge_spans(s for s in spans if s.eclass != EntityClass.STRUCT)
+    others = _merged((s for s in spans if s.eclass != EntityClass.STRUCT), text)
     ends = [o.end for o in others]  # disjoint and in order: their ends are in order too
     out = list(others)
     for s in structs:
@@ -90,7 +97,7 @@ def _piece(
     return out
 
 
-def _collapse(group: list[Span]) -> Span:
+def _collapse(group: list[Span], text: str | None) -> Span:
     if len(group) == 1:
         return group[0]
     start = min(s.start for s in group)
@@ -98,4 +105,10 @@ def _collapse(group: list[Span]) -> Span:
     best = max(group, key=_rank)
     if best.start == start and best.end == end:
         return best
-    return Span(start, end, best.etype, best.eclass, best.rule, best.score)
+    value = None
+    if text is not None and any(s.value is not None for s in group) and (reading := decoded(text)) is not None:
+        # Values written in escapes among them: the whole reads as its escapes read (its ends are where escapes begin
+        # and end, or as written).
+        value = reading.read(start, end)
+        value = None if value == text[start:end] else value
+    return Span(start, end, best.etype, best.eclass, best.rule, best.score, value)

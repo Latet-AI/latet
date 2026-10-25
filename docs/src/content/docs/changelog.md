@@ -11,6 +11,28 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.9 (2026-10-24)
+
+- Fixed: two values Latet already knew, or two of your terms, that overlap in a text left the end of
+  the second in clear: with *Anna Maria* and *Maria Rossi* both known, *Anna Maria Rossi* went out
+  with *Rossi* in clear, unless the two had been learnt far apart. Values that overlap are now found
+  each, and the whole of them is masked; a value repeated (*Mario Rossi Mario Rossi*, with *Rossi
+  Mario* known too) is still masked occurrence by occurrence, with the same fake each time. Overlaps
+  are looked for up to a bound in each text: past it, the rest of the text is masked as before, one
+  value after the other.
+- Fixed: a value Latet already knew, one of your terms or this machine's identity went out in clear
+  when a tool's output wrote it in escapes where Latet does not read a JSON document value by value:
+  `Niccolò Ferri` as `Niccol\u00f2 Ferri` in a code fence, in JSON lines or in a document held in a
+  string, as bytes in a log (`\xc3\xb2`) or in a path git quotes (`\303\262`), encoded in a URL
+  (`mario.rossi%40acme.it`, `Mario%20Rossi`, `Mario+Rossi` in a query or a form), or as an HTML
+  character reference (`Niccol&#242;`). Latet now also reads what such escapes stand for, and masks
+  such a value; where an escape writes a character, personal data and the values of your recognizers
+  are found so too, so an address written `luca.neri%40acme.it` is masked the first time. The value is
+  kept exactly as it is written, with a fake of its own written in the same escapes where they are part
+  of the text (a link stays a well-formed link), and the agent gets the value back exactly as it was
+  written: a link it follows, a line it edits, a quoted string, byte for byte. Where the model writes the
+  fake as it reads (`Paolo Fontana` for `Paolo%20Fontana`), the agent gets the value as it reads.
+
 ## 0.9.8 (2026-10-24)
 
 - Prime Agent goes through Latet: give its built-in Anthropic, OpenAI and OpenRouter providers

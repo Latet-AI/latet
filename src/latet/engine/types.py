@@ -53,6 +53,9 @@ class Span:
     eclass: EntityClass
     rule: str  # detector/rule id, for the dashboard
     score: float = 1.0
+    # The value as it reads, where the text writes it in escapes (`Niccol%C3%B2`, found where they read as what they
+    # stand for: ``escapes.decoded``); None: as it is written there. Never in a log line.
+    value: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not 0 <= self.start < self.end:
@@ -61,6 +64,10 @@ class Span:
     @property
     def length(self) -> int:
         return self.end - self.start
+
+    def of(self, text: str) -> str:
+        """The value it found in ``text``: as it reads (``value``), or as ``text`` writes it."""
+        return self.value if self.value is not None else text[self.start : self.end]
 
 
 @dataclass(frozen=True, slots=True)

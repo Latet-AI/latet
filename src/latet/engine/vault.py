@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 from functools import partial
 
 from latet.engine.detectors.ids import ID_TYPES
-from latet.engine.escapes import TAIL, ends_with_escape
+from latet.engine.escapes import TAIL, ends_with_escape, readings, written_like
 from latet.engine.known import ValueMatchers, value_chars
 from latet.engine.modules import AGAIN, kept
 from latet.engine.surrogates.data.names import NAME_EDGES, PUBLIC_MAIL_DOMAINS
@@ -106,6 +106,28 @@ class Entity:
     rule: str | None = None  # the detector rule of its first sighting (None: recorded before rules were kept)
 
 
+def written_in_words(etype: str, eclass: EntityClass) -> bool:
+    """A value of this kind is written in words, a space between two (a name, a term, a street): a `+` in it, kept as
+    a form's value writes it (`Mario+Rossi`), is a space. In any other value it is a sign: a phone's `+39`, a
+    sub-address's `+crm`, a token's (``escapes.readings``)."""
+    return eclass != EntityClass.STRUCT and restored_whole(etype, eclass)
+
+
+ESCAPE_SIGNS = ("%", "+", "\\", "&")  # what a value written in escapes holds one of, at least
+
+
+def fake_reading(entity: Entity) -> str | None:
+    """How the fake of a value kept as written in escapes reads, where it reads otherwise (`Nicola Greco` for
+    `Nicola%20Greco`): kept apart from every other value and fake as a fake is (Ruling 099-R2), sent back in a later
+    text as a fake is (an echo), and given back as the value reads (``restores_for``). None for a value written as it
+    reads: a `+` in a phone or a token is a sign (``written_in_words``)."""
+    original = entity.original
+    if not any(sign in original for sign in ESCAPE_SIGNS):
+        return None
+    read = readings(original, entity.surrogate, words=written_in_words(entity.etype, entity.eclass))
+    return read[0] if read is not None and read[0] != entity.surrogate else None
+
+
 def _kept(entity: Entity) -> Entity:
     """``entity`` with its rule as the vault keeps it (``modules.kept``): one kept before with a field's name in it, by
     the field's kind. A name the name model found before it left quotes out (`'Francesca Solieri`, from a string
@@ -150,6 +172,7 @@ class Vault:
         self._lock = threading.RLock()
         self._by_key: dict[tuple[str, str], Entity] = {}
         self._by_surrogate: dict[str, Entity] = {}
+        self._by_reading: dict[str, Entity] = {}  # how a fake written in escapes reads (``fake_reading``)
         self._by_original: dict[str, Entity] = {}
         self._by_id: dict[str, Entity] = {}
         self._on_insert = on_insert
@@ -188,8 +211,11 @@ class Vault:
     def entity_id(self, etype: str, original: str) -> str:
         return hmac.new(self._k_id, f"{etype}\x00{original}".encode(), hashlib.sha256).hexdigest()[:20]
 
-    def by_surrogate(self, surrogate: str) -> Entity | None:
-        return self._by_surrogate.get(surrogate)
+    def by_surrogate(self, surrogate: str, as_read: bool = True) -> Entity | None:
+        """The entity of a fake, or (``as_read``) of how a fake written in escapes reads (`Nicola Greco` for
+        `Nicola%20Greco`). A store keeps one value per fake as written: what another process kept is compared so."""
+        found = self._by_surrogate.get(surrogate)
+        return found if found is not None or not as_read else self._by_reading.get(surrogate)
 
     def by_original(self, original: str) -> Entity | None:
         return self._by_original.get(original)
@@ -207,7 +233,34 @@ class Vault:
         return len(self._by_key)
 
     def is_surrogate(self, value: str) -> bool:
-        return value in self._by_surrogate
+        """Whether ``value`` is a fake: one as written, or how a fake written in escapes reads, unless that reading is
+        a value the vault knows too (a real Nicola Greco learnt after `Nicola%20Greco` went out): the value wins, and
+        is masked and checked as one."""
+        return value in self._by_surrogate or (value in self._by_reading and value not in self._by_original)
+
+    def a_value_over_a_reading(self, forms: Iterable[str]) -> bool:
+        """Whether ``forms`` (how a text found as a fake is written and how it reads) are no fake as written, and one is
+        how a fake written in escapes reads and a value the vault knows too: the value wins (``is_surrogate``)."""
+        forms = list(forms)
+        if any(form in self._by_surrogate for form in forms):
+            return False
+        return any(form in self._by_reading and form in self._by_original for form in forms)
+
+    def _taken(self, candidate: str) -> bool:
+        """Whether ``candidate`` is a value the vault knows, a fake, or how a fake written in escapes reads: a fake
+        drawn so would leave a real name in the text, or bring another value back."""
+        return candidate in self._by_surrogate or candidate in self._by_original or candidate in self._by_reading
+
+    def _read_as(self, entity: Entity, kept: bool) -> None:
+        """How ``entity``'s fake reads, where it is written in escapes and reads otherwise: indexed (``kept``) or
+        not."""
+        reading = fake_reading(entity)
+        if reading is None:
+            return
+        if kept:
+            self._by_reading[reading] = entity
+        elif self._by_reading.get(reading) is entity:
+            del self._by_reading[reading]
 
     @property
     def matchers(self) -> ValueMatchers:
@@ -281,6 +334,7 @@ class Vault:
                 self._touch((known.etype, known.original))
             self._keyed((entity.etype, entity.original), entity)
             self._by_surrogate[entity.surrogate] = entity
+            self._read_as(entity, True)
             first = self._by_original.get(entity.original)
             if first is None or first is known:  # another type's entity of the same value stays: its sighting was first
                 self._by_original[entity.original] = entity
@@ -290,6 +344,7 @@ class Vault:
                     self._keyed((known.etype, known.original), None)
                 if self._by_surrogate.get(known.surrogate) is known:
                     del self._by_surrogate[known.surrogate]
+                self._read_as(known, False)
                 if self._by_original.get(known.original) is known:
                     del self._by_original[known.original]
             self._moved()
@@ -304,6 +359,7 @@ class Vault:
         context: str = "",
         rule: str | None = None,
         generate: Callable[[str, Drbg], str] | None = None,
+        reads: str | None = None,
     ) -> Entity:
         """The entity for ``original``, creating it (and its surrogate) on first sight.
 
@@ -313,6 +369,9 @@ class Vault:
         (``modules.kept``: a field's name in it, which can be a value, is named by its kind). ``generate``
         makes the fake for a type of the user's own recognizers (it follows the rule's shape and checksum).
         A candidate that holds ``original``, whatever the case, is rejected as one equal to it (``_shows``).
+        ``reads``: what ``original`` reads, where it is written in escapes (`Niccol%C3%B2%20Ferri`): the fake is drawn
+        from it (a name for a name, an address for an address), and written in the escapes ``original`` is written
+        in where they are part of the syntax (``escapes.written_like``), so that a URL stays one.
         """
         rule = kept(rule)
         with self._lock:
@@ -323,9 +382,10 @@ class Vault:
                 if found.rule is None and rule and rule not in AGAIN:
                     found = self._learn_rule(found, rule)
                 return found
+            reads = reads if reads is not None and reads != original else None
             domain_surrogate = None
             if etype == "EMAIL":
-                domain = email_domain(original)
+                domain = email_domain(reads or original)
                 if domain and domain.lower() not in PUBLIC_MAIL_DOMAINS:
                     dom = self.intern("DOMAIN", EntityClass.PII, domain.lower(), context, rule)
                     domain_surrogate = dom.surrogate
@@ -335,11 +395,21 @@ class Vault:
             growth = _MAX_GROWTH if eclass == EntityClass.STRUCT else 0
             tries = ((grow, counter) for grow in range(growth + 1) for counter in range(_MAX_ATTEMPTS))
             for grow, counter in tries:
-                candidate = self._generate(etype, eclass, original, counter, domain_surrogate, generate, grow)
+                candidate = self._generate(etype, eclass, original, counter, domain_surrogate, generate, grow, reads)
+                if reads is not None:
+                    # As it reads, the fake is none of the values the vault knows nor of their fakes, nor in the text,
+                    # as any fake is none: the model would read a real name, or write one that comes back as another
+                    # value (the reviewer named in the same text as the fake reads).
+                    if (
+                        _shows(candidate, reads)
+                        or self._taken(candidate)
+                        or (context and _occurs(candidate, context, whole))
+                    ):
+                        continue
+                    candidate = written_like(candidate, original, reads)
                 if (
                     _shows(candidate, original)
-                    or candidate in self._by_surrogate
-                    or candidate in self._by_original
+                    or self._taken(candidate)
                     or (context and _occurs(candidate, context, whole))
                 ):
                     continue
@@ -382,7 +452,7 @@ class Vault:
             candidate = self._generate(
                 entity.etype, entity.eclass, entity.original, counter, domain_surrogate, None, grow
             )
-            if _shows(candidate, entity.original) or candidate in self._by_surrogate or candidate in self._by_original:
+            if _shows(candidate, entity.original) or self._taken(candidate):
                 continue
             drawn = replace(entity, surrogate=candidate, counter=counter)
             try:
@@ -407,6 +477,8 @@ class Vault:
             self._keyed((entity.etype, entity.original), updated)
         if self._by_surrogate.get(entity.surrogate) is entity:
             self._by_surrogate[entity.surrogate] = updated
+        if (reading := fake_reading(entity)) is not None and self._by_reading.get(reading) is entity:
+            self._by_reading[reading] = updated
         if self._by_original.get(entity.original) is entity:
             self._by_original[entity.original] = updated
         self._by_id[entity.id] = updated
@@ -423,11 +495,15 @@ class Vault:
         domain_surrogate: str | None,
         generate: Callable[[str, Drbg], str] | None = None,
         grow: int = 0,
+        reads: str | None = None,
     ) -> str:
+        """A fake for ``original``, drawn from it, or from what it reads (``reads``) where it is written in escapes (the
+        seed is the value as written: each written form has a fake of its own)."""
         value = normalize(etype, original)
         if len(value) > SEED_LONGEST:  # its digest: the generator hashes the seed again for every 32 bytes it draws
             value = "sha256:" + hashlib.sha256(value.encode()).hexdigest()
         seed = f"{etype}\x00{value}\x00{counter}".encode()
+        original = reads if reads is not None else original
         if grow:  # the shape of a value of a structure, `grow` characters longer: its last one again
             return gen_data(original + original[-1] * grow, Drbg(self._k_sur, seed + f"\x00grow{grow}".encode()))
         rng = Drbg(self._k_sur, seed)
@@ -463,6 +539,7 @@ class Vault:
         self._touch((entity.etype, entity.original))
         self._keyed((entity.etype, entity.original), entity)
         self._by_surrogate[entity.surrogate] = entity
+        self._read_as(entity, True)
         self._by_original.setdefault(entity.original, entity)
         self._by_id[entity.id] = entity
         self._moved()
@@ -480,5 +557,6 @@ class Vault:
         self._keyed((entity.etype, entity.original), None)
         if self._by_surrogate.get(entity.surrogate) is entity:
             del self._by_surrogate[entity.surrogate]
+        self._read_as(entity, False)
         if self._by_original.get(entity.original) is entity:
             del self._by_original[entity.original]

@@ -249,11 +249,26 @@ not kept at all. Known values are also what the final check looks for in outgoin
 A value is matched again from four characters, a person's name from three (*Ugo*, *Ada*), and only
 as written: *Ugo* is not *ugo*, nor part of *Ugolino*.
 
+A value is also found where it is written in escapes: as `\u00f2` or `\\u00f2` in JSON that Latet
+does not read as a document (a code fence, JSON lines, a document held in a string), as bytes in a
+log (`\xc3\xb2`) or in a path git quotes (`\303\262`), encoded in a URL (`%C3%B2`, `%20`, or `+` in
+a query or a form), or as an HTML character reference (`&#242;`, `&ograve;`). Your terms and this
+machine's identity are found the same way, and, where an escape writes a character, so are personal
+data and the values of your recognizers: an address written `mario.rossi%40acme.it` is found too (a
+secret or a value of a structure is found as it is written alone). Such a value is kept as it is
+written, as a value of its own with a fake of its own, written in the same escapes where they are
+part of the text: `Paolo%20Fontana` in a link, `\'` in a quoted string. What comes back to the agent
+is the value exactly as it was written, so a link stays a link and an edit finds its line again. Where the
+model writes the fake as it reads, `Paolo Fontana`, the agent gets the value as it reads.
+
 ## When two detectors find the same text
 
 Overlapping matches are merged into one, covering all of them, so a value is never half replaced.
 The stronger kind names the result: secrets first, then your terms and this machine's identity,
-then personal data.
+then personal data. Your terms and the known values that overlap one another are each found too: with
+*Anna Maria* and *Maria Rossi* both known, *Anna Maria Rossi* is masked whole. Overlaps are looked for
+up to a bound in each text: past it, the rest of the text is masked as before, one value after the
+other.
 
 If any detector other than the personal-data one and the local name model fails (secrets, your
 terms, identity, known values), masking fails and the request is blocked: nothing goes out

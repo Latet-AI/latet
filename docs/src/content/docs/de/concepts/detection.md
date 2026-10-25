@@ -265,11 +265,30 @@ abschließende Prüfung in ausgehenden Anfragen.
 Ein Wert wird ab vier Zeichen wiedererkannt, der Name einer Person ab drei (*Ugo*, *Ada*), und nur
 so, wie er geschrieben ist: *Ugo* ist nicht *ugo* und auch nicht Teil von *Ugolino*.
 
+Ein Wert wird auch dort gefunden, wo er mit Escape-Sequenzen geschrieben ist: als `\u00f2` oder
+`\\u00f2` in JSON, das Latet nicht als Dokument liest (ein Codeblock, JSON-Zeilen, ein Dokument in
+einem String), als Bytes in einem Log (`\xc3\xb2`) oder in einem Pfad, den git in Anführungszeichen
+setzt (`\303\262`), in einer URL kodiert (`%C3%B2`, `%20` oder `+` in einer Query oder einem
+Formular) oder als HTML-Zeichenreferenz (`&#242;`, `&ograve;`). Ihre Begriffe und die Identität
+dieses Rechners werden ebenso gefunden und, wo eine Sequenz ein Zeichen schreibt, auch
+personenbezogene Daten und die Werte Ihrer Erkenner: So wird auch eine Adresse gefunden, die als
+`mario.rossi%40acme.it` geschrieben ist (ein geheimer Wert oder ein Wert einer Struktur wird nur so
+gefunden, wie er geschrieben ist). Ein so gefundener Wert wird so aufbewahrt, wie er geschrieben ist,
+als eigener Wert mit eigenem Ersatzwert, der mit denselben Sequenzen geschrieben wird, wo sie zum
+Text gehören: `Paolo%20Fontana` in einem Link, `\'` in einem String in Anführungszeichen. Zum
+Agenten kommt der Wert genau so zurück, wie er geschrieben war: Ein Link bleibt ein Link, und eine
+Bearbeitung findet ihre Zeile wieder. Schreibt das Modell den Ersatzwert so, wie er sich liest,
+`Paolo Fontana`, erhält der Agent den Wert so, wie er sich liest.
+
 ## Wenn zwei Detektoren denselben Text finden
 
 Überlappende Treffer werden zu einem zusammengeführt, der sie alle abdeckt, sodass ein Wert nie
 halb ersetzt wird. Das Ergebnis erhält den Namen der stärkeren Art: zuerst geheime Werte, dann Ihre
-Begriffe und die Identität dieses Rechners, dann personenbezogene Daten.
+Begriffe und die Identität dieses Rechners, dann personenbezogene Daten. Auch Ihre Begriffe und
+bekannten Werte, die einander überlappen, werden jeweils gefunden: Sind *Anna Maria* und *Maria
+Rossi* beide bekannt, wird *Anna Maria Rossi* vollständig maskiert. Überlappungen werden in jedem Text
+bis zu einer Grenze gesucht: Darüber hinaus wird der Rest des Textes wie bisher maskiert, ein Wert
+nach dem anderen.
 
 Fällt ein anderer Detektor als der für personenbezogene Daten und das lokale Namensmodell aus
 (geheime Werte, Ihre Begriffe, Identität, bekannte Werte), schlägt das Maskieren fehl, und die

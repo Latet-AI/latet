@@ -678,7 +678,7 @@ class Bridge:
         for text in data.get("items") or []:
             if isinstance(text, str):
                 for span in self.engine.masker.surrogates_in(text):
-                    entity = vault.by_surrogate(text[span.start : span.end])
+                    entity = vault.by_surrogate(span.of(text))
                     if entity is not None:
                         found.append(entity.id)
         self.engine.show(session, found)

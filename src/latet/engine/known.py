@@ -86,7 +86,13 @@ class _Part:
             )
             if pause:
                 time.sleep(LET_GO)
-            echo = KnownValuesDetector(((e.surrogate, e.etype, e.eclass) for e in entities), rule="echo", bounded=True)
+            from latet.engine.vault import fake_reading  # the vault imports this module
+
+            # A fake, and how a fake written in escapes reads (`Nicola Greco` for `Nicola%20Greco`): either sent back
+            # in a later text is masked as a value of its own, so that the model's answer comes back as it was sent.
+            fakes = [(e.surrogate, e.etype, e.eclass) for e in entities]
+            fakes += [(reading, e.etype, e.eclass) for e in entities if (reading := fake_reading(e)) is not None]
+            echo = KnownValuesDetector(fakes, rule="echo", bounded=True)
             if pause:
                 time.sleep(LET_GO)
             self.made = (known, echo)

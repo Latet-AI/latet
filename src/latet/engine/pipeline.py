@@ -415,7 +415,7 @@ class Engine:
 
     def adopt(self, session: Session, text: str, masker: Masker) -> None:
         """Surrogates already in ``text`` (a resumed conversation) belong to ``session`` too."""
-        found = (e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(text[s.start : s.end])))
+        found = (e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(s.of(text))))
         self.show(session, found)
 
     def remember_model_output(self, masked: str, restored: str) -> None:

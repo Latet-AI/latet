@@ -472,10 +472,11 @@ def _recount(vault: Vault, store: PgVaultStore) -> None:
 
 def _displaced(vault: Vault, entity: Entity) -> bool:
     """Whether knowing ``entity`` would put another entity of the vault out: its fake or its value held under another
-    id (``_learned``)."""
+    id (``_learned``). Fakes as written: PostgreSQL keeps one value per fake so, and `Nicola%20Greco` and another
+    value's `Nicola Greco` are two fakes there."""
     return any(
         other is not None and other.id != entity.id
-        for other in (vault.by_surrogate(entity.surrogate), vault.by_original(entity.original))
+        for other in (vault.by_surrogate(entity.surrogate, as_read=False), vault.by_original(entity.original))
     )
 
 
@@ -486,9 +487,9 @@ def _learned(vault: Vault, entity: Entity) -> bool:
     forgotten so: the engine's masked blocks may hold its fake, and its caller has the engine forget them
     (``rules_changed``), as ``_forget`` and ``Runtime.forget`` do. Raises SpaceFull for a new value the space is past
     its share for: not learnt, and the vault refuses every text from then on (``Vault.lacking``) until the space is
-    made again (``Spaces._unlearnt``)."""
+    made again (``Spaces._unlearnt``). Fakes are compared as written, as PostgreSQL keeps them (``_displaced``)."""
     forgot = False
-    for other in (vault.by_surrogate(entity.surrogate), vault.by_original(entity.original)):
+    for other in (vault.by_surrogate(entity.surrogate, as_read=False), vault.by_original(entity.original)):
         if other is not None and other.id != entity.id:
             forgot = vault.forget(other.id) is not None or forgot
     vault.learn(entity)
