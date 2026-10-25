@@ -95,6 +95,33 @@ its own once the command has ended, and that window says how it went. A Latet 0.
 Windows upgrades by running the installer again: its own `latet upgrade` could leave it unable to
 start.
 
+Before it stops the daemon, `latet upgrade` copies what the new version may change as it opens it:
+the vault, the history and your settings (`config.yaml`, and the settings you approved last), into
+`backups/before-<version>-<time>` in Latet's data folder, and says where in one line. The values in
+the copy stay encrypted with this computer's key, which is not copied. The three newest copies are
+kept: the older ones are deleted once the next is complete, never before. An upgrade to the
+version already installed takes no copy. An upgrade with no room on the disk for its copy, beside
+the copies there, and for the install stops with nothing changed, and says how much room it needs;
+so does one whose copy cannot be made. The copies follow what you remove while Latet 0.9.10 or a
+later release runs: *Forget* takes a value out of them too, clearing the history clears theirs, and
+their history is kept no longer than yours; after `latet upgrade --to` an older release, a *Forget*
+made there does not reach them. Each copy keeps the form its version gave it (it is never brought to
+a newer one), so it can still be put back.
+
+To install a given release instead of the latest, to go back to the one you had for example:
+
+```sh
+latet upgrade --to 0.9.9
+```
+
+Going back to the version a copy was taken under, it offers to put that copy back. It says how many
+values the vault has learnt since the copy, which would be lost, and asks you at your terminal. The
+default keeps your data as it is: the older version still reads it where the newer one only added
+to it. Put back, your files as they are now are copied first, in a copy of their own; if putting
+the copy back fails half way, your files go back in their place, and it says so. An older release
+lacks the fixes of the ones after it: an agent cannot run `latet upgrade --to` one, you run it
+yourself.
+
 ## Install with an AI agent
 
 Ask your AI agent to follow

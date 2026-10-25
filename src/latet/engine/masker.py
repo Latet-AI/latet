@@ -297,7 +297,28 @@ class Masker:
         # A value of a type your policies let through, found where escapes read as what they stand for (a repeat, the
         # reviewer's), never names what it merges with: ``detect`` leaves such a finding out, and so does every path.
         kept = [s for s in kept if s.value is None or self.policies.get(s.etype) != Policy.ALLOW]
-        return self._apply(text, merge_spans(_whole_addresses(kept), text), origin, context)
+        return self._apply(text, self._merged(text, kept), origin, context)
+
+    def _merged(self, text: str, spans: list[Span]) -> list[Span]:
+        """``spans`` merged (``merge_spans``: a group of values that overlap is named by its strongest, and masked
+        whole). A group named by a value of a type your policies let through, which ``_apply`` leaves in clear, leaves
+        in clear that value and nothing more: a value of a type that is masked in it (an IBAN, a card number, a value
+        the vault knows, written in an address let through) is masked where it sits, the rest as written; 0.9.9 let the
+        whole group through. There an address keeps its own domain, which it brings along (``_repeats``): a domain
+        after its `@` that it outranks (a repeat of it, one the vault knows) is the address's. A group named by a value
+        that is masked (a secret, a term of yours, one typed DOMAIN among them) is masked whole, as before, a value let
+        through in it included."""
+        whole = _whole_addresses(spans)
+        masked = [s for s in whole if self.policies.get(s.etype) != Policy.ALLOW]
+        own = _own_domains(text, [s for s in whole if self.policies.get(s.etype) == Policy.ALLOW])
+        out: list[Span] = []
+        for group in merge_spans(whole, text):
+            if self.policies.get(group.etype) != Policy.ALLOW:
+                out.append(group)
+                continue
+            inside = [s for s in masked if group.start <= s.start and s.end <= group.end and not _inside(s, own)]
+            out.extend(merge_spans(inside, text))
+        return out
 
     @staticmethod
     def _repeats(text: str, spans: list[Span], origin: dict[str, str]) -> Iterable[Span]:
@@ -389,6 +410,22 @@ def _composed_or_not(found: str, reads: str | None) -> set[str]:
     values are matched in both forms, and the vault keeps each in one."""
     forms = {found} if reads is None else {found, reads}
     return forms | {unicodedata.normalize(how, form) for form in forms if not form.isascii() for how in ("NFC", "NFD")}
+
+
+def _own_domains(text: str, through: list[Span]) -> list[tuple[int, int]]:
+    """Where the domain of each address of ``through`` (let through) is written, after its last `@`: the address
+    brings it along (``Masker._repeats``), and there it stays the address's, found as a repeat or as a value the vault
+    knows."""
+    found = []
+    for span in through:
+        if span.etype == "EMAIL" and (at := text.rfind("@", span.start, span.end)) >= 0:
+            found.append((at + 1, span.end))
+    return found
+
+
+def _inside(span: Span, domains: list[tuple[int, int]]) -> bool:
+    """Whether ``span`` is a domain written in one of ``domains`` (``_own_domains``)."""
+    return span.etype == "DOMAIN" and any(start <= span.start and span.end <= end for start, end in domains)
 
 
 def _whole_addresses(spans: list[Span]) -> list[Span]:

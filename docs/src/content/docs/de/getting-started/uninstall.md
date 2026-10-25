@@ -74,7 +74,9 @@ Datenordner enthält:
 - `exchanges.db`: den Verlauf des Dashboards.
 - `backups/`: Kopien der Konfigurationsdateien Ihrer Agenten aus der Zeit, bevor
   `latet global-install` sie geändert hat. `latet global-uninstall` braucht sie, löschen Sie sie
-  daher erst nach Schritt 1.
+  daher erst nach Schritt 1. In `backups/before-<Version>-<Zeit>/` liegen die Kopien des Tresors,
+  des Verlaufs und der Einstellungen, die `latet upgrade` vor jedem Upgrade anlegt (die drei
+  neuesten).
 - `models/`: das lokale Namensmodell und die Modelle für die Texterkennung (etwa 1,6 GB und 31 MB),
   die `latet ner remove` und `latet ocr remove` löschen.
 - `logs/`, `bridge.token`, `integrations.json` (die Aufzeichnung dessen, was `latet global-install`

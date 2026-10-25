@@ -78,6 +78,11 @@ class VaultStore(Protocol):
 
     def forget_entity(self, entity_id: str) -> None: ...
 
+    def forget_entities(self, entity_ids: Iterable[str]) -> None:
+        """``forget_entity`` for many values at once (the names today's filters reject, at the start): a computer's
+        vault does them, and its upgrade copies, in one pass."""
+        ...
+
     def load_review(self, key: bytes) -> dict[str, Any] | None:
         """What the local reviewer answered for a text it read before, by a keyed hash of that text:
         ``{"findings": [[value, category], ...], "block": bool}``, with ``"unlocated"`` (as ``findings``) for values it

@@ -711,12 +711,14 @@ def _sent(config: Config, text: str, kind: SlotKind = SlotKind.USER_TEXT) -> tup
 
 
 def test_a_term_or_a_field_rule_of_a_type_let_through_leaves_what_it_finds_in_clear():
-    """Why they lower protection: a term's span outranks the detectors' (an IBAN found as personal data), a field rule's
-    the password's detection, and a type let through leaves either in clear. The final check stops a request that
-    carries the IBAN; a client's name, which only its term finds, leaves, and so does the password."""
+    """Why they lower protection: a type let through leaves in clear what a term or a field rule of it finds, a client's
+    name, which only its term finds, and the password of the field it names. A value a detector of a type that is
+    masked finds there is masked all the same, where it sits: a span let through leaves in clear itself and nothing
+    more (0.9.9 let the term's span outrank the IBAN found as personal data, and the final check stopped the request)."""
     text = f"please wire it to {IBAN} today"
     assert IBAN not in _sent(Config(**URL_ALLOWED), text)[0]
-    assert _sent(Config(terms=[TermConfig(value=IBAN, type="URL")], **URL_ALLOWED), text) == (text, ["IBAN"])
+    masked, leaks = _sent(Config(terms=[TermConfig(value=IBAN, type="URL")], **URL_ALLOWED), text)
+    assert IBAN not in masked and leaks == []
     contract = "the Fonderia Brambilla contract"
     client = Config(terms=[TermConfig(value="Fonderia Brambilla", type="CLIENT")], **URL_ALLOWED)
     assert "Fonderia Brambilla" not in _sent(client, contract)[0]
@@ -818,8 +820,9 @@ HOSTS = {"name": "hosts", "type": "INTERNAL_HOST", "pattern": r"\bsrv-[0-9]{4}\b
 
 def test_a_recognizer_retyped_is_weighed_for_the_terms_and_field_rules_of_the_type_it_leaves_or_joins():
     """Round 5 (C1): a recognizer's own policy is its type's default, and the type's terms and field rules follow it.
-    `hosts` (policy allow) retyped to the type of a term sends the term's values in clear (an IBAN typed LEDGER, a
-    client's name), to the type of a field rule the field's values; a redacting one retyped away from a term's type
+    `hosts` (policy allow) retyped to the type of a term sends the term's values in clear (a client's name; an IBAN
+    typed LEDGER no longer, which a detector of a type that is masked finds), to the type of a field rule the field's
+    values; a redacting one retyped away from a term's type
     turns its values from redacted into fakes; two recognizers swapping types do the same. 0.9.7 held each as a
     recognizer changed; the policy in force of every type a term or a field rule uses is now weighed, as a `policies`
     entry is, at the top and in a folder. A retype that loosens a type nothing of the settings names (the vault finds
@@ -830,7 +833,7 @@ def test_a_recognizer_retyped_is_weighed_for_the_terms_and_field_rules_of_the_ty
         Config(terms=[ledger], recognizers=[{**HOSTS, "type": "LEDGER"}]),
     )
     text = f"wire to {IBAN} today"
-    assert IBAN not in _sent(old, text)[0] and IBAN in _sent(new, text)[0]
+    assert IBAN not in _sent(old, text)[0] and IBAN not in _sent(new, text)[0]  # the IBAN's detector masks it still
     assert loosened(old, new) == ["policy for LEDGER: from mask to allow"]
     assert loosened(new, old) == ["recognizers: 1 changed or removed"]  # INTERNAL_HOST let through, nothing names it
     client = TermConfig(value="Fonderia Brambilla", type="CLIENT")

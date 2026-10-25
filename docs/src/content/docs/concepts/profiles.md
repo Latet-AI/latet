@@ -81,6 +81,13 @@ policies:
 The type names are the ones the dashboard shows next to each masked value, such as `EMAIL`,
 `PHONE`, `IBAN`, `PASSWORD`, or the type you gave a custom term. Types without a policy are masked.
 
+`allow` leaves in clear the value of that type, and nothing more: a value of a type that is masked
+written inside it never goes with it. With `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
+reaches the model with the IBAN replaced by a fake and `.ops@acme-intra.it` as it is written; a
+secret or a term of yours written in an address is masked with the whole address, as before. A
+term or a field rule of a type let through leaves in clear what only it finds; what a detector of
+a type that is masked finds there is masked.
+
 `redact` suits values the model never needs, not even in fake form. It works one way only: the
 model gets the marker, and Latet never puts the original back in answers or files. Whether Latet
 keeps the original depends on how the value was found:

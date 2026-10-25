@@ -273,7 +273,10 @@ viene conservato com'è scritto, come un valore a sé con un valore fittizio suo
 sequenze dove fanno parte del testo: `Paolo%20Fontana` in un link, `\'` in una stringa tra apici.
 All'agente torna il valore esattamente com'era scritto, così un link resta un link e una modifica
 ritrova la sua riga. Dove il modello scrive il valore fittizio così come si legge,
-`Paolo Fontana`, all'agente torna il valore così come si legge.
+`Paolo Fontana`, all'agente torna il valore così come si legge. La cassaforte registra come è stato
+trovato ogni valore, così com'è scritto o dove i suoi escape si leggono, e quindi questo vale per un
+valore di ogni tipo trovato in quel modo: un numero di telefono noto come `333 1234567` e incontrato
+come `333+1234567` in una query torna anch'esso come `333 1234567`.
 
 ## Quando due rilevatori trovano lo stesso testo
 

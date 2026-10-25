@@ -72,7 +72,9 @@ contient :
 - `exchanges.db` : l'historique du tableau de bord.
 - `backups/` : des copies des fichiers de configuration de vos agents d'avant leur modification par
   `latet global-install`. `latet global-uninstall` en a besoin : ne les supprimez donc qu'après
-  l'étape 1.
+  l'étape 1. Dans `backups/before-<version>-<heure>/` se trouvent les copies du coffre-fort, de
+  l'historique et des réglages que `latet upgrade` fait avant chaque mise à jour (les trois plus
+  récentes).
 - `models/` : le modèle local de noms et les modèles de reconnaissance de texte (environ 1,6 Go et
   31 Mo), que suppriment `latet ner remove` et `latet ocr remove`.
 - `logs/`, `bridge.token`, `integrations.json` (la trace de ce que `latet global-install` a

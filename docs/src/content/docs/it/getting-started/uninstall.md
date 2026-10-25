@@ -71,6 +71,8 @@ Se hai impostato `LATET_DATA_DIR` o `LATET_CONFIG`, guarda invece lì. La cartel
 - `exchanges.db`: la cronologia della dashboard.
 - `backups/`: le copie dei file di configurazione dei tuoi agenti di prima che `latet global-install`
   li modificasse. `latet global-uninstall` ne ha bisogno, quindi eliminale solo dopo il passaggio 1.
+  In `backups/before-<versione>-<ora>/` ci sono le copie della cassaforte, della cronologia e delle
+  impostazioni che `latet upgrade` fa prima di ogni aggiornamento (le tre più recenti).
 - `models/`: il modello locale dei nomi e i modelli di riconoscimento del testo (circa 1,6 GB e
   31 MB), che `latet ner remove` e `latet ocr remove` eliminano.
 - `logs/`, `bridge.token`, `integrations.json` (il registro di ciò che `latet global-install` ha

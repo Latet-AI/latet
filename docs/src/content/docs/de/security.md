@@ -170,6 +170,21 @@ in eine Datei:
 - **Mit `--vault` enthält die Datei Ihre echten Werte und den Schlüssel dazu:** Bewahren Sie sie so
   auf, wie Sie die Werte aufbewahren würden.
 
+`latet upgrade` kopiert, bevor es eine Version installiert, den Tresor, den Verlauf und die
+Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
+([Aktualisierung](../getting-started/installation/#aktualisierung)):
+- **Versiegelt wie der Tresor.** Die Datenbanken werden so kopiert, wie sie sind, ihre Werte mit dem
+  Schlüssel dieses Rechners versiegelt, der nicht mitkopiert wird; der Ordner ist nur für Sie
+  lesbar.
+- **Sie folgen dem, was Sie entfernen**, solange Latet 0.9.10 oder eine spätere Version läuft.
+  *Vergessen* entfernt einen Wert aus jeder Kopie, das
+  Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt als Ihrer.
+  Eine Kopie, die sich nicht bereinigen lässt, wird gelöscht oder beiseitegelegt und nie wieder
+  angeboten.
+- **Höchstens drei, und die Rückkehr entscheiden Sie.** Das Zurückspielen einer Kopie wird nur in
+  einem eigenen Terminal angeboten, und ein Agent kann `latet upgrade --to` auf eine ältere
+  Version nicht ausführen.
+
 **Der lokale Prüfer** (optional, [aus, bis Sie ihn einschalten](../concepts/llm-review/))
 
 - Er läuft auf Ihrem eigenen Server: auf diesem Rechner oder auf einem anderen Rechner von Ihnen,

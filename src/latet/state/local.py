@@ -572,6 +572,7 @@ def local_backends(data: Path, config_file: Path | None, root_key: bytes, *, rec
     from latet.gateway.recorder import Broadcaster
     from latet.storage.db import Store
     from latet.storage.exchanges import ExchangeStore
+    from latet.storage.upgrade_copies import Follow
 
     vault = Store(data / "latet.db", root_key)
     try:
@@ -579,6 +580,10 @@ def local_backends(data: Path, config_file: Path | None, root_key: bytes, *, rec
     except BaseException:  # the history cannot be opened: the vault opened a moment ago is not left open
         vault.close()
         raise
+    # The copies `latet upgrade` took follow what Forget, clearing the history and its retention remove.
+    vault.copies = Follow(data, root_key)
+    if history is not None:
+        history.copies = vault.copies
     return StateBackends(
         vault=vault,
         history=history,

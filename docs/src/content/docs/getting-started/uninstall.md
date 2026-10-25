@@ -69,7 +69,9 @@ If you set `LATET_DATA_DIR` or `LATET_CONFIG`, look there instead. The data fold
 - `exchanges.db`: the dashboard history.
 - `backups/`: copies of your agents' configuration files from before `latet global-install`
   changed them.
-  `latet global-uninstall` needs them, so delete them only after step 1.
+  `latet global-uninstall` needs them, so delete them only after step 1. In
+  `backups/before-<version>-<time>/` are the copies of the vault, the history and the settings
+  that `latet upgrade` takes before each upgrade (the three newest).
 - `models/`: the local name model and the text recognition models (about 1.6 GB and 31 MB), which
   `latet ner remove` and `latet ocr remove` delete.
 - `logs/`, `bridge.token`, `integrations.json` (the record of what `latet global-install` changed),

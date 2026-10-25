@@ -332,6 +332,7 @@ async def test_a_daemon_waits_for_the_interval_before_it_prunes_again(aged):
         assert aged.recorder.drain() and "100d" in _kept(aged)
 
 
+@pytest.mark.timing  # "not again at once" is within 5 s of the clock: a busy parallel run can take longer
 def test_the_timer_asks_once_per_interval_whoever_pruned_last(aged, monkeypatch):
     recorder, interval, asked = aged.recorder, recorder_module._PRUNE_EVERY, []
     prune_now = recorder.prune_now

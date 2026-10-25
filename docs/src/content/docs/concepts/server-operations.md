@@ -338,8 +338,19 @@ recognition accuracy.
 
 ## Upgrading and adding instances
 
-The instances share one set of tables, and an instance starts only on tables of its own version. Before an
-upgrade, ask the new version whether it changes them:
+The instances share one set of tables, and an instance starts only on tables of its own version. The
+database is yours to keep: Latet copies nothing of it. Before you pull a new image and run
+`latet server migrate`, take a copy of it with `pg_dump`, which is consistent even while the
+instances write:
+
+```sh
+pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.acme.lan/latet"
+```
+
+To go back, restore that copy (`pg_restore --clean --if-exists`) and start the previous image: an
+instance does not start on tables of a newer version. The values in the copy stay encrypted, as in the
+database: only the server's master key opens them. Before an upgrade, ask the new version whether it
+changes the tables:
 
 ```sh
 latet server migrate --check

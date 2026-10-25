@@ -85,6 +85,13 @@ Les noms des types sont ceux que le tableau de bord affiche à côté de chaque 
 `EMAIL`, `PHONE`, `IBAN`, `PASSWORD`, ou le type que vous avez donné à un terme personnalisé. Les
 types sans politique sont masqués.
 
+`allow` laisse en clair la valeur de ce type, et rien de plus : une valeur d'un type masqué écrite à
+l'intérieur ne passe jamais avec elle. Avec `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
+arrive au modèle avec l'IBAN remplacé par une valeur factice et `.ops@acme-intra.it` tel qu'il est
+écrit ; un secret ou un de vos termes écrit dans une adresse est masqué avec l'adresse entière,
+comme avant. Un terme ou une règle de champ d'un type laissé passer laisse en clair ce que lui seul
+trouve ; ce qu'un détecteur d'un type masqué y trouve est masqué.
+
 `redact` convient aux valeurs dont le modèle n'a jamais besoin, pas même sous forme factice. Cela
 fonctionne dans un seul sens : le modèle reçoit le marqueur, et Latet ne remet jamais l'original en
 place dans les réponses ou les fichiers. Que Latet conserve l'original ou non dépend de la façon dont

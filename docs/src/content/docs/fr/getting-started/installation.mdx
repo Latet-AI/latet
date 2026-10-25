@@ -101,6 +101,36 @@ dans une fenêtre à part une fois la commande terminée, et cette fenêtre dit 
 Un Latet 0.9.0 ou 0.9.1 sous Windows se met à jour en relançant le script d'installation : son propre
 `latet upgrade` pourrait le laisser incapable de démarrer.
 
+Avant d'arrêter le daemon, `latet upgrade` copie ce que la nouvelle version peut modifier en l'ouvrant :
+le coffre-fort, l'historique et vos réglages (`config.yaml`, et les réglages que vous avez approuvés en
+dernier), dans `backups/before-<version>-<heure>` dans le dossier de données de Latet, et dit où en une
+ligne. Les valeurs de la copie restent chiffrées avec la clé de cette machine, qui n'est pas copiée. Les
+trois copies les plus récentes sont gardées : les plus anciennes sont supprimées une fois la suivante
+complète, jamais avant. Une mise à jour vers la version déjà installée ne fait aucune copie. Une mise
+à jour sans place sur le disque pour sa copie, à côté des copies présentes, et pour l'installation
+s'arrête sans rien changer, et dit combien de place il lui faut ; de même pour une copie impossible à
+faire. Les copies suivent ce que vous retirez tant que Latet 0.9.10 ou une version plus récente
+tourne : *Oublier* en retire aussi une valeur, effacer l'historique efface aussi le leur, et leur
+historique n'est pas gardé plus longtemps que le vôtre ; après `latet upgrade --to` vers une version
+plus ancienne, un *Oublier* fait là ne les atteint pas. Chaque copie garde la forme que sa version
+lui a donnée (elle n'est jamais portée à une plus récente) : elle peut toujours être remise.
+
+Pour installer une version précise plutôt que la dernière, pour revenir à celle que vous aviez par
+exemple :
+
+```sh
+latet upgrade --to 0.9.9
+```
+
+En revenant à la version sous laquelle une copie a été faite, elle propose de remettre cette copie.
+Elle dit combien de valeurs le coffre-fort a apprises depuis la copie, qui seraient perdues, et vous
+le demande dans votre terminal. Par défaut, vos données restent telles quelles : la version plus
+ancienne les lit encore là où la plus récente n'a fait qu'ajouter. Si vous la remettez, vos fichiers
+tels qu'ils sont maintenant sont d'abord copiés, dans une copie à part ; si la remise échoue
+à mi-chemin, vos fichiers reviennent à leur place, et elle le dit. Une version plus ancienne n'a pas les
+corrections des suivantes : un agent ne peut pas lancer `latet upgrade --to` vers l'une d'elles, vous
+le lancez vous-même.
+
 ## Installer avec un agent IA
 
 Demandez à votre agent IA de suivre

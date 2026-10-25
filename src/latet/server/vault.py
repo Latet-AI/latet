@@ -8,10 +8,11 @@ What is sealed opens in its own row alone, and for its own purpose: a value or a
 value or fake, and while the row says the type and the class it was found as (a class changed to STRUCT would leave the
 value out of those the masker finds in clear); a review's answer for the text it answers; a decision for the image it
 was made on. Someone who writes the database without the master key can move no sealed value to another row, nor
-change the type or the class it was found as, without it ceasing to open (an entry's rule, counter and time are in
-clear and bound to nothing; a rule names the field a value sat in by its kind alone, since a field's name can be a
-value: ``modules.kept``). An entry that does not open is counted in ``unreadable`` and said in the log once, by its
-id; its value, found again, is masked as it is found, in memory, and the entry left as it is.
+change the type or the class it was found as, without it ceasing to open (an entry's rule, how its value was found
+(``decoded``, migration 005), counter and time are in clear and bound to nothing; a rule names the field a value sat in
+by its kind alone, since a field's name can be a value: ``modules.kept``). An entry that does not open is counted in
+``unreadable`` and said in the log once, by its id; its value, found again, is masked as it is found, in memory, and the
+entry left as it is.
 
 What sealing cannot stop, he can still do: put back into its own row a sealed value he kept, which opens there again.
 For a review's answer or a decision on an image, replaced in place, that restores an older verdict ("nothing to mask",
@@ -44,7 +45,7 @@ import json
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any, Final
 
 from cryptography.exceptions import InvalidTag
@@ -70,11 +71,14 @@ VAULT_LIMIT = 200_000
 ROWS_AT_ONCE = 1_000
 
 _SELECT: Final = (
-    "SELECT id, etype, eclass, original, surrogate, counter, created, rule FROM vault_entities WHERE identity_id = %s"
+    "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
+    " WHERE identity_id = %s"
 )
+# Every column named, as 0.9.9's statement did: an instance of a version before a column's keeps its entries all the
+# same (``decoded`` NULL there, migration 005).
 _INSERT: Final = (
     "INSERT INTO vault_entities (identity_id, id, etype, eclass, original, original_key, surrogate, surrogate_key,"
-    " counter, created, rule) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
+    " counter, created, rule, decoded) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
 )
 # A fake's string: not kept when the vault knows the string already, as a value or as another fake.
 _FAKE: Final = (
@@ -168,7 +172,7 @@ class PgVaultStore:
             original = self._sealer.open(row[3], self._aad(entity_id, "original", etype, eclass)).decode()
             surrogate = self._sealer.open(row[4], self._aad(entity_id, "surrogate", etype, eclass)).decode()
             rule = modules.kept(row[7])
-            found = Entity(entity_id, etype, EntityClass(eclass), original, surrogate, row[5], row[6], rule)
+            found = Entity(entity_id, etype, EntityClass(eclass), original, surrogate, row[5], row[6], rule, row[8])
         if found is not None:
             return found
         if entity_id not in self._unreadable:
@@ -256,7 +260,7 @@ class PgVaultStore:
             self.identity, e.id, e.etype, int(e.eclass),
             self._sealer.seal(e.original.encode(), self._aad(e.id, "original", e.etype, e.eclass)), original_key,
             self._sealer.seal(e.surrogate.encode(), self._aad(e.id, "surrogate", e.etype, e.eclass)),
-            self._sealer.keyed(f"surrogate\x00{e.surrogate}"), e.counter, e.created, modules.kept(e.rule),
+            self._sealer.keyed(f"surrogate\x00{e.surrogate}"), e.counter, e.created, modules.kept(e.rule), e.decoded,
         )  # fmt: skip
         counter, kept = 0, None
         with self.db.transaction() as conn:
@@ -349,6 +353,11 @@ class PgVaultStore:
             counter = self._count(conn)
         self.count = max(0, self.count - done)
         self._changed("forgotten", entity_id, counter)
+
+    def forget_entities(self, entity_ids: Iterable[str]) -> None:
+        """Each forgotten as ``forget_entity`` forgets it, and told: a server's vault has no upgrade copies to open."""
+        for entity_id in dict.fromkeys(entity_ids):
+            self.forget_entity(entity_id)
 
     def _count(self, conn: Connection[Any]) -> int:
         """Bump the identity's change counter in ``conn``'s transaction: the count the change is told with."""

@@ -31,9 +31,15 @@ dérivées d'une clé créée sur votre machine.</small>
   jeu de caractères. Une adresse e-mail reste une adresse e-mail : un domaine de messagerie publique
   comme `gmail.com` est conservé, tout autre domaine devient un domaine factice sous `.example`. Les
   IBAN, les numéros de carte, les numéros d'identité nationaux, les numéros fiscaux et les numéros de
-  TVA reçoivent des chiffres de contrôle valides, et les adresses IP publiques passent dans les plages
-  réservées à la documentation. Le modèle peut toujours raisonner sur le code et la configuration qui
-  les entourent.
+  TVA reçoivent des chiffres de contrôle valides, et les adresses IP publiques passent dans des plages
+  jamais routées sur internet, celles réservées à la documentation et aux tests de performance. Le
+  modèle peut toujours raisonner sur le code et la configuration qui les entourent.
+- **Des valeurs factices qui ne manquent pas.** Là où le coffre-fort contient plus de valeurs d'une
+  sorte que ses listes n'ont de valeurs factices (des milliers d'adresses dans une liste de clients),
+  une nouvelle valeur reçoit une valeur factice écrite comme on écrit ces valeurs : des noms des deux
+  langues, puis des chiffres après le nom (`luca84@gmail.com`), un prénom de plus
+  (`Marco Luca Ferri`), une ville faite d'un nom de famille (`Borgo Ferri`). Les valeurs déjà dans le
+  coffre-fort gardent leurs valeurs factices.
 - **Déterministe.** Sur votre machine, le même original reçoit toujours la même valeur factice : le
   modèle peut ainsi suivre une valeur d'un fichier et d'un tour à l'autre, et Latet peut retrouver
   l'original. Les tours précédents sont renvoyés octet pour octet, et le cache de prompts du

@@ -130,6 +130,21 @@ class VaultStoreContract:
         a.forget_entity(entity.id)
         assert b.load_entity(entity.id) is None and b.load_entities() == []
 
+    def test_an_entry_keeps_whether_its_value_was_found_as_written_or_where_escapes_read(self, stores):
+        # The reading of a fake written in escapes is made from it: another process, and this one after a restart, give
+        # the same fake the same reading.
+        from latet.engine.vault import fake_reading
+
+        a, b = stores
+        vault = Vault(ROOT_KEY, a.load_entities(), on_insert=a.save_entity)
+        plain = vault.intern("PHONE", EntityClass.PII, "333 1234567", rule="pii:phone")
+        written = vault.intern("PHONE", EntityClass.PII, "333+1234567", rule="known", reads="333 1234567")
+        assert (plain.decoded, written.decoded) == (False, True)
+        assert b.load_entity(plain.id) == plain and b.load_entity(written.id) == written
+        again = Vault(ROOT_KEY, b.load_entities())
+        reading = fake_reading(written)
+        assert reading is not None and again.is_surrogate(reading) and fake_reading(plain) is None
+
     def test_a_rule_learned_later_is_kept(self, stores):
         a, b = stores
         vault = Vault(ROOT_KEY, on_insert=a.save_entity, on_rule=a.save_rule)

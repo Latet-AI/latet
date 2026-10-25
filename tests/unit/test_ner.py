@@ -334,6 +334,29 @@ def test_names_rejected_by_newer_filters_are_forgotten_at_start(tmp_path):
         rt.close()
 
 
+def test_the_names_forgotten_at_start_are_forgotten_in_one_go(tmp_path, monkeypatch):
+    """A filter that changed can reject hundreds of names at the next start: the store is asked once for all of them
+    (and so is every upgrade copy of the vault, opened once), never once a name."""
+    from latet.config import Config, IdentityConfig
+    from latet.engine.detectors import ner
+    from latet.engine.types import EntityClass
+    from latet.runtime import make_runtime
+
+    rt = make_runtime(Config(identity=IdentityConfig(enabled=False)), data=tmp_path, record=False)
+    try:
+        vault = rt.built.vault
+        names = [vault.intern("PERSON", EntityClass.NER, f"Rejected Name {n}") for n in range(5)]
+        kept = vault.intern("PERSON", EntityClass.NER, "Giulia Bianchi")
+        monkeypatch.setattr(ner, "rejected_now", lambda etype, original: original.startswith("Rejected"))
+        asked: list[list[str]] = []
+        monkeypatch.setattr(rt.store, "forget_entities", lambda ids: asked.append(sorted(ids)))
+        monkeypatch.setattr(rt.store, "forget_entity", lambda entity_id: asked.append([entity_id]))
+        assert rt.forget_rejected_names() == 5
+        assert asked == [sorted(e.id for e in names)] and vault.get(kept.id) is not None
+    finally:
+        rt.close()
+
+
 # --- decoding ------------------------------------------------------------------------------------------
 
 LABELS_PF = ["O", "B-private_person", "I-private_person", "E-private_person", "S-private_person",

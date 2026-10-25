@@ -166,6 +166,21 @@ dans un seul fichier :
 - **Avec `--vault`, le fichier contient vos vraies valeurs et la clé qui y donne accès :** gardez-le comme
   vous garderiez les valeurs.
 
+`latet upgrade` copie, avant d'installer une version, le coffre-fort, l'historique et les réglages
+dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
+([Mettre à jour](../getting-started/installation/#mettre-à-jour)) :
+- **Scellées comme le coffre-fort.** Les bases de données sont copiées telles quelles, leurs valeurs
+  scellées avec la clé de cette machine, qui n'est pas copiée ; le dossier est lisible par vous
+  seul.
+- **Elles suivent ce que vous retirez**, tant que Latet 0.9.10 ou une version plus récente tourne.
+  *Oublier* retire une valeur de chaque copie, effacer
+  l'historique efface aussi le leur, et leur historique n'est pas gardé plus longtemps que le
+  vôtre. Une copie qui ne peut pas être nettoyée est supprimée, ou mise de côté et plus jamais
+  proposée.
+- **Trois au plus, et revenir en arrière vous appartient.** Remettre une copie n'est proposé que
+  dans un terminal à vous, et un agent ne peut pas lancer `latet upgrade --to` vers une version
+  plus ancienne.
+
 **Le relecteur local** (facultatif, [désactivé tant que vous ne l'activez pas](../concepts/llm-review/))
 
 - Il s'exécute sur votre propre serveur : sur cette machine, ou sur une autre de vos machines une fois que

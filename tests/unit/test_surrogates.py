@@ -3,8 +3,11 @@ the original itself, nor a word that names it."""
 
 import base64
 import hashlib
+import ipaddress
 import os
+import random
 import re
+import string
 import time
 
 import pytest
@@ -14,16 +17,19 @@ from latet.engine import masker as masker_module
 from latet.engine import vault as vault_module
 from latet.engine.build import build
 from latet.engine.masker import ExtraValue
+from latet.engine.rehydrate import restore_text, restores_for
 from latet.engine.surrogates.data import names
 from latet.engine.surrogates.generators import (
     GENERATORS,
     Drbg,
     email_domain,
+    every_ip,
     gen_city,
     gen_company,
     gen_domain,
     gen_email,
     gen_hostname,
+    gen_ip,
     gen_person,
     gen_street,
     gen_username,
@@ -31,7 +37,7 @@ from latet.engine.surrogates.generators import (
     written_email,
 )
 from latet.engine.types import EntityClass, Policy, SlotKind
-from latet.engine.vault import MaskingError, Vault
+from latet.engine.vault import Entity, MaskingError, Vault
 
 KEY = b"t" * 32
 EN_FIRST, EN_LAST, EN_CITIES = names.ENGLISH_FIRST_NAMES, names.ENGLISH_LAST_NAMES, names.ENGLISH_CITIES
@@ -317,6 +323,232 @@ def test_a_value_longer_than_a_vault_keeps_is_redacted_never_kept_nor_restored()
         f"the key is {found}", SlotKind.TOOL_RESULT, extra=[ExtraValue(found, "SECRET", EntityClass.LLM, "llm:secret")]
     )
     assert taught.text == "the key is [REDACTED:SECRET]" and vault.count == count  # its own too: never kept
+
+
+def _words(n: int, seed: int, make) -> list[str]:
+    """``n`` distinct values made by ``make`` from a generator of random words of 4 to 9 letters (seeded)."""
+    rng = random.Random(seed)
+
+    def word() -> str:
+        return "".join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(4, 9)))
+
+    found: dict[str, None] = {}
+    while len(found) < n:
+        found[make(word, rng)] = None
+    return list(found)
+
+
+def _public_ipv4(n: int) -> list[str]:
+    rng, found = random.Random(7), {}
+    while len(found) < n:
+        address = ipaddress.IPv4Address(rng.getrandbits(32))
+        if address.is_global and not address.is_multicast:
+            found[str(address)] = None
+    return list(found)
+
+
+def _interned(etype: str, eclass: EntityClass, values: list[str], bound: float) -> list[str]:
+    """Each of ``values`` interned in one vault, in ``bound`` seconds at most: their fakes, one each."""
+    vault = Vault(KEY)
+    started = time.perf_counter()
+    fakes = [vault.intern(etype, eclass, value).surrogate for value in values]  # a MaskingError fails the test
+    took = time.perf_counter() - started
+    assert took < bound, f"{took:.1f} s"
+    assert len(set(fakes)) == len(values) and not set(fakes) & set(values)
+    return fakes
+
+
+# The blocks of IPv4 never routed on the internet that public addresses get their fakes from: the three of the
+# documentation (RFC 5737) and benchmarking's (RFC 2544).
+_NOT_ROUTED = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "198.18.0.0/15")]
+
+
+def test_two_thousand_public_ipv4_addresses_each_get_a_fake_of_their_own_in_blocks_never_routed():
+    # The three blocks of the documentation hold 762 fakes: the vault failed at the 600th address or so, and a log of
+    # a service's clients stopped every request that carried it.
+    fakes = _interned("IP_ADDRESS", EntityClass.PII, _public_ipv4(2_000), bound=10.0)
+    assert all(any(ipaddress.ip_address(fake) in block for block in _NOT_ROUTED) for fake in fakes)
+    assert not any(ipaddress.ip_address(fake).is_global for fake in fakes)
+
+
+def test_a_thousand_mailbox_addresses_of_one_word_each_get_a_fake_of_their_own():
+    # A first name alone: about 80 of them, and the vault failed within the first hundred addresses.
+    values = _words(1_000, 1, lambda word, _: f"{word()}@gmail.com")
+    fakes = _interned("EMAIL", EntityClass.PII, values, bound=10.0)
+    assert all(re.fullmatch(r"[a-z]+\d*@gmail\.com", fake) for fake in fakes), fakes[-5:]
+
+
+def test_five_thousand_first_last_mailbox_addresses_each_get_a_fake_of_their_own():
+    # First and last name of one language: about 3,170 pairs, and the vault failed around the 1,700th address.
+    values = _words(5_000, 2, lambda word, _: f"{word()}.{word()}@gmail.com")
+    fakes = _interned("EMAIL", EntityClass.PII, values, bound=20.0)
+    assert all(re.fullmatch(r"[a-z]+\.[a-z]+\d*@gmail\.com", fake) for fake in fakes), fakes[-5:]
+
+
+@pytest.mark.parametrize(
+    ("etype", "eclass", "make"),
+    [
+        ("EMAIL", EntityClass.PII, lambda word, _: f"{word()}@acme-corp.it"),  # a company's people, by first name
+        ("EMAIL", EntityClass.PII, lambda word, _: f"{word()}.{word()}@acme-corp.it"),
+        ("PERSON", EntityClass.NER, lambda word, _: word().capitalize()),  # a first name alone: 80 of them
+        ("PERSON", EntityClass.NER, lambda word, _: f"{word().capitalize()} {word().capitalize()}"),
+        ("CLIENT", EntityClass.CUSTOM, lambda word, _: word().capitalize()),  # a term of yours: 31 company words
+        ("CLIENT", EntityClass.CUSTOM, lambda word, _: f"{word().capitalize()} {word().capitalize()}"),
+        ("ORG", EntityClass.LLM, lambda word, _: word().capitalize()),
+        ("PROJECT", EntityClass.CUSTOM, lambda word, _: word().capitalize()),
+        ("CITY", EntityClass.NER, lambda word, _: word().capitalize()),  # 12 towns of each language
+        ("STREET_ADDRESS", EntityClass.NER, lambda word, _: f"via {word().capitalize()}"),  # 44 family names
+        ("USERNAME", EntityClass.IDENTITY, lambda word, _: word()),
+    ],
+)
+def test_two_thousand_values_drawn_from_a_list_of_words_each_get_a_fake_of_their_own(etype, eclass, make):
+    _interned(etype, eclass, _words(2_000, 3, make), bound=20.0)
+
+
+def test_once_its_list_is_used_a_mailbox_name_gets_digits_as_people_write_them():
+    vault = Vault(KEY)
+    for word in _words(400, 4, lambda word, _: word()):
+        vault.intern("EMAIL", EntityClass.PII, f"{word}@gmail.com")
+    one = vault.intern("EMAIL", EntityClass.PII, "qwzkvy@gmail.com").surrogate
+    assert re.fullmatch(r"[a-z]+\d{2,}@gmail\.com", one), one
+
+
+def _wide(generate, wide: int):
+    return lambda original, rng: generate(original, rng, wide=wide)
+
+
+_ALL_FIRST, _ALL_LAST = _lower(names.FIRST_NAMES), _lower(names.LAST_NAMES)
+
+
+def test_the_wider_forms_of_a_fake_keep_the_form_of_its_value():
+    # Wider forms come in turn, each once the narrower ones are taken: they stay what the value is, a name, an address,
+    # a company, a town, a street, and never show the value.
+    for fake in _fakes(_wide(gen_email, 1), "mario.rossi@gmail.com"):
+        given, family = fake.removesuffix("@gmail.com").split(".")
+        assert given in _ALL_FIRST and family in _ALL_LAST, fake  # both languages' lists
+    for fake in _fakes(_wide(gen_email, 2), "mario.rossi@acme.it"):
+        assert re.fullmatch(r"[a-z]+\.[a-z]+\d\d@[a-z]+-[0-9a-f]{4}\.example", fake), fake
+    for fake in _fakes(_wide(gen_email, 3), "mario@gmail.com"):
+        assert re.fullmatch(r"[a-z]+\d{4}@gmail\.com", fake) and fake[:-14] in _ALL_FIRST, fake
+    for fake in _fakes(_wide(gen_username, 3), "ecarter"):
+        assert re.fullmatch(r"[a-z]+\d{6}", fake), fake
+    for fake in _fakes(_wide(gen_person, 2), "Mario Rossi"):
+        given, more, family = fake.split()
+        assert {given.lower(), more.lower()} <= _ALL_FIRST and family.lower() in _ALL_LAST, fake
+    for fake in _fakes(_wide(gen_person, 2), "Emily"):
+        given, family = fake.split()
+        assert given.lower() in _ALL_FIRST and family.lower() in _ALL_LAST, fake
+    for fake in _fakes(_wide(gen_company, 1), "Globex"):
+        assert all(word in names.COMPANIES for word in fake.split()) and len(fake.split()) == 2, fake
+    for fake in _fakes(_wide(gen_city, 1), "Milano"):
+        word, family = fake.split()
+        assert word in names.ITALIAN_TOWN_WORDS and family in IT_LAST, fake
+    for fake in _fakes(_wide(gen_city, 2), "Bristol"):
+        part, made = fake.split(" ", 1)
+        assert part in names.ENGLISH_TOWN_PARTS and any(made.startswith(f) for f in EN_LAST), fake
+    for fake in _fakes(_wide(gen_street, 2), "via Garibaldi 12"):
+        m = re.fullmatch(r"via (\w+) (\w+) \d\d", fake)
+        assert m is not None and m[1].lower() in _ALL_FIRST and m[2].lower() in _ALL_LAST, fake
+    for fake in _fakes(_wide(gen_ip, 1), "8.8.4.4"):
+        assert any(ipaddress.ip_address(fake) in block for block in _NOT_ROUTED), fake
+    for generate, original in _DRAWN:
+        if generate in (gen_email, gen_username, gen_person, gen_company, gen_city, gen_street):
+            naming = _naming(generate, original)
+            for wide in (1, 2, 3):
+                try:
+                    shown = [f for f in _fakes(_wide(generate, wide), original, 50) if _shown(f, original, naming)]
+                except IndexError:  # no word left that does not show it: the vault gives it its shape
+                    continue
+                assert shown == [], (wide, shown[:5])
+
+
+@pytest.mark.parametrize(
+    ("etype", "eclass", "value"),
+    [
+        ("IP_ADDRESS", EntityClass.PII, "8.8.4.4"),  # every address of its blocks, past the random ones
+        ("EMAIL", EntityClass.PII, "luca@gmail.com"),
+        ("PERSON", EntityClass.NER, "Emily Carter"),
+    ],
+)
+def test_a_store_that_refuses_every_fake_is_asked_no_more_often_than_before(etype, eclass, value):
+    # Each fake a store refuses is a round trip to PostgreSQL on a server: the wider forms never make a value ask it
+    # more often than a value of a structure always could (80), whatever is left to try.
+    asked: list[str] = []
+
+    def refuse(entity):
+        asked.append(entity.surrogate)
+        raise vault_module.FakeTaken(f"the fake made for a {entity.etype} is another value's")
+
+    with pytest.raises(MaskingError, match=f"no collision-free surrogate for a {etype}"):
+        Vault(KEY, on_insert=refuse).intern(etype, eclass, value)
+    assert 16 <= len(asked) <= 80
+
+
+def test_a_fake_person_with_a_name_more_gives_each_name_back_for_its_own():
+    # `Marco Luca Ferri` for `Mario Rossi`: the model's `Marco` is Mario, its `Ferri` is Rossi, its `Luca` is no one;
+    # `Marco Ferri` for `Mario` alone: `Marco` is Mario.
+    entities = [
+        Entity("p1", "PERSON", EntityClass.NER, "Mario Rossi", "Marco Luca Ferri", 32, 0.0),
+        Entity("p2", "PERSON", EntityClass.NER, "Giulia", "Sara Galli", 33, 0.0),
+    ]
+    restores = restores_for(entities)
+    text = "Marco Luca Ferri wrote. Marco said Ferri and Luca agree. Sara Galli too, and Sara, not Galli."
+    restored, _ = restore_text(text, restores)
+    assert restored == "Mario Rossi wrote. Mario said Rossi and Luca agree. Giulia too, and Giulia, not Galli."
+
+
+def test_a_public_address_takes_198_19_before_198_18_which_proxies_give_their_hosts():
+    # Clash, Mihomo and Surge in fake-ip mode give hosts addresses of 198.18.0.0/16 by default, which Latet leaves
+    # unmasked (private): a fake there could be such a host's. The wider form draws from 198.19.0.0/16, and every
+    # address of the documentation's blocks and of 198.19 is taken before one of 198.18.
+    first = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "198.19.0.0/16")]
+    last = ipaddress.ip_network("198.18.0.0/16")
+    for fake in _fakes(_wide(gen_ip, 1), "8.8.4.4", 400):
+        assert any(ipaddress.ip_address(fake) in block for block in first), fake
+    every = list(every_ip("8.8.4.4", Drbg(KEY, b"seed")))
+    tier = (3 + 256) * 254
+    assert all(any(ipaddress.ip_address(fake) in block for block in first) for fake in every[:tier])
+    assert all(ipaddress.ip_address(fake) in last for fake in every[tier:]) and len(every) - tier == 256 * 254
+
+
+def test_every_fake_of_an_ipv4_address_is_tried_once_its_blocks_fill_up():
+    every = list(every_ip("8.8.4.4", Drbg(KEY, b"seed")))
+    assert len(every) == len(set(every)) == 515 * 254  # three /24 of the documentation and the /15 of benchmarking
+    assert all(any(ipaddress.ip_address(fake) in block for block in _NOT_ROUTED) for fake in every[::997])
+    private = list(every_ip("192.168.1.20", Drbg(KEY, b"seed")))
+    assert len(set(private)) == 256 * 254 and all(fake.startswith("192.168.") for fake in private)
+    assert list(every_ip("2a00::1", Drbg(KEY, b"seed"))) == [] and list(every_ip("not one", Drbg(KEY, b"s"))) == []
+    vault = Vault(KEY)  # the vault takes the first free one once the blocks hold all but a few
+    taken = set(every[:-3])
+    vault._taken = lambda candidate: candidate in taken  # type: ignore[method-assign]
+    assert vault.intern("IP_ADDRESS", EntityClass.PII, "8.8.4.4").surrogate in every[-3:]
+
+
+def test_a_new_value_gets_the_fake_it_got_before_wherever_one_was_free():
+    # Only a value that found no free fake gets a wider one: the others' fakes are those Latet always gave, so a vault
+    # shared by two versions agrees, value by value.
+    vault = Vault(KEY)
+    fakes = {
+        value: vault.intern(etype, eclass, value).surrogate
+        for etype, eclass, value in (
+            ("EMAIL", EntityClass.PII, "mario.rossi@gmail.com"),
+            ("EMAIL", EntityClass.PII, "giulia@acme.it"),
+            ("PERSON", EntityClass.NER, "Mario Rossi"),
+            ("CLIENT", EntityClass.CUSTOM, "Globex"),
+            ("CITY", EntityClass.NER, "Milano"),
+            ("IP_ADDRESS", EntityClass.PII, "8.8.4.4"),
+            ("USERNAME", EntityClass.IDENTITY, "ecarter"),
+        )
+    }
+    assert fakes == {
+        "mario.rossi@gmail.com": "stefano.leone@gmail.com",
+        "giulia@acme.it": "antonio@margie-87a2.example",
+        "Mario Rossi": "Alessandro Vitale",
+        "Globex": "Consolidated",
+        "Milano": "Rovigo",
+        "8.8.4.4": "203.0.113.5",
+        "ecarter": "noah44",
+    }
 
 
 def test_a_value_every_name_would_show_gets_a_fake_of_its_shape():

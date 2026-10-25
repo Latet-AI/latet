@@ -3,7 +3,9 @@ every canary must come back to the client restored, across all wire formats."""
 
 import contextlib
 import json
+import random
 import socket
+import string
 import threading
 import time
 
@@ -14,7 +16,7 @@ from starlette.routing import WebSocketRoute
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from latet.config import Config
+from latet.config import Config, TermConfig
 from latet.engine.build import build
 from latet.engine.types import EntityClass
 from latet.engine.vault import Vault
@@ -191,13 +193,14 @@ def _conversation(prompt: str, *outputs: str) -> dict:
     return {"model": "x", "messages": messages}
 
 
-def _gateway(upstream, vault: Vault | None = None):
-    built = build(Config(), vault if vault is not None else Vault(ROOT_KEY))
+def _gateway(upstream, vault: Vault | None = None, config: Config | None = None):
+    built = build(config or Config(), vault if vault is not None else Vault(ROOT_KEY))
     mediator = Mediator(built.engine, built.verifier)
     config = GatewayConfig(
         port=5283,
         upstreams=[
             Upstream("anthropic", "/anthropic", upstream.url),
+            Upstream("openai", "/openai", upstream.url),
             Upstream("chatgpt", "/backend-api/codex", upstream.url, keep_prefix=True),
         ],
         mediator=mediator,
@@ -251,6 +254,85 @@ def test_a_known_value_written_with_escapes_leaves_as_a_fake_and_comes_back_exac
     assert answer[1]["input"] == {"content": prompt}
 
 
+_GLUED_IBAN = "IT60X0542811101000000123456"
+# A value of a type that is masked inside an address let through (EMAIL: allow): an IBAN, which the address outranks,
+# and a term of yours typed DOMAIN, which outranks the address (0.9.9 masked the whole address for it).
+_LET_THROUGH = {
+    "iban": (
+        Config(ner="off", policies={"EMAIL": "allow"}),
+        _GLUED_IBAN,
+        [f"pay {_GLUED_IBAN}.ops@acme-intra.it", f"pay {_GLUED_IBAN}@acme-intra.it",
+         f"pay ops.{_GLUED_IBAN}@acme-intra.it"],
+    ),
+    "domain-term": (
+        Config(ner="off", policies={"EMAIL": "allow"}, terms=[TermConfig(value="acme-intra.it", type="DOMAIN")]),
+        "acme-intra.it",
+        ["write ops@acme-intra.it today", "see acme-intra.it or write ops@acme-intra.it"],
+    ),
+}  # fmt: skip
+
+
+def _carrying(where: str, text: str) -> list[dict]:
+    """A conversation that carries ``text`` in the model's own text, a tool call's input (both sent again in the next
+    request, where the gateway masks them again and the final check does not read them), a tool output or a prompt."""
+    if where == "model text":
+        return [{"role": "user", "content": "who do we pay?"},
+                {"role": "assistant", "content": [{"type": "text", "text": text}]},
+                {"role": "user", "content": "thanks"}]  # fmt: skip
+    if where == "tool input":
+        return [{"role": "user", "content": "send it"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"c": text}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}]  # fmt: skip
+    if where == "tool output":
+        return [{"role": "user", "content": "look"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": text}]}]  # fmt: skip
+    return [{"role": "user", "content": text}]
+
+
+def _carrying_chat(where: str, text: str) -> list[dict]:
+    """``_carrying`` on the OpenAI chat route: the model's own text, a tool call's arguments, a tool's message, a prompt."""
+    call = {"id": "c1", "type": "function", "function": {"name": "bash", "arguments": json.dumps({"c": text})}}
+    if where == "model text":
+        return [{"role": "user", "content": "who do we pay?"}, {"role": "assistant", "content": text},
+                {"role": "user", "content": "thanks"}]  # fmt: skip
+    if where == "tool input":
+        return [{"role": "user", "content": "send it"}, {"role": "assistant", "content": None, "tool_calls": [call]},
+                {"role": "tool", "tool_call_id": "c1", "content": "ok"}]  # fmt: skip
+    if where == "tool output":
+        empty = {**call, "function": {"name": "bash", "arguments": "{}"}}
+        return [{"role": "user", "content": "look"}, {"role": "assistant", "content": None, "tool_calls": [empty]},
+                {"role": "tool", "tool_call_id": "c1", "content": text}]  # fmt: skip
+    return [{"role": "user", "content": text}]
+
+
+_ROUTES = {
+    "anthropic": ("/anthropic/v1/messages", _carrying, {"x-api-key": "test"}),
+    "openai-chat": ("/openai/v1/chat/completions", _carrying_chat, {"authorization": "Bearer test"}),
+}
+
+
+@pytest.mark.parametrize("route", list(_ROUTES))
+@pytest.mark.parametrize("case", list(_LET_THROUGH))
+def test_a_masked_value_inside_an_address_let_through_never_reaches_the_provider(upstream, case, route):
+    """Through the real gateway, with addresses let through: an IBAN written in one, or a term of yours typed DOMAIN, in
+    the model's own text, a tool call's input, a tool output or a prompt, never reaches the provider, and no request is
+    stopped for it (0.9.9 sent the IBAN from the model's text and a tool input, which the gateway masks again and the
+    final check does not read, and stopped the others)."""
+    config, value, texts = _LET_THROUGH[case]
+    path, carrying, headers = _ROUTES[route]
+    client, _ = _gateway(upstream, config=config)
+    with client:
+        for where in ("model text", "tool input", "tool output", "prompt"):
+            for text in texts:
+                before = len(upstream.received)
+                request = {"model": "x", "messages": carrying(where, text)}
+                status = client.post(path, json=request, headers=headers).status_code
+                sent = b"".join(upstream.received[before:]).decode("utf-8", "replace")
+                assert status == 200, (where, text)
+                assert sent and value not in sent and json.dumps(value)[1:-1] not in sent, (where, text)
+
+
 def test_two_known_values_that_overlap_in_a_tool_output_leave_masked_whole(upstream):
     """`Anna Maria` and `Maria Rossi`, both known (in one part of the vault's values), in `Anna Maria Rossi`: the
     provider is sent a fake for the whole of them, no word of either."""
@@ -265,6 +347,33 @@ def test_two_known_values_that_overlap_in_a_tool_output_leave_masked_whole(upstr
     sent = json.loads(upstream.received[-1])["messages"][2]["content"][0]["content"]
     union = vault.by_original("Anna Maria Rossi")
     assert union is not None and sent == output.replace("Anna Maria Rossi", union.surrogate)
+
+
+def test_a_tool_output_of_a_thousand_customer_addresses_leaves_masked_whole(upstream):
+    """A query of a service's customers: a thousand addresses, a first name alone or a first and a last name, at a
+    mailbox provider or at the company. The provider is sent a fake for each, no address of theirs: the vault ran out
+    of fakes for one word at a mailbox within the first hundred, and the gateway stopped the request."""
+    rng = random.Random(10)
+
+    def word() -> str:
+        return "".join(rng.choice(string.ascii_lowercase) for _ in range(rng.randint(4, 9)))
+
+    addresses: dict[str, None] = {}
+    while len(addresses) < 1_000:
+        local = word() if rng.random() < 0.5 else f"{word()}.{word()}"
+        addresses[f"{local}@{rng.choice(('gmail.com', 'outlook.com', 'acme-corp.it'))}"] = None
+    output = "id,email\n" + "".join(f"{n},{address}\n" for n, address in enumerate(addresses, 1))
+    vault = Vault(ROOT_KEY)
+    client, _ = _gateway(upstream, vault)
+    with client:
+        request = _conversation("who are our customers?", output)
+        assert client.post("/anthropic/v1/messages", json=request, headers={"x-api-key": "test"}).status_code == 200
+    sent = json.loads(upstream.received[-1])["messages"][2]["content"][0]["content"]
+    lines = sent.splitlines()[1:]
+    assert len(lines) == len(addresses) and not [a for a in addresses if a in sent]
+    fakes = [line.split(",", 1)[1] for line in lines]
+    assert len(set(fakes)) == len(fakes)
+    assert all(vault.by_surrogate(fake) is not None for fake in fakes)
 
 
 def test_what_a_websocket_turn_carried_is_recorded_as_left_once_it_left(upstream):

@@ -11,7 +11,7 @@ import logging
 import secrets
 import threading
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -592,9 +592,7 @@ class Runtime:
             for e in self.built.vault.entities()
             if e.eclass == EntityClass.NER and rejected_now(e.etype, e.original)
         ]
-        for entity_id in stale:
-            self.forget(entity_id)
-        return len(stale)
+        return len(self.forget_all(stale))
 
     def warm_up(self) -> None:
         """Start loading slow detectors (the local name model, text recognition) now, not on the first request."""
@@ -613,6 +611,16 @@ class Runtime:
                 self.store.forget_entity(entity_id)
                 self.built.engine.rules_changed()  # cached masked blocks may hold its surrogate
             return entity
+
+    def forget_all(self, entity_ids: Iterable[str]) -> list[Entity]:
+        """Remove values from the vault at once: the store asked once for all of them (a computer's upgrade copies
+        opened once each), the masked blocks cached dropped once."""
+        with self._lock:
+            gone = [entity for entity_id in entity_ids if (entity := self.built.vault.forget(entity_id)) is not None]
+            if gone:
+                self.store.forget_entities([entity.id for entity in gone])
+                self.built.engine.rules_changed()  # cached masked blocks may hold their surrogates
+            return gone
 
     def close(self) -> None:
         if self.recorder is not None:

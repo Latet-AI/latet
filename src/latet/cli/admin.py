@@ -3,6 +3,7 @@ reload, upgrade."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from latet.config import AutoModeReview, Config
     from latet.releases import Release
     from latet.server.connection import _PreparedConnection
+    from latet.storage.upgrade_copies import Copy
 
 agents_app = typer.Typer(help="Configure agents to go through Latet (global mode).", no_args_is_help=True)
 service_app = typer.Typer(help="Start Latet at login.", no_args_is_help=True)
@@ -571,28 +573,45 @@ def global_uninstall() -> None:
 
 
 @app.command()
-def upgrade() -> None:
+def upgrade(
+    to: Annotated[
+        str | None, typer.Option("--to", metavar="VERSION", help="Install this release (0.9.9) instead of the latest.")
+    ] = None,
+) -> None:
     """Install the latest release of Latet from GitHub, with local name detection and the text in images.
 
-    It stops the daemon first and starts it again after. On Windows, which replaces no file of a program
-    that runs, it installs the release in a window of its own once the command has ended. Where name
-    detection and the text in images cannot be installed, a Latet that has neither is installed without
-    them; one that has them is left as it was.
+    First it copies what a new version may migrate, your vault, history and settings, into a folder of Latet's
+    data folder (`backups/before-<version>-<time>`; the three newest copies are kept): a copy that cannot be
+    made stops the upgrade with nothing changed. Then it stops the daemon and starts it again after. On Windows,
+    which replaces no file of a program that runs, it installs the release in a window of its own once the
+    command has ended. Where name detection and the text in images cannot be installed, a Latet that has
+    neither is installed without them; one that has them is left as it was.
+
+    With --to it installs that release instead; an older one only when you run it yourself, never an agent.
+    Going back to a version a copy was taken under, it offers to put that copy back, and says how many values
+    the vault has learnt since, which would be lost. At the version installed it takes no copy.
     """
     _host_only("`upgrade` (pull the new image instead)")
+    import latet
     from latet import releases
     from latet.engine.detectors import ner
     from latet.service import daemon
     from latet.vision import models
 
+    if to is not None and releases.older(to, latet.__version__):
+        # An older Latet lacks the fixes of the releases after it: yours to choose, never an agent's.
+        _yourself("latet upgrade --to", "installs an older Latet, which can take protection away from your agents")
     uv = shutil.which("uv")
     if uv is None:
         typer.secho("uv not found: upgrade with your installer, then run `latet agents apply`.", fg="yellow")
         raise typer.Exit(1)
     try:
-        release = releases.latest()
+        release = releases.latest() if to is None else releases.tagged(to)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--to") from None
     except releases.ReleaseError as exc:
-        typer.secho(f"Could not look up the latest release: {exc}.", fg="red")
+        what = "the latest release" if to is None else f"the release {to}"
+        typer.secho(f"Could not look up {what}: {exc}.", fg="red")
         typer.echo(
             f"Nothing changed. The releases are at {releases.PAGE}: to install one by hand, run the installer with "
             "LATET_SOURCE set to its wheel (see Troubleshooting, The latest release cannot be looked up)."
@@ -601,7 +620,16 @@ def upgrade() -> None:
     # Installed without them, Latet would lose what it has: uv takes away what the new requirement does not name.
     had = ner.runtime_available() or models.runtime_available()
     typer.echo(f"Latet {release.version}, from {release.wheel}")
-    daemon.stop()
+    back = _copy_to_put_back(release.version) if to is not None else None
+    aside = None  # the files as they were, where a copy was put back in their place
+    if back is not None:
+        aside = _put_back(back, release.version)
+    else:
+        # Before anything changes: one that cannot be made stops here. At the version installed nothing is migrated,
+        # and a copy would push out one that leads back.
+        if release.version != latet.__version__:
+            _copy_before(release.version)
+        daemon.stop()
     if _running_files_stay():
         _upgrade_in_a_window(uv, release, had)
         return
@@ -625,6 +653,8 @@ def upgrade() -> None:
             )
         else:
             typer.secho("The upgrade failed: Latet is as it was.", fg="red")
+        if aside is not None:
+            typer.echo(f"The copy's vault, history and settings are in place; yours as they were are in {aside.folder}")
         raise typer.Exit(1)
     # The new version re-applies the integrations (the new plugin, the same choices): this process
     # still runs the old code.
@@ -640,6 +670,126 @@ def upgrade() -> None:
             "Off: name detection and the text in images, which uv could not install here. `latet upgrade` tries again.",
             fg="yellow",
         )
+
+
+def _amount(size: int) -> str:
+    """A size as a person reads it: 18 KB, 412 MB, 3.1 GB."""
+    for unit, scale in (("GB", 1024**3), ("MB", 1024**2)):
+        if size >= scale:
+            return f"{size / scale:.1f} {unit}" if size < 10 * scale else f"{size // scale} {unit}"
+    return f"{max(1, size // 1024)} KB"
+
+
+def _copy_before(installing: str, spare: Copy | None = None) -> Copy | None:
+    """The copy of what ``installing`` may migrate (``storage.upgrade_copies``), said in one line; None when there is
+    nothing to copy yet. The older copies go once it is whole, so that three at most are kept with it (``spare``, the
+    copy being put back, among them). One with no room for it on the disk beside the copies there, with room for the
+    install, or that cannot be made stops the upgrade: nothing has changed then, no copy deleted."""
+    import sqlite3
+
+    import latet
+    from latet.config import config_path, data_dir
+    from latet.logline import described
+    from latet.storage import upgrade_copies
+
+    data, config = data_dir(), config_path()
+    keep = upgrade_copies.KEEP if spare is None else upgrade_copies.KEEP - 1
+    try:
+        with upgrade_copies.locked(data):  # one at a time with the daemon's work on the copies
+            needed, free = upgrade_copies.room(data, config)
+            if free < needed:
+                typer.secho(
+                    f"No room for a copy of your vault, history and settings before the upgrade: it needs "
+                    f"{_amount(needed)} free on that disk, with room for the install, and has {_amount(free)}: "
+                    f"nothing changed. Make room, or delete older copies in {data / upgrade_copies.FOLDER}.",
+                    fg="red",
+                )
+                raise typer.Exit(1)
+            copy = upgrade_copies.take(data, config, latet.__version__, installing)
+            with contextlib.suppress(OSError):  # one that cannot be deleted stays, beside the new one
+                upgrade_copies.prune(data, keep, spare)
+    except (OSError, sqlite3.Error, upgrade_copies.CopyError) as exc:
+        why = str(exc) if isinstance(exc, upgrade_copies.CopyError | sqlite3.Error) else described(exc)
+        typer.secho(
+            f"Could not copy your vault, history and settings before the upgrade ({why}): nothing changed.", fg="red"
+        )
+        raise typer.Exit(1) from None
+    if copy is not None:
+        amount = _amount(upgrade_copies.size(copy))
+        typer.echo(f"Your vault, history and settings as they are now ({amount}) are copied in {copy.folder}")
+    return copy
+
+
+def _values(count: int) -> str:
+    return "1 value" if count == 1 else f"{count} values"
+
+
+def _copy_to_put_back(version: str) -> Copy | None:
+    """Going back to ``version`` (``--to``): the newest copy taken while it was installed, when you choose at a terminal
+    of your own to put it back; None to keep your data as it is, the default."""
+    import latet
+    from latet.cli import agent
+    from latet.config import data_dir
+    from latet.storage import upgrade_copies
+
+    if version == latet.__version__:
+        return None
+    data = data_dir()
+    found = next((copy for copy in upgrade_copies.copies(data) if copy.installed == version), None)
+    if found is None:
+        return None
+    lost = upgrade_copies.learnt_since(found, data)
+    learnt = (
+        f"the {_values(lost)} the vault has learnt since would be lost"
+        if lost is not None
+        else "the values the vault has learnt since cannot be counted (a vault cannot be read), and would be lost"
+    )
+    typer.echo(f"A copy was taken under Latet {version} on {found.created}, before {found.installing}: {found.folder}")
+    typer.echo(
+        f"Put back, its vault, history and settings take the place of yours: {learnt} (yours are copied first). "
+        f"Kept, your data stays as it is: Latet {version} reads it where {latet.__version__} only added to it."
+    )
+    if not agent.at_your_terminal(strict=True):
+        typer.echo(
+            f"Your data stays as it is: a copy is put back only when you choose it at a terminal of your own "
+            f"(`latet upgrade --to {version}` there)."
+        )
+        return None
+    return found if typer.confirm("Put that copy back?", default=False) else None
+
+
+def _put_back(copy: Copy, installing: str) -> Copy | None:
+    """``copy`` put back before ``installing`` is installed: the daemon stopped, your files as they are now copied first
+    (the upgrade's own copy, taken once nothing writes them, which it returns), then the copy's swapped in their place
+    (``upgrade_copies.put_back``: on a failure yours go back, and what is in place is said). What fails starts the
+    daemon again and stops the upgrade, nothing installed."""
+    from latet.config import config_path, data_dir
+    from latet.logline import described
+    from latet.service import daemon
+    from latet.storage import upgrade_copies
+
+    was = daemon.status()
+    daemon.stop()
+    if was.pid and not daemon.wait_exit(was.pid):
+        typer.secho("The daemon did not stop: nothing was put back, nothing installed. Try again.", fg="red")
+        raise typer.Exit(1)
+    try:
+        aside = _copy_before(installing, spare=copy)
+    except typer.Exit:
+        if was.running:
+            daemon.start()
+        raise
+    try:
+        upgrade_copies.put_back(copy, data_dir(), config_path())
+    except (OSError, upgrade_copies.CopyError) as exc:
+        why = str(exc) if isinstance(exc, upgrade_copies.CopyError) else described(exc)
+        where = f" A copy of your files as they were is in {aside.folder}." if aside is not None else ""
+        typer.secho(f"The copy could not be put back ({why}): nothing installed.{where}", fg="red")
+        if was.running:
+            daemon.start()
+        raise typer.Exit(1) from None
+    typer.echo(f"Put back: the vault, history and settings of {copy.created}, from {copy.folder}")
+    return aside
 
 
 def _running_files_stay() -> bool:

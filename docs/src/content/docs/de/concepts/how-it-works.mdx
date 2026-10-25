@@ -32,8 +32,14 @@ Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
   Webmail-Domain wie `gmail.com` bleibt erhalten, jede andere Domain wird zu einer erfundenen unter
   `.example`. IBANs, Kartennummern, nationale Identifikationsnummern, Steuernummern und
   Umsatzsteuer-Identifikationsnummern erhalten gültige Prüfziffern, und öffentliche IP-Adressen
-  wandern in die Bereiche, die für Dokumentation reserviert sind. Das Modell kann den Code und die
-  Konfiguration rund um diese Werte weiterhin nachvollziehen.
+  wandern in Bereiche, die im Internet nie geroutet werden: die für Dokumentation und für
+  Leistungstests reservierten. Das Modell kann den Code und die Konfiguration rund um diese Werte
+  weiterhin nachvollziehen.
+- **Ersatzwerte gehen nicht aus.** Wo der Tresor mehr Werte einer Art enthält, als seine Listen
+  Ersatzwerte haben (Tausende Adressen in einer Kundenliste), erhält ein neuer Wert einen Ersatzwert,
+  wie Menschen solche Werte schreiben: Namen beider Sprachen, dann Ziffern nach dem Namen
+  (`luca84@gmail.com`), ein Vorname mehr (`Marco Luca Ferri`), ein Ort aus einem Familiennamen
+  (`Borgo Ferri`). Werte, die schon im Tresor sind, behalten ihre Ersatzwerte.
 - **Deterministisch.** Dasselbe Original erhält auf Ihrem Rechner immer denselben Ersatzwert,
   sodass das Modell einem Wert über Dateien und Runden der Unterhaltung hinweg folgen und Latet ihn
   dem Original wieder zuordnen kann. Frühere Runden werden Byte für Byte identisch erneut gesendet,

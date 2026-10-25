@@ -31,9 +31,15 @@ creata sul tuo computer.</small>
   la sua lunghezza e il suo insieme di caratteri. Un'email resta un'email: un dominio di webmail
   pubblica come `gmail.com` viene mantenuto, ogni altro dominio diventa un dominio fittizio sotto
   `.example`. IBAN, numeri di carta, numeri identificativi nazionali, numeri fiscali e partite IVA
-  ricevono cifre di controllo valide, e gli indirizzi IP pubblici passano agli intervalli riservati
-  alla documentazione. Il modello può ancora ragionare sul codice e sulla configurazione intorno a
-  questi valori.
+  ricevono cifre di controllo valide, e gli indirizzi IP pubblici passano a intervalli che internet
+  non instrada mai, quelli riservati alla documentazione e alle prove di prestazioni. Il modello può
+  ancora ragionare sul codice e sulla configurazione intorno a questi valori.
+- **Valori fittizi che non finiscono.** Dove la cassaforte contiene più valori di un tipo di quanti
+  valori fittizi abbiano le sue liste (migliaia di indirizzi in un elenco di clienti), un valore
+  nuovo riceve un valore fittizio scritto come le persone scrivono questi valori: nomi delle due
+  lingue, poi cifre dopo il nome (`luca84@gmail.com`), un nome in più (`Marco Luca Ferri`), un paese
+  fatto da un cognome (`Borgo Ferri`). I valori già nella cassaforte mantengono i loro valori
+  fittizi.
 - **Deterministico.** Sul tuo computer lo stesso originale riceve sempre lo stesso valore fittizio,
   così il modello può seguire un valore tra file e turni diversi, e Latet può ricondurlo
   all'originale. I turni precedenti vengono inviati di nuovo identici byte per byte, così la cache

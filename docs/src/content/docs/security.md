@@ -148,6 +148,18 @@ to one file:
 - **With `--vault` the file holds your real values and the key to them:** keep it as you would keep
   the values.
 
+`latet upgrade` copies, before it installs a release, the vault, the history and the settings into
+`backups/before-<version>-<time>` in Latet's data folder
+([Upgrade](../getting-started/installation/#upgrade)):
+- **Sealed as the vault is.** The databases are copied as they are, their values sealed with this
+  computer's key, which is not copied; the folder is readable by you alone.
+- **They follow what you remove**, while Latet 0.9.10 or a later release runs.
+  *Forget* takes a value out of every copy, clearing the history
+  clears theirs, and their history is kept no longer than yours. A copy that cannot be cleaned is
+  deleted, or set aside and never offered back.
+- **Three at most, and going back is yours.** Putting a copy back is offered only at a terminal of
+  your own, and an agent cannot run `latet upgrade --to` an older release.
+
 **The local reviewer** (optional, [off until you turn it on](../concepts/llm-review/))
 
 - It runs on your own server: on this machine, or on another machine of yours once you confirm it

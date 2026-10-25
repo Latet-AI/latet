@@ -5,7 +5,9 @@ import ast
 import asyncio
 import contextlib
 import hashlib
+import sqlite3
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -361,3 +363,269 @@ class TestLocalAwsSessions(AwsSessionsContract):
         with pytest.raises(AwsError):
             sessions.session(asked_for)
         assert sessions._sessions == {}
+
+
+# --- what is removed leaves the file (0.9.10) ----------------------------------------------------------------------
+
+
+def _on_disk(path: Path) -> bytes:
+    """A database's file and its journal beside it, as they are on the disk."""
+    return b"".join(p.read_bytes() for p in sorted(path.parent.glob(path.name + "*")) if p.is_file())
+
+
+def test_a_value_forgotten_is_nowhere_in_the_vaults_file(tmp_path):
+    """Forget removes a value: its sealed bytes and its fake are overwritten where they were (``secure_delete``), and
+    the journal is written into the file, not left for SQLite to reuse their page some day. 0.9.9 left them there."""
+    import sqlite3
+
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Vault
+
+    path = tmp_path / "latet.db"
+    store = Store(path, ROOT_KEY)
+    vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+    gone = vault.intern("EMAIL", EntityClass.PII, "mario.rossi@acme.it")
+    kept = vault.intern("PERSON", EntityClass.NER, "Emily Carter")
+    store._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # long in the file, as a daemon's values are
+    db = sqlite3.connect(path)
+    [(sealed,)] = db.execute("SELECT original FROM entities WHERE id = ?", (gone.id,)).fetchall()
+    db.close()
+    try:
+        assert bytes(sealed) in _on_disk(path) and gone.surrogate.encode() in _on_disk(path)
+        store.forget_entity(gone.id)
+        on_disk = _on_disk(path)
+        assert bytes(sealed) not in on_disk and gone.surrogate.encode() not in on_disk
+        assert kept.surrogate.encode() in on_disk  # the other values stay
+    finally:
+        store.close()
+
+
+def test_a_history_cleared_is_nowhere_in_its_file(tmp_path):
+    """Clear history deletes every exchange: what they held, sealed, is in neither the file nor its journal after it."""
+    import sqlite3
+
+    from latet.storage.exchanges import ExchangeRecord
+
+    path = tmp_path / "exchanges.db"
+    history = ExchangeStore(path, ROOT_KEY)
+    try:
+        history.record(
+            ExchangeRecord(
+                summary={"ts": 1.0, "session": "s1", "flags": []},
+                request_headers=[("x-note", "Emily Carter's ledger")],
+                response={"headers": {}, "text": "the ledger of Emily Carter", "text_spans": [], "tool_calls": []},
+            )
+        )
+        db = sqlite3.connect(path)
+        sealed = [bytes(b) for row in db.execute("SELECT request_headers, response FROM exchanges") for b in row if b]
+        db.close()
+        assert sealed and all(b in _on_disk(path) for b in sealed)
+        history.clear()
+        on_disk = _on_disk(path)
+        assert not [b for b in sealed if b in on_disk]
+    finally:
+        history.close()
+
+
+def _record_old_and_new(history, note: str) -> None:
+    from latet.storage.exchanges import ExchangeRecord
+
+    for ts, text in ((time.time() - 30 * 86400, note), (time.time(), "a recent ledger")):
+        history.record(
+            ExchangeRecord(
+                summary={"ts": ts, "session": "s", "flags": []},
+                request_headers=[("x-note", text)],
+                response={"headers": {}, "text": text, "text_spans": [], "tool_calls": []},
+            )
+        )
+
+
+def test_a_history_pruned_is_nowhere_in_its_file(tmp_path):
+    """The retention, at every start and every six hours, deletes the exchanges past it: what they held, sealed, is in
+    neither the file nor its journal after it (the history's ``secure_delete``, and the journal written into the file)."""
+    import sqlite3
+
+    path = tmp_path / "exchanges.db"
+    history = ExchangeStore(path, ROOT_KEY, retention_days=14)
+    try:
+        _record_old_and_new(history, "the old ledger of Emily Carter")
+        db = sqlite3.connect(path)
+        rows = db.execute("SELECT request_headers, response FROM exchanges ORDER BY ts LIMIT 1").fetchall()
+        old = [bytes(b) for row in rows for b in row if b]
+        db.close()
+        assert old and all(b in _on_disk(path) for b in old)
+        assert history.prune() == 1
+        on_disk = _on_disk(path)
+        assert not [b for b in old if b in on_disk]
+    finally:
+        history.close()
+
+
+class _Followed:
+    """An upgrade copy's follow, as ``upgrade_copies.Follow`` is called: what it was asked."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple] = []
+
+    def forget_entities(self, ids) -> None:
+        self.asked.append(("forget", sorted(ids)))
+
+    def clear(self) -> None:
+        self.asked.append(("clear",))
+
+    def prune(self, retention_days, now) -> None:
+        self.asked.append(("prune", retention_days))
+
+
+def test_a_journal_that_cannot_be_written_into_the_file_never_fails_what_was_deleted(tmp_path, caplog):
+    """Writing the journal into the file after a deletion can fail (an I/O error, a full disk, a statement of the same
+    connection still reading: the stand-in here). What was deleted stays deleted and the call goes on, to the copies
+    too: a Forget, a Clear history and the retention (at every start) never fail for it. The log says it in a line."""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Vault
+
+    store = Store(tmp_path / "latet.db", ROOT_KEY)
+    history = ExchangeStore(tmp_path / "exchanges.db", ROOT_KEY, retention_days=14)
+    try:
+        store.copies, history.copies = _Followed(), _Followed()
+        vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+        gone = vault.intern("EMAIL", EntityClass.PII, "mario.rossi@acme.it")
+        vault.intern("PERSON", EntityClass.NER, "Emily Carter")
+        _record_old_and_new(history, "the old ledger")
+        reading = [store._db.execute("SELECT id FROM entities"), history._db.execute("SELECT id FROM exchanges")]
+        for cursor in reading:
+            cursor.fetchone()  # left pending: the checkpoint answers "database table is locked"
+        with caplog.at_level("WARNING"):
+            store.forget_entity(gone.id)
+            assert history.prune() == 1
+            history.clear()
+        assert not store.holds(gone.id) and history.list(limit=10)[0] == []
+        assert store.copies.asked == [("forget", [gone.id])]
+        assert history.copies.asked == [("prune", 14), ("clear",)]
+        said = [r.getMessage() for r in caplog.records if "journal" in r.getMessage()]
+        assert said and "mario" not in " ".join(said)
+        for cursor in reading:
+            cursor.close()
+    finally:
+        store.close()
+        history.close()
+
+
+def test_a_forget_waits_a_moment_at_most_for_another_program_reading_the_vault(tmp_path):
+    """Another program in the middle of a read of the vault (a backup, a copy, an SQLite browser) keeps the journal from
+    being written into the file: the Forget waits a moment for it, not SQLite's five seconds, since masking waits on the
+    vault meanwhile; the journal is written at the next Forget or when the store closes."""
+    import sqlite3
+
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Vault
+
+    path = tmp_path / "latet.db"
+    store = Store(path, ROOT_KEY)
+    try:
+        vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+        gone = vault.intern("EMAIL", EntityClass.PII, "mario.rossi@acme.it")
+        reader = sqlite3.connect(path, isolation_level=None)
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM entities").fetchone()  # a read under way
+        started = time.monotonic()
+        store.forget_entity(gone.id)
+        assert time.monotonic() - started < 2 and not store.holds(gone.id)
+        assert store._db.execute("PRAGMA busy_timeout").fetchone()[0] == 5000  # the store's own wait, as it was
+        reader.execute("COMMIT")
+        reader.close()
+    finally:
+        store.close()
+
+
+def test_forget_takes_the_value_out_of_the_reviewers_remembered_answers_too(tmp_path):
+    """The local reviewer remembers what it found in a text (keyed by a keyed hash of the text), the values among it,
+    sealed: a value forgotten leaves those answers too, which are read again if the text comes back; the others stay."""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Vault
+
+    path = tmp_path / "latet.db"
+    store = Store(path, ROOT_KEY)
+    try:
+        vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+        gone = vault.intern("EMAIL", EntityClass.PII, "mario.rossi@acme.it", rule="reviewer")
+        holding, other = b"k" * 32, b"o" * 32
+        store.save_review(holding, {"findings": [["mario.rossi@acme.it", "EMAIL"], ["Acme", "ORG"]], "block": False})
+        store.save_review(other, {"findings": [["Emily Carter", "PERSON"]], "block": False})
+        sealed = store._db.execute("SELECT data FROM reviews WHERE key = ?", (holding,)).fetchone()[0]
+        store.forget_entity(gone.id)
+        assert store.load_review(holding) is None and store.load_review(other) is not None
+        assert bytes(sealed) not in _on_disk(path)
+    finally:
+        store.close()
+
+
+def _answers_and_values(store, values: int, answers: int) -> list:
+    """A vault of ``values`` names and ``answers`` remembered answers, each holding two of the names and one value the
+    vault does not know: the entities."""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Vault
+
+    vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+    kept = [vault.intern("PERSON", EntityClass.NER, f"Person Number {n}", rule="reviewer") for n in range(values)]
+    for n in range(answers):
+        findings = [[f"Person Number {n % values}", "PERSON"], [f"Person Number {(n * 7) % values}", "PERSON"],
+                    [f"Someone Else {n}", "PERSON"]]  # fmt: skip
+        store.save_review(n.to_bytes(32, "big"), {"findings": findings, "block": False})
+    return kept
+
+
+def _answer_keys(store) -> set[bytes]:
+    return {bytes(row[0]) for row in store._db.execute("SELECT key FROM reviews")}
+
+
+def test_forgetting_values_at_once_takes_out_the_same_answers_as_one_by_one(tmp_path):
+    """The start forgets the names today's filters reject at once: the reviewer's answers it takes out are those one
+    Forget after the other would, the ones that hold one of the values, and no other."""
+    at_once, one_by_one = Store(tmp_path / "a.db", ROOT_KEY), Store(tmp_path / "b.db", ROOT_KEY)
+    try:
+        first = _answers_and_values(at_once, 40, 300)
+        second = _answers_and_values(one_by_one, 40, 300)
+        gone = [e.id for e in first[:25]]
+        at_once.forget_entities(gone)
+        for entity in second[:25]:
+            one_by_one.forget_entity(entity.id)
+        left = _answer_keys(at_once)
+        assert left == _answer_keys(one_by_one) and 0 < len(left) < 300
+        names = {f"Person Number {n}" for n in range(25)}
+        for key in left:
+            assert not {f[0] for f in at_once.load_review(key)["findings"]} & names
+    finally:
+        at_once.close()
+        one_by_one.close()
+
+
+@pytest.mark.timing
+def test_forgetting_many_values_reads_each_answer_once(tmp_path):
+    """Hundreds of names rejected at a start, against months of the reviewer's answers: each answer is read once for
+    all of them, not once a value (0.9.10's first take: 20 s for a thousand values and 20,000 answers)."""
+    store = Store(tmp_path / "latet.db", ROOT_KEY)
+    try:
+        kept = _answers_and_values(store, 1000, 8000)
+        started = time.monotonic()
+        store.forget_entities([e.id for e in kept])
+        assert time.monotonic() - started < 1.0 and _answer_keys(store) == set()
+    finally:
+        store.close()
+
+
+def test_a_forget_deletes_the_value_and_its_answers_together_or_neither(tmp_path, monkeypatch):
+    """The value and the reviewer's answers that hold it go in one transaction: a deletion that fails half way deletes
+    nothing, so the value is never gone while an answer still holds it."""
+    from latet.storage import db as db_module
+
+    store = Store(tmp_path / "latet.db", ROOT_KEY)
+    try:
+        [entity] = _answers_and_values(store, 1, 3)
+        monkeypatch.setattr(db_module, "FORGET_ANSWER", "DELETE FROM no_such_table WHERE key = ?")  # fails after
+        with pytest.raises(sqlite3.Error):
+            store.forget_entity(entity.id)
+        assert store.holds(entity.id) and len(_answer_keys(store)) == 3
+        assert not store._db.in_transaction
+    finally:
+        store.close()

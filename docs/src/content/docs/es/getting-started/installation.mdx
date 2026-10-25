@@ -98,6 +98,34 @@ programa en ejecución, la actualización sigue en una ventana propia cuando el 
 esa ventana dice cómo ha ido. Un Latet 0.9.0 o 0.9.1 en Windows se actualiza volviendo a ejecutar el
 instalador: su propio `latet upgrade` podría dejarlo sin poder arrancar.
 
+Antes de detener el daemon, `latet upgrade` copia lo que la nueva versión puede cambiar al abrirlo: la
+caja fuerte, el historial y tu configuración (`config.yaml` y la configuración que aprobaste por
+última vez), en `backups/before-<versión>-<hora>` en la carpeta de datos de Latet, y dice dónde en una
+línea. Los valores de la copia siguen cifrados con la clave de este equipo, que no se copia. Se
+conservan las tres copias más recientes: las más antiguas se borran cuando la siguiente está
+completa, nunca antes. Una actualización a la versión ya instalada no hace ninguna copia. Una
+actualización sin espacio en el disco para su copia, junto a las copias que hay, y para la
+instalación se detiene sin cambiar nada, y dice cuánto espacio necesita; lo mismo hace una cuya copia
+no se puede hacer. Las copias siguen lo que quitas mientras funciona Latet 0.9.10 o una versión
+posterior: *Olvidar* quita un valor también de ellas, borrar el historial borra también el suyo, y su
+historial no se conserva más tiempo que el tuyo; después de `latet upgrade --to` hacia una versión
+más antigua, un *Olvidar* hecho allí no las alcanza. Cada copia conserva la forma que le dio su
+versión (nunca se lleva a una más nueva), así que se puede seguir restaurando.
+
+Para instalar una versión concreta en lugar de la última, para volver a la que tenías por ejemplo:
+
+```sh
+latet upgrade --to 0.9.9
+```
+
+Al volver a la versión con la que se hizo una copia, ofrece restaurar esa copia. Dice cuántos valores
+ha aprendido la caja fuerte desde la copia, que se perderían, y te lo pregunta en tu terminal. Por
+defecto tus datos se quedan como están: la versión más antigua los sigue leyendo donde la más nueva
+solo añadió. Si la restauras, tus archivos tal como están ahora se copian antes, en una copia propia;
+si la restauración falla a medias, tus archivos vuelven a su sitio, y lo dice. Una versión más antigua
+no tiene las correcciones de las siguientes: un agente no puede ejecutar `latet upgrade --to` hacia
+una de ellas, lo ejecutas tú.
+
 ## Instalar con un agente de IA
 
 Pide a tu agente de IA que siga

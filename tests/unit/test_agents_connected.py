@@ -1431,6 +1431,46 @@ def test_round2_check_recognizes_an_unknown_spaces_shape(computer, claude_home):
     assert (path, "the address of your space on the server") in _still_holding([], [], [])
 
 
+def test_the_databases_of_a_copy_taken_before_an_upgrade_are_read_as_the_vaults_are_and_its_settings_as_backups(
+    computer, claude_home
+):
+    """A copy `latet upgrade` takes (backups/before-<version>-<time>) holds the vault and the history, with fakes in
+    clear, one of which may have a token's shape: they are not read for a disconnect, as the vault and the history in
+    the data folder are not; its settings are, as the other backups there are."""
+    from latet.cli.connect import _backups_holding, _still_holding
+    from latet.storage import upgrade_copies
+    from latet.storage.folders import make_private_folder
+
+    copy = make_private_folder(data_dir() / "backups" / "before-1.2.0-20261025T090000Z")
+    shaped = b"latet_pat_" + b"Q" * 43
+    for name in upgrade_copies.DATABASES:
+        (copy / name).write_bytes(b"SQLite format 3\x00 fake " + shaped)
+    (copy / "manifest.json").write_text(json.dumps({"kind": upgrade_copies.KIND, "files": {}}))
+    assert not [p for p, _ in _still_holding([], [], []) if p.parent == copy]
+    assert not [p for p, _ in _backups_holding([], [], []) if p.parent == copy]
+    (copy / "config.yaml").write_bytes(b"note: " + shaped)
+    assert (copy / "config.yaml", "this computer's token") in _still_holding([], [], [])
+
+
+def test_the_lock_and_the_work_kept_beside_the_upgrade_copies_are_not_read_as_backups(computer, claude_home):
+    """Beside the copies `latet upgrade` takes are the lock Latet's processes take their turns on (which another
+    process may hold while a disconnect reads) and the work kept for a copy in use (ids of values): Latet's own, no
+    backup of an agent's settings, so a disconnect reads neither."""
+    from latet.cli.connect import _backups_holding, _still_holding
+    from latet.storage import upgrade_copies
+    from latet.storage.folders import make_private_folder
+
+    backups = make_private_folder(data_dir() / "backups")
+    shaped = "latet_pat_" + "Q" * 43
+    asked = backups / f".asked-{'0' * 32}.json"
+    asked.write_text(json.dumps({"asked": 0, "copies": None, "forget": [shaped], "clear": False}))
+    with upgrade_copies.locked(data_dir()):
+        found = [*_still_holding([], [], []), *_backups_holding([], [], [])]
+    assert not [
+        (p.name, why) for p, why in found if p.parent == backups and p.name in {upgrade_copies.LOCK, asked.name}
+    ]
+
+
 def test_round2_codex_session_refuses_linked_home(connected, tmp_path):
     home, target = tmp_path / "linked-codex", tmp_path / "shared-codex"
     target.mkdir()

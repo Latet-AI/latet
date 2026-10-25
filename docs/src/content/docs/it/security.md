@@ -161,6 +161,19 @@ in un unico file:
 - **Con `--vault` il file contiene i tuoi valori reali e la chiave per leggerli:** conservalo come
   conserveresti i valori.
 
+`latet upgrade` copia, prima di installare una versione, la cassaforte, la cronologia e le
+impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Latet
+([Aggiornamento](../getting-started/installation/#aggiornamento)):
+- **Sigillate come la cassaforte.** I database vengono copiati così come sono, con i loro valori
+  sigillati con la chiave di questo computer, che non viene copiata; la cartella è leggibile solo
+  da te.
+- **Seguono ciò che rimuovi**, mentre gira Latet 0.9.10 o una versione successiva.
+  *Dimentica* toglie un valore da ogni copia, cancellare la cronologia
+  cancella anche la loro, e la loro cronologia non viene conservata più a lungo della tua. Una copia
+  che non si può ripulire viene cancellata, o messa da parte e non più proposta.
+- **Tre al massimo, e tornare indietro spetta a te.** Rimettere una copia viene proposto solo in un
+  tuo terminale, e un agente non può eseguire `latet upgrade --to` verso una versione più vecchia.
+
 **Il revisore locale** (opzionale, [disattivato finché non lo attivi](../concepts/llm-review/))
 
 - Gira su un tuo server: su questo computer, o su un altro tuo computer una volta che lo confermi

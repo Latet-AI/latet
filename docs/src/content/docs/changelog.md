@@ -11,6 +11,70 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.9.10 (2026-10-25)
+
+- Fixed: a value of a type your policies let through (`allow`) left in clear what was written inside
+  it. With `EMAIL: allow`, an IBAN written in an address
+  (`IT60X0542811101000000123456.ops@acme-intra.it`) was left in clear with it: the final check
+  stopped a request whose tool output or message carried it, but the model's own texts, which the
+  gateway masks again in each request and the check does not read, sent it in clear. A value of a
+  type that is masked written inside one let through (an IBAN, a card number, a value the vault
+  knows) is now masked where it sits, and the rest stays as written; a secret or a term of yours
+  there masks the whole, as before, and an address keeps its own domain. A term or a field rule of a
+  type let through leaves in clear what only it finds, no longer what a detector of a type that is
+  masked finds there.
+- Fixed: a vault ran out of fakes where it held more values of one kind than Latet's lists have
+  fakes, and the request stopped ("no collision-free surrogate"): a log of a service's customers
+  with a few hundred public IP addresses, about a hundred addresses of one word at a mailbox
+  provider (`luca@gmail.com`) or two thousand `first.last` ones, a few dozen of your terms of one
+  word, towns, people named by a first name alone, streets without a number. Once the fakes of a
+  value's form are taken, a new value now gets one written as people write such values: names of
+  both languages, then digits after the name (`luca84@gmail.com`, `luca.rossi84@gmail.com`), a given
+  name more, more company words, a town made from a family name (`Borgo Ferri`), and in the end the
+  value's own shape. Public IPv4 addresses also take the benchmarking block, which is never routed on
+  the internet either: 198.19.0.0/16 first, then, once every address of it and of the documentation's
+  blocks is taken, 198.18.0.0/16, where proxies in fake-ip mode give the hosts they resolve their
+  addresses (130,048 fakes more in all).
+  Values already in the vault keep their fakes, and a new value gets the fake it always got wherever
+  that one was free.
+- Fixed: a value met where a query writes its spaces as `+`, such as a phone number known as
+  `333 1234567` and met as `333+1234567` in a link, was masked, but where the model wrote its fake as
+  it reads (`345 7654321`), the agent got that fake and not the number. The vault now records how
+  each value was found, as it is written or where its escapes read, and a value of any kind found
+  the second way gets its fake's reading back. Values kept before this release keep the rule of
+  0.9.9. The vault gains a column for it: on a computer when the vault opens (0.9.9 still opens such
+  a vault), on a server with `latet server migrate`, which every instance needs before it starts
+  again.
+- `latet upgrade` copies what the new version may change before it changes anything: the vault, the
+  history and the settings, into `backups/before-<version>-<time>` in Latet's data folder, and says
+  where in one line. The values in the copy stay encrypted with this computer's key, which is not
+  copied. Three copies at most are kept, the older ones deleted once the next is complete; an
+  upgrade to the version already installed takes none. An upgrade whose copy cannot be made, or
+  with no room on the disk for it beside the copies there and for the install, stops with nothing
+  changed and says how much room it needs. The copies follow what you remove: *Forget* takes a value
+  out of them too, clearing the history clears theirs, and their history is kept no longer than
+  yours. A copy is changed by deletions alone, never brought to a newer version's form, so it can
+  still be put back; one that another program holds at that moment is done the next time, and
+  before it is put back.
+- `latet upgrade --to VERSION` installs that release instead of the latest. Going back to the
+  version a copy was taken under, it offers to put that copy back: it says how many values the vault
+  has learnt since, which would be lost, and keeps your data as it is unless you choose otherwise at
+  your terminal. Your files as they are are copied first, and if putting the copy back fails half
+  way they go back in their place. An agent cannot run `latet upgrade --to` an older release.
+- The server's operations page says to take a copy of the database with `pg_dump` before pulling a
+  new image and running `latet server migrate`, and how to go back with it.
+- Forget, clearing the history and its retention leave nothing of what they delete in the vault's or
+  the history's file: it is overwritten at once where it was, and the journal is written into the
+  file. When another program is reading the file at that moment, the old page stays in it until the
+  next Forget, or until Latet stops. On a computer, Forget also deletes the local reviewer's
+  remembered answers that hold the value (a text comes back, it is read again). 0.9.9 deleted the value, but its bytes (sealed,
+  and its fake in clear) stayed in a free page of the file until SQLite reused it, and the reviewer's
+  answers kept it for up to 90 days. Values forgotten before this release may stay in a free page until
+  then.
+- A test of the history's timer, which failed now and then on a busy computer running the tests in
+  parallel (it allows five seconds between two of its steps), is a timing test, as the others that
+  measure time are.
+
 ## 0.9.9 (2026-10-24)
 
 - Fixed: two values Latet already knew, or two of your terms, that overlap in a text left the end of
