@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` affiche `running: Latet 0.9.9 on 127.0.0.1:5283 (masking), pid 12345` quand le daemon
+`latet status` affiche `running: Latet 0.9.10 on 127.0.0.1:5283 (masking), pid 12345` quand le daemon
 tourne, ou `not running` sinon. Si vous voulez plutôt cesser d'utiliser Latet, lancez d'abord
 `latet global-uninstall` : il remet vos agents comme ils étaient. Voir
 [Désinstallation](../getting-started/uninstall/).
@@ -450,6 +450,30 @@ d'exécution), et redémarre Latet.
 Un Latet 0.9.0 ou 0.9.1 mis à jour sous Windows avec son propre `latet upgrade` peut rester incapable
 de démarrer, `latet` répondant alors `No module named 'latet'` : relancez le script d'installation,
 qui installe la dernière version en entier.
+
+### Revenir à la version que vous aviez
+
+`latet upgrade --to 0.9.9` installe cette version plutôt que la dernière. Chaque `latet upgrade` copie
+d'abord le coffre-fort, l'historique et les réglages tels qu'ils sont, dans
+`backups/before-<version>-<heure>` dans le dossier de données de Latet ; il garde les trois copies les
+plus récentes. En revenant à la version sous laquelle une copie a été faite, la mise à jour propose
+de la remettre : elle dit combien de valeurs le coffre-fort a apprises depuis, qui seraient perdues,
+et laisse vos données telles quelles sauf si vous répondez oui dans votre terminal. Si vous la
+remettez, vos fichiers tels qu'ils sont maintenant sont d'abord copiés, dans une copie à part.
+
+Pour remettre une copie à la main : arrêtez Latet (`latet stop`), copiez `latet.db` et `exchanges.db`
+de la copie dans le dossier de données à la place de ceux qui s'y trouvent, en supprimant leurs
+fichiers `-wal` et `-shm`, son `config.yaml` à la place du vôtre et son `config.reviewed.json` dans le
+dossier de données, puis démarrez Latet. Une copie ne s'ouvre qu'avec la clé de cette machine, qui
+reste où elle est.
+
+### Une mise à jour s'arrête avant de commencer : la copie est impossible
+
+`latet upgrade` copie le coffre-fort, l'historique et les réglages avant de changer quoi que ce soit.
+Quand cette copie est impossible, ou que le disque n'a pas de place pour elle et pour l'installation
+(il dit combien de place il lui faut), il dit pourquoi et s'arrête : rien
+n'a été installé et le daemon n'a pas été arrêté. Faites de la place, ou supprimez des copies plus
+anciennes dans `backups` dans le dossier de données de Latet, et relancez-le.
 
 ### Impossible de trouver la dernière version
 

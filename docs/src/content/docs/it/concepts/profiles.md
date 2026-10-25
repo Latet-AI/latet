@@ -84,6 +84,13 @@ I nomi dei tipi sono quelli che la dashboard mostra accanto a ogni valore masche
 `PHONE`, `IBAN`, `PASSWORD`, o il tipo che hai dato a un termine personalizzato. I tipi senza un
 criterio vengono mascherati.
 
+`allow` lascia in chiaro il valore di quel tipo, e nient'altro: un valore di un tipo mascherato
+scritto al suo interno non passa con lui. Con `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
+arriva al modello con l'IBAN sostituito da uno fittizio e `.ops@acme-intra.it` com'è scritto; un
+segreto o un tuo termine scritto in un indirizzo viene mascherato con l'indirizzo intero, come
+prima. Un termine o una regola di campo di un tipo lasciato passare lascia in chiaro ciò che trova
+solo lui; ciò che vi trova un rilevatore di un tipo mascherato viene mascherato.
+
 `redact` va bene per i valori di cui il modello non ha mai bisogno, nemmeno in forma fittizia. Funziona
 in un solo senso: il modello riceve il marcatore, e Latet non rimette mai l'originale nelle risposte o
 nei file. Che Latet conservi l'originale o no dipende da come è stato trovato il valore:

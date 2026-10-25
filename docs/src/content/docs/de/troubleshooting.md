@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` gibt `running: Latet 0.9.9 on 127.0.0.1:5283 (masking), pid 12345` aus, wenn der
+`latet status` gibt `running: Latet 0.9.10 on 127.0.0.1:5283 (masking), pid 12345` aus, wenn der
 Daemon läuft, sonst `not running`. Wenn Sie Latet stattdessen nicht mehr verwenden möchten, führen
 Sie zuerst `latet global-uninstall` aus: Er stellt den vorherigen Zustand Ihrer Agenten wieder her.
 Siehe [Deinstallation](../getting-started/uninstall/).
@@ -455,6 +455,30 @@ Latet wieder.
 Ein Latet 0.9.0 oder 0.9.1, das unter Windows mit seinem eigenen `latet upgrade` aktualisiert wurde,
 kann danach nicht mehr starten, und `latet` antwortet `No module named 'latet'`: Führen Sie das
 Installationsskript erneut aus, es installiert die neueste Version vollständig.
+
+### Zur vorherigen Version zurückkehren
+
+`latet upgrade --to 0.9.9` installiert diese Version statt der neuesten. Jedes `latet upgrade` kopiert
+zuerst den Tresor, den Verlauf und die Einstellungen, wie sie sind, nach
+`backups/before-<Version>-<Zeit>` im Datenordner von Latet; die drei neuesten Kopien bleiben erhalten.
+Bei der Rückkehr zu der Version, unter der eine Kopie angelegt wurde, bietet das Upgrade an, diese
+Kopie zurückzuspielen: Es nennt, wie viele Werte der Tresor seither gelernt hat, die verloren gingen,
+und lässt Ihre Daten, wie sie sind, es sei denn, Sie antworten in Ihrem Terminal mit Ja. Spielen Sie
+die Kopie zurück, werden Ihre jetzigen Dateien zuerst in eine eigene Kopie gesichert.
+
+Eine Kopie von Hand zurückspielen: Beenden Sie Latet (`latet stop`), kopieren Sie `latet.db` und
+`exchanges.db` der Kopie an die Stelle der vorhandenen im Datenordner und entfernen Sie deren
+`-wal`- und `-shm`-Dateien, legen Sie ihre `config.yaml` an die Stelle Ihrer und ihre
+`config.reviewed.json` in den Datenordner, und starten Sie Latet. Eine Kopie öffnet sich nur mit dem
+Schlüssel dieses Rechners, der bleibt, wo er ist.
+
+### Ein Upgrade bricht vor dem Beginn ab: Die Kopie lässt sich nicht anlegen
+
+`latet upgrade` kopiert den Tresor, den Verlauf und die Einstellungen, bevor es etwas ändert. Lässt
+sich diese Kopie nicht anlegen, oder hat die Festplatte keinen Platz für sie und die Installation (es
+nennt den Platz, den es braucht), nennt es den Grund und bricht ab:
+Nichts wurde installiert, und der Daemon wurde nicht beendet. Schaffen Sie Platz oder löschen Sie
+ältere Kopien in `backups` im Datenordner von Latet, und führen Sie es erneut aus.
 
 ### Das neueste Release lässt sich nicht ermitteln
 

@@ -880,6 +880,119 @@ def test_a_repeat_of_a_type_let_through_found_in_escapes_never_frees_another(vau
     assert text.count(masked_value) > out.text.count(masked_value)
 
 
+# --- a span a policy lets through leaves in clear only itself ------------------------------------------------------
+
+_IBAN = "IT60X0542811101000000123456"
+
+
+def _final_check_leaks(masker, text: str) -> list[str]:
+    from latet.engine.verifier import Verifier
+
+    result = Verifier(masker).verify([(text, SlotKind.TOOL_RESULT, False)], "s", record=False)
+    return [leak.etype for leak in result.leaks]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [f"pay {_IBAN}.ops@acme-intra.it", f"pay {_IBAN}@acme-intra.it", f"pay ops.{_IBAN}@acme-intra.it"],
+    ids=["before-a-dot", "the-local-part", "after-a-dot"],
+)
+def test_an_iban_inside_an_address_let_through_is_masked_where_it_sits(vault, text):
+    """A value of a type your policies let through stays as written, and only it: an IBAN written inside an address let
+    through is masked with its own fake where it sits, the rest of the address as written. 0.9.9 merged the IBAN into
+    the address (``merge_spans`` names a group by its strongest finding) and let the whole of it through."""
+    masker, _ = build_masker(Config(ner="off", policies={"EMAIL": Policy.ALLOW}), vault)
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    assert _IBAN not in out.text and "@acme-intra.it" in out.text
+    [replacement] = out.replacements
+    assert (replacement.etype, replacement.original) == ("IBAN", _IBAN)
+    assert out.text == text.replace(_IBAN, replacement.replacement)
+    assert restore_text(out.text, restores_for(vault.entities()))[0] == text
+    assert _final_check_leaks(masker, out.text) == []
+    assert set(_final_check_leaks(masker, text)) == {"IBAN"}  # what the gateway's final check stops, as in 0.9.9
+
+
+@pytest.mark.parametrize(
+    ("policies", "known", "terms", "text", "value", "masked"),
+    [
+        ({"EMAIL": Policy.ALLOW}, [], [], "billing 4539148803436467@acme-intra.it", "4539148803436467",
+         "4539148803436467"),
+        ({"EMAIL": Policy.ALLOW}, [("PERSON", EntityClass.NER, "mario.rossi")], [], "to mario.rossi@acme.it ok",
+         "mario.rossi", "mario.rossi"),
+        ({"PHONE": Policy.ALLOW}, [], [], "call +393331234567 or IT60X0542811101000000123456+393331234567",
+         _IBAN, _IBAN),
+        ({"EMAIL": Policy.ALLOW}, [], [TermConfig(value="Quasimodo", category="CLIENT")],
+         "to quasimodo.ops@acme-intra.it ok", "quasimodo", "quasimodo.ops@acme-intra.it"),
+        ({"PERSON": Policy.ALLOW}, [("PERSON", EntityClass.NER, "Mario Quasimodo")],
+         [TermConfig(value="Quasimodo", category="CLIENT")], "ask Mario Quasimodo today", "Quasimodo",
+         "Mario Quasimodo"),
+        ({"EMAIL": Policy.ALLOW}, [("API_KEY", EntityClass.SECRET, "tok_9fQ2xL7pZ4")], [],
+         "key tok_9fQ2xL7pZ4ops@acme.it", "tok_9fQ2xL7pZ4", "tok_9fQ2xL7pZ4ops@acme.it"),
+        ({"EMAIL": Policy.ALLOW}, [], [TermConfig(value="acme-intra.it", type="DOMAIN")],
+         "write ops@acme-intra.it today", "acme-intra.it", "ops@acme-intra.it"),
+    ],
+    ids=["card-in-an-address", "known-value-in-an-address", "iban-before-a-phone", "term-in-an-address",
+         "term-in-a-name", "secret-in-an-address", "domain-term-in-an-address"],
+)  # fmt: skip
+def test_a_masked_value_inside_any_span_let_through_never_leaves_in_clear(
+    vault, policies, known, terms, text, value, masked
+):
+    """Whatever type a policy lets through (an address, a phone number, a name), a value of a type that is masked inside
+    it never leaves in clear. Where the value let through names the two (``merge_spans``: the stronger of them), the
+    masked one is masked where it sits and the rest stays as written: a card number, a value the vault knows, an IBAN
+    glued to a phone number. Where the masked one names them (a term of yours, a secret), the whole is masked as it
+    was in 0.9.9."""
+    for entry in known:
+        vault.intern(*entry)
+    masker, _ = build_masker(Config(ner="off", policies=policies, terms=terms), vault)
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    replacement = next(r for r in out.replacements if value.lower() in r.original.lower())
+    assert replacement.original == masked and value not in out.text
+    assert out.text.endswith(text[replacement.end :]) and out.text.startswith(text[: replacement.start])
+    assert restore_text(out.text, restores_for(vault.entities()))[0] == text
+    assert _final_check_leaks(masker, out.text) == []
+
+
+def test_a_term_of_yours_typed_domain_is_never_an_address_s_own_domain(vault):
+    """An address let through keeps its own domain only where the address names what holds it (a repeat of the domain,
+    a domain the vault knows): a term of yours typed DOMAIN outranks the address, which is masked whole with it, as
+    0.9.9 masked it, wherever it is written."""
+    terms = [TermConfig(value="acme-intra.it", type="DOMAIN")]
+    masker, _ = build_masker(Config(ner="off", policies={"EMAIL": Policy.ALLOW}, terms=terms), vault)
+    for text in ("write ops@acme-intra.it today", "see acme-intra.it or write ops@acme-intra.it"):
+        out = masker.mask(text, SlotKind.TOOL_RESULT)
+        assert "acme-intra.it" not in out.text, out.text
+        assert restore_text(out.text, restores_for(vault.entities()))[0] == text
+        assert _final_check_leaks(masker, out.text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [f"pay {_IBAN}.ops@acme-intra.it", f"pay {_IBAN}@acme-intra.it", f"pay ops.{_IBAN}@acme-intra.it"],
+    ids=["before-a-dot", "the-local-part", "after-a-dot"],
+)
+def test_an_address_masked_is_masked_whole_as_before(vault, text):
+    """Nothing changes where the address is masked: it is one value, and its fake takes its place whole."""
+    masker, _ = build_masker(Config(ner="off"), vault)
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    [replacement] = out.replacements
+    assert replacement.etype == "EMAIL" and replacement.original == text.removeprefix("pay ")
+    assert _IBAN not in out.text
+
+
+def test_an_address_let_through_keeps_its_own_domain_which_it_still_brings_along(vault):
+    """An address let through brings its domain along as before: masked elsewhere in the text, and kept in the vault.
+    Inside the address it stays the address's, in this text and in the next, where the vault knows it."""
+    masker, _ = build_masker(Config(ner="off", policies={"EMAIL": Policy.ALLOW}), vault)
+    text = "write ops@acme-intra.it, or see api.acme-intra.it"
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    assert out.text.startswith("write ops@acme-intra.it, or see api.") and "api.acme-intra.it" not in out.text
+    assert [e.original for e in vault.entities()] == ["acme-intra.it"]
+    again = f"pay {_IBAN}@acme-intra.it"
+    masked = masker.mask(again, SlotKind.TOOL_RESULT)
+    assert masked.text.endswith("@acme-intra.it") and [r.etype for r in masked.replacements] == ["IBAN"]
+
+
 def _fake_of_a_link(vault: Vault) -> tuple[str, str]:
     """The fake `Mario%20Rossi` gets in a link, with ``vault``'s values, and how it reads."""
     from urllib.parse import unquote
@@ -1163,3 +1276,69 @@ def test_a_name_written_in_a_form_with_a_plus_keeps_its_reading(vault):
     reading = entity.surrogate.replace("+", " ")
     assert fake_reading(entity) == reading and vault.is_surrogate(reading)
     assert restore_text(f"call {reading} now", restores_for([entity]))[0] == "call Mario Rossi now"
+
+
+def test_a_phone_found_where_a_query_writes_its_spaces_as_plus_has_a_reading(vault):
+    """`333 1234567` known, `333+1234567` in a query string: found where the query's `+` read as spaces, masked, its
+    entry says it was found so (``Entity.decoded``), and its fake as it reads comes back as the value. With no record of
+    how a value was found, 0.9.9 read a `+` as a form's space in a value written in words alone, and gave the phone's
+    fake no reading: the model's `345 7654321` came back as it was."""
+    from latet.engine.masker import Masker
+    from latet.engine.vault import fake_reading
+
+    vault.intern("PHONE", EntityClass.PII, "333 1234567")
+    text = "GET /api/customers?tel=333+1234567&page=2 200"
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    assert "1234567" not in masked.text
+    entity = vault.by_original("333+1234567")
+    assert entity is not None and entity.decoded is True and "+" in entity.surrogate
+    assert masked.text == text.replace("333+1234567", entity.surrogate)
+    reading = fake_reading(entity)
+    assert reading == entity.surrogate.replace("+", " ") and vault.is_surrogate(reading)
+    restores = restores_for(vault.entities())
+    assert restore_text(f"call {reading} today", restores)[0] == "call 333 1234567 today"
+    assert restore_text(masked.text, restores)[0] == text
+
+
+def test_a_name_whose_query_writes_a_space_as_plus_beside_a_json_escape_keeps_its_reading(vault):
+    """`René Dupont` known, `Ren\\u00e9+Dupont` in a link held in a JSON string: found where the escapes read, its
+    `+` a form's space as in any value written in words, so its fake as it reads comes back as the value, as 0.9.9
+    gave it back (round 1, M2)."""
+    from latet.engine.masker import Masker
+    from latet.engine.vault import fake_reading
+
+    vault.intern("PERSON", EntityClass.NER, "Ren\N{LATIN SMALL LETTER E WITH ACUTE} Dupont")
+    text = '{"url": "https://x.example/?q=Ren\\u00e9+Dupont"}'
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    assert "Dupont" not in masked.text
+    entity = vault.by_original("Ren\\u00e9+Dupont")
+    assert entity is not None and entity.decoded is True and "+" in entity.surrogate
+    reading = fake_reading(entity)
+    assert reading == entity.surrogate.replace("+", " ")
+    restores = restores_for(vault.entities())
+    assert restore_text(f"Call {reading} today.", restores)[0] == "Call Ren\\u00e9 Dupont today."
+    assert restore_text(masked.text, restores)[0] == text
+
+
+def test_how_a_value_was_found_decides_its_reading_and_an_entry_kept_before_keeps_the_old_rule(vault):
+    """A reading is computed for an entry found where escapes read as what they stand for (``decoded``), and only for
+    it: a value found as it is written that holds `%41` has none. An entry kept before Latet recorded how its value was
+    found (None) keeps 0.9.9's rule: a `+` counts as a form's space in a value written in words alone."""
+    from dataclasses import replace
+    from urllib.parse import quote
+
+    from latet.engine.vault import Entity, fake_reading
+
+    password = vault.intern("PASSWORD", EntityClass.SECRET, "pa%41ss-Lavender-77", rule="test")
+    assert password.decoded is False and fake_reading(password) is None
+    assert {r.pattern for r in restores_for([password])} == {password.surrogate, quote(password.surrogate, safe="")}
+    name = Entity("n" * 20, "PERSON", EntityClass.NER, "Mario+Rossi", "Nicola+Greco", 0, 0.0, "known")
+    phone = Entity("p" * 20, "PHONE", EntityClass.PII, "333+1234567", "345+7654321", 0, 0.0, "known")
+    assert (name.decoded, phone.decoded) == (None, None)
+    assert fake_reading(name) == "Nicola Greco" and fake_reading(phone) is None  # 0.9.9's rule, kept
+    assert fake_reading(replace(name, decoded=False)) is None
+    assert fake_reading(replace(phone, decoded=True)) == "345 7654321"
+    found = replace(phone, decoded=True)
+    assert restore_text("call 345 7654321", restores_for([found]))[0] == "call 333 1234567"
+    signed = Entity("s" * 20, "PHONE", EntityClass.PII, "+39 333 \\u0031234567", "+39 345 7654321", 0, 0.0, "k", True)
+    assert fake_reading(signed) is None  # its `+` is a sign: the reading is of its `\u` escape, and reads as the fake

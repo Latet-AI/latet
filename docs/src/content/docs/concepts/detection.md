@@ -259,7 +259,10 @@ secret or a value of a structure is found as it is written alone). Such a value 
 written, as a value of its own with a fake of its own, written in the same escapes where they are
 part of the text: `Paolo%20Fontana` in a link, `\'` in a quoted string. What comes back to the agent
 is the value exactly as it was written, so a link stays a link and an edit finds its line again. Where the
-model writes the fake as it reads, `Paolo Fontana`, the agent gets the value as it reads.
+model writes the fake as it reads, `Paolo Fontana`, the agent gets the value as it reads. The vault
+records how each value was found, as it is written or where its escapes read, so this holds for a
+value of any kind found that way: a phone number known as `333 1234567` and met as `333+1234567` in
+a query gets back `333 1234567` too.
 
 ## When two detectors find the same text
 

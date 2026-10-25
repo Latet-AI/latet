@@ -169,6 +169,57 @@ def test_an_identitys_change_counts_go_with_it(db):
         _write(db, "INSERT INTO change_counters (owner, counter) VALUES (%s, 1)", "u_nobodyhere:settings")
 
 
+def test_an_entry_says_how_its_value_was_found_and_one_kept_before_says_none(db):
+    """`decoded` (migration 005): whether a value was found where escapes read as what they stand for, in clear as an
+    entry's rule is. An entry kept before the column, or by an instance whose INSERT names 0.9.9's columns, has none
+    there: it loads as kept before (None), its reading made by 0.9.9's rule."""
+    identity = identity_in(db)
+    store = PgVaultStore(db, identity, ROOT_KEY)
+    vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+    found = vault.intern("PHONE", EntityClass.PII, "333+1234567", rule="known", reads="333 1234567")
+    plain = vault.intern("PHONE", EntityClass.PII, "333 1234567", rule="pii:phone")
+    rows = dict(_read(db, "SELECT id, decoded FROM vault_entities WHERE identity_id = %s", identity))
+    assert rows == {found.id: True, plain.id: False}
+    _write(db, "UPDATE vault_entities SET decoded = NULL WHERE id = %s", found.id)
+    assert store.load_entity(found.id) == replace(found, decoded=None)
+    with db.connection() as conn:
+        conn.execute(
+            _INSERT_099,
+            (identity, "o" * 20, "PASSWORD", int(EntityClass.SECRET), b"x", b"k1", b"y", b"k2", 0, 0.0, None),
+        )
+    assert _read(db, "SELECT decoded FROM vault_entities WHERE id = %s", "o" * 20) == [(None,)]
+
+
+# How an instance of Latet 0.9.9 keeps a value (server/vault.py at 0.9.9): it names the columns it writes.
+_INSERT_099 = (
+    "INSERT INTO vault_entities (identity_id, id, etype, eclass, original, original_key, surrogate, surrogate_key,"
+    " counter, created, rule) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
+)
+
+
+def test_the_migration_adds_how_a_value_was_found_to_a_database_of_0_9_9(settings, schema):
+    """A database of 0.9.9's (four migrations, entries without the column) takes the fifth with `latet server
+    migrate`; an instance refuses to start on it before (``check_schema``), and an entry kept before has none."""
+    from latet.server.db import Database, SchemaMismatch, check_schema, migrate
+
+    db = Database(settings.database_url, schema=schema, max_size=2)
+    try:
+        migrate(db)
+        identity = identity_in(db)
+        store = PgVaultStore(db, identity, ROOT_KEY)
+        kept = Vault(ROOT_KEY, on_insert=store.save_entity).intern("PERSON", EntityClass.NER, "Emily Carter")
+        with db.connection() as conn:
+            conn.execute("ALTER TABLE vault_entities DROP COLUMN decoded")
+            conn.execute("DELETE FROM schema_migrations WHERE name = 'latet.server.migrations:005_vault_decoded'")
+        with pytest.raises(SchemaMismatch, match="older than this Latet"):
+            check_schema(db)
+        assert migrate(db) == ["latet.server.migrations:005_vault_decoded"]
+        check_schema(db)
+        assert store.load_entity(kept.id) == replace(kept, decoded=None)
+    finally:
+        db.close()
+
+
 def test_one_value_found_as_two_types_by_two_instances_is_one_entity(db):
     identity = identity_in(db)
     mine = Vault(ROOT_KEY, on_insert=PgVaultStore(db, identity, ROOT_KEY).save_entity)

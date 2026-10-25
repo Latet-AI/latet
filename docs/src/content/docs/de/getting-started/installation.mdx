@@ -101,6 +101,37 @@ ausgegangen ist. Ein Latet 0.9.0 oder 0.9.1 unter Windows aktualisieren Sie, ind
 Installationsskript erneut ausführen: Sein eigenes `latet upgrade` könnte es so hinterlassen, dass es
 nicht mehr startet.
 
+Bevor es den Daemon beendet, kopiert `latet upgrade`, was die neue Version beim Öffnen ändern kann:
+den Tresor, den Verlauf und Ihre Einstellungen (`config.yaml` und die Einstellungen, die Sie zuletzt
+bestätigt haben), nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet, und nennt den Ort
+in einer Zeile. Die Werte in der Kopie bleiben mit dem Schlüssel dieses Rechners verschlüsselt, der
+nicht mitkopiert wird. Die drei neuesten Kopien bleiben erhalten: Ältere werden gelöscht, sobald die
+nächste vollständig ist, nie vorher. Ein Upgrade auf die bereits installierte Version legt keine
+Kopie an. Ein Upgrade ohne Platz auf der Festplatte für seine Kopie, neben den vorhandenen Kopien,
+und für die Installation bricht ab, ohne etwas zu ändern, und nennt den Platz, den es braucht;
+ebenso eines, dessen Kopie sich nicht anlegen lässt. Die Kopien folgen dem, was Sie entfernen,
+solange Latet 0.9.10 oder eine spätere Version läuft: *Vergessen* entfernt einen Wert auch aus
+ihnen, das Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt als
+Ihrer; nach `latet upgrade --to` auf eine ältere Version erreicht sie ein *Vergessen* dort nicht.
+Jede Kopie behält die Form, die ihre Version ihr gab (sie wird nie auf eine neuere gebracht), sodass
+sie sich weiter zurückspielen lässt.
+
+Um statt der neuesten eine bestimmte Version zu installieren, etwa um zu Ihrer vorherigen
+zurückzukehren:
+
+```sh
+latet upgrade --to 0.9.9
+```
+
+Bei der Rückkehr zu der Version, unter der eine Kopie angelegt wurde, bietet es an, diese Kopie
+zurückzuspielen. Es nennt, wie viele Werte der Tresor seit der Kopie gelernt hat, die verloren
+gingen, und fragt Sie in Ihrem Terminal. Die Vorgabe lässt Ihre Daten, wie sie sind: Die ältere
+Version liest sie weiterhin, wo die neuere nur etwas hinzugefügt hat. Spielen Sie die Kopie zurück,
+werden Ihre jetzigen Dateien zuerst in eine eigene Kopie gesichert; scheitert das Zurückspielen auf
+halbem Weg, kommen Ihre Dateien an ihren Platz zurück, und es sagt das. Einer älteren Version fehlen
+die Korrekturen der späteren: Ein Agent kann `latet upgrade --to` auf eine ältere Version nicht
+ausführen, Sie führen es selbst aus.
+
 ## Mit einem KI-Agenten installieren
 
 Bitten Sie Ihren KI-Agenten,

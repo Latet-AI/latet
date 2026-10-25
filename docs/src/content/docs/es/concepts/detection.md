@@ -279,7 +279,10 @@ propio valor ficticio, escrito con las mismas secuencias donde forman parte del 
 `Paolo%20Fontana` en un enlace, `\'` en una cadena entre comillas simples. Al agente le vuelve el
 valor exactamente como estaba escrito, así que un enlace sigue siendo un enlace y una edición vuelve
 a encontrar su línea. Donde el modelo escribe el valor ficticio tal como se lee, `Paolo Fontana`, al
-agente le vuelve el valor tal como se lee.
+agente le vuelve el valor tal como se lee. La caja fuerte guarda cómo se encontró cada valor, tal
+como está escrito o donde se leen sus secuencias de escape, así que esto vale para un valor de
+cualquier tipo encontrado de ese modo: un número de teléfono conocido como `333 1234567` y hallado
+como `333+1234567` en una consulta vuelve también como `333 1234567`.
 
 ## Cuando dos detectores encuentran el mismo texto
 

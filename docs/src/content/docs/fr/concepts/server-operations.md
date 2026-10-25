@@ -363,8 +363,19 @@ augmenter les délais n'améliore pas la précision de reconnaissance.
 
 ## Mettre à jour et ajouter des instances
 
-Les instances partagent les mêmes tables, et une instance ne démarre que sur des tables de sa version. Avant une
-mise à jour, demandez à la nouvelle version si elle les modifie :
+Les instances partagent les mêmes tables, et une instance ne démarre que sur des tables de sa version. La
+base de données est à vous de la garder : Latet n'en copie rien. Avant de récupérer une nouvelle image et de
+lancer `latet server migrate`, faites-en une copie avec `pg_dump`, qui reste cohérente même pendant que les
+instances écrivent :
+
+```sh
+pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.acme.lan/latet"
+```
+
+Pour revenir en arrière, restaurez cette copie (`pg_restore --clean --if-exists`) et démarrez l'image
+précédente : une instance ne démarre pas sur les tables d'une version plus récente. Les valeurs de la copie
+restent chiffrées, comme dans la base : seule la clé maîtresse du serveur les ouvre. Avant une mise à jour, demandez à la
+nouvelle version si elle modifie les tables :
 
 ```sh
 latet server migrate --check

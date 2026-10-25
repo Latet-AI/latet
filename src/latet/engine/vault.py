@@ -15,19 +15,22 @@ import hmac
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from functools import partial
 
 from latet.engine.detectors.ids import ID_TYPES
-from latet.engine.escapes import TAIL, ends_with_escape, readings, written_like
+from latet.engine.escapes import TAIL, ends_with_escape, plus_as_space, readings, written_like
 from latet.engine.known import ValueMatchers, value_chars
 from latet.engine.modules import AGAIN, kept
 from latet.engine.surrogates.data.names import NAME_EDGES, PUBLIC_MAIL_DOMAINS
 from latet.engine.surrogates.generators import (
     GENERATORS,
+    WIDE,
+    WIDER,
     Drbg,
     email_domain,
+    every_ip,
     gen_company,
     gen_data,
     gen_email,
@@ -38,8 +41,12 @@ from latet.engine.types import EntityClass
 
 log = logging.getLogger(__name__)
 
-_MAX_ATTEMPTS = 16
+_MAX_ATTEMPTS = 16  # fakes drawn in each form of a value's (``Vault._draws``) before the next, wider one
 _MAX_GROWTH = 4  # characters a value of a structure's fake may gain when its shape has no free one left
+# Fakes a store may refuse for one value (FakeTaken: another process gave them first), each a round trip to it on a
+# server: past them the value fails as it did when it had 16 fakes to try (80, those of a value of a structure). The
+# vault's own strings are passed over before the store is asked, so a full space costs no round trip.
+_REFUSED_MOST = (_MAX_GROWTH + 1) * 16
 # Values changed and not yet read by the vault's detectors that are kept track of one by one: past it, they read every
 # value again (a catch-up of a whole vault on a server, with no masking meanwhile).
 _TOUCHED_KEPT = 16_384
@@ -81,6 +88,11 @@ def _occurs(candidate: str, text: str, whole: bool) -> bool:
     return False
 
 
+def _in_form(generate: Callable[[str, Drbg, int], str], wide: int) -> Callable[[str, Drbg], str]:
+    """``generate``, drawing its form ``wide`` (``generators.WIDE``)."""
+    return lambda original, rng: generate(original, rng, wide)
+
+
 class MaskingError(RuntimeError):
     """No collision-free surrogate could be produced: the caller must fail closed."""
 
@@ -104,27 +116,48 @@ class Entity:
     counter: int
     created: float
     rule: str | None = None  # the detector rule of its first sighting (None: recorded before rules were kept)
+    # How its value was found: where the text's escapes read as what they stand for (True, ``Span.value``: the decoded
+    # reading), or as it is written (False); None: kept before Latet recorded it (0.9.9 and earlier). A column of the
+    # store's, `decoded`, in clear as the rule is.
+    decoded: bool | None = None
 
 
 def written_in_words(etype: str, eclass: EntityClass) -> bool:
     """A value of this kind is written in words, a space between two (a name, a term, a street): a `+` in it, kept as
     a form's value writes it (`Mario+Rossi`), is a space. In any other value it is a sign: a phone's `+39`, a
-    sub-address's `+crm`, a token's (``escapes.readings``)."""
+    sub-address's `+crm`, a token's (``escapes.readings``). Only for an entry kept before Latet recorded how its value
+    was found (``written_in_escapes``)."""
     return eclass != EntityClass.STRUCT and restored_whole(etype, eclass)
 
 
 ESCAPE_SIGNS = ("%", "+", "\\", "&")  # what a value written in escapes holds one of, at least
 
 
+def written_in_escapes(entity: Entity) -> bool | None:
+    """Whether ``entity``'s value is kept as written in escapes, its fake given the forms and the reading of such a
+    value (``fake_reading``, ``restores_for``): None where it is not, else whether a `+` in it is a form's space (the
+    ``words`` of ``escapes.readings``). From how the value was found (``Entity.decoded``): found as it is written, it
+    reads as it is written; found where escapes read as what they stand for, its `+` were a form's spaces where nothing
+    else of it is an escape (``escapes.plus_as_space``: `333+1234567`), or in a value written in words, as 0.9.9 read
+    them (`Ren\\u00e9+Dupont` in a link held in a JSON string). An entry kept before that was recorded keeps 0.9.9's
+    rule: a `+` is a form's space in a value written in words alone (``written_in_words``)."""
+    if entity.decoded is False or not any(sign in entity.original for sign in ESCAPE_SIGNS):
+        return None
+    words = written_in_words(entity.etype, entity.eclass)
+    if entity.decoded is None:
+        return words
+    return plus_as_space(entity.original) or words
+
+
 def fake_reading(entity: Entity) -> str | None:
     """How the fake of a value kept as written in escapes reads, where it reads otherwise (`Nicola Greco` for
     `Nicola%20Greco`): kept apart from every other value and fake as a fake is (Ruling 099-R2), sent back in a later
-    text as a fake is (an echo), and given back as the value reads (``restores_for``). None for a value written as it
-    reads: a `+` in a phone or a token is a sign (``written_in_words``)."""
-    original = entity.original
-    if not any(sign in original for sign in ESCAPE_SIGNS):
+    text as a fake is (an echo), and given back as the value reads (``restores_for``). None for a value found as it is
+    written, and for one that reads as it is written (``written_in_escapes``)."""
+    words = written_in_escapes(entity)
+    if words is None:
         return None
-    read = readings(original, entity.surrogate, words=written_in_words(entity.etype, entity.eclass))
+    read = readings(entity.original, entity.surrogate, words=words)
     return read[0] if read is not None and read[0] != entity.surrogate else None
 
 
@@ -390,12 +423,8 @@ class Vault:
                     dom = self.intern("DOMAIN", EntityClass.PII, domain.lower(), context, rule)
                     domain_surrogate = dom.surrogate
             whole = restored_whole(etype, eclass)
-            # A value of a structure whose shape has no free fake left (hundreds of 3-digit ids in one
-            # output) gets a longer one: a fake that fails the masking would stop the request.
-            growth = _MAX_GROWTH if eclass == EntityClass.STRUCT else 0
-            tries = ((grow, counter) for grow in range(growth + 1) for counter in range(_MAX_ATTEMPTS))
-            for grow, counter in tries:
-                candidate = self._generate(etype, eclass, original, counter, domain_surrogate, generate, grow, reads)
+            refused = 0  # fakes the store refused: another process's
+            for counter, candidate in self._draws(etype, eclass, original, domain_surrogate, generate, reads):
                 if reads is not None:
                     # As it reads, the fake is none of the values the vault knows nor of their fakes, nor in the text,
                     # as any fake is none: the model would read a real name, or write one that comes back as another
@@ -422,12 +451,16 @@ class Vault:
                     counter=counter,
                     created=time.time(),
                     rule=rule,
+                    decoded=reads is not None,
                 )
                 if self._on_insert is not None:
                     try:
                         first = self._on_insert(entity)
                     except FakeTaken:
-                        continue  # another process gave this fake to another value: the next counter
+                        refused += 1  # another process gave this fake to another value: the next counter
+                        if refused >= _REFUSED_MOST:
+                            break
+                        continue
                     if first is not None:
                         entity = first  # the same value, kept first by another process
                 self._index(entity)
@@ -447,18 +480,18 @@ class Vault:
             domain = email_domain(entity.original)
             if domain and domain.lower() not in PUBLIC_MAIL_DOMAINS:
                 domain_surrogate = self.intern("DOMAIN", EntityClass.PII, domain.lower(), rule=entity.rule).surrogate
-        growth = _MAX_GROWTH if entity.eclass == EntityClass.STRUCT else 0
-        for grow, counter in ((grow, counter) for grow in range(growth + 1) for counter in range(_MAX_ATTEMPTS)):
-            candidate = self._generate(
-                entity.etype, entity.eclass, entity.original, counter, domain_surrogate, None, grow
-            )
+        refused = 0
+        for counter, candidate in self._draws(entity.etype, entity.eclass, entity.original, domain_surrogate, None):
             if _shows(candidate, entity.original) or self._taken(candidate):
                 continue
             drawn = replace(entity, surrogate=candidate, counter=counter)
             try:
                 kept = keep(entity, drawn)
             except FakeTaken:
-                continue  # another process gave this fake to another value: the next counter
+                refused += 1  # another process gave this fake to another value: the next counter
+                if refused >= _REFUSED_MOST:
+                    break
+                continue
             except EntryGone:
                 self._unindex(entity)  # forgotten by another process: known here no more
                 return
@@ -486,6 +519,60 @@ class Vault:
             self._on_rule(updated)
         return updated
 
+    def _draws(
+        self,
+        etype: str,
+        eclass: EntityClass,
+        original: str,
+        domain_surrogate: str | None,
+        generate: Callable[[str, Drbg], str] | None,
+        reads: str | None = None,
+    ) -> Iterator[tuple[int, str]]:
+        """The fakes ``original`` may get, in the order they are tried, each with the counter it is kept with:
+        ``_MAX_ATTEMPTS`` of each of its forms, the first the one Latet always drew (counters 0 to 15: a value that
+        finds a free fake there gets the fake it always got), then the wider ones, so that a vault never runs out of
+        fakes while a wider form has one. A value of a structure whose shape has no free fake left (hundreds of 3-digit
+        ids in one output) gets a longer one, a character at a time. Words drawn from lists (names, companies, towns)
+        go through each wider form of their generator (``generators.WIDER``), then the value's own shape, as a value no
+        generator can fake gets. An IPv4 address goes to the benchmarking block too, then to every address of its
+        blocks in turn (``every_ip``). A recognizer of yours (``generate``) has its one form."""
+
+        def draw(counter: int, grow: int = 0, wide: int = 0) -> str:
+            return self._generate(etype, eclass, original, counter, domain_surrogate, generate, grow, reads, wide)
+
+        if eclass == EntityClass.STRUCT:
+            for grow in range(_MAX_GROWTH + 1):
+                for counter in range(_MAX_ATTEMPTS):
+                    yield counter, draw(counter, grow)
+            return
+        drawn = reads if reads is not None else original
+        mine = generate is None
+        company = etype not in GENERATORS and eclass == EntityClass.CUSTOM and drawn.replace(" ", "").isalpha()
+        words = mine and (etype in WIDER or company)
+        ip = mine and etype == "IP_ADDRESS"
+        forms = WIDER.get(etype, WIDER["COMPANY"]) if words else 1 if ip else 0
+        counter = 0
+        for wide in range(forms + 1):
+            for _ in range(_MAX_ATTEMPTS):
+                yield counter, draw(counter, wide=wide)
+                counter += 1
+        if words:
+            for _ in range(_MAX_ATTEMPTS):
+                yield counter, shape(drawn, Drbg(self._k_sur, self._seed(etype, original, counter) + b"\x00shape"))
+                counter += 1
+        elif ip:
+            for address in every_ip(drawn, Drbg(self._k_sur, self._seed(etype, original, counter))):
+                yield counter, address
+                counter += 1
+
+    @staticmethod
+    def _seed(etype: str, original: str, counter: int) -> bytes:
+        """What the fake of ``original`` (as written) is drawn from at ``counter``."""
+        value = normalize(etype, original)
+        if len(value) > SEED_LONGEST:  # its digest: the generator hashes the seed again for every 32 bytes it draws
+            value = "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+        return f"{etype}\x00{value}\x00{counter}".encode()
+
     def _generate(
         self,
         etype: str,
@@ -496,13 +583,12 @@ class Vault:
         generate: Callable[[str, Drbg], str] | None = None,
         grow: int = 0,
         reads: str | None = None,
+        wide: int = 0,
     ) -> str:
         """A fake for ``original``, drawn from it, or from what it reads (``reads``) where it is written in escapes (the
-        seed is the value as written: each written form has a fake of its own)."""
-        value = normalize(etype, original)
-        if len(value) > SEED_LONGEST:  # its digest: the generator hashes the seed again for every 32 bytes it draws
-            value = "sha256:" + hashlib.sha256(value.encode()).hexdigest()
-        seed = f"{etype}\x00{value}\x00{counter}".encode()
+        seed is the value as written: each written form has a fake of its own), in its generator's form ``wide``
+        (``_draws``)."""
+        seed = self._seed(etype, original, counter)
         original = reads if reads is not None else original
         if grow:  # the shape of a value of a structure, `grow` characters longer: its last one again
             return gen_data(original + original[-1] * grow, Drbg(self._k_sur, seed + f"\x00grow{grow}".encode()))
@@ -510,7 +596,9 @@ class Vault:
         generator = generate or GENERATORS.get(etype)
         if etype == "EMAIL":
             domain_of = (lambda _d: domain_surrogate) if domain_surrogate else None
-            generator = partial(gen_email, domain_surrogate=domain_of)
+            generator = partial(gen_email, domain_surrogate=domain_of, wide=wide)
+        elif wide and generate is None and etype in WIDE:
+            generator = _in_form(WIDE[etype], wide)
         if generator is not None:
             try:
                 return generator(original, rng)
@@ -521,7 +609,10 @@ class Vault:
         if eclass == EntityClass.SECRET:
             return shape(original, rng) if etype in _SHAPE_SECRETS else gen_secret(original, rng)
         if eclass == EntityClass.CUSTOM and original.replace(" ", "").isalpha():
-            return gen_company(original, rng)
+            try:
+                return gen_company(original, rng, wide)
+            except IndexError:  # every company's word would show it
+                return shape(original, Drbg(self._k_sur, seed + b"\x00shape"))
         return shape(original, rng)
 
     def _keyed(self, key: tuple[str, str], entity: Entity | None) -> None:

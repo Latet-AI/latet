@@ -350,8 +350,19 @@ richiesta verificata viene rifiutata, secondo il percorso protetto; aumentare i 
 
 ## Aggiornare e aggiungere istanze
 
-Le istanze condividono le stesse tabelle, e un'istanza parte solo su tabelle della sua versione. Prima di un
-aggiornamento, chiedi alla nuova versione se le cambia:
+Le istanze condividono le stesse tabelle, e un'istanza parte solo su tabelle della sua versione. Il
+database è tuo da custodire: Latet non ne copia nulla. Prima di scaricare una nuova immagine e di
+eseguire `latet server migrate`, fanne una copia con `pg_dump`, che resta coerente anche mentre le
+istanze scrivono:
+
+```sh
+pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.acme.lan/latet"
+```
+
+Per tornare indietro, ripristina quella copia (`pg_restore --clean --if-exists`) e avvia l'immagine
+precedente: un'istanza non parte su tabelle di una versione più nuova. I valori nella copia restano
+cifrati, come nel database: solo la chiave master del server li apre. Prima di un aggiornamento, chiedi alla
+nuova versione se cambia le tabelle:
 
 ```sh
 latet server migrate --check

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 import typer
 
 from latet.cli.main import app
+from latet.storage import upgrade_copies
 
 if TYPE_CHECKING:
     from latet.server.client import ServerError
@@ -1109,7 +1110,7 @@ def _still_holding(
                     found = _metadata(path)
                     if found is not None and stat.S_ISDIR(found.st_mode):
                         pending.append(path)
-                    else:
+                    elif not upgrade_copies.is_copies_own(path, data_dir()):  # read as the vault is: not at all
                         files.append(path)
                         backup_files.add(path)
             except (RecordsUnavailable, OSError):
@@ -1184,6 +1185,8 @@ def _backups_holding(tokens: list[str], routes: list[str], spaces: list[str]) ->
             _trusted_folder(folder)
             for path in folder.iterdir():
                 found = _metadata(path)
+                if upgrade_copies.is_copies_own(path, data_dir()):
+                    continue  # the vault or the history copied before an upgrade, or the copies' lock: not read
                 (pending if found is not None and stat.S_ISDIR(found.st_mode) else files).append(path)
         except (RecordsUnavailable, OSError):
             left.append((folder, "integration backup retained and unavailable"))

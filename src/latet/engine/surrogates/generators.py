@@ -9,6 +9,13 @@ A fake never shows its original: a word drawn from a list (a name, a company, a 
 is never one of the original's words, nor holds one, nor is a part of one, nor holds the whole
 original (``_unlike``), so ``emily`` never gets ``emily`` and two digits; and a fake the vault is given
 that holds its original all the same, whatever made it, is drawn again (``Vault.intern``).
+
+A fake drawn from a list runs out where a vault holds more values of its form than the list has fakes (a first name
+alone: about 80; a public IPv4 address: 762 in the blocks of the documentation). Such a generator has wider forms
+(``wide``, ``WIDER``), tried in turn by the vault once the narrower ones are taken: the full lists of both languages,
+then digits as people write them (`luca84@`, `luca.rossi84@`), more given names, more company words, towns made from
+family names, and for IPv4 the benchmarking block too, then every address of the blocks in turn (``every_ip``). The
+first form (``wide`` 0) is the one Latet always drew: a value that finds a free fake there gets the fake it always got.
 """
 
 from __future__ import annotations
@@ -16,10 +23,11 @@ from __future__ import annotations
 import datetime
 import hashlib
 import hmac
+import ipaddress
 import re
 import string
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
 from latet.engine.detectors import ids
@@ -28,7 +36,13 @@ from latet.engine.surrogates.data.names import (
     ADDRESS_WORDS,
     COMPANIES,
     ENGLISH,
+    ENGLISH_TOWN_ENDINGS,
+    ENGLISH_TOWN_PARTS,
+    FIRST_NAMES,
     ITALIAN,
+    ITALIAN_TOWN_PARTS,
+    ITALIAN_TOWN_WORDS,
+    LAST_NAMES,
     PUBLIC_MAIL_DOMAINS,
     STREET_PARTICLES,
     STREET_TYPES,
@@ -164,7 +178,24 @@ def _unlike(pool: Sequence[str], original: str) -> tuple[str, ...]:
     So ``emily`` never gets ``emily`` and two digits, ``Annabella Rossi`` neither ``Anna`` nor ``Rossi``,
     ``a@gmail.com`` no name holding an ``a``, and ``acme.com`` no ``acme`` as the word of its domain. When every word of
     ``pool`` is out, the empty tuple: the caller's ``rng.choice`` raises ``IndexError``, and the vault makes a fake of
-    the original's shape instead (``Vault._generate``)."""
+    the original's shape instead (``Vault._generate``).
+
+    A list of the module's own (a tuple) keeps its last answer: the vault draws one value's fake many times over, from
+    the same lists, as their wider forms come in turn (``Vault._draws``). One value per list, the last one asked."""
+    if isinstance(pool, tuple):
+        last = _UNLIKE_LAST.get(id(pool))
+        if last is not None and last[0] == original:
+            return last[1]
+        found = _unlike_now(pool, original)
+        _UNLIKE_LAST[id(pool)] = (original, found)
+        return found
+    return _unlike_now(pool, original)
+
+
+_UNLIKE_LAST: dict[int, tuple[str, tuple[str, ...]]] = {}  # each list's last answer (``_unlike``), by the list
+
+
+def _unlike_now(pool: Sequence[str], original: str) -> tuple[str, ...]:
     whole = original.casefold()
     words = {word.casefold() for word in _WORD.findall(original)}
 
@@ -204,15 +235,33 @@ def language(original: str, address: bool = False) -> Names:
     return ITALIAN if last.endswith(("a", "i", "o", "u")) else ENGLISH
 
 
-def gen_person(original: str, rng: Drbg) -> str:
+def _lists(names: Names, wide: int) -> tuple[Sequence[str], Sequence[str]]:
+    """The first and the last names a fake is drawn from: its language's (``wide`` 0, as Latet always drew them), or
+    both languages' (a wider form: the full lists)."""
+    return (names.first, names.last) if wide == 0 else (FIRST_NAMES, LAST_NAMES)
+
+
+def _digits(rng: Drbg, wide: int) -> str:
+    """The digits a name drawn from a list takes in its wider forms, as people write them (`luca84`): none in the
+    first two, then two more in each."""
+    return "".join(rng.choice(_DIGITS) for _ in range(2 * max(0, wide - 1)))
+
+
+def gen_person(original: str, rng: Drbg, wide: int = 0) -> str:
+    """A name of the original's language for each of its words. Wider forms (``wide``): drawn from both languages'
+    lists, then with a given name more for each form past the first (`Marco Luca Ferri`; a name alone, a family name
+    more: `Marco Ferri`)."""
     tokens = original.split()
     if not tokens:
         return shape(original, rng)
-    names = language(original)
+    first, last = _lists(language(original), wide)
     out = []
     for i, token in enumerate(tokens):
-        pool = names.first if i == 0 and len(tokens) > 1 else names.last if len(tokens) > 1 else names.first
+        pool = first if i == 0 and len(tokens) > 1 else last if len(tokens) > 1 else first
         out.append(_styled(rng.choice(_unlike(pool, original)), token))
+        if i == 0 and wide > 1:
+            more = first if len(tokens) > 1 else last
+            out += [_styled(rng.choice(_unlike(more, original)), token) for _ in range(wide - 1)]
     return " ".join(out)
 
 
@@ -231,7 +280,15 @@ def _region(code: str, names: Names) -> tuple[str, ...] | None:
     return None
 
 
-def _street_word(part: str, rng: Drbg, names: Names, original: str) -> str:
+def _street_name(rng: Drbg, names: Names, original: str, like: str, wide: int) -> str:
+    """The name of a street: a family name of its language, or (``wide``) of both, then with given names before it
+    (`via Marco Ferri`), none that shows ``original``."""
+    first, last = _lists(names, wide)
+    given = [rng.choice(_unlike(first, original)) for _ in range(max(0, wide - 1))]
+    return _styled(" ".join([*given, rng.choice(_unlike(last, original))]), like)
+
+
+def _street_word(part: str, rng: Drbg, names: Names, original: str, wide: int = 0) -> str:
     """One word of an address: kept, another code, a family name for a name (none that shows ``original``, the whole
     address), or the same shape."""
     if _kept(part):
@@ -239,7 +296,7 @@ def _street_word(part: str, rng: Drbg, names: Names, original: str) -> str:
     if (regions := _region(part, names)) is not None:
         return rng.choice(regions)
     if part.isalpha() and len(part) > 1:
-        return _styled(rng.choice(_unlike(names.last, original)), part)
+        return _street_name(rng, names, original, part, wide)
     if part.isalpha():
         return rng.choice(_UPPER if part.isupper() else _LOWER)  # "scala C": a letter, not a hex digit
     return shape(part, rng)
@@ -249,33 +306,48 @@ def _place_name(part: str, names: Names) -> bool:
     return part.isalpha() and len(part) > 1 and not _kept(part) and _region(part, names) is None
 
 
-def _place(piece: str, rng: Drbg, names: Names, original: str) -> str:
+def _town(rng: Drbg, names: Names, town: str, original: str, wide: int) -> str:
+    """Another town than ``town`` for a place of ``original``: one of its language's list; in the wider forms
+    (``wide``) one made from a family name (`Borgo Ferri`, `Walkerton`), then with the word that tells a part of a town
+    (`Borgo Ferri Alta`, `North Walkerton`). None that shows ``original``."""
+    if wide == 0:
+        return rng.choice(_unlike([c for c in names.cities if c.lower() != town.lower()], original))
+    family = rng.choice(_unlike(names.last, original))
+    italian = names is ITALIAN
+    made = f"{rng.choice(ITALIAN_TOWN_WORDS)} {family}" if italian else f"{family}{rng.choice(ENGLISH_TOWN_ENDINGS)}"
+    if wide > 1:
+        made = f"{made} {rng.choice(ITALIAN_TOWN_PARTS)}" if italian else f"{rng.choice(ENGLISH_TOWN_PARTS)} {made}"
+    return made
+
+
+def _place(piece: str, rng: Drbg, names: Names, original: str, wide: int = 0) -> str:
     """A town and what goes with it ("Bristol BS1 4DJ", "Roma RM"): the town's words become one other town, none
     that shows ``original`` (the whole address)."""
     parts = re.split(r"(\s+)", piece)
     out, i = [], 0
     while i < len(parts):
         if not _place_name(parts[i], names):
-            out.append(_street_word(parts[i], rng, names, original))
+            out.append(_street_word(parts[i], rng, names, original, wide))
             i += 1
             continue
         j = i
         while j + 2 < len(parts) and _place_name(parts[j + 2], names):
             j += 2
         town = "".join(parts[i : j + 1])
-        towns = _unlike([c for c in names.cities if c.lower() != town.lower()], original)
-        out.append(_styled(rng.choice(towns), parts[i]))
+        out.append(_styled(_town(rng, names, town, original, wide), parts[i]))
         i = j + 1
     return "".join(out)
 
 
-def gen_street(original: str, rng: Drbg) -> str:
+def gen_street(original: str, rng: Drbg, wide: int = 0) -> str:
     """ "via Garibaldi 12" → "via Ferrari 48", "42 Mill Lane, Bristol BS1 4DJ" → "27 Young Lane, Leeds RA0 2NS".
 
     Names and numbers change, in the address's language; the street type, particles and details ("scala C")
     stay. After a comma comes the place: another town for the town, another state or province code for a code,
     a postcode of the same shape. A street with nothing that changes ("Corso", "Piazza della") gets a street of its
-    language that holds none of it ("via Ferrari 48"): never itself, nor itself with a name added.
+    language that holds none of it ("via Ferrari 48"): never itself, nor itself with a name added. Wider forms
+    (``wide``): family names of both languages, then given names before them (`via Marco Ferri 48`), and towns made
+    from family names (``_town``).
     """
     names = language(original, address=True)
     out = []
@@ -283,31 +355,37 @@ def gen_street(original: str, rng: Drbg) -> str:
         if piece == ",":
             out.append(piece)
         elif i == 0 or any(w.lower() in STREET_TYPES for w in _WORD.findall(piece)):
-            out.append("".join(_street_word(part, rng, names, original) for part in re.split(r"(\s+)", piece)))
+            out.append("".join(_street_word(part, rng, names, original, wide) for part in re.split(r"(\s+)", piece)))
         else:
-            out.append(_place(piece, rng, names, original))
+            out.append(_place(piece, rng, names, original, wide))
     fake = "".join(out)
     if fake == original:
         kind = rng.choice(_unlike(sorted(names.street_types), original))
         kind = kind.capitalize() if original[:1].isupper() or names is ENGLISH else kind
-        name, number = rng.choice(_unlike(names.last, original)), 1 + rng.below(99)
+        name, number = _street_name(rng, names, original, "", wide), 1 + rng.below(99)
         fake = _styled(f"{kind} {name} {number}" if names is ITALIAN else f"{number} {name} {kind}", original)
     return fake
 
 
-def gen_city(original: str, rng: Drbg) -> str:
-    return _place(original, rng, language(original), original)
+def gen_city(original: str, rng: Drbg, wide: int = 0) -> str:
+    return _place(original, rng, language(original), original, wide)
 
 
-def gen_username(original: str, rng: Drbg) -> str:
-    name = rng.choice(_unlike(language(original).first, original))
-    return name.lower() + "".join(rng.choice(_DIGITS) for _ in range(2))
+def gen_username(original: str, rng: Drbg, wide: int = 0) -> str:
+    """A first name of the original's language and two digits; wider forms (``wide``): of both languages, then with
+    two digits more in each."""
+    name = rng.choice(_unlike(_lists(language(original), wide)[0], original))
+    return name.lower() + "".join(rng.choice(_DIGITS) for _ in range(2)) + _digits(rng, wide)
 
 
-def gen_company(original: str, rng: Drbg) -> str:
+def gen_company(original: str, rng: Drbg, wide: int = 0) -> str:
+    """A company's word for each of the original's words; wider forms (``wide``): one company word more in each, after
+    the first (`Contoso Northwind`)."""
     words = original.split()
     companies = _unlike(COMPANIES, original)
-    out = [_styled(rng.choice(companies), words[0] if words else original)]
+    like = words[0] if words else original
+    out = [_styled(rng.choice(companies), like)]
+    out += [_styled(rng.choice(companies), like) for _ in range(wide)]
     if len(words) > 1:
         out += [shape(w, rng) if not w.isalpha() else _styled(rng.choice(companies), w) for w in words[1:]]
     return " ".join(out)
@@ -361,21 +439,27 @@ def email_domain(value: str) -> str:
     return domain if at else ""
 
 
-def gen_email(original: str, rng: Drbg, domain_surrogate: Callable[[str], str] | None = None) -> str:
+def gen_email(original: str, rng: Drbg, domain_surrogate: Callable[[str], str] | None = None, wide: int = 0) -> str:
+    """A name of the local part's language for each of its words (`first.last`, a first name alone), or its shape; the
+    domain's fake, or a mailbox provider's domain as it is. Wider forms (``wide``): names of both languages, then
+    digits after them as people write them (`luca84@`, `luca.rossi84@`), two more in each."""
     if "@" not in original:  # written out, as the local reviewer reports it; or no address at all
         written = written_email(original)
-        return written.write(gen_email(written.address, rng, domain_surrogate)) if written else shape(original, rng)
+        if written is None:
+            return shape(original, rng)
+        return written.write(gen_email(written.address, rng, domain_surrogate, wide))
     local, _, domain = original.rpartition("@")
     parts = re.split(r"([._\-+])", local)
     alpha = [p for p in parts if p and p.isalpha()]
-    names = language(local)
+    given, family = _lists(language(local), wide)
     if len(alpha) == 2 and len(parts) == 3:
-        first, last = _unlike(names.first, local), _unlike(names.last, local)
+        first, last = _unlike(given, local), _unlike(family, local)
         fake_local = rng.choice(first).lower() + parts[1] + rng.choice(last).lower()
     elif local.isalpha():
-        fake_local = rng.choice(_unlike(names.first, local)).lower()
+        fake_local = rng.choice(_unlike(given, local)).lower()
     else:
         fake_local = shape(local, rng)
+    fake_local += _digits(rng, wide)
     if domain.lower() in PUBLIC_MAIL_DOMAINS:
         fake_domain = domain
     elif domain_surrogate is not None:
@@ -448,9 +532,45 @@ def gen_card(original: str, rng: Drbg) -> str:
     return "".join(out)
 
 
-def gen_ip(original: str, rng: Drbg) -> str:
-    import ipaddress
+# The blocks an IPv4 address's fake is drawn from, each as (its first /24, how many /24 it holds), a fake taking a host
+# of a /24 (1 to 254): for a public address, blocks never routed on the internet, in tiers, each taken whole before the
+# next: the documentation's three (RFC 5737: 762 fakes, the only ones before) and 198.19.0.0/16 (65,024 more), then
+# 198.18.0.0/16 (65,024), the half of benchmarking's block (RFC 2544) that proxies in fake-ip mode (Clash, Mihomo,
+# Surge) give the hosts they resolve by default, which Latet leaves unmasked as private; for a private address, its own
+# private block (RFC 1918). An IPv6 address's fake is of the documentation's block (RFC 3849): 2^96 of them.
+_DOCUMENTATION_V4 = ((0xC00002, 1), (0xC63364, 1), (0xCB0071, 1))
+_FIRST_TIER_V4 = (*_DOCUMENTATION_V4, (0xC61300, 256))
+_LAST_TIER_V4 = ((0xC61200, 256),)
+_PRIVATE_V4 = {"10": ((0x0A0000, 65_536),), "192": ((0xC0A800, 256),), "172": ((0xAC1000, 4_096),)}
+_HOSTS = 254
 
+
+def _hosts(blocks: tuple[tuple[int, int], ...]) -> int:
+    return sum(count for _, count in blocks) * _HOSTS
+
+
+def _host(blocks: tuple[tuple[int, int], ...], index: int) -> str:
+    """The ``index``-th host of ``blocks`` (``_FIRST_TIER_V4``'s kind), in order."""
+    net, host = divmod(index, _HOSTS)
+    for first, count in blocks:
+        if net < count:
+            return str(ipaddress.IPv4Address(((first + net) << 8) | (host + 1)))
+        net -= count
+    raise IndexError(index)
+
+
+def _v4_tiers(addr: ipaddress.IPv4Address, original: str) -> tuple[tuple[tuple[int, int], ...], ...]:
+    """The blocks the fakes of an IPv4 address are drawn from in its widest form (``every_ip``), tier by tier."""
+    if not addr.is_private:
+        return (_FIRST_TIER_V4, _LAST_TIER_V4)
+    a = original.split(".")[0]
+    return (_PRIVATE_V4.get(a, _PRIVATE_V4["172"]),)
+
+
+def gen_ip(original: str, rng: Drbg, wide: int = 0) -> str:
+    """A fake of the same family: a private IPv4 address of the same private block, a public one of a block never
+    routed on the internet (the documentation's; wider, ``wide``: 198.19.0.0/16 too), an IPv6 one of the
+    documentation's."""
     addr = ipaddress.ip_address(original)
     if isinstance(addr, ipaddress.IPv6Address):
         groups = [f"{rng.below(65536):x}" for _ in range(6)]
@@ -462,8 +582,28 @@ def gen_ip(original: str, rng: Drbg) -> str:
         if a == "192":
             return f"192.168.{rng.below(256)}.{rng.below(254) + 1}"
         return f"172.{16 + rng.below(16)}.{rng.below(256)}.{rng.below(254) + 1}"
+    if wide:
+        return _host(_FIRST_TIER_V4, rng.below(_hosts(_FIRST_TIER_V4)))
     net = rng.choice(("192.0.2", "198.51.100", "203.0.113"))
     return f"{net}.{rng.below(254) + 1}"
+
+
+def every_ip(original: str, rng: Drbg) -> Iterator[str]:
+    """Every fake an IPv4 address may get (``gen_ip``'s widest form), each once, tier by tier, each from a place drawn
+    by ``rng``: the vault takes the first one free once those drawn at random were taken, so that it runs out only when
+    the blocks are full (130,810 public addresses), and takes one of 198.18.0.0/16 only once the documentation's blocks
+    and 198.19.0.0/16 are (65,786). None for IPv6, whose fakes do not run out, nor for what is no address."""
+    try:
+        addr = ipaddress.ip_address(original)
+    except ValueError:
+        return
+    if isinstance(addr, ipaddress.IPv6Address):
+        return
+    for blocks in _v4_tiers(addr, original):
+        size = _hosts(blocks)
+        start = rng.below(size)
+        for k in range(size):
+            yield _host(blocks, (start + k) % size)
 
 
 # The word a fake host name begins with: the first that shows nothing of the original (a computer named `host` got
@@ -542,3 +682,14 @@ GENERATORS: dict[str, Callable[[str, Drbg], str]] = {
 }
 # National IDs and VAT numbers: each country module has its own (valid check digits, same layout).
 GENERATORS.update(ids.generators())
+
+# The generators of words drawn from lists (names, companies, towns), each with how many wider forms it has past its
+# first (``wide`` 1 to that many): the vault tries each in turn once the narrower ones are taken, then the value's own
+# shape, as a value no generator can fake gets (``Vault._draws``). An e-mail address's is ``gen_email``.
+WIDER: dict[str, int] = {
+    "EMAIL": 4, "USERNAME": 4, "PERSON": 4, "CLIENT": 4, "COMPANY": 4, "ORG": 4, "STREET_ADDRESS": 3, "CITY": 2,
+}  # fmt: skip
+WIDE: dict[str, Callable[[str, Drbg, int], str]] = {
+    "USERNAME": gen_username, "PERSON": gen_person, "CLIENT": gen_company, "COMPANY": gen_company, "ORG": gen_company,
+    "STREET_ADDRESS": gen_street, "CITY": gen_city, "IP_ADDRESS": gen_ip,
+}  # fmt: skip

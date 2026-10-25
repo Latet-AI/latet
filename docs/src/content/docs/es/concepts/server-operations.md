@@ -356,8 +356,19 @@ tiempos de espera no mejora la precisión del reconocimiento.
 
 ## Actualizar y añadir instancias
 
-Las instancias comparten las mismas tablas, y una instancia solo arranca sobre tablas de su versión. Antes de una
-actualización, pregunta a la nueva versión si las cambia:
+Las instancias comparten las mismas tablas, y una instancia solo arranca sobre tablas de su versión. La
+base de datos es tuya de guardar: Latet no copia nada de ella. Antes de descargar una imagen nueva y de
+ejecutar `latet server migrate`, haz una copia con `pg_dump`, que es coherente incluso mientras las
+instancias escriben:
+
+```sh
+pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.acme.lan/latet"
+```
+
+Para volver atrás, restaura esa copia (`pg_restore --clean --if-exists`) y arranca la imagen anterior: una
+instancia no arranca sobre tablas de una versión más nueva. Los valores de la copia siguen cifrados, como en
+la base de datos: solo la clave maestra del servidor los abre. Antes de una actualización, pregunta a la nueva versión
+si cambia las tablas:
 
 ```sh
 latet server migrate --check

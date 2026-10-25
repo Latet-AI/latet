@@ -161,6 +161,18 @@ en un único archivo:
 - **Con `--vault`, el archivo contiene tus valores reales y la clave para leerlos:** guárdalo como
   guardarías los valores.
 
+`latet upgrade` copia, antes de instalar una versión, la caja fuerte, el historial y los ajustes en
+`backups/before-<versión>-<hora>` en la carpeta de datos de Latet
+([Actualizar](../getting-started/installation/#actualizar)):
+- **Selladas como la caja fuerte.** Las bases de datos se copian tal cual, sus valores sellados con
+  la clave de este equipo, que no se copia; la carpeta es legible solo por ti.
+- **Siguen lo que quitas**, mientras funciona Latet 0.9.10 o una versión posterior.
+  *Olvidar* quita un valor de cada copia, borrar el historial borra
+  también el suyo, y su historial no se conserva más tiempo que el tuyo. Una copia que no se puede
+  limpiar se borra, o se aparta y no se vuelve a ofrecer.
+- **Tres como máximo, y volver atrás es cosa tuya.** Restaurar una copia solo se ofrece en un
+  terminal tuyo, y un agente no puede ejecutar `latet upgrade --to` hacia una versión más antigua.
+
 **El revisor local** (opcional, [desactivado hasta que lo actives](../concepts/llm-review/))
 
 - Se ejecuta en tu propio servidor: en este equipo, o en otro equipo tuyo una vez que lo confirmes

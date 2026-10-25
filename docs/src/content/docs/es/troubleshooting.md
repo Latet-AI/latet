@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` imprime `running: Latet 0.9.9 on 127.0.0.1:5283 (masking), pid 12345` si está en
+`latet status` imprime `running: Latet 0.9.10 on 127.0.0.1:5283 (masking), pid 12345` si está en
 marcha, o `not running` si no lo está. Si lo que quieres es dejar de usar Latet, ejecuta antes
 `latet global-uninstall`: devuelve tus agentes a su configuración anterior. Consulta
 [Desinstalación](../getting-started/uninstall/).
@@ -440,6 +440,29 @@ iniciar Latet.
 Un Latet 0.9.0 o 0.9.1 actualizado en Windows con su propio `latet upgrade` puede quedarse sin poder
 arrancar, y `latet` responde `No module named 'latet'`: vuelve a ejecutar el instalador, que instala
 la última versión entera.
+
+### Volver a la versión que tenías
+
+`latet upgrade --to 0.9.9` instala esa versión en lugar de la última. Cada `latet upgrade` copia
+primero la caja fuerte, el historial y la configuración tal como están, en
+`backups/before-<versión>-<hora>` en la carpeta de datos de Latet; conserva las tres copias más
+recientes. Al volver a la versión con la que se hizo una copia, la actualización ofrece restaurarla:
+dice cuántos valores ha aprendido la caja fuerte desde entonces, que se perderían, y deja tus datos
+como están salvo que respondas que sí en tu terminal. Si la restauras, tus archivos tal como están
+ahora se copian antes, en una copia propia.
+
+Para restaurar una copia a mano: detén Latet (`latet stop`), copia `latet.db` y `exchanges.db` de la
+copia en la carpeta de datos en lugar de los que hay, quitando sus archivos `-wal` y `-shm`, su
+`config.yaml` en lugar del tuyo y su `config.reviewed.json` en la carpeta de datos, y luego inicia
+Latet. Una copia solo se abre con la clave de este equipo, que se queda donde está.
+
+### Una actualización se detiene antes de empezar: no se puede hacer la copia
+
+`latet upgrade` copia la caja fuerte, el historial y la configuración antes de cambiar nada. Cuando no
+se puede hacer esa copia, o el disco no tiene espacio para ella y para la instalación (dice cuánto
+espacio necesita), dice por qué y se detiene: no se ha instalado
+nada y el daemon no se ha detenido. Haz espacio, o borra copias más antiguas en `backups` en la
+carpeta de datos de Latet, y vuelve a ejecutarlo.
 
 ### No se puede averiguar cuál es la última versión
 

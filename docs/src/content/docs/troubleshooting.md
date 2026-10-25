@@ -31,7 +31,7 @@ latet status
 latet start
 ```
 
-`latet status` prints `running: Latet 0.9.9 on 127.0.0.1:5283 (masking), pid 12345`, or
+`latet status` prints `running: Latet 0.9.10 on 127.0.0.1:5283 (masking), pid 12345`, or
 `not running`. If you want to stop using Latet instead, run `latet global-uninstall` first: it reverts your
 agents. See [Uninstall](../getting-started/uninstall/).
 
@@ -417,6 +417,27 @@ command has ended (Windows replaces no file of a program that runs), and starts 
 A Latet 0.9.0 or 0.9.1 upgraded with its own `latet upgrade` on Windows can be left unable to start,
 `latet` then answering `No module named 'latet'`: run the installer again, which installs the latest
 release whole.
+
+### Going back to the version you had
+
+`latet upgrade --to 0.9.9` installs that release instead of the latest. Every `latet upgrade` first
+copies the vault, the history and the settings as they are, into `backups/before-<version>-<time>`
+in Latet's data folder; it keeps the three newest copies. Going back to the version a copy was taken
+under, the upgrade offers to put that copy back: it says how many values the vault has learnt since,
+which would be lost, and keeps your data as it is unless you answer yes at your terminal. Put back,
+your files as they are now are copied first, in a copy of their own.
+
+To put a copy back by hand: stop Latet (`latet stop`), copy the copy's `latet.db` and
+`exchanges.db` into the data folder in place of the ones there, removing their `-wal` and `-shm`
+files, its `config.yaml` where yours is, and its `config.reviewed.json` into the data folder, then
+start Latet. A copy opens only with this computer's key, which stays where it is.
+
+### An upgrade stops before it begins: the copy cannot be made
+
+`latet upgrade` copies the vault, the history and the settings before it changes anything. When
+that copy cannot be made, or the disk has no room for it and for the install beside it (it says how
+much room it needs), it says why and stops: nothing was installed and the daemon was not stopped. Make room, or delete older copies in `backups` in Latet's data
+folder, and run it again.
 
 ### The latest release cannot be looked up
 

@@ -97,6 +97,35 @@ sostituisce i file di un programma in esecuzione, l'aggiornamento prosegue in un
 quando il comando è finito, e quella finestra dice com'è andata. Un Latet 0.9.0 o 0.9.1 su Windows si
 aggiorna rilanciando l'installer: il suo `latet upgrade` potrebbe lasciarlo senza avviarsi.
 
+Prima di fermare il daemon, `latet upgrade` copia ciò che la nuova versione può cambiare quando lo
+apre: la cassaforte, la cronologia e le tue impostazioni (`config.yaml` e le impostazioni che hai
+approvato per ultime), in `backups/before-<versione>-<ora>` nella cartella dei dati di Latet, e dice
+dove in una riga. I valori nella copia restano cifrati con la chiave di questo computer, che non
+viene copiata. Restano le tre copie più recenti: le più vecchie vengono cancellate quando la
+prossima è completa, mai prima. Un aggiornamento alla versione già installata non fa nessuna copia.
+Un aggiornamento senza spazio sul disco per la sua copia, accanto alle copie che ci sono, e per
+l'installazione si ferma senza cambiare nulla, e dice quanto spazio gli serve; lo stesso fa uno la
+cui copia non si può fare. Le copie seguono ciò che rimuovi mentre gira Latet 0.9.10 o una versione
+successiva: *Dimentica* toglie un valore anche da loro, cancellare la cronologia cancella anche la
+loro, e la loro cronologia non viene conservata più a lungo della tua; dopo `latet upgrade --to`
+verso una versione più vecchia, un *Dimentica* fatto lì non le raggiunge. Ogni copia conserva la
+forma che le ha dato la sua versione (non viene mai portata a una più nuova), così si può ancora
+rimettere.
+
+Per installare una versione precisa invece dell'ultima, per tornare a quella che avevi per esempio:
+
+```sh
+latet upgrade --to 0.9.9
+```
+
+Tornando alla versione con cui è stata fatta una copia, propone di rimettere quella copia. Dice
+quanti valori la cassaforte ha imparato dopo la copia, che andrebbero persi, e te lo chiede nel tuo
+terminale. La scelta predefinita lascia i tuoi dati come sono: la versione più vecchia li legge
+ancora dove quella più nuova ha solo aggiunto. Se la rimetti, i tuoi file come sono ora vengono
+copiati prima, in una copia a parte; se rimettere la copia non riesce a metà, i tuoi file tornano al
+loro posto, e lo dice. Una versione più vecchia non ha le correzioni di quelle successive: un agente
+non può eseguire `latet upgrade --to` verso una di loro, lo esegui tu.
+
 ## Installa con un agente AI
 
 Chiedi al tuo agente AI di seguire

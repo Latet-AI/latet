@@ -342,10 +342,10 @@ def written_like(fake: str, written: str, reads: str) -> str:
 
 
 def _in_a_link(written: str, fake: str, words: bool) -> bool:
-    """``written`` is kept as a link or a form writes it: it holds a `%XX`, or, a value written in words (``words``: a
-    name, a term), a `+` for a space that its fake writes so too (`Mario+Rossi`, `Nicola+Greco`). A `+` in any other
-    value is a sign, as it is written (a phone's `+39`, a sub-address's `+crm`, a token's): it reads as it is written.
-    The vault keeps no mark of how a value was found: this is read from how it is written."""
+    """``written`` is kept as a link or a form writes it: it holds a `%XX`, or, where its `+` are a form's spaces
+    (``words``), a `+` that its fake writes so too (`Mario+Rossi`, `Nicola+Greco`; `333+1234567`). Elsewhere a `+` is
+    a sign, as it is written (a phone's `+39`, a sub-address's `+crm`, a token's): it reads as it is written. Whether
+    its `+` are spaces the vault's entry says, by how its value was found (``vault.written_in_escapes``)."""
     return _URL_ESCAPE.search(written) is not None or (words and "+" in written and "+" in fake)
 
 
@@ -354,6 +354,15 @@ def _escaped(written: str) -> Decoded | None:
     a form's `+` alone is left to ``_in_a_link``."""
     value = _decode(written)
     return value if value is not None and len(value._at) > 0 else None
+
+
+def plus_as_space(written: str) -> bool:
+    """Whether the `+` of ``written``, a value found where escapes read as what they stand for, were read there as a
+    form's spaces: it holds one, and no other escape that reading reads. A value found so reads otherwise than it is
+    written; where nothing but its `+` can, they were spaces (`333+1234567` in a query). Where it holds another escape
+    (`+39 333 \\u0031234567` in a JSON string), its `+` were signs, as they are outside a query's or a form's value;
+    and so they are read in a value whose form's `+` sit beside an escape of another kind (`Ren\\u00e9+Dupont`)."""
+    return "+" in written and _escaped(written) is None
 
 
 def written_forms(written: str, fake: str, *, words: bool) -> list[str]:

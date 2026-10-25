@@ -138,7 +138,8 @@ tali, così risalta ciò che è *nuovo* in ogni richiesta.
 
 Ogni valore che Latet conosce e il suo valore fittizio. Gli originali vengono
 mostrati solo su richiesta. *Dimentica* rimuove un valore dalla cassaforte, e con esso da tutta
-la cronologia. I valori arrivano cinquanta per pagina, i più recenti per primi, con i link alle
+la cronologia, dalle risposte ricordate dal revisore locale che lo contengono (su un computer) e, mentre gira Latet
+0.9.10 o una versione successiva, anche dalle copie della cassaforte che tiene `latet upgrade`. I valori arrivano cinquanta per pagina, i più recenti per primi, con i link alle
 pagine sotto la tabella.
 
 ### Regole di un progetto
@@ -314,6 +315,15 @@ Quanto segue riguarda la dashboard sul tuo computer. Per la dashboard di un serv
   Cronologia in **Regole**, la porta da 1 a 365 giorni. I blocchi reinviati a ogni turno vengono
   salvati una volta sola.
 - Puoi cancellare la cronologia in qualsiasi momento dalla dashboard; la cassaforte viene conservata.
+- Le copie della cassaforte e della cronologia che tiene `latet upgrade` (tre al massimo, in
+  `backups/` nella cartella dei dati di Latet) ti seguono mentre gira Latet 0.9.10 o una versione successiva:
+  *Dimentica* toglie un valore anche da
+  loro, cancellare la cronologia cancella anche la loro, e la loro cronologia non viene conservata
+  più a lungo della tua. Una copia cambia solo per cancellazioni e conserva la forma che le ha dato
+  la sua versione, così si può ancora rimettere. Una che un altro programma tiene aperta in quel
+  momento viene sistemata la volta dopo, e sempre prima di essere rimessa; una che non si può aprire
+  viene cancellata (dove non si può cancellare, viene messa da parte e non viene più proposta), e il
+  log del daemon lo dice.
 
 ## Lingue
 

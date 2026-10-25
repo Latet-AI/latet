@@ -142,8 +142,9 @@ sind als solche gekennzeichnet, sodass in jeder Anfrage hervorsticht, was *neu* 
 ### Tresor
 
 Jeder Wert, den Latet kennt, und sein Ersatzwert. Originale werden nur auf Wunsch
-angezeigt. *Vergessen* entfernt einen Wert aus dem Tresor und damit aus dem gesamten Verlauf.
-Die Werte kommen zu fünfzig pro Seite, die neuesten zuerst, mit den Seitenlinks unter der Tabelle.
+angezeigt. *Vergessen* entfernt einen Wert aus dem Tresor und damit aus dem gesamten Verlauf,
+aus den gemerkten Antworten des lokalen Prüfers, die ihn enthalten (auf einem Rechner), und, solange Latet 0.9.10 oder
+eine spätere Version läuft, auch aus den Kopien des Tresors, die `latet upgrade` aufbewahrt. Die Werte kommen zu fünfzig pro Seite, die neuesten zuerst, mit den Seitenlinks unter der Tabelle.
 
 ### Regeln eines Projekts
 
@@ -326,6 +327,15 @@ Das Folgende betrifft das Dashboard auf Ihrem eigenen Rechner. Zum Dashboard ein
   **Regeln** stellt 1 bis 365 Tage ein. Blöcke, die mit jeder Anfrage erneut gesendet werden, werden
   nur einmal gespeichert.
 - Sie können den Verlauf jederzeit im Dashboard löschen; der Tresor bleibt erhalten.
+- Die Kopien des Tresors und des Verlaufs, die `latet upgrade` aufbewahrt (höchstens drei, in
+  `backups/` im Datenordner von Latet), folgen Ihnen, solange Latet 0.9.10 oder eine spätere Version läuft:
+  *Vergessen* entfernt einen Wert auch aus
+  ihnen, das Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt
+  als Ihrer. Eine Kopie ändert sich nur durch Löschen und behält die Form, die ihre Version ihr gab,
+  sodass sie sich weiter zurückspielen lässt. Eine, die ein anderes Programm in dem Moment offen
+  hält, wird beim nächsten Mal bereinigt, und immer bevor sie zurückgespielt wird; eine, die sich
+  nicht öffnen lässt, wird gelöscht (wo sie sich nicht löschen lässt, wird sie beiseitegelegt und
+  nie wieder angeboten), und das Protokoll des Daemons sagt es.
 
 ## Sprachen
 

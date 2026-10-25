@@ -19,17 +19,22 @@ from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import zstandard
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from latet.engine.modules import kept, module_of
+from latet.storage.db import settle
 from latet.storage.folders import make_private_folder
+
+if TYPE_CHECKING:
+    from latet.storage.upgrade_copies import Follow
 
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
+PRAGMA secure_delete=ON;
 CREATE TABLE IF NOT EXISTS blocks (
     id TEXT PRIMARY KEY,           -- keyed hash of the masked text
     kind TEXT NOT NULL,
@@ -71,6 +76,10 @@ CREATE TABLE IF NOT EXISTS images (
 );
 CREATE INDEX IF NOT EXISTS images_seen ON images(last_seen);
 """
+# What clearing the history deletes, and what its retention deletes past it (the table, and the column of its time):
+# in this history, and in its upgrade copies (``upgrade_copies.Follow``, with these statements alone).
+CLEARED = ("exchanges", "blocks", "reviews", "images")
+PRUNED = (("exchanges", "ts"), ("blocks", "last_seen"), ("reviews", "ts"), ("images", "last_seen"))
 MAX_IMAGE = 10 * 1024 * 1024  # larger images are listed, not kept
 _CHUNK = 500  # SQLite host parameters per statement
 _SUMMARIES_AT_ONCE = 1_000  # summaries read into objects at a time by ``summaries_parts``: what one part holds
@@ -148,16 +157,23 @@ class ExchangeStore:
         self._zc = zstandard.ZstdCompressor(level=6)
         self._lock = threading.RLock()
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-        self._db.executescript(_SCHEMA)
-        columns = {row[1] for row in self._db.execute("PRAGMA table_info(exchanges)")}
-        if "project" not in columns:
-            self._db.execute("ALTER TABLE exchanges ADD COLUMN project TEXT")  # a history from before projects
-        if "images" not in columns:
-            self._db.execute("ALTER TABLE exchanges ADD COLUMN images BLOB")  # sealed JSON [image, ...]
-        self._db.execute("CREATE INDEX IF NOT EXISTS exchanges_project ON exchanges(project, ts)")
-        self._cut_field_names()
+        try:
+            self._db.executescript(_SCHEMA)
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(exchanges)")}
+            if "project" not in columns:
+                self._db.execute("ALTER TABLE exchanges ADD COLUMN project TEXT")  # a history from before projects
+            if "images" not in columns:
+                self._db.execute("ALTER TABLE exchanges ADD COLUMN images BLOB")  # sealed JSON [image, ...]
+            self._db.execute("CREATE INDEX IF NOT EXISTS exchanges_project ON exchanges(project, ts)")
+            self._cut_field_names()
+        except BaseException:  # not a history (a file damaged, or of something else): its file is not held open
+            self._db.close()
+            raise
         # Pruned by its owner once the retention is known (`make_runtime`): opening it prunes nothing.
         self.retention_days = retention_days
+        # What clearing and pruning do to the upgrade copies' histories too (``upgrade_copies.Follow``): this
+        # computer's history alone has one, given by ``state.local.local_backends``.
+        self.copies: Follow | None = None
 
     def _cut_field_names(self) -> None:
         """What stopped a request is kept in clear (``leaks``): a rule an earlier Latet kept there with the name of the
@@ -318,22 +334,27 @@ class ExchangeStore:
         return [{"id": rid, **json.loads(data)} for rid, data in rows]
 
     def prune(self, now: float | None = None) -> int:
-        """Drop exchanges older than the retention period, and blocks no newer exchange carried."""
+        """Drop exchanges older than the retention period, and blocks no newer exchange carried: here, and in every copy
+        `latet upgrade` took of this history (``copies``)."""
         cutoff = (now or time.time()) - self.retention_days * 86400
         with self._lock:
-            removed = self._db.execute("DELETE FROM exchanges WHERE ts < ?", (cutoff,)).rowcount
-            self._db.execute("DELETE FROM blocks WHERE last_seen < ?", (cutoff,))
-            self._db.execute("DELETE FROM reviews WHERE ts < ?", (cutoff,))
-            self._db.execute("DELETE FROM images WHERE last_seen < ?", (cutoff,))
+            removed = {
+                table: self._db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,)).rowcount  # noqa: S608
+                for table, column in PRUNED
+            }["exchanges"]
+            settle(self._db)  # what was deleted, overwritten, into the file; never fails the prune (at every start)
+        if self.copies is not None:
+            self.copies.prune(self.retention_days, now)
         return removed
 
     def clear(self) -> None:
+        """Every exchange, block, review and image gone: here, and in every copy `latet upgrade` took (``copies``)."""
         with self._lock:
-            self._db.execute("DELETE FROM exchanges")
-            self._db.execute("DELETE FROM blocks")
-            self._db.execute("DELETE FROM reviews")
-            self._db.execute("DELETE FROM images")
-            self._db.execute("VACUUM")
+            for table in CLEARED:
+                self._db.execute(f"DELETE FROM {table}")  # noqa: S608
+            settle(self._db, vacuum=True)  # the file made anew, the journal into it; never fails the Clear
+        if self.copies is not None:
+            self.copies.clear()
 
     # --- reads ------------------------------------------------------------------------------------
 

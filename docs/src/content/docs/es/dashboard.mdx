@@ -139,8 +139,9 @@ tales, para que destaque lo que es *nuevo* en cada petición.
 ### Caja fuerte
 
 Cada valor que Latet conoce y su valor ficticio. Los originales solo se muestran si
-lo pides. *Olvidar* elimina un valor de la caja fuerte y, con ello, de todo el historial. Los
-valores llegan de cincuenta en cincuenta por página, los más recientes primero, con los enlaces a
+lo pides. *Olvidar* elimina un valor de la caja fuerte y, con ello, de todo el historial, de las
+respuestas recordadas por el revisor local que lo contienen (en un equipo) y, mientras funciona Latet 0.9.10 o una
+versión posterior, también de las copias de la caja fuerte que guarda `latet upgrade`. Los valores llegan de cincuenta en cincuenta por página, los más recientes primero, con los enlaces a
 las páginas bajo la tabla.
 
 ### Reglas de un proyecto
@@ -316,6 +317,14 @@ Lo que sigue se refiere al panel en tu propio equipo. Para el panel de un servid
   dentro de **Reglas**, fija de 1 a 365 días. Los bloques que se reenvían en cada turno se guardan una
   sola vez.
 - Puedes borrar el historial en cualquier momento desde el panel; la caja fuerte se conserva.
+- Las copias de la caja fuerte y del historial que guarda `latet upgrade` (tres como máximo, en
+  `backups/` en la carpeta de datos de Latet) te siguen mientras funciona Latet 0.9.10 o una versión posterior:
+  *Olvidar* quita un valor también de ellas,
+  borrar el historial borra también el suyo, y su historial no se conserva más tiempo que el tuyo.
+  Una copia solo cambia por borrados y conserva la forma que le dio su versión, así que se puede
+  seguir restaurando. Una que otro programa tiene abierta en ese momento se trata la vez siguiente,
+  y siempre antes de restaurarla; una que no se puede abrir se borra (donde no se puede borrar, se
+  aparta y no se vuelve a ofrecer), y el registro del daemon lo dice.
 
 ## Idiomas
 

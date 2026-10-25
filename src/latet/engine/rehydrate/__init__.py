@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from latet.engine.escapes import TAIL, cased, ends_with_escape, readings, written_forms
-from latet.engine.vault import ESCAPE_SIGNS, Entity, restored_whole, written_in_words
+from latet.engine.vault import Entity, restored_whole, written_in_escapes
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +50,10 @@ def restores_for(entities: Iterable[Entity], json_mode: bool = False) -> list[Re
     # apart from every other value and fake), in every form a fake takes, for the value as it reads (`Mario Rossi`), as
     # 0.9.8 gave a name back (Ruling 099-R2). After every value's own forms, which they never take the place of.
     for e in entities:
-        if not any(sign in e.original for sign in ESCAPE_SIGNS):
-            continue  # written as it reads
-        word, words = restored_whole(e.etype, e.eclass), written_in_words(e.etype, e.eclass)
+        words = written_in_escapes(e)
+        if words is None:
+            continue  # found as it is written, or written as it reads
+        word = restored_whole(e.etype, e.eclass)
         add_all([(form, e.original) for form in written_forms(e.original, e.surrogate, words=words)], e, word)
         read = readings(e.original, e.surrogate, words=words)
         if read is not None and read[0] != e.surrogate:
@@ -71,10 +72,19 @@ def _forms(etype: str, sur: str, orig: str, word: bool) -> list[tuple[str, str]]
     if word:
         forms += [(cased(sur, True), cased(orig, True)), (cased(sur, False), cased(orig, False))]
         if etype == "PERSON" and " " in sur:
-            for s_part, o_part in zip(sur.split(), orig.split(), strict=False):
+            for s_part, o_part in _parts(sur.split(), orig.split()):
                 if len(s_part) >= 3:
                     forms.append((s_part, o_part))
     return forms
+
+
+def _parts(fake: list[str], value: list[str]) -> list[tuple[str, str]]:
+    """Each name of a fake person with the name of the value it stands for: one for one, or, where the fake has names
+    the value has not (a wider form, ``generators.gen_person``: `Marco Luca Ferri` for `Mario Rossi`, `Marco Ferri`
+    for `Mario`), its first for the first and its last for the last, the others for none."""
+    if len(fake) == len(value) or not value:
+        return list(zip(fake, value, strict=False))
+    return [(fake[0], value[0])] + ([(fake[-1], value[-1])] if len(value) > 1 else [])
 
 
 def _is_word_char(c: str) -> bool:

@@ -278,7 +278,10 @@ als eigener Wert mit eigenem Ersatzwert, der mit denselben Sequenzen geschrieben
 Text gehören: `Paolo%20Fontana` in einem Link, `\'` in einem String in Anführungszeichen. Zum
 Agenten kommt der Wert genau so zurück, wie er geschrieben war: Ein Link bleibt ein Link, und eine
 Bearbeitung findet ihre Zeile wieder. Schreibt das Modell den Ersatzwert so, wie er sich liest,
-`Paolo Fontana`, erhält der Agent den Wert so, wie er sich liest.
+`Paolo Fontana`, erhält der Agent den Wert so, wie er sich liest. Der Tresor hält fest, wie jeder Wert
+gefunden wurde, so wie er geschrieben ist oder dort, wo sich seine Escapes lesen. Das gilt daher für
+einen Wert jeder Art, der so gefunden wurde: Eine Telefonnummer, bekannt als `333 1234567` und in
+einer Abfrage als `333+1234567` angetroffen, kommt ebenfalls als `333 1234567` zurück.
 
 ## Wenn zwei Detektoren denselben Text finden
 

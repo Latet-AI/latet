@@ -243,6 +243,14 @@ ENGLISH_CITIES = (
 
 CITIES = ITALIAN_CITIES + ENGLISH_CITIES
 
+# Towns made from a family name, once a vault holds more towns than the lists have: an Italian village's word before
+# it ("Borgo Ferri", "Castel Rinaldi"), an English town's ending after it ("Walkerton", "Turner Falls").
+ITALIAN_TOWN_WORDS = ("Borgo", "Villa", "Castel", "Monte", "Poggio", "Ponte", "Porto", "Torre", "Colle", "Pieve")
+ENGLISH_TOWN_ENDINGS = ("ton", "ville", "field", "ford", "bury", "wood", " Falls", " Springs", " Heights", " Creek")
+# The word beside a town's name that tells one part of it from another: "Lecco Alta", "North Leeds".
+ITALIAN_TOWN_PARTS = ("Alta", "Bassa", "Terme", "Marina", "Scalo", "Nuova", "Vecchia", "Superiore", "Inferiore", "Lido")
+ENGLISH_TOWN_PARTS = ("North", "South", "East", "West", "New", "Old", "Upper", "Lower", "Mount", "Lake")
+
 # State and province codes, as an address writes them: "Springfield, IL", "00186 Roma RM".
 US_STATES = (
     *("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY"),

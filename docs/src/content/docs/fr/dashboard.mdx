@@ -142,7 +142,8 @@ tels, si bien que ce qui est *nouveau* dans chaque requête ressort.
 
 Chaque valeur que Latet connaît et sa valeur factice. Les originaux ne sont
 affichés que sur demande. *Oublier* retire une valeur du coffre-fort, et avec elle de tout
-l'historique. Les valeurs viennent cinquante par page, les plus récentes d'abord, avec les liens
+l'historique, des réponses retenues par le relecteur local qui la contiennent (sur une machine) et, tant que Latet
+0.9.10 ou une version plus récente tourne, des copies du coffre-fort que garde `latet upgrade`. Les valeurs viennent cinquante par page, les plus récentes d'abord, avec les liens
 vers les pages sous le tableau.
 
 ### Règles d'un projet
@@ -324,6 +325,15 @@ Latet, voir [Latet sur un serveur](../concepts/server/).
   **Règles**, le règle de 1 à 365 jours. Les blocs renvoyés à chaque tour sont stockés une seule fois.
 - Vous pouvez effacer l'historique à tout moment depuis le tableau de bord ; le coffre-fort est
   conservé.
+- Les copies du coffre-fort et de l'historique que garde `latet upgrade` (trois au plus, dans
+  `backups/` du dossier de données de Latet) vous suivent tant que Latet 0.9.10 ou une version plus récente tourne :
+  *Oublier* en retire aussi une valeur,
+  effacer l'historique efface aussi le leur, et leur historique n'est pas gardé plus longtemps que
+  le vôtre. Une copie ne change que par des suppressions et garde la forme que sa version lui a
+  donnée : elle peut toujours être remise. Celle qu'un autre programme tient ouverte à ce moment est
+  traitée la fois suivante, et toujours avant d'être remise ; celle qui ne peut pas être ouverte est
+  supprimée (là où elle ne peut pas l'être, elle est mise de côté et n'est plus jamais proposée), et
+  le journal du daemon le dit.
 
 ## Langues
 

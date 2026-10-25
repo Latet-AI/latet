@@ -129,7 +129,9 @@ what is *new* in each request stands out.
 ### Vault
 
 Every value Latet knows and its surrogate. Originals are revealed on request only.
-*Forget* removes a value from the vault, and from the whole history with it. The values come fifty a
+*Forget* removes a value from the vault, and from the whole history with it, from the local
+reviewer's remembered answers that hold it (on a computer), and, while Latet 0.9.10 or a later release runs, from the
+copies `latet upgrade` keeps of the vault too. The values come fifty a
 page, the newest first, with the page links under the table.
 
 ### Rules of a project
@@ -288,6 +290,14 @@ What follows is about the dashboard on your own computer. For a Latet server's d
 - History is kept for 14 days by default; *Keep for*, under History in **Rules**, sets 1 to 365
   days. Blocks resent with every turn are stored once.
 - You can clear the history at any time from the dashboard; the vault is kept.
+- The copies `latet upgrade` keeps of the vault and the history (three at most, in `backups/` in
+  Latet's data folder) follow you while Latet 0.9.10 or a later release runs:
+  *Forget* takes a value out of them too, clearing the history
+  clears theirs, and their history is kept no longer than yours. A copy is changed by deletions
+  alone and keeps the form its version gave it, so it can still be put back. One that another
+  program holds at that moment is done the next time, and always before it is put back; one that
+  cannot be opened is deleted (where it cannot be deleted, it is set aside and never offered back),
+  and the daemon's log says so.
 
 ## Languages
 

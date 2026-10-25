@@ -72,7 +72,9 @@ contiene:
 - `exchanges.db`: el historial del panel.
 - `backups/`: copias de los archivos de configuración de tus agentes de antes de que
   `latet global-install` los cambiara. `latet global-uninstall` las necesita, así que bórralas solo
-  después del paso 1.
+  después del paso 1. En `backups/before-<versión>-<hora>/` están las copias de la caja fuerte, del
+  historial y de la configuración que `latet upgrade` hace antes de cada actualización (las tres más
+  recientes).
 - `models/`: el modelo local de nombres y los modelos de reconocimiento de texto (unos 1,6 GB y 31 MB),
   que `latet ner remove` y `latet ocr remove` borran.
 - `logs/`, `bridge.token`, `integrations.json` (el registro de lo que cambió `latet global-install`),

@@ -225,10 +225,20 @@ the daemon stops. Your rules stay in config.yaml, for `latet claude` and the oth
 
 Install the latest release of Latet from GitHub, with local name detection and the text in images.
 
-It stops the daemon first and starts it again after. On Windows, which replaces no file of a program
-that runs, it installs the release in a window of its own once the command has ended. Where name
-detection and the text in images cannot be installed, a Latet that has neither is installed without
-them; one that has them is left as it was.
+First it copies what a new version may migrate, your vault, history and settings, into a folder of Latet's
+data folder (`backups/before-<version>-<time>`; the three newest copies are kept): a copy that cannot be
+made stops the upgrade with nothing changed. Then it stops the daemon and starts it again after. On Windows,
+which replaces no file of a program that runs, it installs the release in a window of its own once the
+command has ended. Where name detection and the text in images cannot be installed, a Latet that has
+neither is installed without them; one that has them is left as it was.
+
+With `--to` it installs that release instead; an older one only when you run it yourself, never an agent.
+Going back to a version a copy was taken under, it offers to put that copy back, and says how many values
+the vault has learnt since, which would be lost. At the version installed it takes no copy.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--to` `TEXT` |  | Install this release (0.9.9) instead of the latest. |
 
 ## `latet global-install`
 

@@ -30,8 +30,14 @@ your machine.</small>
 - **Format-preserving.** A key keeps its prefix (`pk_`, `ghp_`, `sk-ant-api03-`...), its length and
   its character set. An email stays an email: a public webmail domain such as `gmail.com` is kept,
   any other domain becomes a fake one under `.example`. IBANs, card numbers, national IDs, tax and
-  VAT numbers get valid check digits, and public IP addresses move to the ranges reserved for
-  documentation. The model can still reason about the code and configuration around them.
+  VAT numbers get valid check digits, and public IP addresses move to ranges never routed on the
+  internet, those reserved for documentation and for benchmarking. The model can still reason about
+  the code and configuration around them.
+- **Never short of fakes.** Where the vault holds more values of one kind than its lists have fakes
+  (thousands of addresses in a list of customers), a new value gets a fake written as people write
+  such values: names of both languages, then digits after the name (`luca84@gmail.com`), a given
+  name more (`Marco Luca Ferri`), a town made from a family name (`Borgo Ferri`). Values already in
+  the vault keep their fakes.
 - **Deterministic.** The same original always gets the same surrogate on your machine, so the model
   can follow a value across files and turns, and Latet can map it back. Earlier turns are sent
   again byte for byte, so the provider's prompt cache keeps working.

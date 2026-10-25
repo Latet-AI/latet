@@ -283,7 +283,10 @@ avec sa propre valeur factice, écrite avec les mêmes séquences là où elles 
 `Paolo%20Fontana` dans un lien, `\'` dans une chaîne entre apostrophes. L'agent récupère la valeur
 exactement telle qu'elle était écrite : un lien reste un lien, et une modification retrouve sa
 ligne. Là où le modèle écrit la valeur factice telle qu'elle se lit, `Paolo Fontana`, l'agent récupère
-la valeur telle qu'elle se lit.
+la valeur telle qu'elle se lit. Le coffre-fort garde la façon dont chaque valeur a été trouvée, telle
+qu'elle est écrite ou là où ses séquences d'échappement se lisent : cela vaut donc pour une valeur de
+tout type trouvée ainsi. Un numéro de téléphone connu comme `333 1234567` et rencontré comme
+`333+1234567` dans une requête revient lui aussi comme `333 1234567`.
 
 ## Quand deux détecteurs trouvent le même texte
 

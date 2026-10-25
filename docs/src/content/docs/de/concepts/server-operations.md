@@ -361,7 +361,18 @@ Längere Zeitlimits verbessern nicht die Erkennungsgenauigkeit.
 ## Aktualisieren und Instanzen hinzufügen
 
 Die Instanzen teilen sich dieselben Tabellen, und eine Instanz startet nur auf Tabellen ihrer eigenen Version.
-Fragen Sie vor einer Aktualisierung die neue Version, ob sie die Tabellen ändert:
+Die Datenbank zu sichern ist Ihre Sache: Latet kopiert nichts davon. Bevor Sie ein neues Image laden und
+`latet server migrate` ausführen, legen Sie mit `pg_dump` eine Kopie an, die auch dann konsistent ist, wenn
+die Instanzen weiterschreiben:
+
+```sh
+pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.acme.lan/latet"
+```
+
+Um zurückzukehren, spielen Sie diese Kopie wieder ein (`pg_restore --clean --if-exists`) und starten Sie das
+vorherige Image: Eine Instanz startet nicht auf Tabellen einer neueren Version. Die Werte in der Kopie bleiben
+verschlüsselt, wie in der Datenbank: Nur der Master-Schlüssel des Servers öffnet sie. Fragen Sie vor einer
+Aktualisierung die neue Version, ob sie die Tabellen ändert:
 
 ```sh
 latet server migrate --check
