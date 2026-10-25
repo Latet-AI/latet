@@ -1551,7 +1551,7 @@ class Mediator:
         text = item.sent
         found = []
         for span in masker.surrogates_in(text):
-            entity = vault.by_surrogate(text[span.start : span.end])
+            entity = vault.by_surrogate(span.of(text))
             found.append(
                 {
                     "masked_start": span.start,

@@ -227,6 +227,57 @@ def test_an_accented_term_is_still_found_as_a_whole_word_only():
     assert found(terms, "Zoëlla, aZoë, Émilette and xÉmile") == []
 
 
+def test_terms_that_overlap_are_each_found_by_one_alternation_and_by_the_word_index():
+    """`Anna Maria` and `Maria Rossi` in `Anna Maria Rossi`: both found, so that the whole of them is masked (0.9.8 found
+    the first alone, `Rossi` left in clear), in a short list (one alternation) as in a long one (the word index)."""
+    wanted = [Term("Anna Maria", "PERSON"), Term("Maria Rossi", "PERSON"), Term("Rossi Group", "CLIENT")]
+    filler = [Term(f"Filler Company {i}", "CLIENT") for i in range(WORD_INDEX_FROM)]
+    text = "ticket for Anna Maria Rossi today, Anna Maria Rossi Group then, and Maria Rossi alone"
+    # `Maria Rossi` across `Anna Maria` and `Rossi Group` adds a blank alone: left to them, each with its own fake.
+    expected = [
+        ("Anna Maria", "PERSON"),
+        ("Anna Maria", "PERSON"),
+        ("Maria Rossi", "PERSON"),
+        ("Maria Rossi", "PERSON"),
+        ("Rossi Group", "CLIENT"),
+    ]
+    assert sorted(found(TermsDetector(wanted), text)) == expected
+    assert sorted(found(TermsDetector([*filler, *wanted]), text)) == expected
+    glued = [Term("abc123", whole_word=False), Term("123xyz", whole_word=False)]
+    assert found(TermsDetector(glued), "id=abc123xyz;") == [("abc123", "CUSTOM"), ("123xyz", "CUSTOM")]
+    merged = merge_spans(TermsDetector([*filler, *wanted]).detect(text, CODE))
+    assert [text[s.start : s.end] for s in merged] == [
+        "Anna Maria Rossi", "Anna Maria", "Rossi Group", "Maria Rossi"
+    ]  # fmt: skip
+
+
+def test_a_term_that_begins_with_a_sign_and_a_longer_one_at_its_word_are_both_found_by_the_word_index():
+    wanted = [Term("@acme", "CLIENT"), Term("acme ops team", "CLIENT")]
+    filler = [Term(f"Filler Company {i}", "CLIENT") for i in range(WORD_INDEX_FROM)]
+    text = "ping @acme ops team now"
+    spans = merge_spans(TermsDetector([*filler, *wanted]).detect(text, CODE))
+    assert [text[s.start : s.end] for s in spans] == ["@acme ops team"]
+    # A term whose sign before its first word is the end of the term before it.
+    wanted = [Term("ops@", "CLIENT"), Term("@team leads", "CLIENT")]
+    text = "ping ops@team leads now"
+    spans = merge_spans(TermsDetector([*filler, *wanted]).detect(text, CODE))
+    assert [text[s.start : s.end] for s in spans] == ["ops@team leads"]
+
+
+def test_terms_that_overlap_late_in_a_text_full_of_terms_are_found_by_the_word_index():
+    """`Anna Maria Rossi` after thousands of the word index's terms one after the other: the overlap is looked for where
+    a term begins inside another, never by reading each term's first word again, so it is found however late it comes
+    (past a few hundred terms before it, the bound was spent on those first words: `Rossi` in clear)."""
+    filler = [Term(f"Cliente{i} Spa", "CLIENT") for i in range(WORD_INDEX_FROM + 100)]
+    terms = TermsDetector([*filler, Term("Anna Maria", "CLIENT"), Term("Maria Rossi", "CLIENT")])
+    for mentions in (0, 300, 5_000):
+        text = (
+            "".join(f"Fattura per Cliente{i % 50} Spa.\n" for i in range(mentions)) + "Referente: Anna Maria Rossi.\n"
+        )
+        spans = merge_spans(terms.detect(text, CODE))
+        assert len(spans) == mentions + 1 and text[spans[-1].start : spans[-1].end] == "Anna Maria Rossi", mentions
+
+
 def test_a_longer_term_cut_by_a_letter_leaves_the_shorter_one_found():
     terms = TermsDetector([Term("Zoë Smith", "PERSON"), Term("Zoë", "PERSON")])
     assert found(terms, "Zoë Smithson called Zoë Smith") == [("Zoë", "PERSON"), ("Zoë Smith", "PERSON")]

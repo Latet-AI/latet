@@ -5,6 +5,7 @@ from __future__ import annotations
 import bisect
 import contextlib
 import logging
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import accumulate
@@ -45,6 +46,10 @@ _TAUGHT = frozenset({"reviewer", "live"})
 # Never masked, whatever finds them: Latet's own name, the tool the agent talks about (its commands, its notices), never
 # a value of yours.
 _ALWAYS = frozenset({"latet"})
+
+# The detectors of whole values, as given or kept (your terms, your identity, the vault's values): what reads a text
+# again as its escapes read, whatever they write (``Masker.detect``).
+_WHOLE_VALUES = frozenset({"terms", "identity", "known-values"})
 
 
 @dataclass(slots=True)
@@ -104,16 +109,36 @@ class Masker:
         return held.known, held.echo
 
     def surrogates_in(self, text: str) -> list[Span]:
-        """Where issued surrogates occur in ``text``."""
+        """Where issued surrogates occur in ``text``, as 0.9.8 found them (composed or decomposed alike), and how fakes
+        written in escapes read; but a reading that is a value the vault knows too, in either form (the value wins:
+        ``Vault.a_value_over_a_reading``), and a fake found where it is written and again where its escapes read, at
+        the same place, once."""
         _, echo = self._refresh()
-        return read_escaped(text, lambda t: list(echo.detect(t, DetectContext())))
+        spans = read_escaped(text, lambda t: list(echo.detect(t, DetectContext())))
+        value_wins = self.vault.a_value_over_a_reading
+        places: set[tuple[int, int]] = set()
+        out = []
+        for span in spans:
+            if (span.start, span.end) in places:
+                continue
+            found = text[span.start : span.end]
+            if value_wins(_composed_or_not(found, span.value)):
+                continue
+            places.add((span.start, span.end))
+            out.append(span)
+        return out
 
     def known_in(self, text: str) -> list[Span]:
         """Where values in the vault are in ``text`` in clear: neither a surrogate nor a value you let through."""
         known = self._known_values()
         spans = read_escaped(text, lambda t: list(known.detect(t, DetectContext())))
-        clear = [(s, text[s.start : s.end]) for s in spans]
-        return [s for s, value in clear if not self.vault.is_surrogate(value) and not self.allow.allows(value)]
+        return [s for s in spans if not self.fake_or_let_through(text, s)]
+
+    def fake_or_let_through(self, text: str, span: Span) -> bool:
+        """Whether what ``span`` found is a fake, or a value you let through: as it is written, or as it reads where
+        written in escapes (`Mario%20Rossi` is `Mario Rossi`)."""
+        forms = {text[span.start : span.end], span.of(text)}
+        return any(self.vault.is_surrogate(form) or self.allow.allows(form) for form in forms)
 
     def json_numbers(self, kind: SlotKind, tool: str | None, path: str | None = None) -> bool:
         """The numbers of a JSON document are masked too here (strict data mode, or field rules); ``path``: where the
@@ -134,22 +159,44 @@ class Masker:
         self, text: str, ctx: DetectContext, report: MaskReport | None = None, skip: tuple[str, ...] = ()
     ) -> list[Span]:
         """What the detectors find in ``text``. JSON text is read again with its escapes' letters blanked out
-        (`escapes`), by every detector but the name model, whose reading is the one that costs. A value of signs
+        (`escapes`), by every detector but the name model, whose reading is the one that costs. A text with escapes
+        (`Niccol\\u00f2`, `%40`, `&#242;`, a quote, a form's `+`) is read once more as they read
+        (``escapes.decoded``) by your terms, your identity and the vault's values, which match whole values; where an
+        escape writes a character, by the detectors of personal data and your recognizers too, whose secrets and
+        values of a structure are left out there (a base64 run's `%3D` makes no new key, a `%26` no new field). A
+        value found there of a type your policies let through is left out too: it never names what it merges with. A
+        value found there is kept as it is written (``_apply``). A value of signs
         alone (``----`` after ``Bearer``, ``!!!!`` as a password) is left out: a fake keeps the signs of a value, so it
         would be its own. The final check reads with this too, so it does not stop a request for one either.
         A Latet route key may consist of URL-safe signs alone; its dedicated generator draws every character,
         so it can still be masked and restored."""
+
+        def deep(t: str, characters: bool) -> list[Span]:
+            found = self._detect(t, ctx, None, (*skip, "ner"), _WHOLE_VALUES)
+            if characters:
+                others = self._detect(t, ctx, None, (*skip, "ner", *_WHOLE_VALUES))
+                found += [s for s in others if s.eclass not in (EntityClass.SECRET, EntityClass.STRUCT)]
+            return [s for s in found if self.policies.get(s.etype) != Policy.ALLOW]
+
         spans = read_escaped(
             text,
             lambda t: self._detect(t, ctx, report, skip),
             lambda t: self._detect(t, ctx, None, (*skip, "ner")),
+            deep,
         )
-        return [s for s in spans if s.etype == "LATET_ROUTE_KEY" or has_letter_or_digit(text[s.start : s.end])]
+        return [s for s in spans if s.etype == "LATET_ROUTE_KEY" or has_letter_or_digit(s.of(text))]
 
-    def _detect(self, text: str, ctx: DetectContext, report: MaskReport | None, skip: tuple[str, ...]) -> list[Span]:
+    def _detect(
+        self,
+        text: str,
+        ctx: DetectContext,
+        report: MaskReport | None,
+        skip: tuple[str, ...],
+        only: frozenset[str] | None = None,
+    ) -> list[Span]:
         spans: list[Span] = []
         for detector in [*self.detectors, self._known_values()]:
-            if detector.id in skip:
+            if detector.id in skip or (only is not None and detector.id not in only):
                 continue
             try:
                 spans.extend(detector.detect(text, ctx))
@@ -228,10 +275,10 @@ class Masker:
         spans.extend(_extra_spans(text, extra))
         kept = []
         for span in spans:
-            value = text[span.start : span.end]
-            if self.allow.allows(value):
+            forms = {text[span.start : span.end], span.of(text)}  # as written, and as it reads
+            if any(self.allow.allows(form) for form in forms):
                 continue
-            if skip_surrogates and self.vault.is_surrogate(value):
+            if skip_surrogates and any(self.vault.is_surrogate(form) for form in forms):
                 continue  # already in surrogate space
             kept.append(span)
         # The rule that found each value, for the vault: a later occurrence of it (a repeat) may come first.
@@ -239,11 +286,17 @@ class Masker:
         for span in kept:
             if span.rule not in AGAIN:
                 origin.setdefault(text[span.start : span.end], span.rule)
+                origin.setdefault(span.of(text), span.rule)
         # A value let through stays whole: no other value's repeat is masked inside it.
-        allowed = [(s.start, s.end) for s in spans if self.allow.allows(text[s.start : s.end])]
+        allowed = [
+            (s.start, s.end) for s in spans if any(self.allow.allows(f) for f in (text[s.start : s.end], s.of(text)))
+        ]
         kept.extend(
             r for r in self._repeats(text, kept, origin) if not any(a < r.end and r.start < b for a, b in allowed)
         )
+        # A value of a type your policies let through, found where escapes read as what they stand for (a repeat, the
+        # reviewer's), never names what it merges with: ``detect`` leaves such a finding out, and so does every path.
+        kept = [s for s in kept if s.value is None or self.policies.get(s.etype) != Policy.ALLOW]
         return self._apply(text, merge_spans(_whole_addresses(kept), text), origin, context)
 
     @staticmethod
@@ -256,13 +309,9 @@ class Masker:
         a field typed EMAIL: `api.acme-intra.it` next to `ops@acme-intra.it` or
         `ops at acme-intra dot it` is masked in this text as it is in every later one, where the
         domain is a value already in the vault."""
-        values = {
-            text[s.start : s.end]: s
-            for s in spans
-            if long_enough(text[s.start : s.end], s.etype) and s.eclass != EntityClass.STRUCT
-        }
+        values = {s.of(text): s for s in spans if long_enough(s.of(text), s.etype) and s.eclass != EntityClass.STRUCT}
         entries = [(v, s.etype, s.eclass) for v, s in values.items()]
-        addresses = [(text[s.start : s.end], s) for s in spans if s.eclass == EntityClass.STRUCT and s.etype == "EMAIL"]
+        addresses = [(s.of(text), s) for s in spans if s.eclass == EntityClass.STRUCT and s.etype == "EMAIL"]
         for value, span in [*values.items(), *addresses]:
             domain = email_domain(value).lower() if span.etype == "EMAIL" else ""
             if len(domain) >= 4 and domain not in PUBLIC_MAIL_DOMAINS and domain not in values:
@@ -291,7 +340,9 @@ class Masker:
         replacements: list[Replacement] = []
         cursor = 0
         for span in spans:
-            original = text[span.start : span.end]
+            # Kept as it is written, escapes and all, so that it comes back exactly: what it reads (``Span.value``,
+            # where written in escapes) is what its fake is drawn from, written in the same escapes (``Vault.intern``).
+            original, reads = text[span.start : span.end], span.value
             policy = self.policies.get(span.etype, Policy.MASK)
             if policy == Policy.ALLOW:
                 continue
@@ -304,7 +355,7 @@ class Masker:
                     # leaves, so that it is found again wherever it appears and the checks of what leaves know it.
                     self.vault.intern(
                         span.etype, span.eclass, original, context=around, rule=span.rule,
-                        generate=self.generators.get(span.etype),
+                        generate=self.generators.get(span.etype), reads=reads,
                     )  # fmt: skip
                 replacement, entity_id = f"[REDACTED:{span.etype}]", None
             else:
@@ -316,6 +367,7 @@ class Masker:
                     context=around,
                     rule=rule,
                     generate=self.generators.get(span.etype),
+                    reads=reads,
                 )
                 replacement, entity_id = entity.surrogate, entity.id
             pieces.append(text[cursor : span.start])
@@ -330,6 +382,13 @@ class Masker:
             return MaskedText(text)
         pieces.append(text[cursor:])
         return MaskedText("".join(pieces), replacements)
+
+
+def _composed_or_not(found: str, reads: str | None) -> set[str]:
+    """How a text found as a fake is written and how it reads, each composed and decomposed too: the fakes and the
+    values are matched in both forms, and the vault keeps each in one."""
+    forms = {found} if reads is None else {found, reads}
+    return forms | {unicodedata.normalize(how, form) for form in forms if not form.isascii() for how in ("NFC", "NFD")}
 
 
 def _whole_addresses(spans: list[Span]) -> list[Span]:

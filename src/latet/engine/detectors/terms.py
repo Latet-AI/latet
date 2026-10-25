@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from bisect import bisect_right
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
@@ -102,7 +103,8 @@ def _whole_utf8(data: bytes, start: int, end: int) -> bool:
 
 
 class _Offsets:
-    """Offsets in a text from offsets in its UTF-8, asked for in increasing order: each piece is decoded once."""
+    """Offsets in a text from offsets in its UTF-8, asked for mostly in increasing order: each piece is decoded once,
+    and again where a term found starts before the end of the one before it (an overlap, as long as a term at most)."""
 
     def __init__(self, text: str, data: bytes) -> None:
         self._data = data
@@ -112,15 +114,64 @@ class _Offsets:
     def __call__(self, byte: int) -> int:
         if self._ascii:
             return byte
-        self._char += len(self._data[self._byte : byte].decode())
+        if byte < self._byte:
+            self._char -= len(self._data[byte : self._byte].decode())
+        else:
+            self._char += len(self._data[self._byte : byte].decode())
         self._byte = byte
         return self._char
 
 
+# Terms that overlap (`Anna Maria`, `Maria Rossi` in `Anna Maria Rossi`) are each found, so that masking covers the
+# whole of them: an alternation is searched again from the place after each term's start, not from its end. A search
+# that starts inside a term found already looks for an overlap, which the terms one after the other would not need: what
+# such searches cost is bounded, as many as a quarter of the text's bytes and reading twice its bytes (a text of a value
+# that overlaps itself at each character, `aaaa`, would search at each one). Past the bound, the rest of the text is
+# matched as before, the leftmost-longest terms one after the other: never less than them is found.
+_OVERLAP_SEARCHES = 4  # a search for every this many bytes of the text
+_OVERLAP_READ = 2  # what those searches read: as many times the text's bytes
+# The word index looks for overlaps where they can be alone (a term that begins inside one of its terms one after the
+# other, or whose signs before its first word lie in the term before, or that starts at a term's word and ends past it),
+# within a share of what those terms cost: a fifth (Ruling 099-R2), past which its terms one after the other alone.
+_WORD_OVERLAP_SHARE = 5
+
+_Found = tuple[int, int, _Plain]  # a term found: where it starts and ends, and the term
+
+
+def _with_overlaps(text: str, chain: list[_Found], others: list[_Found]) -> list[_Found]:
+    """The terms found one after the other (``chain``: 0.9.8's, apart and in order), and of the terms that overlap them
+    (``others``) what holds more than blanks beside them, each cut where the next term of the chain begins: so a term
+    across two of the chain merges with the first alone, and what is masked as one value never runs on past the next
+    term found. A value repeated whose repeats overlap others (`Mario Rossi Mario Rossi`, with `Rossi Mario` known too)
+    is masked as 0.9.8 masked it, each occurrence with its value's fake; `Anna Maria Rossi` as a whole. What a term
+    that spans many of the chain costs to cut is bounded by the chain's and the others' count: past it, the rest are
+    left to the chain, as 0.9.8 left them."""
+    starts = [start for start, _, _ in chain]
+    out = list(chain)
+    steps = len(chain) + len(others) + 256
+    for start, end, term in others:
+        j = bisect_right(starts, start) - 1  # the term of the chain it starts in or after
+        at = start
+        while at < end:
+            steps -= 1
+            if steps < 0:
+                return sorted(dict.fromkeys(out), key=lambda found: (found[0], -found[1]))
+            following = starts[j + 1] if j + 1 < len(starts) else len(text)
+            cut = min(end, following)
+            free = max(at, chain[j][1]) if j >= 0 else at
+            if free < cut and not text[free:cut].isspace():
+                while text[cut - 1].isspace():
+                    cut -= 1
+                out.append((at, cut, term))
+            at, j = following, j + 1
+    return sorted(dict.fromkeys(out), key=lambda found: (found[0], -found[1]))
+
+
 class _Alternation:
-    """Up to WORD_INDEX_FROM terms in one RE2 alternation: at the leftmost place, the longest term that stands as a
-    whole word. No \\b in the pattern (RE2's knows ASCII letters only): word edges are checked with `_whole`, and where
-    the longest term at a place runs on into a letter, a shorter one there may still stand on its own.
+    """Up to WORD_INDEX_FROM terms in one RE2 alternation: at each place, the longest term that stands as a whole word,
+    those that overlap included (``finditer``). No \\b in the pattern (RE2's knows ASCII letters only): word edges are
+    checked with `_whole`, and where the longest term at a place runs on into a letter, a shorter one there may still
+    stand on its own.
 
     The pattern runs over the text's UTF-8, encoded once: RE2's binding encodes a text again at every call, which a text
     full of terms (a git log naming its author in every commit) would pay for each term found.
@@ -164,39 +215,65 @@ class _Alternation:
         return value if self._case else value.casefold()
 
     def finditer(self, text: str, data: bytes | None = None) -> Iterator[tuple[int, int, _Plain]]:
-        """Where its terms are in ``text``; ``data``: the text's UTF-8, when the caller has it already (the vault's
-        values are matched by many alternations, each over the same text)."""
+        """Where its terms are in ``text``: from the left, the longest term at a place (that stands as a whole word,
+        when terms must), one after the other, and what the terms that overlap them add (``_with_overlaps``).
+        ``data``: the text's UTF-8, when the caller has it already (the vault's values are matched by many
+        alternations, each over the same text)."""
         data = text.encode() if data is None else data
         offset = _Offsets(text, data)
-        if not self._whole_word:
-            for m in self._pattern.finditer(data):
-                term = self._lookup.get(self._key(data[m.start() : m.end()].decode()))
-                if term is not None:
-                    yield offset(m.start()), offset(m.end()), term
-            return
-        pos = 0
+        searches = len(data) // _OVERLAP_SEARCHES + 64  # what the searches for overlaps may cost (the bound above)
+        read = _OVERLAP_READ * len(data) + 4096
+        overlaps = True
+        chain: list[_Found] = []  # the terms one after the other, 0.9.8's, and those that overlap them, in bytes
+        others: list[_Found] = []
+        pos = reach = 0  # reach: where the terms one after the other end
         while (m := self._pattern.search(data, pos)) is not None:
             start, end = m.span()
-            term: _Plain | None = None
-            while True:
-                candidate = self._lookup.get(self._key(data[start:end].decode()))
-                if candidate is not None and _whole_utf8(data, start, end):
-                    term = candidate
-                    break
-                shorter = self._pattern.match(data, start, end - 1) if end - 1 > start else None
-                if shorter is None:
-                    break
-                end = shorter.end()
-            if term is not None:
-                yield offset(start), offset(end), term
-                pos = end
-            else:
-                pos = start + 1  # in the middle of a character, no term starts: RE2 goes on to the next one
+            if start < reach:  # inside a term found already: an overlap is looked for
+                searches -= 1
+                read -= end - pos
+                if searches < 0 or read < 0:
+                    overlaps = False  # bound reached: the rest as before, one after the other from the chain's end
+                    pos = reach
+                    continue
+            found = self._longest_at(data, start, end)
+            if start >= reach:  # where 0.9.8 went on: after the term, or past the match (a term's edge on a letter)
+                if found is not None:
+                    chain.append((start, found[0], found[1]))
+                reach = found[0] if found is not None else start + 1 if self._whole_word else end
+            elif found is not None:
+                others.append((start, found[0], found[1]))
+            # In the middle of a character, no term starts: RE2 goes on to the next one.
+            pos = start + 1 if overlaps else reach
+        if not others:
+            yield from ((offset(start), offset(end), term) for start, end, term in chain)
+            return
+        terms = sorted([*chain, *others])
+        places = {place: offset(place) for found in terms for place in found[:2]}  # in order: each piece decoded once
+        in_text = [(places[start], places[end], term) for start, end, term in chain]
+        overlapping = [(places[start], places[end], term) for start, end, term in others]
+        yield from _with_overlaps(text, in_text, overlapping)
+
+    def _longest_at(self, data: bytes, start: int, end: int) -> tuple[int, _Plain] | None:
+        """The longest term at ``start`` that stands as a whole word when terms must (``end``: where the longest one
+        ends), and where it ends."""
+        while True:
+            term = self._lookup.get(self._key(data[start:end].decode()))
+            if term is not None and (not self._whole_word or _whole_utf8(data, start, end)):
+                return end, term
+            if not self._whole_word:
+                return None
+            shorter = self._pattern.match(data, start, end - 1) if end - 1 > start else None
+            if shorter is None:
+                return None
+            end = shorter.end()
 
 
 # A term in the word index, a plain tuple as a term is (``_Plain``): its words as compared, the characters before its
-# first word (`@acme`), those after its last word (`C++ Guild`), the whole term as compared, and the term.
-_Entry = tuple[tuple[str, ...], int, int, str, _Plain]
+# first word (`@acme`), those after its last word (`C++ Guild`), the whole term as compared, the term, and what looking
+# at the terms of its first word costs up to it, in order: a unit for each term and for each of its words. Counted once
+# here, never as the text is read: the terms one after the other are found at 0.9.8's cost.
+_Entry = tuple[tuple[str, ...], int, int, str, _Plain, int]
 
 
 class _WordIndex:
@@ -204,7 +281,7 @@ class _WordIndex:
 
     def __init__(self, terms: list[Term], case_sensitive: bool) -> None:
         self._case = case_sensitive
-        starts: dict[str, list[_Entry]] = {}  # a first word → the terms that start with it
+        starts: dict[str, list[tuple[tuple[str, ...], int, int, str, _Plain]]] = {}  # a first word → its terms
         for term in terms:
             found = list(_WORDS.finditer(term.value))
             if not found:
@@ -213,9 +290,14 @@ class _WordIndex:
             lead, trail = found[0].start(), len(term.value) - found[-1].end()
             starts.setdefault(words[0], []).append((words, lead, trail, self._key(term.value), _plain(term)))
         # The one that starts first, then the longest; in tuples, which the garbage collector stops following.
-        self._starts: dict[str, tuple[_Entry, ...]] = {
-            word: tuple(sorted(entries, key=lambda e: (-e[1], -len(e[3])))) for word, entries in starts.items()
-        }
+        self._starts: dict[str, tuple[_Entry, ...]] = {}
+        for word, entries in starts.items():
+            cost = 0
+            ordered = []
+            for entry in sorted(entries, key=lambda e: (-e[1], -len(e[3]))):
+                cost += 1 + len(entry[0])
+                ordered.append((*entry, cost))
+            self._starts[word] = tuple(ordered)
         self._first = frozenset(self._starts)
 
     def _key(self, value: str) -> str:
@@ -226,28 +308,131 @@ class _WordIndex:
         if self._first.isdisjoint(words if self._case else map(str.casefold, words)):
             return  # most texts hold none of the terms: one look at their words says so
         tokens = [(m.start(), m.end(), self._key(m.group())) for m in _WORDS.finditer(text)]
+        chain: list[_Found] = []  # the terms one after the other, 0.9.8's
+        others: list[_Found] = []  # the terms that overlap them
+        inside: list[int] = []  # the words inside a term of the chain that begin a term: one may run on past it
+        cost = spent = 0  # what the terms one after the other cost (``_Entry``'s units), and what the overlaps did
         done = i = 0  # done: where the last term found ends; the next one starts there or after
         while i < len(tokens):
-            found = self._at(text, tokens, i, done)
+            found, looked, extra = self._at(text, tokens, i, done, others, cost, spent)
+            cost += looked
+            spent += extra
             if found is None:
                 i += 1
                 continue
-            yield found
+            chain.append(found)
             done = found[1]
+            i += 1
             while i < len(tokens) and tokens[i][0] < done:
+                if tokens[i][2] in self._first:
+                    inside.append(i)
                 i += 1
+        others += self._overlapping(text, tokens, inside, cost // _WORD_OVERLAP_SHARE + 256 - spent)
+        yield from _with_overlaps(text, chain, others) if others else chain
 
-    def _at(self, text: str, tokens: list[tuple[int, int, str]], i: int, done: int) -> tuple[int, int, _Plain] | None:
-        """The term that starts with the text's i-th word, if one does."""
-        for words, lead, trail, whole, term in self._starts.get(tokens[i][2], ()):
+    def _overlapping(
+        self, text: str, tokens: list[tuple[int, int, str]], inside: list[int], budget: int
+    ) -> list[_Found]:
+        """The terms that begin with the words ``inside`` the terms one after the other (``_each``), within ``budget``,
+        in ``_Entry``'s units: past it, none more, and the terms one after the other alone are found from there
+        (0.9.8's)."""
+        out: list[_Found] = []
+        for i in inside:
+            if budget < 0:
+                break
+            found, spent = self._each(text, tokens, i)
+            out += found
+            budget -= spent
+        return out
+
+    def _at(
+        self,
+        text: str,
+        tokens: list[tuple[int, int, str]],
+        i: int,
+        done: int,
+        others: list[_Found],
+        cost: int,
+        spent: int,
+    ) -> tuple[_Found | None, int, int]:
+        """The term that starts with the text's i-th word, if one does: of those that start at ``done`` or after, the
+        one that starts first, the longest there, as 0.9.8 found it, and what looking cost (``_Entry``'s count). And,
+        where the terms one after the other have cost five times more than the overlaps looked for so far (``cost``,
+        ``spent``), the terms there that overlap others, added to ``others``, and what looking for them cost: one whose
+        signs before its first word lie in the term before (`@team` right after `ops@`), and, where the term found has
+        signs before its word, the one that ends last past it, which only one with fewer signs can (those with as many
+        start where it does and end no later: the terms are in that order). Found as the term is, the word never read
+        again."""
+        entries = self._starts.get(tokens[i][2], ())
+        extra = 0
+        for words, lead, trail, whole, term, looked in entries:
             last = i + len(words) - 1
             if last >= len(tokens) or any(tokens[i + j][2] != words[j] for j in range(1, len(words))):
                 continue
             start, end = tokens[i][0] - lead, tokens[last][1] + trail
             # The words are \w (no combining accent): `_whole` says whether a mark next to the term joins its word.
             if start >= done and end <= len(text) and self._key(text[start:end]) == whole and _whole(text, start, end):
-                return start, end, term
-        return None
+                if lead and spent + extra <= cost // _WORD_OVERLAP_SHARE + 256:
+                    extra += self._past(text, tokens, i, entries, (start, end, term), lead, others)
+                return (start, end, term), looked, extra
+            if start < done and spent + extra <= cost // _WORD_OVERLAP_SHARE + 256:
+                extra += 1 + len(words)  # its first signs in the term before
+                if start >= 0 and end <= len(text) and self._key(text[start:end]) == whole and _whole(text, start, end):
+                    others.append((start, end, term))
+        return None, entries[-1][5] if entries else 0, extra
+
+    def _past(
+        self,
+        text: str,
+        tokens: list[tuple[int, int, str]],
+        i: int,
+        entries: tuple[_Entry, ...],
+        found: _Found,
+        lead: int,
+        others: list[_Found],
+    ) -> int:
+        """Of the terms that start with the text's i-th word with fewer signs before it than ``found`` (``lead``), the
+        one that ends last, where it ends past ``found``, added to ``others``; and what looking cost."""
+        furthest, spent = found, 0
+        for words, before, trail, whole, term, _ in entries:
+            if before >= lead:
+                continue
+            spent += 1 + len(words)
+            last = i + len(words) - 1
+            if last >= len(tokens) or any(tokens[i + j][2] != words[j] for j in range(1, len(words))):
+                continue
+            start, end = tokens[i][0] - before, tokens[last][1] + trail
+            if (
+                end > furthest[1]
+                and end <= len(text)
+                and self._key(text[start:end]) == whole
+                and _whole(text, start, end)
+            ):
+                furthest = (start, end, term)
+        if furthest is not found:
+            others.append(furthest)
+        return spent
+
+    def _each(self, text: str, tokens: list[tuple[int, int, str]], i: int) -> tuple[list[_Found], int]:
+        """The terms that start with the text's i-th word, wherever the terms before it end: the one that starts first,
+        the longest there; and the one that ends last, where it ends later (each other one there lies within the two).
+        And what looking cost, as ``_Entry`` counts it."""
+        first: _Found | None = None
+        furthest: _Found | None = None
+        entries = self._starts.get(tokens[i][2], ())
+        spent = entries[-1][5] if entries else 0
+        for words, lead, trail, whole, term, _ in entries:
+            last = i + len(words) - 1
+            if last >= len(tokens) or any(tokens[i + j][2] != words[j] for j in range(1, len(words))):
+                continue
+            start, end = tokens[i][0] - lead, tokens[last][1] + trail
+            if start >= 0 and end <= len(text) and self._key(text[start:end]) == whole and _whole(text, start, end):
+                first = first or (start, end, term)
+                if furthest is None or end > furthest[1]:
+                    furthest = (start, end, term)
+        if first is None or furthest is None:
+            return [], spent
+        return ([first, furthest] if furthest[1] > first[1] else [first]), spent
 
 
 def _forms(value: str) -> list[str]:

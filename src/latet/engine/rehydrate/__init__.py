@@ -7,8 +7,8 @@ import urllib.parse
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from latet.engine.escapes import TAIL, ends_with_escape
-from latet.engine.vault import Entity, restored_whole
+from latet.engine.escapes import TAIL, cased, ends_with_escape, readings, written_forms
+from latet.engine.vault import ESCAPE_SIGNS, Entity, restored_whole, written_in_words
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,31 +26,55 @@ def _json_inner(value: str) -> str:
 def restores_for(entities: Iterable[Entity], json_mode: bool = False) -> list[Restore]:
     """Every textual form a surrogate may take in model output, with its matching original form."""
     out: dict[str, Restore] = {}
+    entities = list(entities)  # read twice
 
     def add(pattern: str, replacement: str, e: Entity, word: bool) -> None:
         if pattern and pattern != replacement and pattern not in out:
             out[pattern] = Restore(pattern, replacement, e.id, word)
 
-    for e in entities:
-        word = restored_whole(e.etype, e.eclass)
-        sur, orig = e.surrogate, e.original
-        forms = [(sur, orig)]
-        if e.etype in ("EMAIL", "DOMAIN", "HOSTNAME"):
-            forms += [(sur.lower(), orig.lower()), (sur.upper(), orig.upper())]
-        if e.etype in ("EMAIL", "URL_PASSWORD", "PASSWORD"):
-            forms.append((urllib.parse.quote(sur, safe=""), urllib.parse.quote(orig, safe="")))
-        if word:
-            forms += [(sur.upper(), orig.upper()), (sur.lower(), orig.lower())]
-            if e.etype == "PERSON" and " " in sur:
-                for s_part, o_part in zip(sur.split(), orig.split(), strict=False):
-                    if len(s_part) >= 3:
-                        forms.append((s_part, o_part))
+    def add_all(forms: list[tuple[str, str]], e: Entity, word: bool) -> None:
         for s_form, o_form in forms:
             if json_mode:
                 add(_json_inner(s_form), _json_inner(o_form), e, word)
             else:
                 add(s_form, o_form, e, word)
+
+    for e in entities:
+        add_all(
+            _forms(e.etype, e.surrogate, e.original, restored_whole(e.etype, e.eclass)),
+            e,
+            restored_whole(e.etype, e.eclass),
+        )
+    # A value kept as written in escapes (`Mario%20Rossi`): the other forms a model may write its fake in, each for the
+    # value exactly as written; and its fake as it reads (`Nicola Greco` for `Nicola%20Greco`, which the vault keeps
+    # apart from every other value and fake), in every form a fake takes, for the value as it reads (`Mario Rossi`), as
+    # 0.9.8 gave a name back (Ruling 099-R2). After every value's own forms, which they never take the place of.
+    for e in entities:
+        if not any(sign in e.original for sign in ESCAPE_SIGNS):
+            continue  # written as it reads
+        word, words = restored_whole(e.etype, e.eclass), written_in_words(e.etype, e.eclass)
+        add_all([(form, e.original) for form in written_forms(e.original, e.surrogate, words=words)], e, word)
+        read = readings(e.original, e.surrogate, words=words)
+        if read is not None and read[0] != e.surrogate:
+            add_all(_forms(e.etype, *read, word), e, word)
     return list(out.values())
+
+
+def _forms(etype: str, sur: str, orig: str, word: bool) -> list[tuple[str, str]]:
+    """The forms a fake ``sur`` may take in model output, each with the form of ``orig`` it stands for. Capitals and
+    small letters leave escapes as they are written (``escapes.cased``)."""
+    forms = [(sur, orig)]
+    if etype in ("EMAIL", "DOMAIN", "HOSTNAME"):
+        forms += [(cased(sur, False), cased(orig, False)), (cased(sur, True), cased(orig, True))]
+    if etype in ("EMAIL", "URL_PASSWORD", "PASSWORD"):
+        forms.append((urllib.parse.quote(sur, safe=""), urllib.parse.quote(orig, safe="")))
+    if word:
+        forms += [(cased(sur, True), cased(orig, True)), (cased(sur, False), cased(orig, False))]
+        if etype == "PERSON" and " " in sur:
+            for s_part, o_part in zip(sur.split(), orig.split(), strict=False):
+                if len(s_part) >= 3:
+                    forms.append((s_part, o_part))
+    return forms
 
 
 def _is_word_char(c: str) -> bool:

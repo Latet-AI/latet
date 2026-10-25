@@ -261,11 +261,28 @@ che il controllo finale cerca nelle richieste in uscita.
 Un valore viene riconosciuto di nuovo a partire da quattro caratteri, il nome di una persona da tre
 (*Ugo*, *Ada*), e solo com'è scritto: *Ugo* non è *ugo*, né una parte di *Ugolino*.
 
+Un valore viene trovato anche dove è scritto con sequenze di escape: come `\u00f2` o `\\u00f2` in un
+JSON che Latet non legge come documento (un blocco di codice, righe JSON, un documento contenuto in
+una stringa), come byte in un log (`\xc3\xb2`) o in un percorso che git mette tra virgolette
+(`\303\262`), codificato in un URL (`%C3%B2`, `%20`, oppure `+` in una query o in un modulo), o come
+riferimento a un carattere HTML (`&#242;`, `&ograve;`). Lo stesso vale per i tuoi termini e per
+l'identità di questo computer e, dove una sequenza scrive un carattere, per i dati personali e i
+valori dei tuoi riconoscitori: così viene trovato anche un indirizzo scritto `mario.rossi%40acme.it`
+(un segreto o un valore di una struttura viene trovato solo com'è scritto). Un valore trovato così
+viene conservato com'è scritto, come un valore a sé con un valore fittizio suo, scritto con le stesse
+sequenze dove fanno parte del testo: `Paolo%20Fontana` in un link, `\'` in una stringa tra apici.
+All'agente torna il valore esattamente com'era scritto, così un link resta un link e una modifica
+ritrova la sua riga. Dove il modello scrive il valore fittizio così come si legge,
+`Paolo Fontana`, all'agente torna il valore così come si legge.
+
 ## Quando due rilevatori trovano lo stesso testo
 
 Le corrispondenze sovrapposte vengono unite in una sola, che le copre tutte, così un valore non viene
 mai sostituito a metà. Il tipo più forte dà il nome al risultato: prima i segreti, poi i tuoi termini e
-l'identità di questo computer, poi i dati personali.
+l'identità di questo computer, poi i dati personali. Anche i tuoi termini e i valori noti che si
+sovrappongono tra loro vengono trovati tutti: se sono noti sia *Anna Maria* sia *Maria Rossi*, il nome
+*Anna Maria Rossi* viene mascherato per intero. Le sovrapposizioni vengono cercate fino a un limite in
+ogni testo: oltre quel limite, il resto del testo viene mascherato come prima, un valore dopo l'altro.
 
 Se va in errore un rilevatore diverso da quello dei dati personali e dal modello locale dei nomi
 (segreti, i tuoi termini, identità, valori noti), il mascheramento non riesce e la richiesta viene

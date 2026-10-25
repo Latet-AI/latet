@@ -16,6 +16,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from latet.config import Config
 from latet.engine.build import build
+from latet.engine.types import EntityClass
 from latet.engine.vault import Vault
 from latet.gateway import ws as ws_relay
 from latet.gateway.app import GatewayConfig, create_app
@@ -190,8 +191,8 @@ def _conversation(prompt: str, *outputs: str) -> dict:
     return {"model": "x", "messages": messages}
 
 
-def _gateway(upstream):
-    built = build(Config(), Vault(ROOT_KEY))
+def _gateway(upstream, vault: Vault | None = None):
+    built = build(Config(), vault if vault is not None else Vault(ROOT_KEY))
     mediator = Mediator(built.engine, built.verifier)
     config = GatewayConfig(
         port=5283,
@@ -218,6 +219,52 @@ def test_an_output_that_left_in_clear_is_sent_as_it_left_once_the_gateway_saw_it
         assert client.post("/anthropic/v1/messages", json=later, headers=headers).status_code == 200
     sent = json.loads(upstream.received[-1])["messages"]
     assert sent[2]["content"][0]["content"] == site and "acme-intra.it" not in sent[4]["content"][0]["content"]
+
+
+def test_a_known_value_written_with_escapes_leaves_as_a_fake_and_comes_back_exactly(upstream):
+    """A value the vault knows, in a command's output that writes it in escapes (JSON lines, a URL) and in a JSON
+    output's string that holds another document: the provider is sent a fake each time, never the value, the link
+    stays a link; and a prompt with the link comes back from the model's answer exactly as it was written."""
+    name = "Niccol\N{LATIN SMALL LETTER O WITH GRAVE} Ferri"
+    as_json = json.dumps(name)[1:-1]  # with ASCII alone: the `ò` as an escape
+    vault = Vault(ROOT_KEY)
+    vault.intern("PERSON", EntityClass.NER, name)
+    lines = f'{{"id": 1, "name": "{as_json}"}}\n{{"id": 2, "name": "{as_json}"}}\n'
+    nested = json.dumps({"payload": json.dumps({"name": name})})  # the inner document's escape, escaped again
+    link = "https://crm.example/api/people?q=Niccol%C3%B2%20Ferri&cursor=abc"
+    log = f"GET {link} 200"
+    prompt = f"open {link} and tell me who it is"
+    client, _ = _gateway(upstream, vault)
+    with client:
+        request = _conversation("who wrote these?", lines, nested, log)
+        assert client.post("/anthropic/v1/messages", json=request, headers={"x-api-key": "test"}).status_code == 200
+        sent = [m["content"][0]["content"] for m in json.loads(upstream.received[-1])["messages"][2::2]]
+        echoed = {"model": "x", "messages": [{"role": "user", "content": prompt}]}
+        answer = client.post("/anthropic/v1/messages", json=echoed, headers={"x-api-key": "test"}).json()["content"]
+    for text in (*sent, upstream.received[-1].decode()):
+        assert "Ferri" not in text and "Niccol" not in text
+    assert json.loads(sent[0].split("\n")[0])["name"] != name
+    assert json.loads(json.loads(sent[1])["payload"])["name"] != name
+    shown = sent[2].split(" ")[1]
+    assert shown != link and " " not in shown and shown.endswith("&cursor=abc")  # one link, its fields as they were
+    assert answer[0]["text"] == "You said: " + prompt  # the agent gets the link back as it was written
+    assert answer[1]["input"] == {"content": prompt}
+
+
+def test_two_known_values_that_overlap_in_a_tool_output_leave_masked_whole(upstream):
+    """`Anna Maria` and `Maria Rossi`, both known (in one part of the vault's values), in `Anna Maria Rossi`: the
+    provider is sent a fake for the whole of them, no word of either."""
+    vault = Vault(ROOT_KEY)
+    for value in ("Anna Maria", "Maria Rossi"):
+        vault.intern("PERSON", EntityClass.NER, value)
+    output = "ticket #4521 opened by Anna Maria Rossi, assigned to the support team"
+    client, _ = _gateway(upstream, vault)
+    with client:
+        request = _conversation("who opened it?", output)
+        assert client.post("/anthropic/v1/messages", json=request, headers={"x-api-key": "test"}).status_code == 200
+    sent = json.loads(upstream.received[-1])["messages"][2]["content"][0]["content"]
+    union = vault.by_original("Anna Maria Rossi")
+    assert union is not None and sent == output.replace("Anna Maria Rossi", union.surrogate)
 
 
 def test_what_a_websocket_turn_carried_is_recorded_as_left_once_it_left(upstream):

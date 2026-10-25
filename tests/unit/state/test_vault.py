@@ -48,6 +48,24 @@ def test_a_value_another_process_kept_is_learned_and_nothing_is_saved():
     assert here.get(entity.id) == entity and here.version == version + 1 and saved == []
 
 
+def test_a_fake_learnt_that_reads_as_a_fake_written_in_escapes_puts_no_entry_out():
+    """A server's instance learns another's entry whose fake (`Nicola Greco`) is how one of its own fakes, written in a
+    link's escapes, reads (`Nicola%20Greco`, for `Mario%20Rossi`): PostgreSQL keeps one value per fake as written, and
+    those are two fakes there. The entry of the link is kept: neither displaced nor forgotten."""
+    from latet.server import spaces
+
+    vault = Vault(ROOT_KEY)
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    link = vault.intern("PERSON", EntityClass.NER, "Mario%20Rossi", rule="ner", reads="Mario Rossi")
+    reading = link.surrogate.replace("%20", " ")
+    assert vault.by_surrogate(reading) is link
+    other = Entity("from-another-instance", "PERSON", EntityClass.NER, "Luca Bianchi", reading, 0, 0.0, "ner")
+    assert not spaces._displaced(vault, other)
+    assert spaces._learned(vault, other) is False
+    assert vault.get(link.id) == link and vault.by_original("Mario%20Rossi") == link
+    assert vault.by_surrogate(reading) == other and vault.by_surrogate(link.surrogate) == link
+
+
 def _host() -> Entity:
     """A computer named `host`, with the fake it got before the vault refused one that shows its value."""
     entity_id = Vault(ROOT_KEY).entity_id("HOSTNAME", "host")

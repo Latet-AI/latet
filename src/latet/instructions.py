@@ -68,7 +68,7 @@ def findings(files: Iterable[Path], masker: Masker) -> list[Finding]:
             continue
         spans = masker.detect(text, DetectContext(SlotKind.SYSTEM), skip=("ner",))
         for span in merge_spans(spans, text):
-            value = text[span.start : span.end]
+            value = span.of(text)
             if span.eclass in NEVER_TO_REVIEWER and not masker.allow.allows(value):
                 out.append(Finding(path, text.count("\n", 0, span.start) + 1, span.etype, len(value)))
     return out

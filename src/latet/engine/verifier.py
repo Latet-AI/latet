@@ -166,17 +166,16 @@ class Verifier:
         """The leaks among ``spans`` found in ``text``. What leaves in clear by the person's choice or by Latet's own
         hand is none: a type your policy lets through (``allow``), whatever path its request takes; a word inside a fake
         (a drawn name may hold one of your terms, or your user name)."""
-        vault = masker.vault
         spans = list(spans)
         details = review.details(text, spans) if review is not None else [None] * len(spans)
         through = review.let_through(details) if review is not None else [False] * len(spans)
         fakes: list[Span] | None = None
         out = []
         for span, detail, allowed in zip(spans, details, through, strict=True):
-            value = text[span.start : span.end]
+            value = span.of(text)
             if span.eclass not in self.block_classes:
                 continue
-            if vault.is_surrogate(value) or masker.allow.allows(value):
+            if masker.fake_or_let_through(text, span):  # as written, or as it reads where written in escapes
                 continue
             if masker.policies.get(span.etype) == Policy.ALLOW:
                 continue  # your settings let this type through: the masking left it so

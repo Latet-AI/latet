@@ -9,7 +9,7 @@ from stdnum.it import codicefiscale, iva
 from latet.config import Config, TermConfig
 from latet.engine.build import build_masker
 from latet.engine.rehydrate import StreamRehydrator, restore_text, restores_for
-from latet.engine.types import EntityClass, SlotKind
+from latet.engine.types import EntityClass, Policy, SlotKind
 from latet.engine.vault import Vault
 
 from ..conftest import ROOT_KEY
@@ -393,9 +393,10 @@ def test_a_fake_right_after_an_escape_is_restored(vault):
     restored, _ = restore_text(tool_input, restores)
     assert json.loads(restored)["content"] == "Hello\nMario Rossi,\tAcme Corp"
     assert Annotator(restores).annotate(tool_input)[0] == restored
-    # A backslash written as one (`\\`) and then an `n` is a letter: the fake is part of a longer word, and stays.
+    # A backslash written as two and then an `n` reads, nested, as a line break (Ruling 099-R2): what follows it begins
+    # a word, as where the decoded reading finds a value, and is restored.
     glued = json.dumps({"path": "C:\\n" + client.surrogate})
-    assert restore_text(glued, restores)[0] == glued
+    assert json.loads(restore_text(glued, restores)[0])["path"] == "C:\\nAcme Corp"
 
 
 def test_a_fake_after_an_escape_is_restored_whatever_the_chunks(vault):
@@ -433,3 +434,732 @@ def test_a_value_the_reviewer_found_is_masked_right_after_an_escape(masker):
     found = [ExtraValue("Quasimodo", "PERSON", EntityClass.LLM, "reviewer")]
     out = masker.mask(json.dumps({"note": "see\nQuasimodo here"}), SlotKind.TOOL_RESULT, extra=found)
     assert "Quasimodo" not in out.text
+
+
+# --- a value written with escapes, outside a JSON document read value by value ------------------------------------
+
+NICCOLO = "Niccol\N{LATIN SMALL LETTER O WITH GRAVE} Ferri"
+BS = chr(92)  # a backslash
+AS_JSON = "Niccol" + BS + "u00f2 Ferri"  # NICCOLO as JSON writes it with ASCII alone
+
+
+@pytest.mark.parametrize(
+    ("text", "written"),
+    [
+        ('```json\n{"name": "' + AS_JSON + '"}\n```', AS_JSON),
+        ('{"id": 1, "name": "' + AS_JSON + '"}\n{"id": 2, "name": "' + AS_JSON + '"}\n', AS_JSON),
+        (
+            '{"payload": "{' + BS + '"name' + BS + '": ' + BS + '"Niccol' + BS * 2 + "u00f2 Ferri" + BS + '"}"}',
+            "Niccol" + BS * 2 + "u00f2 Ferri",
+        ),
+        ("login user=b'Niccol" + BS + "xc3" + BS + "xb2 Ferri' ok", "Niccol" + BS + "xc3" + BS + "xb2 Ferri"),
+        ("name='Niccol" + BS + "xf2 Ferri'", "Niccol" + BS + "xf2 Ferri"),
+        ('modified:   "notes/Niccol' + BS + "303" + BS + '262 Ferri.md"', "Niccol" + BS + "303" + BS + "262 Ferri"),
+        ("GET /people?q=Niccol%C3%B2%20Ferri HTTP/1.1", "Niccol%C3%B2%20Ferri"),
+        ("GET /people?q=Niccol%C3%B2+Ferri&page=2 HTTP/1.1", "Niccol%C3%B2+Ferri"),
+        ("<td>Niccol&#242; Ferri</td>", "Niccol&#242; Ferri"),
+        ("<td>Niccol&#xF2; Ferri</td>", "Niccol&#xF2; Ferri"),
+        ("<td>Niccol&ograve; Ferri</td>", "Niccol&ograve; Ferri"),
+    ],
+    ids=[
+        "code-fence", "json-lines", "under-a-string-field", "utf8-bytes", "latin1-bytes", "git-octal", "url-quoted",
+        "form-plus", "html-decimal", "html-hex", "html-named",
+    ],
+)  # fmt: skip
+def test_a_known_value_written_with_escapes_is_masked_as_written_and_comes_back_exactly(vault, text, written):
+    """A value the vault knows, written with escapes where no JSON document is read value by value (a code fence, JSON
+    lines, a document under a string field, a log, a URL, HTML): found where its escapes read as what they stand for,
+    it is kept as it is written, a value of its own with a fake of its own, and the text comes back byte for byte."""
+    from latet.engine.masker import Masker
+
+    person = vault.intern("PERSON", EntityClass.NER, NICCOLO)
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    kept = vault.by_original(written)
+    assert kept is not None and kept.etype == "PERSON" and kept.id != person.id
+    assert {r.original for r in masked.replacements} == {written}
+    assert masked.text == text.replace(written, kept.surrogate)
+    assert " " not in kept.surrogate or "%" not in text  # in a URL, no space: the link stays one
+    restored, _ = restore_text(masked.text, restores_for(vault.entities()))
+    assert restored == text
+
+
+@pytest.mark.parametrize(
+    ("value", "etype", "eclass", "text", "written"),
+    [
+        ("mario.rossi@acme.it", "EMAIL", EntityClass.PII, "GET /find?to=mario.rossi%40acme.it HTTP/1.1", "mario.rossi%40acme.it"),
+        ("Mario Rossi", "PERSON", EntityClass.NER, "GET /find?q=Mario%20Rossi HTTP/1.1", "Mario%20Rossi"),
+        ("Mario Rossi", "PERSON", EntityClass.NER, "GET /find?q=Mario+Rossi&lang=it HTTP/1.1", "Mario+Rossi"),
+        ("Mario Rossi", "PERSON", EntityClass.NER, "name=Mario+Rossi&city=Roma", "Mario+Rossi"),
+        ("Maria D'Angelo", "PERSON", EntityClass.NER, "const owner = 'Maria D" + BS + "'Angelo';", "Maria D" + BS + "'Angelo"),
+        ("Acme \N{FOX FACE} Labs", "CLIENT", EntityClass.CUSTOM, 'say "Acme ' + BS + "ud83e" + BS + 'udd8a Labs"', BS.join(("Acme ", "ud83e", "udd8a Labs"))),
+    ],
+    ids=["address", "space", "plus-in-a-query", "plus-in-a-form", "quote", "surrogate-pair"],
+)  # fmt: skip
+def test_a_known_value_written_url_quoted_quoted_or_in_two_halves_comes_back_exactly(
+    vault, value, etype, eclass, text, written
+):
+    from latet.engine.masker import Masker
+
+    vault.intern(etype, eclass, value)
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    kept = vault.by_original(written)
+    assert kept is not None and masked.text == text.replace(written, kept.surrogate)
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == text
+
+
+@pytest.mark.parametrize(
+    ("value", "line"),
+    [
+        ("Maria D'Angelo", "const owner = 'Maria D" + BS + "'Angelo';"),
+        (NICCOLO, '<td class="owner">Niccol&ograve; Ferri</td>'),
+        (NICCOLO, '  "owner": "' + AS_JSON + '",'),
+        ("Mario Rossi", 'SEARCH = "https://crm.example/people?q=Mario%20Rossi"'),
+    ],
+    ids=["quote", "html", "json", "url"],
+)
+def test_an_agent_that_edits_a_line_it_read_finds_the_line_again(vault, value, line):
+    """The agent reads a file whose line writes a known value in escapes, then edits that line: the Edit call's
+    old_string, the line as the model saw it, comes back as the file has it, byte for byte."""
+    from latet.engine.build import build
+    from latet.engine.pipeline import Session
+
+    vault.intern("PERSON", EntityClass.NER, value)
+    engine = build(Config(ner="off"), vault).engine
+    session = Session("edit")
+    seen = engine.mask_text(f"     1\t# a file\n     2\t{line}\n", SlotKind.TOOL_RESULT, session).text
+    seen = seen.split("\n")[1].split("\t", 1)[1]
+    assert seen != line  # masked
+    call = json.dumps({"file_path": "f", "old_string": seen, "new_string": seen + "  // reviewed"})
+    args = json.loads(restore_text(call, engine.restores(session, json_mode=True))[0])
+    assert args["old_string"] == line
+    assert args["new_string"] == line + "  // reviewed"
+
+
+@pytest.mark.parametrize(
+    ("value", "link", "parameter"),
+    [
+        (("PERSON", EntityClass.NER, NICCOLO), "https://crm.example/api/people?q=Niccol%C3%B2%20Ferri&cursor=abc", "q"),
+        (("PERSON", EntityClass.NER, "Mario Rossi"), "https://crm.example/api/people?q=Mario+Rossi&cursor=abc", "q"),
+        (("CUSTOMER", EntityClass.CUSTOM, "R&D Labs Srl"), "https://crm.example/api/c?name=R%26D%20Labs%20Srl&cursor=abc", "name"),
+        (("API_KEY", EntityClass.SECRET, "Zq7+Kp2/Wm9=Xr4tLb8v"), "https://api.example/v1/f?sig=Zq7%2BKp2%2FWm9%3DXr4tLb8v&n=2", "sig"),
+    ],
+    ids=["name", "plus", "ampersand", "token"],
+)  # fmt: skip
+def test_a_link_that_writes_a_known_value_url_quoted_stays_a_link_and_comes_back_exactly(vault, value, link, parameter):
+    """A pagination link with a known value URL-quoted: the model sees a well-formed link (no space, its query's fields
+    as they were), and the link comes back exactly, whether the model sends it as it saw it or quotes the value again
+    with quote or quote_plus."""
+    import urllib.parse
+
+    from latet.engine.build import build
+    from latet.engine.pipeline import Session
+
+    vault.intern(*value)
+    engine = build(Config(ner="off"), vault).engine
+    session = Session("links")
+    seen = json.loads(engine.mask_text(json.dumps({"next": link}), SlotKind.TOOL_RESULT, session).text)["next"]
+    assert seen != link and " " not in seen
+    fields = urllib.parse.parse_qs(urllib.parse.urlsplit(seen).query)
+    assert sorted(fields) == sorted(urllib.parse.parse_qs(urllib.parse.urlsplit(link).query))
+    fake = seen.split(parameter + "=", 1)[1].split("&", 1)[0]
+    plain = urllib.parse.unquote_plus(fake)
+    restores = engine.restores(session, json_mode=True)
+    for sent in (fake, urllib.parse.quote(plain, safe=""), urllib.parse.quote_plus(plain, safe="")):
+        call = json.dumps({"url": seen.replace(fake, sent)})
+        assert json.loads(restore_text(call, restores)[0])["url"] == link, sent
+
+
+def test_a_known_secret_with_a_quote_in_json_lines_stays_json_and_comes_back_exactly(vault):
+    from latet.engine.masker import Masker
+
+    secret = 'Xy"7kLm!pQ2wZ'
+    vault.intern("API_KEY", EntityClass.SECRET, secret)
+    lines = json.dumps({"note": f"use {secret} now"}) + "\n" + json.dumps({"n": 1}) + "\n"
+    masked = Masker(vault, []).mask(lines, SlotKind.TOOL_RESULT)
+    assert secret not in json.loads(masked.text.split("\n")[0])["note"]  # masked, and still JSON
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == lines
+
+
+def test_a_plus_outside_a_form_is_a_plus(vault):
+    from latet.engine.masker import Masker
+
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    text = "c = Mario+Rossi(1)"  # not a query nor a form: `+` is a sign
+    assert Masker(vault, []).mask(text, SlotKind.TOOL_RESULT).text == text
+
+
+def test_a_term_and_your_identity_written_with_escapes_are_masked_as_written(vault):
+    from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, Term, TermsDetector
+    from latet.engine.masker import Masker
+
+    client = "Societ\N{LATIN SMALL LETTER A WITH GRAVE} Rossi"
+    masker = Masker(
+        vault, [TermsDetector([Term(client, "CLIENT")]), IdentityDetector(LocalIdentity(full_name=NICCOLO))]
+    )
+    in_git, in_json = "Niccol" + BS + "303" + BS + "262 Ferri", "Societ" + BS + "u00e0 Rossi"
+    text = f'git log\n    "notes/{in_git}.md"\n{{"client": "{in_json}"}}'
+    masked = masker.mask(text, SlotKind.TOOL_RESULT)
+    found = {r.original: r.replacement for r in masked.replacements}
+    assert set(found) == {in_git, in_json}
+    assert masked.text == text.replace(in_git, found[in_git]).replace(in_json, found[in_json])
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == text
+
+
+def test_an_address_written_url_quoted_is_found_and_kept_as_written(masker, vault):
+    text = "open https://crm.example/mail?to=luca.neri%40acme.it&subject=hello"
+    masked = masker.mask(text, SlotKind.TOOL_RESULT)
+    entity = vault.by_original("luca.neri%40acme.it")
+    assert entity is not None and entity.etype == "EMAIL"
+    assert masked.text == text.replace("luca.neri%40acme.it", entity.surrogate)
+    assert "%40" in entity.surrogate and "@" not in entity.surrogate  # written as the address was
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == text
+
+
+def test_the_final_check_finds_a_known_value_written_with_escapes(masker, vault):
+    from latet.engine.verifier import Verifier
+
+    vault.intern("CLIENT", EntityClass.CUSTOM, "Quasimodo Srl")
+    text = "curl 'https://crm.example/find?name=Quasimod%6F%20Srl'"
+    assert [text[s.start : s.end] for s in masker.known_in(text)] == ["Quasimod%6F%20Srl"]
+    leaks = Verifier(masker).verify([(text, SlotKind.TOOL_RESULT, False)], "s").leaks
+    assert [text[leak.start : leak.end] for leak in leaks] == ["Quasimod%6F%20Srl"]
+
+
+def test_a_fake_written_with_escapes_is_known_as_one(masker, vault):
+    entity = vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    text = "q=" + entity.surrogate.replace(" ", "%20")
+    assert [text[s.start : s.end] for s in masker.surrogates_in(text)] == [text[2:]]
+
+
+@pytest.mark.parametrize(
+    ("policies", "values", "text", "masked_value"),
+    [
+        ({"EMAIL": Policy.ALLOW}, [], "pec: RSSMRA85T10A562S%40pec.it", "RSSMRA85T10A562S"),
+        ({"EMAIL": Policy.ALLOW}, [("PERSON", EntityClass.NER, "mario.rossi")], "to mario.rossi%40acme.it ok", "mario.rossi"),
+        ({"PHONE": Policy.ALLOW}, [], "iban IT60X0542811101000000123456%2B393331234567 end", "IT60X0542811101000000123456"),
+    ],
+    ids=["fiscal-code-in-an-address", "known-name-in-an-address", "iban-before-a-phone"],
+)  # fmt: skip
+def test_a_value_of_a_type_let_through_found_in_escapes_never_frees_another(
+    vault, policies, values, text, masked_value
+):
+    """Found where escapes read as what they stand for, a value of a type your policies let through never names what
+    merges with it: what was masked as written still is (an address let through holding a fiscal code)."""
+    from latet.engine.build import build_masker
+
+    for value in values:
+        vault.intern(*value)
+    masker, _ = build_masker(Config(ner="off", policies=policies), vault)
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    assert masked_value not in out.text
+    assert masked_value in {r.original for r in out.replacements}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "path = r'D:" + BS + "mail" + BS + "100acme.it" + BS + "inbox'  # " + BS + "u00e8",
+        "echo 'Q2FuIGZvbyBiYXI%3D' | base64 -d  # token=Q2FuIGZvbyBiYXI%3D",
+        "https://registry.npmjs.org/%40babel%2Fcore/-/core-7.24.0.tgz",
+        "SELECT * FROM t WHERE name LIKE '%40%' OR code LIKE '%2F%';",
+        "https://latet.acme.lan/u/Em1ly_Cart3r-Rout3K3y_7q9%41",
+    ],
+    ids=["octal-in-a-path", "base64-padding", "npm-scope", "sql-like", "route-and-escape"],
+)
+def test_escapes_that_stand_for_signs_find_no_secret_nor_a_value_where_0_9_8_found_none(text):
+    """What the escapes stand for gives no new secret (`%3D` padding a base64 run), no value of a structure, and an
+    octal escape is read only where git writes the bytes of a character past ASCII (`\\100` in a path is no `@`)."""
+    from latet.engine.build import build_masker
+
+    masker, _ = build_masker(Config(ner="off"), Vault(ROOT_KEY))
+    assert masker.mask(text, SlotKind.TOOL_RESULT).text == text
+
+
+def test_a_secret_that_0_9_8_masked_as_written_comes_back_exactly(vault):
+    from latet.engine.build import build_masker
+
+    masker, _ = build_masker(Config(ner="off"), vault)
+    text = "Authorization: Basic dXNlcjpwYXNz%3D"
+    masked = masker.mask(text, SlotKind.TOOL_RESULT)
+    assert [r.original for r in masked.replacements] == ["dXNlcjpwYXNz"] and masked.text.endswith("%3D")
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == text
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["C:" + BS + "\N{LATIN CAPITAL LETTER E WITH ACUTE}milie Durand" + BS + "notes.txt",
+     BS * 2 + "srv" + BS + "share" + BS + "\N{LATIN CAPITAL LETTER E WITH ACUTE}milie Durand",
+     "x " + BS + "\N{LATIN CAPITAL LETTER E WITH ACUTE}milie Durand"],
+    ids=["drive", "share", "after-a-backslash"],
+)  # fmt: skip
+def test_a_backslash_written_before_an_escape_stays_where_it_is(vault, path):
+    """JSON writes a backslash as two, then `É` as an escape: three backslashes, the first two one backslash as written.
+    A value found after them leaves them where they are: the path stays a path."""
+    from latet.engine.masker import Masker
+
+    name = "\N{LATIN CAPITAL LETTER E WITH ACUTE}milie Durand"
+    vault.intern("PERSON", EntityClass.NER, name)
+    text = "```json\n" + json.dumps({"path": path}) + "\n```"
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    assert "u00c9milie" not in masked.text
+    assert json.loads(masked.text.split("\n")[1])["path"].count(BS) == path.count(BS)
+    assert restore_text(masked.text, restores_for(vault.entities()))[0] == text
+
+
+@pytest.mark.parametrize("policies", [{}, {"EMAIL": Policy.ALLOW}, {"PERSON": Policy.ALLOW, "PHONE": Policy.ALLOW}])
+def test_reading_what_escapes_stand_for_never_masks_less(monkeypatch, policies):
+    """Whatever the text, and whatever types the policies let through, what is masked when the escapes are read for
+    what they stand for holds what was masked before (the text as written and with its escapes' letters blanked out)."""
+    import random
+
+    from latet.engine import escapes
+    from latet.engine.detectors.pii import PiiDetector
+    from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, Term, TermsDetector
+    from latet.engine.masker import Masker
+
+    values = [("PERSON", EntityClass.NER, NICCOLO), ("PERSON", EntityClass.NER, "Mario Rossi"),
+              ("PERSON", EntityClass.NER, "mario.rossi"), ("API_KEY", EntityClass.SECRET, "tok_9fQ2xL7pZ4"),
+              ("EMAIL", EntityClass.PII, "mario.rossi@acme.it")]  # fmt: skip
+    pieces = [
+        "Niccol", BS + "u00f2", "\N{LATIN SMALL LETTER O WITH GRAVE}", " Ferri", "Ferri", "%20", "%40", "%C3%B2", "+",
+        "=", "&", "?q=", "&#242;", "&ograve;", BS, BS * 2, BS * 3, "n", "u", "x", "c3", BS + "xb2", BS + "303",
+        "mario.rossi", "@acme.it", "acme.it", "Mario", "Rossi", " ", "\n", '"', "tok_9fQ2xL7pZ4",
+        "IT60X0542811101000000123456", "4539148803436467", "RSSMRA85T10A562S", "+393331234567", "Acme Corp", "marc",
+        "luca.neri%40acme.it", BS + "ud83e", BS + "udd8a", "%3D", "%2B",
+    ]  # fmt: skip
+
+    def masked(text: str) -> set[int]:
+        known = Vault(ROOT_KEY)
+        for etype, eclass, value in values:
+            known.intern(etype, eclass, value)
+        detectors = [PiiDetector(), TermsDetector([Term("Acme Corp", "CLIENT")]),
+                     IdentityDetector(LocalIdentity(username="marc", full_name="Marco Ferretti"))]  # fmt: skip
+        done = Masker(known, detectors, policies=policies).mask(text, SlotKind.TOOL_RESULT)
+        return {i for r in done.replacements if r.policy != Policy.ALLOW for i in range(r.start, r.end)}
+
+    rng = random.Random(29)
+    texts = ["".join(rng.choice(pieces) for _ in range(rng.randrange(1, 14))) for _ in range(400)]
+    now = [masked(text) for text in texts]
+    monkeypatch.setattr(escapes, "decoded", lambda text: None)  # as before: no reading of what escapes stand for
+    before = [masked(text) for text in texts]
+    for text, was, is_ in zip(texts, before, now, strict=True):
+        assert was <= is_, text
+    assert sum(len(n) for n in now) > sum(len(b) for b in before)  # and more is masked
+
+
+def test_a_span_and_a_reading_never_show_a_value_in_their_repr():
+    from latet.engine.escapes import decoded
+    from latet.engine.types import Span
+
+    assert "Niccol" not in repr(Span(0, 5, "PERSON", EntityClass.NER, "known-values", value=NICCOLO))
+    reading = decoded("q=" + "Niccol%C3%B2")
+    assert reading is not None and "Niccol" not in repr(reading)
+
+
+# --- round 2: what comes back after an escape, repeats let through, fakes that read as values ----------------------
+
+_GLUED = [
+    "GET /people?q=Dr.%20Mario%20Rossi&x=1",
+    "GET /people?q=%22Mario%20Rossi%22&x=1",
+    "GET /people?q=Rossi%2CMario%20Rossi&x=1",
+    "GET /people?q=Dr.%20Niccol%C3%B2%20Ferri&x=1",
+    "GET /people?q=Dr.+Mario+Rossi&x=1",
+    "user=b'Dr." + BS + "x20Mario" + BS + "x20Rossi' logged in",
+    "```json\n" + '{"payload": "{' + BS + '"note' + BS + '": ' + BS + '"Gentile' + BS * 2 + "nMario Rossi" + BS + '"}"}' + "\n```",
+    "{'body': '{\"note\": \"caff" + BS * 2 + "u00e8" + BS * 2 + "nMario Rossi\"}'}",
+    "<td>Dott.&#xA0Mario Rossi</td>",
+    "<td>Dott.&#160;Mario Rossi</td>",
+    "x " + BS * 2 + "u0020Mario Rossi end",
+    "```json\n" + '{"name": "Dr.' + BS + 'u00a0Mario Rossi"}' + "\n```",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("text", _GLUED, ids=[f"glued-{n}" for n in range(len(_GLUED))])
+def test_a_value_right_after_an_escape_that_ends_in_a_letter_comes_back_exactly(vault, text):
+    """A value found where escapes read as what they stand for, right after one that ends in a letter or a digit as
+    written (`%20`, `%2C`, `\\x20`, a doubled line break, `&#xA0` with no `;`): what precedes the fake begins a word
+    for the restore too, so the text comes back exactly, as it reads and in a tool call's JSON."""
+    from latet.engine.build import build
+    from latet.engine.pipeline import Session
+
+    for value in ("Mario Rossi", NICCOLO):
+        vault.intern("PERSON", EntityClass.NER, value)
+    engine = build(Config(ner="off"), vault).engine
+    session = Session("glued")
+    masked = engine.mask_text(text, SlotKind.TOOL_RESULT, session)
+    assert masked.replacements and masked.text != text
+    assert restore_text(masked.text, engine.restores(session, json_mode=False))[0] == text
+    call = json.dumps({"command": masked.text}, ensure_ascii=False)
+    assert json.loads(restore_text(call, engine.restores(session, json_mode=True))[0])["command"] == text
+
+
+_FUZZ_VALUES = [
+    ("PERSON", EntityClass.NER, NICCOLO), ("PERSON", EntityClass.NER, "Mario Rossi"),
+    ("PERSON", EntityClass.NER, "Anna Maria"), ("PERSON", EntityClass.NER, "Maria Rossi"),
+    ("PERSON", EntityClass.NER, "Rossi Bianchi"), ("PERSON", EntityClass.NER, "Maria D'Angelo"),
+    ("PERSON", EntityClass.NER, "mario.rossi"), ("API_KEY", EntityClass.SECRET, "tok_9fQ2xL7pZ4"),
+    ("EMAIL", EntityClass.PII, "mario.rossi@acme.it"),
+]  # fmt: skip
+_FUZZ_PIECES = [
+    "Niccol", BS + "u00f2", "\N{LATIN SMALL LETTER O WITH GRAVE}", " Ferri", "Ferri", "%20", "%40", "%C3%B2", "+", "=",
+    "&", "?q=", "&#242;", "&ograve;", BS, BS * 2, BS * 3, BS * 4, "n", "u", "x", "c3", BS + "xb2", BS + "303",
+    BS + "262", "mario.rossi", "@acme.it", "acme.it", "Mario", "Rossi", "Anna", "Maria", "Bianchi", " ", " ", "\n", '"',
+    "'", BS + "'", BS + '"', "D", "D'Angelo", "D%27Angelo", "&#39;", "tok_9fQ2xL7pZ4", "IT60X0542811101000000123456",
+    "4539148803436467", "RSSMRA85T10A562S", "+393331234567", "Acme Corp", "Acme", "marc", "luca.neri%40acme.it",
+    "ops@acme.it", BS + "ud83e", BS + "udd8a", "%3D", "%2B", "%2C", ".", ",", "-", "_", "&#64;", "&amp;", BS + "n",
+    BS + "u0020", "&#xA0", "%22",
+]  # fmt: skip
+_FUZZ_FOUND = [
+    "-RSSMRA85T10A562SRSSMRA85T10A562Sops@acme.it" + BS + "n%40mario.rossi+393331234567 Ferrimarcops@acme.it.",
+    "%20mario.rossi %20" + BS + "ud83e%40RSSMRA85T10A562S&ograve; Ferritok_9fQ2xL7pZ4 Acme",
+    "D" + BS + "u0020Acme" + BS + "ud83e" + BS + "262&#39;&#64;-?q=x%3DAcme Corp\"" + BS * 4,
+    BS + "nIT60X0542811101000000123456uAnna'&#39;.%2Bmario.rossi _%C3%B2" + BS + "ud83e,+",
+    "x" + BS + "udd8a,%40mario.rossi=mario.rossi-RSSMRA85T10A562Sops@acme.it&#39;marc+",
+    "%2BAcme Corp%20@acme.itops@acme.it",
+    "NiccolD%27Angelo%20Acme Corp",
+    "Acme Corp=&ops@acme.it%2Bmario.rossi",
+    "RSSMRA85T10A562Sluca.neri%40acme.it" + BS + "Niccol%2BAcme Corp" + BS + "u0020D%27AngeloAcme Corpacme.it"
+    "IT60X0542811101000000123456mario.rossi",
+    "Mariomarc%40&%2B" + BS + "'" + BS + "'_RSSMRA85T10A562S%2BAcme Corp%2C@acme.it",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "policies",
+    [{}, {"EMAIL": Policy.ALLOW}, {"PERSON": Policy.ALLOW, "PHONE": Policy.ALLOW}, {"DOMAIN": Policy.ALLOW}],
+    ids=["none", "email-allow", "person-phone-allow", "domain-allow"],
+)
+def test_masked_texts_of_escapes_come_back_exactly(policies):
+    """Texts of escapes, values and signs (the reviewers' fuzz, its cases that came back wrong first): whatever is
+    masked comes back exactly, as it is and in a tool call's JSON."""
+    import random
+
+    from latet.engine.detectors.pii import PiiDetector
+    from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, Term, TermsDetector
+    from latet.engine.masker import Masker
+
+    rng = random.Random(9917)
+    texts = _FUZZ_FOUND + ["".join(rng.choice(_FUZZ_PIECES) for _ in range(rng.randrange(1, 16))) for _ in range(300)]
+    for text in texts:
+        known = Vault(ROOT_KEY)
+        for value in _FUZZ_VALUES:
+            known.intern(*value)
+        detectors = [
+            PiiDetector(),
+            TermsDetector([Term("Acme Corp", "CLIENT"), Term("Rossi Bianchi", "CLIENT")]),
+            IdentityDetector(LocalIdentity(username="marc", full_name="Marco Ferretti")),
+        ]
+        done = Masker(known, detectors, policies=policies).mask(text, SlotKind.TOOL_RESULT)
+        if any(r.policy == Policy.REDACT for r in done.replacements):
+            continue
+        assert restore_text(done.text, restores_for(known.entities()))[0] == text, (text, done.text)
+        as_json = json.dumps(done.text, ensure_ascii=False)
+        back = restore_text(as_json, restores_for(known.entities(), json_mode=True))[0]
+        assert json.loads(back) == text, (text, done.text)
+
+
+@pytest.mark.parametrize(
+    ("policies", "text", "masked_value"),
+    [
+        ({"EMAIL": Policy.ALLOW}, "pec: RSSMRA85T10A562S@pec.it, again: RSSMRA85T10A562S%40pec.it", "RSSMRA85T10A562S"),
+        ({"EMAIL": Policy.ALLOW}, "pec RSSMRA85T10A562S@pec.it; link https://x.example/?to=RSSMRA85T10A562S%40pec.it&y=1",
+         "RSSMRA85T10A562S"),
+        ({"PHONE": Policy.ALLOW}, "tel +393331234567; iban IT60X0542811101000000123456%2B393331234567 end",
+         "IT60X0542811101000000123456"),
+    ],
+    ids=["again-in-escapes", "in-a-link", "phone-let-through"],
+)  # fmt: skip
+def test_a_repeat_of_a_type_let_through_found_in_escapes_never_frees_another(vault, policies, text, masked_value):
+    """A value let through, repeated where escapes read as what they stand for (``Masker._repeats``), never names what
+    it merges with: the fiscal code 0.9.8 masked in the address written `%40` is masked still."""
+    from latet.engine.build import build_masker
+
+    masker, _ = build_masker(Config(ner="off", policies=policies), vault)
+    out = masker.mask(text, SlotKind.TOOL_RESULT)
+    assert masked_value in {r.original for r in out.replacements}
+    assert text.count(masked_value) > out.text.count(masked_value)
+
+
+def _fake_of_a_link(vault: Vault) -> tuple[str, str]:
+    """The fake `Mario%20Rossi` gets in a link, with ``vault``'s values, and how it reads."""
+    from urllib.parse import unquote
+
+    from latet.engine.masker import Masker
+
+    masked = Masker(vault, []).mask("GET /people?q=Mario%20Rossi&x=1", SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    return replacement.replacement, unquote(replacement.replacement)
+
+
+def test_a_fake_written_in_escapes_never_reads_as_a_value_the_vault_knows():
+    """The fake drawn for a value kept as written (`Mario%20Rossi`) is written in its escapes (`Nicola%20Greco`): it
+    never reads as a value the vault knows (a real Nicola Greco) nor as another value's fake, which the model's
+    `Nicola Greco` would bring back as another person."""
+    from latet.engine.vault import Entity
+
+    first = Vault(ROOT_KEY)
+    first.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    _, reading = _fake_of_a_link(first)  # what it would read as, with nothing else in the vault
+    knows = Vault(ROOT_KEY)
+    knows.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    knows.intern("PERSON", EntityClass.NER, reading)  # a real person of that name
+    assert _fake_of_a_link(knows)[1] != reading
+    taken = Vault(ROOT_KEY, [Entity("e1", "PERSON", EntityClass.NER, "Luca Bianchi", reading, 0, 0.0, "ner")])
+    taken.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    fake, other = _fake_of_a_link(taken)
+    assert other != reading and taken.by_surrogate(reading).original == "Luca Bianchi"
+    assert taken.by_surrogate(other) is taken.by_original("Mario%20Rossi")  # its reading is a fake of its own
+    assert taken.is_surrogate(fake) and taken.is_surrogate(other)
+
+
+def test_a_value_kept_as_written_comes_back_as_it_reads_where_the_model_writes_its_fake_so(vault):
+    """The model sees `Nicola%20Greco` for `Mario%20Rossi` and writes `Nicola Greco` in prose or a tool call: it gets
+    `Mario Rossi` back, as 0.9.8 gave it, each name of it alone too; the fake as seen gives the value as written."""
+    from urllib.parse import unquote
+
+    from latet.engine.build import build
+    from latet.engine.pipeline import Session
+
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    engine = build(Config(ner="off"), vault).engine
+    session = Session("forms")
+    masked = engine.mask_text("GET /people?q=Mario%20Rossi&x=1", SlotKind.TOOL_RESULT, session)
+    fake = masked.replacements[0].replacement
+    plain = unquote(fake)
+    first, last = plain.split()
+    cases = {fake: "Mario%20Rossi", plain: "Mario Rossi", plain.upper(): "MARIO ROSSI", first: "Mario", last: "Rossi"}
+    for written, expected in cases.items():
+        prose = f"I looked up {written} in the CRM."
+        assert (
+            restore_text(prose, engine.restores(session, json_mode=False))[0] == f"I looked up {expected} in the CRM."
+        )
+        call = json.dumps({"name": written}, ensure_ascii=False)
+        assert json.loads(restore_text(call, engine.restores(session, json_mode=True))[0])["name"] == expected
+
+
+@pytest.mark.parametrize(
+    "text", ['```json\n{"owner": "' + AS_JSON + '"}\n```', "<td>Niccol&ograve; Ferri</td>"], ids=["json", "html"]
+)
+def test_a_value_kept_as_written_in_capitals_keeps_its_escapes(vault, text):
+    """The fake in capitals comes back as the value in capitals outside its escapes: `NICCOL\\u00f2 FERRI`, never an
+    escape no reader takes (`\\U00F2`, `&OGRAVE;`)."""
+    from latet.engine.masker import Masker
+
+    vault.intern("PERSON", EntityClass.NER, NICCOLO)
+    masked = Masker(vault, []).mask(text, SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    written = replacement.original
+    capitals = restore_text(replacement.replacement.upper(), restores_for(vault.entities()))[0]
+    assert capitals.replace("FERRI", "Ferri").replace("NICCOL", "Niccol") == written
+
+
+O_GRAVE = "\N{LATIN SMALL LETTER O WITH GRAVE}"
+UNREADABLE = "\N{REPLACEMENT CHARACTER}"
+
+
+@pytest.mark.parametrize(
+    ("written", "reads"),
+    [
+        ("Niccol" + BS + "u00f2", "Niccol" + O_GRAVE), ("Niccol" + BS * 2 + "u00f2", "Niccol" + O_GRAVE),
+        (BS + "ud83e" + BS + "udd8a", "\N{FOX FACE}"), (BS * 2 + "ud83e" + BS * 2 + "udd8a", "\N{FOX FACE}"),
+        (BS + "ud83e x", UNREADABLE + " x"), (BS + "udd8a", UNREADABLE), (BS + "U0001F98A", "\N{FOX FACE}"),
+        (BS + "xc3" + BS + "xb2", O_GRAVE), (BS + "xf2", O_GRAVE), (BS + "xc3!", "\N{LATIN CAPITAL LETTER A WITH TILDE}!"),
+        (BS + "303" + BS + "262", O_GRAVE), ("%C3%B2", O_GRAVE), ("%E2%82%AC", "\N{EURO SIGN}"), ("%40", "@"),
+        ("%C3%41", "\N{LATIN CAPITAL LETTER A WITH TILDE}A"), ("%C3" + BS + "xb2", "\N{LATIN CAPITAL LETTER A WITH TILDE}\N{SUPERSCRIPT TWO}"),
+        ("&#242;", O_GRAVE), ("&#xF2;", O_GRAVE), ("&#242 x", O_GRAVE + " x"), ("&ograve;", O_GRAVE), ("&amp;", "&"),
+        ("&#0;", UNREADABLE), ("&#55357;", UNREADABLE), ("&nosuchname;", None), ("q=Mario+Rossi&x=1", "q=Mario Rossi&x=1"),
+        ("q=a%2Bb+c", "q=a+b c"), ("C++ and a + b", None), ("say " + BS + '"hi' + BS + '"', 'say "hi"'),
+        ("line" + BS + "nbreak", None), (BS * 4 + "q", None), ("https:" + BS + "/" + BS + "/acme.it", "https://acme.it"),
+        ("D:" + BS + "mail" + BS + "100acme.it", None), (BS + "351", None), (BS + "303" + BS + "41", None),
+        ("C:" + BS * 3 + "u00c9milie", "C:" + BS * 2 + "\N{LATIN CAPITAL LETTER E WITH ACUTE}milie"),
+        (BS * 4 + "u00c9", "\N{LATIN CAPITAL LETTER E WITH ACUTE}"), (BS * 5 + "'x", BS * 4 + "'x"),
+    ],
+)  # fmt: skip
+def test_escapes_read_as_what_they_stand_for(written, reads):
+    """Each escape reads as the character it stands for: halves of a character as one, bytes as UTF-8 where they are
+    and one character each elsewhere. A text whose escapes are of white space alone is not read so: blanked out
+    (``escapes``), it is read already."""
+    from latet.engine.escapes import decoded
+
+    found = decoded(written)
+    assert (found.text if found is not None else None) == reads
+
+
+def test_what_escapes_read_is_placed_where_they_are_written():
+    import random
+
+    from latet.engine.escapes import decoded
+
+    pieces = [
+        "a", "b", " ", BS, BS * 2, "u", "x", "U", "00f2", "d83e", "dd8a", "c3", "b2", "303", "262", "%", "C3", "B2",
+        "41", "&", "#", "242", ";", "ograve", "amp", "=", "+", "n", '"', "/", O_GRAVE, "\N{FOX FACE}",
+    ]  # fmt: skip
+    rng = random.Random(31)
+    seen = 0
+    for _ in range(3000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randrange(1, 16)))
+        found = decoded(text)
+        if found is None:
+            continue
+        seen += 1
+        assert found.read(0, len(text)) == found.text
+        for start in range(len(found.text)):
+            for end in range(start + 1, min(len(found.text), start + 4) + 1):
+                written = found.written(start, end)
+                assert found.read(*written) == found.text[start:end], (text, start, end)
+    assert seen > 300
+
+
+# 2 MB of one unit repeated: escapes of each kind, dense; runs of backslashes, of signs and of escapes left unfinished.
+_DENSE = {
+    "json": BS + "u00e9", "doubled": BS * 2 + "u00e9", "halves": BS + "ud83e" + BS + "udd8a",
+    "bytes": BS + "xc3" + BS + "xa9", "octal": BS + "303" + BS + "251", "url": "%C3%A9", "url-ascii": "%41",
+    "html": "&#233;", "html-hex": "&#xE9;", "html-named": "&eacute;", "form": "q=a+b&", "breaks": BS + "n",
+    "quotes": BS + '"', "backslashes": BS, "backslashes-u": BS * 999 + "u00", "backslashes-x": BS * 999 + "x",
+    "backslashes-octal": BS * 998 + "30", "percents": "%", "ampersands": "&#", "names": "&" + "a" * 40,
+    "pluses": "=" + "+" * 999, "equals": "=" + "a" * 999,
+}  # fmt: skip
+
+
+@pytest.mark.timing
+@pytest.mark.parametrize("unit", list(_DENSE))
+def test_the_reading_of_what_escapes_stand_for_takes_time_in_proportion_to_the_text(vault, unit):
+    """2 MB dense with escapes of each kind, and runs of backslashes, signs and escapes left unfinished: each is read
+    once, its known values found in a time in proportion to its length."""
+    import time
+
+    from latet.engine.escapes import decoded
+    from latet.engine.masker import Masker
+
+    text = _DENSE[unit] * (2_000_000 // len(_DENSE[unit]))
+    vault.intern("PERSON", EntityClass.NER, NICCOLO)
+    masker = Masker(vault, [])
+    began = time.perf_counter()
+    decoded(text)
+    masker.known_in(text)
+    took = time.perf_counter() - began
+    assert took < 3.0, took  # generous for CI; well under a second locally
+
+
+# --- round 3: a fake's reading kept apart from the text, sent back, or a real value; a plus that is a sign ----------
+
+_LINK = "GET /people?q=Mario%20Rossi&x=1"
+
+
+def _reading_of_the_link_fake() -> str:
+    """How the fake `Mario%20Rossi` gets in a link reads, the vault knowing Mario Rossi alone."""
+    vault = Vault(ROOT_KEY)
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    return _fake_of_a_link(vault)[1]
+
+
+def _engine_knowing_mario():
+    from latet.engine.build import build
+
+    vault = Vault(ROOT_KEY)
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    return vault, build(Config(ner="off"), vault)
+
+
+def test_a_fake_written_in_escapes_never_reads_as_a_name_the_same_text_holds():
+    """`Mario%20Rossi` in a link, and a reviewer named in prose as its fake would read (`Nicola Greco`, the name model
+    off): the fake is drawn again, as a plain fake is where the text holds it, so the model's `Nicola Greco` stays the
+    reviewer, never Mario Rossi."""
+    from urllib.parse import unquote
+
+    from latet.engine.pipeline import Session
+
+    reading = _reading_of_the_link_fake()
+    _, built = _engine_knowing_mario()
+    session = Session("same text")
+    masked = built.engine.mask_text(f"{_LINK}\nReviewed by {reading}.", SlotKind.TOOL_RESULT, session)
+    [replacement] = masked.replacements
+    assert replacement.original == "Mario%20Rossi" and unquote(replacement.replacement) != reading
+    answer = f"{reading} reviewed the record."
+    assert restore_text(answer, built.engine.restores(session, json_mode=False))[0] == answer
+
+
+def test_a_name_that_reads_as_a_fake_written_in_escapes_is_masked_in_a_later_text():
+    """After `Mario%20Rossi` went out as `Nicola%20Greco`, a prompt that names a Nicola Greco (the name model off) is
+    masked as a fake sent back is (0.9.8's echo): the model's answer about that person comes back as Nicola Greco,
+    never as Mario Rossi."""
+    from urllib.parse import unquote
+
+    from latet.engine.pipeline import Session
+
+    _, built = _engine_knowing_mario()
+    session = Session("later")
+    link = built.engine.mask_text(_LINK, SlotKind.TOOL_RESULT, session)
+    reading = unquote(link.replacements[0].replacement)
+    prompt = built.engine.mask_text(f"Please write to {reading} about the order.", SlotKind.USER_TEXT, session)
+    assert reading not in prompt.text
+    [echo] = prompt.replacements
+    answer = f"Dear {echo.replacement}, about your order"
+    assert (
+        restore_text(answer, built.engine.restores(session, json_mode=False))[0] == f"Dear {reading}, about your order"
+    )
+
+
+def test_a_real_value_that_reads_as_a_fake_written_in_escapes_wins_over_the_reading():
+    """A real Nicola Greco learnt after `Mario%20Rossi` went out as `Nicola%20Greco` (a client of yours, which the final
+    check blocks on, as it does not on a name the name model found): the real value wins over the fake's reading. The
+    plugin's masking, which leaves fakes as they are, masks it; the final check finds it in clear; a text sent before
+    with it in clear is masked when it is sent again (the conversation's history)."""
+    from urllib.parse import unquote
+
+    from latet.engine.pipeline import Session
+
+    reading = _reading_of_the_link_fake()
+    vault, built = _engine_knowing_mario()
+    session = Session("real")
+    notes = f"Notes: {reading} called about the invoice."
+    assert built.engine.mask_text(notes, SlotKind.TOOL_RESULT, session).text == notes  # nobody knows it yet
+    link = built.engine.mask_text(_LINK, SlotKind.TOOL_RESULT, session)
+    assert unquote(link.replacements[0].replacement) == reading
+    vault.intern("CLIENT", EntityClass.CUSTOM, reading, rule="term:client")  # a real one, from another text
+    assert reading not in built.engine.mask_text(notes, SlotKind.TOOL_RESULT, session).text
+    plugin = built.engine.mask_text(notes, SlotKind.TOOL_RESULT, Session("plugin"), keep_surrogates=True)
+    assert reading not in plugin.text
+    assert [s.etype for s in built.engine.masker.known_in(notes)] == ["CLIENT"]
+    leaks = built.verifier.verify([(notes, SlotKind.TOOL_RESULT, False)], "s").leaks
+    assert [leak.etype for leak in leaks] == ["CLIENT"]
+
+
+@pytest.mark.parametrize(
+    ("etype", "eclass", "value"),
+    [
+        ("PHONE", EntityClass.PII, "+393331234567"),
+        ("EMAIL", EntityClass.PII, "mario.rossi+crm@acme.it"),
+        ("API_KEY", EntityClass.SECRET, "sk_live_ab+cd/ef9QxLm2Zt"),
+    ],
+    ids=["phone", "sub-address", "token"],
+)
+def test_a_plus_in_a_value_found_as_it_is_written_is_a_sign(vault, etype, eclass, value):
+    """A phone's `+39`, a sub-address's `+crm`, a token's `+`: a value found as it is written reads as it is written,
+    never as a form's value with a space; its fake has no other reading, and restores as 0.9.8's did."""
+    from urllib.parse import quote
+
+    from latet.engine.vault import fake_reading
+
+    entity = vault.intern(etype, eclass, value, rule="test")
+    fake = entity.surrogate
+    assert "+" in fake and fake_reading(entity) is None
+    assert not vault.is_surrogate(fake.replace("+", " ")) and vault.by_surrogate(fake.replace("+", " ")) is None
+    expected = {fake, fake.upper(), quote(fake, safe="")} if etype == "EMAIL" else {fake}
+    assert {r.pattern for r in restores_for([entity])} == expected
+
+
+def test_a_name_written_in_a_form_with_a_plus_keeps_its_reading(vault):
+    """`Mario+Rossi` in a query is a value written in a form's escapes: its fake (`Nicola+Greco`) reads with a space,
+    kept apart and given back as the value reads."""
+    from latet.engine.masker import Masker
+    from latet.engine.vault import fake_reading
+
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    masked = Masker(vault, []).mask("GET /people?q=Mario+Rossi&x=1", SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    entity = vault.by_original("Mario+Rossi")
+    assert replacement.replacement == entity.surrogate and "+" in entity.surrogate
+    reading = entity.surrogate.replace("+", " ")
+    assert fake_reading(entity) == reading and vault.is_surrogate(reading)
+    assert restore_text(f"call {reading} now", restores_for([entity]))[0] == "call Mario Rossi now"

@@ -266,11 +266,29 @@ también lo que busca la comprobación final en las peticiones salientes.
 Un valor se vuelve a reconocer a partir de cuatro caracteres, el nombre de una persona a partir de
 tres (*Ugo*, *Ada*), y solo tal como está escrito: *Ugo* no es *ugo*, ni parte de *Ugolino*.
 
+Un valor también se encuentra donde está escrito con secuencias de escape: como `\u00f2` o
+`\\u00f2` en un JSON que Latet no lee como documento (un bloque de código, líneas JSON, un documento
+guardado en una cadena), como bytes en un registro (`\xc3\xb2`) o en una ruta que git pone entre
+comillas (`\303\262`), codificado en una URL (`%C3%B2`, `%20`, o `+` en una consulta o un
+formulario), o como referencia de carácter HTML (`&#242;`, `&ograve;`). Lo mismo vale para tus
+términos y la identidad de este equipo y, donde una secuencia escribe un carácter, para los datos
+personales y los valores de tus reconocedores, así que también se encuentra una dirección escrita
+`mario.rossi%40acme.it` (un secreto o un valor de una estructura solo se encuentra tal como está
+escrito). Un valor encontrado así se guarda tal como está escrito, como un valor propio con su
+propio valor ficticio, escrito con las mismas secuencias donde forman parte del texto:
+`Paolo%20Fontana` en un enlace, `\'` en una cadena entre comillas simples. Al agente le vuelve el
+valor exactamente como estaba escrito, así que un enlace sigue siendo un enlace y una edición vuelve
+a encontrar su línea. Donde el modelo escribe el valor ficticio tal como se lee, `Paolo Fontana`, al
+agente le vuelve el valor tal como se lee.
+
 ## Cuando dos detectores encuentran el mismo texto
 
 Las coincidencias que se solapan se unen en una sola que las abarca todas, así que un valor nunca se
 sustituye a medias. El tipo más fuerte da nombre al resultado: primero los secretos, después tus
-términos y la identidad de este equipo, y después los datos personales.
+términos y la identidad de este equipo, y después los datos personales. Tus términos y los valores
+conocidos que se solapan entre sí también se encuentran todos: si se conocen tanto *Anna Maria* como
+*Maria Rossi*, el nombre *Anna Maria Rossi* se enmascara entero. Los solapamientos se buscan hasta un
+límite en cada texto: más allá de él, el resto del texto se enmascara como antes, un valor tras otro.
 
 Si falla cualquier detector distinto del de datos personales y del modelo local de nombres (secretos,
 tus términos, identidad, valores conocidos), el enmascaramiento falla y la petición se bloquea: nada

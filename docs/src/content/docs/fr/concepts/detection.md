@@ -270,11 +270,30 @@ Une valeur est reconnue de nouveau à partir de quatre caractères, le nom d'une
 trois (*Ugo*, *Ada*), et seulement telle qu'elle est écrite : *Ugo* n'est pas *ugo*, ni une partie
 d'*Ugolino*.
 
+Une valeur est aussi trouvée là où elle est écrite avec des séquences d'échappement : `\u00f2` ou
+`\\u00f2` dans du JSON que Latet ne lit pas comme un document (un bloc de code, des lignes JSON, un
+document contenu dans une chaîne), des octets dans un journal (`\xc3\xb2`) ou dans un chemin que git
+met entre guillemets (`\303\262`), un encodage d'URL (`%C3%B2`, `%20`, ou `+` dans une requête ou un
+formulaire), ou une référence de caractère HTML (`&#242;`, `&ograve;`). Il en va de même pour vos
+termes et l'identité de cette machine et, là où une séquence écrit un caractère, pour les données
+personnelles et les valeurs de vos reconnaisseurs : une adresse écrite `mario.rossi%40acme.it` est
+donc trouvée elle aussi (un secret ou une valeur d'une structure n'est trouvé que tel qu'il est
+écrit). Une valeur trouvée ainsi est conservée telle qu'elle est écrite, comme une valeur à part
+avec sa propre valeur factice, écrite avec les mêmes séquences là où elles font partie du texte :
+`Paolo%20Fontana` dans un lien, `\'` dans une chaîne entre apostrophes. L'agent récupère la valeur
+exactement telle qu'elle était écrite : un lien reste un lien, et une modification retrouve sa
+ligne. Là où le modèle écrit la valeur factice telle qu'elle se lit, `Paolo Fontana`, l'agent récupère
+la valeur telle qu'elle se lit.
+
 ## Quand deux détecteurs trouvent le même texte
 
 Les correspondances qui se chevauchent sont fusionnées en une seule, qui les couvre toutes : une
 valeur n'est donc jamais remplacée à moitié. Le type le plus fort donne son nom au résultat : d'abord
-les secrets, puis vos termes et l'identité de cette machine, puis les données personnelles.
+les secrets, puis vos termes et l'identité de cette machine, puis les données personnelles. Vos termes
+et les valeurs connues qui se chevauchent sont aussi trouvés chacun : si *Anna Maria* et *Maria
+Rossi* sont toutes deux connues, le nom *Anna Maria Rossi* est masqué en entier. Les chevauchements
+sont cherchés jusqu'à une limite dans chaque texte : au-delà, le reste du texte est masqué comme
+avant, une valeur après l'autre.
 
 Si un détecteur autre que celui des données personnelles et le modèle local de noms échoue (secrets,
 vos termes, identité, valeurs connues), le masquage échoue et la requête est bloquée : rien ne part
