@@ -47,6 +47,10 @@ def test_owned_command_fixture_keeps_fallback_home_private_and_agent_markers_abs
         ("people", "remove", "Emily Carter", "--yes"),
         ("people", "code", "Emily Carter"),
         ("keys", "rotate", "Billing CI", "--yes"),
+        ("keys", "rotate", "Billing CI", "--token", "t_aaaaaaaaaa", "--yes"),
+        ("keys", "add-token", "Billing CI", "logs", "--mask"),
+        ("keys", "tokens", "Billing CI", "--revoke", "t_aaaaaaaaaa", "--yes"),
+        ("keys", "limit", "Billing CI", "5000"),
         ("admin-token", "issue"),
         ("config", "set", "history", "metadata"),
         ("config", "--key", "Billing CI", "set", "profile", "max"),
@@ -83,6 +87,13 @@ def test_agents_can_read_nonsecret_administration(admin, monkeypatch, command):
     [
         ("admin-token", "revoke", "../identities/u_emilycarte"),
         ("people", "tokens", "Emily Carter", "--revoke", "t_abcdefghij&token=t_x"),
+        ("keys", "tokens", "Billing CI", "--revoke", "t_abcdefghij&token=t_x"),
+        ("keys", "tokens", "Billing CI", "--revoke", "latet_key_" + "z" * 43),
+        ("keys", "rotate", "Billing CI", "--token", "t_abcdefghij&token=t_x"),
+        ("keys", "rotate", "Billing CI", "--token", "latet_key_" + "z" * 43),
+        ("keys", "add-token", "Billing CI", "--scan", "latet_key_" + "z" * 43),
+        ("keys", "add-token", "latet_key_" + "z" * 43, "logs", "--scan"),
+        ("keys", "limit", "latet_key_" + "z" * 43, "5000"),
         ("admin-token", "revoke", "latet_adm_" + "z" * 43),
         ("config", "--key", "latet_key_" + "z" * 43, "get"),
     ],
@@ -182,6 +193,39 @@ def test_admin_paths_refuse_traversal_and_embedded_queries(computer, monkeypatch
     with pytest.raises(typer.Exit) as stopped:
         server.admin_call("GET", path)
     assert getattr(stopped.value, "exit_code", None) == 2
+
+
+def test_admin_call_reads_within_the_time_it_is_given(computer, monkeypatch):
+    """A call may wait longer for the server's answer than the 10 s read and the 60 s in all of every other (a key's
+    first forget after an upgrade, review 11b's N5): the client reads within what it is given."""
+    import httpx
+
+    from latet.cli import server
+
+    monkeypatch.setenv("LATET_SERVER_ADMIN_TOKEN", "latet_adm_" + "r" * 43)
+    monkeypatch.setenv("LATET_SERVER_URL", URL)
+    monkeypatch.setattr("latet.server.connection.server_target", lambda *args, **kwargs: (URL, None))
+    monkeypatch.setattr(server, "_target", {"server": URL, "fingerprint": None, "token_file": None})
+    waits: list[tuple[str, float]] = []
+
+    class Client:
+        def __init__(self, *args, timeout=10.0, **kwargs):
+            waits.append(("read", timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def request(self, *args, deadline=60.0, **kwargs):
+            waits.append(("in all", deadline))
+            return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr("latet.server.client.ServerClient", Client)
+    assert server.admin_call("GET", "status") == {"ok": True}
+    assert server.admin_call("GET", "status", timeout=300.0, deadline=300.0) == {"ok": True}
+    assert waits == [("read", 10.0), ("in all", 60.0), ("read", 300.0), ("in all", 300.0)]
 
 
 def test_terminal_confirmation_even_with_yes(admin, monkeypatch):
@@ -368,7 +412,13 @@ def test_token_file_record_bound_to_server(computer, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "command", [("keys", "add", "Billing CI"), ("keys", "rotate", "Billing CI", "--yes"), ("admin-token", "issue")]
+    "command",
+    [
+        ("keys", "add", "Billing CI"),
+        ("keys", "rotate", "Billing CI", "--yes"),
+        ("keys", "add-token", "Billing CI", "logs", "--mask", "--unmask"),
+        ("admin-token", "issue"),
+    ],
 )
 def test_out_keeps_secret_out_of_output(admin, computer, monkeypatch, command):
     from latet.storage import folders
@@ -1035,8 +1085,8 @@ def test_write_timeout_says_check_list_and_is_not_retried(admin, monkeypatch):
 
     monkeypatch.setattr("latet.cli.server.admin_call", answer)
     done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
-    assert done.exit_code == 1 and "may have made" in done.output and "keys list" in done.output
-    assert len(writes) == 1
+    assert done.exit_code == 1 and "may have made" in done.output and "keys tokens u_billingci2" in done.output
+    assert len(writes) == 1  # a rotation changes a token: the key's tokens are what to check
 
 
 def test_status_does_not_fetch_answer_address(admin, monkeypatch):
@@ -1060,6 +1110,14 @@ BILLING = {"id": "u_billingci2", "name": "Billing CI", "email": None, "kind": "k
            "disabled": False, "created": 0, "last_seen": None, "source": "local", "tokens": 0}  # fmt: skip
 
 
+EVERY = ["mask", "scan", "unmask"]
+
+
+def _a_token(token_id, name, permissions, used=None, agents=False):
+    return {"id": token_id, "label": name, "name": name, "created": 1_790_000_000, "last_used": used,
+            "tampered": False, "permissions": permissions, "agents": agents}  # fmt: skip
+
+
 class Admin:
     """The administration API, as Ruling 1 says it answers: what was asked, and the answers."""
 
@@ -1067,15 +1125,87 @@ class Admin:
         from latet.server.shared import SETTING_KEYS
 
         self.calls = []
+        self.tokens = [_a_token("t_aaaaaaaaaa", "key", EVERY, agents=True)]  # Billing CI's, as the server lists them
+        self.secrets = []  # the secrets it issued to Billing CI, in order
         dumped = Config().model_dump(mode="json")
         self.shared = {key: dumped[key] for key in SETTING_KEYS}  # the settings the server shares
         self.kept = {}  # the rules for everyone an earlier version kept among them
         self.own = Config().model_dump(mode="json")  # Billing CI's: the shared ones with its own on top
         self.etag = "e1"
+        self.limit = None  # Billing CI's own limit of values in its vault; None: the server's
+        self.values = 0  # the values its vault holds
+        self.vault: set[str] = set()  # the values its vault holds, for a forget
+        self.forget_waits: list[tuple[float | None, float | None]] = []  # each forget's read timeout and deadline
+
+    def _secret(self):
+        """A new secret for Billing CI, one letter for each issued."""
+        self.secrets.append("latet_key_" + chr(ord("b") + len(self.secrets)) * 43)
+        return self.secrets[-1]
+
+    def _token_made(self, name, permissions, agents=False):
+        made = _a_token(f"t_{chr(ord('b') + len(self.secrets)) * 10}", name, permissions, agents=agents)
+        self.tokens.append(made)
+        return made
+
+    def _billing(self, method, path, body):
+        """Billing CI's tokens, as the server answers them: the permissions as Latet reads them (mask brings scan),
+        addresses only for a token that serves agents and holds mask and unmask (the key's first: an added token has
+        none, Ruling T13b), a rotation that names its token when the key has several, and a token that is none of the
+        key's is none."""
+        if (method, path) == ("GET", "identities/u_billingci2/tokens"):
+            return {"tokens": json.loads(json.dumps(self.tokens))}
+        if (method, path) == ("POST", "identities/u_billingci2/tokens"):
+            assert sorted(body) == ["name", "permissions"] and body["permissions"], body
+            granted = sorted({*body["permissions"], *(["scan"] if "mask" in body["permissions"] else [])})
+            secret, made = self._secret(), self._token_made(body["name"], granted)
+            return {"token": {key: made[key] for key in ("id", "name", "permissions", "created")}, "key": secret}
+        if method == "DELETE" and path.startswith("identities/u_billingci2/tokens?token="):
+            gone = [t for t in self.tokens if t["id"] == path.rsplit("=", 1)[1]]
+            self.tokens = [t for t in self.tokens if t not in gone]
+            return {"revoked": len(gone)}
+        assert (method, path) == ("POST", "identities/u_billingci2/rotate"), (method, path)
+        named = (body or {}).get("token")
+        if named is None and len(self.tokens) > 1:
+            raise ServerError(409, f"this key has {len(self.tokens)} tokens: name the one to rotate")
+        old = next((t for t in self.tokens if t["id"] == named), None) if named else next(iter(self.tokens), None)
+        if named and old is None:
+            raise ServerError(404, "there is no such token of this API key")
+        name, granted, agents = (old["name"], old["permissions"], old["agents"]) if old else ("key", EVERY, True)
+        self.tokens = [t for t in self.tokens if t is not old]
+        secret = self._secret()
+        made = self._token_made(name, granted, agents)
+        return {"key": secret, "name": name, "permissions": granted, "token": made["id"]} | (
+            self._addresses(secret) if agents and {"mask", "unmask"} <= set(granted) else {}
+        )
+
+    def _limited(self, body):
+        """Billing CI's vault limit set, as the server answers: the range kept, the values its vault holds said with it."""
+        assert set(body) == {"vault_limit"}, body
+        limit = body["vault_limit"]
+        if limit is not None and (type(limit) is not int or not 1000 <= limit <= 100_000_000):
+            raise ServerError(
+                400, "vault_limit is a whole number from 1000 to 100000000 values, or null for the server's limit"
+            )
+        self.limit = limit
+        return {"identity": {**BILLING, "vault_limit": limit, "vault_values": self.values}}
+
+    @staticmethod
+    def _addresses(secret):
+        base = f"{URL}/u/{route_key(secret)}"
+        return {"base": base, "anthropic": f"{base}/anthropic", "openai": f"{base}/openai/v1"}
 
     def __call__(self, method, path, body=None, **kwargs):
         path = _path(path, kwargs)
         self.calls.append((method, path, body))
+        if path.startswith(("identities/u_billingci2/tokens", "identities/u_billingci2/rotate")):
+            return self._billing(method, path, body)
+        if (method, path) == ("POST", "identities/u_billingci2/forget"):
+            assert set(body) == {"values"} and 1 <= len(body["values"]) <= 1000, body
+            self.forget_waits.append((kwargs.get("timeout"), kwargs.get("deadline")))
+            asked = set(body["values"])
+            gone = asked & self.vault
+            self.vault -= gone
+            return {"forgotten": len(gone), "unknown": len(asked) - len(gone)}
         if path == "identities/u_billingci2/settings":
             if method == "GET":
                 return {"settings": json.loads(json.dumps(self.own)), "etag": "k1"}
@@ -1089,6 +1219,8 @@ class Admin:
             if body["kind"] == "key":
                 return {"identity": BILLING, "key": KEY}
             return {"identity": {**EMILY, "name": body["name"]}, "code": "code_1234"}
+        if method == "PATCH" and path == "identities/u_billingci2" and "vault_limit" in body:
+            return self._limited(body)
         if method == "PATCH":
             return {"identity": {**EMILY, **body}}
         if path.endswith("/rotate"):
@@ -1139,7 +1271,7 @@ class Admin:
         if (method, path) == ("GET", "status"):
             return {
                 "url": URL, "version": "1.0.0", "identities": {"people": 1, "keys": 1, "enabled": 2},
-                "vault": {"limit": 200000, "near": [{"id": "u_billingci2", "values": 181000}]},
+                "vault": {"limit": 200000, "near": [{"id": "u_billingci2", "values": 181000, "limit": 200000}]},
                 "audit": {"chain": "ok"}, "edition": [],
             }  # fmt: skip
         return {"ok": True}
@@ -1186,6 +1318,526 @@ def test_an_api_key_is_shown_once_with_the_programs_variables(admin):
     assert "latet server config --key u_billingci2" in done.output
     rotated = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
     assert rotated.exit_code == 0 and "within seconds" in rotated.output
+
+
+BILLING_TOKENS = "identities/u_billingci2/tokens"
+BILLING_ROTATE = "identities/u_billingci2/rotate"
+BILLING_FORGET = "identities/u_billingci2/forget"
+
+
+def test_a_mask_only_token_is_shown_once_and_has_no_address(admin):
+    done = run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_TOKENS, {"name": "logs", "permissions": ["mask"]})
+    [secret] = admin.secrets
+    assert done.output.count(secret) == 1  # once
+    assert "permissions: mask, scan" in done.output  # what the server granted: mask brings scan
+    assert "/u/" not in done.output and "--key-file" not in done.output  # no address, no variables
+    assert "no address" in done.output and "applications API" in done.output
+
+
+def test_a_token_added_with_mask_and_unmask_has_no_address_either(admin):
+    """Ruling T13b: a token added to a key, whatever it may do, calls the applications API alone; agents use the key's
+    first token, whose address its rotation prints."""
+    done = run_cli("server", "keys", "add-token", "Billing CI", "assistant", "--mask", "--unmask")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_TOKENS, {"name": "assistant", "permissions": ["mask", "unmask"]})
+    [secret] = admin.secrets
+    assert secret in done.output and "permissions: mask, scan, unmask" in done.output
+    assert "/u/" not in done.output and "--key-file" not in done.output
+    assert "no address" in done.output and "first token" in done.output
+    assistant = admin.tokens[1]["id"]
+    rotated = run_cli("server", "keys", "rotate", "Billing CI", "--token", assistant, "--yes")
+    assert rotated.exit_code == 0 and "/u/" not in rotated.output and "no address" in rotated.output
+    first = run_cli("server", "keys", "rotate", "Billing CI", "--token", "t_aaaaaaaaaa", "--yes")
+    assert first.exit_code == 0 and f"{URL}/u/{route_key(admin.secrets[-1])}/openai/v1" in first.output
+
+
+def test_a_token_asks_for_the_permissions_in_the_order_latet_names_them(admin):
+    assert run_cli("server", "keys", "add-token", "Billing CI", "audit", "--unmask", "--scan").exit_code == 0
+    assert admin.calls[-1][2] == {"name": "audit", "permissions": ["scan", "unmask"]}
+
+
+def test_a_token_with_no_permission_is_refused_before_anything_is_sent(admin):
+    done = run_cli("server", "keys", "add-token", "Billing CI", "logs")
+    assert done.exit_code == 2
+    assert "give at least one of --scan, --mask, --unmask and --forget" in done.output
+    assert not admin.calls  # not even the key looked up
+
+
+def test_a_token_may_be_given_forget_alone_or_with_others(admin):
+    """Task 11b: forget is a permission of its own, given by name: it brings nothing else, and nothing brings it."""
+    done = run_cli("server", "keys", "add-token", "Billing CI", "erasure", "--forget")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_TOKENS, {"name": "erasure", "permissions": ["forget"]})
+    assert "permissions: forget." in done.output and "/u/" not in done.output and "no address" in done.output
+    both = run_cli("server", "keys", "add-token", "Billing CI", "all", "--mask", "--unmask", "--forget")
+    assert both.exit_code == 0 and admin.calls[-1][2]["permissions"] == ["mask", "unmask", "forget"]
+    assert "permissions: forget, mask, scan, unmask." in both.output and "/u/" not in both.output
+    listed = run_cli("server", "keys", "tokens", "Billing CI")
+    assert "erasure forget last used" in listed.output and "all forget,mask,scan,unmask last used" in listed.output
+
+
+VALUES = [f"customer.{n}@acme.it" for n in range(2500)]
+
+
+def _values_file(folder, lines, *, end="\n", bom=False):
+    path = folder / "values.txt"
+    path.write_bytes(("﻿" if bom else "").encode() + end.join(lines).encode("utf-8") + end.encode())
+    return path
+
+
+def test_values_are_forgotten_from_a_file_a_thousand_at_a_time(admin, computer):
+    """One value a line, each once (a line again, or an empty one, is no value more), in calls of a thousand at most:
+    the counts are summed, and no value is printed."""
+    path = _values_file(computer, [*VALUES[:1500], "", VALUES[0], *VALUES[1500:]], end="\r\n", bom=True)
+    admin.vault = set(VALUES[::2])  # what the key's vault holds
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 0, done.output
+    sent = [body["values"] for method, path_, body in admin.calls if (method, path_) == ("POST", BILLING_FORGET)]
+    assert [len(values) for values in sent] == [1000, 1000, 500]
+    assert [value for values in sent for value in values] == VALUES  # in order, each once, no line ending
+    assert "1250 values forgotten from the vault of Billing CI (u_billingci2); 1250 were not in it." in done.output
+    assert not any(value in done.output for value in VALUES)
+
+
+def test_values_are_never_taken_from_the_command_line(admin):
+    done = run_cli("server", "keys", "forget", "Billing CI", VALUES[0])
+    assert done.exit_code == 2 and not admin.calls
+
+
+def test_forget_asks_first_and_your_terminal_asks_even_with_yes(admin, computer, monkeypatch):
+    path = _values_file(computer, VALUES[:3])
+    assert run_cli("server", "keys", "forget", "Billing CI", "--file", str(path)).exit_code == 2  # no terminal here
+    questions = []
+    monkeypatch.setattr("latet.cli.agent.at_your_terminal", lambda *args, **kw: True)
+    monkeypatch.setattr("typer.confirm", lambda prompt, **kw: questions.append(prompt) or False)
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 1 and not any(method == "POST" for method, _, _ in admin.calls)
+    assert "Forget 3 values" in questions[0] and "Billing CI" in questions[0] and URL in questions[0]
+
+
+def test_forget_reads_the_values_you_type_at_your_terminal(admin, monkeypatch):
+    """At your terminal, without a file: a value a line, an empty line ending them, then the question."""
+    monkeypatch.setattr("latet.cli.agent.at_your_terminal", lambda *args, **kw: True)
+    monkeypatch.setattr("typer.confirm", lambda prompt, **kw: True)
+    admin.vault = {VALUES[1]}
+    done = run_cli("server", "keys", "forget", "Billing CI", input=f"{VALUES[0]}\n{VALUES[1]}\n\n")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_FORGET, {"values": VALUES[:2]})
+    assert "one a line" in done.output and "1 value forgotten" in done.output and "1 was not in it" in done.output
+
+
+def test_forget_without_a_terminal_or_a_file_is_refused(admin):
+    done = run_cli("server", "keys", "forget", "Billing CI", "--yes", input=f"{VALUES[0]}\n")
+    assert done.exit_code == 2 and "--file" in done.output and not admin.calls
+
+
+@pytest.mark.parametrize("marker", ["CLAUDECODE", "CLAUDE_CODE_UNRECOGNIZED", "CODEX_HOME"])
+def test_an_agent_cannot_forget(admin, computer, monkeypatch, marker):
+    """The values are a person's data: an agent is never handed them, whichever of its variables marks it."""
+    monkeypatch.setenv(marker, str(computer / "home" / ".codex") if marker == "CODEX_HOME" else "1")
+    path = _values_file(computer, VALUES[:3])
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 2 and not admin.calls
+    assert not any(value in done.output for value in VALUES[:3])
+
+
+@pytest.mark.parametrize("given", ["missing", "empty", "not-utf8"])
+def test_a_file_that_names_no_value_is_refused_before_anything_is_sent(admin, computer, given):
+    path = computer / "values.txt"
+    if given == "empty":
+        path.write_text("\n\n", "utf-8")
+    elif given == "not-utf8":
+        path.write_bytes(b"caf\xe9@acme.it\n")
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 2 and not admin.calls and "caf" not in done.output
+
+
+def test_a_forget_that_fails_half_way_says_how_many_were_forgotten(admin, computer, monkeypatch):
+    path = _values_file(computer, VALUES)
+    admin.vault = set(VALUES)
+    original = admin.__call__
+    calls = []
+
+    def failing(method, path_, body=None, **kwargs):
+        if (method, path_) == ("POST", BILLING_FORGET):
+            calls.append(len(body["values"]))
+            if len(calls) == 2:
+                raise ServerError(503, "the key's vault could not be changed now, and nothing was forgotten: try again")
+        return original(method, path_, body, **kwargs)
+
+    monkeypatch.setattr("latet.cli.server.admin_call", failing)
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 1 and calls == [1000, 1000]
+    assert "1000 values were forgotten before this" in done.output
+    assert not any(value in done.output for value in VALUES)
+
+
+def test_a_name_that_is_a_secret_is_refused_before_anything_is_sent(admin):
+    secret = "latet_key_" + "z" * 43
+    done = run_cli("server", "keys", "add-token", "Billing CI", secret, "--scan")
+    assert done.exit_code == 2 and secret not in done.output and not admin.calls
+
+
+@pytest.mark.parametrize(
+    "name", ["logs latet_key_" + "z" * 43, "LOGS LATET_BRG_" + "Z" * 43, "ci latet_code_" + "q" * 32]
+)
+def test_a_name_that_holds_a_secret_anywhere_is_refused_before_anything_is_sent(admin, name):
+    """The final review's M3: a name is kept in clear and listed to every administrator; one that holds a secret of
+    Latet's anywhere, whatever its case, is refused as the server refuses it, not only one that begins with it."""
+    done = run_cli("server", "keys", "add-token", "Billing CI", name, "--scan")
+    assert done.exit_code == 2 and name.split()[1] not in done.output and not admin.calls
+
+
+def test_the_server_refusing_a_name_is_said_in_its_words(admin, monkeypatch):
+    said = "name is a text of 100 characters at most, with something left once its invisible characters are taken out"
+    original = admin.__call__
+
+    def refused(method, path, body=None, **kwargs):
+        if method == "POST" and path == "identities/u_billingci2/tokens":
+            raise ServerError(400, said)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr("latet.cli.server.admin_call", refused)
+    done = run_cli("server", "keys", "add-token", "Billing CI", "n" * 101, "--scan")
+    assert done.exit_code == 1 and said in done.output and not admin.secrets
+
+
+def test_a_keys_tokens_are_listed_with_their_names_and_permissions(admin):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    done = run_cli("server", "keys", "tokens", "Billing CI")
+    assert done.exit_code == 0, done.output
+    first, logs = (token["id"] for token in admin.tokens)
+    # The final review's M2: the token that serves the key's agents (its address) is marked, not to be revoked by
+    # mistake for one added with the same permissions.
+    assert f"{first}  key mask,scan,unmask, serves agents (has an address) last used never" in done.output
+    assert f"{logs}  logs mask,scan last used never" in done.output
+    assert all(secret not in done.output for secret in admin.secrets)
+    assert admin.calls[-1] == ("GET", BILLING_TOKENS, None)
+
+
+def test_a_token_that_was_used_says_when_and_one_that_does_not_hold_says_so(admin):
+    admin.tokens = [
+        _a_token("t_aaaaaaaaaa", "key", EVERY, used=1_793_000_000),
+        {**_a_token("t_bbbbbbbbbb", "audit", []), "tampered": True},
+    ]
+    done = run_cli("server", "keys", "tokens", "Billing CI")
+    assert done.exit_code == 0, done.output
+    assert "t_aaaaaaaaaa  key mask,scan,unmask last used 2026-" in done.output
+    assert "t_bbbbbbbbbb  audit none last used never" in done.output
+    assert "its row does not hold" in done.output
+
+
+def test_a_key_with_no_token_says_how_to_give_it_one(admin):
+    admin.tokens = []
+    done = run_cli("server", "keys", "tokens", "Billing CI")
+    assert done.exit_code == 0 and "no token" in done.output and "keys rotate" in done.output
+
+
+def test_a_token_is_revoked_by_its_id_once_you_agree(admin):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    first, logs = (token["id"] for token in admin.tokens)
+    done = run_cli("server", "keys", "tokens", "Billing CI", "--revoke", logs)
+    assert done.exit_code == 2 and "Nothing changed" in done.output  # no terminal of yours here
+    assert all(call[0] != "DELETE" for call in admin.calls)
+    done = run_cli("server", "keys", "tokens", "Billing CI", "--revoke", logs, "--yes")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("DELETE", f"{BILLING_TOKENS}?token={logs}", None)
+    assert [token["id"] for token in admin.tokens] == [first] and logs in done.output
+
+
+def test_revoking_asks_the_question_with_the_tokens_name(admin, monkeypatch):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    questions = []
+    monkeypatch.setattr("latet.cli.agent.at_your_terminal", lambda *args, **kw: True)
+    monkeypatch.setattr("typer.confirm", lambda prompt, **kw: questions.append(prompt) or False)
+    logs = admin.tokens[1]["id"]
+    done = run_cli("server", "keys", "tokens", "Billing CI", "--revoke", logs, "--yes")
+    assert done.exit_code == 1 and not any(call[0] == "DELETE" for call in admin.calls)
+    assert logs in questions[0] and "logs" in questions[0] and URL in questions[0] and "Billing CI" in questions[0]
+
+
+def test_a_token_that_is_not_the_keys_is_not_revoked(admin):
+    done = run_cli("server", "keys", "tokens", "Billing CI", "--revoke", "t_zzzzzzzzzz", "--yes")
+    assert done.exit_code == 1 and "No token of" in done.output and "nothing was revoked" in done.output
+    assert all(call[0] == "GET" for call in admin.calls)
+
+
+def test_a_token_revoked_by_another_administrator_meanwhile_is_not_a_success(admin, monkeypatch):
+    original = admin.__call__
+    monkeypatch.setattr(
+        "latet.cli.server.admin_call",
+        lambda method, path, body=None, **kwargs: (
+            {"revoked": 0} if method == "DELETE" else original(method, path, body, **kwargs)
+        ),
+    )
+    done = run_cli("server", "keys", "tokens", "Billing CI", "--revoke", "t_aaaaaaaaaa", "--yes")
+    assert done.exit_code == 1 and "nothing was revoked" in done.output
+
+
+def test_a_rotation_of_a_key_with_several_tokens_says_the_servers_words(admin):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    before = list(admin.tokens)
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 1
+    assert "this key has 2 tokens: name the one to rotate" in done.output
+    assert admin.tokens == before and len(admin.secrets) == 1  # nothing was rotated
+
+
+def test_a_rotation_names_the_token_with_token(admin):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    first, logs = (token["id"] for token in admin.tokens)
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--token", logs, "--yes")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_ROTATE, {"token": logs})
+    assert admin.tokens[0]["id"] == first and logs not in [t["id"] for t in admin.tokens]
+    assert [(t["name"], t["permissions"]) for t in admin.tokens] == [("key", EVERY), ("logs", ["mask", "scan"])]
+    assert admin.secrets[-1] in done.output and "within seconds" in done.output
+    assert "logs" in done.output and "permissions: mask, scan" in done.output  # what the new secret may do
+    assert "/u/" not in done.output  # a token with no address is given none
+
+
+def test_a_rotation_of_a_full_token_prints_its_permissions_and_the_programs_variables(admin):
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 0, done.output
+    assert "permissions: mask, scan, unmask" in done.output
+    assert f"{URL}/u/{route_key(admin.secrets[-1])}/openai/v1" in done.output
+
+
+def test_a_rotation_names_the_new_token_by_its_id_as_adding_one_does(admin):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    logs = admin.tokens[1]["id"]
+    added = run_cli("server", "keys", "add-token", "Billing CI", "audit", "--scan")
+    assert f"Token audit ({admin.tokens[2]['id']}), permissions: scan." in added.output
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--token", logs, "--yes")
+    assert done.exit_code == 0, done.output
+    new = next(t["id"] for t in admin.tokens if t["name"] == "logs")
+    assert new != logs and f"Token logs ({new}), permissions: mask, scan." in done.output
+
+
+@pytest.mark.parametrize(
+    "command", [("rotate", "Billing CI", "--yes"), ("add-token", "Billing CI", "gw", "--mask", "--unmask")]
+)
+def test_an_answer_with_no_permissions_gets_no_address(admin, monkeypatch, command):
+    """Fail closed: the address of a token is printed when the server says it holds mask and unmask, and for nothing
+    less (a server that says nothing of permissions included)."""
+    original = admin.__call__
+
+    def without(method, path, body=None, **kwargs):
+        answer = original(method, path, body, **kwargs)
+        if method != "POST":
+            return answer
+        answer = {key: value for key, value in answer.items() if key != "permissions"}
+        if isinstance(answer.get("token"), dict):  # an added token says it inside its own object
+            answer["token"] = {key: value for key, value in answer["token"].items() if key != "permissions"}
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", without)
+    done = run_cli("server", "keys", *command)
+    assert done.exit_code == 0, done.output
+    secret = admin.secrets[-1]
+    assert secret in done.output  # the secret is still shown, once
+    assert "/u/" not in done.output and "--key-file" not in done.output
+    assert "permissions: ?" in done.output and "no address" in done.output
+
+
+def test_a_rotation_without_token_names_the_only_token_it_listed(admin):
+    """The key's tokens are listed first, and the one there is named: a token revoked meanwhile is not replaced by a
+    new full one (the server would make one for a key with none, were none named)."""
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-2:] == [("GET", BILLING_TOKENS, None), ("POST", BILLING_ROTATE, {"token": "t_aaaaaaaaaa"})]
+
+
+def test_a_token_revoked_between_the_listing_and_the_rotation_is_not_replaced(admin, monkeypatch):
+    original = admin.__call__
+
+    def meanwhile(method, path, body=None, **kwargs):
+        answer = original(method, path, body, **kwargs)
+        if (method, path) == ("GET", BILLING_TOKENS):
+            admin.tokens.clear()  # another administrator revokes it after it was listed
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", meanwhile)
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 1 and "no such token" in done.output
+    assert admin.tokens == [] and not admin.secrets  # no full token was made in its place
+
+
+def test_a_key_with_no_token_is_rotated_into_a_new_one_with_none_named(admin):
+    admin.tokens = []
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("POST", BILLING_ROTATE, None)
+    assert [t["name"] for t in admin.tokens] == ["key"] and "permissions: mask, scan, unmask" in done.output
+
+
+def test_a_token_that_is_not_in_the_list_is_not_rotated(admin):
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--token", "t_zzzzzzzzzz", "--yes")
+    assert done.exit_code == 1 and "No token of" in done.output and "nothing was rotated" in done.output
+    assert all(call[0] == "GET" for call in admin.calls)
+
+
+def test_the_rotation_asks_which_token_in_its_question(admin, monkeypatch):
+    run_cli("server", "keys", "add-token", "Billing CI", "logs", "--mask")
+    logs = admin.tokens[1]["id"]
+    questions = []
+    monkeypatch.setattr("latet.cli.agent.at_your_terminal", lambda *args, **kw: True)
+    monkeypatch.setattr("typer.confirm", lambda prompt, **kw: questions.append(prompt) or False)
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--token", logs)
+    assert done.exit_code == 1 and not any(call[0] == "POST" and call[1] == BILLING_ROTATE for call in admin.calls)
+    assert logs in questions[0] and "logs" in questions[0] and URL in questions[0]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("keys", "tokens", "Billing CI"),
+        ("keys", "tokens", "Billing CI", "--revoke", "t_aaaaaaaaaa", "--yes"),
+        ("keys", "rotate", "Billing CI", "--token", "t_aaaaaaaaaa", "--yes"),
+    ],
+)
+def test_a_token_name_from_the_server_is_shown_without_its_terminal_controls(admin, command):
+    danger = "name" + "".join(chr(n) for n in (27, 155, 8238, 8232, 133))
+    admin.tokens = [_a_token("t_aaaaaaaaaa", danger, EVERY), _a_token("t_bbbbbbbbbb", "ok", ["scan"])]
+    done = run_cli("server", *command)
+    assert done.exit_code == 0, done.output
+    assert all(chr(n) not in done.output for n in (27, 155, 8238, 8232, 133))
+
+
+@pytest.mark.parametrize("command", [("keys", "tokens", "Billing CI"), ("keys", "rotate", "Billing CI", "--yes")])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"tokens": "t_aaaaaaaaaa"},
+        {"tokens": [1]},
+        {"tokens": {"id": "t_aaaaaaaaaa"}},
+    ],
+)
+def test_a_list_of_tokens_that_is_none_is_said_and_nothing_is_rotated(admin, monkeypatch, command, answer):
+    original = admin.__call__
+    monkeypatch.setattr(
+        "latet.cli.server.admin_call",
+        lambda method, path, body=None, **kwargs: (
+            answer if (method, path) == ("GET", BILLING_TOKENS) else original(method, path, body, **kwargs)
+        ),
+    )
+    done = run_cli("server", *command)
+    assert done.exit_code == 1 and "tokens is not a list of objects" in done.output
+    assert all(call[0] == "GET" for call in admin.calls) and not admin.secrets
+
+
+def test_what_the_server_says_of_a_tokens_permissions_is_shown_only_when_it_is_latets(admin):
+    admin.tokens = [
+        _a_token("t_aaaaaaaaaa", "odd", "mask"),
+        _a_token("t_bbbbbbbbbb", "unknown", ["scan", "delete"]),
+        _a_token("t_cccccccccc", "fine", ["scan", "mask", "scan"]),
+    ]
+    done = run_cli("server", "keys", "tokens", "Billing CI")
+    assert done.exit_code == 0, done.output
+    assert "t_aaaaaaaaaa  odd ? last used never" in done.output
+    assert "t_bbbbbbbbbb  unknown ? last used never" in done.output
+    assert "t_cccccccccc  fine mask,scan last used never" in done.output
+
+
+def test_the_only_token_the_server_lists_with_an_id_that_is_none_is_never_named_or_rotated(admin):
+    admin.tokens = [_a_token("../rotate?x=", "odd", EVERY)]
+    listed = run_cli("server", "keys", "tokens", "Billing CI")
+    assert listed.exit_code == 0 and "?  odd mask,scan,unmask last used never" in listed.output
+    done = run_cli("server", "keys", "rotate", "Billing CI", "--yes")
+    assert done.exit_code == 1 and "not one" in done.output and "nothing was rotated" in done.output
+    assert all(call[0] == "GET" for call in admin.calls) and not admin.secrets
+
+
+def test_a_keys_vault_limit_is_set(admin):
+    done = run_cli("server", "keys", "limit", "Billing CI", "5000")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("PATCH", "identities/u_billingci2", {"vault_limit": 5000})
+    assert "Billing CI" in done.output and "5000 values" in done.output and "within seconds" in done.output
+    assert "holds" not in done.output  # nothing to warn of: its vault is empty
+    assert admin.limit == 5000
+
+
+def test_a_keys_vault_limit_goes_back_to_the_servers(admin):
+    admin.limit = 5000
+    done = run_cli("server", "keys", "limit", "Billing CI", "default")
+    assert done.exit_code == 0, done.output
+    assert admin.calls[-1] == ("PATCH", "identities/u_billingci2", {"vault_limit": None})
+    assert "the server's" in done.output and "within seconds" in done.output
+    assert admin.limit is None
+
+
+def test_a_limit_below_the_values_a_vault_holds_says_it_takes_no_new_one(admin):
+    admin.values = 1500
+    done = run_cli("server", "keys", "limit", "Billing CI", "1000")
+    assert done.exit_code == 0, done.output
+    assert admin.limit == 1000  # accepted, not refused
+    assert "1500 values" in done.output and "no new value" in done.output
+    again = run_cli("server", "keys", "limit", "Billing CI", "2000")  # room again: nothing to warn of
+    assert again.exit_code == 0 and "no new value" not in again.output
+
+
+@pytest.mark.parametrize(
+    "given", ["10", "999", "0", "100000001", "5k", "5000.5", "1_000", "1,000", "", " ", "\u2464\u24ea\u24ea\u24ea", "x"]
+)
+def test_a_vault_limit_outside_its_range_is_refused_before_anything_is_sent(admin, given):
+    done = run_cli("server", "keys", "limit", "Billing CI", given)
+    assert done.exit_code == 2, done.output
+    assert "1000" in done.output and "100000000" in done.output and "default" in done.output  # the range, in words
+    assert not admin.calls and admin.limit is None
+
+
+def test_a_vault_limit_the_server_refuses_is_said_in_the_servers_words(admin, monkeypatch):
+    said = "vault_limit is a whole number from 2000 to 100000000 values, or null for the server's limit"
+    original = admin.__call__
+
+    def refused(method, path, body=None, **kwargs):
+        if method == "PATCH":
+            raise ServerError(400, said)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr("latet.cli.server.admin_call", refused)
+    done = run_cli("server", "keys", "limit", "Billing CI", "1000")
+    assert done.exit_code == 1 and said in done.output
+
+
+def test_a_vault_limit_the_server_does_not_keep_is_not_a_success(admin, monkeypatch):
+    original = admin.__call__
+
+    def other(method, path, body=None, **kwargs):
+        answer = original(method, path, body, **kwargs)
+        if method == "PATCH":
+            answer["identity"]["vault_limit"] = 7000  # not what was asked
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", other)
+    done = run_cli("server", "keys", "limit", "Billing CI", "5000")
+    assert done.exit_code == 1 and "5000" in done.output and "keys list" in done.output
+    assert "within seconds" not in done.output
+
+
+def test_the_key_list_says_the_limit_of_a_key_that_has_one(admin, monkeypatch):
+    plain = run_cli("server", "keys", "list")
+    assert plain.exit_code == 0 and "vault limit" not in plain.output
+    original = admin.__call__
+
+    def limited(method, path, body=None, **kwargs):
+        answer = original(method, path, body, **kwargs)
+        if method == "GET" and answer.get("identities"):
+            answer["identities"] = [{**i, "vault_limit": 5000} for i in answer["identities"]]
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", limited)
+    done = run_cli("server", "keys", "list")
+    assert done.exit_code == 0 and "u_billingci2  Billing CI  enabled  last used never  vault limit 5000" in done.output
+
+
+def test_the_vault_limits_here_are_the_servers():
+    from latet.cli import server
+    from latet.server import identities
+
+    assert server.VAULT_LIMITS == (identities.VAULT_LIMIT_LEAST, identities.VAULT_LIMIT_MOST)
 
 
 def test_the_shared_settings_change_with_the_same_keys_as_latet_config(admin):
@@ -1517,8 +2169,31 @@ def test_the_logs_chain_is_verified(admin, monkeypatch):
 def test_status_says_the_vaults_near_their_limit_and_the_logs_chain(admin):
     done = run_cli("server", "status")
     assert done.exit_code == 0
-    assert "vault: 1 identity near the limit of 200000 values (u_billingci2: 181000)" in done.output
+    assert "vault: 1 identity near its limit (u_billingci2: 181000 of 200000)" in done.output
+    assert "the server's limit is 200000 values" in done.output
     assert "administration log: chain ok" in done.output
+
+
+def test_status_says_each_identitys_own_limit_and_reads_a_server_that_does_not(admin, monkeypatch):
+    original = admin.__call__
+
+    def with_limits(method, path, body=None, **kwargs):
+        answer = original(method, path, body, **kwargs)
+        if (method, path) == ("GET", "status"):
+            answer["vault"]["near"] = [
+                {"id": "u_billingci2", "values": 950, "retired": 0, "limit": 1000},
+                {"id": "k_logsmasker", "values": 100, "retired": 850, "limit": 1000},  # masks and forgets in a loop
+                {"id": "u_aaaaaaaaaa", "values": 190000},  # an earlier server's: no limit said
+            ]
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", with_limits)
+    done = run_cli("server", "status")
+    assert done.exit_code == 0
+    assert (
+        "vault: 3 identities near their limit (u_billingci2: 950 of 1000, k_logsmasker: 100 (and 850 retired fakes) "
+        "of 1000, u_aaaaaaaaaa: 190000)"
+    ) in done.output
 
 
 def test_status_prints_the_editions_lines(admin, monkeypatch):
@@ -1883,7 +2558,10 @@ def test_review_fix_rules_add_updates_valid_names_and_retains_other_rules(admin,
         (("keys", "remove", "Billing CI", "--yes"), "keys list"),
         (("config", "--key", "Billing CI", "set", "profile", "max"), "config --key u_billingci2 get"),
         (("people", "tokens", "Emily Carter", "--revoke", "t_aaaaaaaaaa"), "people tokens u_emilycarte"),
-        (("keys", "rotate", "Billing CI", "--yes"), "keys list"),
+        (("keys", "tokens", "Billing CI", "--revoke", "t_aaaaaaaaaa", "--yes"), "keys tokens u_billingci2"),
+        (("keys", "add-token", "Billing CI", "logs", "--mask"), "keys tokens u_billingci2"),
+        (("keys", "rotate", "Billing CI", "--yes"), "keys tokens u_billingci2"),
+        (("keys", "rotate", "Billing CI", "--token", "t_aaaaaaaaaa", "--yes"), "keys tokens u_billingci2"),
         (("config", "set", "history", "metadata"), "config get"),
         (("people", "add", "Daniel Okafor"), "people list"),
     ],
@@ -1895,7 +2573,10 @@ def test_review_fix_rules_add_updates_valid_names_and_retains_other_rules(admin,
         "key-remove",
         "key-settings",
         "person-tokens",
+        "key-token-revoke",
+        "key-token-add",
         "rotation-control",
+        "rotation-of-one",
         "shared-control",
         "person-control",
     ],
@@ -2101,3 +2782,15 @@ def test_remaining_contract_malformed_rule_mutations_never_write(admin, tmp_path
         ("GET", "identities?kind=key"),
         ("GET", "identities/u_billingci2/settings"),
     ]
+
+
+def test_a_forget_waits_for_the_server_as_long_as_a_keys_first_forget_takes(admin, computer):
+    """Review 11b's N5: a key's first forget after an upgrade gives its older answers and history their keyed hashes
+    first, which can take minutes on a large key: each call of ``keys forget`` waits for the server's answer up to
+    ``FORGET_SECONDS``, never the 10 s every other call waits."""
+    from latet.cli.server import FORGET_SECONDS
+
+    path = _values_file(computer, VALUES)
+    done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
+    assert done.exit_code == 0, done.output
+    assert FORGET_SECONDS >= 120 and admin.forget_waits == [(FORGET_SECONDS, FORGET_SECONDS)] * 3

@@ -268,6 +268,27 @@ class Masker:
         """
         if not text:
             return MaskedText(text)
+        spans, origin = self.spans(text, kind, path, from_model, report, keep_surrogates, tool, field, extra)
+        return self._apply(text, spans, origin, context)
+
+    def spans(
+        self,
+        text: str,
+        kind: SlotKind = SlotKind.OTHER,
+        path: str | None = None,
+        from_model: bool = False,
+        report: MaskReport | None = None,
+        keep_surrogates: bool = False,
+        tool: str | None = None,
+        field: str | None = None,
+        extra: Sequence[ExtraValue] = (),
+    ) -> tuple[list[Span], dict[str, str]]:
+        """What ``mask`` replaces in ``text``: the values found, merged into disjoint spans in the order of the text
+        (``_merged``: a group named by a value of a type let through gives way to the masked values inside it), and the
+        rule each value was found by (a repeat of a value is kept by the rule that found it first). The vault learns
+        nothing here: ``mask`` keeps the values (``_apply``). The arguments are ``mask``'s."""
+        if not text:
+            return [], {}
         skip_surrogates = from_model or keep_surrogates
         ctx = DetectContext(kind, tool=tool, field=field, source=path)
         spans = self.detect(text, ctx, report)
@@ -297,7 +318,15 @@ class Masker:
         # A value of a type your policies let through, found where escapes read as what they stand for (a repeat, the
         # reviewer's), never names what it merges with: ``detect`` leaves such a finding out, and so does every path.
         kept = [s for s in kept if s.value is None or self.policies.get(s.etype) != Policy.ALLOW]
-        return self._apply(text, self._merged(text, kept), origin, context)
+        return self._merged(text, kept), origin
+
+    def findings(self, text: str, kind: SlotKind = SlotKind.OTHER, *, tool: str | None = None) -> list[Span]:
+        """What masking ``text`` would replace, without masking it: the spans ``mask`` replaces, at the same places and
+        as the same types, those of a type let through (its policy ``allow``) left out. The fakes the vault issued count
+        as values, as ``mask`` counts them when it does not keep them (``keep_surrogates`` off). Nothing is kept: the
+        vault learns no value, and its version stays."""
+        spans, _ = self.spans(text, kind, tool=tool, keep_surrogates=False)
+        return [s for s in spans if self.policies.get(s.etype, Policy.MASK) != Policy.ALLOW]
 
     def _merged(self, text: str, spans: list[Span]) -> list[Span]:
         """``spans`` merged (``merge_spans``: a group of values that overlap is named by its strongest, and masked

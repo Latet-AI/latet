@@ -58,7 +58,7 @@ uv run python scripts/gen_docs_anchors.py --check --root src/latet/docs
 uv run python scripts/check_docs_anchors.py --root src/latet/docs     # every dashboard link lands
 ```
 
-The check refuses a bundle above 14 MB zipped (it is about 13 MB): the wheel carries it to every install. When new
+The check refuses a bundle above 15 MB zipped (it is about 14.2 MB): the wheel carries it to every install. When new
 pages or pictures cross the limit, make the bundle lighter (pictures it can do without, as it does without the video)
 or raise `MAX_MB` in `scripts/check_docs_bundle.py` on purpose, saying why in the commit.
 

@@ -58,3 +58,47 @@ def test_render_carries_tzdata_apache_text_without_platform_metadata(monkeypatch
     assert "Copyright (c) 2026, Stan Ulbrych" in rendered
     assert "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" in rendered
     assert "9. Accepting Warranty or Additional Liability." in rendered
+
+
+OWN_LOCK = """
+version = 1
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "langchain-core"
+version = "1.6.12"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "latet"
+version = "0.9.7"
+source = { editable = "." }
+dependencies = [{ name = "httpx" }]
+
+[package.dev-dependencies]
+dev = [{ name = "latet-client", extra = ["langchain"] }]
+
+[[package]]
+name = "latet-client"
+version = "0.1.0"
+source = { editable = "sdk/python" }
+dependencies = [{ name = "httpx" }]
+
+[package.optional-dependencies]
+langchain = [{ name = "langchain-core" }]
+"""
+
+
+def test_the_repositorys_own_packages_are_not_listed_and_what_they_need_is(tmp_path):
+    # latet-client is Latet's own (MIT, in sdk/python), not third-party software: left out as latet is, while what it
+    # needs is still reached from it, as development software since the dev group is what installs it.
+    lock = tmp_path / "uv.lock"
+    lock.write_text(OWN_LOCK, "utf-8")
+    root, by_name = gen._load_lock(lock)
+    reach = gen._walk_lock(root, by_name)
+    assert {name for name, _ in reach} == {"httpx", "langchain-core"}
+    assert {name for (name, _), state in reach.items() if state.runtime} == {"httpx"}

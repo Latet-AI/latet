@@ -27,7 +27,7 @@ della shell e dalle variabili d'ambiente dell'account: i processi dello stesso u
 l'ambiente di un altro processo. `LATET_SERVER_ADMIN_TOKEN` è per l'archivio dei segreti di una CI
 o di un container, insieme a `LATET_SERVER_URL`; non viene mai inviato a un server diverso.
 
-`keys add`, `keys rotate` e `admin-token issue` accettano `--out FILE`: il nuovo file privato
+`keys add`, `keys add-token`, `keys rotate` e `admin-token issue` accettano `--out FILE`: il nuovo file privato
 riceve il segreto e il comando mostra solo id e file. Non mettere mai codici, chiavi o token
 di amministrazione in un ticket, canale condiviso o conversazione con un agente. Il codice monouso
 di una persona permette a chi lo usa di collegare un computer come quella persona e aprirne la
@@ -97,6 +97,27 @@ Perdere la **chiave principale** è peggio che perdere un token: sigilla la chia
 e senza di essa nessuna cassaforte potrà più essere letta. Tienine una copia separata dai backup
 del database, come dice [Gestione del server](../../concepts/server-operations/).
 
+## Dimenticare dei valori di una chiave API
+
+Quando una persona chiede che i suoi dati spariscano dalla cassaforte di una chiave API, `keys forget`
+ne toglie i valori, insieme a ciò che le conversazioni e la cronologia della chiave ne conservano, su
+ogni istanza appena finiscono le chiamate già in corso lì:
+
+```sh
+latet server --server https://latet.acme.lan keys forget "Shop" --file erasure.txt
+```
+
+Il file contiene un valore per riga, in UTF-8; senza `--file`, scrivi i valori nel terminale, e una riga
+vuota li chiude. Un valore non viene mai preso dalla riga di comando, che la shell tiene nella sua
+cronologia, e il comando rifiuta un agente, come fa `config get`. Chiede conferma prima di inviarli, nel
+tuo terminale anche con `--yes`; uno script ha bisogno di `--yes`. Ogni valore viene cercato
+esattamente com'è scritto: elenca tutte le forme che devono sparire, e anche il dominio aziendale di un
+indirizzo, che la cassaforte conserva come un valore a sé. Ogni chiamata, di 1.000 valori al massimo, è
+una voce `key.forgotten` con quanti valori sono stati chiesti, dimenticati e non trovati nella
+cassaforte, mai un valore. Funziona anche su una chiave disattivata. Un'applicazione fa lo stesso con un
+token a cui hai dato `--forget` (`keys add-token "Shop" erasure --forget`), che nessun altro permesso
+comprende: vedi [dimenticare dei valori](../../applications/forget/).
+
 ## Leggere il log di amministrazione
 
 `latet server log --limit 100000 --json` legge pagine successive, prima le voci con data e ora
@@ -107,10 +128,20 @@ solo voci, una per riga; gli avvisi vanno su stderr.
 
 `--since` include il proprio estremo e `--until` lo esclude. `--actor` seleziona un'identità o
 un token di amministrazione; `--action` seleziona un'azione o un prefisso letterale che termina
-con `*`. Le azioni indicano che cosa è cambiato (`person.added`, `code.issued`, `token.revoked`,
-`key.rotated`, `settings.changed`, `shared.changed`, `admin-token.issued`, `admin-token.revoked`), e
-le letture sono registrate con il nome della chiamata (`status.read`, `log.read`):
+con `*`. Le azioni indicano che cosa è cambiato (`person.added`, `code.issued`, `token.added`,
+`token.revoked`, `key.rotated`, `key.updated`, `settings.changed`, `shared.changed`, `admin-token.issued`,
+`admin-token.revoked`), e le letture sono registrate con il nome della chiamata (`status.read`, `log.read`):
 `--action 'admin-token.*'` seleziona ogni modifica dei token di amministrazione.
+
+I token di una chiave API sono indicati dal loro id, mai dal segreto o dal nome: `token.added` riporta
+il nuovo token e i suoi permessi, `key.rotated` il token che resta (`token`) e quello che ha
+sostituito (`replaced`), e `key.updated` una modifica come il limite della cassaforte della chiave
+(`vault_limit`). `apps.unmasked` è un ripristino attraverso l'[API per le applicazioni](../apps-api/):
+il token, quanti testi e quanti valori ha ripristinato, mai un testo o un valore.
+`--action apps.unmasked` elenca chi ha ripristinato, e quando. `key.forgotten` e `apps.forgotten` sono
+valori tolti dalla cassaforte di una chiave API, con `keys forget` e attraverso l'API per le
+applicazioni: quanti valori sono stati chiesti, dimenticati e non trovati, e per l'API il token, mai un
+valore.
 Per riprendere, passa il cursore del log mostrato a `--cursor`, con gli stessi filtri
 originali. Usa date assolute o secondi epoch esatti se devi riprendere più tardi: un tempo relativo
 come `7d` cambia tra un'esecuzione e l'altra. Non sostituire mai `--until` con una data arrotondata

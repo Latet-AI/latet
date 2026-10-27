@@ -317,7 +317,7 @@ serveur est le point de contrôle obligatoire de l'entreprise.
 
 La limite par défaut du corps d'une requête est de 32 MiB. `requests_in_flight` vaut 16
 par identité sur une instance, avec des quotas séparés pour les destinations, le tableau
-de bord et le bridge. Les requêtes longues et les flux ont leurs propres limites. Un
+de bord, le bridge et l'API pour les applications. Les requêtes longues et les flux ont leurs propres limites. Un
 refus de capacité appelle une vérification de la charge et des limites, pas la désactivation
 de la protection. L'arrêt laisse 30 secondes à l'instance pour terminer ; les longs flux
 peuvent être coupés, les clients doivent donc gérer la déconnexion.
@@ -328,6 +328,16 @@ vaut 2 par défaut et ne peut pas dépasser les processeurs disponibles pour l'i
 au budget de lecture. Ajouter des lecteurs consomme de la mémoire et du CPU. Une image
 non lue est retenue, ou sa requête vérifiée est refusée, selon le chemin protégé ;
 augmenter les délais n'améliore pas la précision de reconnaissance.
+
+L'espace d'une clé d'API garde en mémoire les valeurs que la clé a utilisées en dernier
+(`key_working_values`, 5 000 par défaut, environ 10 Mio par clé) et, pour de bon, ses secrets
+courts les plus récents qu'aucun mot d'un texte ne trouve quand d'autres lettres y sont collées
+(`key_held_secrets`, 1 000 par défaut, environ 2,2 Ko chacun sur chaque instance). Augmentez
+`key_held_secrets` pour une clé qui voit beaucoup de secrets courts, comme un jeton de session
+dans chaque ligne de journal : chaque texte que la clé masque ou restaure est parcouru pour
+chercher chacun de ceux qui sont gardés, ses appels ralentissent donc un peu aussi (la
+restauration environ un dixième plus lente avec 1 000 gardés)
+([le coffre-fort d'une clé](../../applications/#le-coffre-fort-dune-clé)).
 
 ### Connexions, limites et confiance
 
@@ -346,11 +356,16 @@ augmenter les délais n'améliore pas la précision de reconnaissance.
   `x-latet-computer-key`), qui reste dans le magasin d'identifiants de cette machine. Une clé absente ou fausse
   est refusée (403 `computer_key_required`) et compte pour son adresse comme un identifiant refusé.
 - **Une identité** a au plus `requests_in_flight` requêtes en cours sur une instance (16 par défaut) ; au-delà,
-  429 avec `Retry-After`. Un corps est lu jusqu'à `max_request_mb` (32 Mio par défaut) ; un corps JSON proche de
+  429 avec `Retry-After`. Un corps est lu jusqu'à `max_request_mb` (32 Mio par défaut), un appel de l'API pour les
+  applications jusqu'à `apps_request_mb` (8 Mio) ; un corps JSON proche de
   cette limite tient le verrou de l'interpréteur une à trois secondes partout où il est analysé : gardez la limite
   aussi basse que vos agents le permettent et faites tourner plusieurs instances.
-- **PostgreSQL :** chaque instance garde jusqu'à 10 connexions ; le `max_connections` de PostgreSQL doit couvrir
-  les 10 de chaque instance et les commandes des administrateurs.
+- **PostgreSQL :** chaque instance garde jusqu'à `database_pool` connexions (10 par défaut) pour le travail de
+  toutes les identités ; le `max_connections` de PostgreSQL doit couvrir le pool de chaque instance et les
+  commandes des administrateurs. Un appel à l'API pour les applications qui conserve de nouvelles valeurs en garde
+  une jusqu'à sa fin, trois dixièmes du pool au plus (trois sur dix) ; au-delà, les appels conservent chaque
+  nouvelle valeur aussitôt, plus lentement. Augmentez `database_pool`, et avec lui `max_connections`, pour une
+  instance qui masque pour beaucoup de nouvelles clés à la fois.
 - **Valkey :** chaque instance garde jusqu'à `valkey_connections` connexions (100 par défaut), et au-delà un appel
   attend cinq secondes au plus. Le `maxclients` de Valkey doit couvrir les connexions de toutes les instances. La
   connexion à Valkey, son TLS et sa première réponse partagent une seule limite de cinq secondes.
@@ -386,6 +401,18 @@ latet server migrate --check
 - **Les tables changent :** arrêtez toutes les instances, lancez `latet server migrate` une fois avec la
   nouvelle version, puis démarrez les instances avec elle. Une instance ne démarre pas sur les tables
   d'une autre version.
+- **Des programmes utilisent l'API pour les applications :** arrêtez chaque instance plus ancienne
+  avant que les nouvelles démarrent, même quand les tables ne changent pas. Tant que deux versions
+  tournent côte à côte, une valeur qu'une instance plus ancienne écrit dans le coffre-fort d'une clé
+  peut ne pas être trouvée par une plus récente avant que l'espace de la clé soit reconstruit
+  ([mettre à jour un serveur](../../applications/#mettre-à-jour-un-serveur)).
+- **Une version qui indexe à nouveau le coffre-fort d'une clé** (le changelog le dit) : la première
+  instance qui construit l'espace de chaque clé d'API refait les mots de son coffre-fort avant de
+  répondre au premier appel de cette clé, environ 40 secondes pour 200 000 valeurs et quatre minutes et
+  demie pour 1 000 000. Cela se fait une fois par clé, mais une instance construit quatre espaces à la
+  fois, de personnes comme de clés, si bien que plusieurs grandes clés construites ensemble après un
+  redémarrage retiennent les premiers appels de tous les autres espaces de cette instance : envoyez un
+  appel à chaque grande clé, une clé après l'autre, avant que le trafic ne revienne.
 
 Dans l'exemple Compose, quand les tables changent, les mêmes étapes tournent dans des conteneurs de la
 nouvelle image :
@@ -439,10 +466,26 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 Les variables affichées portent la clé de routage : gardez-les aussi secrètes que la clé, jamais dans un dépôt
-ni dans un profil partagé.
+ni dans un profil partagé. Seul le premier jeton de la clé a ces adresses : un jeton créé avec
+`keys add-token` n'en a pas, quelles que soient ses permissions, et appelle uniquement l'API pour les
+applications. `latet env` demande au serveur de quel type est le jeton : pour un tel jeton, il n'affiche
+aucune variable et le dit.
 
 Le programme doit faire confiance au certificat du serveur : celui d'une autorité à laquelle il fait
 déjà confiance, ou le certificat ajouté à ses propres réglages de confiance.
+
+Un programme qui masque ses propres journaux ou documents appelle plutôt
+l'[API pour les applications](../../applications/) : aucune variable, un jeton de la clé dans son en-tête
+`Authorization`, avec les seules permissions dont il a besoin. Ses appels partagent l'espace de la clé avec
+les agents de la clé, et donc son coffre-fort et ses valeurs factices.
+
+Deux sortes de son travail font la queue pour tout le serveur, pas pour chaque clé. L'entrée du journal
+d'administration de chaque restauration est écrite avant sa réponse, une à la fois sur la chaîne du
+journal, par deux threads de chaque instance pour les restaurations de toutes les clés ; et les oublis
+tournent deux à la fois sur chaque instance, pour toutes les clés. Une clé qui envoie beaucoup de
+restaurations à la fois, ou qui oublie une longue liste, retarde les restaurations ou les oublis des
+autres clés, jamais une inscription, une révocation ou ce qu'envoient les agents. Le journal
+d'administration grandit d'une ligne par appel de restauration.
 
 ## Journaux, métriques et récupération
 
@@ -459,6 +502,14 @@ un point d'écoute séparé, `127.0.0.1:7283` par défaut, et nécessitent `metr
 Distinguez un verdict inconnu d'une
 chaîne rompue. La [référence d'administration](../../reference/server-administration/)
 définit la pagination du journal et le sens précis de `latet_ocr_unread_total{reason}`.
+
+Chaque restauration par l'API pour les applications est une entrée `apps.unmasked` du journal
+d'administration, avec le jeton et le nombre de valeurs restaurées, et chaque oubli une entrée
+`apps.forgotten`, avec le jeton et le nombre de valeurs retirées du coffre-fort de la clé ; l'analyse
+et le masquage ne sont
+comptés que dans les métriques (`latet_apps_texts_total` et `latet_apps_values_total`, par opération,
+et les requêtes comme `latet_http_requests_total{kind="apps"}`), sans étiquette pour la clé
+([ce que le serveur enregistre](../../reference/apps-api/#ce-que-le-serveur-enregistre)).
 
 Dans cette configuration Compose, collectez `127.0.0.1:7283` depuis l'intérieur de chaque
 instance avec son jeton de métriques. Il n'y a ni port publié, ni route Caddy, ni réseau de

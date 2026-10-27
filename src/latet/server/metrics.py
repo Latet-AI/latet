@@ -47,13 +47,15 @@ OTHER = "other"  # what a label value outside its set is counted, or read, as
 AGENTS = frozenset({"claude-code", "codex", "opencode", "tutorial-agent", OTHER})
 OCR_UNREAD_REASONS = frozenset({"busy", "too_long", "too_many_tiles", "too_wide", "unavailable"})
 # What a request is (``operations.request_kind``): never its path, which may hold a route key.
-KINDS = frozenset({"agent", "plugin", "computer", "admin", "dashboard", "health", "metrics", OTHER})
+KINDS = frozenset({"agent", "plugin", "computer", "apps", "admin", "dashboard", "health", "metrics", OTHER})
+# The operations of the applications API (``latet.bridge.apps``).
+APPS_OPERATIONS = frozenset({"scan", "mask", "unmask", "forget"})
 # The statuses a request is counted by as themselves; any other from 100 to 599 by its class, anything else as ``other``
 # (an identity's destination chooses its own statuses). ``0``: a request that ended unanswered; ``ws``: a WebSocket that
 # did; a WebSocket's own is 101 once accepted, or its refused handshake's.
 STATUSES = frozenset(
     {"101", "200", "201", "204", "206", "301", "302", "303", "304", "307", "308", "400", "401", "403", "404", "405",
-     "408", "409", "413", "415", "422", "429", "500", "502", "503", "504", "529"}
+     "408", "409", "413", "415", "422", "429", "500", "502", "503", "504", "507", "529"}
 )  # fmt: skip
 CODES = STATUSES | {"0", "ws", "1xx", "2xx", "3xx", "4xx", "5xx"}
 LABEL_VALUES = 512  # values one label takes at most
@@ -452,6 +454,20 @@ class Metrics:
             ("type",),
             allowed={"type": builtin_types() | {"CUSTOM"}},
         )
+        self.apps_texts = self.counter(
+            "latet_apps_texts_total",
+            "Texts this instance's applications API took, by operation (scan, mask, unmask; forget: the values "
+            "asked), in the calls it answered.",
+            ("operation",),
+            allowed={"operation": APPS_OPERATIONS},
+        )
+        self.apps_values = self.counter(
+            "latet_apps_values_total",
+            "Values this instance's applications API found (scan), replaced (mask) or restored (unmask) in the texts "
+            "it answered, or took out of a vault (forget), by operation.",
+            ("operation",),
+            allowed={"operation": APPS_OPERATIONS},
+        )
         self.gauge(
             "latet_approvals_waiting",
             "Requests and plugin calls held on this instance, waiting for a person's decision in the Live Reviewer.",
@@ -583,7 +599,8 @@ class Metrics:
         )
         self.gauge(
             "latet_vault_near_limit",
-            "Identities whose vault holds 90% of the server's limit (vault_limit) or more, 100 at most.",
+            "Identities whose vault holds 90% of its limit (an API key's own, else the server's vault_limit) or more, "
+            "its forgotten values' retired fakes weighed with its values, 100 at most.",
             lambda: len(vault.vault_usage(server.db, server.settings.vault_limit)),
             every=VAULT_EVERY,
         )
@@ -631,6 +648,10 @@ class Metrics:
         self.exchanges.inc(agent)  # an agent the set does not name: other
         if stopped:
             self.stops.inc(agent)
+
+    def apps(self, operation: str, texts: int, values: int) -> None:
+        self.apps_texts.inc(operation, amount=texts)  # an operation the set does not name: other
+        self.apps_values.inc(operation, amount=values)
 
     def waiting(self, delta: int) -> None:
         with self._waiting_lock:

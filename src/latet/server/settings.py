@@ -20,6 +20,9 @@ from latet.fileio import FileReadError, read_regular_bytes
 from latet.secret_text import KEY_BYTES, KEY_LONGEST, key_problem
 
 SERVER_API = "/_latet/server/v1"  # the machines' calls, under the server's address
+# The applications API (``latet.bridge.apps``), under the server's address: an API key's token in each call. Named here,
+# where the gate, the metrics and the log read it, without the engine that serves it.
+APPS_API = "/_latet/apps/v1"
 _LOOPBACK = ("127.0.0.1", "::1", "localhost")
 _VARIABLES = {
     "url": "LATET_SERVER_URL",
@@ -43,8 +46,12 @@ _VARIABLES = {
     "valkey_unauthenticated": "LATET_SERVER_VALKEY_UNAUTHENTICATED",
     "valkey_private_network": "LATET_SERVER_VALKEY_PRIVATE_NETWORK",
     "max_request_mb": "LATET_SERVER_MAX_REQUEST_MB",
+    "apps_request_mb": "LATET_SERVER_APPS_REQUEST_MB",
     "requests_in_flight": "LATET_SERVER_REQUESTS_IN_FLIGHT",
     "vault_limit": "LATET_SERVER_VAULT_LIMIT",
+    "key_working_values": "LATET_SERVER_KEY_WORKING_VALUES",
+    "key_held_secrets": "LATET_SERVER_KEY_HELD_SECRETS",
+    "database_pool": "LATET_SERVER_DATABASE_POOL",
     "history_limit_mb": "LATET_SERVER_HISTORY_LIMIT_MB",
     "admin_token_days": "LATET_SERVER_ADMIN_TOKEN_DAYS",
     "forwarded_allow_ips": "LATET_SERVER_FORWARDED_ALLOW_IPS",
@@ -57,6 +64,15 @@ _VARIABLES = {
 # How many days the administration log keeps an entry when the settings say nothing (audit_retention_days): what the
 # beat's hourly prune drops is older (``latet.server.app._audit``).
 AUDIT_DAYS = 365
+# The values of an API key's vault an instance keeps in memory when the settings say nothing (key_working_values):
+# ``engine.stored.WORKING_VALUES``, named here as well so that the settings are read without the engine.
+KEY_WORKING_VALUES = 5_000
+# The secrets of an API key's vault an instance holds in memory for good, because no word of a text finds them glued to
+# letters or digits (key_held_secrets): ``engine.stored.HELD_SECRETS``, named here as well.
+KEY_HELD_SECRETS = 1_000
+# The connections to PostgreSQL an instance keeps at most (database_pool): its every identity's work shares them, and
+# three tenths of them are what the applications calls that keep their new values in one transaction may hold at once.
+DATABASE_POOL = 10
 # How many connections to Valkey an instance keeps at most, for every call it makes but listening (the setting
 # valkey_connections): past them a call waits for one (``latet.server.bus.POOL_WAIT``).
 VALKEY_CONNECTIONS = 100
@@ -384,6 +400,15 @@ class ServerSettings(BaseModel):
     database_connect_timeout: int = Field(
         default=5, ge=2, le=120, description="Seconds PostgreSQL has to answer a new connection before it is given up."
     )
+    database_pool: int = Field(
+        default=DATABASE_POOL,
+        ge=4,
+        le=1_000,
+        description="How many connections to PostgreSQL an instance keeps at most, for every identity's work; three "
+        "tenths of them (one at least) may be held by applications calls that keep their new values in one "
+        "transaction, the others keeping each value at once. Raise it, with PostgreSQL's max_connections, for an "
+        "instance that masks for many new keys at once.",
+    )
     database_private_network: bool = Field(
         default=False, description="Reach PostgreSQL over a network that only the instances share, with no checked TLS."
     )
@@ -395,16 +420,43 @@ class ServerSettings(BaseModel):
         default=False, description="Reach Valkey over a network that only the instances share, with no checked TLS."
     )
     max_request_mb: int = Field(default=32, ge=1, le=1024, description="The largest request body, in MiB.")
+    # The security review's L2 (Ruling F2): a call's body waits in memory for its space's thread, up to
+    # requests_in_flight calls of a key on each instance; the SDK sends 8 MiB in a call at most.
+    apps_request_mb: int = Field(
+        default=8,
+        ge=1,
+        le=1024,
+        description="The largest request body of the applications API (/_latet/apps/v1), in MiB: past it, 413. "
+        "max_request_mb bounds it as well, when it is lower.",
+    )
     requests_in_flight: int = Field(
         default=16,
         ge=1,
         le=1024,
         description="How many requests one identity may have in flight on an instance, counted separately for its "
-        "destinations (HTTP or WebSocket turns), dashboard and bridge: past each limit, 429. Long polls and streams "
-        "have their own limits.",
+        "destinations (HTTP or WebSocket turns), dashboard, bridge and applications API: past each limit, 429. Long "
+        "polls and streams have their own limits.",
     )
     vault_limit: int = Field(
         default=200_000, ge=1_000, le=10_000_000, description="How many values one identity's vault may hold."
+    )
+    key_working_values: int = Field(
+        default=KEY_WORKING_VALUES,
+        ge=1_000,
+        le=1_000_000,
+        description="How many values of an API key's vault an instance keeps in memory, those used last: every other "
+        "one is found in PostgreSQL as a text needs it.",
+    )
+    key_held_secrets: int = Field(
+        default=KEY_HELD_SECRETS,
+        ge=0,
+        le=1_000_000,
+        description="How many secrets of an API key's vault that no word of a text finds glued to letters or digits "
+        "(one run of 16 characters or fewer, or a short word at its edge) an instance holds in memory for good, the "
+        "newest: an older one is found in PostgreSQL when nothing is glued to it, or one side only when it has seven "
+        "characters or more. Each one held takes about 2.2 KB on every instance, and every text the key masks or "
+        "unmasks is read for it: raise it for a key that sees many short secrets, such as a session token in each "
+        "log line.",
     )
     history_limit_mb: int = Field(
         default=1024,

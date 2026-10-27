@@ -1260,7 +1260,7 @@ def _far_stores(server, monkeypatch):
 
     def far_owner(*args):
         found = owner(*args)
-        looked.append(found.name if found is not None else "")
+        looked.append(found.identity.name if found is not None else "")
         time.sleep(0.02)
         return found
 
@@ -1365,7 +1365,7 @@ async def test_a_tokens_lookup_is_joined_by_requests_of_the_same_token_alone(ser
 
     def held_up(*args):  # hers read at once and answered late, his answered at once
         found = owner(*args)
-        if found is not None and found.name == "Emily Carter":
+        if found is not None and found.identity.name == "Emily Carter":
             entered.set()
             release.wait(5)
         return found

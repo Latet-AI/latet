@@ -440,6 +440,67 @@ async def test_no_part_of_a_computer_key_is_left_in_a_paths_line(logs):
     assert line["path"] == "/x/latet_ck_***/anthropic" and "Zq0x" not in logs.getvalue()
 
 
+# The body of a secret of Latet's as it is made (the SCIM token's, as the older four's, is read to its end whatever its
+# length); a bridge token's has 43 characters and a one-time code's 32, and a log leaves out those alone.
+BODY = "Q0-abcdefghijklmnopqrstuvwxyzABC9_Zq0x-Ty1X"
+BODIES = {
+    "pat": BODY[:42],
+    "key": BODY[:42],
+    "adm": BODY[:42],
+    "ck": BODY[:42],
+    "scim": BODY,
+    "brg": BODY,
+    "code": BODY[:32],
+}
+
+
+@pytest.mark.parametrize("prefix", ["scim", "brg", "code"])
+async def test_no_part_of_the_other_latet_secrets_is_left_in_a_paths_line(logs, prefix):
+    """The SCIM token, the bridge token and the one-time code go whole from a path as the four before them do."""
+    configure_logging("json", "info", stream=logs)
+    secret = f"latet_{prefix}_{BODIES[prefix]}"
+    await _call(RequestLog(_answering(200)), _scope(f"/x/{secret}/anthropic", "POST"))
+    [line] = _lines(logs)
+    assert line["path"] == f"/x/latet_{prefix}_***/anthropic" and "Zq0x" not in logs.getvalue()
+
+
+@pytest.mark.parametrize("prefix", ["pat", "key", "adm", "ck", "scim", "brg", "code"])
+def test_a_log_line_keeps_the_prefix_of_a_latet_secret_and_not_its_body(prefix):
+    secret = f"latet_{prefix}_{BODIES[prefix]}"
+    assert redacted(f"token {secret} refused") == f"token latet_{prefix}_*** refused"
+
+
+@pytest.mark.parametrize("ending", ["", ".", ",", ")", "/", "?x=1", " and", '"'])
+@pytest.mark.parametrize("prefix", ["brg", "code"])
+def test_a_bridge_token_and_a_code_are_taken_out_to_their_exact_length_whatever_follows(prefix, ending):
+    secret = f"latet_{prefix}_{BODIES[prefix]}"
+    assert redacted(f"seen {secret}{ending}") == f"seen latet_{prefix}_***{ending}"
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        "latet_code_review",
+        "latet_code_review_comments_for_the_dashboard_and_more",  # longer than a code
+        "latet_codec_" + BODY[:32],
+        "latet_brg_notes",
+        "latet_brg_" + BODY + "x" * 5,  # longer than a bridge token
+        "latet_brg_" + BODY[:40],  # shorter
+    ],
+)
+def test_a_word_that_only_begins_like_a_code_or_a_bridge_token_stays_in_a_log_line(word):
+    line = f"opened /home/ada/src/{word}/main.py and {word} too"
+    assert redacted(line) == line
+
+
+@pytest.mark.parametrize("word", ["latet_code_review", "latet_brg_notes", "latet_code_" + "Ab3-" * 10])
+async def test_a_word_that_only_begins_like_a_code_stays_in_a_paths_line(logs, word):
+    configure_logging("json", "info", stream=logs)
+    await _call(RequestLog(_answering(200)), _scope(f"/src/{word}/main.py", "GET"))
+    [line] = _lines(logs)
+    assert line["path"] == f"/src/{word}/main.py"
+
+
 def test_a_dashboard_projects_id_is_not_written(logs):
     configure_logging("json", "info", stream=logs)
     project = project_id("/home/emily/src/falcon-holdings")  # a hash of the folder, which a list of folders gives back

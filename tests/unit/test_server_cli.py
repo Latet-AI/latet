@@ -139,7 +139,8 @@ def _settings(tmp_path, **more):
         "forwarded_allow_ips": "127.0.0.1", "admin_token_days": 90, "log_format": "text", "log_level": "info",
         "max_request_mb": 32, "database_private_network": False, "valkey_private_network": False,
         "valkey_unauthenticated": False, "database_url": "postgresql://emily@127.0.0.1:9/latet",
-        "database_connect_timeout": 5, "metrics_token_file": None, "metrics_host": "127.0.0.1", "metrics_port": 7283,
+        "database_connect_timeout": 5, "database_pool": 10, "metrics_token_file": None, "metrics_host": "127.0.0.1",
+        "metrics_port": 7283,
     }  # fmt: skip
     return SimpleNamespace(**{**found, **more})
 
@@ -496,8 +497,8 @@ def test_init_and_migrate_set_logging_up_before_they_open_the_database(tmp_path,
     assert [handlers for handlers in seen if ("_Writer", ["_Gate"], "TextFormatter") in handlers] == seen[:1]
     assert ("_Writer", ["_Gate"], "JsonFormatter") in seen[1]
     assert "emily@" not in done.output
-    # The server's own schema, and the time its settings give a new connection.
-    assert opened == [((settings.database_url,), {"schema": "latet", "connect_timeout": 5})]
+    # The server's own schema, the time its settings give a new connection and the connections they let it keep.
+    assert opened == [((settings.database_url,), {"schema": "latet", "connect_timeout": 5, "max_size": 10})]
 
 
 def test_run_sets_logging_up_before_it_reads_the_settings(tmp_path, monkeypatch):

@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from latet import observe
 from latet.engine import document
 from latet.engine.masker import ExtraValue, Masker, MaskReport
-from latet.engine.rehydrate import Restore, restores_for
-from latet.engine.types import EntityClass, Replacement, SlotKind
+from latet.engine.rehydrate import Restore, restore_text, restores_for
+from latet.engine.types import EntityClass, Replacement, SlotKind, Span
 from latet.engine.vault import Vault
 from latet.vision.policy import ALLOW, ImagePolicy
 
@@ -34,6 +34,9 @@ SPACE_CACHE_BYTES = 32 * 1024 * 1024
 SPACE_BLOCK_BYTES = 1024 * 1024
 SPACE_RESTORES_BYTES = 16 * 1024 * 1024
 SPACE_RESTORE_LARGEST = 8 * 1024 * 1024
+# Where the engine keeps the restores of every fake of its vault (``Engine.unmask``), beside each conversation's: a
+# conversation's key is a string, so none is this.
+_WHOLE_VAULT: tuple[None, bool] = (None, False)
 
 
 def _field_tag(field: str | None) -> str:
@@ -98,6 +101,17 @@ class LRU[K, V]:
         with self._lock:
             return list(self._data.values())
 
+    def discard_if(self, gone: Callable[[V], bool] | None = None) -> int:
+        """What ``gone`` says of dropped, under its lock; every value when None. How many went."""
+        with self._lock:
+            keys = [key for key, value in self._data.items() if gone is None or gone(value)]
+            for key in keys:
+                self._discard(key)
+            return len(keys)
+
+    def _discard(self, key: K) -> None:
+        self._data.pop(key, None)
+
     def __len__(self) -> int:
         return len(self._data)
 
@@ -140,6 +154,9 @@ class WeighedLRU[K, V](LRU[K, V]):
         self._data.pop(key, None)
         self.weight -= self._weights.pop(key, 0)
 
+    def _discard(self, key: K) -> None:
+        self._drop(key)
+
     def _trim(self) -> None:
         while len(self._data) > self.capacity or (self.budget is not None and self.weight > self.budget):
             oldest, _ = self._data.popitem(last=False)
@@ -177,6 +194,10 @@ class Session:
     # project and folder may come from another instance, through Valkey: what that project lowers applies here only once
     # a client has reported its folder here (``Projects.scope_for``). Never kept with the conversation.
     reported: str | None = None
+    # Whether what it is shown and its project are kept with the conversation (``Conversations.update``), for every
+    # process that serves it. False: a call that is no conversation (an application's, on the applications API), whose
+    # session lives as long as the call and holds what it was shown in its own memory alone.
+    kept: bool = True
 
     def add(self, ids: Iterable[str]) -> None:
         self.entity_ids.update(ids)
@@ -235,8 +256,9 @@ class Engine:
         self.conversations: Conversations = conversations
         # Each conversation's restores in each mode, with the count of its values and the vault's version they were
         # made at: the newer replaces the older (none is found again once either moved). Weighed, and in an identity's
-        # space on a server bounded by that too (``bound``).
-        self._restores: WeighedLRU[tuple[str, bool], tuple[int, int, list[Restore]]] = WeighedLRU(
+        # space on a server bounded by that too (``bound``). The whole vault's, which ``unmask`` reads, are kept with
+        # them, under a key no conversation has (``_WHOLE_VAULT``).
+        self._restores: WeighedLRU[tuple[str | None, bool], tuple[int, int, list[Restore]]] = WeighedLRU(
             1_000, _restores_weight
         )
         self.scopes: ScopeSource | None = None  # projects with rules of their own
@@ -264,21 +286,33 @@ class Engine:
 
     def attach(self, session: Session, cwd: Any) -> None:
         """Give a session its project, from the working directory a client reported (``scopes.attach``): a project
-        it gets, or another one, is kept with the conversation."""
+        it gets, or another one, is kept with the conversation (not for a session not ``kept``)."""
         if self.scopes is None:
             return
         before = (session.project_id, session.cwd)
         self.scopes.attach(session, cwd)
-        if (session.project_id, session.cwd) != before:
+        if (session.project_id, session.cwd) != before and session.kept:
             self.conversations.update(session)
 
     def show(self, session: Session, ids: Iterable[str]) -> None:
         """Entities a conversation is shown: kept with it when they are new to it, so that every process serving it
-        restores them."""
+        restores them. A session not ``kept`` holds them in its own memory alone."""
         new = set(ids) - session.entity_ids
         if new:
             session.add(new)
-            self.conversations.update(session, shown=new)
+            if session.kept:
+                self.conversations.update(session, shown=new)
+
+    def hold(self, session: Session) -> object | None:
+        """The entities ``session`` was shown, in memory and used now, and kept there until its answer is restored (on
+        the event loop, which finds them in memory alone): a vault that keeps most of its values elsewhere brings those
+        that left it back (``Vault.hold``), and lets them go at ``release``, given what this returns. In the thread
+        that masks."""
+        return self.vault.hold(tuple(session.entity_ids), session.key)  # tuple(): a copy at once, as ``restores``
+
+    def release(self, session: Session, held: object | None) -> None:
+        """``session``'s answer is restored: what ``hold`` kept for it (``held``, its answer) may leave memory again."""
+        self.vault.release(session.key, held)
 
     def scope(self, session: Session) -> Scope | None:
         """The rules of the session's project, when they differ from the global ones."""
@@ -301,6 +335,18 @@ class Engine:
     def rules_changed(self) -> None:
         """New rules apply to blocks masked from now on (old cache entries stop matching)."""
         self.rules_version += 1
+
+    def find(self, text: str, kind: SlotKind, session: Session) -> list[Span]:
+        """What masking ``text`` in ``session`` would replace (``Masker.findings``), by the rules ``mask_text`` would
+        mask it by (its project's, when they differ from the global ones), without masking it: the vault learns nothing
+        and the session is shown nothing. Nothing where Latet is off in its project, as ``mask_text`` replaces nothing
+        there."""
+        if not text:
+            return []
+        scope = self.scope(session)
+        if scope is not None and not scope.enabled:
+            return []
+        return (scope.masker if scope is not None else self.masker).findings(text, kind)
 
     def mask_text(
         self,
@@ -341,30 +387,38 @@ class Engine:
             if exact is not None:
                 return SlotResult(exact, [], True)  # the bytes the model produced, restored earlier
         fkey = self._frozen_key(text, kind, scope, from_model, path, keep_surrogates, tool, field)
-        version = self.vault.version  # read before masking: a value learnt meanwhile has it checked next time
-        hit = self._frozen.get(fkey) if not extra and not again else None
-        if hit is not None and hit[2] != version:
-            if masker.known_in(hit[0]):
-                hit = None  # it left a value the vault learnt since in clear: masked again below
-            else:
-                hit = (hit[0], hit[1], version)
-                self._frozen.put(fkey, hit)
-        if hit is not None:
-            masked, replacements, _ = hit
-            self.show(session, (r.entity_id for r in replacements if r.entity_id))
-            return SlotResult(masked, list(replacements), True)
-        result = masker.mask(
-            text,
-            kind,
-            path=path,
-            from_model=from_model,
-            report=report,
-            keep_surrogates=keep_surrogates,
-            tool=tool,
-            field=field,
-            extra=extra,
-            context=context,
-        )
+        # The values the text may hold, brought into memory where the vault keeps most of its values elsewhere (an API
+        # key's: ``Vault.prefetch``), held there until it is masked: a value found once is masked for ever.
+        with self.vault.holding():
+            version = self.vault.version  # read before masking: a value learnt meanwhile has it checked next time
+            hit = self._frozen.get(fkey) if not extra and not again else None
+            if hit is not None and not self.vault.kept_since(hit[2]):
+                hit = None  # it may hold a fake of a call that did not keep its values: masked again below
+            if hit is not None and hit[2] != version:
+                if not self.vault.holds_since(hit[2]):
+                    self.vault.prefetch([text])  # values left memory since: memory alone no longer vouches for it
+                if masker.known_in(hit[0]):
+                    hit = None  # it left a value the vault learnt since in clear: masked again below
+                else:
+                    hit = (hit[0], hit[1], version)
+                    self._frozen.put(fkey, hit)
+            if hit is not None:
+                masked, replacements, _ = hit
+                self.show(session, (r.entity_id for r in replacements if r.entity_id))
+                return SlotResult(masked, list(replacements), True)
+            self.vault.prefetch([text])
+            result = masker.mask(
+                text,
+                kind,
+                path=path,
+                from_model=from_model,
+                report=report,
+                keep_surrogates=keep_surrogates,
+                tool=tool,
+                field=field,
+                extra=extra,
+                context=context,
+            )
         observe.masked(result.replacements)  # a server's metrics: the values of a text masked for the first time here
         self.show(session, (r.entity_id for r in result.replacements if r.entity_id))
         self._frozen.put(fkey, (result.text, tuple(result.replacements), version))
@@ -399,7 +453,8 @@ class Engine:
     ) -> bool:
         """Whether ``mask_text`` gives ``text`` as it was masked before, its masker not run for it: one the cache keeps,
         in which the vault has learnt nothing since that it leaves in clear; one recalled as the model's own bytes; any,
-        where Latet is off in the session's project."""
+        where Latet is off in the session's project. Not one masked before values left the vault's memory: memory alone
+        cannot say (``Vault.holds_since``); nor one masked before a call failed to keep its values (``kept_since``)."""
         if not text:
             return True
         scope = self.scope(session)
@@ -408,15 +463,16 @@ class Engine:
         if from_model and self.conversations.recall(self._key("R", text)) is not None:
             return True
         hit = self._frozen.get(self._frozen_key(text, kind, scope, from_model, path, keep_surrogates, tool, field))
-        if hit is None:
+        if hit is None or not self.vault.kept_since(hit[2]):
             return False
         masker = scope.masker if scope is not None else self.masker
-        return hit[2] == self.vault.version or not masker.known_in(hit[0])
+        return hit[2] == self.vault.version or (self.vault.holds_since(hit[2]) and not masker.known_in(hit[0]))
 
     def adopt(self, session: Session, text: str, masker: Masker) -> None:
-        """Surrogates already in ``text`` (a resumed conversation) belong to ``session`` too."""
-        found = (e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(s.of(text))))
-        self.show(session, found)
+        """Surrogates already in ``text`` (a resumed conversation) belong to ``session`` too, those its vault keeps out
+        of memory as well (``Vault.fakes_out_of_memory``)."""
+        found = [e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(s.of(text)))]
+        self.show(session, [*found, *(e.id for e in self.vault.fakes_out_of_memory(text))])
 
     def remember_model_output(self, masked: str, restored: str) -> None:
         """When the client sends back ``restored`` as history, send the model's exact ``masked``."""
@@ -434,4 +490,28 @@ class Engine:
         entities = [e for i in tuple(session.entity_ids) if (e := self.vault.get(i)) is not None]
         found = restores_for(entities, json_mode=json_mode)
         self._restores.put(key, (count, version, found))
+        return found
+
+    def unmask(self, text: str) -> tuple[str, int]:
+        """``text`` with every fake of the vault in it restored, whatever conversation or call it was issued in, and
+        how many different values were restored. A person's name is restored whole only: one of its parts alone
+        (``Bianchi``, of ``Laura Bianchi``) may be an ordinary word, or another person's
+        (``restores_for(parts=False)``)."""
+        if not text:
+            return text, 0
+        restored, ids = restore_text(text, self._unmasking(text))
+        return restored, len(set(ids))
+
+    def _unmasking(self, text: str) -> list[Restore]:
+        """The restores of the entities whose fake may be in ``text`` (``Vault.candidates_in``). Where the vault gives
+        every entity it holds, whatever the text, they are kept while neither their count nor its version moved, with
+        the conversations' restores (``_WHOLE_VAULT``); a vault that narrows them to the text has them made for each."""
+        if type(self.vault).candidates_in is not Vault.candidates_in:  # overridden: they depend on the text
+            return restores_for(self.vault.candidates_in(text), parts=False)
+        count, version = self.vault.count, self.vault.version  # read first: a value kept meanwhile moves them past it
+        kept = self._restores.get(_WHOLE_VAULT)
+        if kept is not None and kept[0] == count and kept[1] == version:
+            return kept[2]
+        found = restores_for(self.vault.candidates_in(text), parts=False)
+        self._restores.put(_WHOLE_VAULT, (count, version, found))
         return found

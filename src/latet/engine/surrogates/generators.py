@@ -139,8 +139,8 @@ def gen_secret(original: str, rng: Drbg) -> str:
 
 
 def gen_latet_token(original: str, rng: Drbg) -> str:
-    """Only the public credential prefix stays (``latet_pat_``, ``latet_ck_``: up to the underscore after its kind);
-    every URL-safe character of its secret tail is drawn."""
+    """Only the public credential prefix stays (``latet_pat_``, ``latet_ck_``, ``latet_scim_``, ``latet_brg_``,
+    ``latet_code_``: up to the underscore after its kind); every URL-safe character of its secret tail is drawn."""
     end = original.find("_", len("latet_")) + 1 if original.startswith("latet_") else 0
     return original[:end] + gen_latet_route_key(original[end:], rng)
 
@@ -664,6 +664,9 @@ GENERATORS: dict[str, Callable[[str, Drbg], str]] = {
     "LATET_API_KEY": gen_latet_token,
     "LATET_ADMIN_TOKEN": gen_latet_token,
     "LATET_COMPUTER_KEY": gen_latet_token,
+    "LATET_SCIM_TOKEN": gen_latet_token,
+    "LATET_BRIDGE_TOKEN": gen_latet_token,
+    "LATET_ONE_TIME_CODE": gen_latet_token,
     "LATET_ROUTE_KEY": gen_latet_route_key,
     "JWT": gen_jwt,
     "PERSON": gen_person,

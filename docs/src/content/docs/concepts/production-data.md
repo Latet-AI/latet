@@ -23,7 +23,8 @@ things use that:
 - **Tables:** psql, CSV, TSV and `;`-separated, markdown, HTML, and the tables of a browser's
   accessibility snapshot (`columnheader`, `cell`), and the tables drawn with box characters (Node's
   `console.table`, psql's unicode style).
-- **`key=value` pairs:** two or more on a line, as in a log.
+- **`key=value` pairs:** two or more on a line, as in a log. An unquoted value ends at its first space,
+  except a phone number that begins it, whose groups it takes in (`phone=+39 347 123 4567`).
 - **JSON:** a whole document value by value, each with its path (`items[].sku`); a `"key": value`
   fragment inside other text, such as a log line, by its key.
 

@@ -14,6 +14,7 @@ from starlette.responses import Response
 from latet.api.rest import API, COOKIE
 from latet.server import app as server_app
 from latet.server import spaces
+from latet.server.grants import DEFAULT, Grant
 from latet.server.identities import Identity
 from latet.server.logs import REFUSED
 from latet.server.tokens import ROUTE_LENGTH
@@ -29,6 +30,11 @@ BOUND = 2
 
 def _identity(name):
     return Identity(name, "Test person", None, "person", False, 0, None, "local", None)
+
+
+def _granted(identity):
+    """What a person's token grants: all three permissions, as every person's token holds, and it serves agents."""
+    return Grant(identity, "t_" + identity.id.ljust(10, "x"), DEFAULT, agents=True) if identity is not None else None
 
 
 class _Call:
@@ -80,16 +86,16 @@ class _Gate:
         self.hold_build = False
         self.server = SimpleNamespace(
             settings=SimpleNamespace(url=URL, requests_in_flight=16),
-            identities=SimpleNamespace(remembered=lambda **kw: self.people[kw["route"].rstrip("x")]),
+            identities=SimpleNamespace(remembered_grant=lambda **kw: _granted(self.people[kw["route"].rstrip("x")])),
             spaces=SimpleNamespace(app=self.app),
         )
         self.gate = server_app.ServerGate(self.unexpected, self.server)
         monkeypatch.setattr(self.gate, "_session_held", self.people.get)
 
         async def owner(_server, token, _bucket):
-            return self.people.get(token)
+            return _granted(self.people.get(token))
 
-        monkeypatch.setattr(server_app, "secret_identity", owner)
+        monkeypatch.setattr(server_app, "secret_grant", owner)
 
     async def unexpected(self, scope, receive, send):
         pytest.fail("request bypassed the identity's space")

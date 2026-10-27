@@ -15,6 +15,8 @@ from latet.config import FieldRule
 from latet.engine.detectors.base import DetectContext
 from latet.engine.detectors.fields import FieldDetector, cells
 from latet.engine.detectors.structural import _key_kind as secret_kind
+from latet.engine.detectors.structural import _status_name as status_name
+from latet.engine.detectors.structural import _status_shaped as status_shaped
 from latet.engine.masker import Masker
 from latet.engine.types import EntityClass, SlotKind
 from latet.protocols.base import map_json_values
@@ -188,7 +190,10 @@ def _proposal(column: Column, masker: Masker) -> tuple[Proposal, str, str | None
     usernames repeat as states do); your call otherwise."""
     words, values = _words(column.name), column.values
     distinct = list(dict.fromkeys(values))
-    if secret_kind(column.name.rsplit(".", 1)[-1].replace("[]", "")):
+    name = column.name.rsplit(".", 1)[-1].replace("[]", "")
+    if secret_kind(name) and not (
+        status_name(name) and all(not v.strip() or status_shaped(v.strip()) for v in values)
+    ):  # `auth_status`: what a check found, unless a value of it is of another shape
         return "mask", "secret-name", None
     if found := _found(masker, values):
         return "mask", found[0], found[1]

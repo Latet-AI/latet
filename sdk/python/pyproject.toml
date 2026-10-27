@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "latet-client"
+version = "0.1.0"
+description = "A light Python client for the applications API of a Latet server: scan, mask and unmask texts with an API key's token, with a LangChain extra."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Emanuele Casabona", email = "siphion@gmail.com" }]
+keywords = ["privacy", "llm", "pii", "redaction", "pseudonymization", "latet", "langchain", "logs", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+# `LatetMasker` and the two runnables in `latet_client.langchain`.
+langchain = ["langchain-core>=0.3"]
+
+[project.urls]
+Homepage = "https://latet.ai"
+Documentation = "https://docs.latet.ai"
+Repository = "https://github.com/Latet-AI/latet"
+Issues = "https://github.com/Latet-AI/latet/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/latet_client"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+# The repository's rules, for the lowest Python the package supports.
+[tool.ruff]
+extend = "../../pyproject.toml"
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B011", "PT018", "E501"]
+
+# The package's own tests, for a run inside this folder (`pytest` from `sdk/python`): the repository's run takes the
+# same options from its root.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --disable-socket --allow-hosts=127.0.0.1,::1"

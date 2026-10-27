@@ -570,8 +570,10 @@ def test_a_value_equal_to_a_fake_stays_known_when_that_fakes_entry_is_forgotten(
     store.forget_entity(first.id)
     with pytest.raises(FakeTaken):  # pw_a1b2c3 is a value the vault still knows: real's
         store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3"))
-    store.forget_entity(real.id)  # and it goes with real
-    assert store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3")) is None
+    store.forget_entity(real.id)  # and once real goes, it stays first's fake, retired (H2): never another value's
+    with pytest.raises(FakeTaken):
+        store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3"))
+    assert store.save_entity(_entity("6", "x.y@gmail.com", "pw_g7h8i9")) is None
 
 
 def test_a_fake_that_was_a_value_forgotten_since_goes_with_its_own_entry(db):
@@ -581,8 +583,10 @@ def test_a_fake_that_was_a_value_forgotten_since_goes_with_its_own_entry(db):
     store.forget_entity(real.id)  # the value goes first: pw_a1b2c3 is first's fake alone again
     with pytest.raises(FakeTaken):
         store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3"))
-    store.forget_entity(first.id)  # and free once first goes: nothing is left of the value forgotten before
-    assert store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3")) is None
+    store.forget_entity(first.id)  # and retired once first goes (H2): nothing of the value forgotten before is left
+    with pytest.raises(FakeTaken):
+        store.save_entity(_entity("6", "x.y@gmail.com", "pw_a1b2c3"))
+    assert store.save_entity(_entity("6", "x.y@gmail.com", "pw_g7h8i9")) is None
 
 
 def _old_fake(db, identity: str, store: PgVaultStore) -> Entity:
@@ -608,9 +612,11 @@ def test_a_fake_drawn_again_at_load_is_sealed_for_its_entry_counted_and_told(db)
     keyed = Sealer(ROOT_KEY, b"storage").keyed
     strings = "SELECT role, entity_id FROM vault_strings WHERE identity_id = %s AND key = %s"
     assert _read(db, strings, identity, keyed(new.surrogate)) == [("surrogate", old.id)]
-    assert _read(db, strings, identity, keyed("emily59")) == []
-    # The old fake is no string of the vault's any more: another value may be given it.
-    assert store.save_entity(_entity("9", "z.z@gmail.com", "emily59")) is None
+    # The old fake is retired, of no entry (the final security review's H2): a text masked with it is never unmasked
+    # to another value, which may not be given it.
+    assert _read(db, strings, identity, keyed("emily59")) == [("retired", None)]
+    with pytest.raises(FakeTaken):
+        store.save_entity(_entity("9", "z.z@gmail.com", "emily59"))
     with pytest.raises(FakeTaken):  # and the new one is the entry's
         store.save_entity(_entity("8", "y.y@gmail.com", new.surrogate))
 
@@ -633,12 +639,28 @@ def test_a_vault_at_its_limit_keeps_no_new_value_and_the_request_is_stopped(db):
     vault = Vault(ROOT_KEY, on_insert=store.save_entity)
     vault.intern("EMAIL", EntityClass.PII, "a.b@gmail.com")
     vault.intern("EMAIL", EntityClass.PII, "c.d@gmail.com")
-    with pytest.raises(VaultFull, match="holds 2 values, and this server allows 2 at most"):
+    with pytest.raises(VaultFull, match="holds 2 values, and its limit is 2 "):
         vault.intern("EMAIL", EntityClass.PII, "e.f@gmail.com")
     assert (
         store.count == 2 and vault.intern("EMAIL", EntityClass.PII, "a.b@gmail.com") is not None
     )  # known: no room needed
-    assert vault_usage(db, 2) == [(identity, 2)] and vault_usage(db, 3) == [] and vault_usage(db, 1000) == []
+    assert vault_usage(db, 2) == [(identity, 2, 0, 2)] and vault_usage(db, 3) == [] and vault_usage(db, 1000) == []
+
+
+@pytest.mark.parametrize("key", [True, False], ids=["an API key's", "a person's"])
+def test_a_full_vault_says_how_its_values_are_forgotten_by_whose_it_is(db, key):
+    """The final review's M4: the words of a full vault reach an API key's agents through the gateway, and an API key
+    has no dashboard: they name `latet server keys forget` and the applications API's forget; a person's, the
+    dashboard."""
+    identity = identity_in(db, "k_billingci0", "Billing CI", kind="key") if key else identity_in(db)
+    store = PgVaultStore(db, identity, ROOT_KEY, limit=1, forgets_values=key)
+    vault = Vault(ROOT_KEY, on_insert=store.save_entity)
+    vault.intern("EMAIL", EntityClass.PII, "a.b@gmail.com")
+    with pytest.raises(VaultFull) as full:
+        vault.intern("EMAIL", EntityClass.PII, "c.d@gmail.com")
+    said = str(full.value)
+    assert ("dashboard" in said) is not key
+    assert ("latet server keys forget" in said and "applications API" in said) is key
 
 
 def _stored(db, identity: str) -> int:
@@ -808,7 +830,7 @@ def test_a_vault_over_its_limit_masks_with_every_value_it_holds_learns_none_and_
     masked = Masker(vault, []).mask("and the password: hunter2-Lavender")  # no detector: the vault alone finds it
     assert masked.text == f"and the password: {secret.surrogate}"
     assert store.count == 4 and vault.get(secret.id) == secret
-    with pytest.raises(VaultFull, match="holds 4 values, and this server allows 2 at most \\(vault_limit\\)"):
+    with pytest.raises(VaultFull, match="holds 4 values, and its limit is 2 \\(the server's vault_limit, or an API"):
         vault.intern("EMAIL", EntityClass.PII, "new.person@gmail.com")  # the words say what it holds
     said = [record.getMessage() for record in caplog.records if record.name == "latet.server.vault"]
     assert len(said) == 1 and identity in said[0] and "2 over" in said[0] and "hunter2" not in said[0]

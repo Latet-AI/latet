@@ -26,7 +26,7 @@ from .test_protocol_read_or_refuse import (
 )
 
 OWN_SECRETS = [*((token, token) for token, _ in TOKENS), (URL, ROUTE)]
-SECRET_IDS = ["personal-token", "api-key", "admin-token", "computer-key", "route-address"]
+SECRET_IDS = [*(etype.removeprefix("LATET_").lower().replace("_", "-") for _, etype in TOKENS), "route-address"]
 
 
 @pytest.mark.parametrize(("value", "secret"), OWN_SECRETS, ids=SECRET_IDS)

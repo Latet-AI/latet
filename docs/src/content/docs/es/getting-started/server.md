@@ -181,6 +181,26 @@ programa. `keys rotate "Billing CI" --out replacement.key` sustituye su credenci
 actualiza a la vez la clave y las direcciones de ruta del programa. Una clave de ruta
 dentro de una dirección también es sensible.
 
+Una clave puede tener varios tokens, cada uno con sus propios permisos entre `scan`, `mask`,
+`unmask` y `forget`, para los programas que llaman a la [API para aplicaciones](../../applications/): una
+aplicación que envía sus registros enmascarados solo necesita `mask`, la herramienta de soporte que
+los lee solo `unmask`.
+
+```sh
+latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper --mask --out shipper.token
+latet server --server https://latet.acme.lan keys tokens "Billing CI"
+```
+
+El primer token de la clave puede analizar, enmascarar y restaurar; `forget`, que quita valores de la
+caja fuerte de la clave, se da a un token propio ([olvidar valores](../../applications/forget/)). Solo
+el primer token de la clave tiene una dirección para modelos: un token creado con `keys add-token`,
+tenga los permisos que tenga, se rechaza allí y solo llama a la API para aplicaciones, donde cada
+restauración queda en el registro de administración. En
+cuanto una clave tiene varios tokens, `keys rotate` necesita `--token` con el id que muestra
+`keys tokens`, y `keys tokens "Billing CI" --revoke TOKEN_ID` detiene uno. `keys limit "Billing CI" 1000000`
+da a la caja fuerte de la clave un límite propio, por encima o por debajo del `vault_limit` del
+servidor.
+
 ## Establecer los ajustes compartidos y las reglas de las claves de API
 
 Los ajustes compartidos contienen lo que el servidor necesita para funcionar, igual para cada

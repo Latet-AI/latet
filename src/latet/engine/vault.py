@@ -10,18 +10,19 @@ keeps a new fake in place of an entry's old one, at load (``Vault.__init__``), a
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from functools import partial
 
 from latet.engine.detectors.ids import ID_TYPES
 from latet.engine.escapes import TAIL, ends_with_escape, plus_as_space, readings, written_like
-from latet.engine.known import ValueMatchers, value_chars
+from latet.engine.known import Matchers, ValueMatchers, value_chars
 from latet.engine.modules import AGAIN, kept
 from latet.engine.surrogates.data.names import NAME_EDGES, PUBLIC_MAIL_DOMAINS
 from latet.engine.surrogates.generators import (
@@ -242,7 +243,14 @@ class Vault:
     # --- lookups ---------------------------------------------------------------------------------
 
     def entity_id(self, etype: str, original: str) -> str:
-        return hmac.new(self._k_id, f"{etype}\x00{original}".encode(), hashlib.sha256).hexdigest()[:20]
+        """The id of ``original``'s entry, a keyed hash of its type and value, in the vault's generation
+        (``_generation``): the first, 0, adds nothing, so that every id made before generations were is made again as
+        it was; a later one (a value forgotten by itself and met again, Task 11b) gives another, so that nothing kept
+        under the old id (a conversation's, a history's) names the value met again (Ruling 11b-R1). The generation
+        leads, after a character no type begins with: never the text of generation 0's for another value."""
+        generation = self._generation()
+        named = f"\x00generation\x00{generation}\x00{etype}\x00{original}" if generation else f"{etype}\x00{original}"
+        return hmac.new(self._k_id, named.encode(), hashlib.sha256).hexdigest()[:20]
 
     def by_surrogate(self, surrogate: str, as_read: bool = True) -> Entity | None:
         """The entity of a fake, or (``as_read``) of how a fake written in escapes reads (`Nicola Greco` for
@@ -256,9 +264,85 @@ class Vault:
     def get(self, entity_id: str) -> Entity | None:
         return self._by_id.get(entity_id)
 
+    def in_memory(self, entity_id: str) -> Entity | None:
+        """The entity this vault holds in memory under ``entity_id``, its store never asked (an API key's vault, which
+        holds its working set alone, asks its store in ``get``)."""
+        return self._by_id.get(entity_id)
+
+    def forgot_any(self, ids: Sequence[str]) -> bool:
+        """Whether a value of the entries ``ids`` (those a text kept as it left names) was forgotten since, so that the
+        text is masked anew rather than sent with an old fake (Task 11b, Ruling 11b-R1): never here. A person's Forget
+        leaves a conversation's texts as they left (review 11b's N2); an API key's vault, whose forgets move it to a new
+        generation of fakes and entries, says so (``engine.stored.StoredVault``)."""
+        return False
+
     def entities(self) -> list[Entity]:
         with self._lock:
             return list(self._by_key.values())
+
+    def candidates_in(self, text: str) -> list[Entity]:
+        """The entities whose fake may be in ``text``, which restoring it from the whole vault reads
+        (``Engine.unmask``): here every one the vault holds, whatever the text. A vault that keeps most of its values
+        elsewhere overrides it to narrow them to the text's, and the engine then makes their restores for each text."""
+        return self.entities()
+
+    def prefetch(self, texts: Sequence[str]) -> None:
+        """Bring into memory the values ``texts`` may hold, before they are masked, so that its detectors
+        (``matchers``) find them as they find every value in memory: here nothing, as every value is in memory. A vault
+        that keeps most of its values elsewhere (``engine.stored.StoredVault``) asks for them there, once for all the
+        texts."""
+
+    def weigh(self, texts: Sequence[str]) -> None:
+        """Bring into memory the values ``texts`` hold among those this thread's call found already (``prefetch``),
+        with no other call to a store: a text kept in another form than its request writes it. Here nothing, as every
+        value is in memory."""
+
+    def hold(self, ids: Iterable[str], key: str | None = None) -> object | None:
+        """Bring the entities of ``ids`` into memory and use them now, those a conversation was shown, so that its
+        answer, restored on the event loop where nothing waits on a store, finds each one there; with ``key``, keep
+        them there until ``release(key, held)``, ``held`` what this returns: here nothing, as every entity is in
+        memory."""
+        return None
+
+    def release(self, key: str, held: object | None) -> None:
+        """What one ``hold`` kept in memory under ``key`` (``held``, its answer) may go again: here nothing."""
+
+    def fakes_out_of_memory(self, text: str) -> list[Entity]:
+        """The entities whose fake ``text`` holds and that its memory does not (its detectors of fakes cannot find
+        them): here none, as every fake is in memory."""
+        return []
+
+    def prefetch_fakes(self, texts: Sequence[str]) -> None:
+        """Ask once, for all of ``texts``, for the fakes they may hold, which ``candidates_in`` then gives for each of
+        them while this thread's call lasts (``holding``): here nothing, as every fake is in memory."""
+
+    @contextlib.contextmanager
+    def holding(self, *, scoped: bool = False) -> Iterator[None]:
+        """While it is open, what this thread brings into memory (``prefetch``) or keeps stays there: a call holds the
+        values it found until it is done with them. Here nothing is ever let go. ``scoped``: a call that brings every
+        value its texts hold into memory first (an applications call), which a vault that keeps most of its values
+        elsewhere masks with the detectors of those alone (``engine.stored``); here every value is read, as always."""
+        yield
+
+    def holds_since(self, version: int) -> bool:
+        """Whether every value it learnt or kept since ``version`` is still in its memory, so that its detectors alone
+        find each one in a text checked at that version (``Engine.mask_text``'s cache): here always. A vault that lets
+        values go (``engine.stored.StoredVault``) answers no once it let some go since."""
+        return True
+
+    def kept_since(self, version: int) -> bool:
+        """Whether every fake it gave since ``version`` is still its own, so that a text masked at that version may be
+        sent again as it was (``Engine.mask_text``'s cache): here always. A vault whose call can fail to keep the values
+        it made (``engine.stored.StoredVault``: an applications call's, kept together) answers no once one did: a text
+        masked then may hold a fake of theirs, which no unmask would find."""
+        return True
+
+    def displaced_by(self, entity: Entity) -> list[Entity]:
+        """The entities its memory holds under ``entity``'s fake or value with another id, which knowing ``entity``
+        puts out (a value forgotten elsewhere, its fake or its value given anew since): in memory alone, as a store
+        keeps one value for each fake and one entity for each value (``server.spaces``)."""
+        found = (self._by_surrogate.get(entity.surrogate), self._by_original.get(entity.original))
+        return list({other.id: other for other in found if other is not None and other.id != entity.id}.values())
 
     @property
     def count(self) -> int:
@@ -296,7 +380,7 @@ class Vault:
             del self._by_reading[reading]
 
     @property
-    def matchers(self) -> ValueMatchers:
+    def matchers(self) -> Matchers:
         """The detectors of its values and of their fakes, one for the vault (``latet.engine.known``)."""
         found = self._matchers
         if found is None:
@@ -565,13 +649,23 @@ class Vault:
                 yield counter, address
                 counter += 1
 
-    @staticmethod
-    def _seed(etype: str, original: str, counter: int) -> bytes:
-        """What the fake of ``original`` (as written) is drawn from at ``counter``."""
+    def _seed(self, etype: str, original: str, counter: int) -> bytes:
+        """What the fake of ``original`` (as written) is drawn from at ``counter``, in the vault's generation
+        (``_generation``): the first, 0, adds nothing, so that every fake drawn before generations were is drawn
+        again as it was."""
         value = normalize(etype, original)
         if len(value) > SEED_LONGEST:  # its digest: the generator hashes the seed again for every 32 bytes it draws
             value = "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+        generation = self._generation()
+        if generation:
+            return f"{etype}\x00{value}\x00{counter}\x00generation\x00{generation}".encode()
         return f"{etype}\x00{value}\x00{counter}".encode()
+
+    def _generation(self) -> int:
+        """The generation the vault draws its new fakes in: 0 here. An API key's vault draws in its store's, which each
+        forget of values by themselves moves (``engine.stored.StoredVault``, Task 11b), so that a value forgotten and
+        met again gets a new fake, not the one the texts masked before hold."""
+        return 0
 
     def _generate(
         self,
@@ -627,13 +721,17 @@ class Vault:
             self.chars += value_chars(entity)
 
     def _index(self, entity: Entity) -> None:
+        self._place(entity)
+        self._moved()
+
+    def _place(self, entity: Entity) -> None:
+        """``entity`` in every index (under the lock), the version left as it is: ``_index`` moves it."""
         self._touch((entity.etype, entity.original))
         self._keyed((entity.etype, entity.original), entity)
         self._by_surrogate[entity.surrogate] = entity
         self._read_as(entity, True)
         self._by_original.setdefault(entity.original, entity)
         self._by_id[entity.id] = entity
-        self._moved()
 
     def _moved(self) -> None:
         """The version moved (under the lock), and ``on_change`` told."""

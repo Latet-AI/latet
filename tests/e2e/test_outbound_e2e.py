@@ -120,7 +120,8 @@ def test_what_the_model_is_told():
 @pytest.mark.parametrize("format", ["environment", "claude", "codex"])
 def test_latet_configuration_reaches_the_provider_masked_and_local_tools_restored(client, runtime, upstream, format):
     tail = "Q7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc1Eo2Fi3Gu4J5"
-    tokens = {prefix: f"latet_{prefix}_" + tail for prefix in ("pat", "key", "adm")}
+    tokens = {prefix: f"latet_{prefix}_" + tail for prefix in ("pat", "key", "adm", "scim", "brg")}
+    tokens["code"] = "latet_code_" + tail[:32]
     route = "Em1ly_Cart3r-Rout3K3y_7q9"
     url = "https://latet.acme.lan/u/" + route
     env = {
@@ -128,6 +129,8 @@ def test_latet_configuration_reaches_the_provider_masked_and_local_tools_restore
         "LATET_BRIDGE_TOKEN": tokens["pat"],
         "BILLING_API_KEY": tokens["key"],
         "LATET_SERVER_ADMIN_TOKEN": tokens["adm"],
+        "IDP_NOTES": f"paste {tokens['scim']} into the provider",  # a value no secret's name points at
+        "HANDOVER": f"the daemon's token is {tokens['brg']}; give them {tokens['code']} once",
     }
     if format == "environment":
         text = "\n".join(f"{name}={value}" for name, value in env.items())
@@ -138,6 +141,8 @@ def test_latet_configuration_reaches_the_provider_masked_and_local_tools_restore
             f'[model_providers.latet]\nbase_url = "{url}/openai/v1"\n'
             f'http_headers = {{ "Authorization" = "Bearer {tokens["pat"]}" }}\n'
             f'BILLING_API_KEY = "{tokens["key"]}"\nLATET_SERVER_ADMIN_TOKEN = "{tokens["adm"]}"\n'
+            f'IDP_NOTES = "paste {tokens["scim"]} into the provider"\n'
+            f'HANDOVER = "the daemon token is {tokens["brg"]}; give them {tokens["code"]} once"\n'
         )
     body = {"model": "m", "max_tokens": 1000, "messages": [{"role": "user", "content": text}]}
     answer = client.post(
@@ -157,6 +162,9 @@ def test_latet_configuration_reaches_the_provider_masked_and_local_tools_restore
                 ("pat", "LATET_PERSONAL_TOKEN"),
                 ("key", "LATET_API_KEY"),
                 ("adm", "LATET_ADMIN_TOKEN"),
+                ("scim", "LATET_SCIM_TOKEN"),
+                ("brg", "LATET_BRIDGE_TOKEN"),
+                ("code", "LATET_ONE_TIME_CODE"),
             )
         ),
         (route, "LATET_ROUTE_KEY"),

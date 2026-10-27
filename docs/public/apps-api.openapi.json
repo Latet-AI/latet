@@ -1,0 +1,558 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Latet applications API",
+    "version": "v1",
+    "summary": "Scan, mask and unmask texts, and forget values, with an API key's token on a Latet server.",
+    "description": "A Latet server's applications API: an application scans a text (what is sensitive in it), masks it (the API key's fakes in place of its values) or unmasks it (the real values back in place of the key's fakes), and forgets values (takes them out of the key's vault). It exists on a Latet server only, for an API key's tokens, each with its own permissions among scan, mask, unmask and forget (mask brings scan; nothing brings forget). Each call of scan, mask and unmask takes a list of 1 to 1,000 texts and answers a list in the same order; a forget takes 1 to 1,000 values and answers two counts. Positions are Unicode code points of the text: of the text sent for scan, of the text answered for mask. Every error is a JSON object {\"error\": words}: read the words as text, they never quote a text sent; the refusals of the server's gate begin with \"latet: \". Another path under /_latet/apps/v1/ answers 404, another method than POST 405 (with Allow: POST). Every answer says Cache-Control: no-store. Documentation: https://docs.latet.ai/reference/apps-api/"
+  },
+  "servers": [
+    {
+      "url": "{server}",
+      "description": "Your Latet server's address",
+      "variables": {
+        "server": {
+          "default": "https://latet.example.com"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "apiKeyToken": []
+    }
+  ],
+  "paths": {
+    "/_latet/apps/v1/scan": {
+      "post": {
+        "operationId": "scan",
+        "summary": "Say what is sensitive in each text",
+        "description": "Where the API key's rules find values in each text, by the rules mask would mask it by, without the local reviewer. Nothing is kept: no fake is made and the vault does not change. Scan reports the values the key's vault already knows, wherever they appear, so a token that may scan can confirm that a value no detector would find on its own (a name in a data text, a value a removed rule found) is one of the key's: give scan with the same care as mask. Needs the scan permission (or mask, which brings it).",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/TextsOfAKind"
+        },
+        "responses": {
+          "200": {
+            "description": "Each text's findings, in the order sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanAnswer"
+                },
+                "example": {
+                  "results": [
+                    {
+                      "findings": [
+                        {"type": "EMAIL", "class": "pii", "start": 20, "end": 39},
+                        {"type": "IBAN", "class": "pii", "start": 43, "end": 70}
+                      ],
+                      "counts": {"EMAIL": 1, "IBAN": 1}
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadBody"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "422": {"$ref": "#/components/responses/TooManyCandidates"},
+          "429": {"$ref": "#/components/responses/TooMany"},
+          "500": {"$ref": "#/components/responses/Failed"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/_latet/apps/v1/mask": {
+      "post": {
+        "operationId": "mask",
+        "summary": "Replace the sensitive values of each text with the API key's fakes",
+        "description": "Each text with its values replaced by the API key's fakes: the same value gets the same fake in every call, on every instance, for as long as the vault keeps it. Every value found is taken as real, the key's own fakes too, so a text masked twice holds fakes of fakes. The local reviewer, when the key's rules set one, reads every text before the answer, within llm_review.budget_ms or else 30 seconds; the Live Reviewer never holds an application's text. Needs the mask permission.",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/TextsOfAKind"
+        },
+        "responses": {
+          "200": {
+            "description": "Each text masked, or blocked, in the order sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaskAnswer"
+                },
+                "example": {
+                  "results": [
+                    {
+                      "text": "Refund the order of tommaso.gallo@margie-6e5a.example to IT17F3945471087320356678487, please.",
+                      "replacements": [
+                        {"type": "EMAIL", "class": "pii", "start": 20, "end": 53},
+                        {"type": "IBAN", "class": "pii", "start": 57, "end": 84}
+                      ],
+                      "counts": {"EMAIL": 1, "IBAN": 1}
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadBody"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "422": {"$ref": "#/components/responses/TooManyCandidates"},
+          "429": {"$ref": "#/components/responses/TooMany"},
+          "500": {"$ref": "#/components/responses/Failed"},
+          "503": {"$ref": "#/components/responses/Unavailable"},
+          "507": {"$ref": "#/components/responses/VaultFull"}
+        }
+      }
+    },
+    "/_latet/apps/v1/unmask": {
+      "post": {
+        "operationId": "unmask",
+        "summary": "Put the real values back in place of the API key's fakes",
+        "description": "Each text with every fake of the API key's vault replaced by its value, whichever call or conversation made it; a fake of another key or of a person stays as it is, and a person's name comes back whole only, not one of its parts alone. Every unmask is written in the administration log (apps.unmasked: the token, how many texts and values, the client's address; never a text or a value) before the answer: a log that does not take it refuses the call (503). Needs the unmask permission.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnmaskRequest"
+              },
+              "example": {
+                "texts": ["Refund the order of tommaso.gallo@margie-6e5a.example to IT17F3945471087320356678487, please."]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Each text restored, in the order sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnmaskAnswer"
+                },
+                "example": {
+                  "results": [
+                    {
+                      "text": "Refund the order of mario.rossi@acme.it to IT60X0542811101000000123456, please.",
+                      "restored": 2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadBody"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "422": {"$ref": "#/components/responses/TooManyCandidates"},
+          "429": {"$ref": "#/components/responses/TooMany"},
+          "500": {"$ref": "#/components/responses/Failed"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/_latet/apps/v1/forget": {
+      "post": {
+        "operationId": "forget",
+        "summary": "Take values out of the API key's vault",
+        "description": "Each value, found exactly as it is written (another case or another written form is another value), taken out of the API key's vault with its fake and everything that names it, the local reviewer's remembered answers that found it, and what the key's conversations and history keep of it; every instance drops it once the calls already running there end. Its old fake restores nothing from then on, and the value gets a new fake and a new entry if a text holds it again. An address at a company's domain keeps the domain as a value of its own: forget it too if it should go. Every call is written in the administration log (apps.forgotten: the token, how many values asked, forgotten and not held, the client's address; never a value) in the same transaction as the forget: a log that does not take it forgets nothing (503). The answer says whether the vault held the values, so a token that may forget learns which values the key knows. Needs the forget permission, which no other permission brings and a key's first token does not have.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgetRequest"
+              },
+              "example": {
+                "values": ["mario.rossi@acme.it", "+39 347 123 4567"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "How many of the values the vault held, and how many it did not, each value counted once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgetAnswer"
+                },
+                "example": {
+                  "forgotten": 1,
+                  "unknown": 1
+                }
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadValues"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "429": {"$ref": "#/components/responses/TooMany"},
+          "500": {"$ref": "#/components/responses/Failed"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKeyToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A token of an API key (latet_key_ and 43 characters), in one Authorization header: Authorization: Bearer latet_key_... A person's computer token is refused (403), and so is any request that carries an Origin or a Sec-Fetch-Site header, as a browser's does, the server's own pages included."
+      }
+    },
+    "requestBodies": {
+      "TextsOfAKind": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TextsOfAKindRequest"
+            },
+            "example": {
+              "texts": ["Refund the order of mario.rossi@acme.it to IT60X0542811101000000123456, please."],
+              "kind": "prose"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Texts": {
+        "type": "array",
+        "description": "The texts of the call, answered in the same order. An empty text comes back as it is.",
+        "minItems": 1,
+        "maxItems": 1000,
+        "items": {
+          "type": "string"
+        }
+      },
+      "Kind": {
+        "type": "string",
+        "description": "prose: text people wrote (messages, documents), masked as the gateway masks your messages. data: logs, records, a program's output, masked as a tool's output: in the balanced profile names are looked for in prose only, and a run of digits counts as a phone number in prose only. null is refused (400).",
+        "enum": ["prose", "data"],
+        "default": "prose"
+      },
+      "TextsOfAKindRequest": {
+        "type": "object",
+        "required": ["texts"],
+        "properties": {
+          "texts": {
+            "$ref": "#/components/schemas/Texts"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          }
+        }
+      },
+      "UnmaskRequest": {
+        "type": "object",
+        "required": ["texts"],
+        "properties": {
+          "texts": {
+            "$ref": "#/components/schemas/Texts"
+          }
+        }
+      },
+      "Place": {
+        "type": "object",
+        "description": "A value found or replaced: its type, its class, and where it is, in Unicode code points (start included, end not).",
+        "required": ["type", "class", "start", "end"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "The value's type, such as EMAIL, IBAN, PHONE, IP_ADDRESS, a secret's rule, or the type of one of your terms or recognizers.",
+            "examples": ["EMAIL"]
+          },
+          "class": {
+            "type": "string",
+            "description": "The family of the detector that found it.",
+            "enum": ["secret", "custom", "identity", "pii", "llm", "ner", "struct"]
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Counts": {
+        "type": "object",
+        "description": "How many values of each type.",
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "ScanResult": {
+        "type": "object",
+        "required": ["findings", "counts"],
+        "properties": {
+          "findings": {
+            "type": "array",
+            "description": "Where the values are in the text sent.",
+            "items": {
+              "$ref": "#/components/schemas/Place"
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          }
+        }
+      },
+      "ScanAnswer": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanResult"
+            }
+          }
+        }
+      },
+      "Masked": {
+        "type": "object",
+        "required": ["text", "replacements", "counts"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The text with the API key's fakes in place of its values."
+          },
+          "replacements": {
+            "type": "array",
+            "description": "Where the fakes are in the text answered.",
+            "items": {
+              "$ref": "#/components/schemas/Place"
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts"
+          }
+        }
+      },
+      "Blocked": {
+        "type": "object",
+        "description": "A text that is not answered: the local reviewer stopped it, its review failed with on_failure: stop, or the dump guard withheld it. Its words name no value.",
+        "required": ["blocked"],
+        "properties": {
+          "blocked": {
+            "type": "string"
+          }
+        }
+      },
+      "MaskAnswer": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {"$ref": "#/components/schemas/Masked"},
+                {"$ref": "#/components/schemas/Blocked"}
+              ]
+            }
+          },
+          "degraded": {
+            "type": "array",
+            "description": "What ran weaker on the call, when something did: a detector's name (ner, pii...) or llm-review.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UnmaskResult": {
+        "type": "object",
+        "required": ["text", "restored"],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "restored": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many different values were restored in the text."
+          }
+        }
+      },
+      "UnmaskAnswer": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnmaskResult"
+            }
+          }
+        }
+      },
+      "ForgetRequest": {
+        "type": "object",
+        "required": ["values"],
+        "properties": {
+          "values": {
+            "type": "array",
+            "description": "The values to forget, each found exactly as written.",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ForgetAnswer": {
+        "type": "object",
+        "required": ["forgotten", "unknown"],
+        "properties": {
+          "forgotten": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many of the values the vault held: gone, with their fakes."
+          },
+          "unknown": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many of the values the vault did not hold."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Why, in words to read as text; they never quote a text sent."
+          }
+        }
+      }
+    },
+    "headers": {
+      "RetryAfter": {
+        "description": "The seconds to wait before trying again.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "WwwAuthenticate": {
+        "description": "Bearer: the scheme the API asks for.",
+        "schema": {
+          "type": "string",
+          "const": "Bearer"
+        }
+      }
+    },
+    "responses": {
+      "BadBody": {
+        "description": "The body is not a JSON object with texts, a list of 1 to 1,000 strings, and, for scan and mask, a kind that is prose or data.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "texts holds 1000 texts at most: send the others in another call"}
+          }
+        }
+      },
+      "BadValues": {
+        "description": "The body is not a JSON object with values, a list of 1 to 1,000 strings.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "values holds 1000 values at most: send the others in another call"}
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "No Authorization header, two of them, a scheme other than Bearer, or a token the server does not know (revoked, rotated, of a key disabled or removed).",
+        "headers": {
+          "WWW-Authenticate": {"$ref": "#/components/headers/WwwAuthenticate"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "latet: unauthorized"}
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The token lacks the operation's permission (a key's first token lacks forget), it is a person's token, or a web page made the request.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "this token lacks the unmask permission"}
+          }
+        }
+      },
+      "TooLarge": {
+        "description": "The body is larger than the server's apps_request_mb (8 MiB unless its settings say otherwise, never more than its max_request_mb).",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"}
+          }
+        }
+      },
+      "TooManyCandidates": {
+        "description": "The texts of the call hold the words of more than 100,000 values or fakes of the vault, more than one call may weigh: nothing of it was masked or restored. Send fewer texts in a call.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"}
+          }
+        }
+      },
+      "TooMany": {
+        "description": "Past a limit: too many tokens refused from this address, or the API key has requests_in_flight application requests on this instance (16 unless the server's settings say otherwise).",
+        "headers": {
+          "Retry-After": {"$ref": "#/components/headers/RetryAfter"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"}
+          }
+        }
+      },
+      "Failed": {
+        "description": "The call failed for another reason; its words name no value. A mask call that fails may have kept some of its new values in the key's vault (on a busy instance, or when it failed after masking): repeating it is safe, a value kept gets the same fake.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "the applications API could not answer this call: try again"}
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "A store of the server (PostgreSQL, Valkey) did not answer, the key's space is not available on this instance now, or, for unmask, the administration log did not take the entry, so nothing was restored, or, for forget, it did not take it, so nothing was forgotten. Safe to try again.",
+        "headers": {
+          "Retry-After": {"$ref": "#/components/headers/RetryAfter"}
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "Latet's store did not answer: try again in a moment"}
+          }
+        }
+      },
+      "VaultFull": {
+        "description": "The API key's vault holds the most values it may: nothing of the call was answered, and nothing left in clear. An administrator raises the limit with latet server keys limit.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"error": "this API key's vault is full: its limit is 200000 values; latet server keys limit raises it"}
+          }
+        }
+      }
+    }
+  }
+}

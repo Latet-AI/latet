@@ -44,6 +44,14 @@ master key or a private key into the conversation.
    destinations, the local reviewer, text recognition, history and how long it is kept), that each
    person's and each API key's rules are their own, and that rules set for everyone, that nobody can
    lower, are planned for the Enterprise Edition. See <https://docs.latet.ai/concepts/server/>.
+6. **Help with programs that mask their own text**, such as an application's logs or a RAG
+   pipeline's documents: they call the server's applications API with a token of an API key that
+   holds only the permissions they need (`scan`, `mask`, `unmask`, and `forget` for a process that
+   takes a person's values out of the key's vault), which the user makes with
+   `latet server keys add-token` in their own terminal. Point to
+   <https://docs.latet.ai/applications/>, with its pages on logs and RAG, and to the HTTP reference
+   <https://docs.latet.ai/reference/apps-api/>. You may write the program's code; the token stays in
+   the program's secret store, never in the conversation.
 
 Tell the user plainly at the start that these steps are theirs to run, and why: an agent that ran
 them would hold the keys to everyone's space.

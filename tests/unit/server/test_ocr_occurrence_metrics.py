@@ -126,7 +126,7 @@ def rig(tmp_path, monkeypatch):
     def build():
         metrics = Metrics(clock=lambda: now[0])
         registries.append(metrics)
-        identity = SimpleNamespace(id=EMILY.id, disabled=False, kind="person", ref=lambda: EMILY)
+        identity = SimpleNamespace(id=EMILY.id, disabled=False, kind="person", vault_limit=None, ref=lambda: EMILY)
         server = SimpleNamespace(
             identities=SimpleNamespace(current=lambda identity_id: identity, tokens=lambda identity_id: ()),
             db=None,
@@ -137,7 +137,7 @@ def rig(tmp_path, monkeypatch):
             data=tmp_path / "models",
             reading=ServerReading(readers=1, wait=6, budget=5),
             reviewer_key=None,
-            settings=SimpleNamespace(url=URL, max_request_mb=32),
+            settings=SimpleNamespace(url=URL, max_request_mb=32, key_working_values=20_000, key_held_secrets=1_000),
             metrics=metrics,
         )
         builder = Spaces(server)

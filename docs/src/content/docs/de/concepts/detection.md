@@ -13,9 +13,13 @@ und jede Regel für geheime Werte auf.
 Geheime Werte werden in jedem [Profil](../profiles/) maskiert.
 
 Auch Latets eigene Zugangsdaten sind enthalten: `LATET_PERSONAL_TOKEN` (`latet_pat_`),
-`LATET_COMPUTER_KEY` (`latet_ck_`), `LATET_API_KEY` (`latet_key_`) und `LATET_ADMIN_TOKEN` (`latet_adm_`),
-jeweils mit 43 URL-sicheren
-Zeichen (`A-Z`, `a-z`, `0-9`, `_`, `-`) nach dem Präfix. In `https://<host>/u/<route-key>` werden
+`LATET_COMPUTER_KEY` (`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
+`LATET_SCIM_TOKEN` (`latet_scim_`, das SCIM-Token eines Enterprise-Servers), `LATET_BRIDGE_TOKEN`
+(`latet_brg_`, das Token, das das Plugin für Claude Code dem Daemon Ihres Rechners gibt) und
+`LATET_ONE_TIME_CODE` (`latet_code_`, der Code, den eine Administratorin oder ein Administrator einer Person
+gibt, um einen Rechner zu verbinden), jeweils mit 43 URL-sicheren Zeichen (32 beim Einmalcode; `A-Z`,
+`a-z`, `0-9`, `_`, `-`) nach dem Präfix. Ein Bridge-Token oder ein Einmalcode aus einer früheren Version
+hat kein Präfix: Er wird am Namen maskiert, unter dem er geschrieben steht, wie jedes Geheimnis. In `https://<host>/u/<route-key>` werden
 die 16 bis 128 URL-sicheren Zeichen des Routenschlüssels als `LATET_ROUTE_KEY` maskiert; der Host
 und die übrigen Pfadsegmente bleiben erhalten. Das gilt auf Ihrem Rechner und in einem Serverbereich,
 auch für Umgebungsabbilder, Claude Codes `settings.json` und Codex' `config.toml`. Lokale
@@ -30,7 +34,28 @@ wird gestoppt, wo Latet ihn abfangen kann (siehe [Schutzumfang](../protection-sc
   Code. Es entscheidet der Name, egal wie der Wert aussieht: `DB_PASSWORD=...`, `"api_key": "..."`
   und `$env:TOKEN = ...` werden maskiert, `APP_NAME=shop` und `DEBUG=true` nicht. Platzhalter wie
   `changeme`, `${DB_PASSWORD}` oder `<your-key>` bleiben unberührt, ebenso Verweise im Code wie
-  `process.env.API_KEY`.
+  `process.env.API_KEY`. Ein Paar `password=...` wird maskiert, wo immer es in einer Zeile steht: nach
+  anderen Wörtern in einem Log (`INFO login ok password=...`), in Klammern, in der Query einer URL oder
+  nach `--` in einem Befehl (`--password=...`); nach einem starken Namen (`password`, `secret`,
+  `api_key`, `access_token`...) wird auch ein Literal in Anführungszeichen nach einem Doppelpunkt oder
+  einem Gleichheitszeichen mit Leerzeichen maskiert (`{ password: 's3cr3t' }`, `SET password = '...'`).
+  Ein Vergleich (`token==expected`) ist kein Paar. Zwei Arten von Werten bleiben nach dem Namen eines
+  Geheimnisses unberührt, weil sie sagen, was eine Prüfung ergeben hat, und nicht das Geheimnis sind.
+  Ein Statuswort, kleingeschrieben, unter jedem Namen (`auth=failed`, `token=expired`): `ok`, `fail`,
+  `failed`, `failure`, `denied`, `refused`, `rejected`, `accepted`, `granted`, `success`, `succeeded`,
+  `error`, `expired`, `missing`, `invalid`, `valid`, `required`, `present`, `absent`, `revoked`,
+  `rotated`, `refreshed`, `pending`, `unknown`, `anonymous`, `unauthorized`, `forbidden`, `enabled`,
+  `disabled`, `active`, `inactive`, `skipped` und `passed`. Und, unter einem Namen, der auf `status`,
+  `state`, `result`, `results`, `outcome`, `scheme`, `changed`, `reason` oder `error` endet
+  (`auth_status`, `token_error`, `password_changed`), ein Wert in der Form eines Status: ein
+  kleingeschriebenes Wort mit höchstens 20 Zeichen und höchstens einem `-` oder `_`, eine Zahl mit
+  höchstens 10 Ziffern, eine Uhrzeit, ein Datum oder ein Boolean; jeder andere Wert dort
+  (`password_changed=Winter2024x`, eine Passphrase wie `correct-horse-battery-staple`, eine längere
+  Zahl) wird maskiert. Ein Name, der auf `reset`,
+  `source`, `arg`,
+  `option` oder `flag` endet, bleibt der Name eines Geheimnisses (`password_reset`, `token_source`);
+  nur eine Option, die so endet (`--pass-arg=...`), bleibt nach `--` mitten in einer Zeile unberührt,
+  denn sie nimmt den Namen von etwas.
 - **Private Schlüssel**: der gesamte Inhalt eines privaten PEM-, OpenSSH- oder PGP-Schlüsselblocks.
   Die Zeilen `BEGIN` und `END` bleiben sichtbar, sodass das Modell weiterhin weiß, dass dort ein
   Schlüssel steht.

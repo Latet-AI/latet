@@ -32,6 +32,7 @@ import hashlib
 import importlib.resources
 import os
 import re
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -448,6 +449,12 @@ class Database:
             "", connection_class=_Connection, kwargs=self._parameters, min_size=min_size, max_size=max_size,
             timeout=10.0, open=True, name=f"latet-{schema}",
         )  # fmt: skip
+        # The applications calls that keep their values together at once (``vault.PgVaultStore.together``, Ruling
+        # 10b-R2): each holds a connection until it ends, so a few of the pool's, never most of it (3 of 10); a call
+        # that finds none free keeps each of its values at once, as before, and every other identity's work finds the
+        # pool.
+        self.together_at_most = max(1, max_size * 3 // 10)
+        self.together = threading.BoundedSemaphore(self.together_at_most)
 
     @contextmanager
     def connection(

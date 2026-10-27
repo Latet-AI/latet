@@ -397,6 +397,11 @@ class Prepared:
     shape: str | None = None  # a cloud's model call (Bedrock, Vertex): checked, never rewritten
     bypass: bool = False  # a Claude Code session whose requests do not go through Latet
     images: list[ImageWork] = field(default_factory=list)  # the images read: masked, clean or withheld
+    # Its conversation's vault holds what its answer restores (``Engine.hold``, which ``_mask_slots`` asks once it has
+    # masked), and has let it go (``Engine.release``): one release for each hold, none for a request that never held.
+    held: bool = False
+    hold: object | None = None  # what the vault counted that hold in, handed back at its release
+    released: bool = False
     # The local reviewer or you changed it after it was masked (a text masked again, an image withheld or covered): it
     # leaves written anew from ``document``, a WebSocket turn as a body is.
     amended: bool = False
@@ -730,8 +735,10 @@ class Mediator:
                 document=body, pending=[(s, [], True) for s in scan.slots], off=True,
             )  # fmt: skip
         report = MaskReport()
+        held, hold = False, None
         try:
-            masked, done_slots = self._mask_slots(scan.slots, session, report, scan.keyed)
+            masked, done_slots, hold = self._mask_slots(scan.slots, session, report, scan.keyed)
+            held = True  # its conversation's vault holds for its answer, whatever stops it from here
             withheld = sum(done.withheld and done.fresh for done in done_slots)
             pending = [(slot, done.replacements, done.exact) for slot, done in zip(scan.slots, done_slots, strict=True)]
             changed = masked > 0 or read.mended or read.repeated or any(w.state == WITHHELD for w in works)
@@ -739,14 +746,16 @@ class Mediator:
             prepared = Prepared(
                 REWRITE, protocol, out, session, [], unread, masked, report.degraded, stream=stream,
                 model=model, document=body, pending=pending, withheld=withheld, masked=done_slots,
-                encoding=encoding, images=works,
+                encoding=encoding, images=works, held=held, hold=hold,
             )  # fmt: skip
             self._check(prepared)  # one stopped here is shown to no reviewer, nor to you
             if prepared.block_reason is None:
                 prepared.reviews = self._review_items(session, scan.slots, done_slots)
         except MaskingError as exc:  # a vault at its limit says so: a MaskingError's words name no value
             log.error("masking failed: %s", exc)
-            return Prepared(REWRITE, protocol, raw, session, block_reason=f"masking failed: {exc}")
+            return Prepared(
+                REWRITE, protocol, raw, session, block_reason=f"masking failed: {exc}", held=held, hold=hold
+            )
         return self._mark_outbound(prepared)
 
     def _check(self, prepared: Prepared) -> None:
@@ -881,29 +890,36 @@ class Mediator:
         session: Session,
         report: MaskReport,
         keyed: Sequence[tuple[Any, SlotKind, bool]] = (),
-    ) -> tuple[int, list[Masked]]:
-        """Mask the slots of a request in place: (values masked, what was done to each). And the keys of the ``keyed``
-        objects (a tool call's input), each masked as a text and written back in its place, the slots of its object's
-        values told its new name: a key the model wrote with a fake in it is restored in the answer, and so leaves
-        masked again when the agent sends it back. Two keys of an object that would be one stop the request
+    ) -> tuple[int, list[Masked], object | None]:
+        """Mask the slots of a request in place: (values masked, what was done to each, what its conversation's vault
+        counted its hold in: ``Engine.hold``, handed back at its release). And the keys of the ``keyed`` objects (a tool
+        call's input), each masked as a text and written back in its place, the slots of its object's values told its
+        new name: a key the model wrote with a fake in it is restored in the answer, and so leaves masked again when the
+        agent sends it back. Two keys of an object that would be one stop the request
         (``KeysCollide``)."""
-        call = self.call()
-        done_slots = [
-            self.mask_value(
-                s.get(), s.kind, session, report, from_model=s.from_model, path=s.source, tool=s.tool,
-                json_mode=s.mode == "json",
-                call=call,
-            )
-            for s in slots
-        ]  # fmt: skip
-        keys = [  # a fake drawn for a key is none of the other keys of its object (``context``)
-            (obj, key, self.mask_value(key, kind, session, report, from_model=from_model, call=call, context=others))
-            for root, kind, from_model in keyed
-            for obj in objects(root)
-            for others in ("\n".join(obj),)
-            for key in obj
-        ]
-        self.settle(call)  # a key too: masked again when a later text of the request taught the vault a value in it
+        texts = [s.get() for s in slots]
+        named = [(obj, kind, from_model) for root, kind, from_model in keyed for obj in objects(root)]
+        vault = self.engine.vault
+        # The values the request's texts hold, in memory at once, in one call to the store where the vault keeps most of
+        # its values there (an API key's: ``Vault.prefetch``), and held until the request is masked.
+        with vault.holding():
+            vault.prefetch([*texts, *(key for obj, _, _ in named for key in obj)])
+            call = self.call()
+            done_slots = [
+                self.mask_value(
+                    text, s.kind, session, report, from_model=s.from_model, path=s.source, tool=s.tool,
+                    json_mode=s.mode == "json",
+                    call=call,
+                )
+                for s, text in zip(slots, texts, strict=True)
+            ]  # fmt: skip
+            keys = [  # a fake drawn for a key is none of the other keys of its object (``context``)
+                (obj, key, self.mask_value(key, kind, session, report, from_model=from_model, call=call, context=ctx))
+                for obj, kind, from_model in named
+                for ctx in ("\n".join(obj),)
+                for key in obj
+            ]
+            self.settle(call)  # a key too: masked again when a later text of the request taught the vault a value in it
         masked = 0
         for slot, done in zip(slots, done_slots, strict=True):
             if done.text != done.original:
@@ -923,7 +939,8 @@ class Mediator:
         for at, (obj, given) in names.items():
             rename(obj, given, held.get(at, []))
             masked += len(given)
-        return masked, done_slots
+        hold = self.engine.hold(session)  # what its answer restores, in memory (an API key's vault: ``Vault.hold``)
+        return masked, done_slots, hold
 
     def call(self) -> Call:
         """What ``mask_value`` notes of a request's texts, for ``settle`` once they are all masked."""
@@ -969,6 +986,7 @@ class Mediator:
         extra: Sequence[ExtraValue] = (),
         call: Call | None = None,
         context: str = "",
+        as_text: bool = False,
     ) -> Masked:
         """Mask one text of a request (the proxy's slots, the plugin's items alike).
 
@@ -979,18 +997,26 @@ class Mediator:
         allows is withheld. ``call`` notes the texts new to the conversation, which ``settle`` masks
         again when a later text of the request teaches the vault a value in them. ``context``: the text
         around it, which a fake drawn for a value in it must not hold (a key's, the other keys of its object).
+        ``as_text``: masked as one text, a tool output that is a JSON document too, never value by value (an
+        application's, whose positions are in the text it gets back). A session not ``kept`` (an application's call,
+        which is no conversation) sends nothing again: none of its texts is kept as it left, and each is masked with
+        what the vault knows now.
         """
-        flags = f"{int(from_model)}{int(keep_surrogates)}{int(json_mode)}"
+        # A text masked as one text is kept apart from the same text masked value by value (the keys of the texts kept
+        # before stay as they were).
+        flags = f"{int(from_model)}{int(keep_surrogates)}{int(json_mode)}{'t' if as_text else ''}"
         key = self._given_key(session, kind, value, path, tool, flags)
-        given = None if extra else self.given.masked(key)
+        given = None if extra or not session.kept else self.given.masked(key)
         if given is not None and not self._leaves_as_it_left(session, key, given):
             given = None  # a value the vault knows is in clear in it, and it never left so: masked anew
 
         def new() -> Masked:
             done = self._mask_new(
-                value, kind, session, report, from_model, path, tool, json_mode, keep_surrogates, extra, context
-            )
-            self.given.keep(key, Left(done.text, tuple(done.replacements), done.exact))
+                value, kind, session, report, from_model, path, tool, json_mode, keep_surrogates, extra, context,
+                as_text,
+            )  # fmt: skip
+            if session.kept:
+                self.given.keep(key, Left(done.text, tuple(done.replacements), done.exact))
             return self._guarded(done, kind, session)
 
         if given is None:
@@ -1032,9 +1058,21 @@ class Mediator:
         no value the vault knows, or once the final check saw that very text leave in the conversation. A text is kept
         as it is masked, before its request leaves (it may never leave), and another process may have kept it again
         since, or someone who writes the store written an older version back: one that never left must not bring a
-        value masked since back in clear. Checked once per vault version, for the text read now."""
-        version = self.engine.vault.version  # first: a value learnt while it is checked has it checked again
-        mark = hmac.new(self.engine.vault.cache_key, b"L\x00" + key + left.text.encode(), hashlib.sha256).digest()
+        value masked since back in clear. Nor, in an API key's vault, one that names an entry the vault no longer
+        holds (``Vault.forgot_any``): its value was forgotten by itself since (Task 11b), and the text is masked anew,
+        never sent with the old fake, which restores nothing, nor that entry shown to the conversation again, which
+        would name it in the conversation's record (Ruling 11b-R1); asked before the check of the version, which such a
+        forget heard elsewhere does not move. A person's Forget leaves the texts as they left (review 11b's N2). Checked
+        once per vault version, for the text read now. The values the kept text holds among those its request's words
+        found (an API key's vault, which keeps most of its values in its store) are brought into memory first, in
+        whatever form the text was kept (``Vault.weigh``), and those it names, by their ids."""
+        vault = self.engine.vault
+        vault.weigh([left.text])  # first: what it brings into memory moves the version
+        named = [r.entity_id for r in left.replacements if r.entity_id]
+        if named and vault.forgot_any(named):  # those out of memory brought back first: it moves the version
+            return False
+        version = vault.version  # first: a value learnt while it is checked has it checked again
+        mark = hmac.new(vault.cache_key, b"L\x00" + key + left.text.encode(), hashlib.sha256).digest()
         if self._as_it_left.get(mark) == version:
             return True
         if self._masker(session).known_in(left.text) and not self.verifier.sent(session.key, left.text):
@@ -1055,10 +1093,11 @@ class Mediator:
         keep_surrogates: bool,
         extra: Sequence[ExtraValue],
         context: str = "",
+        as_text: bool = False,
     ) -> Masked:
         """Mask a text new to its conversation, with what the vault knows now.
 
-        A tool output that is a JSON document is masked value by value, each with the path of its
+        A tool output that is a JSON document is masked value by value (not ``as_text``), each with the path of its
         key, so that line-based detectors see real lines and field rules see their fields. A value
         the vault learns from one of them (an address's domain, a secret found by its key) is masked
         in the values before it too, as in every later text. Its strings and keys are read ahead by the
@@ -1091,7 +1130,7 @@ class Mediator:
             return result.text
 
         exact = True
-        if json_mode or (kind == SlotKind.TOOL_RESULT and _json_document(value)):
+        if not as_text and (json_mode or (kind == SlotKind.TOOL_RESULT and _json_document(value))):
             numbers = self.engine.json_numbers(session, kind, tool, path)
             sent: dict[str, str] = {}  # a path with a key masked in it, as it is sent
             # Each path asked, as it is sent: read once for every value under it (a path is the same string for each),
@@ -1302,11 +1341,14 @@ class Mediator:
                 items.append(item)
         return items
 
-    async def review_inline(self, config: LlmReview, items: Sequence[ReviewItem]) -> dict[int, Answer]:
-        """Review the inline items not reviewed before, side by side, within the budget (event loop)."""
+    async def review_inline(
+        self, config: LlmReview, items: Sequence[ReviewItem], budget_s: float | None = None
+    ) -> dict[int, Answer]:
+        """Review the inline items not reviewed before, side by side, within the budget (event loop):
+        ``llm_review.budget_ms`` when it is set, else ``budget_s`` (None: as long as it takes)."""
         assert self.reviewer is not None
         todo = [i for i in items if i.inline and i.answer is None]
-        timeout = config.budget_ms / 1000 if config.budget_ms else None
+        timeout = config.budget_ms / 1000 if config.budget_ms else budget_s
         found = await self.reviewer.review_all(
             [(i.view, i.original) for i in todo], timeout, config.guidance, [i.picture for i in todo]
         )
@@ -1343,16 +1385,24 @@ class Mediator:
         return True
 
     def remask(
-        self, session: Session, item: ReviewItem, findings: Sequence[Finding], report: MaskReport, keep: bool
+        self,
+        session: Session,
+        item: ReviewItem,
+        findings: Sequence[Finding],
+        report: MaskReport,
+        keep: bool,
+        as_text: bool = False,
     ) -> Masked:
-        """``item`` masked again with what the reviewer found in it; later turns send it the same way."""
+        """``item`` masked again with what the reviewer found in it; later turns send it the same way. ``as_text``: as
+        ``mask_value`` takes it, the way the item was first masked."""
         return self.mask_value(
             item.original, item.kind, session, report, path=item.path, tool=item.tool, json_mode=item.json_mode,
-            keep_surrogates=keep, extra=[f.extra() for f in findings],
+            keep_surrogates=keep, extra=[f.extra() for f in findings], as_text=as_text,
         )  # fmt: skip
 
-    def failure(self, config: LlmReview, kinds: Sequence[str], why: str) -> str | None:
-        """Why a request is stopped when its review failed (None: it is sent as masked)."""
+    def failure(self, config: LlmReview, kinds: Sequence[str], why: str, limit: str | None = None) -> str | None:
+        """Why a request is stopped when its review failed (None: it is sent as masked). ``limit``: the time the review
+        was given, in words, when it was not ``llm_review.budget_ms`` (an application's call)."""
         if config.on_failure != "stop":
             return None
         what = ", ".join(sorted({k.replace("_", " ") for k in kinds}))
@@ -1362,7 +1412,7 @@ class Mediator:
                 "not sent; look at it in the dashboard"
             )
         hint = {
-            "timeout": "it took longer than llm_review.budget_ms",
+            "timeout": f"it took longer than {limit or 'llm_review.budget_ms'}",
             "unreachable": "its server did not answer: start it, or run `latet doctor`",
             "unreadable": "its answer could not be read",
             "busy": "too much was waiting for it",
@@ -1615,7 +1665,8 @@ class Mediator:
             if over > 0:
                 # Any of the others (a set keeps no order), and one approved now only when no other is left.
                 session.approved.difference_update([*(session.approved - keys), *keys][:over])
-            self.engine.conversations.update(session)
+            if session.kept:  # a session that is no conversation keeps what it approved in its own memory alone
+                self.engine.conversations.update(session)
 
     def apply_live(self, session: Session, items: Sequence[LiveItem], decision: Decision, keep: bool) -> list[Masked]:
         """Your decision on approved texts (engine thread), masked again with the rules of now: a value you let through
@@ -1962,7 +2013,8 @@ class Mediator:
             return text, prepared
         report = MaskReport()
         try:
-            prepared.masked_count, done_slots = self._mask_slots(scan.slots, session, report, scan.keyed)
+            prepared.masked_count, done_slots, prepared.hold = self._mask_slots(scan.slots, session, report, scan.keyed)
+            prepared.held = True
             prepared.withheld = sum(done.withheld and done.fresh for done in done_slots)
             prepared.pending = [
                 (s, done.replacements, done.exact) for s, done in zip(scan.slots, done_slots, strict=True)

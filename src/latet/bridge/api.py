@@ -25,18 +25,18 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from latet import __version__
+from latet.bridge.review import inline_review
 from latet.engine import wellformed
 from latet.engine.masker import MaskReport
 from latet.engine.pipeline import Session
 from latet.engine.rehydrate import restore_text
-from latet.engine.reviewer import Answer
 from latet.engine.types import SlotKind
 from latet.engine.vault import MaskingError
 from latet.engine.verifier import VerifyResult
 from latet.gateway import outbound
 from latet.gateway.approvals import HOLD, Batch, Decision
 from latet.gateway.aws import AwsCredentialStore
-from latet.gateway.mediate import VERIFY, LiveItem, Masked, Mediator, Prepared, ReviewItem, still_in_clear
+from latet.gateway.mediate import VERIFY, LiveItem, Masked, Mediator, Prepared, ReviewItem
 from latet.gateway.recorder import Outcome, Recorder
 from latet.gateway.sigv4 import AwsCredentials
 from latet.integrations.routes import check_claude_route
@@ -79,10 +79,11 @@ def _object(raw: bytes) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _a_store_not_answering(error: BaseException) -> bool:
+def a_store_not_answering(error: BaseException) -> bool:
     """Whether ``error`` is a store that did not answer, in time or at all: a server's Valkey (redis-py's connection
     and timeout errors, a full pool among them) or PostgreSQL (psycopg's operational errors, its pool's timeout), or a
-    connection that timed out or broke. Their drivers are a server's alone: looked for only when they are there."""
+    connection that timed out or broke; what the plugin's bridge and the applications API answer 503. Their drivers are
+    a server's alone: looked for only when they are there."""
     kinds: list[type[BaseException]] = [TimeoutError, ConnectionError]
     with contextlib.suppress(ImportError):
         from redis.exceptions import ConnectionError as ValkeyGone
@@ -208,7 +209,7 @@ class Bridge:
             try:
                 return await handler(request)
             except Exception as exc:
-                if not _a_store_not_answering(exc):
+                if not a_store_not_answering(exc):
                     raise
                 if count := self._unanswered.due():
                     many = f" ({count} since the line before)" if count > 1 else ""
@@ -472,67 +473,9 @@ class Bridge:
     async def _review(
         self, session: Session, reviews: list[ReviewItem], out: list[dict[str, Any]], degraded: list[str]
     ) -> list[str]:
-        """The local reviewer on the plugin's items: inline ones before they are handed back."""
-        await self.mediator.close_retired()
-        config = self.mediator.review_config(session)
-        if config is None:
-            return degraded
-        answers = {i.index: i.answer for i in reviews if i.answer is not None}
-        answers |= await self.mediator.review_inline(config, reviews)
-        for item in reviews:
-            item.answer = answers.get(item.index, item.answer)
-        if answers:
-            degraded = await self.mediator.run_bridge(
-                self._apply_review, session, config, reviews, answers, out, degraded
-            )
-        later = [
-            i
-            for i in reviews
-            if i.answer is None and (not i.inline or answers.get(i.index, Answer()).failed == "timeout")
-        ]
-        self.mediator.submit_background(session, config, later)
-        return degraded
-
-    def _apply_review(
-        self,
-        session: Session,
-        config: Any,
-        reviews: list[ReviewItem],
-        answers: dict[int, Answer],
-        out: list[dict[str, Any]],
-        degraded: list[str],
-    ) -> list[str]:
-        masker = self.mediator._masker(session)
-        report = MaskReport()
-        live = self.mediator.live_config(session) is not None  # a failed review goes to you then
-        for item in reviews:
-            answer = answers.get(item.index)
-            if answer is None:
-                continue
-            entry = out[item.index]
-            found = self.mediator.kept(config, masker, answer)
-            reason = None
-            if found:
-                done = self.mediator.remask(session, item, found, report, keep=True)
-                entry["text"], entry["count"] = done.text, len(done.replacements)
-                item.sent = done.text
-                if isinstance(work := entry.get("_work"), ImageWork):
-                    work.masked("text", done.text, done.replacements)
-                if still_in_clear(found, item.original, done.text, masker):  # a value masking could not place
-                    reason = "a value the local reviewer found would have left in clear"
-            self.mediator.withhold_unseen(config, masker, item, answer)
-            if answer.failed and not live:
-                reason = reason or self.mediator.failure(config, [item.kind.value], answer.failed)
-            if answer.failed:
-                report.degraded.append("llm-review")
-            if answer.block and config.block:
-                what = item.kind.value.replace("_", " ")
-                reason = reason or f"the local reviewer stopped this {what}: it must not leave even masked"
-            if reason:
-                entry["blocked"] = reason
-                entry["text"] = f"[withheld by Latet: {reason}]"
-            self.mediator._record(session, item, answer, found, inline=True)
-        return sorted({*degraded, *report.degraded})
+        """The local reviewer on the plugin's items (``review.inline_review``): inline ones before they are handed
+        back, within the settings' budget, the rest in the background."""
+        return await inline_review(self.mediator, session, reviews, out, degraded, budget_s=None, background=True)
 
     def _session(self, data: dict[str, Any]) -> Session:
         """The plugin's session, in the project of the folder Claude Code runs in (``cwd``)."""
@@ -541,6 +484,20 @@ class Bridge:
         return session
 
     def _mask(
+        self, data: dict[str, Any]
+    ) -> tuple[Session, list[dict[str, Any]], list[str], list[ReviewItem], list[LiveItem]]:
+        """The plugin's items masked (``_masked``), the values and the fakes their texts hold asked for first, at once,
+        where the vault keeps most of them in its store (an API key's: ``Vault.prefetch``, ``prefetch_fakes``), and
+        held while they are masked: a resumed conversation's fakes are adopted whatever their age."""
+        items = data.get("items") or []
+        texts = [item["text"] for item in items if isinstance(item, dict) and isinstance(item.get("text"), str)]
+        vault = self.engine.vault
+        with vault.holding():
+            vault.prefetch(texts)
+            vault.prefetch_fakes(texts)
+            return self._masked(data)
+
+    def _masked(
         self, data: dict[str, Any]
     ) -> tuple[Session, list[dict[str, Any]], list[str], list[ReviewItem], list[LiveItem]]:
         session = self._session(data)

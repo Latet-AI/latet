@@ -304,7 +304,7 @@ Limita separatamente l'accesso diretto ai fornitori se il server è il punto di 
 
 Il limite predefinito del corpo della richiesta è 32 MiB. `requests_in_flight` vale 16
 per identità su un'istanza, con quote separate per richieste alle destinazioni, alla
-dashboard e al bridge. Long polling e flussi hanno limiti propri. Un rifiuto per capacità
+dashboard, al bridge e all'API per le applicazioni. Long polling e flussi hanno limiti propri. Un rifiuto per capacità
 richiede di controllare carico e limiti, non di disabilitare la protezione. All'arresto
 un'istanza ha 30 secondi per terminare; i flussi lunghi possono interrompersi, quindi
 i client devono gestire la disconnessione.
@@ -314,6 +314,16 @@ superare i processori disponibili per l'istanza. `ocr_read_seconds` vale 30;
 `ocr_wait_seconds` vale 35 e non può essere inferiore al tempo di lettura. Aumentare i
 lettori costa memoria oltre alla CPU. Un'immagine non letta viene trattenuta oppure la
 richiesta verificata viene rifiutata, secondo il percorso protetto; aumentare i timeout non migliora l'accuratezza del riconoscimento.
+
+Lo spazio di una chiave API tiene in memoria i valori usati più di recente dalla chiave
+(`key_working_values`, 5.000 per impostazione predefinita, circa 10 MiB per chiave) e, per
+sempre, i suoi segreti brevi più recenti che nessuna parola di un testo trova quando altre
+lettere vi sono attaccate (`key_held_secrets`, 1.000 per impostazione predefinita, circa
+2,2 KB ciascuno su ogni istanza). Aumenta `key_held_secrets` per una chiave che vede molti
+segreti brevi, come un token di sessione in ogni riga di log: ogni testo che la chiave
+maschera o ripristina viene letto per cercare ognuno di quelli tenuti, quindi anche le sue
+chiamate rallentano un po' (il ripristino circa un decimo più lento con 1.000 tenuti)
+([la cassaforte di una chiave](../../applications/#la-cassaforte-di-una-chiave)).
 
 ### Connessioni, limiti e fiducia
 
@@ -333,10 +343,14 @@ richiesta verificata viene rifiutata, secondo il percorso protetto; aumentare i 
   (403 `computer_key_required`) e conta sul suo indirizzo come una credenziale rifiutata.
 - **Un'identità** ha al massimo `requests_in_flight` richieste in corso su un'istanza (16 per impostazione
   predefinita); oltre, 429 con `Retry-After`. Un corpo viene letto fino a `max_request_mb` (32 MiB per impostazione
-  predefinita); un corpo JSON vicino a quel limite tiene il lock dell'interprete da uno a tre secondi ovunque venga
+  predefinita), una chiamata dell'API per le applicazioni fino a `apps_request_mb` (8 MiB); un corpo JSON vicino a quel limite tiene il lock dell'interprete da uno a tre secondi ovunque venga
   analizzato, quindi tieni il limite basso quanto i tuoi agenti permettono ed esegui più istanze.
-- **PostgreSQL:** ogni istanza tiene fino a 10 connessioni; il `max_connections` di PostgreSQL deve coprire le
-  10 di ogni istanza e i comandi degli amministratori.
+- **PostgreSQL:** ogni istanza tiene fino a `database_pool` connessioni (10 per impostazione predefinita), per il
+  lavoro di ogni identità; il `max_connections` di PostgreSQL deve coprire il pool di ogni istanza e i comandi
+  degli amministratori. Una chiamata all'API per le applicazioni che conserva valori nuovi ne tiene una finché non
+  finisce, al massimo tre decimi del pool (tre su dieci); oltre, le chiamate conservano ogni valore nuovo subito,
+  più lentamente. Aumenta `database_pool`, e con esso `max_connections`, per un'istanza che maschera per molte
+  chiavi nuove alla volta.
 - **Valkey:** ogni istanza tiene fino a `valkey_connections` connessioni (100 per impostazione predefinita), e oltre una
   chiamata attende al massimo cinque secondi. Il `maxclients` di Valkey deve coprire le connessioni di tutte le
   istanze. La connessione a Valkey, il suo TLS e la sua prima risposta condividono un unico limite di cinque
@@ -372,6 +386,18 @@ latet server migrate --check
   fermata completa le sue richieste entro 30 secondi.
 - **Le tabelle cambiano:** ferma tutte le istanze, esegui `latet server migrate` una volta con la nuova
   versione, poi avvia le istanze con quella. Un'istanza non parte su tabelle di un'altra versione.
+- **I programmi usano l'API per le applicazioni:** ferma ogni istanza più vecchia prima che partano
+  quelle nuove, anche quando le tabelle restano uguali. Mentre due versioni girano insieme, un valore
+  che un'istanza più vecchia scrive nella cassaforte di una chiave può non essere trovato da una più
+  nuova finché lo spazio della chiave non viene ricostruito
+  ([aggiornare un server](../../applications/#aggiornare-un-server)).
+- **Una versione che indicizza di nuovo la cassaforte di una chiave** (il changelog lo dice): la prima
+  istanza che costruisce lo spazio di ogni chiave API ricalcola le parole della sua cassaforte prima di
+  rispondere alla prima chiamata di quella chiave, circa 40 secondi per 200.000 valori e quattro minuti
+  e mezzo per 1.000.000. Avviene una volta per chiave, ma un'istanza costruisce quattro spazi alla
+  volta, di persone e di chiavi, quindi più chiavi grandi costruite insieme dopo un riavvio trattengono
+  le prime chiamate di tutti gli altri spazi su quell'istanza: invia una chiamata a ogni chiave grande,
+  una chiave dopo l'altra, prima che riprenda il traffico.
 
 Nell'esempio Compose, quando le tabelle cambiano, gli stessi passi girano in container della nuova
 immagine:
@@ -425,10 +451,26 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 Le variabili stampate contengono la chiave di percorso: tienile segrete quanto la chiave, mai in un repository o
-in un profilo condiviso.
+in un profilo condiviso. Solo il primo token della chiave ha questi indirizzi: un token creato con
+`keys add-token` non ne ha, qualunque siano i suoi permessi, e chiama soltanto l'API per le applicazioni.
+`latet env` chiede al server di che tipo è il token: per un token così non stampa alcuna variabile e lo
+dice.
 
 Il programma deve fidarsi del certificato del server: uno di un'autorità di cui si fida già, oppure il
 certificato aggiunto alle sue impostazioni di fiducia.
+
+Un programma che maschera i propri log o documenti chiama invece l'[API per le applicazioni](../../applications/):
+nessuna variabile, un token della chiave nella sua intestazione `Authorization`, con i soli permessi
+che gli servono. Le sue chiamate condividono lo spazio della chiave con gli agenti della chiave, e
+quindi la sua cassaforte e i suoi valori fittizi.
+
+Due tipi del suo lavoro fanno coda per tutto il server, non per ogni chiave. La voce del registro
+amministrativo di ogni ripristino viene scritta prima della sua risposta, una alla volta sulla catena
+del registro, da due thread di ogni istanza per i ripristini di tutte le chiavi; e gli oblii girano due
+alla volta su ogni istanza, per tutte le chiavi. Una chiave che invia molti ripristini insieme, o che
+dimentica una lista lunga, ritarda i ripristini o gli oblii delle altre chiavi, mai un'iscrizione, una
+revoca o ciò che inviano gli agenti. Il registro amministrativo cresce di una riga per ogni chiamata di
+ripristino.
 
 ## Log, metriche e recupero
 
@@ -443,6 +485,14 @@ una nuova verifica completa. Le metriche Prometheus usano un listener separato, 
 impostazione predefinita `127.0.0.1:7283`, e richiedono `metrics_token_file`. Distingui un verdetto sconosciuto
 da una catena interrotta. Il [riferimento amministrativo](../../reference/server-administration/)
 definisce la paginazione del registro e il significato preciso di `latet_ocr_unread_total{reason}`.
+
+Ogni ripristino attraverso l'API per le applicazioni è una voce `apps.unmasked` del registro
+amministrativo, con il token e quanti valori ha ripristinato, e ogni oblio una voce `apps.forgotten`,
+con il token e quanti valori ha tolto dalla cassaforte della chiave; analisi e mascheramento sono
+contati
+solo nelle metriche (`latet_apps_texts_total` e `latet_apps_values_total`, per operazione, e le
+richieste come `latet_http_requests_total{kind="apps"}`), senza un'etichetta per la chiave
+([che cosa registra il server](../../reference/apps-api/#che-cosa-registra-il-server)).
 
 In questa configurazione Compose, leggi `127.0.0.1:7283` dall'interno di ogni istanza con
 il token delle metriche. Non ci sono una porta pubblicata, un percorso Caddy o una rete

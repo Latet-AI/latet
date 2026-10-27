@@ -188,6 +188,25 @@ secrets du programme. `keys rotate "Billing CI" --out replacement.key` remplace
 son identifiant secret ; mettez à jour ensemble la clé du programme et ses adresses de
 routage. Une clé de routage dans une adresse est également sensible.
 
+Une clé peut avoir plusieurs jetons, chacun avec ses propres permissions parmi `scan`, `mask`, `unmask`
+et `forget`, pour les programmes qui appellent l'[API pour les applications](../../applications/) : une
+application qui expédie ses journaux masqués n'a besoin que de `mask`, l'outil de support qui les lit
+que de `unmask`.
+
+```sh
+latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper --mask --out shipper.token
+latet server --server https://latet.acme.lan keys tokens "Billing CI"
+```
+
+Le premier jeton de la clé peut analyser, masquer et restaurer ; `forget`, qui retire des valeurs du
+coffre-fort de la clé, se donne à un jeton à part ([oublier des valeurs](../../applications/forget/)).
+Seul le premier jeton de la clé a une adresse pour les modèles : un jeton créé avec `keys add-token`,
+quelles que soient ses permissions, y est refusé et appelle uniquement l'API pour les applications, où
+chaque restauration est inscrite au journal d'administration. Dès qu'une clé a plusieurs jetons, `keys rotate` demande `--token` avec l'identifiant que liste
+`keys tokens`, et `keys tokens "Billing CI" --revoke TOKEN_ID` en arrête un.
+`keys limit "Billing CI" 1000000` donne au coffre-fort de la clé une limite propre, au-dessus ou
+au-dessous du `vault_limit` du serveur.
+
 ## Définir les réglages partagés et les règles des clés d'API
 
 Les réglages partagés contiennent ce dont le serveur a besoin pour fonctionner, les mêmes pour

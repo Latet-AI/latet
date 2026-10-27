@@ -9,6 +9,7 @@ import io
 import ipaddress
 import json
 import logging
+import re
 import socket
 import threading
 import time
@@ -162,6 +163,7 @@ def test_a_space_masks_no_identity_of_the_servers_machine_and_reads_no_project_f
 def test_a_spaces_bridge_token_is_its_own_and_nobody_knows_it(space, tmp_path):
     rt, _ = space
     assert rt.gateway.bridge_token and not (tmp_path / "models" / "bridge.token").exists()
+    assert re.fullmatch(r"latet_brg_[A-Za-z0-9_-]{43}", rt.gateway.bridge_token)  # masked by its shape if it leaks
     assert rt.gateway.dashboard is not None
     assert rt.gateway.pin is not None and rt.gateway.pin.keywords == {"holder": EMILY.id}  # her lookups counted for her
 

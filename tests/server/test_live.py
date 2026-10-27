@@ -208,6 +208,80 @@ def test_a_conversation_tells_the_entities_another_instance_showed_it(buses):
     assert told == [{"e1", "e2"}]  # once, when they are new here
 
 
+def test_the_entities_forgotten_leave_every_conversation_of_the_identity(buses):
+    """Task 11b (Ruling 11b-R1): the entries of an API key's values forgotten by themselves leave its conversations in
+    Valkey (each ``e:<id>`` field, a keyed hash of the value, and its count with it) and those every instance holds, so
+    that no update writes them back; the other entities, and another identity's conversations, stay."""
+    a, b = buses
+    mine, theirs = ValkeyConversations(a, EMILY, ROOT_KEY), ValkeyConversations(b, EMILY, ROOT_KEY)
+    other = ValkeyConversations(a, DANIEL, ROOT_KEY)
+    for key in ("cc:s1", "cc:s2"):
+        session = mine.session(key)
+        session.add({"e1", "e2"})
+        mine.update(session)
+    held = theirs.session("cc:s1")
+    assert held.entity_ids == {"e1", "e2"}
+    elsewhere = other.session("cc:s1")
+    elsewhere.add({"e1"})
+    other.update(elsewhere)
+    counts = a.key(f"convs-size:{EMILY}")
+    total = int(a.client.hget(counts, "#total"))
+    assert live.forget_shown(a, EMILY, ["e1", "e1"]) == 2
+    for key in ("cc:s1", "cc:s2"):
+        fields = a.client.hgetall(mine._conv(mine._name(key)))
+        assert b"e:e1" not in fields and b"e:e2" in fields
+        assert int(a.client.hget(counts, mine._name(key))) == len(fields)
+    assert int(a.client.hget(counts, "#total")) == total - 2
+    assert b"e:e1" in a.client.hgetall(other._conv(other._name("cc:s1")))  # another identity's: its own
+    for one in (mine, theirs):
+        one.forgotten(["e1"])
+    assert held.entity_ids == {"e2"}
+    held.add({"e3"})
+    theirs.update(held)
+    again = mine.session("cc:s2")  # read again where it was written: what Valkey lost is written back, e1 not
+    mine.update(again)
+    assert ValkeyConversations(b, EMILY, ROOT_KEY).session("cc:s1").entity_ids == {"e2", "e3"}
+    assert ValkeyConversations(b, EMILY, ROOT_KEY).session("cc:s2").entity_ids == {"e2"}
+    assert live.forget_shown(a, EMILY, []) == 0
+
+
+@pytest.mark.timing
+def test_the_entities_forgotten_leave_many_conversations_in_short_calls(bus, monkeypatch):
+    """Review 11b's N1: Valkey runs one script at a time, for every identity and every instance. The fields of 1,000
+    entries forgotten leave an identity's 10,000 conversations in many short calls, each under 250 ms (the longest took
+    8.6 ms when measured), never in one that walks them all (2 seconds), and each conversation's count, and the total,
+    move by what went. A bound on time (review 11b's R2-M1)."""
+    names = [f"{n:032x}" for n in range(10_000)]
+    pipe = bus.client.pipeline(transaction=False)
+    for name in names:
+        pipe.hset(bus.key(f"conv:{EMILY}:{name}"), mapping={"k": b"x", "e:e1": b"t", "e:kept": b"t"})
+    pipe.zadd(bus.key(f"convs:{EMILY}"), dict.fromkeys(names, 1.0))
+    pipe.hset(bus.key(f"convs-size:{EMILY}"), mapping={**dict.fromkeys(names, 3), "#total": 30_000})
+    pipe.execute()
+    took: list[float] = []
+    register = bus.client.register_script
+
+    def timed(script):
+        run = register(script)
+
+        def call(*args, **kwargs):
+            started = time.perf_counter()
+            try:
+                return run(*args, **kwargs)
+            finally:
+                took.append(time.perf_counter() - started)
+
+        return call
+
+    monkeypatch.setattr(bus.client, "register_script", timed)
+    assert live.forget_shown(bus, EMILY, ["e1", *(f"e{n}" for n in range(2, 1_001))]) == 10_000
+    assert len(took) >= 100 and max(took) < 0.25, f"{len(took)} calls, the longest {max(took):.3f} s"
+    counts = bus.key(f"convs-size:{EMILY}")
+    assert int(bus.client.hget(counts, "#total")) == 20_000 and int(bus.client.hget(counts, names[-1])) == 2
+    for name in (names[0], names[5_000], names[-1]):
+        assert bus.client.hgetall(bus.key(f"conv:{EMILY}:{name}")) == {b"k": b"x", b"e:kept": b"t"}
+
+
 def test_each_identitys_conversations_and_jobs_are_its_own(bus):
     mine, theirs = ValkeyConversations(bus, EMILY, ROOT_KEY), ValkeyConversations(bus, DANIEL, ROOT_KEY)
     session = mine.session("cc:shared-key")

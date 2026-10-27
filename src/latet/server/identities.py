@@ -10,16 +10,21 @@ The server never keeps a secret, a one-time code or a route key. It keeps a keye
 HMAC-SHA256 under the credentials' key, which a server derives from the master key), and with every token, one-time code
 and administration token a tag, keyed the same way, over what its row says: a token's tag covers its id, its identity,
 its hash and its route; a code's its hash, its identity and when it ends; an administration token's its id, its hash and
-when it ends. A person's token also keeps its computer's key (R16) by a keyed hash over the token's id and the key,
-which binds the hash to its own row: the computer's CLI alone has the key, and the server asks for it on a sign-in link
-to the dashboard and on a change of the person's identity (``computer_key``). Someone who writes the database without
-the key can make neither the hash of a secret of his own choosing nor a row that a lookup believes, and a row that was
-made or changed without the key finds no one: its tag is checked before anything is kept in memory, and a row that
-fails is said in the log, once a minute at most, without a word of it.
+when it ends. A token added to an API key (``latet.server.grants``) keeps what it may do in its row, scan, mask and
+unmask too (Ruling T13c), and its tag covers that too, under a label of its own (``_GRANT_TAG``); a token that serves
+agents keeps NULL there and the tag every token had before (a person's, an API key's first), so that a row widened to
+NULL, narrowed from it or changed from one set to another (to forget) finds no one. A person's
+token also keeps its computer's key (R16) by a keyed hash over the token's id and the key, which binds the hash to its
+own row: the computer's CLI alone has the key, and the server asks for it on a sign-in link to the dashboard and on a
+change of the person's identity (``computer_key``). Someone who writes the database without the key can make neither
+the hash of a secret of his own choosing nor a row that a lookup believes, and a row that was made or changed without
+the key finds no one: its tag is checked before anything is kept in memory, and a row that fails is said in the log,
+once a minute at most, without a word of it.
 
 What a tag cannot stop: a row that the key made and that was copied before its deletion (a token revoked or rotated, a
-one-time code used, an administration token revoked) holds again when it is written back as it was; `disabled` is not
-tagged, and set back by hand it enables the identity; and a database restored from an older copy brings all of it back.
+one-time code used, an administration token revoked) holds again when it is written back as it was; `disabled` and a
+token's name are not tagged, and `disabled` set back by hand enables the identity; and a database restored from an older
+copy brings all of it back.
 Only state kept outside the database stops a rollback (as the administration log's chain says of itself). The
 credentials' key derives from the current version of the master key: a rotation of the master key (not in these plans)
 must make the hashes and the tags again, or every computer enrols again.
@@ -40,18 +45,18 @@ import contextlib
 import hmac
 import logging
 import re
-import secrets
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal, LiteralString
+from typing import Any, Final, Literal, LiteralString, cast
 
 from latet.logline import Paced, described
 from latet.server.bus import Bus
 from latet.server.db import Database
+from latet.server.grants import DEFAULT, Grant, Permission, loaded, normalized, stored
 from latet.server.tokens import (
     ADMIN_PREFIX,
     COMPUTER_PREFIX,
@@ -61,6 +66,7 @@ from latet.server.tokens import (
     check_key,
     is_route_key,
     keyed_hash,
+    new_code,
     new_id,
     new_secret,
     route_key,
@@ -80,6 +86,8 @@ __all__ = [
     "LABEL_LENGTH",
     "NAME_LENGTH",
     "TOKEN_ID",
+    "VAULT_LIMIT_LEAST",
+    "VAULT_LIMIT_MOST",
     "AdminTokenEnded",
     "AdminTokenInfo",
     "AdminTokens",
@@ -88,9 +96,12 @@ __all__ = [
     "Identity",
     "IdentityRef",
     "NoSuchIdentity",
+    "NoSuchToken",
     "OutlivesIssuer",
+    "SeveralTokens",
     "TokenInfo",
     "clean",
+    "token_name",
 ]
 
 CODE_TTL = 24 * 3600.0
@@ -104,22 +115,32 @@ NOTES_WAITING = 1_000
 _NOTING = ThreadPoolExecutor(1, thread_name_prefix="latet-noted")
 NAME_LENGTH, EMAIL_LENGTH, LABEL_LENGTH = 200, 320, 100  # characters kept of a name, an email, a label
 EXTERNAL_ID_LENGTH = 255  # characters of the id another system gave an identity, at most (an OpenID `sub` is the same)
+# The values an API key's own vault limit may be (``Identities.limit_vault``): the range its column checks (migration
+# 006), which the CLI keeps a copy of to refuse a number before it asks.
+VAULT_LIMIT_LEAST, VAULT_LIMIT_MOST = 1_000, 100_000_000
 SAY_EVERY = 60.0  # seconds between two lines of the log about rows that do not hold
-_COLUMNS: Final = "i.id, i.name, i.email, i.kind, i.disabled, i.created, i.last_seen, i.source, i.external_id"
+_COLUMNS: Final = (
+    "i.id, i.name, i.email, i.kind, i.disabled, i.created, i.last_seen, i.source, i.external_id, i.vault_limit"
+)
 _SELECT: Final = f"SELECT {_COLUMNS} FROM identities i"  # noqa: S608 - built from this module's constants alone
 # An identity made, with the columns of ``_COLUMNS`` as its row has them: none made when the id is taken.
 _INSERTED: Final = (
     "INSERT INTO identities (id, kind, name, email, created, source, external_id)"
     " VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING"
-    " RETURNING id, name, email, kind, disabled, created, last_seen, source, external_id"
+    " RETURNING id, name, email, kind, disabled, created, last_seen, source, external_id, vault_limit"
 )
 # An identity with the columns of the token it is found by, for the tag to be checked on.
 _OF_TOKEN: Final = (
-    f"SELECT {_COLUMNS}, t.id, t.hash, t.route, t.tag FROM identities i JOIN tokens t ON t.identity_id = i.id"  # noqa: S608
+    f"SELECT {_COLUMNS}, t.id, t.hash, t.route, t.tag, t.permissions"  # noqa: S608
+    " FROM identities i JOIN tokens t ON t.identity_id = i.id"
 )
 # What a keyed hash is of (the label of ``keyed_hash``): the hash of a thing is never the hash or the tag of another.
 _SECRET, _ROUTE, _CODE, _ADMIN = "secret", "route", "code", "admin"
 _TOKEN_TAG, _CODE_TAG, _ADMIN_TAG = "token-tag", "code-tag", "admin-tag"
+# The tag of a token's row that keeps permissions (``grants.stored``: a token added to a key, all three too), over its
+# columns and them: a label of its own, so that no row's tag of one kind is ever the tag of the other, and a row moved
+# from one kind to the other (its permissions set to NULL, or from it) holds under neither.
+_GRANT_TAG = "token-grant-tag"
 _COMPUTER = "computer-key"  # a computer's key, over its token's id and the key: bound to its own row
 _ADMIN_LISTED = "admin-listed"  # the id a row written by hand with an id of another shape is listed and revoked by
 SOURCES = ("local", "scim", "oidc")  # where an identity comes from: by hand, a SCIM provider, an OpenID provider
@@ -166,6 +187,23 @@ class NoSuchIdentity(LookupError):
     quote nothing of what the caller gave."""
 
 
+class NoSuchToken(LookupError):
+    """The token a rotation names is not one of the API key's (revoked or rotated meanwhile, another key's, none), or
+    its row does not hold: nothing was done. Its words quote nothing of what the caller gave."""
+
+    def __init__(self, words: str = "there is no such token of this API key") -> None:
+        super().__init__(words)
+
+
+class SeveralTokens(LookupError):
+    """A rotation that names no token, of an API key that has several (``count``, which its words say): nothing was
+    done; the caller names the one to rotate."""
+
+    def __init__(self, count: int) -> None:
+        super().__init__(f"this key has {count} tokens: name the one to rotate")
+        self.count = count
+
+
 class AdminTokenEnded(Exception):
     """The administration token a change is made with is no longer there (revoked, on any instance, or its row changed
     by hand) or is past its day, as the change's own transaction finds it: the change is not made, its transaction
@@ -202,13 +240,25 @@ def clean(text: str, limit: int) -> str:
     return _UNWANTED.sub("", text).strip()[:limit].rstrip()
 
 
+def token_name(name: str) -> str:
+    """The name an API key's new token is kept under: ``name`` cleaned as an identity's name is (``clean``), required,
+    and no longer than the label a token keeps (``LABEL_LENGTH`` characters, counted once what is taken out is): one
+    limit, so a longer name is refused and never cut. Raises ValueError, in words that quote nothing given."""
+    label = clean(name, len(name))  # nothing cut: the length is judged below
+    if not label:
+        raise ValueError("a token's name is required")
+    if len(label) > LABEL_LENGTH:
+        raise ValueError(f"a token's name is {LABEL_LENGTH} characters at most")
+    return label
+
+
 # What an instance that is not told of a change keeps doing, by the change: said with it in the log.
 _UNTOLD = {
     "added": "they find it at their first lookup",
     "enabled": f"what they keep of it lasts {CACHE_SECONDS:g} seconds at most",
     "updated": (
         f"what they keep of it lasts {CACHE_SECONDS:g} seconds at most, and a space of it there keeps its name until "
-        "it is made again"
+        "it is made again, and its vault limit until the beat's next check"
     ),
     "closing": (
         f"what they keep of it lasts {CACHE_SECONDS:g} seconds at most, and a space of it there is closed at their "
@@ -328,6 +378,8 @@ class Identity:
     last_seen: float | None
     source: Literal["local", "scim", "oidc"]
     external_id: str | None = field(repr=False)
+    # An API key's own limit of values in its vault (1,000 to 100,000,000); None: the server's (``vault_limit``).
+    vault_limit: int | None = None
 
     def ref(self) -> IdentityRef:
         return IdentityRef(self.id, self.name, self.kind)
@@ -336,12 +388,20 @@ class Identity:
 @dataclass(frozen=True)
 class TokenInfo:
     id: str
+    # Its name: what a computer called itself at enrolment, ``key`` for an API key's first token, what an administrator
+    # named another (``Identities.add_token``).
     label: str
     created: float
     last_used: float | None
     # Its tag does not hold: its row was made or changed without this server's key, and finds no one. Listed and
     # flagged so, never hidden: an administrator sees what the database holds.
     tampered: bool = False
+    # What it may do (``grants``): scan, mask and unmask for a token made before permissions existed; none for a row
+    # whose tag does not hold, which finds no one, whatever its column says.
+    permissions: frozenset[Permission] = DEFAULT
+    # Whether it serves agents (``grants.Grant.agents``): its row, which holds, keeps no permissions of its own (a
+    # person's computer's token, an API key's first); a token added to a key does not (Rulings T13b, T13c).
+    agents: bool = False
 
 
 @dataclass(eq=False)
@@ -354,13 +414,18 @@ class Changes:
 
 
 def _identity(row: Any) -> Identity:
-    return Identity(row[0], row[1], row[2], row[3], bool(row[4]), row[5], row[6], row[7], row[8])
+    return Identity(row[0], row[1], row[2], row[3], bool(row[4]), row[5], row[6], row[7], row[8], row[9])
 
 
-def _fresh(entry: tuple[Identity, float] | None, now: float) -> bool:
+def _fresh(entry: tuple[Identity | Grant, float] | None, now: float) -> bool:
     """Whether an entry of the memory is good at ``now``: its end is ahead, and no further ahead than a lookup is kept
     (a wall clock that stepped back would otherwise make every entry last the step longer)."""
     return entry is not None and 0 < entry[1] - now <= CACHE_SECONDS
+
+
+def _whose(kept: Identity | Grant) -> str:
+    """The id of the identity an entry of the memory is of: an identity's own, a token's grant's identity's."""
+    return kept.identity.id if isinstance(kept, Grant) else kept.id
 
 
 class Identities:
@@ -372,10 +437,10 @@ class Identities:
         self._key = check_key(key)
         self._tampering = _Tampering(clock)
         self._lock = threading.Lock()
-        # "secret:<hash>", "route:<hash>", "id:<id>" -> the identity found, and until when: a bounded memory, the least
-        # recently used dropped first; a lookup that found nothing is never kept (a stranger's guesses must not fill
-        # it).
-        self._cache: OrderedDict[str, tuple[Identity, float]] = OrderedDict()
+        # "secret:<hash>", "route:<hash>" -> the grant of the token found (its identity, its id, its permissions), and
+        # "id:<id>" -> the identity found, each with until when: a bounded memory, the least recently used dropped
+        # first; a lookup that found nothing is never kept (a stranger's guesses must not fill it).
+        self._cache: OrderedDict[str, tuple[Identity | Grant, float]] = OrderedDict()
         # Counted by every ``forget``. A lookup notes it before it reads and keeps what it found only if it has not
         # moved: what it read may be what the change that was told meanwhile has already made old.
         self._generation = 0
@@ -383,28 +448,31 @@ class Identities:
 
     # --- what an instance keeps -------------------------------------------------------------------
 
-    def _cached(self, key: str, load: Callable[[], Identity | None]) -> Identity | None:
+    def _cached[T: Identity | Grant](self, key: str, load: Callable[[], T | None]) -> T | None:
+        """What the memory holds for ``key``, still good; else what ``load`` finds, kept for ``CACHE_SECONDS`` unless
+        something was forgotten while it read. A key's kind says what it holds, and ``load`` finds the same: an
+        identity for an id, a token's grant for a secret or a route."""
         now = self._clock()
         with self._lock:
             found = self._cache.get(key)
             if found is not None and _fresh(found, now):
                 self._cache.move_to_end(key)
-                return found[0]
+                return cast(T, found[0])
             generation = self._generation  # before ``load`` reads anything
-        identity = load()
-        if identity is None:
+        answer = load()
+        if answer is None:
             return None
         with self._lock:
             if self._generation != generation:  # something was forgotten while it read: it answers, and keeps nothing
-                return identity
+                return answer
             if len(self._cache) >= CACHE_SIZE:  # what expired goes first, then the least recently used
                 for stale in [k for k, v in self._cache.items() if not _fresh(v, now)]:
                     del self._cache[stale]
                 while len(self._cache) >= CACHE_SIZE:
                     self._cache.popitem(last=False)
-            self._cache[key] = (identity, now + CACHE_SECONDS)
+            self._cache[key] = (answer, now + CACHE_SECONDS)
             self._cache.move_to_end(key)
-        return identity
+        return answer
 
     def holds(self, *, secret: str | None = None, route: str | None = None) -> bool:
         """Whether this instance's memory holds, still good, what a lookup of ``secret`` and a lookup of ``route`` (each
@@ -433,6 +501,12 @@ class Identities:
         is written (a token's use and an identity's visit are noted by the next lookup that reads): the gate serves a
         request it holds on the event loop with this, and looks up the others in its threads. None when the memory does
         not hold it, and for a text no lookup would find."""
+        grant = self.remembered_grant(secret=secret, route=route)
+        return grant.identity if grant is not None else None
+
+    def remembered_grant(self, *, secret: str | None = None, route: str | None = None) -> Grant | None:
+        """``remembered``'s token, as its grant: its enabled identity, its id and what it may do, as the memory holds
+        them (what ``grant_by_secret`` or ``grant_by_route`` would answer from it). No store is asked, ever."""
         if secret is not None:
             if not secret.startswith((TOKEN_PREFIX, KEY_PREFIX)):
                 return None
@@ -446,7 +520,7 @@ class Identities:
         now = self._clock()
         with self._lock:
             found = self._cache.get(key)
-            if found is None or not _fresh(found, now):
+            if found is None or not _fresh(found, now) or not isinstance(found[0], Grant):
                 return None
             self._cache.move_to_end(key)  # a use, as a lookup's
             return found[0]
@@ -464,20 +538,20 @@ class Identities:
         key, now = f"id:{identity_id}", self._clock()
         with self._lock:
             found = self._cache.get(key)
-            if found is None or not _fresh(found, now):
+            if found is None or not _fresh(found, now) or not isinstance(found[0], Identity):
                 return None
             self._cache.move_to_end(key)
             return found[0]
 
     def forget(self, identity_id: str | None = None) -> None:
-        """Forget what this instance looked up of ``identity_id`` (None: of every identity): it changed. A lookup that
-        is reading meanwhile does not keep what it reads."""
+        """Forget what this instance looked up of ``identity_id`` (None: of every identity), its tokens' grants with it:
+        it changed. A lookup that is reading meanwhile does not keep what it reads."""
         with self._lock:
             self._generation += 1
             if identity_id is None:
                 self._cache.clear()
             else:
-                for key in [k for k, v in self._cache.items() if v[0].id == identity_id]:
+                for key in [k for k, v in self._cache.items() if _whose(v[0]) == identity_id]:
                     del self._cache[key]
 
     def _changed(self, identity_id: str, event: str) -> None:
@@ -525,19 +599,45 @@ class Identities:
     def _hash(self, label: str, *parts: str) -> str:
         return keyed_hash(self._key, label, *parts)
 
-    def _owner(self, query: LiteralString, digest: str) -> Identity | None:
-        """The enabled identity that the token found by ``digest`` (the hash of its secret or of its route key) gives,
-        when the tag of its row holds: what the row says is checked before the row is believed, and a row that fails
-        finds no one (and so is never kept in memory)."""
+    def _token_tag(self, token_id: str, identity_id: str, hashed: str, route: str, permissions: str | None) -> str:
+        """The tag of a token's row that says these columns: under ``_TOKEN_TAG`` for a token that serves agents, which
+        may scan, mask and unmask (``permissions`` NULL: a person's, an API key's first, every token made before them),
+        under ``_GRANT_TAG`` and over the column's text too for one that keeps permissions of its own (a token added to
+        an API key)."""
+        if permissions is None:
+            return self._hash(_TOKEN_TAG, token_id, identity_id, hashed, route)
+        return self._hash(_GRANT_TAG, token_id, identity_id, hashed, route, permissions)
+
+    def _granted(
+        self, token_id: str, identity_id: str, hashed: str, route: str, tag: str, permissions: str | None
+    ) -> frozenset[Permission] | None:
+        """What a token's row lets its token do, when its tag holds over what the row says, its permissions included;
+        None when it does not (made or changed without this server's key: the row finds no one). The tag is checked on
+        the column's text before the text is read (a writer of the database can put anything there), and a text that
+        holds and that ``grants.loaded`` refuses, which no row this server made has, holds no more than one that does
+        not."""
+        if not _same(tag, self._token_tag(token_id, identity_id, hashed, route, permissions)):
+            return None
+        try:
+            return loaded(permissions)
+        except ValueError:
+            return None
+
+    def _owner(self, query: LiteralString, digest: str) -> Grant | None:
+        """What the token found by ``digest`` (the hash of its secret or of its route key) grants, its enabled identity
+        first, when the tag of its row holds: what the row says, its permissions too, is checked before the row is
+        believed, and a row that fails finds no one (and so is never kept in memory). It serves agents when its row,
+        which holds, keeps no permissions of its own (Ruling T13b)."""
         with self.db.connection() as conn:
             row = conn.execute(query, (digest,)).fetchone()
         if row is None:
             return None
-        identity, (token_id, hashed, route, tag) = _identity(row), row[9:13]
-        if not _same(tag, self._hash(_TOKEN_TAG, token_id, identity.id, hashed, route)):
+        identity, (token_id, hashed, route, tag, permissions) = _identity(row), row[10:15]
+        granted = self._granted(token_id, identity.id, hashed, route, tag, permissions)
+        if granted is None:
             self._tampering.met("a token")
             return None
-        return identity
+        return Grant(identity, token_id, granted, agents=permissions is None)
 
     # --- making them -----------------------------------------------------------------------------
 
@@ -566,28 +666,44 @@ class Identities:
         raise RuntimeError("no free identity id after ten tries")
 
     def _new_secret(
-        self, conn: Any, identity_id: str, prefix: str, label: str, *, computer: bool = False
-    ) -> tuple[str, str | None]:
-        """A new secret's row: the secret, and, for a ``computer``'s token, its computer's key (kept by its keyed hash
-        over the token's id: ``_COMPUTER``); None for an API key, which has no computer."""
+        self,
+        conn: Any,
+        identity_id: str,
+        prefix: str,
+        label: str,
+        *,
+        computer: bool = False,
+        permissions: frozenset[Permission] | None = None,
+    ) -> tuple[TokenInfo, str, str | None]:
+        """A new secret's row: the token as ``tokens`` lists it, the secret, and, for a ``computer``'s token, its
+        computer's key (kept by its keyed hash over the token's id: ``_COMPUTER``); None for an API key, which has no
+        computer. ``permissions``: what a token added to an API key may do (``grants.normalized``'s), kept in the row
+        and under its tag, scan, mask and unmask too (Ruling T13c); None for a token that serves agents (a person's
+        computer's, an API key's first), which may do those three and keeps the row every token had before (NULL and
+        ``_TOKEN_TAG``)."""
         secret = new_secret(prefix)
         token_id, hashed, route = new_id("t_"), self._hash(_SECRET, secret), self._hash(_ROUTE, route_key(secret))
         key = new_secret(COMPUTER_PREFIX) if computer else None
+        column = stored(permissions) if permissions is not None else None
+        name, created = clean(label, LABEL_LENGTH) or "a computer", self._clock()
         conn.execute(
-            "INSERT INTO tokens (id, identity_id, hash, route, label, created, tag, computer_key)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO tokens (id, identity_id, hash, route, label, created, tag, computer_key, permissions)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 token_id,
                 identity_id,
                 hashed,
                 route,
-                clean(label, LABEL_LENGTH) or "a computer",
-                self._clock(),
-                self._hash(_TOKEN_TAG, token_id, identity_id, hashed, route),
+                name,
+                created,
+                self._token_tag(token_id, identity_id, hashed, route, column),
                 self._hash(_COMPUTER, token_id, key) if key is not None else None,
+                column,
             ),
         )
-        return secret, key
+        granted = permissions if permissions is not None else DEFAULT
+        info = TokenInfo(token_id, name, created, None, permissions=granted, agents=permissions is None)
+        return info, secret, key
 
     def add_person(
         self,
@@ -631,7 +747,28 @@ class Identities:
         """An API key: an identity of its own, and its secret, shown once; in one transaction."""
         with self._within(within) as changes:
             identity = self._insert(changes, "key", name, None, "local", None)
-            return identity, self._new_secret(changes.conn, identity.id, KEY_PREFIX, "key")[0]
+            _, secret, _ = self._new_secret(changes.conn, identity.id, KEY_PREFIX, "key")
+            return identity, secret
+
+    def add_token(
+        self, identity_id: str, name: str, permissions: Iterable[str], *, within: Changes
+    ) -> tuple[TokenInfo, str]:
+        """Another token for an API key, under a name of its own (``token_name``: cleaned as an identity's name is,
+        required, and no longer than a label) and with what it may do (``grants.normalized``: mask brings scan), in the
+        caller's transaction, which records it there too: the token as ``tokens`` lists it, and its secret, shown once.
+        It keeps its permissions in its row whatever they are, scan, mask and unmask too (Ruling T13c): only a key's
+        first token keeps NULL's row and serves agents, an added token acting through the applications API alone
+        (Ruling T13b). Nothing an instance holds is made old by it, so nothing is told. Raises, nothing made and in
+        words that quote nothing given: ValueError for a name blank once cleaned or longer than a label, or permissions
+        that are none or not Latet's; NoSuchIdentity when there is no such API key, as the database has it now (a
+        person's tokens come from their computers)."""
+        label = token_name(name)
+        granted = normalized(permissions)
+        identity = self._locked(within.conn, identity_id)
+        if identity is None or identity.kind != "key":
+            raise NoSuchIdentity("there is no such API key")
+        info, secret, _ = self._new_secret(within.conn, identity_id, KEY_PREFIX, label, permissions=granted)
+        return info, secret
 
     def _locked(self, conn: Any, identity_id: str) -> Identity | None:
         """The identity as the database has it, its row locked until the transaction ends: a removal or a change made
@@ -639,17 +776,52 @@ class Identities:
         row = conn.execute(f"{_SELECT} WHERE i.id = %s FOR UPDATE OF i", (identity_id,)).fetchone()
         return _identity(row) if row is not None else None
 
-    def rotate_key(self, identity_id: str, *, within: Changes | None = None) -> str:
-        """A new secret for an API key (and so a new address): the one before stops at once. Raises NoSuchIdentity, in
-        words that quote nothing of what the caller gave, when there is no such API key, as the database has it now."""
+    def rotate_token(
+        self, identity_id: str, *, token_id: str | None = None, within: Changes | None = None
+    ) -> tuple[TokenInfo, str, str | None]:
+        """A new secret for one of an API key's tokens (and so a new address), the token keeping its name and what it
+        may do and its row's form (a key's first token serves agents still, an added one does not): the secret before
+        stops at once. Answers the token that replaces it (as ``tokens`` lists it), its secret, and the id of the token
+        taken away (None when the key had none left). ``token_id`` names the token, which a key with several must; a
+        key with one rotates that one, and a key with none (each revoked) gets one as a key's first is made (``key``:
+        scan, mask and unmask, serving agents). The key's row is locked first, as ``add_token`` locks
+        it, then the token's. Raises, nothing done and in words that quote nothing of what the caller gave:
+        NoSuchIdentity when there is no such API key, as the database has it now; SeveralTokens when it has several and
+        ``token_id`` names none; NoSuchToken when ``token_id`` is not one of its tokens (revoked or rotated meanwhile,
+        another key's), or the token's row does not hold: what such a row says its token may do is not believed, and a
+        rotation never makes of it a row that holds (a writer of the database who set a restricted token's permissions
+        to NULL would have it back with scan, mask and unmask). Such a token is revoked, and the key given another."""
         with self._within(within) as changes:
-            identity = self._locked(changes.conn, identity_id)
+            conn = changes.conn
+            identity = self._locked(conn, identity_id)
             if identity is None or identity.kind != "key":
                 raise NoSuchIdentity("there is no such API key")
-            changes.conn.execute("DELETE FROM tokens WHERE identity_id = %s", (identity_id,))
-            secret = self._new_secret(changes.conn, identity_id, KEY_PREFIX, "key")[0]
+            ids = [row[0] for row in conn.execute("SELECT id FROM tokens WHERE identity_id = %s", (identity_id,))]
+            if token_id is None and len(ids) > 1:
+                raise SeveralTokens(len(ids))
+            chosen = token_id if token_id is not None else next(iter(ids), None)
+            label, granted, replaced = "key", None, None  # None: a key's first token's row (NULL), which serves agents
+            if chosen is not None:
+                row = conn.execute(
+                    "SELECT id, label, hash, route, tag, permissions FROM tokens WHERE id = %s AND identity_id = %s"
+                    " FOR UPDATE",
+                    (chosen, identity_id),
+                ).fetchone()
+                if row is None:
+                    raise NoSuchToken()
+                found = self._granted(row[0], identity_id, *row[2:6])
+                if found is None:
+                    self._tampering.met("a token")
+                    raise NoSuchToken(
+                        "this token's row was made or changed without this server's key, and is not rotated: revoke it,"
+                        " then give the key another token"
+                    )
+                label, granted = clean(row[1], LABEL_LENGTH) or "key", found if row[5] is not None else None
+                conn.execute("DELETE FROM tokens WHERE id = %s", (row[0],))
+                replaced = row[0]
+            info, secret, _ = self._new_secret(conn, identity_id, KEY_PREFIX, label, permissions=granted)
             changes.told.append((identity_id, "rotated"))
-        return secret
+        return info, secret, replaced
 
     def code(self, identity_id: str, *, within: Changes | None = None) -> str | None:
         """A new one-time code for 24 hours, for a person (None for an API key, or no one, as the database has it now):
@@ -658,7 +830,7 @@ class Identities:
             identity = self._locked(changes.conn, identity_id)
             if identity is None or identity.kind != "person":
                 return None
-            code = secrets.token_urlsafe(24)
+            code = new_code()
             hashed, expires = self._hash(_CODE, code), self._clock() + CODE_TTL
             changes.conn.execute("DELETE FROM codes WHERE identity_id = %s", (identity_id,))
             changes.conn.execute(
@@ -694,26 +866,36 @@ class Identities:
             identity = _identity(found) if found is not None else None
             if identity is None or identity.disabled or identity.kind != "person":
                 return None
-            token, key = self._new_secret(conn, identity.id, TOKEN_PREFIX, label, computer=True)
+            _, token, key = self._new_secret(conn, identity.id, TOKEN_PREFIX, label, computer=True)
         assert key is not None
         return identity, token, key
 
     # --- finding them ----------------------------------------------------------------------------
 
     def by_secret(self, secret: str) -> Identity | None:
-        """An enabled identity's token or API key: its identity, its use noted (at most once a minute, in the notes'
-        thread: ``Notes``)."""
+        """An enabled identity's token or API key: its identity (``grant_by_secret``'s)."""
+        grant = self.grant_by_secret(secret)
+        return grant.identity if grant is not None else None
+
+    def grant_by_secret(self, secret: str) -> Grant | None:
+        """An enabled identity's token or API key: what it grants (its identity, its id and what it may do), its use
+        noted (at most once a minute, in the notes' thread: ``Notes``)."""
         if not secret.startswith((TOKEN_PREFIX, KEY_PREFIX)):
             return None
         digest = self._hash(_SECRET, secret)
         query = f"{_OF_TOKEN} WHERE t.hash = %s AND NOT i.disabled"
-        identity = self._cached(f"secret:{digest}", lambda: self._owner(query, digest))
-        if identity is not None and self.notes.due(f"token:{digest}"):
+        grant = self._cached(f"secret:{digest}", lambda: self._owner(query, digest))
+        if grant is not None and self.notes.due(f"token:{digest}"):
             self.notes.note("UPDATE tokens SET last_used = %s WHERE hash = %s", self._clock(), digest)
-        return identity
+        return grant
 
     def by_route(self, route: str) -> Identity | None:
-        """An enabled identity's address."""
+        """An enabled identity's address: its identity (``grant_by_route``'s)."""
+        grant = self.grant_by_route(route)
+        return grant.identity if grant is not None else None
+
+    def grant_by_route(self, route: str) -> Grant | None:
+        """An enabled identity's address: what the token it is the address of grants."""
         if not is_route_key(route):
             return None
         digest = self._hash(_ROUTE, route)
@@ -737,9 +919,12 @@ class Identities:
             rows = conn.execute(f"{_SELECT} {where} ORDER BY lower(i.name), i.id", (kind,) if kind else ()).fetchall()
         return [_identity(row) for row in rows]
 
-    def _holds(self, token_id: str, identity_id: str, hashed: str, route: str, tag: str) -> bool:
-        """Whether a token's row is one this server's key made: its tag holds."""
-        return _same(tag, self._hash(_TOKEN_TAG, token_id, identity_id, hashed, route))
+    def _holds(
+        self, token_id: str, identity_id: str, hashed: str, route: str, tag: str, permissions: str | None
+    ) -> bool:
+        """Whether a token's row is one this server's key made: its tag holds, over its permissions too
+        (``_granted``)."""
+        return self._granted(token_id, identity_id, hashed, route, tag, permissions) is not None
 
     def secret_digest(self, secret: str) -> str:
         """The keyed hash a token or an API key is kept by (its row's ``hash``): what a dashboard's sign-in code is
@@ -751,7 +936,7 @@ class Identities:
         (read past this instance's memory) and its tag holds: revoked meanwhile, on any instance, it is not."""
         with self.db.connection() as conn:
             row = conn.execute(
-                "SELECT id, identity_id, hash, route, tag FROM tokens WHERE hash = %s", (digest,)
+                "SELECT id, identity_id, hash, route, tag, permissions FROM tokens WHERE hash = %s", (digest,)
             ).fetchone()
         if row is None or row[1] != identity_id:
             return False
@@ -768,40 +953,53 @@ class Identities:
         there, is another identity's, or its row's tag does not hold."""
         with self.db.connection() as conn:
             row = conn.execute(
-                "SELECT id, identity_id, hash, route, tag, computer_key FROM tokens WHERE hash = %s",
+                "SELECT id, identity_id, hash, route, tag, permissions, computer_key FROM tokens WHERE hash = %s",
                 (self._hash(_SECRET, secret),),
             ).fetchone()
         if row is None or row[1] != identity_id:
             return "gone"
-        if not self._holds(*row[:5]):
+        if not self._holds(*row[:6]):
             self._tampering.met("a token")
             return "gone"
-        if row[5] is None:
+        if row[6] is None:
             return "keyless"
-        return "held" if _same(row[5], self._hash(_COMPUTER, row[0], key)) else "wrong"
+        return "held" if _same(row[6], self._hash(_COMPUTER, row[0], key)) else "wrong"
 
     def tokens(self, identity_id: str) -> list[TokenInfo]:
-        """The identity's tokens, each flagged when its tag does not hold (listed, never hidden: it finds no one)."""
+        """The identity's tokens, with their names, what each may do and whether it serves agents, each flagged when its
+        tag does not hold (listed, never hidden: it finds no one, and is said to be allowed nothing)."""
         with self.db.connection() as conn:
             rows = conn.execute(
-                "SELECT id, label, created, last_used, hash, route, tag FROM tokens WHERE identity_id = %s"
+                "SELECT id, label, created, last_used, hash, route, tag, permissions FROM tokens WHERE identity_id = %s"
                 " ORDER BY created, id",
                 (identity_id,),
             ).fetchall()
-        return [
-            TokenInfo(id_, label, created, used, tampered=not self._holds(id_, identity_id, hashed, route, tag))
-            for id_, label, created, used, hashed, route, tag in rows
-        ]
+        listed = []
+        for id_, label, created, used, hashed, route, tag, permissions in rows:
+            granted = self._granted(id_, identity_id, hashed, route, tag, permissions)
+            listed.append(
+                TokenInfo(
+                    id_,
+                    label,
+                    created,
+                    used,
+                    tampered=granted is None,
+                    permissions=granted or frozenset(),
+                    agents=granted is not None and permissions is None,
+                )
+            )
+        return listed
 
     def token_counts(self) -> dict[str, tuple[int, int]]:
-        """How many tokens each identity has (a person's computers, an API key's one key), and how many of them are
-        rows whose tag does not hold (counted and flagged, never hidden)."""
+        """How many tokens each identity has (a person's computers, an API key's tokens), and how many of them are rows
+        whose tag does not hold (counted and flagged, never hidden)."""
         with self.db.connection() as conn:
-            rows = conn.execute("SELECT identity_id, id, hash, route, tag FROM tokens").fetchall()
+            rows = conn.execute("SELECT identity_id, id, hash, route, tag, permissions FROM tokens").fetchall()
         counts: dict[str, tuple[int, int]] = {}
-        for identity_id, token_id, hashed, route, tag in rows:
+        for identity_id, token_id, hashed, route, tag, permissions in rows:
             every, tampered = counts.get(identity_id, (0, 0))
-            counts[identity_id] = (every + 1, tampered + (not self._holds(token_id, identity_id, hashed, route, tag)))
+            held = self._holds(token_id, identity_id, hashed, route, tag, permissions)
+            counts[identity_id] = (every + 1, tampered + (not held))
         return counts
 
     def enabled_count(self) -> int:
@@ -845,6 +1043,28 @@ class Identities:
                 changes.told.append((identity_id, "updated"))
             row = conn.execute(f"{_SELECT} WHERE i.id = %s", (identity_id,)).fetchone()
         return (_identity(row) if row is not None else None), fields
+
+    def limit_vault(self, identity_id: str, limit: int | None, *, within: Changes | None = None) -> bool:
+        """Set an API key's own limit of values in its vault (``VAULT_LIMIT_LEAST`` to ``VAULT_LIMIT_MOST``; None: the
+        server's ``vault_limit``). True when it changed the limit; False when there is no such API key (a person's vault
+        is the server's alone) or it had that limit already (nothing changed, and nothing is told to the other
+        instances). A limit below the values the vault holds is kept as it is: the vault takes no new value until values
+        are forgotten or the limit is raised. The instances are told the identity was ``updated``: their space of the
+        key takes the limit in place. Raises ValueError, nothing changed, for a limit outside the range or that is no
+        whole number."""
+        if limit is not None and (type(limit) is not int or not VAULT_LIMIT_LEAST <= limit <= VAULT_LIMIT_MOST):
+            raise ValueError(
+                f"a vault limit is a whole number from {VAULT_LIMIT_LEAST} to {VAULT_LIMIT_MOST} values, or none"
+            )
+        with self._within(within) as changes:
+            done = changes.conn.execute(
+                "UPDATE identities SET vault_limit = %s WHERE id = %s AND kind = 'key'"
+                " AND vault_limit IS DISTINCT FROM %s",
+                (limit, identity_id, limit),
+            ).rowcount
+            if done:
+                changes.told.append((identity_id, "updated"))
+        return bool(done)
 
     def _disabled(self, identity_id: str, disabled: bool, within: Changes | None) -> bool:
         with self._within(within) as changes:
@@ -890,6 +1110,21 @@ class Identities:
             if count:
                 changes.told.append((identity_id, "revoked"))
         return count
+
+    def revoke_one(self, identity_id: str, token_id: str, *, within: Changes | None = None) -> list[str] | None:
+        """``revoke`` of the one token ``token_id``, answering what it could do, as the administration log records it
+        with the token's id (the spec's line 97, the final review's M10): its permissions, sorted; none for a row whose
+        tag does not hold (it could do nothing); None when the identity has no such token, nothing revoked."""
+        with self._within(within) as changes:
+            row = changes.conn.execute(
+                "DELETE FROM tokens WHERE identity_id = %s AND id = %s RETURNING hash, route, tag, permissions",
+                (identity_id, token_id),
+            ).fetchone()
+            if row is None:
+                return None
+            changes.told.append((identity_id, "revoked"))
+        granted = self._granted(token_id, identity_id, *row)
+        return sorted(granted) if granted is not None else []
 
     def revoke_secret(self, secret: str, *, within: Changes | None = None) -> str | None:
         """A computer forgets its own token (`latet disconnect`): the id of the identity it was of, None when it was

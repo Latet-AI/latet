@@ -13,9 +13,13 @@ los detectores y todas las reglas de secretos.
 Los secretos se enmascaran en todos los [perfiles](../profiles/).
 
 Se incluyen las credenciales de Latet: `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
-(`latet_ck_`), `LATET_API_KEY` (`latet_key_`) y `LATET_ADMIN_TOKEN` (`latet_adm_`),
-cada prefijo seguido de 43 caracteres seguros
-para URL (`A-Z`, `a-z`, `0-9`, `_`, `-`). En `https://<host>/u/<route-key>`, los 16 a 128 caracteres seguros para URL
+(`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
+`LATET_SCIM_TOKEN` (`latet_scim_`, el token SCIM de un servidor Enterprise), `LATET_BRIDGE_TOKEN`
+(`latet_brg_`, el token que el plugin de Claude Code da al daemon de tu equipo) y
+`LATET_ONE_TIME_CODE` (`latet_code_`, el código que un administrador da a una persona para conectar
+un equipo), cada prefijo seguido de 43 caracteres seguros para URL (32 en el código de un solo uso;
+`A-Z`, `a-z`, `0-9`, `_`, `-`). Un token del bridge o un código de un solo uso creado por una versión
+anterior no tiene prefijo: se enmascara por el nombre con el que está escrito, como cualquier secreto. En `https://<host>/u/<route-key>`, los 16 a 128 caracteres seguros para URL
 de la clave de ruta se enmascaran como `LATET_ROUTE_KEY`; el host y los demás segmentos de la ruta
 se conservan. Esto se aplica en tu equipo y en un espacio del servidor, incluidos los volcados del
 entorno, el archivo `settings.json` de Claude Code y el archivo `config.toml` de Codex. Las llamadas
@@ -31,7 +35,27 @@ contiene un valor ficticio se detiene donde Latet puede interceptarla (consulta 
   Decide el nombre, tenga el valor el aspecto que tenga: `DB_PASSWORD=...`, `"api_key": "..."` y
   `$env:TOKEN = ...` se enmascaran; `APP_NAME=shop` y `DEBUG=true`, no. Los marcadores de posición
   como `changeme`, `${DB_PASSWORD}` o `<your-key>` se dejan tal cual, y también las referencias en
-  el código como `process.env.API_KEY`.
+  el código como `process.env.API_KEY`. Un par `password=...` se enmascara dondequiera que esté en
+  una línea, después de otras palabras en un registro (`INFO login ok password=...`), entre paréntesis,
+  en la consulta de una URL o después de `--` en un comando (`--password=...`); tras un nombre fuerte
+  (`password`, `secret`, `api_key`, `access_token`...), un valor literal entre comillas también se
+  enmascara después de dos puntos o de un signo igual con espacios (`{ password: 's3cr3t' }`,
+  `SET password = '...'`). Una comparación (`token==expected`) no es un par. Dos clases de valor se
+  dejan como están después del nombre de un secreto, porque dicen lo que encontró una comprobación y no
+  son el secreto. Una palabra de estado, en minúsculas, bajo cualquier nombre (`auth=failed`,
+  `token=expired`): `ok`, `fail`, `failed`, `failure`, `denied`, `refused`, `rejected`, `accepted`,
+  `granted`, `success`, `succeeded`, `error`, `expired`, `missing`, `invalid`, `valid`, `required`,
+  `present`, `absent`, `revoked`, `rotated`, `refreshed`, `pending`, `unknown`, `anonymous`,
+  `unauthorized`, `forbidden`, `enabled`, `disabled`, `active`, `inactive`, `skipped` y `passed`. Y, bajo
+  un nombre que termina en `status`, `state`, `result`, `results`, `outcome`, `scheme`, `changed`,
+  `reason` o `error` (`auth_status`, `token_error`, `password_changed`), un valor con la forma de un
+  estado: una palabra en minúsculas de 20 caracteres como máximo con un solo `-` o `_` como máximo, un
+  número de 10 dígitos como máximo, una hora, una fecha o un booleano; cualquier otro valor ahí
+  (`password_changed=Winter2024x`, una frase de contraseña como `correct-horse-battery-staple`, un número
+  más largo) se enmascara. Un nombre
+  que termina en `reset`, `source`, `arg`, `option` o `flag` sigue siendo el nombre de un secreto
+  (`password_reset`, `token_source`), y solo una opción que termina así (`--pass-arg=...`) se deja como
+  está tras `--` en medio de una línea, porque toma el nombre de algo.
 - **Claves privadas**: todo el cuerpo de un bloque de clave privada PEM, OpenSSH o PGP. Las líneas
   `BEGIN` y `END` siguen visibles, así que el modelo sigue sabiendo que ahí hay una clave.
 - **Credenciales**: la contraseña en `postgres://user:password@host/db` y en otras URL, los JSON Web

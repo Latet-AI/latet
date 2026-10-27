@@ -23,25 +23,28 @@ leads to its space, never asked of a web page: its proxy routes by the route key
 own token only, a person's alone for the CLI's two, one at a time and some a minute for each identity, and nothing else
 of ``/_latet``, which its space's app also mounts and would trust for it, nor what a proxy added to the request (the
 client's address, the server's own name: ``_unproxied``). The dashboard's API leads to the space of the person signed
-in, and refuses a request a page of another site made before anything is looked up. A token, an address or a dashboard's
-session this instance holds in its memory (a few seconds after it found it, dropped at once on every instance when it
-ends or its identity changes: ``live.SIGNINS``, ``Server.heard``) costs no store; a token, an address or a session it
-does not hold is checked by the limiter the machines' calls and the administration share (``machines.checked``: the
-client's address takes a slot of its window before anything is looked up, R-6, and one found good within the hour is
-looked up past it), one request at a time for each (``Server.lookups``), in the gate's own threads, and a store that
-does not answer refuses the request (503), as do those threads when too many calls wait for them already (with
-``Retry-After``). A client's address that the limiter found past its limit (or its IPv6 /48) is refused on the event
-loop until its window ends, no thread taken (``machines.Limits``), and so is what the instance does not hold while those
-threads are busy (``machines.CREDENTIALS_BUSY``, 503), but a credential found valid on any instance, which Valkey is
-asked about a batch at a time (``machines.admitted``). A dashboard's sign-in link takes a slot of its address's one
-budget of misses too (``machines.miss_key``): its codes that open nothing are misses, and past the limit they are
-refused on the event loop, for as long as anyone behind the address keeps spending it; a browser opened it, so each of
-its refusals sends it back to the dashboard's page, which says why (``?login=expired``, ``limited``, ``busy``). Every
-429 of a limit says ``Retry-After``, and every refusal of the server's own is paced in the log (``REFUSED``). An
-identity has ``requests_in_flight`` requests to its destinations in flight on an instance at most (the answers being
-restored cost the event loop that every identity shares): past it, 429 with ``Retry-After``. Every answer says
-``nosniff``, the machines' calls, the sign-in and every answer under an identity's address ``no-store``
-(``AnswerHeaders``); a body is bounded on the wire (``BodyLimit``) and once decoded (the space's mediator).
+in, and refuses a request a page of another site made before anything is looked up. The applications API
+(``/_latet/apps/v1``) leads to the space of the API key whose token a request carries in its one ``Authorization:
+Bearer`` header, with what the token may do, never a page's request nor a person's token (``_apps``). A token, an
+address or a dashboard's session this instance holds in its memory (a few seconds after it found it, dropped at once on
+every instance when it ends or its identity changes: ``live.SIGNINS``, ``Server.heard``) costs no store; a token, an
+address or a session it does not hold is checked by the limiter the machines' calls and the administration share
+(``machines.checked``: the client's address takes a slot of its window before anything is looked up, R-6, and one found
+good within the hour is looked up past it), one request at a time for each (``Server.lookups``), in the gate's own
+threads, and a store that does not answer refuses the request (503), as do those threads when too many calls wait for
+them already (with ``Retry-After``). A client's address that the limiter found past its limit (or its IPv6 /48) is
+refused on the event loop until its window ends, no thread taken (``machines.Limits``), and so is what the instance does
+not hold while those threads are busy (``machines.CREDENTIALS_BUSY``, 503), but a credential found valid on any
+instance, which Valkey is asked about a batch at a time (``machines.admitted``). A dashboard's sign-in link takes a slot
+of its address's one budget of misses too (``machines.miss_key``): its codes that open nothing are misses, and past the
+limit they are refused on the event loop, for as long as anyone behind the address keeps spending it; a browser opened
+it, so each of its refusals sends it back to the dashboard's page, which says why (``?login=expired``, ``limited``,
+``busy``). Every 429 of a limit says ``Retry-After``, and every refusal of the server's own is paced in the log
+(``REFUSED``). An identity has ``requests_in_flight`` requests to its destinations in flight on an instance at most (the
+answers being restored cost the event loop that every identity shares): past it, 429 with ``Retry-After``; and as many
+of its application requests apart. Every answer says ``nosniff``, the machines' calls, the sign-in, every answer under
+an identity's address and the applications API's ``no-store`` (``AnswerHeaders``); a body is bounded on the wire
+(``BodyLimit``) and once decoded (the space's mediator).
 
 Who calls: the event loop ``heard`` and ``listen`` (no lock taken, no round trip made on it but the Live Reviewer's and
 the feeds', bounded by the bus's ``SOCKET_TIMEOUT``: R-7); the beat ``check`` (its query in a thread); the gate and the
@@ -60,7 +63,7 @@ import os
 import secrets
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -91,6 +94,7 @@ from latet.api.rest import (
 )
 from latet.config import data_dir
 from latet.edition import Community, Edition
+from latet.engine.detectors.latet import starts_a_secret
 from latet.gateway.security import BodyLimit, refuse, url_hosts
 from latet.logline import Paced, described
 from latet.server import live, logs, queue
@@ -98,6 +102,7 @@ from latet.server.admin import Refusals, admin_routes
 from latet.server.audit import AuditLog
 from latet.server.bus import Bus
 from latet.server.db import Database, check_schema
+from latet.server.grants import bridge_needs
 from latet.server.identities import IDENTITY_ID, AdminTokens, Identities
 from latet.server.live import SIGNINS, ChainVerdicts, ValkeyAwsSessions, ValkeySignIns
 from latet.server.logs import REFUSED, RequestLog
@@ -111,6 +116,7 @@ from latet.server.machines import (
     StoresUnavailable,
     TooManyMisses,
     admitted,
+    bearer_of,
     bucket_of,
     checked,
     client_of,
@@ -121,19 +127,20 @@ from latet.server.machines import (
     machine_routes,
     miss_key,
     pre_auth,
-    secret_identity,
+    secret_grant,
     token_of,
 )
 from latet.server.master import MasterKey, check_master_key
 from latet.server.metrics import Metrics
-from latet.server.settings import SERVER_API, ServerSettings, read_secret_file
+from latet.server.settings import APPS_API, SERVER_API, ServerSettings, read_secret_file
 from latet.server.shared import SharedSettings
 from latet.server.spaces import IdentityUnavailable, Spaces, SpaceUnavailable
 from latet.server.spaces import _long as space_long
-from latet.server.tokens import ADMIN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX, TOKEN_PREFIX, is_route_key
+from latet.server.tokens import is_route_key
 from latet.state.local import CODE_TTL, SESSION_TTL
 
 if TYPE_CHECKING:
+    from latet.server.grants import Grant
     from latet.server.identities import Identity
     from latet.vision.pool import ServerReading  # NumPy: the ocr extra
 
@@ -350,7 +357,7 @@ class Server:
             if event in _CLOSING:  # first, whatever follows fails
                 await self.spaces.drop(identity_id, wait=False)
             elif event == "updated":
-                self.spaces.renamed(identity_id)
+                self.spaces.updated(identity_id)
             if event in _ENDING:
                 self._clean(identity_id, removed=event == "removed")
             elif event == "enabled" and self._cleanups.get(identity_id) is False:
@@ -412,7 +419,7 @@ def reviewer_key_of(settings: ServerSettings, master: MasterKey) -> str | None:
     key = read_secret_file(path, "reviewer_key_file")
     if master.is_version(key):
         raise ValueError("reviewer_key_file holds a version of the master key: the reviewer needs a key of its own")
-    if key.startswith((ADMIN_PREFIX, TOKEN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX)):
+    if starts_a_secret(key):
         raise ValueError("reviewer_key_file holds a server token or API key: the reviewer needs a key of its own")
     return key
 
@@ -445,7 +452,12 @@ def open_server(
             "LATET_LLM_API_KEY is set: a Latet server does not read it; the local reviewer's key comes from "
             "reviewer_key_file (LATET_SERVER_REVIEWER_KEY_FILE)"
         )
-    db = Database(settings.database_url, schema=schema, connect_timeout=settings.database_connect_timeout)
+    db = Database(
+        settings.database_url,
+        schema=schema,
+        connect_timeout=settings.database_connect_timeout,
+        max_size=settings.database_pool,
+    )
     bus: Bus | None = None
     try:
         check_schema(db)
@@ -547,6 +559,15 @@ _COMPUTER_CALLS = frozenset({"/_latet/admin/destinations", "/_latet/admin/user-n
 COMPUTER_CALL_LIMIT = 30
 COMPUTER_CALL_WINDOW = 60.0
 _UNAVAILABLE = "the server cannot answer now: try again in a moment"
+# An address calls a model through Latet, which masks what goes and restores what comes back, and the plugin's bridge
+# restores an agent's texts: neither writes an entry of the administration log for each restore. The refusal of an
+# address whose token does not serve agents (``Grant.gateway``: a token added to an API key, Ruling T13b), on a provider
+# route, a WebSocket or the bridge, and of a bridge call made with such a token, before its space is asked.
+_NO_GATEWAY = "this token calls the applications API alone: an agent calls through Latet with the key's first token"
+# The applications API's refusals of a token (``ServerGate._apps``): none in its one header, or a person's.
+_NO_BEARER = "the applications API takes an API key's token: Authorization: Bearer"
+_NOT_A_KEY = "the applications API takes an API key's token"
+_CHALLENGE = ((b"www-authenticate", b"Bearer"),)
 _CROWDED_KEPT = 10_000  # identities whose requests past the cap are said once a minute each, at most
 # The beat's own message, in a thread no other work holds up: a beat that waited behind a slow job (or behind the
 # spaces' builds, in the default executor) would make the instance's ear look silent (R-14) and close every space.
@@ -605,11 +626,12 @@ def _from_another_site(scope: Scope) -> bool:
 
 class AnswerHeaders:
     """Every answer of the server says ``x-content-type-options: nosniff`` (the pre-read's M4): no JSON answer, refusal
-    or file is ever read by a browser as a page of its own. The machines' calls, the sign-in and every answer under an
+    or file is ever read by a browser as a page of its own. The machines' calls, the sign-in, every answer under an
     identity's address (``/u/``: the bridge's originals and fakes, the user name's fake, the models' answers restored,
-    the gate's own refusals there) also say ``cache-control: no-store``, whatever their app said: a token, a sign-in
-    link, a session's cookie or a value is kept by no cache on the way, nor by the browser. No CORS header is added
-    anywhere: nothing of the server is to be read from another origin."""
+    the gate's own refusals there) and the applications API's (texts masked and restored) also say ``cache-control:
+    no-store``, whatever their app said: a token, a sign-in link, a session's cookie or a value is kept by no cache on
+    the way, nor by the browser. No CORS header is added anywhere: nothing of the server is to be read from another
+    origin."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -619,7 +641,7 @@ class AnswerHeaders:
             await self.app(scope, receive, send)
             return
         path: str = scope["path"]
-        unkept = path in (SERVER_API, _SIGN_IN) or path.startswith((f"{SERVER_API}/", "/u/"))
+        unkept = path in (SERVER_API, _SIGN_IN, APPS_API) or path.startswith((f"{SERVER_API}/", "/u/", f"{APPS_API}/"))
 
         async def sending(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -653,6 +675,7 @@ class ServerGate:
         self._streams: dict[str, int] = {}
         self._dashboard_in_flight: dict[str, int] = {}
         self._bridge_in_flight: dict[str, int] = {}
+        self._apps_in_flight: dict[str, int] = {}
         self._crowded: OrderedDict[tuple[str, str], Paced] = OrderedDict()  # past a cap, said once a minute each
         self._unbuilt = Paced()  # a space that could not be built, for a reason none of its own: once a minute
         self._calling: set[str] = set()  # the identities whose computer's call (one of the CLI's two) is under way here
@@ -666,6 +689,8 @@ class ServerGate:
             await self._refuse(scope, send, 403, "host not allowed")
         elif path.startswith("/u/"):
             await self._address(scope, receive, send)
+        elif path == APPS_API or path.startswith(f"{APPS_API}/"):
+            await self._apps(scope, receive, send)
         elif path.startswith(f"{API}/"):
             await self._dashboard(scope, receive, send)
         else:
@@ -677,12 +702,20 @@ class ServerGate:
         return len(hosts) == 1 and hosts[0].decode("latin-1").lower() in self.hosts
 
     async def _refuse(
-        self, scope: Scope, send: Send, status: int, reason: str, *, retry_after: str | None = None
+        self,
+        scope: Scope,
+        send: Send,
+        status: int,
+        reason: str,
+        *,
+        retry_after: str | None = None,
+        headers: Sequence[tuple[bytes, bytes]] = (),
     ) -> None:
-        """``status``, marked as the gate's own; ``retry_after``: the seconds a limit tells its client to wait."""
+        """``status``, marked as the gate's own; ``retry_after``: the seconds a limit tells its client to wait;
+        ``headers``: others it says (the scheme a 401 asks for)."""
         scope[REFUSED] = True  # the log paces the 429s the gate gives apart from an upstream's (Task 13)
-        headers = [(b"retry-after", retry_after.encode())] if retry_after else []
-        await refuse(scope, send, status, reason, headers=headers)
+        said = [(b"retry-after", retry_after.encode())] if retry_after else []
+        await refuse(scope, send, status, reason, headers=[*said, *headers])
 
     async def _address(self, scope: Scope, receive: Receive, send: Send) -> None:
         """``/u/<route key>/...``: the identity whose address it is; its proxy routes by the key alone, and under
@@ -690,9 +723,16 @@ class ServerGate:
         token, nothing else. A web page is refused before anything is looked up (it would spend the limit of its
         visitor's address), and so is an address written otherwise than the key and a ``/``. An address this instance's
         memory does not hold is looked up one request at a time (``_route_checked``), as its token is
-        (``machines.secret_identity``): one identity's flood under way when its few seconds in the memory end takes one
-        lookup of each, not one for each request. Its space gets the address the request came by (``latet.space``,
-        which holds the route key: compared, never written), which no client can set."""
+        (``machines.secret_grant``): one identity's flood under way when its few seconds in the memory end takes one
+        lookup of each, not one for each request. What a token may do is checked here, before its space is asked: an
+        address calls a model through Latet, which restores what comes back, and its bridge restores an agent's texts,
+        neither with an entry of the administration log for each restore; so its token (the one it is the address of)
+        serves agents and holds mask and unmask (``Grant.gateway``), or the request is refused (403), a WebSocket's and
+        the bridge's too, and nothing reaches the model (Ruling T13b: a token added to an API key restores through the
+        applications API alone). Each bridge call is refused as well to a token that makes it (``x-latet-token``) and
+        does not serve agents, and needs of the one that does what ``grants.bridge_needs`` says, all three for a call it
+        does not name (403, naming the first permission it lacks). Its space gets the address the request came by
+        (``latet.space``, which holds the route key: compared, never written), which no client can set."""
         path: str = scope["path"]
         route, _, rest = path.removeprefix("/u/").partition("/")
         rest = "/" + rest
@@ -711,10 +751,10 @@ class ServerGate:
             return
         bucket = bucket_of(client_of(scope))
         server = self.server
-        identity = server.identities.remembered(route=route)
-        if identity is None:
+        address = server.identities.remembered_grant(route=route)
+        if address is None:
             try:
-                identity, limited = await server.lookups.run(
+                address, limited = await server.lookups.run(
                     "route", server.known_routes.hashed(route), server.identities.generation,
                     functools.partial(self._route_checked, route, bucket),
                 )  # fmt: skip
@@ -725,12 +765,16 @@ class ServerGate:
                 reason = "too many unknown addresses from this address: wait a minute"
                 await self._refuse(scope, send, 429, reason, retry_after=RETRY_AFTER)
                 return
-            if identity is None:
+            if address is None:
                 await self._refuse(scope, send, 403, "there is no such address")
                 return
+        identity = address.identity
+        if not address.gateway:  # a provider route, a WebSocket or the bridge: what comes back would be restored
+            await self._refuse(scope, send, 403, _NO_GATEWAY)
+            return
         if bridge:
             try:
-                owner = await secret_identity(server, token_of(scope), bucket)
+                owner = await secret_grant(server, token_of(scope), bucket)
             except TooManyMisses:
                 reason = "too many tokens refused from this address: wait a minute"
                 await self._refuse(scope, send, 429, reason, retry_after=RETRY_AFTER)
@@ -738,8 +782,17 @@ class ServerGate:
             except StoresUnavailable as exc:
                 await self._refuse(scope, send, 503, _UNAVAILABLE, retry_after=exc.retry_after)
                 return
-            if owner is None or owner.id != identity.id:
+            if owner is None or owner.identity.id != identity.id:
                 await self._refuse(scope, send, 401, "unauthorized")
+                return
+            if not owner.gateway:  # a token added to the key, under its first token's address (Ruling T13b)
+                await self._refuse(scope, send, 403, _NO_GATEWAY)
+                return
+            # Every call by what the token that makes it may do, denied by default: the CLI's two, which the bridge's
+            # list does not name, need all three (a person's every token holds them; an API key's is refused them after,
+            # whatever it holds: ``_computer``).
+            if (lacking := owner.lacking(*bridge_needs(rest))) is not None:
+                await self._refuse(scope, send, 403, f"this token lacks the {lacking} permission")
                 return
         changes = {"path": rest, "raw_path": inner_raw, "latet.space": f"{server.settings.url}/u/{route}"}
         if rest in _COMPUTER_CALLS:  # computer_call let it through: by POST, with the owner's token
@@ -785,11 +838,53 @@ class ServerGate:
         finally:  # answered, refused, failed, its client gone, cancelled
             self._calling.discard(identity.id)
 
-    async def _route_checked(self, route: str, bucket: str) -> tuple[Identity | None, bool]:
-        """The identity whose address ``route`` is, checked by the limiter of ``bucket`` (``machines.checked``), and
-        whether the limit refused it; one lookup at a time for each address (``Server.lookups``). Past its limit as this
-        instance remembers it: refused here, no thread taken, no round trip, but an address found valid elsewhere, read
-        in Valkey a batch at a time (``machines.admitted``). Raises StoresUnavailable."""
+    async def _apps(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """The applications API (``/_latet/apps/v1/...``: ``latet.bridge.apps``), for an API key's token in the
+        request's one ``Authorization: Bearer`` header, and never a page's to call. Refused, each before what follows: a
+        WebSocket (404); a request a browser made (403), before anything is looked up, as on an identity's address (it
+        would spend the limit of its visitor's address); a request without such a header (401); a token that is none or
+        not found (401), looked up as every token is (``machines.secret_grant``: past its address's limit 429, a store
+        that does not answer 503); a person's token (403: people use the dashboard). Every 401 says the scheme it asks
+        for (``WWW-Authenticate: Bearer``). Then the key's space, the request held within ``requests_in_flight`` for
+        its application requests (``_serve``), without its ``Authorization`` header and with what the token may do
+        (``latet.grant``: its id and its permissions, which no client can set): each operation's permission is the
+        space's to check."""
+        if scope["type"] != "http":
+            await self._refuse(scope, send, 404, "there is no such route")
+            return
+        if from_a_page(scope):
+            await self._refuse(scope, send, 403, "browser requests are not accepted on the applications API")
+            return
+        token = bearer_of(scope)
+        if not token:
+            await self._refuse(scope, send, 401, _NO_BEARER, headers=_CHALLENGE)
+            return
+        try:
+            grant = await secret_grant(self.server, token, bucket_of(client_of(scope)))
+        except TooManyMisses:
+            reason = "too many tokens refused from this address: wait a minute"
+            await self._refuse(scope, send, 429, reason, retry_after=RETRY_AFTER)
+            return
+        except StoresUnavailable as exc:
+            await self._refuse(scope, send, 503, _UNAVAILABLE, retry_after=exc.retry_after)
+            return
+        if grant is None:
+            await self._refuse(scope, send, 401, "unauthorized", headers=_CHALLENGE)
+            return
+        if grant.identity.kind != "key":
+            await self._refuse(scope, send, 403, _NOT_A_KEY)
+            return
+        headers = [(name, value) for name, value in scope.get("headers") or [] if name != b"authorization"]
+        granted = {"token": grant.token_id, "permissions": sorted(grant.permissions)}
+        changes = {"headers": headers, "latet.grant": granted}
+        await self._serve(scope, receive, send, grant.identity, changes, counted=False)
+
+    async def _route_checked(self, route: str, bucket: str) -> tuple[Grant | None, bool]:
+        """What the token whose address ``route`` is grants (its identity, its id and what it may do), checked by the
+        limiter of ``bucket`` (``machines.checked``), and whether the limit refused it; one lookup at a time for each
+        address (``Server.lookups``). Past its limit as this instance remembers it: refused here, no thread taken, no
+        round trip, but an address found valid elsewhere, read in Valkey a batch at a time (``machines.admitted``).
+        Raises StoresUnavailable."""
         server, key = self.server, miss_key(bucket)
         if (elsewhere := await admitted(server.known_routes, server.limits, route, key)) is None:
             return None, True
@@ -798,13 +893,13 @@ class ServerGate:
             self._route_of, elsewhere,
         )  # fmt: skip
 
-    def _route_of(self, route: str) -> Identity | None:
-        """In the gate's threads: the enabled identity whose address ``route`` is, its visit noted (in a thread of its
-        own: ``Identities.seen``)."""
-        identity = self.server.identities.by_route(route)
-        if identity is not None:
-            self.server.identities.seen(identity.id)
-        return identity
+    def _route_of(self, route: str) -> Grant | None:
+        """In the gate's threads: what the token whose address ``route`` is grants, its identity enabled, its visit
+        noted (in a thread of its own: ``Identities.seen``)."""
+        grant = self.server.identities.grant_by_route(route)
+        if grant is not None:
+            self.server.identities.seen(grant.identity.id)
+        return grant
 
     def _from_elsewhere(self, scope: Scope) -> bool:
         """Whether a page of another site made the request, as a browser says: ``sec-fetch-site`` ``cross-site`` or
@@ -885,10 +980,12 @@ class ServerGate:
     async def _serve(
         self, scope: Scope, receive: Receive, send: Send, identity: Identity, changes: dict[str, Any], *, counted: bool
     ) -> None:
-        """The request handed to the identity's space, as its app reads it (``changes``, and whose it is), without what
-        a proxy added to it (``_unproxied``). ``counted``: a request to the identity's destinations, held within
-        ``requests_in_flight`` until it ends."""
-        inner = {**scope, **changes, "headers": _unproxied(scope.get("headers") or []), "latet.identity": identity.id}
+        """The request handed to the identity's space, as its app reads it (``changes``, its headers among them when
+        they say, and whose it is), without what a proxy added to it (``_unproxied``). ``counted``: a request to the
+        identity's destinations, held within ``requests_in_flight`` until it ends; the dashboard's, the bridge's and the
+        applications API's requests are each held within it apart."""
+        headers = changes.get("headers", scope.get("headers") or [])
+        inner = {**scope, **changes, "headers": _unproxied(headers), "latet.identity": identity.id}
         limits: list[tuple[dict[str, int], int, str]] = []
         if scope["type"] == "http":
             dashboard = inner["path"].startswith(f"{API}/")
@@ -902,6 +999,8 @@ class ServerGate:
                 )
             elif inner["path"].startswith(_ENGINE):
                 limits.append((self._bridge_in_flight, self.server.settings.requests_in_flight, "bridge requests"))
+            elif "latet.grant" in inner:  # the applications API's (``_apps``)
+                limits.append((self._apps_in_flight, self.server.settings.requests_in_flight, "application requests"))
         for counts, cap, what in limits:
             if counts.get(identity.id, 0) >= cap:
                 self._crowd(identity.id, what, cap, "")
@@ -1227,9 +1326,16 @@ def _start(
     jobs[name] = asyncio.get_running_loop().create_task(job(), name=f"latet-{name}")
 
 
+def _apps_body_limit(settings: ServerSettings) -> int:
+    """The bytes a call of the applications API may send at most: ``apps_request_mb``, never above ``max_request_mb``
+    (the security review's L2: each call's body waits in memory for its space's thread)."""
+    return min(settings.apps_request_mb, settings.max_request_mb) * 1024 * 1024
+
+
 def create_server_app(server: Server) -> Starlette:
     """An instance's ASGI app (`latet server run` serves it, behind E0c's ``Operations``): ``RequestLog`` (outermost: it
-    writes each request's line), ``AnswerHeaders``, ``BodyLimit`` with the settings' ``max_request_mb``, then
+    writes each request's line), ``AnswerHeaders``, ``BodyLimit`` with the settings' ``max_request_mb`` (and
+    ``apps_request_mb`` for the applications API), then
     ``ServerGate`` in front of the server's own routes: health and readiness, the dashboard's page and its sign-in
     (which a page of another site opens for no one), the machines' calls. Its lifespan starts the instance's ear and
     beat, and closes its spaces at the end (``Server.close`` is its owner's)."""
@@ -1403,7 +1509,11 @@ def create_server_app(server: Server) -> Starlette:
         middleware=[
             Middleware(RequestLog),  # outermost: the line of every request, the gate's refusals included
             Middleware(AnswerHeaders),
-            Middleware(BodyLimit, limit=server.settings.max_request_mb * 1024 * 1024),  # before anything is buffered
+            Middleware(  # before anything is buffered
+                BodyLimit,
+                limit=server.settings.max_request_mb * 1024 * 1024,
+                narrower=((APPS_API, _apps_body_limit(server.settings), "apps_request_mb"),),
+            ),
             Middleware(ServerGate, server=server),
         ],
         lifespan=lifespan,

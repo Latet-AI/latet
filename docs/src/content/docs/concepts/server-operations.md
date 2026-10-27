@@ -294,7 +294,8 @@ Keep clocks synchronized, within 60 seconds. Restrict direct provider access sep
 if the server is the company's required control point.
 
 The default request body limit is 32 MiB. `requests_in_flight` defaults to 16 per identity
-on an instance, with separate allowances for destination, dashboard and bridge requests.
+on an instance, with separate allowances for destination, dashboard, bridge and applications API
+requests.
 Long polls and streams have their own bounds. A capacity refusal is a reason to inspect
 load and limits, not to disable protection. Shutdown gives an instance 30 seconds to
 finish; long-running streams may be cut, so clients must handle disconnection.
@@ -305,6 +306,15 @@ cannot exceed the processors available to the instance. `ocr_read_seconds` defau
 reader counts costs memory as well as CPU. An unread image is withheld or its checked
 request refused according to the protected path; increasing timeouts does not improve
 recognition accuracy.
+
+An API key's space holds in memory the values the key used last (`key_working_values`,
+5,000 by default, about 10 MiB a key) and, for good, its newest short secrets that no word
+of a text finds when other letters are glued to them (`key_held_secrets`, 1,000 by default,
+about 2.2 KB each on every instance). Raise `key_held_secrets` for a key that sees many
+short secrets, such as a session token in each log line: every text the key masks or
+unmasks is read for each one held, so its calls slow a little as well (unmask about a
+tenth slower with 1,000 held)
+([a key's vault](../../applications/#a-keys-vault)).
 
 ### Connections, budgets and trust
 
@@ -321,11 +331,15 @@ recognition accuracy.
   credential store. A missing or wrong key is refused (403 `computer_key_required`) and counts against its
   address like a refused credential.
 - **One identity** has at most `requests_in_flight` requests in flight on an instance (16 by default); past it,
-  429 with `Retry-After`. A body is read up to `max_request_mb` (32 MiB by default); a JSON body near that limit
+  429 with `Retry-After`. A body is read up to `max_request_mb` (32 MiB by default), a call of the applications API up to
+  `apps_request_mb` (8 MiB); a JSON body near that limit
   holds the interpreter's lock for one to three seconds wherever it is parsed, so keep the limit as low as your
   agents allow and run several instances.
-- **PostgreSQL:** each instance keeps up to 10 connections; PostgreSQL's `max_connections` must cover every
-  instance's 10 and the administrators' commands.
+- **PostgreSQL:** each instance keeps up to `database_pool` connections (10 by default), for every identity's
+  work; PostgreSQL's `max_connections` must cover every instance's pool and the administrators' commands. An
+  applications API call that keeps new values holds one of them until it ends, three tenths of the pool at most
+  (three of ten); past them, calls keep each new value at once, which is slower. Raise `database_pool`, and
+  `max_connections` with it, for an instance that masks for many new keys at once.
 - **Valkey:** each instance keeps up to `valkey_connections` connections (100 by default), and past them a call
   waits five seconds at most. Valkey's `maxclients` must cover every instance's connections. Connecting to
   Valkey, its TLS and its first answer share one budget of five seconds.
@@ -360,6 +374,16 @@ latet server migrate --check
   stopped instance finishes its requests within 30 seconds.
 - **The tables change:** stop every instance, run `latet server migrate` once with the new version,
   then start the instances with it. An instance does not start on tables of another version.
+- **Programs use the applications API:** stop every older instance before the new ones start, even
+  when the tables stay the same. While two versions run side by side, a value an older instance
+  writes to a key's vault may not be found by a newer one until the key's space is built again
+  ([upgrading a server](../../applications/#upgrading-a-server)).
+- **A release that indexes a key's vault anew** (the changelog says so): the first instance that
+  builds each API key's space makes the words of its vault again before it answers that key's first
+  call, about 40 seconds for 200,000 values and four and a half minutes for 1,000,000. It is done once
+  for each key, but an instance builds four spaces at once, people's and keys' alike, so several large
+  keys built together after a restart hold back the first calls of every other space on that
+  instance: send each large key one call, one key after the other, before the traffic comes back.
 
 In the Compose example, the same steps run in containers of the new image, when the tables change:
 
@@ -411,10 +435,23 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 The printed variables carry the route key: keep them as secret as the key, never in a repository or a shared
-profile.
+profile. Only the key's first token has these addresses: a token made with `keys add-token` has none,
+whatever its permissions, and calls the applications API alone. `latet env` asks the server which
+kind the token is: for such a token it prints no variable and says so.
 
 The program must trust the server's certificate: one from an authority it already trusts, or the
 certificate added to its own trust settings.
+
+A program that masks its own logs or documents calls the [applications API](../../applications/)
+instead: no variables, a token of the key in its `Authorization` header, with only the permissions
+it needs. Its calls share the key's space with the key's agents, so they share its vault and fakes.
+
+Two kinds of its work queue for the whole server, not for each key. Each unmask's entry of the
+administration log is written before its answer, one at a time on the log's chain, by two threads of
+each instance for every key's unmasks; and forgets run two at a time on each instance, for every key.
+A key that sends many unmasks at once, or forgets a long list, delays the unmasks or the forgets of the
+other keys, never an enrolment, a revocation or what agents send. The administration log grows by one
+row for each unmask call.
 
 ## Logs, metrics and recovery
 
@@ -430,6 +467,13 @@ and require `metrics_token_file`.
 Distinguish an unknown chain verdict from a broken one. The
 [administration reference](../../reference/server-administration/) defines log pagination
 and the precise meaning of `latet_ocr_unread_total{reason}`.
+
+Every unmask through the applications API is an `apps.unmasked` entry of the administration log, with
+the token and how many values it restored, and every forget an `apps.forgotten` entry, with the token
+and how many values it took out of the key's vault; scan and mask are counted in the metrics only
+(`latet_apps_texts_total` and `latet_apps_values_total`, by operation, and the requests as
+`latet_http_requests_total{kind="apps"}`), with no label for the key
+([what the server records](../../reference/apps-api/#what-the-server-records)).
 
 In this Compose configuration, scrape `127.0.0.1:7283` from inside each instance with
 its metrics token. There is no published metrics port, Caddy route or supplied monitoring

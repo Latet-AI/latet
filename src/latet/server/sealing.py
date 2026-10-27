@@ -78,6 +78,7 @@ class Sealer:
         self._aeads = {n: AESGCM(derived(key, SEAL, purpose)) for n, key in enumerate(versions, 1)}
         self.version = len(versions)
         self._keyed = derived(versions[-1], KEYED, purpose)
+        self._paired = derived(self._keyed, DERIVE, b"keyed-pair")  # ``keyed_pair``'s
 
     def seal(self, data: bytes, aad: str) -> bytes:
         nonce = os.urandom(_NONCE)
@@ -98,5 +99,14 @@ class Sealer:
         return json.loads(self.open(blob, aad))
 
     def keyed(self, text: str) -> bytes:
-        """A keyed hash of ``text``: the same text gives the same bytes, which give nothing of it away."""
-        return hmac.new(self._keyed, text.encode(), hashlib.sha256).digest()
+        """A keyed hash of ``text``: the same text gives the same bytes, which give nothing of it away. Made in one call
+        (``hmac.digest``): the words of a long text are hashed by the hundred thousand."""
+        return hmac.digest(self._keyed, text.encode(), "sha256")
+
+    def keyed_pair(self, text: str) -> tuple[bytes, bytes]:
+        """Two keyed hashes of ``text`` from one call, the halves of an HMAC-SHA512 under a key of their own (derived
+        from ``keyed``'s): a key's vault keeps a word under the first and an edge under the second (anchors version 9,
+        review 10b's d), so that a text's word of six letters, asked as both, is hashed once. Neither half tells the
+        other, nor any ``keyed`` hash."""
+        both = hmac.digest(self._paired, text.encode(), "sha512")
+        return both[:32], both[32:]

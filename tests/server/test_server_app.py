@@ -281,7 +281,7 @@ async def test_revoking_a_token_or_rotating_a_key_closes_the_space_and_a_rename_
             await b.spaces.runtime(identity)
         a.identities.revoke_secret(token)  # what the token opened ends with it, its long connections too
         await until(lambda: emily.id not in b.spaces._spaces)
-        a.identities.rotate_key(billing.id)
+        a.identities.rotate_token(billing.id)[1]
         await until(lambda: billing.id not in b.spaces._spaces)
         space = b.spaces._spaces[daniel.id]
         a.identities.update(daniel.id, name="Daniel Okafor-Brandt")

@@ -289,21 +289,40 @@ def env(
     shell = shell or ("powershell" if os.name == "nt" else "bash")
     if shell not in ("powershell", "bash", "cmd") or agent not in ("generic", "claude"):
         raise typer.BadParameter("shell: powershell, bash or cmd; agent: generic or claude")
+    unasked = False
     if key_file is not None:
-        from latet.server.connection import NotConnected, read_key, server_target, server_url
+        from latet.server.connection import NotConnected, fingerprint_form, read_key, server_target, server_url
         from latet.server.tokens import route_key
 
         if agent != "generic":
             raise typer.BadParameter("--key-file is for --agent generic only")
         explicit = server or os.environ.get("LATET_SERVER_URL")
+        pinned: str | None = None
         if explicit:
             try:
                 address = server_url(explicit)
             except ValueError:
                 raise NotConnected("--server or LATET_SERVER_URL must name a valid Latet server address") from None
+            if given := os.environ.get("LATET_SERVER_FINGERPRINT"):
+                try:
+                    pinned = fingerprint_form(given)
+                except ValueError as exc:
+                    raise NotConnected(f"LATET_SERVER_FINGERPRINT: {exc}") from None
         else:
-            address, _ = server_target()
-        values = wrappers.generic_env(base=f"{address}/u/{route_key(read_key(key_file))}")
+            address, pinned = server_target()
+        key = read_key(key_file)
+        has = _key_has_addresses(address, key, pinned)
+        if has is False:
+            typer.secho(
+                "This token has no address for models: a token made with `latet server keys add-token`, whatever its "
+                "permissions, calls the applications API alone (/_latet/apps/v1), and the server answers 403 at an "
+                "address. A program or an agent calls a model through Latet with the key's first token.",
+                fg="red",
+                err=True,
+            )
+            raise typer.Exit(1)
+        unasked = has is None
+        values = wrappers.generic_env(base=f"{address}/u/{route_key(key)}")
     else:
         if server is not None:
             raise typer.BadParameter("--server requires --key-file")
@@ -328,12 +347,49 @@ def env(
         )
     if key_file is not None:
         typer.echo("The route URLs are secrets: keep them out of shared logs and shell history.", err=True)
+        if unasked:
+            typer.echo(
+                "The server was not reached to ask whether this token has these addresses: only a key's first token "
+                "has them, and one made with `keys add-token` is answered 403 there.",
+                err=True,
+            )
     elif wrappers.connected() is not None:
         typer.echo(
             "These addresses hold the address of your space on the server, a secret like this computer's token: keep "
             "them out of a shell profile you sync or share.",
             err=True,
         )
+
+
+def _key_has_addresses(address: str, key: str, pinned: str | None) -> bool | None:
+    """Whether the server gives the API key's token ``key`` addresses for models, as its ``whoami`` answers (the
+    final review's M9): False for a token made with `keys add-token`, which calls the applications API alone; None
+    when the server could not be asked (the addresses are made here all the same, and the command says so). A token
+    the server refuses (revoked, rotated, another server's) stops the command."""
+    from latet.server.client import ServerClient, ServerError, answer_of, pin_certificate
+
+    try:
+        if pinned is not None:  # its certificate kept once it shows that fingerprint, as `latet server` keeps it
+            pinned = pin_certificate(address, pinned)
+    except ServerError as exc:
+        if "could not be reached" in exc.message:
+            return None
+        typer.secho(exc.message, fg="red", err=True)  # another certificate, or an authority's: nothing is sent
+        raise typer.Exit(1) from None
+    try:
+        with ServerClient(address, key, pinned) as client:
+            answer = answer_of(client.request("GET", "whoami"))
+    except ServerError as exc:
+        if exc.status == 401:
+            typer.secho(
+                "The server refuses this token: revoked, rotated, or another server's. `latet server keys tokens KEY` "
+                "lists the key's tokens.",
+                fg="red",
+                err=True,
+            )
+            raise typer.Exit(1) from None
+        return None
+    return isinstance(answer.get("base"), str)
 
 
 def _ensure_daemon(*, _prepared: _PreparedConnection | None = None) -> None:

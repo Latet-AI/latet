@@ -42,7 +42,9 @@ from latet.storage import upgrade_copies
 if TYPE_CHECKING:
     from latet.server.client import ServerError
 
-CODE = re.compile(r"[A-Za-z0-9_-]{1,128}")  # a one-time code: E0b's are 32 of these, and it reads 128 at most
+# A one-time code: `latet_code_` and 32 of these (a server makes them so now; an earlier one's are the 32 alone), and it
+# reads 128 at most.
+CODE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _CODE_WORDS = "a one-time code is letters, digits, - and _ alone (128 at most), as your administrator gave it"
 _CODE_LINE = 1024  # characters of standard input read for `--code -` at most
 _WAIT_MOST = 5  # seconds of a Retry-After waited at most before this computer's identity is sent again

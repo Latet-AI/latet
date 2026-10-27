@@ -107,11 +107,21 @@ Gardez cette dernière séparée des sauvegardes de la base. Sans la clé corres
 les données chiffrées ne peuvent pas être récupérées.
 
 Certaines métadonnées restent lisibles dans PostgreSQL : noms et adresses e-mail des
-identités, identifiants externes, libellés et dates des jetons, noms des règles du coffre-fort,
+identités, identifiants externes, libellés, permissions et dates des jetons, noms des règles du coffre-fort,
 compteurs et dates, ainsi qu'acteurs, actions, cibles, identifiants, nombres et adresses
 clientes du journal d'administration. Les identifiants de projet et de conversation
-de l'historique utilisent des hachages à clé. Valkey utilise des noms dérivés avec une
-clé, des données sensibles chiffrées et des messages de coordination signés.
+de l'historique utilisent des hachages à clé. Le coffre-fort d'une clé d'API conserve aussi les
+mots de ses valeurs et de ses valeurs factices sous forme de hachages à clé, qui permettent de les
+trouver dans un texte : un hachage ne montre aucun mot, seulement quelles entrées en partagent un.
+Les lignes de son historique et les réponses mémorisées de son relecteur local gardent des hachages
+à clé des entrées et des valeurs du coffre-fort qu'elles nomment, pour qu'un oubli les trouve :
+quelqu'un qui lit la base de données peut savoir quelles lignes nomment la même entrée ou la même
+valeur, jamais de quelle valeur il s'agit. Les lignes d'une personne n'en gardent aucun. Chaque
+coffre-fort garde le hachage à clé de chaque valeur factice qu'il a retirée (celle d'une valeur
+oubliée, ou une remplacée), pour qu'aucune autre valeur ne la reçoive : il montre combien de
+valeurs factices ont été retirées, jamais lesquelles.
+Valkey utilise des noms dérivés avec une clé, des données sensibles chiffrées et des messages de
+coordination signés.
 
 Le chiffrement au repos ne cache pas les originaux au serveur en fonctionnement ni à
 son opérateur. Les vues autorisées du tableau de bord reçoivent les originaux dans le

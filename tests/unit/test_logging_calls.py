@@ -53,6 +53,7 @@ KEPT: dict[str, str | None] = {
     "DetectorSkipped": None,  # how long a text was, or that the model is loading or could not be loaded (by its type)
     "ReviewError": None,  # an HTTP status, an error's type, a certificate refused
     "AwsError": "code",  # its code; its words can name a profile and quote the AWS CLI
+    "NotRecorded": None,  # Task 11b: the error that kept a forget's log entry out, by its type alone (``described``)
 }
 # The functions that hand an exception to a log on purpose, by their module: the hooks of a server's log, whose
 # formatter shows it by its types and frames alone. Every other line of their module is read.

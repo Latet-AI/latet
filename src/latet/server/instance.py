@@ -170,7 +170,13 @@ def _database(settings: ServerSettings, database: Database | None) -> tuple[Data
 
     if database is not None:
         return database, False
-    return Database(settings.database_url, schema="latet", connect_timeout=settings.database_connect_timeout), True
+    db = Database(
+        settings.database_url,
+        schema="latet",
+        connect_timeout=settings.database_connect_timeout,
+        max_size=settings.database_pool,
+    )
+    return db, True
 
 
 def _asked[T](db: Database, query: LiteralString, read: Callable[[Any], T]) -> T:

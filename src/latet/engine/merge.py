@@ -9,10 +9,18 @@ from latet.engine.escapes import breaks, decoded
 from latet.engine.types import EntityClass, Span
 
 
-def _rank(span: Span) -> tuple[int, int, float, bool]:
-    # Alike otherwise, a value found as it is written names the result over one found where escapes read as what they
-    # stand for: a value of a structure stays as written in it.
-    return (int(span.eclass), span.length, span.score, span.value is None)
+def _specific(span: Span) -> bool:
+    """Whether a rule made for one kind of value found it: a provider's token (``gitleaks:github-pat``) or one of
+    Latet's own (``latet-credentials:``). The general ones, which find any value, are gitleaks' generic key rule, the
+    pair of a secret's name (``assignment:``) and a repeat of what was found."""
+    return span.rule.startswith(("gitleaks:", "latet-credentials:")) and span.rule != "gitleaks:generic-api-key"
+
+
+def _rank(span: Span) -> tuple[int, int, float, bool, bool]:
+    # Alike otherwise, a rule made for the value names the result over the general ones (a token of GitHub after a
+    # name is a GITHUB_PAT, as written alone, not a GENERIC_API_KEY), and a value found as it is written over one found
+    # where escapes read as what they stand for: a value of a structure stays as written in it.
+    return (int(span.eclass), span.length, span.score, _specific(span), span.value is None)
 
 
 def merge_spans(spans: Iterable[Span], text: str | None = None) -> list[Span]:

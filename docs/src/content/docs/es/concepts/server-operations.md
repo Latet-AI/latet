@@ -310,7 +310,7 @@ es el punto de control obligatorio de la empresa.
 
 El límite predeterminado del cuerpo de una solicitud es de 32 MiB. `requests_in_flight`
 vale 16 por identidad en una instancia, con cuotas separadas para solicitudes a destinos,
-al panel y al bridge. Las esperas largas y los flujos tienen sus propios límites. Un
+al panel, al bridge y a la API para aplicaciones. Las esperas largas y los flujos tienen sus propios límites. Un
 rechazo por capacidad exige revisar carga y límites, no desactivar la protección.
 Al apagarse, una instancia tiene 30 segundos para terminar; los flujos largos pueden
 cortarse, así que los clientes deben gestionar la desconexión.
@@ -321,6 +321,16 @@ El OCR usa lectores limitados, cada uno con sus modelos en memoria. `ocr_readers
 de lectura. Aumentar los lectores consume memoria además de CPU. Una imagen no leída
 se retiene o se rechaza su solicitud verificada, según la ruta protegida; aumentar los
 tiempos de espera no mejora la precisión del reconocimiento.
+
+El espacio de una clave de API guarda en memoria los valores que la clave usó por última vez
+(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave) y, para siempre, sus secretos
+cortos más recientes que ninguna palabra de un texto encuentra cuando otras letras están pegadas
+a ellos (`key_held_secrets`, 1.000 por defecto, unos 2,2 KB cada uno en cada instancia). Sube
+`key_held_secrets` para una clave que ve muchos secretos cortos, como un token de sesión en cada
+línea de registro: cada texto que la clave enmascara o restaura se recorre para buscar cada uno
+de los que se guardan, así que sus llamadas también se vuelven un poco más lentas (restaurar
+es alrededor de una décima parte más lento con 1.000 guardados)
+([la caja fuerte de una clave](../../applications/#la-caja-fuerte-de-una-clave)).
 
 ### Conexiones, límites y confianza
 
@@ -339,11 +349,16 @@ tiempos de espera no mejora la precisión del reconocimiento.
   el almacén de credenciales de ese equipo. Una clave ausente o incorrecta se rechaza (403
   `computer_key_required`) y cuenta para su dirección como una credencial rechazada.
 - **Una identidad** tiene como máximo `requests_in_flight` peticiones en curso en una instancia (16 por defecto);
-  por encima, 429 con `Retry-After`. Un cuerpo se lee hasta `max_request_mb` (32 MiB por defecto); un cuerpo JSON
+  por encima, 429 con `Retry-After`. Un cuerpo se lee hasta `max_request_mb` (32 MiB por defecto), una llamada de la API para
+  aplicaciones hasta `apps_request_mb` (8 MiB); un cuerpo JSON
   cerca de ese límite retiene el bloqueo del intérprete de uno a tres segundos dondequiera que se analice, así que
   mantén el límite tan bajo como permitan tus agentes y ejecuta varias instancias.
-- **PostgreSQL:** cada instancia mantiene hasta 10 conexiones; el `max_connections` de PostgreSQL debe cubrir las
-  10 de cada instancia y los comandos de los administradores.
+- **PostgreSQL:** cada instancia mantiene hasta `database_pool` conexiones (10 por defecto) para el trabajo de
+  todas las identidades; el `max_connections` de PostgreSQL debe cubrir el pool de cada instancia y los comandos
+  de los administradores. Una llamada a la API para aplicaciones que conserva valores nuevos ocupa una hasta que
+  termina, como mucho tres décimas partes del pool (tres de diez); por encima, las llamadas conservan cada valor
+  nuevo enseguida, más despacio. Sube `database_pool`, y con él `max_connections`, para una instancia que
+  enmascara para muchas claves nuevas a la vez.
 - **Valkey:** cada instancia mantiene hasta `valkey_connections` conexiones (100 por defecto), y por encima una
   llamada espera cinco segundos como máximo. El `maxclients` de Valkey debe cubrir las conexiones de todas las
   instancias. La conexión a Valkey, su TLS y su primera respuesta comparten un único límite de cinco segundos.
@@ -378,6 +393,18 @@ latet server migrate --check
   instancia detenida termina sus peticiones en 30 segundos como máximo.
 - **Las tablas cambian:** detén todas las instancias, ejecuta `latet server migrate` una vez con la nueva
   versión y luego arranca las instancias con ella. Una instancia no arranca sobre tablas de otra versión.
+- **Hay programas que usan la API para aplicaciones:** detén cada instancia más antigua antes de que
+  arranquen las nuevas, aunque las tablas no cambien. Mientras dos versiones se ejecutan a la vez, un
+  valor que una instancia más antigua escribe en la caja fuerte de una clave puede no encontrarlo una
+  más nueva hasta que el espacio de la clave se vuelva a construir
+  ([actualizar un servidor](../../applications/#actualizar-un-servidor)).
+- **Una versión que indexa de nuevo la caja fuerte de una clave** (el changelog lo dice): la primera
+  instancia que construye el espacio de cada clave de API rehace las palabras de su caja fuerte antes de
+  responder a la primera llamada de esa clave, unos 40 segundos para 200.000 valores y cuatro minutos y
+  medio para 1.000.000. Se hace una vez por clave, pero una instancia construye cuatro espacios a la
+  vez, de personas y de claves, así que varias claves grandes construidas a la vez tras un reinicio
+  retienen las primeras llamadas de todos los demás espacios de esa instancia: envía una llamada a cada
+  clave grande, una clave tras otra, antes de que vuelva el tráfico.
 
 En el ejemplo de Compose, cuando las tablas cambian, los mismos pasos se ejecutan en contenedores de la
 nueva imagen:
@@ -431,10 +458,26 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 Las variables mostradas llevan la clave de ruta: mantenlas tan secretas como la clave, nunca en un repositorio ni
-en un perfil compartido.
+en un perfil compartido. Solo el primer token de la clave tiene estas direcciones: un token creado con
+`keys add-token` no tiene ninguna, tenga los permisos que tenga, y solo llama a la API para aplicaciones.
+`latet env` pregunta al servidor de qué tipo es el token: para un token así no muestra ninguna variable
+y lo dice.
 
 El programa debe confiar en el certificado del servidor: uno de una autoridad en la que ya confía, o el
 certificado añadido a su propia configuración de confianza.
+
+Un programa que enmascara sus propios registros o documentos llama en su lugar a la
+[API para aplicaciones](../../applications/): sin variables, con un token de la clave en su cabecera
+`Authorization`, con solo los permisos que necesita. Sus llamadas comparten el espacio de la clave con los
+agentes de la clave, y por tanto su caja fuerte y sus valores ficticios.
+
+Dos tipos de su trabajo hacen cola para todo el servidor, no para cada clave. La entrada del registro de
+administración de cada restauración se escribe antes de su respuesta, una a la vez en la cadena del
+registro, por dos hilos de cada instancia para las restauraciones de todas las claves; y los olvidos se
+ejecutan de dos en dos en cada instancia, para todas las claves. Una clave que envía muchas
+restauraciones a la vez, u olvida una lista larga, retrasa las restauraciones o los olvidos de las
+demás claves, nunca una inscripción, una revocación ni lo que envían los agentes. El registro de
+administración crece una fila por cada llamada de restauración.
 
 ## Registros, métricas y recuperación
 
@@ -449,6 +492,14 @@ no es una nueva comprobación completa. Las métricas Prometheus usan un listene
 `127.0.0.1:7283` por defecto, y requieren `metrics_token_file`. Distingue un resultado desconocido de una cadena rota.
 La [referencia de administración](../../reference/server-administration/) define la
 paginación del registro y el significado preciso de `latet_ocr_unread_total{reason}`.
+
+Cada restauración a través de la API para aplicaciones es una entrada `apps.unmasked` del registro de
+administración, con el token y cuántos valores restauró, y cada olvido una entrada `apps.forgotten`,
+con el token y cuántos valores quitó de la caja fuerte de la clave; el análisis y el enmascaramiento
+solo se
+cuentan en las métricas (`latet_apps_texts_total` y `latet_apps_values_total`, por operación, y las
+solicitudes como `latet_http_requests_total{kind="apps"}`), sin etiqueta para la clave
+([qué registra el servidor](../../reference/apps-api/#qué-registra-el-servidor)).
 
 En esta configuración Compose, consulta `127.0.0.1:7283` desde dentro de cada instancia con
 su token de métricas. No hay puerto publicado, ruta Caddy ni red de monitorización incluida.

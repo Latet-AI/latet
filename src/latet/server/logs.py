@@ -120,9 +120,13 @@ _PROJECT = re.compile(r"(/_latet/api/v1/projects/)[^/?#]+")
 # router reads it (its escapes decoded), before what a line cannot hold is escaped again, whose hex digits would sit
 # against the key. A line loses no word it needs: none of Latet's paths holds such a run.
 _KEY_RUN = re.compile(rb"(?i)[a-z2-7]{26,}")
+# The bridge token and the one-time code, taken out of a path whole in the same way (``_SECRET_IN_PATH``).
+_LOCAL_SECRET_IN_PATH = re.compile(
+    rb"(latet_(?:brg|code)_)(?:(?<=brg_)[A-Za-z0-9_-]{43}|(?<=code_)[A-Za-z0-9_-]{32})(?![A-Za-z0-9_-])"
+)
 # A secret of Latet's written in a path (a base URL pasted wrong, say), taken out whole before the route keys' runs are:
 # a run of 26 letters of their alphabet inside its body would cut it there, and the rest of it be written.
-_SECRET_IN_PATH = re.compile(rb"(latet_(?:pat|key|adm|ck)_)[A-Za-z0-9_-]+")
+_SECRET_IN_PATH = re.compile(rb"(latet_(?:pat|key|adm|ck|scim)_)[A-Za-z0-9_-]+")
 # What a path, as a line writes it, keeps as it is: printable ASCII, but the sign of an escape and those of a query and
 # of a fragment. Anything else (a control, a space, what is not ASCII) is written escaped, as a URL writes it.
 _PLAIN_IN_PATH = "".join(chr(code) for code in range(0x21, 0x7F) if chr(code) not in "%?#")
@@ -764,7 +768,8 @@ def _path(scope: Scope) -> str:
         read = unquote_to_bytes(sent)
     else:  # a server that gives no raw path: the path it decoded
         read, cut = _within_limit(str(scope.get("path", ""))[: PATH_LIMIT + 1].encode("utf-8", "surrogatepass"))
-    path = quote(_KEY_RUN.sub(b"***", _SECRET_IN_PATH.sub(rb"\1***", read)), safe=_PLAIN_IN_PATH)
+    secrets_out = _LOCAL_SECRET_IN_PATH.sub(rb"\1***", _SECRET_IN_PATH.sub(rb"\1***", read))
+    path = quote(_KEY_RUN.sub(b"***", secrets_out), safe=_PLAIN_IN_PATH)
     if len(path) > PATH_LIMIT:  # longer again with its escapes
         path, cut = path[: path.rfind("/", 0, PATH_LIMIT) + 1], True
     path = _PROJECT.sub(r"\1***", redacted(path))
@@ -772,9 +777,10 @@ def _path(scope: Scope) -> str:
 
 
 # The areas of a server's paths, each paced answer counted with its own kind: an identity's address, the
-# administration, the dashboard, and the server's own (anything else).
+# administration, the dashboard, the applications API, and the server's own (anything else).
 _AREAS = (
     ("/u/", "an identity's address"),
+    ("/_latet/apps/", "the applications API"),
     ("/_latet/server/v1/admin/", "the administration"),
     ("/_latet/api/", "the dashboard"),
     ("/_latet/ui/", "the dashboard"),

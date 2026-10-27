@@ -48,7 +48,17 @@ LINE = re.compile(
 
 
 @pytest.mark.parametrize(
-    "etype", ["LATET_PERSONAL_TOKEN", "LATET_API_KEY", "LATET_ADMIN_TOKEN", "LATET_COMPUTER_KEY", "LATET_ROUTE_KEY"]
+    "etype",
+    [
+        "LATET_PERSONAL_TOKEN",
+        "LATET_API_KEY",
+        "LATET_ADMIN_TOKEN",
+        "LATET_COMPUTER_KEY",
+        "LATET_SCIM_TOKEN",
+        "LATET_BRIDGE_TOKEN",
+        "LATET_ONE_TIME_CODE",
+        "LATET_ROUTE_KEY",
+    ],
 )
 def test_latet_secret_types_are_fixed_metric_labels(etype):
     assert metric_type(etype, "SECRET") == etype
@@ -512,9 +522,18 @@ def test_the_token_is_bearer_in_any_case_and_one_authorization_header_alone(serv
     client = TestClient(app, base_url=PROMETHEUS)
     assert client.get(METRICS, headers={"authorization": f"bearer {TOKEN}"}).status_code == 200
     assert client.get(METRICS, headers={"authorization": f"BEARER {TOKEN}"}).status_code == 200
+    # RFC 7235's 1*SP, read as the applications API reads it (``tokens.bearer_token``, one parser for both).
+    assert client.get(METRICS, headers={"authorization": f"Bearer   {TOKEN}"}).status_code == 200
     two = [("authorization", f"Bearer {TOKEN}"), ("authorization", "Bearer something-else")]
     assert client.get(METRICS, headers=two).status_code == 401  # two headers name none
-    for written in (f"Bearer  {TOKEN}", f"Basic {TOKEN}", TOKEN, f"Bearer {TOKEN}x", "Bearer " + TOKEN[:-1]):
+    for written in (
+        f"Bearer\t{TOKEN}",
+        f"Basic {TOKEN}",
+        TOKEN,
+        f"Bearer {TOKEN}x",
+        "Bearer " + TOKEN[:-1],
+        "Bearer  ",
+    ):
         assert client.get(METRICS, headers={"authorization": written}).status_code == 401, written
     assert client.get(METRICS).status_code == 401
     shown = repr(vars(app)) + repr(app) + repr(vars(server.metrics)) + repr(server.metrics) + repr(server.settings)
@@ -591,6 +610,24 @@ def test_a_metrics_token_that_is_a_stores_password_stops_the_start(server, setti
     with pytest.raises(ValueError, match=setting) as raised:
         Operations(_inner(), server)
     assert "7f3a" not in str(raised.value) and raised.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    "written",
+    [f"latet_{prefix}_" + "x" * 43 for prefix in ("pat", "ck", "key", "adm", "scim", "brg")]
+    + ["latet_code_" + "x" * 32],
+)
+def test_a_metrics_token_that_is_a_secret_of_latet_stops_the_start(server, written):
+    """A scrape carries the token over http in clear: no secret of the server's, or of a person's, may be it."""
+    server.settings.metrics_token_file.write_text(written + "\n", "utf-8")
+    with pytest.raises(ValueError, match="metrics_token_file") as raised:
+        Operations(_inner(), server)
+    assert written not in str(raised.value) and raised.value.__context__ is None
+
+
+def test_a_metrics_token_that_only_begins_like_a_code_is_a_token(server):
+    server.settings.metrics_token_file.write_text("latet_code_review_comments_for_this_server_" + "x" * 8, "utf-8")
+    Operations(_inner(), server)
 
 
 def test_a_metrics_token_that_is_the_reviewers_key_stops_the_start(server):

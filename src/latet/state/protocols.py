@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator, MutableMapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     import asyncio
@@ -46,8 +46,8 @@ class VaultStore(Protocol):
     Who calls: ``save_entity`` and ``save_rule`` the thread that masks (the engine's, the plugin's, a worker of the
     dashboard), inside the vault's lock, so one new value is kept at a time and every other new value waits for it;
     the image decisions those threads too. ``load_review`` and ``save_review`` both those threads and the event loop
-    (the local reviewer runs on it), and ``forget_entity`` the event loop (the dashboard's Vault page) and the start:
-    on the loop these three must not wait on a network. ``load_entities`` and ``unreadable`` the start,
+    (the local reviewer runs on it), and ``forget_entity`` the dashboard's work threads (its Vault page) and the start:
+    on the loop the first two must not wait on a network. ``load_entities`` and ``unreadable`` the start,
     ``forget_reviews`` a worker thread, ``load_entity`` nobody yet (an instance of a server will, to learn a value
     another one kept)."""
 
@@ -63,7 +63,8 @@ class VaultStore(Protocol):
 
     def save_entity(self, e: Entity) -> Entity | None:
         """Keep ``e``. None: kept as given. An entity: the same value kept first by another process, which the vault
-        uses in its place. Raises ``FakeTaken`` when ``e``'s fake is another value's: the vault tries its next one."""
+        uses in its place. Raises ``FakeTaken`` when ``e``'s fake is another value's (a server's store, also when a fake
+        in escapes reads as a string the vault knows, ``vault.fake_reading``): the vault tries its next one."""
         ...
 
     def save_rule(self, e: Entity) -> None: ...
@@ -111,6 +112,110 @@ class VaultStore(Protocol):
         ...
 
     def close(self) -> None: ...
+
+
+# Which of an entity's two strings a word is of: its value's or its fake's.
+Role = Literal["original", "surrogate"]
+
+
+@runtime_checkable
+class KeyVaultStore(VaultStore, Protocol):
+    """An API key's vault, read from the store as it is needed rather than whole (a server's ``PgVaultStore``): how
+    many values it holds, its newest ones, those whose value or fake has no anchor word (``engine.anchors``), one value
+    by itself or by its fake, and the values and fakes a text may hold, by their anchor words. The store keeps each word
+    as a keyed hash alone, and every lookup is the identity's own.
+
+    An entry that does not open (sealed with another root key, changed in the database) is left out of what these
+    answer, and counted in ``unreadable``, as ``load_entities`` leaves it out.
+
+    Who calls: the thread that builds the space (``backfill_words``, ``count_entities``, ``load_recent``,
+    ``load_unanchored``), the threads that mask and unmask (the lookups) and the one that catches the space up
+    (``by_ids``, ``count_entities``), which may wait; never the event loop (``engine.stored.StoredVault`` answers
+    there from its memory alone)."""
+
+    # The values of the vault, as ``save_entity`` holds them to its limit (``VaultFull``): a space that does not load
+    # the vault whole sets it from ``count_entities``, and the space keeps it true as values arrive and go.
+    count: int
+    # The generation the vault draws its new fakes in (``engine.vault.Vault._seed``), as the store last read it: moved
+    # by each forget of values by themselves (Task 11b). ``save_entity`` refuses a value drawn in an older one
+    # (``server.vault.OlderGeneration``, a ``FakeTaken``), reading the new one, so that the vault draws it again.
+    generation: int
+
+    def load_generation(self) -> int:
+        """The generation as the store has it now, kept as ``generation`` and answered."""
+        ...
+
+    def count_entities(self) -> int:
+        """How many values the vault holds, as the store counts them now."""
+        ...
+
+    def load_recent(self, n: int) -> list[Entity]:
+        """The ``n`` values kept last, the newest first."""
+        ...
+
+    def load_unanchored(self) -> list[Entity]:
+        """The values whose value or fake has no anchor word, which no text's words find: the oldest first."""
+        ...
+
+    def load_held(self, n: int) -> list[Entity]:
+        """The ``n`` newest secrets that no text's words find glued to letters or digits (``stored.held_glued``), the
+        newest first: those a space holds in memory for good (``key_held_secrets``, Ruling 10b-R3)."""
+        ...
+
+    def by_original(self, value: str) -> Entity | None:
+        """The entity of ``value``, written as it was kept; None when there is none."""
+        ...
+
+    def by_surrogate(self, fake: str) -> Entity | None:
+        """The entity whose fake is ``fake``, written as it was given; None when there is none."""
+        ...
+
+    def by_reading(self, reading: str) -> Entity | None:
+        """The entity whose fake, written in escapes, reads as ``reading`` (``vault.fake_reading``), found by that
+        string alone, never by opening the fakes that share a word with it; None when there is none."""
+        ...
+
+    def with_words(self, role: Role | tuple[Role, ...], words: Iterable[str]) -> list[Entity]:
+        """The entities whose value (``original``) or fake (``surrogate``), or either (both roles, in one statement),
+        has one of ``words`` among its words (``stored.words_of``: its anchor or a fake's dotted word, and its edges; a
+        text's words are ``anchors.words_in``, with ``dotted``), each once, however many of its words are asked. A
+        store may refuse a call that would open more entities than it allows (a ``MaskingError`` whose words name no
+        value): never answered with a part of them."""
+        ...
+
+    def by_ids(self, ids: Iterable[str]) -> list[Entity]:
+        """The entities of ``ids`` that the vault holds, each once (one that does not open left out): what a space
+        holds in memory, asked whether the vault still has it, never the whole vault."""
+        ...
+
+    def backfill_words(self) -> int:
+        """Make the anchor words that are not there or not as ``anchors.anchor`` makes them now, a part of the vault at
+        a time: those of the values kept before the store kept any (a vault of an earlier Latet), those made by an
+        older version of the anchors (``anchors.ANCHORS_VERSION``), and the NULL ones (an entry that did not open when
+        its words were made); how many values got a word. Safe to call again, and on two instances at once: a word of
+        the current version is left as it is, and a NULL one with no word to give stays NULL."""
+        ...
+
+
+class Together(Protocol):
+    """The values one thread keeps in a key's vault (``save_entity``) from when a store's ``together()`` gave it
+    until ``commit`` or ``rollback``, kept together (a server's ``PgVaultStore``: in one transaction): none of them
+    kept, nor told to the other instances, before it commits; that thread's own lookups find them meanwhile, no
+    other's. A store that keeps them so has ``together()`` beside ``KeyVaultStore``'s methods
+    (``engine.stored.StoredVault`` asks for it in an applications call, Ruling T10i); one that does not, or that has
+    no room for another call keeping its values so (Ruling 10b-R2), keeps each at once."""
+
+    # The store had no room for one more call keeping its values together (Ruling 10b-R2): each is kept at once, and
+    # none is the call's to undo if it fails (review 10b's N4).
+    at_once: bool
+
+    def commit(self) -> None:
+        """Keep every change, and tell each once kept. Raises when they are not kept (none is)."""
+        ...
+
+    def rollback(self) -> None:
+        """Keep none of them. Never raises: a store that cannot answer keeps none either."""
+        ...
 
 
 class HistoryStore(Protocol):

@@ -107,11 +107,19 @@ la chiave principale separatamente dai backup del database. Senza la chiave corr
 non è possibile recuperare i dati cifrati.
 
 Alcuni metadati restano leggibili in PostgreSQL: nomi e indirizzi email delle identità,
-identificatori esterni, etichette e date dei token, nomi delle regole della cassaforte, contatori
+identificatori esterni, etichette, permessi e date dei token, nomi delle regole della cassaforte, contatori
 e date, oltre ad attori, azioni, destinatari, identificatori, conteggi e indirizzi client
 del registro amministrativo. Gli identificatori di progetto e conversazione nella
-cronologia usano hash con chiave. Valkey usa nomi derivati con chiave, payload sensibili
-cifrati e messaggi di coordinamento firmati.
+cronologia usano hash con chiave. La cassaforte di una chiave API conserva anche le parole dei suoi
+valori e dei suoi valori fittizi come hash con chiave, che servono a trovarli in un testo: un hash
+non mostra alcuna parola, solo quali voci ne condividono una. Le righe della sua cronologia e le
+risposte ricordate dal suo revisore locale conservano hash con chiave delle voci e dei valori della
+cassaforte che nominano, così che un oblio li trovi: chi legge il database può capire quali righe
+nominano la stessa voce o lo stesso valore, mai quale valore sia. Le righe di una persona non ne
+conservano. Ogni cassaforte conserva l'hash con chiave di ogni valore fittizio che ha ritirato
+(quello di un valore dimenticato, o uno sostituito), così che nessun altro valore lo riceva: mostra
+quanti valori fittizi sono stati ritirati, mai quali. Valkey usa nomi derivati con chiave,
+payload sensibili cifrati e messaggi di coordinamento firmati.
 
 La cifratura dei dati archiviati non nasconde gli originali al server in esecuzione né
 al suo operatore. Le viste autorizzate della dashboard ricevono gli originali nel browser.

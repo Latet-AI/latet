@@ -186,6 +186,26 @@ programma. `keys rotate "Billing CI" --out replacement.key` sostituisce la crede
 aggiorna insieme la chiave del programma e i suoi indirizzi di percorso. Anche una chiave
 di percorso contenuta in un indirizzo è sensibile.
 
+Una chiave può avere più token, ciascuno con i suoi permessi tra `scan`, `mask`, `unmask` e `forget`,
+per i programmi che chiamano l'[API per le applicazioni](../../applications/): un'applicazione che
+spedisce i suoi log mascherati ha bisogno solo di `mask`, lo strumento di assistenza che li legge solo
+di `unmask`.
+
+```sh
+latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper --mask --out shipper.token
+latet server --server https://latet.acme.lan keys tokens "Billing CI"
+```
+
+Il primo token della chiave può analizzare, mascherare e ripristinare; `forget`, che toglie dei valori
+dalla cassaforte della chiave, si dà a un token tutto suo
+([dimenticare dei valori](../../applications/forget/)). Solo il primo token della chiave ha un
+indirizzo per i modelli: un token creato con `keys add-token`, qualunque siano i suoi permessi, lì viene
+rifiutato e chiama soltanto l'API per le applicazioni, dove ogni ripristino finisce nel registro
+amministrativo. Quando una chiave ha più token, `keys rotate` richiede
+`--token` con l'id che elenca `keys tokens`, e `keys tokens "Billing CI" --revoke TOKEN_ID` ne ferma
+uno. `keys limit "Billing CI" 1000000` dà alla cassaforte della chiave un limite proprio, sopra o sotto
+il `vault_limit` del server.
+
 ## Configurare le impostazioni condivise e le regole delle chiavi API
 
 Le impostazioni condivise contengono ciò che serve al server per funzionare, uguale per ogni

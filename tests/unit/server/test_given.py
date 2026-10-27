@@ -104,6 +104,57 @@ def test_a_text_leaves_as_it_left_on_another_instance_whatever_the_vault_learnt_
     assert "Emily Carter" not in fresh.text  # a new conversation: masked with what the vault knows now
 
 
+def test_an_api_keys_text_whose_value_was_forgotten_since_is_masked_anew_never_sent_as_it_left():
+    """Task 11b (Ruling 11b-R1): an API key's value forgotten by itself since a text left took its entry with it, and
+    the key's vault draws in a new generation. The text, sent again in its conversation, is masked anew, with the new
+    fake and the new entry, never sent as it left, with the old fake, which restores nothing, nor its old entry shown
+    to the conversation again, whether the entry was in memory or not."""
+    from ..test_stored_vault import _Store, _vault
+
+    text, value = "write to laura.bianchi@gmail.com", "laura.bianchi@gmail.com"
+    for in_memory in (True, False):
+        given, store = LocalGiven(), _Store()
+        vault = _vault(store)
+        here, built = _instance(vault, given)
+        first = _mask(here, text=text)
+        _sent(here, first.text)
+        assert _mask(here, text=text).text == first.text  # as it left, and found so for the vault's version
+        old = vault.by_original(value)
+        assert old is not None and old.surrogate in first.text
+        store.forget_entity(old.id)
+        if in_memory:
+            vault.forgotten([old.id], 1)  # this instance forgot it
+        else:  # another instance did, heard here (``spaces._forget``), the value out of this one's memory: the
+            vault._unindex(old)  # vault's version does not move
+            store.generation = 1
+            vault.forget(old.id)
+        built.engine.rules_changed()  # as a forget heard does: its masked texts dropped
+        for one in (here, _instance(vault, given)[0]):  # the instance that found it fit, and another
+            session = one.engine.session("cc:s1")
+            session.entity_ids.discard(old.id)
+            again = _mask(one, text=text)
+            new = vault.by_original(value)
+            assert new is not None and (new.id, new.surrogate) != (old.id, old.surrogate)
+            assert old.surrogate not in again.text and new.surrogate in again.text
+            assert old.id not in session.entity_ids
+            assert _mask(one, text=text).text == again.text  # and as it left from then on
+
+
+def test_a_persons_text_leaves_as_it_left_after_a_forget():
+    """A person's Forget (the dashboard's Vault) is unchanged by Task 11b (review 11b's N2): a text the conversation
+    sent before still leaves as it left, the value not kept again by it."""
+    given, vault = LocalGiven(), Vault(ROOT_KEY)
+    here, _ = _instance(vault, given)
+    text, value = "write to laura.bianchi@gmail.com", "laura.bianchi@gmail.com"
+    first = _mask(here, text=text)
+    _sent(here, first.text)
+    old = vault.by_original(value)
+    assert old is not None
+    vault.forget(old.id)
+    there, _ = _instance(vault, given)
+    assert _mask(there, text=text).text == first.text and vault.by_original(value) is None
+
+
 def test_a_block_that_left_through_one_instance_does_not_stop_the_conversation_on_another():
     given, vault = LocalGiven(), Vault(ROOT_KEY)
     _, here = _instance(vault, given)

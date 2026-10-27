@@ -118,6 +118,16 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Applications',
+					translations: { it: 'Applicazioni', de: 'Anwendungen', fr: 'Applications', es: 'Aplicaciones' },
+					items: [
+						{ slug: 'applications' },
+						{ slug: 'applications/logs' },
+						{ slug: 'applications/rag' },
+						{ slug: 'applications/forget' },
+					],
+				},
+				{
 					label: 'Agents',
 					translations: { it: 'Agenti', de: 'Agenten', fr: 'Agents', es: 'Agentes' },
 					items: [
@@ -139,6 +149,7 @@ export default defineConfig({
 						{ slug: 'reference/cli' },
 						{ slug: 'reference/configuration' },
 						{ slug: 'reference/server-administration' },
+						{ slug: 'reference/apps-api' },
 						{ slug: 'reference/detectors' },
 					],
 				},

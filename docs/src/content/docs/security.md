@@ -73,8 +73,12 @@ schemas and examples too.
 - The dashboard needs a one-time login link from `latet dashboard`, then an `HttpOnly`,
   `SameSite=Strict` session cookie, and every change needs a header other sites cannot send. See
   the [dashboard guide](../dashboard/#privacy-of-the-dashboard-itself).
-- The Claude Code plugin talks to the daemon with a random token, kept in `bridge.token` in the
-  data folder. Without the token, the daemon refuses to mask, restore or check anything.
+- The Claude Code plugin talks to the daemon with a random token that starts with `latet_brg_`,
+  kept in `bridge.token` in the data folder (a token made by an earlier version has no prefix and
+  works as before). To replace it with one that has the prefix, run `latet stop`, delete
+  `bridge.token` in the [data folder](../getting-started/uninstall/), run `latet start` (it makes a
+  new one) and `latet agents apply`, which writes the new token into your agents' settings.
+  Without the token, the daemon refuses to mask, restore or check anything.
 - **Your agents reach the daemon over plain http on `127.0.0.1`, and that is on purpose.** That
   traffic never reaches a network card: no other machine, not even on your Wi-Fi, can see it. A
   program on your computer that could read it (with administrator rights, or as you) could read the

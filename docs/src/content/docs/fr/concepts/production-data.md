@@ -24,7 +24,9 @@ ses valeurs. Trois mécanismes s'en servent :
 - **Tableaux :** psql, CSV, TSV et séparés par `;`, markdown, HTML, et les tableaux de l'instantané
   d'accessibilité d'un navigateur (`columnheader`, `cell`), et les tableaux dessinés avec des caractères de cadre
   (`console.table` de Node, le style unicode de psql).
-- **Paires `key=value` :** deux ou plus sur une ligne, comme dans un journal.
+- **Paires `key=value` :** deux ou plus sur une ligne, comme dans un journal. Une valeur sans guillemets
+  se termine à son premier espace, sauf un numéro de téléphone qui la commence : elle en reprend alors les
+  groupes (`phone=+39 347 123 4567`).
 - **JSON :** un document entier valeur par valeur, chacune avec son chemin (`items[].sku`) ; un
   fragment `"key": value` dans un autre texte, comme une ligne de journal, d'après sa clé.
 

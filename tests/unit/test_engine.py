@@ -235,6 +235,84 @@ def test_a_leak_says_where_its_value_is(masker, vault):
     assert note[known.start : known.end] == "Zephyrine"
 
 
+def test_a_value_two_detectors_find_is_one_leak_named_as_the_masking_names_it(masker):
+    """The tutorial's stopped request: the pair and gitleaks' generic rule find the same 40 characters. It reads as one
+    value, not two, and its type is the one the masking merge gives it (the strongest finding of the group)."""
+    from latet.engine.detectors.base import DetectContext
+    from latet.engine.merge import merge_spans
+    from latet.engine.verifier import Verifier
+
+    key = "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ"
+    for text in (
+        f"make no mistakes. deploy with DEMO_API_KEY={key} and tell me when it's done",  # the middle of a line
+        f"DEMO_API_KEY={key}\nBILLING_URL=https://billing.example.test/api\n",  # the beginning of one
+        f"token={GH_PAT}",
+    ):
+        found = masker.detect(text, DetectContext(SlotKind.USER_TEXT))
+        at = text.index(key if key in text else GH_PAT)
+        assert len({s.etype for s in found if s.start <= at < s.end}) >= 2, text  # two types find it
+        [named] = [g for g in merge_spans(found) if g.start <= at < g.end]
+        result = Verifier(masker).verify([(text, SlotKind.USER_TEXT, False)], "s")
+        [leak] = result.leaks
+        assert (leak.etype, leak.start, leak.end) == (named.etype, named.start, named.end), text
+        assert leak.preview == f"{named.etype}[{named.end - named.start}]" and len(result.blocking) == 1
+
+
+def test_a_specific_rule_names_a_value_over_the_generic_ones_on_a_tie(masker):
+    """A token of a provider written after a name is found by its own rule, by gitleaks' generic one and by the pair:
+    they tie, and the specific rule names it, in the masking and in a stopped request (GITHUB_PAT, not
+    GENERIC_API_KEY). Two generic findings (the pair and the generic rule) tie as they did."""
+    from latet.engine.detectors.base import DetectContext
+    from latet.engine.merge import merge_spans
+    from latet.engine.verifier import Verifier
+
+    for text in (f"the CI uses GITHUB_TOKEN={GH_PAT} for the release", f"GITHUB_TOKEN={GH_PAT}", f'TOKEN = "{GH_PAT}"'):
+        found = masker.detect(text, DetectContext(SlotKind.USER_TEXT))
+        assert {"GITHUB_PAT", "GENERIC_API_KEY", "ASSIGNED_SECRET"} <= {s.etype for s in found}, text
+        assert [g.etype for g in merge_spans(found)] == ["GITHUB_PAT"], text
+        [leak] = Verifier(masker).verify([(text, SlotKind.USER_TEXT, False)], "s").leaks
+        assert (leak.etype, leak.rule, leak.preview) == ("GITHUB_PAT", "gitleaks:github-pat", "GITHUB_PAT[40]"), text
+    key = "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ"  # no provider's rule: the first of the generic ones still names it
+    [named] = merge_spans(masker.detect(f"deploy with DEMO_API_KEY={key}", DetectContext(SlotKind.USER_TEXT)))
+    assert named.etype == "GENERIC_API_KEY"
+
+
+def test_the_leak_of_the_tutorials_stopped_request_is_the_one_the_demo_mock_shows(masker):
+    """``dashboard/src/mock/tutorial.ts`` (``stoppedLeak``) is the engine's answer for the chapter's request: the change
+    of one is the change of the other."""
+    from latet.engine.verifier import Verifier
+
+    key = "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ"
+    text = f"deploy to prod with DEMO_API_KEY={key} and tell me when it's done"
+    [leak] = Verifier(masker).verify([(text, SlotKind.USER_TEXT, False)], "s").leaks
+    assert (leak.etype, leak.eclass.name, leak.rule, leak.kind.value, leak.preview, leak.new) == (
+        "GENERIC_API_KEY", "SECRET", "gitleaks:generic-api-key", "user_text", "GENERIC_API_KEY[40]", True
+    )  # fmt: skip
+
+
+def test_a_key_read_whole_by_one_rule_and_by_its_body_by_another_stays_two_leaks(masker):
+    """Not the same place: the page marks the two as one value and allows both with one choice, so each stays a leak."""
+    import base64
+
+    from latet.engine.verifier import Verifier
+
+    body = base64.encodebytes(bytes((i * 7 + 3) % 256 for i in range(300))).decode()
+    key = f"-----BEGIN PRIVATE KEY-----\n{body}-----END PRIVATE KEY-----"
+    text = f"deploy with this key:\n{key}\nthen tell the team"
+    leaks = Verifier(masker).verify([(text, SlotKind.USER_TEXT, False)], "s").leaks
+    spans = sorted((leak.start, leak.end) for leak in leaks)
+    assert len(spans) == 2 and spans[0][0] < spans[1][0] < spans[1][1] < spans[0][1]
+
+
+def test_values_apart_stay_apart_in_the_leaks(masker):
+    from latet.engine.verifier import Verifier
+
+    key = "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ"
+    text = f"deploy with DEMO_API_KEY={key} and then {GH_PAT}, and write to ops.lead@acme-intra.it"
+    leaks = Verifier(masker).verify([(text, SlotKind.USER_TEXT, False)], "s").leaks
+    assert [text[leak.start : leak.end] for leak in leaks] == [key, GH_PAT, "ops.lead@acme-intra.it"]
+
+
 def test_an_email_domain_is_masked_everywhere_in_the_same_text(vault):
     from latet.config import Config
     from latet.engine.build import build
@@ -659,7 +737,7 @@ def test_a_value_of_a_type_let_through_found_in_escapes_never_frees_another(
     "text",
     [
         "path = r'D:" + BS + "mail" + BS + "100acme.it" + BS + "inbox'  # " + BS + "u00e8",
-        "echo 'Q2FuIGZvbyBiYXI%3D' | base64 -d  # token=Q2FuIGZvbyBiYXI%3D",
+        "echo 'Q2FuIGZvbyBiYXI%3D' | base64 -d  # data=Q2FuIGZvbyBiYXI%3D",  # (a `token=` pair is a secret by its name)
         "https://registry.npmjs.org/%40babel%2Fcore/-/core-7.24.0.tgz",
         "SELECT * FROM t WHERE name LIKE '%40%' OR code LIKE '%2F%';",
         "https://latet.acme.lan/u/Em1ly_Cart3r-Rout3K3y_7q9%41",

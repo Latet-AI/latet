@@ -6,7 +6,12 @@ with the key's version), the summaries too (a project's folder name is in them),
 exchange's parts for that exchange, each as itself, a block as a block, an image as an image, a review's record as
 one. Beside them, in clear, only what the history's queries need: times, agents, flags, routes and counts, and the
 identity's keyed hashes of the conversations' keys and of the projects' ids (a project's id is an unkeyed hash of its
-folder, which a list of usual folders would give back); a filter looks for the keyed hash of what it is given.
+folder, which a list of usual folders would give back); a filter looks for the keyed hash of what it is given. And the
+keyed hashes of the vault's entries each row names (``entity_keys``: a block's replacements, an exchange's answer and
+sources, a reviewer's record's findings), so that the values of an API key forgotten by themselves take the rows that
+name them with them, found through an index (``forget_entities``: Task 11b, Ruling 11b-R1). A person's history, whose
+values are never forgotten so, keeps none (an empty list): nothing that tells a reader of the database which of a
+person's rows name the same entry (the final review's M6, Ruling F1).
 
 A history has a limit in bytes (``ServerSettings.history_limit_mb``, a gibibyte unless set), counted from what it keeps
 (``history_bytes``: each row's sealed values and 256 bytes for the rest of it, added and taken off in the transaction
@@ -37,6 +42,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Final, LiteralString
 
 import zstandard
+from cryptography.exceptions import InvalidTag
 
 from latet.engine.modules import module_of
 from latet.logline import Paced
@@ -54,6 +60,7 @@ SAY_EVERY = 60.0  # seconds between two lines of the log about a history that ma
 _ROOM = 0.9  # what a history that makes room keeps at most, of its limit: room is not made again at every exchange
 _LEVEL = 6  # zstandard's level, as on a computer
 SUMMARIES_AT_ONCE = 1_000  # summaries read and opened at a time by ``summaries_parts``: what one part holds
+ROWS_AT_ONCE = 500  # rows kept before their entries were given theirs at a time (``index_entities``): blocks are large
 # What a row keeps, in bytes, as the limit counts it: its sealed values, and 256 bytes for its ids, hashes, times and
 # index entries. The same expression when a row is kept and when it goes, so that the count follows the rows.
 _EXCHANGE_BYTES: Final = (
@@ -66,8 +73,8 @@ _REVIEW_BYTES: Final = "octet_length(summary) + 256"
 # The statements that keep a row, and answer its bytes (none when it was there already). Each, as `_CUT` below, is
 # built from this module's constants alone.
 _BLOCK: Final = (
-    "INSERT INTO blocks (identity_id, id, kind, data, last_seen) VALUES (%s, %s, %s, %s, %s)"  # noqa: S608
-    " ON CONFLICT DO NOTHING RETURNING " + _DATA_BYTES
+    "INSERT INTO blocks (identity_id, id, kind, data, last_seen, entity_keys)"  # noqa: S608
+    " VALUES (%s, %s, %s, %s, %s, %s::bytea[]) ON CONFLICT DO NOTHING RETURNING " + _DATA_BYTES
 )
 _IMAGE: Final = (
     "INSERT INTO images (identity_id, id, data, last_seen) VALUES (%s, %s, %s, %s)"  # noqa: S608
@@ -75,13 +82,13 @@ _IMAGE: Final = (
 )
 _EXCHANGE: Final = (
     "INSERT INTO exchanges (identity_id, id, ts, recorded, session, agent, flags, upstream, new_masked,"  # noqa: S608
-    " project, summary, refs, request_headers, response, leaks, body_bytes, images)"
-    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING"
+    " project, summary, refs, request_headers, response, leaks, body_bytes, images, entity_keys)"
+    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bytea[]) ON CONFLICT DO NOTHING"
     " RETURNING " + _EXCHANGE_BYTES
 )
 _REVIEW: Final = (
-    "INSERT INTO review_records (identity_id, id, ts, session, project, block, kind, inline, summary)"  # noqa: S608
-    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING " + _REVIEW_BYTES
+    "INSERT INTO review_records (identity_id, id, ts, session, project, block, kind, inline, summary,"  # noqa: S608
+    " entity_keys) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bytea[]) RETURNING " + _REVIEW_BYTES
 )
 # The bytes the history keeps, changed last in a transaction that keeps or drops rows: its row stays locked until that
 # transaction ends, and the transaction waits for nothing after it.
@@ -112,6 +119,31 @@ _OLDEST: Final[tuple[LiteralString, ...]] = (
     "ts <= %(cut)s AND ts < %(newest)s",
 )
 _EVERYTHING: Final[tuple[LiteralString, ...]] = ("TRUE", "TRUE", "TRUE", "TRUE")
+# What names an entry forgotten (``forget_entities``): an image names none (its text is a block of its own).
+_NAMING: Final[tuple[LiteralString, ...]] = (
+    "entity_keys && %(keys)s::bytea[]",
+    "entity_keys && %(keys)s::bytea[]",
+    "FALSE",
+    "entity_keys && %(keys)s::bytea[]",
+)
+# The rows kept before their entries were kept beside them (migration 010: NULL), each table's sealed parts that name
+# entries with each row's id, read in the order of their ids from where the part before ended (``index_entities``); and
+# a part's rows given theirs in one statement: each row's keyed hashes joined in one string (32 bytes each, a keyed
+# hash's length), cut back into an array there. The condition keeps a row given its own meanwhile as it is.
+_UNNAMED: Final[tuple[tuple[LiteralString, LiteralString, tuple[str, ...]], ...]] = (
+    ("blocks", "data", ("block:{id}",)),
+    ("exchanges", "refs, response", ("{id}:refs", "{id}:response")),
+    ("review_records", "summary", ("{id}:review",)),
+)
+_UNNAMED_ROWS: Final = (
+    "SELECT id, {columns} FROM {table} WHERE identity_id = %s AND entity_keys IS NULL AND id > %s ORDER BY id LIMIT %s"
+)
+_NAMED: Final = (
+    "UPDATE {table} AS r SET entity_keys = ARRAY("
+    "SELECT substring(given.joined FROM 1 + 32 * n FOR 32) FROM generate_series(0, length(given.joined) / 32 - 1) AS n"
+    " ORDER BY n) FROM unnest(%s::text[], %s::bytea[]) AS given (id, joined)"
+    " WHERE r.identity_id = %s AND r.id = given.id AND r.entity_keys IS NULL"
+)
 _DROP: Final = (
     "WITH gone AS (DELETE FROM {table} WHERE identity_id = %(identity)s AND {when} RETURNING {size} AS size)"
     " SELECT COUNT(*), COALESCE(SUM(size), 0) FROM gone"
@@ -151,6 +183,22 @@ def _size(row: Any) -> int:
     return 0 if row is None else int(row[0])
 
 
+def _named(value: Any, out: set[str] | None = None) -> set[str]:
+    """The vault's entries a part of the history names: each ``entity`` of its spans, however deep (a block's
+    replacements, an exchange's references and answer, a reviewer's record's findings)."""
+    out = set() if out is None else out
+    if isinstance(value, dict):
+        entity = value.get("entity")
+        if isinstance(entity, str) and entity:
+            out.add(entity)
+        for item in value.values():
+            _named(item, out)
+    elif isinstance(value, list):
+        for item in value:
+            _named(item, out)
+    return out
+
+
 class PgHistoryStore:
     def __init__(
         self,
@@ -161,8 +209,12 @@ class PgHistoryStore:
         *,
         limit: int = HISTORY_LIMIT,
         clock: Callable[[], float] = time.time,
+        forgets_values: bool = True,
     ) -> None:
+        """``forgets_values``: whether its identity's values are forgotten by themselves (an API key's), so that each
+        row is kept with the keyed hashes of the entries it names; a person's are kept with none."""
         self.db, self.identity = db, identity_id
+        self.forgets_values = forgets_values
         self._sealer = Sealer(root_key, b"exchanges")
         self._ids = derived(root_key, DERIVE, b"exchange-ids")  # what names blocks and images
         self.retention_days = retention_days
@@ -191,6 +243,15 @@ class PgHistoryStore:
 
     def block_id(self, masked: str) -> str:
         return hmac.new(self._ids, masked.encode(), hashlib.sha256).hexdigest()[:32]
+
+    def _entity_keys(self, entity_ids: Iterable[str]) -> list[bytes]:
+        """The keyed hashes of the vault's entries a row names, as ``entity_keys`` keeps them (Ruling 11b-R1): an
+        entry's id is a keyed hash of its value already, kept here under a key of the history's own."""
+        return sorted(self._sealer.keyed(f"entity\x00{entity_id}") for entity_id in set(entity_ids))
+
+    def _kept_keys(self, entity_ids: Iterable[str]) -> list[bytes]:
+        """What a new row is kept with of the entries it names (``_entity_keys``): none in a person's history."""
+        return self._entity_keys(entity_ids) if self.forgets_values else []
 
     def image_id(self, data: str) -> str:
         return "im_" + hmac.new(self._ids, b"image\x00" + data.encode(), hashlib.sha256).hexdigest()[:32]
@@ -247,7 +308,8 @@ class PgHistoryStore:
             for b in rec.blocks:
                 if b.masked is not None:
                     sealed = self._seal([b.masked, b.replacements], f"block:{b.id}")
-                    added += _size(conn.execute(_BLOCK, (self.identity, b.id, b.kind, sealed, now)).fetchone())
+                    named = self._kept_keys(_named(b.replacements))
+                    added += _size(conn.execute(_BLOCK, (self.identity, b.id, b.kind, sealed, now, named)).fetchone())
             for image in rec.images:
                 if image.id is None:
                     continue
@@ -277,6 +339,7 @@ class PgHistoryStore:
                     self._seal(rec.response, f"{exchange_id}:response") if rec.response is not None else None,
                     self._seal(rec.leaks, f"{exchange_id}:leaks"), rec.body_bytes,
                     self._seal(images, f"{exchange_id}:images") if images else None,
+                    self._kept_keys(_named(refs) | _named(rec.response)),
                 ),
             ).fetchone()  # fmt: skip
             kept = self._counted(conn, added + _size(row))
@@ -294,6 +357,7 @@ class PgHistoryStore:
                     self.identity, review_id, summary["ts"], self._keyed("session", summary["session"]),
                     self._keyed("project", project) if project is not None else None, summary["block"],
                     summary["kind"], bool(summary.get("inline")), self._seal(summary, f"{review_id}:review"),
+                    self._kept_keys(_named(summary.get("findings"))),
                 ),
             ).fetchone()  # fmt: skip
             self._counted(conn, _size(row))
@@ -411,6 +475,58 @@ class PgHistoryStore:
             _, freed = self._drop(conn, _EVERYTHING, {})
             if freed:
                 self._counted(conn, -freed)
+
+    # --- the entries of values forgotten (Task 11b) ---------------------------------------------------
+
+    def forget_entities(self, conn: Connection[Any], entity_ids: Iterable[str]) -> int:
+        """The rows that name one of the vault's entries ``entity_ids`` dropped, in ``conn``'s transaction: those of
+        an API key's values forgotten by themselves (``PgVaultStore.forget_values``' ``gone``, Ruling 11b-R1), which
+        keep their old fakes with their ids. Each found by the keyed hashes of the entries it names, through their
+        index: a block whose replacements name one, an exchange whose answer or sources do (its blocks naming none
+        stay), a reviewer's record whose findings do; an image names none. The count of bytes moved by what went, last.
+        How many exchanges went. The rows kept before they were kept with their entries are given theirs first
+        (``index_entities``, outside the transaction)."""
+        keys = self._entity_keys(entity_ids)
+        if not keys:
+            return 0
+        went, freed = self._drop(conn, _NAMING, {"keys": keys})
+        if freed:
+            self._counted(conn, -freed)
+        return went
+
+    def index_entities(self) -> int:
+        """The rows kept before they were kept with the keyed hashes of the entries they name (migration 010, or an
+        older instance's meanwhile) given theirs, each opened once, ``ROWS_AT_ONCE`` at a time, each part in a
+        transaction of its own: what a forget runs before its own transaction, so that it finds every row that names a
+        value forgotten (Ruling 11b-R1). One that does not open (another root key, written by hand) names none, and is
+        never opened again. How many rows were given theirs; none, in a statement a table, once every row has its own.
+        Blocks are the costly part: each is opened whole, its masked text with it."""
+        done = 0
+        for table, columns, parts in _UNNAMED:
+            query = _UNNAMED_ROWS.format(table=table, columns=columns)
+            after = ""
+            while True:
+                with self.db.transaction() as conn:
+                    rows = conn.execute(query, (self.identity, after, ROWS_AT_ONCE)).fetchall()
+                    ids, joined = [], []
+                    for row in rows:
+                        named: set[str] = set()
+                        for sealed, aad in zip(row[1:], parts, strict=True):
+                            opened = None if sealed is None else bytes(sealed)
+                            try:
+                                _named(self._open(opened, aad.format(id=row[0])), named)
+                            except (InvalidTag, ValueError, zstandard.ZstdError):
+                                named = set()  # does not open: names none
+                                break
+                        ids.append(str(row[0]))
+                        joined.append(b"".join(self._entity_keys(named)))
+                    if ids:
+                        conn.execute(_NAMED.format(table=table), (ids, joined, self.identity))
+                done += len(rows)
+                if len(rows) < ROWS_AT_ONCE:
+                    break
+                after = str(rows[-1][0])
+        return done
 
     # --- reads ------------------------------------------------------------------------------------
 

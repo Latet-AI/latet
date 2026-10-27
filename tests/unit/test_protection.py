@@ -724,10 +724,15 @@ def test_a_term_or_a_field_rule_of_a_type_let_through_leaves_what_it_finds_in_cl
     assert "Fonderia Brambilla" not in _sent(client, contract)[0]
     retyped = Config(terms=[TermConfig(value="Fonderia Brambilla", type="URL")], **URL_ALLOWED)
     assert _sent(retyped, contract) == (contract, [])
-    secret = '{"user": "emily", "password": "Wq7-hunter2-Zx9!"}'
+    secret = '{"user": "emily", "pass": "Wq7-hunter2-Zx9!"}'
     assert "hunter2" not in _sent(Config(**URL_ALLOWED), secret, SlotKind.TOOL_RESULT)[0]
-    rule = Config(fields=[FieldRule(name="password", type="URL")], **URL_ALLOWED)
+    rule = Config(fields=[FieldRule(name="pass", type="URL")], **URL_ALLOWED)
     assert _sent(rule, secret, SlotKind.TOOL_RESULT) == (secret, [])
+    # a quoted literal after a strong name (password, secret, api_key...) is found by the assignment detector as well,
+    # whatever the field rule says: the rule leaves in clear what it finds, not what a masked type finds
+    strong = '{"user": "emily", "password": "Wq7-hunter2-Zx9!"}'
+    rule = Config(fields=[FieldRule(name="password", type="URL")], **URL_ALLOWED)
+    assert "hunter2" not in _sent(rule, strong, SlotKind.TOOL_RESULT)[0]
 
 
 def test_an_email_term_of_a_type_let_through_still_masks_its_domain_and_removing_it_is_said():

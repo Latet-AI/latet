@@ -5,6 +5,7 @@ what a caller writes in a name, an email or a label is kept without control char
 import asyncio
 import contextlib
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -67,6 +68,30 @@ def test_a_code_gives_a_person_one_token_once(identities):
     assert IDENTITY_ID.fullmatch(emily.id) and TOKEN_ID.fullmatch(token.id)  # the shapes the server's calls accept
 
 
+def test_a_new_code_starts_with_latet_code_and_32_url_safe_characters_more(identities):
+    emily, first = identities.add_person("Emily Carter")
+    codes = [first, *(identities.code(emily.id) for _ in range(20))]
+    assert all(re.fullmatch(r"latet_code_[A-Za-z0-9_-]{32}", code) for code in codes)
+    assert len(set(codes)) == len(codes)
+    assert identities.enrol(codes[-1], "laptop") is not None
+
+
+def test_a_code_made_before_the_prefix_still_enrols_a_computer_until_it_ends(identities, clock, monkeypatch):
+    """What an upgrade leaves in the database: a code without the prefix, 32 characters, good for 24 hours. The server
+    keeps the hash of the text it was given and asks for no shape, so no one is locked out."""
+    old = "Zq7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc"
+    monkeypatch.setattr(identities_module, "new_code", lambda: old)
+    emily, code = identities.add_person("Emily Carter")
+    assert code == old and not code.startswith("latet_code_")
+    monkeypatch.undo()
+    assert identities.enrol(old, "laptop") is not None
+    assert identities.enrol(old, "again") is None  # spent, as ever
+    monkeypatch.setattr(identities_module, "new_code", lambda: old[::-1])
+    late = identities.code(emily.id)
+    clock.now += CODE_TTL + 1
+    assert identities.enrol(late, "desktop") is None  # and an old one ends after its day
+
+
 def test_a_computer_key_is_issued_with_its_token_and_holds_for_that_token_alone(identities, db):
     emily, code = identities.add_person("Emily Carter")
     _, laptop, laptop_key = identities.enrol(code, "laptop")
@@ -111,7 +136,7 @@ def test_an_api_key_is_an_identity_of_its_own_and_rotating_it_gives_a_new_secret
     key, secret = identities.add_key("Billing CI")
     assert key.kind == "key" and secret.startswith("latet_key_") and identities.by_secret(secret).id == key.id
     assert identities.by_route(route_key(secret)).id == key.id and identities.code(key.id) is None  # no computer
-    new = identities.rotate_key(key.id)
+    new = identities.rotate_token(key.id)[1]
     assert identities.by_secret(secret) is None and identities.by_route(route_key(secret)) is None
     assert identities.by_secret(new).id == key.id and [t.label for t in identities.tokens(key.id)] == ["key"]
     assert [i.kind for i in identities.all()] == ["key"] and identities.all("person") == []
@@ -121,7 +146,7 @@ def test_rotating_what_is_no_api_key_says_so_without_quoting_what_was_asked(iden
     emily, _ = identities.add_person("Emily Carter")
     for asked in (emily.id, "u_nobody0000", f"{ESC}[31mu_nobody"):  # a person, no one, and a name with an escape
         with pytest.raises(LookupError, match="no such API key") as raised:
-            identities.rotate_key(asked)
+            identities.rotate_token(asked)[1]
         assert ESC not in str(raised.value) and asked not in str(raised.value)
 
 
@@ -180,7 +205,7 @@ async def test_every_change_to_an_identity_is_told_to_every_instance(identities,
     identities.update(emily.id, name="Emily J. Carter")
     identities.disable(emily.id)
     identities.enable(emily.id)
-    identities.rotate_key(key.id)
+    identities.rotate_token(key.id)[1]
     identities.revoke_secret(token)
     identities.remove(key.id)
     for _ in range(100):
@@ -308,7 +333,7 @@ LOOKUPS = {
 CHANGES = {
     "disabled": lambda ids, key: ids.disable(key.id),
     "revoked": lambda ids, key: ids.revoke(key.id),
-    "rotated": lambda ids, key: ids.rotate_key(key.id),
+    "rotated": lambda ids, key: ids.rotate_token(key.id)[1],
     "removed": lambda ids, key: ids.remove(key.id),
 }
 
@@ -617,7 +642,7 @@ def test_a_change_that_is_made_is_answered_even_when_it_cannot_be_told(identitie
         key, secret = identities.add_key("Billing CI")
         assert identities.update(emily.id, name="Emily J. Carter")[0].name == "Emily J. Carter"
         assert identities.disable(emily.id) and identities.enable(emily.id)
-        new = identities.rotate_key(key.id)  # the old secret stopped; the new one is not lost with the message
+        new = identities.rotate_token(key.id)[1]  # the old secret stopped; the new one is not lost with the message
         assert identities.by_secret(secret) is None and identities.by_secret(new).id == key.id
         assert identities.revoke_secret(token) and identities.revoke(key.id) == 1
         assert identities.remove(key.id)
@@ -646,7 +671,7 @@ def test_a_code_or_a_rotation_asked_after_a_removal_elsewhere_finds_no_one(db, b
     assert there.remove(emily.id) and there.remove(key.id)  # removed on another instance: not heard here yet
     assert here.code(emily.id) is None  # no code made for no one, and no driver's error
     with pytest.raises(NoSuchIdentity, match="no such API key"):
-        here.rotate_key(key.id)
+        here.rotate_token(key.id)[1]
 
 
 def test_changes_made_in_a_transaction_are_told_once_it_commits_and_never_when_it_fails(identities, bus, monkeypatch):

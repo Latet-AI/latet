@@ -24,7 +24,9 @@ suoi valori. Tre cose lo sfruttano:
 - **Tabelle:** psql, CSV, TSV e separate da `;`, markdown, HTML, e le tabelle dello snapshot di
   accessibilità di un browser (`columnheader`, `cell`), e le tabelle disegnate con caratteri di
   riquadro (`console.table` di Node, lo stile unicode di psql).
-- **Coppie `key=value`:** due o più su una riga, come in un log.
+- **Coppie `key=value`:** due o più su una riga, come in un log. Un valore senza virgolette termina al suo
+  primo spazio, tranne un numero di telefono che lo inizia: ne comprende allora i gruppi
+  (`phone=+39 347 123 4567`).
 - **JSON:** un documento intero valore per valore, ognuno con il suo percorso (`items[].sku`); un
   frammento `"key": value` dentro un altro testo, come una riga di log, in base alla sua chiave.
 
