@@ -37,7 +37,10 @@ Ce qu'elle apporte de plus qu'une règle de caviardage :
 
 Deux pages suivent les deux usages pour lesquels elle a été conçue : les [journaux](logs/) et le
 [RAG](rag/). La [référence HTTP](../reference/apps-api/) donne le contrat pour les programmes dans
-n'importe quel langage ; les programmes Python peuvent utiliser le paquet `latet-client`.
+n'importe quel langage, et la [description OpenAPI](../../apps-api.openapi.json) de l'API permet d'en
+générer un client. Les programmes Python peuvent utiliser le paquet
+[`latet-client`](https://pypi.org/project/latet-client/), qui fonctionne avec LangChain, et les
+workflows n8n les [nœuds Latet pour n8n](n8n/).
 
 ## Un premier appel
 

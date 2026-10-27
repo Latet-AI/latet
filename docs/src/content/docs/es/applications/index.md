@@ -35,8 +35,11 @@ Lo que aporta frente a una regla de ocultación:
   administración del servidor.
 
 Dos páginas recorren los dos usos para los que se hizo: los [registros](logs/) y el [RAG](rag/). La
-[referencia HTTP](../reference/apps-api/) da el contrato para programas en cualquier lenguaje; los
-programas en Python pueden usar el paquete `latet-client`.
+[referencia HTTP](../reference/apps-api/) da el contrato para programas en cualquier lenguaje, y la
+[descripción OpenAPI](../../apps-api.openapi.json) de la API permite generar un cliente a partir de
+ella. Los programas en Python pueden usar el paquete
+[`latet-client`](https://pypi.org/project/latet-client/), que funciona con LangChain, y los flujos de
+n8n los [nodos de Latet para n8n](n8n/).
 
 ## Una primera llamada
 

@@ -35,8 +35,10 @@ Che cosa dà in più di una regola di oscuramento:
   amministrativo del server.
 
 Due pagine seguono i due usi per cui è nata: i [log](logs/) e il [RAG](rag/). Il
-[riferimento HTTP](../reference/apps-api/) dà il contratto per i programmi in qualunque linguaggio; i
-programmi Python possono usare il pacchetto `latet-client`.
+[riferimento HTTP](../reference/apps-api/) dà il contratto per i programmi in qualunque linguaggio, e
+la [descrizione OpenAPI](../../apps-api.openapi.json) dell'API permette di generarne un client. I
+programmi Python possono usare il pacchetto [`latet-client`](https://pypi.org/project/latet-client/),
+che funziona con LangChain, e i workflow di n8n i [nodi Latet per n8n](n8n/).
 
 ## Una prima chiamata
 

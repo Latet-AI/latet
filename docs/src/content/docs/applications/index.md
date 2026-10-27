@@ -31,8 +31,10 @@ What it gives that a redaction rule does not:
   only, and every unmask through the applications API is written in the server's administration log.
 
 Two pages walk through the two uses it was made for: [logs](logs/) and [RAG](rag/). The
-[HTTP reference](../reference/apps-api/) gives the contract for programs in any language; Python
-programs can use the `latet-client` package.
+[HTTP reference](../reference/apps-api/) gives the contract for programs in any language, and the
+API's [OpenAPI description](../apps-api.openapi.json) lets a client be generated from it. Python
+programs can use the [`latet-client`](https://pypi.org/project/latet-client/) package, which works
+with LangChain, and n8n workflows the [Latet nodes for n8n](n8n/).
 
 ## A first call
 
