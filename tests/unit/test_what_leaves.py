@@ -383,7 +383,8 @@ def test_the_two_checks_read_the_models_own_text_each_its_way():
     vault.intern("GITHUB_PAT", EntityClass.SECRET, SECRET)
     text = [(f"TOKEN = {SECRET}", SlotKind.TOOL_INPUT, True)]
     assert not built.verifier.verify(text, "s-1", record=False, rewritten=True).leaks
-    assert "GITHUB_PAT[40]" in [leak.preview for leak in built.verifier.verify(text, "s-2").blocking]
+    # one value, found three ways (the vault's, the pair's, gitleaks' rules): one leak, named by the specific rule
+    assert [leak.preview for leak in built.verifier.verify(text, "s-2").blocking] == ["GITHUB_PAT[40]"]
     built.verifier.wrote("cc:s-3", [f"TOKEN = {SECRET}"])
     mine = partial(built.verifier.written, "cc:s-3")
     assert not built.verifier.verify(text, "s-3", written=mine).leaks

@@ -94,6 +94,20 @@ def test_a_script_gives_the_code_on_standard_input(latet_server, quiet):
     assert _token() in latet_server.tokens and latet_server.code is None
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "latet_code_" + "Q7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc1"[:32],  # as a server makes one now
+        "Zq7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc",  # one made before the prefix, good for its 24 hours
+    ],
+)
+def test_a_code_with_the_prefix_and_one_made_before_it_both_connect(latet_server, quiet, code):
+    latet_server.code = code
+    done = _connect(latet_server)
+    assert done.exit_code == 0, done.output
+    assert _token() in latet_server.tokens and latet_server.code is None and code not in done.output
+
+
 def test_a_code_written_on_the_command_line_is_still_taken_and_its_help_says_who_can_read_it(latet_server, quiet):
     given = ("--fingerprint", latet_server.fingerprint, "--code", latet_server.code, "--yes")
     done = run_cli("connect", latet_server.url, *given)

@@ -541,6 +541,34 @@ redis.call('EXPIRE', index, life)
 redis.call('EXPIRE', counts, life)
 return {written, fields}
 """
+# The fields of entries forgotten (``e:<id>``) taken out of some of an identity's conversations, each one's count and
+# the total moved by as many (``forget_shown``: Task 11b, Ruling 11b-R1): the identity's count first, then the
+# conversations' hashes (KEYS), their names, then the fields (ARGV), 256 fields to a call. It answers how many fields
+# went. Valkey runs one script at a time for every identity and every instance: a call takes a part of the
+# conversations (``SHOWN_AT_ONCE``), never all of them (review 11b's N1).
+_FORGET_SHOWN = """
+local counts, held = KEYS[1], #KEYS - 1
+local gone = 0
+for i = 1, held do
+  local name, removed, done = ARGV[i], 0, held
+  while done < #ARGV do
+    local last = math.min(#ARGV, done + 256)
+    removed = removed + redis.call('HDEL', KEYS[i + 1], unpack(ARGV, done + 1, last))
+    done = last
+  end
+  if removed > 0 and redis.call('HEXISTS', counts, name) == 1 then
+    redis.call('HINCRBY', counts, name, -removed)
+    redis.call('HINCRBY', counts, '#total', -removed)
+  end
+  gone = gone + removed
+end
+return gone
+"""
+# A call of ``_FORGET_SHOWN`` takes this many conversations at most, and its fields deleted (a field asked of a
+# conversation that lacks it costs as much) this many at most: a thousand entries forgotten, a hundred conversations,
+# a few milliseconds of Valkey's (measured: 10,000 conversations and 1,000 entries took 2.2 s in one call).
+SHOWN_AT_ONCE = 100
+SHOWN_FIELDS_AT_ONCE = 100_000
 # A text as it left kept (or, given an empty record, forgotten), in one step with the identity's count of what its texts
 # take (``givens-size:``: what Valkey takes for each record, ``weighed``, and their total under ``#total``). It drops
 # the texts last kept or read more than a week ago and what was kept for this text before, keeps it, and drops the
@@ -633,6 +661,29 @@ class _Note:
         """Valkey lost what this says is there: written again at the next ``update`` (the version and the project and
         folder known stay: what an older one is judged by)."""
         self.key, self.where = False, None
+
+
+def forget_shown(bus: Bus, identity_id: str, entity_ids: Iterable[str]) -> int:
+    """The entries of values forgotten by themselves (an API key's, Task 11b) out of every conversation of the identity
+    in Valkey: each conversation's ``e:<id>`` field (in clear, a keyed hash of the value: Ruling 11b-R1), its count
+    with it. The conversations are read from the identity's index, then taken a part at a time, each part in a call of
+    its own (``SHOWN_AT_ONCE`` conversations, ``SHOWN_FIELDS_AT_ONCE`` fields asked: review 11b's N1), so that Valkey,
+    which serves every identity, is never held for long. Each instance's own memory of its conversations drops them as
+    it hears of the forget (``ValkeyConversations.forgotten``). How many fields went. No root key is needed (the
+    administration's forget has none open)."""
+    fields = [f"e:{entity_id}" for entity_id in dict.fromkeys(entity_ids)]
+    if not fields:
+        return 0
+    names = [name.decode(errors="replace") for name in bus.client.zrange(bus.key(f"convs:{identity_id}"), 0, -1)]
+    script = bus.client.register_script(_FORGET_SHOWN)
+    counts = bus.key(f"convs-size:{identity_id}")
+    at_once = max(1, min(SHOWN_AT_ONCE, SHOWN_FIELDS_AT_ONCE // len(fields)))
+    gone = 0
+    for start in range(0, len(names), at_once):
+        part = names[start : start + at_once]
+        keys = [counts, *(bus.key(f"conv:{identity_id}:{name}") for name in part)]
+        gone += int(script(keys=keys, args=[*part, *fields]))
+    return gone
 
 
 def _kept_weight(kept: _Kept) -> int:
@@ -918,6 +969,19 @@ class ValkeyConversations:
                 note.heard = max(note.heard, version)
             if kept is not None and (note is None or note.version < version):
                 kept.session.reported = None
+
+    def forgotten(self, entity_ids: Iterable[str]) -> None:
+        """Entries forgotten with their values by themselves (an API key's, Task 11b), which Valkey's conversations no
+        longer name (``forget_shown``): out of every conversation this instance holds, and out of its marks, so that no
+        update writes them back, nor a read that finds them gone takes the conversation for one Valkey lost. No round
+        trip: for the event loop too."""
+        gone = set(entity_ids)
+        if not gone:
+            return
+        with self._lock:
+            for kept in self._here.values():
+                kept.session.entity_ids.difference_update(gone)
+                kept.entities.difference_update(gone)
 
     def sessions(self) -> list[Session]:
         """The conversations of the identity, the most recently used first, each with the entities it was shown (what

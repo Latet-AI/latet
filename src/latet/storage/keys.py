@@ -45,6 +45,16 @@ def _to_keyring(key: bytes) -> bool:
     return True
 
 
+BRIDGE_PREFIX = "latet_brg_"  # the prefix by which Latet masks the token wherever it is written
+
+
+def new_bridge_token() -> str:
+    """A new bridge token: ``latet_brg_`` and 43 random URL-safe characters. One made before the prefix (43 characters
+    alone, in ``bridge.token`` or in an agent's settings) is kept as it is until it is replaced: nothing here asks for
+    a shape."""
+    return BRIDGE_PREFIX + secrets.token_urlsafe(32)
+
+
 def load_bridge_token(data_dir: Path) -> str:
     """The token the Claude Code plugin presents to the local bridge (stable across restarts)."""
     env = os.environ.get("LATET_BRIDGE_TOKEN")
@@ -54,7 +64,7 @@ def load_bridge_token(data_dir: Path) -> str:
     if path.exists():
         return path.read_text().strip()
     make_private_folder(data_dir)
-    token = secrets.token_urlsafe(32)
+    token = new_bridge_token()
     path.write_text(token)
     with contextlib.suppress(OSError):
         os.chmod(path, 0o600)

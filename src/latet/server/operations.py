@@ -38,11 +38,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, unquote_plus, urlsplit
 
+from latet.engine.detectors.latet import holds_a_secret_start
 from latet.fileio import FileReadError, read_regular_bytes
 from latet.logline import Paced, described
 from latet.server.metrics import code_label
-from latet.server.settings import SERVER_API
-from latet.server.tokens import ADMIN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX, TOKEN_PREFIX
+from latet.server.settings import APPS_API, SERVER_API
+from latet.server.tokens import bearer_token
 
 if TYPE_CHECKING:
     from starlette.applications import Starlette
@@ -82,6 +83,8 @@ def request_kind(path: str) -> str:
         return "computer" if rest == "/_latet" or rest.startswith("/_latet/") else "agent"
     if path in ("/_latet/health", "/_latet/ready"):
         return "health"
+    if path == APPS_API or path.startswith(f"{APPS_API}/"):
+        return "apps"
     if path == ADMIN or path.startswith(f"{ADMIN}/"):
         return "admin"
     if path.startswith(f"{SERVER_API}/"):
@@ -191,10 +194,11 @@ def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
             f"metrics_token_file names a file whose token is not {TOKEN_SHORTEST} to {TOKEN_LONGEST} characters long "
             "(make one with `openssl rand -hex 32`)"
         )
-    if any(prefix in text for prefix in (ADMIN_PREFIX, TOKEN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX)):
+    if holds_a_secret_start(text):
         raise ValueError(
-            "metrics_token_file names a file that holds a token, an API key or an administration token of the "
-            "server's: a scrape over http would carry it in clear (make a token of its own with `openssl rand -hex 32`)"
+            "metrics_token_file names a file that holds a token, an API key, an administration or SCIM token or a "
+            "one-time code of the server's: a scrape over http would carry it in clear (make a token of its own with "
+            "`openssl rand -hex 32`)"
         )
     if server.master.is_version(text):
         raise ValueError(
@@ -217,19 +221,6 @@ def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
         )
     key = secrets.token_bytes(32)
     return key, hmac.digest(key, text.encode("ascii"), hashlib.sha256)
-
-
-def _bearer(scope: Mapping[str, Any]) -> bytes | None:
-    """The token of a scrape's one ``Authorization`` header (``Bearer`` in any case, one space, the token), as the bytes
-    it came in: None when there is none, there are two, or it is written otherwise. Nothing of it is decoded, logged or
-    kept."""
-    found = [value for name, value in scope.get("headers") or [] if name == b"authorization"]
-    if len(found) != 1:
-        return None
-    scheme, space, token = found[0].partition(b" ")
-    if not space or scheme.lower() != b"bearer" or not token:
-        return None
-    return token
 
 
 class _Misses:
@@ -399,7 +390,7 @@ class Operations:
                 )
             await _error(send, 429, "too many refused scrapes from this address: wait a minute", self._retry_after())
             return
-        token = _bearer(scope)
+        token = bearer_token(scope)  # read as the applications API reads its token; nothing of it decoded or kept
         if token is None or not hmac.compare_digest(hmac.digest(self._key, token, hashlib.sha256), self._hashed):
             self._misses.miss(bucket)
             if count := self._refused.due():

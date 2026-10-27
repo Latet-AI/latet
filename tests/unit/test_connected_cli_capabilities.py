@@ -154,3 +154,48 @@ def test_key_file_validation_never_echoes_bad_content(computer, quiet, tmp_path,
     assert done.exit_code != 0, done.output
     _private_output(done, KEY, "latet_pat_" + "t" * 43)
     assert "OPENAI_BASE_URL" not in done.stdout
+
+
+def _key_env(server, tmp_path, monkeypatch):
+    """`latet env --key-file` for a key's token, the server named and its certificate pinned."""
+    key_file = tmp_path / "synthetic-key.fixture"
+    key_file.write_text(KEY, encoding="utf-8")
+    monkeypatch.setenv("LATET_SERVER_FINGERPRINT", server.fingerprint)
+    return run_cli("env", "--key-file", str(key_file), "--server", server.url, "--shell", "bash")
+
+
+def test_key_file_of_a_token_with_no_address_prints_none_and_says_why(
+    computer, quiet, latet_server, tmp_path, monkeypatch
+):
+    """The final review's M9: a token added with `keys add-token`, whatever its permissions, has no address for models
+    (the server answers 403 there), so the server is asked who the token is: it gives it no address, and the command
+    prints no variable and says why, and which token has them."""
+    latet_server.answers["whoami"] = JSONResponse(
+        {"id": "k_logsxxxxxx", "name": "Logs", "kind": "key", "url": latet_server.url, "version": "test"}
+    )
+    done = _key_env(latet_server, tmp_path, monkeypatch)
+    _controlled(done)
+    assert done.exit_code == 1, done.output
+    assert "OPENAI_BASE_URL" not in done.stdout and "ANTHROPIC_BASE_URL" not in done.stdout
+    said = " ".join(done.stderr.split())
+    assert "no address" in said and "keys add-token" in said and "first token" in said and "applications API" in said
+    assert latet_server.asked == [("GET", "whoami")]
+    _private_output(done, KEY, route_key(KEY))
+
+
+def test_key_file_of_a_token_with_addresses_is_asked_and_printed(computer, quiet, latet_server, tmp_path, monkeypatch):
+    latet_server.tokens.add(KEY)  # the key's first token: the server gives it its addresses
+    done = _key_env(latet_server, tmp_path, monkeypatch)
+    _controlled(done)
+    assert done.exit_code == 0, done.output
+    assert f"{latet_server.url}/u/{route_key(KEY)}/openai/v1" in done.stdout
+    assert latet_server.asked == [("GET", "whoami")]
+    _private_output(done, KEY)
+
+
+def test_key_file_of_a_token_the_server_refuses_prints_none(computer, quiet, latet_server, tmp_path, monkeypatch):
+    done = _key_env(latet_server, tmp_path, monkeypatch)  # a token the server does not know: 401
+    _controlled(done)
+    assert done.exit_code == 1, done.output
+    assert "OPENAI_BASE_URL" not in done.stdout and "refuses this token" in " ".join(done.stderr.split())
+    _private_output(done, KEY, route_key(KEY))

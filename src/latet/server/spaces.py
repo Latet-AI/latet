@@ -51,7 +51,8 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import Callable, Mapping
+import weakref
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -60,17 +61,18 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from latet.api.rest import API
 from latet.engine.known import LET_GO, value_chars
+from latet.engine.stored import StoredVault
 from latet.gateway.app import OnServer, create_app
 from latet.logline import Paced, described
 from latet.projects import masker_weight
 from latet.protection import loosened
 from latet.runtime import Runtime, SpaceFull, make_runtime
-from latet.server.backends import SpaceBackends, space_backends
+from latet.server.backends import SpaceBackends, shown_forgotten, space_backends, vault_limit_of
 from latet.server.live import WRITER_CLOSE
 from latet.server.master import root_key
 from latet.server.shared import OwnSettings
 from latet.server.space_settings import settings_owner
-from latet.server.vault import UnreadableEntry
+from latet.server.vault import Forgotten, NotRecorded, UnreadableEntry
 
 if TYPE_CHECKING:
     from latet.engine.vault import Entity, Vault
@@ -99,13 +101,20 @@ CLOSE_SECONDS = _RECORDER_DRAIN + WRITER_CLOSE + 2.0
 # The values a catch-up of a vault handles between two lets-go of the GIL: the event loop takes its turn between.
 _YIELD_EVERY = 256
 QUEUE_LIMIT = 10_000  # changes waiting to be applied to one space at most: past it, it is closed and made again
+# An API key's vault is counted by PostgreSQL at most this often, in seconds, as values another instance kept are heard
+# (``_recount``): a count of a vault of millions takes a tenth of a second.
+RECOUNT_SECONDS = 1.0
+_RECOUNTED: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDictionary()  # each store's last count, when
+_TRAILING: weakref.WeakKeyDictionary[object, threading.Timer] = weakref.WeakKeyDictionary()  # a count put off
+_TRAILING_LOCK = threading.Lock()
 _ABOVE_KEPT = 10_000  # counts a space applied past one it never heard, kept until the beat's check catches it up
 _DROP = "drop"  # what a space being built hears when it is closed meanwhile
 # What a space is handed besides the messages of its channels: a re-application after a save refused as stale, the
-# beat's catching up (its vault, its settings, the shared settings: each by its own count), and a rename.
-_REAPPLY, _RENAMED = "reapply", "renamed"
+# beat's catching up (its vault, its settings, the shared settings: each by its own count; its identity, by its vault
+# limit), and a change of its identity's name, email or vault limit.
+_REAPPLY, _UPDATED = "reapply", "updated"
 _RESYNC, _SETTINGS_BEHIND, _SHARED_BEHIND = "resync", "settings-behind", "shared-behind"
-_CATCH_UPS = frozenset({_RESYNC, _SETTINGS_BEHIND, _SHARED_BEHIND})  # one of each queued at a time, at most
+_CATCH_UPS = frozenset({_RESYNC, _SETTINGS_BEHIND, _SHARED_BEHIND, _UPDATED})  # one of each queued at a time, at most
 # A space's long connections, ended with it: WebSockets, dashboard streams, approval waits and AWS session holds.
 _STREAMS = frozenset({f"{API}/stream", f"{API}/approvals/stream"})
 STALL_SECONDS = 60  # a dashboard stream's client takes each send within this bound, or its subscription ends
@@ -445,39 +454,73 @@ class _State:
     vault: int
     settings: int
     tokens: frozenset[str]
+    vault_limit: int | None = None  # its own limit of values in its vault; None: the server's
 
 
 def _states(db: Database, identity_ids: list[str]) -> dict[str, _State]:
     """For each of ``identity_ids``, and for the shared settings (``""``): whether the identity is there, whether it is
-    disabled, its vault's and its settings' change counts, and its tokens, in one query (the beat's check)."""
+    disabled, its vault's and its settings' change counts, its tokens and its own vault limit, in one query (the
+    beat's check)."""
     with db.connection() as conn:
         rows = conn.execute(
             "SELECT o.owner, i.id IS NOT NULL, COALESCE(i.disabled, FALSE), COALESCE(v.counter, 0),"
             " COALESCE(s.counter, 0), COALESCE((SELECT array_agg(t.id) FROM tokens t WHERE t.identity_id = o.owner),"
-            " '{}') FROM unnest(%s::text[]) AS o(owner)"
+            " '{}'), i.vault_limit FROM unnest(%s::text[]) AS o(owner)"
             " LEFT JOIN identities i ON i.id = o.owner LEFT JOIN change_counters v ON v.owner = o.owner"
             " LEFT JOIN change_counters s ON s.owner = o.owner || ':settings'",
             ([*identity_ids, ""],),
         ).fetchall()
     return {
-        str(row[0]): _State(bool(row[1]), bool(row[2]), int(row[3]), int(row[4]), frozenset(map(str, row[5])))
+        str(row[0]): _State(bool(row[1]), bool(row[2]), int(row[3]), int(row[4]), frozenset(map(str, row[5])), row[6])
         for row in rows
     }
 
 
-def _recount(vault: Vault, store: PgVaultStore) -> None:
-    """The store's count true to the vault, for its limit (and those of its entries that do not open)."""
-    store.count = vault.count + store.unreadable
+def _recount(vault: Vault, store: PgVaultStore, *, now: bool = False) -> None:
+    """The store's count true to the vault, for its limit (and those of its entries that do not open). An API key's
+    vault holds its working set alone in memory (``StoredVault``): the store counts it, at most once a second
+    (``RECOUNT_SECONDS``: the values another instance keeps meanwhile counted a moment late, as instances that keep
+    values at once may pass the limit), and at once when ``now``."""
+    if not isinstance(vault, StoredVault):
+        store.count = vault.count + store.unreadable
+        return
+    moment = time.monotonic()
+    last = _RECOUNTED.get(store, -RECOUNT_SECONDS)
+    if now or moment - last >= RECOUNT_SECONDS:
+        _RECOUNTED[store] = moment
+        store.count = store.count_entities()
+    else:
+        _recount_later(store, last + RECOUNT_SECONDS - moment)
+
+
+def _recount_later(store: PgVaultStore, delay: float) -> None:
+    """A count of an API key's vault once ``delay`` is over, one at a time for each store: the values heard within the
+    second before are counted though no other value follows them (``_recount``)."""
+    with _TRAILING_LOCK:
+        if store in _TRAILING:
+            return
+        timer = threading.Timer(delay, _trailing_count, (store,))
+        timer.daemon = True
+        _TRAILING[store] = timer
+    timer.start()
+
+
+def _trailing_count(store: PgVaultStore) -> None:
+    """In a timer's thread: the count ``_recount_later`` put off."""
+    with _TRAILING_LOCK:
+        _TRAILING.pop(store, None)
+    try:
+        _RECOUNTED[store] = time.monotonic()
+        store.count = store.count_entities()
+    except Exception as exc:  # its space closed meanwhile, or PostgreSQL away: the next value heard counts again
+        log.debug("an API key's vault was not counted again (%s)", described(exc))
 
 
 def _displaced(vault: Vault, entity: Entity) -> bool:
     """Whether knowing ``entity`` would put another entity of the vault out: its fake or its value held under another
-    id (``_learned``). Fakes as written: PostgreSQL keeps one value per fake so, and `Nicola%20Greco` and another
-    value's `Nicola Greco` are two fakes there."""
-    return any(
-        other is not None and other.id != entity.id
-        for other in (vault.by_surrogate(entity.surrogate, as_read=False), vault.by_original(entity.original))
-    )
+    id (``_learned``), in memory. Fakes as written (``Vault.displaced_by``): PostgreSQL keeps one value per fake so,
+    and `Nicola%20Greco` and another value's `Nicola Greco` are two fakes there."""
+    return bool(vault.displaced_by(entity))
 
 
 def _learned(vault: Vault, entity: Entity) -> bool:
@@ -487,11 +530,15 @@ def _learned(vault: Vault, entity: Entity) -> bool:
     forgotten so: the engine's masked blocks may hold its fake, and its caller has the engine forget them
     (``rules_changed``), as ``_forget`` and ``Runtime.forget`` do. Raises SpaceFull for a new value the space is past
     its share for: not learnt, and the vault refuses every text from then on (``Vault.lacking``) until the space is
-    made again (``Spaces._unlearnt``). Fakes are compared as written, as PostgreSQL keeps them (``_displaced``)."""
+    made again (``Spaces._unlearnt``). Fakes are compared as written, as PostgreSQL keeps them (``_displaced``). One
+    that this vault holds under its own id with another fake was forgotten elsewhere and kept again, in an API key's
+    new generation of fakes (Task 11b), before this instance heard of the forget: its masked texts may hold the old
+    fake, so it counts as one forgotten too."""
     forgot = False
-    for other in (vault.by_surrogate(entity.surrogate, as_read=False), vault.by_original(entity.original)):
-        if other is not None and other.id != entity.id:
-            forgot = vault.forget(other.id) is not None or forgot
+    for other in vault.displaced_by(entity):
+        forgot = vault.forget(other.id) is not None or forgot
+    held = vault.in_memory(entity.id)  # memory alone: one not there holds no masked text of its own
+    forgot = forgot or (held is not None and held.surrogate != entity.surrogate)
     vault.learn(entity)
     return forgot
 
@@ -565,19 +612,40 @@ def _learn(space: Space, entity_id: str) -> None:
 
 
 def _forget(space: Space, entity_id: str) -> None:
-    """A value forgotten through another instance: dropped here only when PostgreSQL holds it no more (a message out of
-    order, or published again by whoever has Valkey's password, never unmasks a value it still holds), under the
-    runtime's lock."""
+    """A value forgotten through another instance, or by the administration: dropped here only when PostgreSQL holds it
+    no more (a message out of order, or published again by whoever has Valkey's password, never unmasks a value it still
+    holds), under the runtime's lock. An API key's vault holds its working set alone (``StoredVault``): a text its
+    engine masked before may hold the fake of a value that left its memory since, so its masked texts are dropped
+    whether memory held the value or not, and when PostgreSQL holds an entry of that id again: the value was met again
+    and kept since, with another fake, which is learnt here at once (``_learned``: review 11b's M2), never left to its
+    own message, which may come late or not at all."""
     runtime, store = space.runtime, space.parts.vault
     with runtime._lock:
-        try:
-            if store.load_entity(entity_id) is not None:
-                return
-        except UnreadableEntry:  # there, and does not open: kept as it is masked
+        vault = runtime.built.vault
+        entity, held = None, True
+        with contextlib.suppress(UnreadableEntry):  # there, and does not open: kept as it is masked
+            entity = store.load_entity(entity_id)
+            held = entity is not None
+        if held:
+            forgot = isinstance(vault, StoredVault)  # a masked text may hold the fake it had before
+            if entity is not None:
+                try:
+                    forgot = _learned(vault, entity) or forgot
+                except SpaceFull:  # past its share: not learnt (``Vault.lacking``)
+                    forgot = True
+                _recount(vault, store)
+            if forgot:
+                runtime.built.engine.rules_changed()
             return
-        if runtime.built.vault.forget(entity_id) is not None:
+        # Out of the conversations this instance holds too: Valkey's forgot it, when its value was forgotten by itself
+        # (Ruling 11b-R1), and an update would write it back. And an API key's local reviewer forgets the answers it
+        # remembers in memory, every one: the value is not known here, its entry's id alone (review 11b's N3).
+        space.parts.conversations.forgotten((entity_id,))
+        if isinstance(vault, StoredVault) and runtime.mediator.reviewer is not None:
+            runtime.mediator.reviewer.forget_answers()
+        if vault.forget(entity_id) is not None or isinstance(vault, StoredVault):
             runtime.built.engine.rules_changed()  # cached masked blocks may hold its fake
-            _recount(runtime.built.vault, store)
+            _recount(vault, store)
 
 
 def _settle_obsolete(runtime: Runtime, *, every: bool = False) -> None:
@@ -633,10 +701,22 @@ def _resync(space: Space, db: Database) -> int:
     then learnt under it, the GIL let go every ``_YIELD_EVERY`` values so that the event loop serves every identity
     meanwhile. One that would put another out of the vault (its fake or its value given anew) is read again first, under
     the lock: what PostgreSQL holds now wins, never what the reading found a moment before. Past its share it learns no
-    more: the space is made again at its next weighing (``Spaces._unlearnt``)."""
+    more: the space is made again at its next weighing (``Spaces._unlearnt``).
+
+    An API key's vault holds its working set alone in memory (``StoredVault``), and finds the rest in PostgreSQL as its
+    texts need it: what PostgreSQL holds now of its working set alone is read (``StoredVault.resync``), never the whole
+    vault, and a value it no longer has, or holds otherwise, leaves memory."""
     runtime, store = space.runtime, space.parts.vault
     vault = runtime.built.vault
     count = _read_counts(db, [space.identity.id])[space.identity.id]
+    if isinstance(vault, StoredVault):
+        changed = vault.resync()
+        with runtime._lock:
+            _recount(vault, store, now=True)
+            if changed:
+                runtime.built.engine.rules_changed()  # cached masked blocks may hold a fake it no longer has
+        vault.matchers.current()
+        return count
     found = store.load_entities()
     forgot = False
     with runtime._lock:
@@ -677,6 +757,67 @@ def _flush(conversations: object) -> None:
     close = getattr(conversations, "close", None)
     if callable(close):
         close()
+
+
+async def _audited(
+    server: Server, identity_id: str, action: str, details: Mapping[str, Any], address: str | None
+) -> None:
+    """An entry of the administration log that a space writes (its applications API's unmasks), with its identity as
+    the actor and the target, and the client's address: written in the server's threads of those entries (``in_log``),
+    where it waits on the log's chain (one entry at a time for the whole server), never in the space's one bridge
+    thread, whose other calls would wait behind it (Ruling T5a), nor in the store threads, whose enrolments and
+    revocations would (Task 8b's review). Raises StoresUnavailable when it is not written."""
+    from latet.server.machines import in_log  # here: ``machines`` imports this module
+
+    await in_log(server.audit.record, identity_id, action, identity_id, details, address)
+
+
+async def _forgetting(
+    server: Server,
+    parts: SpaceBackends,
+    identity_id: str,
+    values: Sequence[str],
+    details: Mapping[str, Any],
+    address: str | None,
+) -> Forgotten:
+    """Values of an API key's vault forgotten by its applications API (Task 11b, ``OnServer.forget``): in its store
+    (``PgVaultStore.forget_values``), with the rows of its history that name their entries (``gone``, the history's
+    older rows given their entries first: Ruling 11b-R1), the entry of the administration log (``apps.forgotten``:
+    ``details`` and the counts, the identity its actor and its target, the client's address) written last in the same
+    transaction; then out of its conversations, in Valkey and in this instance's memory (``shown_forgotten``), in the
+    server's threads of forgets (``in_forget``), where it waits on rows and on the log's chain, never in the space's one
+    bridge thread (Ruling T5a) nor in the threads of the unmasks' entries, which every key's unmasks wait for (review
+    11b's I2). The ids forgotten, how many of the values the vault does not hold, and the generation new fakes are
+    drawn in from then on (``Forgotten``). Raises NotRecorded when the entry was not written, and ConnectionError (by
+    the error's type alone) when the work did not finish otherwise: either way the transaction rolled back, and nothing
+    was forgotten."""
+    from latet.server.machines import StoresUnavailable, in_forget  # here: ``machines`` imports this module
+
+    def recorded(conn: Any, forgotten: int, unknown: int) -> None:
+        entry = {**details, "forgotten": forgotten, "unknown": unknown}
+        try:
+            server.audit.record(identity_id, "apps.forgotten", identity_id, entry, address, conn=conn)
+        except Exception as exc:  # by its type alone: a driver's words can name an address
+            raise NotRecorded(described(exc)) from None
+
+    def forget() -> Forgotten | NotRecorded:
+        history = parts.history
+        try:
+            history.index_entities()  # outside the forget's transaction: once, after an upgrade
+            done = parts.vault.forget_values(values, gone=history.forget_entities, last=recorded)
+        except NotRecorded as unrecorded:  # handed back, as ``in_forget`` makes every error it meets StoresUnavailable
+            return unrecorded
+        parts.conversations.forgotten(done.ids)
+        shown_forgotten(server, identity_id, done.ids)
+        return done
+
+    try:
+        done = await in_forget(forget)
+    except StoresUnavailable as exc:  # a store that did not answer, or a fault: by its type alone (503)
+        raise ConnectionError(str(exc)) from None
+    if isinstance(done, NotRecorded):
+        raise done
+    return done
 
 
 class Spaces:
@@ -768,7 +909,14 @@ class Spaces:
         origin = f"{server.instance}:{secrets.token_hex(6)}"
         key = root_key(server.db, server.master, found.id, clock=server.clock)
         parts = space_backends(
-            server, found.id, key, origin=origin, counted=counted, stale=hooks.stale, kind=found.kind
+            server,
+            found.id,
+            key,
+            origin=origin,
+            counted=counted,
+            stale=hooks.stale,
+            kind=found.kind,
+            vault_limit=found.vault_limit,
         )
         # Its images read through the instance's text recognitions, with the settings' bounds (Task 22).
         from latet.engine.reviewer.reviewer import fixed_key
@@ -782,8 +930,14 @@ class Spaces:
             reading=server.reading,
             reviewer_key=fixed_key(server.reviewer_key),
             ocr_unread=server.metrics.ocr_unread,
+            working=server.settings.key_working_values,
+            held=server.settings.key_held_secrets,
         )
-        runtime.gateway.on_server = OnServer(server.settings.url, found.id)  # before its app is made (create_app)
+        # Before its app is made (create_app): the identity's kind (an API key's space alone has the applications API),
+        # and what that API writes in the administration log, under the identity's own name, in the log threads.
+        audit = functools.partial(_audited, server, found.id)
+        forget = functools.partial(_forgetting, server, parts, found.id)  # its values forgotten (Task 11b)
+        runtime.gateway.on_server = OnServer(server.settings.url, found.id, audit, found.kind, forget)
         # A computer's two calls do their work in the server's work threads, never the default executor, which the
         # spaces' builds hold for seconds (Task 9's T9.13). Imported here: ``machines`` imports this module.
         from latet.server.machines import in_work
@@ -899,12 +1053,13 @@ class Spaces:
         elif kind == "identity":
             self._enqueue(space, channel, message)
 
-    def renamed(self, identity_id: str) -> None:
-        """The identity's name or email changed: its space here takes it as PostgreSQL has it, in place."""
+    def updated(self, identity_id: str) -> None:
+        """The identity's name, email or vault limit changed: its space here takes them as PostgreSQL has them, in
+        place."""
         if identity_id in self._missed:
-            self._missed[identity_id].append((_RENAMED, {}))
+            self._missed[identity_id].append((_UPDATED, {}))
         elif (space := self._spaces.get(identity_id)) is not None:
-            self._enqueue(space, _RENAMED, {})
+            self._enqueue(space, _UPDATED, {})
 
     def _enqueue(self, space: Space, channel: str, message: Mapping[str, Any]) -> None:
         if space.queue.qsize() >= QUEUE_LIMIT:
@@ -964,11 +1119,13 @@ class Spaces:
             elif kind == _SHARED_BEHIND:
                 await self._read_settings(space, seq)
                 space.shared_counts.caught_up(message.get("counter"))
-            elif kind == _RENAMED:
+            elif kind == _UPDATED:
                 found = await self._run(self.server.identities.current, space.identity.id)
                 if found is not None and not found.disabled:  # else its own message closes the space
                     space.identity = found
                     space.runtime.identity = found.ref()
+                    # The limit the vault keeps to from the next value it is asked to keep (a number: set in one step).
+                    space.parts.vault.limit = vault_limit_of(self.server, found.vault_limit)
         finally:
             space.pending.discard(kind)  # over: the beat may queue another of its kind
 
@@ -1011,7 +1168,9 @@ class Spaces:
         caught up by what moved alone: its settings read again by their own count, its vault only when its vault moved;
         one behind on the shared settings has them read again, this instance's copy of them forgotten first (their
         announcement may be what was lost). A copy of the shared settings older than PostgreSQL's count is forgotten at
-        the first check, so that whatever reads them next (a space built here) reads them again."""
+        the first check, so that whatever reads them next (a space built here) reads them again. A space whose identity
+        has another vault limit than it was built or last updated with (the announcement of the change lost) takes the
+        limit at once: taking it twice does no harm."""
         spaces = dict(self._spaces)
         if not spaces:
             return []
@@ -1032,6 +1191,8 @@ class Spaces:
                 ended.append((identity_id, not state.present))
                 continue
             # Behind: caught up, but never twice at once (one of each kind queued or under way, as ``pending`` says).
+            if state.vault_limit != space.identity.vault_limit and _UPDATED not in space.pending:
+                self._enqueue(space, _UPDATED, {})  # its limit changed, and the announcement was lost
             if space.vault_counts.behind(state.vault) and _RESYNC not in space.pending:
                 self._enqueue(space, _RESYNC, {})
             if space.settings_counts.behind(state.settings) and _SETTINGS_BEHIND not in space.pending:

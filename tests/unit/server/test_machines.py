@@ -5,7 +5,7 @@ valid, kept as keyed hashes within a bound."""
 import pytest
 
 from latet.config import IdentityConfig
-from latet.server import machines
+from latet.server import machines, tokens
 
 
 @pytest.mark.parametrize(
@@ -27,6 +27,30 @@ def test_a_client_is_counted_by_its_address_an_ipv6_one_by_its_64(client, bucket
 
 def test_a_client_with_no_address_is_counted_as_unknown():
     assert machines.client_of({}) == "unknown" == machines.bucket_of(machines.client_of({}))
+
+
+@pytest.mark.parametrize(
+    ("headers", "token"),
+    [
+        ([(b"authorization", b"Bearer latet_key_abc")], "latet_key_abc"),
+        ([(b"authorization", b"bearer latet_key_abc")], "latet_key_abc"),
+        ([(b"authorization", b"BEARER latet_key_abc")], "latet_key_abc"),
+        ([(b"authorization", b"Bearer  latet_key_abc")], "latet_key_abc"),  # RFC 7235: 1*SP after the scheme
+        ([(b"authorization", b"Bearer     latet_key_abc")], "latet_key_abc"),
+        ([(b"authorization", b"Bearer")], ""),
+        ([(b"authorization", b"Bearer ")], ""),
+        ([(b"authorization", b"Bearer    ")], ""),
+        ([(b"authorization", b"Basic latet_key_abc")], ""),
+        ([(b"authorization", b"latet_key_abc")], ""),
+        ([(b"authorization", b"Bearer\tlatet_key_abc")], ""),  # a tab is no SP
+        ([(b"authorization", b"Bearer a"), (b"authorization", b"Bearer a")], ""),  # two headers name none
+        ([], ""),
+    ],
+)
+def test_the_bearer_token_follows_one_or_more_spaces(headers, token):
+    assert machines.bearer_of({"headers": headers}) == token
+    # One reading for the applications API and the metrics' scrape (``operations``), as the bytes it came in there.
+    assert tokens.bearer_token({"headers": headers}) == (token.encode() if token else None)
 
 
 def test_the_credentials_found_valid_are_kept_by_keyed_hash_for_an_hour_within_a_bound(monkeypatch):

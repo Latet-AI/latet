@@ -648,3 +648,17 @@ def test_the_path_that_is_not_there_holds_a_character_that_windows_refuses_in_a_
     """Else a local user could make the folder in the root of the system drive and put a password file or a root
     certificate in it. libpq reads such a path as not there, for every option (tried against a PostgreSQL with TLS)."""
     assert set(_NO_FILE) & set('<>:"|?*') and not os.path.exists(_NO_FILE)
+
+
+# The migrations of the last release (0.9.10), in order: a server of that release has these, and only these, applied.
+RELEASED = ["001_core", "002_admin_token_issuer", "003_audit_seek", "004_computer_key", "005_vault_decoded"]
+
+
+def test_the_released_migrations_come_first_and_no_two_migrations_share_a_number():
+    """A release's numbering wins: a migration made beside one (an API key's permissions and vault, next to 0.9.10's
+    ``005_vault_decoded``) takes the numbers after the release's, so that a server of that release applies the new
+    ones after its own and a later release's next number is never one this Latet holds already."""
+    names = [name.split(":", 1)[1] for name, _ in db_module._migrations(db_module.MIGRATIONS)]
+    numbers = [name.split("_", 1)[0] for name in names]
+    assert names[: len(RELEASED)] == RELEASED
+    assert len(numbers) == len(set(numbers)) and numbers == sorted(numbers)

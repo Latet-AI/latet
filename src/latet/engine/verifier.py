@@ -13,12 +13,13 @@ import hashlib
 import hmac
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from latet.engine.detectors.base import DetectContext
 from latet.engine.escapes import read_escaped
 from latet.engine.masker import Masker
+from latet.engine.merge import merge_spans
 from latet.engine.pipeline import LRU, WITHHELD_DUMP, WITHHELD_UNREAD, Scope
 from latet.engine.review import ReviewPolicy
 from latet.engine.types import EntityClass, Policy, SlotKind, Span
@@ -71,6 +72,28 @@ class VerifyResult:
 
 
 _DEFAULT_BLOCKING = frozenset({EntityClass.SECRET, EntityClass.CUSTOM, EntityClass.IDENTITY, EntityClass.PII})
+
+
+def _one_per_value(found: list[tuple[Span, Leak]]) -> list[Leak]:
+    """One leak for the findings of one class that are the same text in the same place, named by the strongest of them
+    as the masking merge names it (``merge_spans``). The pair of a secret's name and gitleaks' generic rule find one
+    key; a request stopped for it names it once (``GENERIC_API_KEY[40]``), not as two values. Allowing that text allows
+    all of them. Findings that only overlap stay apart (a key read whole by one rule and by its body by another: the
+    page marks the two as one value and allows both), and so do those of different classes (an address found as
+    personal data and as a part of a git author are each read by the auto mode's review). The leaks come in the order
+    of their first finding."""
+    groups: dict[tuple[EntityClass, int, int], list[tuple[Span, Leak]]] = {}
+    for span, leak in found:
+        groups.setdefault((span.eclass, span.start, span.end), []).append((span, leak))
+    out: list[Leak] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(members[0][1])
+            continue
+        [named] = merge_spans(span for span, _ in members)
+        leak = next(leak for span, leak in members if (span.etype, span.rule) == (named.etype, named.rule))
+        out.append(replace(leak, allowed=all(other.allowed for _, other in members)))
+    return out
 
 
 class Verifier:
@@ -170,7 +193,7 @@ class Verifier:
         details = review.details(text, spans) if review is not None else [None] * len(spans)
         through = review.let_through(details) if review is not None else [False] * len(spans)
         fakes: list[Span] | None = None
-        out = []
+        out: list[tuple[Span, Leak]] = []
         for span, detail, allowed in zip(spans, details, through, strict=True):
             value = span.of(text)
             if span.eclass not in self.block_classes:
@@ -183,12 +206,11 @@ class Verifier:
             if any(f.start <= span.start and span.end <= f.end for f in fakes):
                 continue  # a word of a fake (a drawn name holding one of your terms): nothing of yours
             preview = f"{span.etype}[{len(value)}]"
-            out.append(
-                Leak(
-                    span.etype, span.eclass, span.rule, kind, preview, new, detail, allowed, slot, span.start, span.end
-                )
+            leak = Leak(
+                span.etype, span.eclass, span.rule, kind, preview, new, detail, allowed, slot, span.start, span.end
             )
-        return out
+            out.append((span, leak))
+        return _one_per_value(out)
 
     def verify(
         self,
@@ -219,7 +241,30 @@ class Verifier:
         requests: ``wrote``) knows it as exactly what the model wrote: its own words, written from the fakes it was
         shown, such as a password it made up for a test, which a tool's answer may have shown again for the vault to
         learn. Any other client's assistant turns are its own texts, whatever their role says (a prefill, a history
-        it resumed)."""
+        it resumed).
+
+        A request the gateway only checks has the values its texts may hold brought into memory first, in one call to
+        the vault's store for all of them, and held while they are checked (an API key's vault: ``Vault.prefetch``): a
+        value found once stops it, whatever its age. One the gateway masked had them brought in as it was masked."""
+        masker = scope.masker if scope is not None else self.masker
+        slots = list(slots)
+        with masker.vault.holding():
+            if not rewritten:
+                masker.vault.prefetch([text for text, _, _ in slots if text])
+            return self._checked(slots, session_key, review, scope, record=record, rewritten=rewritten, written=written)
+
+    def _checked(
+        self,
+        slots: list[tuple[str, SlotKind, bool]],
+        session_key: str,
+        review: ReviewPolicy | None,
+        scope: Scope | None,
+        *,
+        record: bool,
+        rewritten: bool,
+        written: Callable[[str], bool] | None,
+    ) -> VerifyResult:
+        """``verify``'s check of ``slots``, the values they may hold in memory."""
         result = VerifyResult()
         masker = scope.masker if scope is not None else self.masker
         scope_key = scope.key if scope is not None else ""

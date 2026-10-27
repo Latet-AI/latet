@@ -86,6 +86,7 @@ def detectors_for(
             files=config.data_files,
             hosts=config.data_hosts,
             policies=policies_of(config, recognizers or []),
+            phone_regions=config.phone_regions,
         ),
     ]
     if config.profile != Profile.SECRETS:

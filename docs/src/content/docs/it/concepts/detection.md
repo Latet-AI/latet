@@ -13,9 +13,13 @@ elenca ogni rilevatore e ogni regola per i segreti.
 I segreti vengono mascherati in ogni [profilo](../profiles/).
 
 Sono incluse le credenziali di Latet: `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
-(`latet_ck_`), `LATET_API_KEY` (`latet_key_`) e `LATET_ADMIN_TOKEN` (`latet_adm_`),
-ciascun prefisso seguito da 43 caratteri
-URL-safe (`A-Z`, `a-z`, `0-9`, `_`, `-`). In `https://<host>/u/<route-key>`, i 16-128 caratteri
+(`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
+`LATET_SCIM_TOKEN` (`latet_scim_`, il token SCIM di un server Enterprise), `LATET_BRIDGE_TOKEN`
+(`latet_brg_`, il token che il plugin di Claude Code dà al daemon del tuo computer) e
+`LATET_ONE_TIME_CODE` (`latet_code_`, il codice che un amministratore dà a una persona per collegare
+un computer), ciascun prefisso seguito da 43 caratteri URL-safe (32 per il codice monouso; `A-Z`,
+`a-z`, `0-9`, `_`, `-`). Un token del bridge o un codice monouso creato da una versione precedente
+non ha prefisso: viene mascherato dal nome con cui è scritto, come ogni segreto. In `https://<host>/u/<route-key>`, i 16-128 caratteri
 URL-safe della chiave di percorso vengono mascherati come `LATET_ROUTE_KEY`; l'host e gli altri
 segmenti del percorso restano. Vale sul tuo computer e in uno spazio sul server, anche nei dump
 dell'ambiente, nel file `settings.json` di Claude Code e nel file `config.toml` di Codex. Le chiamate
@@ -30,7 +34,26 @@ valore fittizio viene fermata dove Latet può intercettarla (vedi [Ambito della 
   nome, qualunque aspetto abbia il valore: `DB_PASSWORD=...`, `"api_key": "..."` e
   `$env:TOKEN = ...` vengono mascherati; `APP_NAME=shop` e `DEBUG=true` no. I segnaposto come
   `changeme`, `${DB_PASSWORD}` o `<your-key>` restano come sono, e così anche i riferimenti nel codice
-  come `process.env.API_KEY`.
+  come `process.env.API_KEY`. Una coppia `password=...` viene mascherata ovunque stia in una riga, dopo
+  altre parole in un log (`INFO login ok password=...`), tra parentesi, nella query di un URL o dopo `--`
+  in un comando (`--password=...`); dopo un nome forte (`password`, `secret`, `api_key`,
+  `access_token`...) viene mascherato anche un valore letterale tra virgolette dopo due punti o un
+  segno di uguale con spazi (`{ password: 's3cr3t' }`, `SET password = '...'`). Un confronto
+  (`token==expected`) non è una coppia. Due tipi di valore restano come sono dopo il nome di un segreto,
+  perché dicono cosa ha trovato un controllo e non sono il segreto. Una parola di stato, in minuscolo,
+  sotto qualunque nome (`auth=failed`, `token=expired`): `ok`, `fail`, `failed`, `failure`, `denied`,
+  `refused`, `rejected`, `accepted`, `granted`, `success`, `succeeded`, `error`, `expired`, `missing`,
+  `invalid`, `valid`, `required`, `present`, `absent`, `revoked`, `rotated`, `refreshed`, `pending`,
+  `unknown`, `anonymous`, `unauthorized`, `forbidden`, `enabled`, `disabled`, `active`, `inactive`,
+  `skipped` e `passed`. E, sotto un nome che finisce con `status`, `state`, `result`, `results`,
+  `outcome`, `scheme`, `changed`, `reason` o `error` (`auth_status`, `token_error`, `password_changed`),
+  un valore con la forma di uno stato: una parola in minuscolo di al massimo 20 caratteri con al massimo
+  un `-` o `_`, un numero di al massimo 10 cifre, un'ora, una data o un booleano; qualunque altro valore
+  lì (`password_changed=Winter2024x`, una frase segreta come `correct-horse-battery-staple`, un numero
+  più lungo) viene mascherato.
+  Un nome che finisce con `reset`, `source`, `arg`, `option` o `flag` resta il nome
+  di un segreto (`password_reset`, `token_source`), e solo dopo `--` in mezzo a una riga un'opzione che
+  finisce così (`--pass-arg=...`) resta com'è, perché prende il nome di qualcosa.
 - **Chiavi private**: l'intero corpo di un blocco di chiave privata PEM, OpenSSH o PGP. Le righe
   `BEGIN` ed `END` restano visibili, così il modello sa comunque che lì c'è una chiave.
 - **Credenziali**: la password in `postgres://user:password@host/db` e in altri URL, i JSON Web Token

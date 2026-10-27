@@ -60,17 +60,27 @@ class BodyLimit:
     (``http.disconnect``, from then on): the chunk that passed the limit is never handed over, what the app sends of a
     body cut short goes nowhere, and what it raises of it is swallowed (the app's own error answer, a 400 or a 500, must
     not take the place of the 413). Nothing of the body is kept here. A WebSocket passes untouched: its messages are
-    bounded by the server's ``ws_max_size``."""
+    bounded by the server's ``ws_max_size``. ``narrower``: the paths under which a lower limit applies, each with it and
+    the setting that names it (on a server, the applications API's ``apps_request_mb``)."""
 
-    def __init__(self, app: ASGIApp, limit: int) -> None:
-        self.app, self.limit = app, limit
+    def __init__(self, app: ASGIApp, limit: int, narrower: tuple[tuple[str, int, str], ...] = ()) -> None:
+        self.app, self.limit, self.narrower = app, limit, narrower
+
+    def _bound(self, path: str) -> tuple[int, str]:
+        """The limit of a request to ``path``, and the setting that names it."""
+        limit, named = self.limit, "max_request_mb"
+        for prefix, lower, setting in self.narrower:
+            if (path == prefix or path.startswith(f"{prefix}/")) and lower < limit:
+                limit, named = lower, setting
+        return limit, named
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        reason = f"the request body is larger than {self.limit} bytes, the most this server takes (max_request_mb)"
-        if _declared(scope) > self.limit:
+        limit, named = self._bound(scope.get("path") or "")
+        reason = f"the request body is larger than {limit} bytes, the most this server takes ({named})"
+        if _declared(scope) > limit:
             await refuse(scope, send, 413, reason)
             return
         seen, started, refused = 0, False, False
@@ -82,7 +92,7 @@ class BodyLimit:
             message = await receive()
             if message["type"] == "http.request":
                 seen += len(message.get("body", b""))
-                if seen > self.limit:  # answered here, and the app told its client is gone: it reads no more
+                if seen > limit:  # answered here, and the app told its client is gone: it reads no more
                     refused = True
                     if not started:
                         await refuse(scope, send, 413, reason)

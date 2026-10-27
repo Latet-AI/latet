@@ -98,10 +98,16 @@ shared settings are encrypted with the master key. Keep the master key separate 
 database backups. Without the matching key, encrypted data cannot be recovered.
 
 Some metadata remains readable in PostgreSQL: identity names and email addresses,
-external identifiers, token labels and times, vault rule names, counters and times, and
+external identifiers, token labels, permissions and times, vault rule names, counters and times, and
 administration log actors, actions, targets, identifiers, counts and client addresses.
-History project and conversation identifiers use keyed hashes. Valkey uses keyed names,
-encrypted sensitive payloads and signed coordination messages.
+History project and conversation identifiers use keyed hashes. An API key's vault also keeps the
+words of its values and fakes as keyed hashes, which find them in a text: a hash shows no word, only
+which entries share one. Its history's rows and its local reviewer's remembered answers keep keyed
+hashes of the vault's entries and values they name, so that a forget finds them: a database reader
+can tell which rows name the same entry or value, never which value it is. A person's rows keep none.
+Every vault keeps the keyed hash of each fake it retired (a forgotten value's, or one given anew), so
+that no other value is given it: it shows how many fakes were retired, never which. Valkey uses keyed names, encrypted sensitive payloads and signed
+coordination messages.
 
 Encryption at rest does not hide originals from the running server or its operator.
 Authorized dashboard views receive originals in the browser. An administrator can issue

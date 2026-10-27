@@ -72,7 +72,8 @@ def test_me_names_the_server_and_whose_space_it_is(space):
 def test_a_server_space_masks_and_restores_latet_credentials_and_route_keys(space):
     rt, _ = space
     tail = "Q7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc1Eo2Fi3Gu4J5"
-    tokens = [f"latet_{prefix}_" + tail for prefix in ("pat", "key", "adm", "ck")]
+    tokens = [f"latet_{prefix}_" + tail for prefix in ("pat", "key", "adm", "ck", "scim", "brg")]
+    tokens.append("latet_code_" + tail[:32])
     route = "Em1ly_Cart3r-Rout3K3y_7q9"
     text = " ".join([*tokens, URL + "/u/" + route + "/anthropic"])
     session = rt.built.engine.session("latet-secrets-on-server")
@@ -83,6 +84,9 @@ def test_a_server_space_masks_and_restores_latet_credentials_and_route_keys(spac
         "LATET_API_KEY",
         "LATET_ADMIN_TOKEN",
         "LATET_COMPUTER_KEY",
+        "LATET_SCIM_TOKEN",
+        "LATET_BRIDGE_TOKEN",
+        "LATET_ONE_TIME_CODE",
         "LATET_ROUTE_KEY",
     }
     assert URL + "/u/" in masked.text and masked.text.endswith("/anthropic")

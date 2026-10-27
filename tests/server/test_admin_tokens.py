@@ -479,7 +479,7 @@ def _revoked_once_found(monkeypatch, server, headers):
 # left out.
 _KEPT = {
     "identities": "id, kind, name, email, disabled, created, source, external_id",
-    "tokens": "id, identity_id, hash, route, label, created, tag",
+    "tokens": "id, identity_id, hash, route, label, created, tag, permissions",
     "codes": "hash, identity_id, expires, tag",
     "settings": "owner, identity_id, kind, data, changed, changed_by, version",
     "change_counters": "owner, counter",
@@ -498,8 +498,8 @@ def _kept(server, without):
 
 
 WRITES = [
-    "person.add", "key.add", "identity.change", "identity.remove", "tokens.revoke", "code.issue", "key.rotate",
-    "settings.change", "shared.change", "admin-token.issue", "admin-token.revoke",
+    "person.add", "key.add", "identity.change", "identity.remove", "tokens.revoke", "token.add", "code.issue",
+    "key.rotate", "settings.change", "shared.change", "admin-token.issue", "admin-token.revoke",
 ]  # fmt: skip
 
 
@@ -519,6 +519,12 @@ def _a_write(server, client, root, write):
         "identity.change": ("PATCH", f"{ADMIN}/identities/{emily.id}", {"disabled": True}, "identity.change"),
         "identity.remove": ("DELETE", f"{ADMIN}/identities/{emily.id}", None, "identity.remove"),
         "tokens.revoke": ("DELETE", f"{ADMIN}/identities/{emily.id}/tokens", None, "tokens.revoke"),
+        "token.add": (
+            "POST",
+            f"{ADMIN}/identities/{key.id}/tokens",
+            {"name": "logs", "permissions": ["mask"]},
+            "token.add",
+        ),
         "code.issue": ("POST", f"{ADMIN}/identities/{emily.id}/code", None, "code.issue"),
         "key.rotate": ("POST", f"{ADMIN}/identities/{key.id}/rotate", None, "key.rotate"),
         "settings.change": ("PUT", path, {**settings, "profile": "max"}, "settings.change"),
@@ -552,8 +558,9 @@ def test_a_change_whose_token_was_revoked_before_it_committed_is_not_made(server
 FIRST = {
     "person.add": ("identities", "add_person"), "key.add": ("identities", "add_key"),
     "identity.change": ("identities", "disable"), "identity.remove": ("identities", "remove"),
-    "tokens.revoke": ("identities", "revoke"), "code.issue": ("identities", "code"),
-    "key.rotate": ("identities", "rotate_key"), "settings.change": (None, "_keep_own"),
+    "tokens.revoke": ("identities", "revoke"), "token.add": ("identities", "add_token"),
+    "code.issue": ("identities", "code"),
+    "key.rotate": ("identities", "rotate_token"), "settings.change": (None, "_keep_own"),
     "shared.change": ("shared", "set"), "admin-token.issue": ("admin", "issued"), "admin-token.revoke": ("admin", "revoke"),
 }  # fmt: skip
 

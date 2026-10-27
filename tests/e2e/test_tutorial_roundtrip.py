@@ -53,7 +53,7 @@ FAKE = {value: golden[3] for value, golden in GOLDEN.items()}
 
 ENV = f"# billing service\nBILLING_URL=https://billing.example.test/api\nDEMO_API_KEY={KEY}\n"
 PROMPT = f"make no mistakes. set up config.local.json for prod, then email {EMAIL} the invoice, his number is {PHONE}"
-PASTED = f"make no mistakes. deploy with DEMO_API_KEY={KEY}"  # one line: only gitleaks' generic rule finds the key
+PASTED = f"make no mistakes. deploy with DEMO_API_KEY={KEY}"  # one line: the pair and gitleaks' rule find it: one leak
 # Where the model finds each value in the body it got, as a chapter's `received` patterns do.
 GOT = {
     "KEY": Capture.model_validate({"pattern": r"DEMO_API_KEY=(\w+)", "in": "tool_result"}),

@@ -609,3 +609,26 @@ async def test_with_no_time_limit_history_never_reviewed_waits_for_its_review_to
     assert "Maria" not in json.loads(prepared.body)["messages"][0]["content"]  # the prompt came before the tool
     budgeted = await send(mediator(FakeServer(), budget_ms=5000), request("the customer Ferri called"))
     assert "Maria" in json.loads(budgeted.body)["messages"][0]["content"]  # with a budget: history in background
+
+
+def test_the_answers_remembered_in_memory_that_hold_a_forgotten_value_go():
+    """Task 11b (review 11b's N3): an API key's values forgotten by themselves leave the answers the reviewer remembers
+    in memory, by text and by piece (their findings, and those it could not place, are values in clear): those that
+    found one of the values, where the values are known (the instance that forgot them), or every one, where the forget
+    is known by its entries alone (another instance). A text sent again finds its answer in the store again, where the
+    forget took those that held a value."""
+    from latet.engine.reviewer.reviewer import Finding
+
+    r = reviewer(FakeServer())
+    maria = Answer([Finding("Maria Bianchi", "person")])
+    paolo = Answer([], unlocated=[Finding("Paolo Conti", "person")])
+    other = Answer([Finding("Ida Russo", "person")])
+    for text, answer in (("one", maria), ("two", paolo), ("three", other)):
+        r.remember(text, answer)
+    r._pieces.put(b"p1", maria)
+    r._pieces.put(b"p2", other)
+    r.forget_answers(["Maria Bianchi", "Paolo Conti"])
+    assert r.known("one") is None and r.known("two") is None and r.known("three") is not None
+    assert r._pieces.get(b"p1") is None and r._pieces.get(b"p2") is not None
+    r.forget_answers()
+    assert r.known("three") is None and r._pieces.get(b"p2") is None

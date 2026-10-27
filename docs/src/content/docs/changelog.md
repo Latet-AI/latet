@@ -11,6 +11,161 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.10.0 (2026-10-27)
+
+- The applications API: a Latet server answers `POST /_latet/apps/v1/scan`, `mask` and `unmask` for an
+  API key's tokens, so that an application masks its log lines or its documents with the key's fakes
+  before they leave, and a tool with the right token puts the real values back. The same value gets
+  the same fake in every call, on every instance, for as long as the vault keeps it. A call takes up
+  to 1,000 texts and 8 MiB (the server setting `apps_request_mb`), as `prose` or `data`; `mask` runs
+  the key's local reviewer on every text before it answers, `scan` changes nothing, and the Live Reviewer never holds an application's text. Every
+  unmask is an `apps.unmasked` entry of the administration log (the token and how many values, never
+  a value), written before its answer; the metrics count the texts and values by operation. It
+  exists on a server only. See [the applications API](../applications/), with a page for
+  [logs](../applications/logs/) and one for [RAG](../applications/rag/), and the
+  [HTTP reference](../reference/apps-api/) with an OpenAPI description.
+- Values of an API key's vault can be forgotten, when a person asks that their data leave it: an
+  administrator runs `latet server keys forget KEY --file FILE` (one value a line, or typed in the
+  terminal, never on the command line), and an application calls `POST /_latet/apps/v1/forget` with a
+  token given the new `forget` permission, which no other permission brings and a key's first token
+  does not have (`keys add-token KEY NAME --forget`). Each value is found exactly as written and goes
+  with everything of the vault that names it, the local reviewer's remembered answers that found it,
+  and what the key's conversations and history keep of it, on every instance once the calls already
+  running there end: its old fake restores nothing and is never given to another value, and the value
+  gets a new fake and a new entry if it is met again. Each call is a `key.forgotten` or `apps.forgotten` entry of the administration
+  log, with counts and never a value, written in the forget's own transaction. `latet-client` has
+  `forget()`. See [forgetting values](../applications/forget/).
+- An API key can have several tokens, each with its own permissions among `scan`, `mask` and `unmask`
+  (and `forget`, above): `latet server keys add-token KEY NAME --mask --out FILE`, `keys tokens KEY`
+  lists them and `--revoke` stops one, `keys rotate KEY --token ID` rotates the one named. A key's first
+  token, and every token made before this release, keeps scan, mask and unmask, so existing keys work as
+  before.
+  Only a key's first token has an address for models and serves agents through the plugin's bridge: a
+  token made with `keys add-token`, whatever its permissions, calls the applications API alone, so that
+  each of its restores is an `apps.unmasked` entry. The administration log records `token.added`, and
+  `key.rotated` names the new token and the one it replaced.
+- An API key's vault lives in PostgreSQL: an instance keeps in memory the values the key used last
+  (`key_working_values`, 5,000 by default, about 10 MiB a key) and finds every other one through a
+  keyed index of the words of its values and fakes, once a call, so a key's vault of millions of values
+  works on every instance and a value found once is still masked wherever it appears. Short secrets
+  that no word finds when letters are glued to them are held in memory for good, the newest
+  `key_held_secrets` of each key (1,000 by default, about 2.2 KB each). An instance's connections to
+  PostgreSQL are the server setting `database_pool` (10 by default). A person's vault is unchanged.
+- An API key can have a vault limit of its own, above or below the server's `vault_limit`:
+  `latet server keys limit KEY N` (1,000 to 100,000,000), `default` for the server's. A full vault
+  refuses the applications call that would add a value (507) and lets nothing of it out. The status
+  and `latet_vault_near_limit` weigh each identity against its own limit.
+- `latet-client`, a light Python package under the MIT license, released on its own, calls the
+  applications API (`Latet` and `AsyncLatet`), with a LangChain document transformer and runnables
+  for LangGraph (`pip install "latet-client[langchain]"`).
+- `scripts/bench_apps.py` measures a server's applications API on log lines and documents. On one
+  instance, masking runs at 189 log lines a second for a new key and 410 to 440 for a key of 200,000
+  to 1,000,000 values, unmasking at 1,498 to 2,691; a document of 20 KB takes 77 to 95 ms to mask.
+- Upgrading: `latet server migrate` adds the tokens' permissions and the index of the keys' vaults
+  (migrations 006 to 012); every instance needs it before it starts again. The first instance that
+  builds each API key's space makes the words of its vault once, before that key's first call is
+  answered: about 40 seconds for 200,000 values, four and a half minutes for 1,000,000. The first
+  forget of each API key's values indexes once what its local reviewer remembered and its history
+  kept before the upgrade (about 70 microseconds an answer of the reviewer, more for a history's
+  texts): on a key with much history it takes minutes, `keys forget` waits up to five minutes a call,
+  and a forget that stops waiting is safe to repeat. Stop every instance of the older version before
+  the new ones start.
+- Fixed: on a server, a fake whose value was forgotten (an entry forgotten in the dashboard) or that
+  was given anew (one that showed its value) could later be drawn for another value, so that a text
+  masked before would be unmasked to that other value. Such a fake is now retired: the vault keeps its
+  keyed hash alone, tied to no entry, and gives it to no other value, an API key's forget included.
+  Fakes freed before the upgrade are not known, and are not retired (migration 012).
+- Fixed: one long line of `key=value` pairs (a minified log, a tool's output of hundreds of kilobytes on
+  one line) took a time that grew with the square of its length to mask: about two minutes for 2 MB.
+  It now takes about two seconds.
+- Fixed: a SCIM token of a Latet Enterprise server (`latet_scim_` and 43 more characters) went to the
+  model in clear when an agent sent it on its own, in a sentence, or in a value whose name does not
+  point at a secret; only a name such as `token` or a `Bearer` header masked it. It is now masked
+  wherever it appears, like Latet's other credentials, as `LATET_SCIM_TOKEN`: its fake keeps the
+  prefix and the length, and the policies, the allow list, the restore of your own tools and the
+  check of outbound tool calls treat it as they treat a personal token.
+- Changed: the bridge token (the Claude Code plugin's, for the daemon on your computer) and a person's
+  one-time code now start with `latet_brg_` and `latet_code_`, so that Latet masks them wherever an
+  agent sends them, as `LATET_BRIDGE_TOKEN` and `LATET_ONE_TIME_CODE`, with a fake that keeps the
+  prefix and the length. Before, only a name such as `token` masked them, and one written alone, in a
+  sentence or in a command went to the model in clear. New ones have the prefix: the first bridge
+  token of a computer and of a server space, and each code from `people add` and `people code`. Those
+  made before stay as they are and keep working, so that nobody is locked out by the upgrade: a code
+  until its 24 hours end, a bridge token until it is replaced. Until then Latet masks them by the name
+  they are written under, as before. To replace an old bridge token: `latet stop`, delete
+  `bridge.token` in the data folder, `latet start` (it makes a new one) and `latet agents apply` (it
+  writes the new token into your agents' settings); the security page says so.
+- Changed: the logs also leave out what follows `latet_scim_`, as for the other Latet tokens, and the
+  whole of a bridge token (43 characters after `latet_brg_`) or a one-time code (32 after
+  `latet_code_`): a word that only begins like one, such as `latet_code_review`, stays readable.
+- Changed: the commands and settings that refuse a secret pasted where a name, a label or a token of
+  another kind goes (`latet server` arguments, an administration token's label, the metrics token
+  file, the reviewer's key file) also refuse a SCIM token, a bridge token and a one-time code (this one
+  by its whole shape, so that a label such as `latet_code_review` is still a label).
+- Fixed: a phone number written right after an equal sign in a log line was not found, and went to
+  the model in clear (`phone=+39 347 123 4567`, `tel=+393471234567`, `mobile=0039 347 123 4567`).
+  With a field rule or strict data mode on the key, an unquoted value ends at its first space, so
+  only `+39` was masked and `347 123 4567` stayed. A number with `+` is now found after `=`, `/`,
+  `#`, `_` and `.` as it was after a colon or a comma; one with `00`, or without a prefix, only after
+  an `=` whose key names a phone: its last word is `phone`, `tel`, `mobile`, `cell`, `fax` and the
+  like, or `number`, `num` or `no` after one (`phone_number`, `mobilePhone`, `tel_no`). A key that has
+  such a word among others is not one (`cell_id`, `mobile_version`, `phone_count`), and neither is
+  `count=3471234567` or `id=0012345678901`: they stay values. A field rule's or strict data mode's
+  unquoted value takes in the spaced groups of a phone number that begins it. Values in quotes and
+  JSON lines were found before.
+- Fixed: a password, a token or any secret in a `key=value` pair in the middle of a line was masked
+  only when its value looked random enough for the rules that read that, or when the line began with
+  it: `INFO login ok password=Winter2024x` went to the model in clear, and so did `token=`,
+  `secret=`, `pwd=`, `api_key=` and a value in quotes, after other words in a log, in parentheses, in
+  the query of a URL, before or after other pairs. The value of a pair whose key names a secret is now
+  masked wherever the pair stands, after `--` in a command too (`mysql --password=...`; not an option
+  whose name ends in `arg`, `option` or `flag`, such as `--pass-arg=...`, which takes the name of
+  something), and a quoted literal after a strong name (`password`, `secret`, `api_key`,
+  `access_token`...) is masked after a colon or a spaced equal sign as well (`{ password: 's3cr3t' }`,
+  `SET password = '...'`); an unquoted value there (`password: Optional[str]`,
+  `user, password = proxy_auth`) is left alone. Placeholders (`{token}` too), names of variables in a
+  call (`f(token=auth_token)`), calls, comparisons (`token==expected`), a closing backtick of a
+  markdown code span, a quoted piece of a concatenation, numbers and keys such as `token_count` or
+  `password_file` are left as they were.
+- Fixed: a status word after a secret's name was masked as a secret: `auth=failed`, `token=expired`,
+  `api_key=missing`, `password=invalid` in a log. They are left now, under any name, and so is a
+  value of the shape of a status under a name that ends in `status`, `state`, `result`, `results`,
+  `outcome`, `scheme`, `changed`, `reason` or `error` (`auth_status`, `token_error`,
+  `password_changed`): a lowercase word of 20 characters at most with one `-` or `_` at most, a
+  number of 10 digits at most, a time, a date or a boolean, for it says what a check found, not the
+  secret. Any other value under those names (`password_changed=Winter2024x`,
+  `token_state=Ab3x9Kq2Lm`, a passphrase such as `correct-horse-battery-staple`, a longer number or a
+  card number) is masked, as before. A status word is
+  lowercase and one of `ok`, `fail`, `failed`, `failure`, `denied`, `refused`, `rejected`,
+  `accepted`, `granted`, `success`, `succeeded`, `error`, `expired`, `missing`, `invalid`, `valid`,
+  `required`, `present`, `absent`, `revoked`, `rotated`, `refreshed`, `pending`, `unknown`,
+  `anonymous`, `unauthorized`, `forbidden`, `enabled`, `disabled`, `active`, `inactive`, `skipped`
+  and `passed`. Any other value after a secret's name is still a secret, and so is any value under
+  a name that ends in `reset`, `source`, `arg`, `option` or `flag` (`password_reset=...`,
+  `token_source=...`), except a status word. A vault that learnt one of these words or values as a
+  secret before (`failed`, from `auth=failed` under 0.9.10) keeps masking it as a value it knows,
+  wherever it appears, until it is forgotten in the dashboard (an API key's: `latet server keys
+  forget`).
+- Fixed: a request that Latet only checks and stops named one value twice when two detectors found
+  it: the 40-character key of the tutorial's stopped request read `ASSIGNED_SECRET[40],
+  GENERIC_API_KEY[40]`. Findings of one class that are the same text in the same place are now one
+  value, named as the masking names it (`GENERIC_API_KEY[40]`), in the error, the dashboard and the
+  Claude Code plugin's answer. Findings that only overlap, such as a private key read whole by one
+  rule and by its body by another, are still listed apart. When several rules find the same text, a
+  rule made for one kind of value names it over the general ones (gitleaks' generic key rule and the
+  pair of a secret's name): a GitHub token after a name, `GITHUB_TOKEN=ghp_...`, is a `GITHUB_PAT` as
+  when it stands alone, and stops a request as `GITHUB_PAT[40]`, where it was a `GENERIC_API_KEY`.
+- Changed: a field rule that lets `password` through (a type your policies let through) no longer
+  leaves in clear a quoted literal after a strong name on one JSON line
+  (`{"user": "ada", "password": "..."}`): the pair is masked all the same, as it was when the object
+  was written over several lines. A rule leaves in clear what only it finds, as the
+  [profiles](../concepts/profiles/) page says.
+- Fixed: a line that ends right after a secret's name stopped the request. `DB_PASSWORD=` at the end
+  of a line, a YAML `secrets:` or `auth:` with its block below, and `const accessToken =` with the
+  value on the next line made masking fail (an `IndexError` on the empty value), so the gateway
+  refused the request, and every later request of a conversation that carried such a file. This was
+  in every release.
+
 ## 0.9.10 (2026-10-25)
 
 - Fixed: a value of a type your policies let through (`allow`) left in clear what was written inside

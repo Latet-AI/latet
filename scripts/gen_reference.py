@@ -405,11 +405,21 @@ def detectors_page() -> str:
         "Public prefix and length kept; secret tail drawn again. |",
         "| `LATET_ADMIN_TOKEN` | `latet_adm_` followed by 43 URL-safe characters. | "
         "Public prefix and length kept; secret tail drawn again. |",
+        "| `LATET_SCIM_TOKEN` | `latet_scim_` followed by 43 URL-safe characters. | "
+        "Public prefix and length kept; secret tail drawn again. |",
+        "| `LATET_BRIDGE_TOKEN` | `latet_brg_` followed by 43 URL-safe characters. | "
+        "Public prefix and length kept; secret tail drawn again. |",
+        "| `LATET_ONE_TIME_CODE` | `latet_code_` followed by 32 URL-safe characters. | "
+        "Public prefix and length kept; secret tail drawn again. |",
         "| `LATET_ROUTE_KEY` | The 16 to 128 URL-safe characters after `/u/` in "
         "`https://<host>/u/<route-key>`. | Entire route key drawn again; host and other path segments kept. |",
         "",
         "URL-safe characters are `A-Z`, `a-z`, `0-9`, `_` and `-`. A credential is matched as a complete token;",
         "a route key as a complete path segment. Only the route key is replaced in an identity address.",
+        "",
+        "A bridge token or a one-time code made by an earlier version has no prefix. It stays valid until it is",
+        "replaced (a code, until its day ends). Latet masks it by the name it is written under, as it masks any",
+        "other secret, not by a shape of its own.",
         "",
         "## Personal data",
         "",

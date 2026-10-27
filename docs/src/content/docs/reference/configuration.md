@@ -269,13 +269,17 @@ See [Server operations](../../concepts/server-operations/) for storage, TLS, key
 | `metrics_port` | number | `7283` | The port where an instance answers Prometheus, with metrics_token_file: never the instance's own port (port). |
 | `database_password_file` | path | not set | A file holding PostgreSQL's password. |
 | `database_connect_timeout` | number | `5` | Seconds PostgreSQL has to answer a new connection before it is given up. |
+| `database_pool` | number | `10` | How many connections to PostgreSQL an instance keeps at most, for every identity's work; three tenths of them (one at least) may be held by applications calls that keep their new values in one transaction, the others keeping each value at once. Raise it, with PostgreSQL's max_connections, for an instance that masks for many new keys at once. |
 | `database_private_network` | true or false | `false` | Reach PostgreSQL over a network that only the instances share, with no checked TLS. |
 | `valkey_password_file` | path | not set | A file holding Valkey's password. |
 | `valkey_unauthenticated` | true or false | `false` | Reach a Valkey that asks no password: only one nothing else can reach. |
 | `valkey_private_network` | true or false | `false` | Reach Valkey over a network that only the instances share, with no checked TLS. |
 | `max_request_mb` | number | `32` | The largest request body, in MiB. |
-| `requests_in_flight` | number | `16` | How many requests one identity may have in flight on an instance, counted separately for its destinations (HTTP or WebSocket turns), dashboard and bridge: past each limit, 429. Long polls and streams have their own limits. |
+| `apps_request_mb` | number | `8` | The largest request body of the applications API (/_latet/apps/v1), in MiB: past it, 413. max_request_mb bounds it as well, when it is lower. |
+| `requests_in_flight` | number | `16` | How many requests one identity may have in flight on an instance, counted separately for its destinations (HTTP or WebSocket turns), dashboard, bridge and applications API: past each limit, 429. Long polls and streams have their own limits. |
 | `vault_limit` | number | `200000` | How many values one identity's vault may hold. |
+| `key_working_values` | number | `5000` | How many values of an API key's vault an instance keeps in memory, those used last: every other one is found in PostgreSQL as a text needs it. |
+| `key_held_secrets` | number | `1000` | How many secrets of an API key's vault that no word of a text finds glued to letters or digits (one run of 16 characters or fewer, or a short word at its edge) an instance holds in memory for good, the newest: an older one is found in PostgreSQL when nothing is glued to it, or one side only when it has seven characters or more. Each one held takes about 2.2 KB on every instance, and every text the key masks or unmasks is read for it: raise it for a key that sees many short secrets, such as a session token in each log line. |
 | `history_limit_mb` | number | `1024` | How many MiB one identity's history may keep: past it, its oldest exchanges go. |
 | `admin_token_days` | number | `90` | How many days a new administration token lasts (`--never` opts out). |
 | `forwarded_allow_ips` | text | `127.0.0.1` | The proxy's addresses, whose X-Forwarded-For and X-Forwarded-Proto are believed (never *, nor a network wider than /8 for IPv4 or /32 for IPv6). |

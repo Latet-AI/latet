@@ -31,7 +31,7 @@ import os
 import re
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -395,6 +395,21 @@ class Reviewer:
         if hit is None:
             return None
         return Answer(list(hit.findings), hit.block, list(hit.unlocated), cached=True)
+
+    def forget_answers(self, values: Iterable[str] | None = None) -> None:
+        """Values forgotten by themselves (an API key's, Task 11b): the answers remembered in memory, by text and by
+        piece, that found one of ``values`` (its findings, or those it could not place, as written) dropped, or every
+        one when the values are not known here (None: an instance that heard of the forget by its entries' ids alone,
+        review 11b's N3). A text sent again finds its answer in the store again (``memory``), where the forget took
+        those that held a value; a piece is read again by the reviewer only within a text it never answered."""
+        asked = None if values is None else set(values)
+
+        def holds(answer: Answer) -> bool:
+            return any(f.value in asked for f in (*answer.findings, *answer.unlocated)) if asked is not None else True
+
+        gone = holds if asked is not None else None
+        self._texts.discard_if(gone)
+        self._pieces.discard_if(gone)
 
     def remember(self, original: str, answer: Answer, picture: str | None = None) -> None:
         key = self._key("T", self._text_of(original, picture))

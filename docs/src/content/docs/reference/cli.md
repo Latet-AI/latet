@@ -89,8 +89,12 @@ description: Reference for the latet command line.
 | `latet server people code` | A new one-time code: whoever uses it can connect as this person and open their dashboard; recorded. |
 | `latet server people tokens` | A person's computers; `--revoke` or `--revoke-all` stops their tokens. |
 | `latet server keys add` | Make an API key, shown once or written privately with `--out`. |
-| `latet server keys list` | Every API key: enabled or not, and when it was last used. |
-| `latet server keys rotate` | Rotate an API key: the old key and its addresses stop on every instance within seconds. |
+| `latet server keys list` | Every API key: enabled or not, when it was last used, and its vault limit if it has one of its own. |
+| `latet server keys tokens` | An API key's tokens: each one's name, what it may do, whether it serves the key's agents (has an address), and when it was last used; `--revoke` stops one. |
+| `latet server keys add-token` | Give an API key another token with the permissions you choose, shown once or written privately with `--out`. |
+| `latet server keys rotate` | Rotate one of an API key's tokens: its old secret and addresses stop on every instance within seconds. |
+| `latet server keys limit` | Set how many values an API key's vault may hold, or give it the server's limit again. |
+| `latet server keys forget` | Forget values of an API key's vault: each taken out of it on every instance within seconds, once you agree. |
 | `latet server keys disable` | Disable an API key: its addresses stop on every instance within seconds; its space is kept. |
 | `latet server keys enable` | Enable an API key again. |
 | `latet server keys remove` | Remove an API key: it stops, and its space is deleted, once you agree. |
@@ -983,11 +987,12 @@ Make an API key, shown once or written privately with `--out`.
 
 ## `latet server keys list`
 
-Every API key: enabled or not, and when it was last used.
+Every API key: enabled or not, when it was last used, and its vault limit if it has one of its own.
 
-## `latet server keys rotate`
+## `latet server keys tokens`
 
-Rotate an API key: the old key and its addresses stop on every instance within seconds.
+An API key's tokens: each one's name, what it may do, whether it serves the key's agents (has an address), and
+when it was last used; `--revoke` stops one.
 
 | Argument | | Description |
 | --- | --- | --- |
@@ -995,8 +1000,81 @@ Rotate an API key: the old key and its addresses stop on every instance within s
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `--revoke` `TEXT` |  | Revoke this token's id. |
+| `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
+
+## `latet server keys add-token`
+
+Give an API key another token with the permissions you choose, shown once or written privately with `--out`.
+
+A token added so calls the applications API alone, where each unmask is in the administration log: it has no
+address for models, whatever it may do, and agents use the key's first token. `--forget` is given by name alone: the
+key's first token cannot forget. Each token stops on its own: `keys tokens` lists them, `keys tokens --revoke`
+stops one.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id or name. |
+| `NAME` | required | What the token is for, such as logs. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--scan` | off | It may say what a text holds, and change nothing. |
+| `--mask` | off | It may replace what a text holds with fakes (and so scan it). |
+| `--unmask` | off | It may put the real values back in place of the fakes. |
+| `--forget` | off | It may take values out of the key's vault; no other permission brings it. |
+| `--out` `PATH` |  | Write the token privately; print no secret. |
+
+## `latet server keys rotate`
+
+Rotate one of an API key's tokens: its old secret and addresses stop on every instance within seconds.
+
+The token keeps its name and its permissions. A key with several tokens needs `--token`; a key with one rotates
+that one, which this command names to the server after listing it.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id or name. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--token` `TEXT` |  | The token to rotate: its id, as `keys tokens` lists it. A key with several needs it. |
 | `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
 | `--out` `PATH` |  | Write the new key privately; print no secret. |
+
+## `latet server keys limit`
+
+Set how many values an API key's vault may hold, or give it the server's limit again.
+
+A key with no limit of its own has the server's (vault_limit). A vault that holds the most it may refuses the
+call that would add a value (the applications API answers 507) and lets nothing of that call out. A limit below
+the values the vault holds is kept, and the vault takes no new value until the limit is raised or values are
+forgotten (`keys forget`). The change reaches every instance within seconds.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id or name. |
+| `LIMIT` | required | How many values its vault may hold (1000 to 100000000), or default for the server's limit. |
+
+## `latet server keys forget`
+
+Forget values of an API key's vault: each taken out of it on every instance within seconds, once you agree.
+
+The values are read one a line from `--file`, or typed in your terminal, never from the command line. Each is found
+exactly as written: another case or another written form is another value of the vault. A value forgotten is gone
+with its fake, which restores nothing from then on, and it gets a new fake if it is met again. An address at a
+company's domain keeps the domain as a value of its own: forget it too if it should go. Each call is recorded in
+the administration log (key.forgotten) with its counts, never a value. A key's first forget after an upgrade can
+take minutes on a key with much history: each call waits up to five minutes, and running it again is safe.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id or name. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--file` `PATH` |  | The values to forget, one a line (UTF-8); without it, type them in your terminal. |
+| `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
 
 ## `latet server keys disable`
 

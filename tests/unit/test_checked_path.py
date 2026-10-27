@@ -130,7 +130,7 @@ def test_a_secret_the_vault_knows_leaves_in_what_the_model_wrote_and_stops_the_r
     mediator = _mediator(vault=vault)
     edit = f'TOKEN = "{SECRET}"\n'
     stopped = _checked(mediator, _claude_code(edit=edit)).block_reason
-    assert stopped is not None and "GITHUB_PAT[40]" in stopped
+    assert stopped == f"{STOPPED}GITHUB_PAT[40]"  # one value, found three ways, named by the specific rule
     _restored_for_the_tool(Bridge(mediator, "token"), file_path="tests/x.py", new_string=edit)
     assert _checked(mediator, _claude_code(edit=edit)).block_reason is None
 
@@ -299,7 +299,8 @@ def test_another_clients_assistant_turn_is_checked_as_a_clients_text_is(path, he
     raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages, "anthropic_version": "x"}).encode()
     prepared = _mediator().prepare(ANTHROPIC, "POST", path, {"content-type": "application/json", **headers}, raw)
     assert prepared.mode == VERIFY
-    assert prepared.block_reason is not None and "GITHUB_PAT[40]" in prepared.block_reason
+    assert prepared.block_reason is not None and prepared.block_reason.startswith(f"{STOPPED}GITHUB_PAT[40]")
+    assert "ASSIGNED_SECRET" not in prepared.block_reason and "GENERIC_API_KEY" not in prepared.block_reason
 
 
 def test_another_client_gets_nothing_of_what_the_model_wrote_known_in_its_conversation():

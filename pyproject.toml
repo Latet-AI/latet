@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "latet"
-version = "0.9.10"
+version = "0.10.0"
 description = "A local privacy firewall for AI agents: masks secrets and personal data before they reach the model and restores them locally."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -87,7 +87,7 @@ artifacts = ["src/latet/web/**", "src/latet/docs/**"]
 packages = ["src/latet"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["notes/", "dashboard/node_modules/", "docs/node_modules/"]
+exclude = ["notes/", "sdk/", "dashboard/node_modules/", "docs/node_modules/"]
 
 [tool.ruff]
 line-length = 120
@@ -103,7 +103,7 @@ ignore = ["S101"]
 "scripts/**" = ["S"]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "sdk/python/src"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 
@@ -130,17 +130,23 @@ markers = [
 # for its Live API, which no test uses; Latet's own websockets>=17.2 is what the lock keeps.
 override-dependencies = ["websockets>=17.2"]
 
+[tool.uv.sources]
+# The Python client of the applications API (MIT license, released on its own): tested here against a server.
+latet-client = { path = "sdk/python", editable = true }
+
 [dependency-groups]
 dev = [
     "latet[ner,ocr,server]",
     # The official SDKs (OpenAI, Anthropic, Google GenAI) and the frameworks built on them (LangChain, LangGraph),
     # which tests/e2e/test_sdks_e2e.py runs through Latet; AutoGen and CrewAI do not fit this environment and run in
-    # their own (tests/agents/test_frameworks.py).
+    # their own (tests/agents/test_frameworks.py). latet-client, the applications API's Python client (sdk/python),
+    # with the LangChain extra its tests and tests/server/test_apps_sdk_contract.py use.
     "anthropic>=1.15.0",
     "google-genai>=2.31.0",
     "hypothesis>=6.168.5",
     "langchain-openai>=1.7.2",
     "langgraph>=1.2.16",
+    "latet-client[langchain]",
     "openai>=3.35.1",
     "packaging>=26.3",
     "pyright>=1.1.414",

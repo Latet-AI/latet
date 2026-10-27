@@ -24,7 +24,9 @@ sagt, welche Werte darin stehen. Drei Dinge nutzen das:
 - **Tabellen:** psql, CSV, TSV und mit `;` getrennte, Markdown, HTML sowie die Tabellen im
   Accessibility-Snapshot eines Browsers (`columnheader`, `cell`) und mit Rahmenzeichen gezeichnete
   Tabellen (`console.table` von Node, der Unicode-Stil von psql).
-- **`key=value`-Paare:** zwei oder mehr in einer Zeile, wie in einem Log.
+- **`key=value`-Paare:** zwei oder mehr in einer Zeile, wie in einem Log. Ein Wert ohne Anführungszeichen endet
+  am ersten Leerzeichen, außer eine Telefonnummer steht am Anfang: deren Gruppen gehören dann dazu
+  (`phone=+39 347 123 4567`).
 - **JSON:** ein ganzes Dokument Wert für Wert, jeder mit seinem Pfad (`items[].sku`); ein Fragment
   `"key": value` in anderem Text, etwa in einer Log-Zeile, anhand seines Schlüssels.
 

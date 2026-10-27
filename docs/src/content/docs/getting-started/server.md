@@ -178,6 +178,23 @@ identity and file path without printing the secret. Store the key in the program
 store. `keys rotate "Billing CI" --out replacement.key` replaces its credential;
 update the program's key and route addresses together. A route key in an address is sensitive too.
 
+A key can have several tokens, each with its own permissions among `scan`, `mask`, `unmask` and
+`forget`, for programs that call the [applications API](../../applications/): an application that ships
+its logs masked needs `mask` alone, the support tool that reads them `unmask` alone.
+
+```sh
+latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper --mask --out shipper.token
+latet server --server https://latet.acme.lan keys tokens "Billing CI"
+```
+
+The key's first token may scan, mask and unmask; `forget`, which takes values out of the key's vault, is
+given to a token of its own ([forgetting values](../../applications/forget/)). Only the key's first
+token has an address for models: a token made with `keys add-token`, whatever its permissions, is
+refused there and calls the applications API alone, where each unmask is in the administration log.
+Once a key has several tokens, `keys rotate` needs `--token` with the id `keys tokens` lists, and
+`keys tokens "Billing CI" --revoke TOKEN_ID` stops one. `keys limit "Billing CI" 1000000` gives the
+key's vault a limit of its own, above or below the server's `vault_limit`.
+
 ## Set the shared settings and API keys' rules
 
 The shared settings hold what the server needs to run, the same for every space: the

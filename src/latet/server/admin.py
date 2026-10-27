@@ -28,6 +28,12 @@ the applicable check makes no change (401, recorded as revoked or expired). Toke
 writes, the held transaction takes no settings or audit rows, and no transaction takes a token after the audit chain's
 lock. Reads are not checked again.
 
+An API key's tokens are added under a name with the permissions they are given (scan, mask, unmask: ``token.added``,
+which records them and never the name or the secret), and listed with both. A rotation names the token it replaces when
+the key has several (409 otherwise), and a token whose row does not hold is not rotated (404, its words saying to revoke
+it); the new token keeps the name and the permissions of the one it replaces, and the entry (``key.rotated``) names both
+by their ids.
+
 An administration token issues tokens that end no later than itself: ``days`` that would end later, or ``never`` from a
 token that ends, are refused (403), and the server's default (``admin_token_days``) is cut at the caller's end. Any
 token may be revoked, the one the call is made with and the last one included (the way back is `latet server init
@@ -104,7 +110,9 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from latet import __version__
+from latet.bridge.apps import values_asked
 from latet.config import Config
+from latet.engine.detectors.latet import holds_a_secret_start
 from latet.gateway.security import from_browser
 from latet.http_inputs import same_etag
 from latet.log_paging import LogCursor, LogFilters, finite_time, page_limit
@@ -113,17 +121,25 @@ from latet.protection import changed_keys
 from latet.runtime import digest
 from latet.server import egress
 from latet.server.audit import LogReadRefused
+from latet.server.backends import shown_forgotten, vault_changes
+from latet.server.grants import GATEWAY, PERMISSIONS, Permission, normalized
+from latet.server.history import PgHistoryStore
 from latet.server.identities import (
     ADMIN_TOKEN_ID,
     IDENTITY_ID,
     LABEL_LENGTH,
     NAME_LENGTH,
     TOKEN_ID,
+    VAULT_LIMIT_LEAST,
+    VAULT_LIMIT_MOST,
     AdminTokenEnded,
     EmailTaken,
     NoSuchIdentity,
+    NoSuchToken,
     OutlivesIssuer,
+    SeveralTokens,
     clean,
+    token_name,
 )
 from latet.server.logs import REFUSED
 from latet.server.machines import (
@@ -146,6 +162,7 @@ from latet.server.machines import (
     off_loop,
     routes_of,
 )
+from latet.server.master import root_key
 from latet.server.settings import SERVER_API
 from latet.server.shared import (
     REVIEWER_KEY,
@@ -168,14 +185,14 @@ from latet.server.shared import (
 )
 from latet.server.space_settings import PgSettings, SettingsStale, SettingsTooLarge
 from latet.server.spaces import IdentityUnavailable, SpaceUnavailable
-from latet.server.tokens import ADMIN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX, OUTLIVES_ISSUER, TOKEN_PREFIX
-from latet.server.vault import vault_usage
+from latet.server.tokens import ADMIN_PREFIX, OUTLIVES_ISSUER
+from latet.server.vault import PgVaultStore, vault_usage, vault_values
 
 if TYPE_CHECKING:
     from latet.runtime import Runtime
     from latet.server.app import Server
     from latet.server.audit import AuditLog
-    from latet.server.identities import AdminTokenInfo, Changes, Identity
+    from latet.server.identities import AdminTokenInfo, Changes, Identity, TokenInfo
 
 log = logging.getLogger(__name__)
 
@@ -216,9 +233,6 @@ _HEADERS = {"cache-control": "no-store", "x-content-type-options": "nosniff"}  #
 REFUSED_ENTRIES = 60
 # The days a new administration token may be asked to last at most: ten years, the most admin_token_days takes.
 TOKEN_DAYS_MOST = 3650
-# What a new administration token's label may not hold, whatever its case: the beginning of a secret of Latet's, pasted
-# in the wrong place, which the store would keep in clear and every administrator would read in the list.
-_SECRET_STARTS = (TOKEN_PREFIX, COMPUTER_PREFIX, KEY_PREFIX, ADMIN_PREFIX)
 
 
 class Refusals:
@@ -370,10 +384,12 @@ def _token_asked(body: bytes) -> tuple[str, int, bool] | str:
             f"label is a text of {LABEL_CHARS} characters at most, with something left once its invisible characters "
             "are taken out"
         )
-    if any(start in clean(label, LABEL_CHARS).casefold() for start in _SECRET_STARTS):
+    # What a new administration token's label may not hold, whatever its case: the beginning of a secret of Latet's,
+    # pasted in the wrong place, which the store would keep in clear and every administrator would read in the list.
+    if holds_a_secret_start(clean(label, LABEL_CHARS).casefold()):
         return (
-            "label holds what a token or a key begins with (latet_pat_, latet_ck_, latet_key_, latet_adm_): a label "
-            "is no place for a secret"
+            "label holds what a token or a key begins with (latet_pat_, latet_ck_, latet_key_, latet_adm_, "
+            "latet_scim_, latet_brg_) or a one-time code: a label is no place for a secret"
         )
     if "days" in given and "never" in given:
         return "days and never: one of them at most"
@@ -387,10 +403,74 @@ def _token_asked(body: bytes) -> tuple[str, int, bool] | str:
     return label, 0, "never" in given
 
 
+def _key_token_asked(body: bytes) -> tuple[str, frozenset[Permission]] | str:
+    """In a worker thread: what ``body`` asks an API key's new token to be, as a JSON object holding ``name`` and
+    ``permissions``: its name as the store keeps it (``token_name``: a text with something left once its invisible
+    characters are taken out, no longer than a label) and its permissions as Latet reads them (a list of one or more of
+    scan, mask and unmask, mask bringing scan). Or the words of the refusal, which name the fields and never what they
+    hold."""
+    given = _parsed(body)
+    if given is None or not set(given) <= {"name", "permissions"}:
+        return "a JSON object: name and permissions"
+    name, permissions = given.get("name"), given.get("permissions")
+    try:
+        if not isinstance(name, str):
+            raise ValueError
+        label = token_name(name)
+    except ValueError:
+        return (
+            f"name is a text of {LABEL_LENGTH} characters at most, with something left once its invisible characters "
+            "are taken out"
+        )
+    # Kept in clear and listed to every administrator, as an administration token's label: never a secret of Latet's,
+    # whatever its case and wherever it stands in the name (the final review's M3, the security review's L1).
+    if holds_a_secret_start(label.casefold()):
+        return (
+            "name holds what a token or a key begins with (latet_pat_, latet_ck_, latet_key_, latet_adm_, "
+            "latet_scim_, latet_brg_) or a one-time code: a name is no place for a secret"
+        )
+    try:
+        if not isinstance(permissions, list) or not all(isinstance(each, str) for each in permissions):
+            raise ValueError
+        return label, normalized(permissions)
+    except ValueError:
+        return f"permissions is a list of one or more of {', '.join(PERMISSIONS)}"
+
+
+def _rotation_asked(body: bytes) -> str | None:
+    """In a worker thread: the token a rotation names, as the body says it: a JSON object holding ``token``, its id (of
+    the server's own shape); None when none is named, with no body, ``{}`` or a null ``token``. Raises ValueError, in
+    words that name the field and never what it holds, for anything else."""
+    if not body.strip():
+        return None
+    given = _parsed(body)
+    if given is None or not set(given) <= {"token"}:
+        raise ValueError("a JSON object: token, the id of the token to rotate, or no body at all")
+    token = given.get("token")
+    if token is None:
+        return None
+    if not isinstance(token, str) or not TOKEN_ID.fullmatch(token):
+        raise ValueError("token is a token's id (t_ and ten letters or digits), as GET …/tokens lists them")
+    return token
+
+
 def _time(moment: Any) -> float | None:
     """A time of an administration token's row as an answer gives it: a finite number, else none (a row written by hand
     can hold anything its column takes, ``NaN`` among them, which JSON has no name for)."""
     return float(moment) if isinstance(moment, int | float) and math.isfinite(moment) else None
+
+
+def _token(info: TokenInfo) -> dict[str, Any]:
+    """An identity's token as the administration answers it: what ``Identities.tokens`` says of it, its name too (its
+    label, as before) and its permissions a sorted list (JSON has no set)."""
+    return asdict(info) | {"name": info.label, "permissions": sorted(info.permissions)}
+
+
+def _addresses(info: TokenInfo, url: str, secret: str) -> dict[str, str]:
+    """The addresses of a token whose secret is ``secret``, when it may call a model through Latet (a token that serves
+    agents, with mask and unmask, ``GATEWAY``: a key's first): its own, Anthropic's and OpenAI's. A token that may not
+    has none, and is given none: a token added to a key, whatever it may do (Ruling T13b)."""
+    return routes_of(url, secret) if info.agents and info.permissions >= GATEWAY else {}
 
 
 def _tokens_answer(tokens: list[AdminTokenInfo], caller: str | None) -> tuple[JSONResponse, int, int]:
@@ -937,28 +1017,44 @@ def admin_routes(server: Server) -> list[Route]:
         if (identity := await found(call)) is None:
             return _missing()
         tokens = await _in_pool(server.identities.tokens, identity.id)
-        return JSONResponse({"identity": asdict(identity), "tokens": [asdict(t) for t in tokens]})
+        return JSONResponse({"identity": await _with_values(identity), "tokens": [_token(t) for t in tokens]})
+
+    async def _with_values(identity: Identity) -> dict[str, Any]:
+        """The identity as the administration answers for one identity: what the store says of it, and how many values
+        its vault holds now (``vault_values``: more than its ``vault_limit`` when the limit was lowered under them). A
+        listing leaves the count out: one count of every vault is a walk of them all."""
+        return asdict(identity) | {"vault_values": await _in_pool(vault_values, server.db, identity.id)}
 
     async def change_identity(request: Request, call: _Call) -> Response:
         if (identity := await found(call)) is None:
             return _missing()
         given = await _object(request)
-        if given is None or not set(given) <= {"name", "email", "disabled"}:
-            return _error("a JSON object: name, email or disabled", 400)
+        if given is None or not set(given) <= {"name", "email", "disabled", "vault_limit"}:
+            return _error("a JSON object: name, email, disabled or vault_limit", 400)
         name, email, disabled = given.get("name"), given.get("email"), given.get("disabled")
+        limiting, limit = "vault_limit" in given, given.get("vault_limit")  # null is a limit: the server's
         if name is not None and (not isinstance(name, str) or not clean(name, NAME_LENGTH)):
             return _error("name is a text, with something left once its invisible characters are taken out", 400)
         if email is not None and (not isinstance(email, str) or (identity.kind == "key" and email)):
             return _error("email is a text, and a person's only", 400)
         if disabled is not None and not isinstance(disabled, bool):
             return _error("disabled is true or false", 400)
+        if limit is not None and (type(limit) is not int or not VAULT_LIMIT_LEAST <= limit <= VAULT_LIMIT_MOST):
+            return _error(
+                f"vault_limit is a whole number from {VAULT_LIMIT_LEAST} to {VAULT_LIMIT_MOST} values, or null for the "
+                "server's limit",
+                400,
+            )
+        if limiting and identity.kind != "key":
+            return _error("a person's vault follows the server's limit: only an API key has one of its own", 409)
 
         def change() -> bool | EmailTaken | None:
             """In one transaction with its entry: whether the change disabled (True) or enabled (False) the identity.
             The fields it names are the ones this change changed, as the store says them, never another administrator's
             at the same moment; a change that changes nothing is recorded as such (R-24 (3)), once it answers. A person
             disabled is disabled before their email changes, and enabled after: the email is checked against the other
-            enabled people as it will be (EmailTaken: nothing changed, the refusal recorded as the call ends)."""
+            enabled people as it will be (EmailTaken: nothing changed, the refusal recorded as the call ends). An API
+            key's vault limit changed is recorded with the limit (a number, or null for the server's)."""
             try:
                 with server.identities.changing() as changes:
                     holding(call, changes.conn)  # the token's row first, before any other
@@ -972,7 +1068,10 @@ def admin_routes(server: Server) -> list[Route]:
                         switched = False
                     if switched is not None:
                         fields.append("disabled")
-                    details: dict[str, Any] = {"fields": sorted(fields)}
+                    limited = limiting and server.identities.limit_vault(identity.id, limit, within=changes)
+                    if limited:
+                        fields.append("vault_limit")
+                    details: dict[str, Any] = {"fields": sorted(fields)} | ({"vault_limit": limit} if limited else {})
                     done = None
                     if switched is not None:
                         done = f"{identity.kind}.{'disabled' if switched else 'enabled'}"
@@ -996,7 +1095,8 @@ def admin_routes(server: Server) -> list[Route]:
         now = await _in_pool(server.identities.current, identity.id)
         if now is None:
             return _missing()
-        return JSONResponse({"identity": asdict(now)})
+        # A vault limit set says how many values the vault holds now, which may be more than the limit it was given.
+        return JSONResponse({"identity": await _with_values(now) if limiting else asdict(now)})
 
     async def remove_identity(request: Request, call: _Call) -> Response:
         if (identity := await found(call)) is None:
@@ -1021,7 +1121,33 @@ def admin_routes(server: Server) -> list[Route]:
         if (identity := await found(call)) is None:
             return _missing()
         tokens = await _in_pool(server.identities.tokens, identity.id)
-        return JSONResponse({"tokens": [asdict(t) for t in tokens]})
+        return JSONResponse({"tokens": [_token(t) for t in tokens]})
+
+    async def add_token(request: Request, call: _Call) -> Response:
+        if (identity := await found(call)) is None:
+            return _missing()
+        if identity.kind != "key":
+            return _error("a person's tokens come from their computers", 409)
+        asked = await _in_pool(_key_token_asked, await request.body())
+        if isinstance(asked, str):
+            return _error(asked, 400)
+        name, permissions = asked
+
+        def added() -> tuple[TokenInfo, str]:
+            with server.identities.changing() as changes:
+                holding(call, changes.conn)  # the token's row first, before the key's
+                info, secret = server.identities.add_token(identity.id, name, permissions, within=changes)
+                details = {"token": info.id, "permissions": sorted(info.permissions)}  # never its secret or its name
+                entry(call, changes, "token.added", details, status=201)
+            recorded(call, "token.added", details)
+            return info, secret
+
+        try:
+            info, secret = await _in_pool(added)
+        except NoSuchIdentity:
+            return _missing()  # removed meanwhile
+        token = {"id": info.id, "name": info.label, "permissions": sorted(info.permissions), "created": info.created}
+        return JSONResponse({"token": token, "key": secret, **_addresses(info, url, secret)}, status_code=201)
 
     async def revoke_tokens(request: Request, call: _Call) -> Response:
         if (identity := await found(call)) is None:
@@ -1033,8 +1159,13 @@ def admin_routes(server: Server) -> list[Route]:
         def revoked() -> int:
             with server.identities.changing() as changes:
                 holding(call, changes.conn)  # first, whatever the count: a token that ended ends no session either
-                count = server.identities.revoke(identity.id, token, within=changes)
-                details = {"count": count} | ({"token": token} if token else {})
+                if token:  # one, named: the entry says what it could do, as token.added does (never its name)
+                    could = server.identities.revoke_one(identity.id, token, within=changes)
+                    count = int(could is not None)
+                    details = {"count": count, "token": token} | ({"permissions": could} if could is not None else {})
+                else:
+                    count = server.identities.revoke(identity.id, token, within=changes)
+                    details = {"count": count}
                 if count:
                     entry(call, changes, "token.revoked", details)
             if count:
@@ -1074,20 +1205,82 @@ def admin_routes(server: Server) -> list[Route]:
         if identity.kind != "key":
             return _error("a person's tokens are revoked, not rotated", 409)
 
-        def rotated() -> str:
+        try:
+            named = await _in_pool(_rotation_asked, await request.body())
+        except ValueError as exc:  # its words name the field, never what it held
+            return _error(str(exc), 400)
+
+        def rotated() -> tuple[str, TokenInfo]:
             with server.identities.changing() as changes:
                 holding(call, changes.conn)  # the token's row first, before the key's
-                secret = server.identities.rotate_key(identity.id, within=changes)
-                entry(call, changes, "key.rotated", {})
-            recorded(call, "key.rotated", {})
-            return secret
+                info, secret, replaced = server.identities.rotate_token(identity.id, token_id=named, within=changes)
+                details = {"token": info.id, "replaced": replaced}  # the one that stands, and the one retired if any
+                entry(call, changes, "key.rotated", details)
+            recorded(call, "key.rotated", details)
+            return secret, info
 
         try:
-            secret = await _in_pool(rotated)
+            secret, info = await _in_pool(rotated)
         except NoSuchIdentity:
             return _missing()  # removed meanwhile
+        except SeveralTokens as several:  # nothing done; its words say how many, and that the caller names the one
+            return _error(str(several), 409)
+        except NoSuchToken as gone:  # nothing done; its words say what to do when the row does not hold
+            return _error(str(gone), 404)
         await ended(identity.id)  # whatever the broadcast does (H8)
-        return JSONResponse({"key": secret, **routes_of(url, secret)})
+        answer = {"key": secret, "token": info.id, "name": info.label, "permissions": sorted(info.permissions)}
+        return JSONResponse(answer | _addresses(info, url, secret))
+
+    # --- values of an API key's vault forgotten (Task 11b) ------------------------------------------------------------
+
+    async def forget_values(request: Request, call: _Call) -> Response:
+        """``{"values": [...]}`` → ``{"forgotten", "unknown"}``: each value, found exactly as it is given, taken out of
+        the API key's vault with everything that names it, the local reviewer's answers that found it and the rows of
+        the key's history that name its entry (``PgVaultStore.forget_values``, ``PgHistoryStore.forget_entities``:
+        Ruling 11b-R1), whether the key is enabled or not: a request that values leave is served whatever the key's
+        state. In one transaction: the call's token's row first, then the vault's rows and the history's, then the
+        entry (``key.forgotten``: how many values asked, forgotten and not held; never a value), so that a forget and
+        its entry are kept together or not at all; then out of the key's conversations in Valkey
+        (``shown_forgotten``), and every instance's space of the key is told, this one's too, and drops the values from
+        its memory, its conversations and its masked texts as it hears of it."""
+        if (identity := await found(call)) is None:
+            return _missing()
+        if identity.kind != "key":
+            return _error("a person forgets the values of their vault in their dashboard (Vault)", 409)
+        asked = await _in_pool(values_asked, await request.body())
+        if isinstance(asked, str):
+            return _error(asked, 400)
+        (values,) = asked
+
+        def forgotten() -> dict[str, Any]:
+            key = root_key(server.db, server.master, identity.id, clock=server.clock)
+            told = vault_changes(server, identity.id, f"{server.instance}:administration")
+            store = PgVaultStore(server.db, identity.id, key, changed=told)
+            history = PgHistoryStore(server.db, identity.id, key)
+            history.index_entities()  # outside the forget's transaction, its token's row not held yet: once
+            details: dict[str, Any] = {}
+
+            def first(conn: Any) -> None:
+                holding(call, conn)  # the token's row first, before any row of the vault
+
+            def last(conn: Any, done: int, unknown: int) -> None:
+                details.update({"values": len(values), "forgotten": done, "unknown": unknown})
+                holding(call, conn)  # its row this transaction's since ``first``: its day judged now
+                entry = (call.actor, "key.forgotten", call.target, {**details, "status": 200}, call.address)
+                server.audit.record(*entry, conn=conn)
+
+            done = store.forget_values(values, first=first, gone=history.forget_entities, last=last)
+            recorded(call, "key.forgotten", details)
+            shown_forgotten(server, identity.id, done.ids)
+            return details
+
+        try:
+            details = await _in_pool(forgotten)
+        except OperationalError as exc:  # a row held past its bound, or PostgreSQL not answering: nothing forgotten
+            log.warning("values of %s could not be forgotten now (%s)", identity.id, type(exc).__name__)
+            call.details = {"values": len(values)}
+            return _error("the key's vault could not be changed now, and nothing was forgotten: try again", 503)
+        return JSONResponse({"forgotten": details["forgotten"], "unknown": details["unknown"]})
 
     # --- an API key's settings ----------------------------------------------------------------------------------------
 
@@ -1429,7 +1622,13 @@ def admin_routes(server: Server) -> list[Route]:
                     "keys": len(server.identities.all("key")),
                     "enabled": server.identities.enabled_count(),
                 },
-                "vault": {"limit": limit, "near": [{"id": i, "values": n} for i, n in vault_usage(server.db, limit)]},
+                "vault": {
+                    "limit": limit,
+                    "near": [
+                        {"id": i, "values": n, "retired": retired, "limit": most}
+                        for i, n, retired, most in vault_usage(server.db, limit)
+                    ],
+                },
                 "audit": {"chain": chain},
                 "database": server.db.ping(),
                 "valkey": server.bus.ping(),
@@ -1439,7 +1638,7 @@ def admin_routes(server: Server) -> list[Route]:
         found_ = await _in_pool(state)
         answer = {
             "url": url, "version": __version__, "instance": server.instance, "identities": found_["identities"],
-            "spaces": server.spaces.count(), "vault": found_["vault"],  # the identities at 90% of the limit or more
+            "spaces": server.spaces.count(), "vault": found_["vault"],  # the identities at 90% of their limit or more
             "audit": found_["audit"], "database": found_["database"], "valkey": found_["valkey"],
             "edition": found_["kept"],  # E1: and the lines of Edition.checks()
         }  # fmt: skip
@@ -1453,9 +1652,11 @@ def admin_routes(server: Server) -> list[Route]:
         Route(one, admin("identity.change", change_identity), methods=["PATCH"]),
         Route(one, admin("identity.remove", remove_identity), methods=["DELETE"]),
         Route(f"{one}/tokens", admin("tokens.list", list_tokens), methods=["GET"]),
+        Route(f"{one}/tokens", admin("token.add", add_token), methods=["POST"]),
         Route(f"{one}/tokens", admin("tokens.revoke", revoke_tokens), methods=["DELETE"]),
         Route(f"{one}/code", admin("code.issue", new_code), methods=["POST"]),
         Route(f"{one}/rotate", admin("key.rotate", rotate), methods=["POST"]),
+        Route(f"{one}/forget", admin("key.forget", forget_values), methods=["POST"]),
         Route(f"{one}/settings", admin("settings.read", get_settings), methods=["GET"]),
         Route(f"{one}/settings", admin("settings.change", put_settings), methods=["PUT"]),
         Route(f"{ADMIN_API}/shared", admin("shared.read", get_shared), methods=["GET"]),

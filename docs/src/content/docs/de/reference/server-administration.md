@@ -27,7 +27,7 @@ Umgebungsvariablen des Kontos heraus: Prozesse desselben Benutzers können die U
 Prozesse lesen. `LATET_SERVER_ADMIN_TOKEN` ist für den Geheimnisspeicher einer CI oder eines
 Containers bestimmt, zusammen mit `LATET_SERVER_URL`; es wird nie an einen anderen Server gesendet.
 
-`keys add`, `keys rotate` und `admin-token issue` akzeptieren `--out FILE`: die neue private
+`keys add`, `keys add-token`, `keys rotate` und `admin-token issue` akzeptieren `--out FILE`: die neue private
 Datei erhält das Geheimnis, und der Befehl zeigt nur ID und Datei. Geben Sie Codes, Schlüssel
 oder Verwaltungstoken nie in Tickets, gemeinsamen Kanälen oder Gesprächen mit Agenten weiter.
 Mit dem Einmalcode einer Person kann jeder, der ihn verwendet, einen Rechner als diese Person
@@ -99,6 +99,28 @@ jedes Bereichs, und ohne ihn lässt sich kein Tresor mehr lesen. Bewahren Sie ei
 den Sicherungen der Datenbank auf, wie [Serverbetrieb](../../concepts/server-operations/) es
 beschreibt.
 
+## Werte eines API-Schlüssels vergessen
+
+Wenn eine Person verlangt, dass ihre Daten aus dem Tresor eines API-Schlüssels verschwinden, entfernt
+`keys forget` ihre Werte daraus, zusammen mit dem, was die Unterhaltungen und der Verlauf des
+Schlüssels von ihnen aufbewahren, auf jeder Instanz, sobald die Aufrufe enden, die dort bereits laufen:
+
+```sh
+latet server --server https://latet.acme.lan keys forget "Shop" --file erasure.txt
+```
+
+Die Datei enthält einen Wert pro Zeile, in UTF-8; ohne `--file` geben Sie die Werte im Terminal ein,
+und eine leere Zeile beendet sie. Ein Wert wird nie von der Befehlszeile genommen, die die Shell in
+ihrem Verlauf behält, und der Befehl verweigert einem Agenten die Arbeit, wie `config get`. Er fragt,
+bevor er sie sendet, in Ihrem Terminal auch mit `--yes`; ein Skript braucht `--yes`. Jeder Wert wird
+genau so gesucht, wie er geschrieben ist: Nennen Sie jede Form, die verschwinden soll, und auch die
+Unternehmensdomain einer Adresse, die der Tresor als eigenen Wert aufbewahrt. Jeder Aufruf mit höchstens
+1.000 Werten ist ein Eintrag `key.forgotten` mit der Zahl der angefragten, vergessenen und nicht im
+Tresor gefundenen Werte, nie mit einem Wert. Das funktioniert auch bei einem deaktivierten Schlüssel.
+Eine Anwendung tut dasselbe mit einem Token, dem Sie `--forget` gegeben haben (`keys add-token "Shop"
+erasure --forget`) und das keine andere Berechtigung einschließt: siehe
+[Werte vergessen](../../applications/forget/).
+
 ## Das Verwaltungslog lesen
 
 `latet server log --limit 100000 --json` liest aufeinanderfolgende Seiten, zuerst die neuesten
@@ -109,10 +131,20 @@ einen pro Zeile; Hinweise werden auf stderr ausgegeben.
 
 `--since` schließt seinen Grenzwert ein, `--until` schließt ihn aus. `--actor` wählt eine Identität
 oder ein Verwaltungstoken; `--action` wählt eine Aktion oder ein wörtliches Präfix mit abschließendem
-`*`. Die Aktionen nennen, was sich geändert hat (`person.added`, `code.issued`, `token.revoked`,
-`key.rotated`, `settings.changed`, `shared.changed`, `admin-token.issued`, `admin-token.revoked`),
-und Lesezugriffe werden unter dem Namen des Aufrufs erfasst (`status.read`, `log.read`):
-`--action 'admin-token.*'` wählt jede Änderung der Verwaltungstoken.
+`*`. Die Aktionen nennen, was sich geändert hat (`person.added`, `code.issued`, `token.added`,
+`token.revoked`, `key.rotated`, `key.updated`, `settings.changed`, `shared.changed`, `admin-token.issued`,
+`admin-token.revoked`), und Lesezugriffe werden unter dem Namen des Aufrufs erfasst (`status.read`,
+`log.read`): `--action 'admin-token.*'` wählt jede Änderung der Verwaltungstoken.
+
+Die Token eines API-Schlüssels werden mit ihrer ID genannt, nie mit ihrem Geheimnis oder ihrem Namen:
+`token.added` nennt den neuen Token und seine Berechtigungen, `key.rotated` den Token, der bleibt
+(`token`), und den, den er ersetzt hat (`replaced`), und `key.updated` eine Änderung wie die
+Tresorgrenze des Schlüssels (`vault_limit`). `apps.unmasked` ist eine Wiederherstellung über die
+[API für Anwendungen](../apps-api/): der Token, wie viele Texte und wie viele Werte sie
+wiederhergestellt hat, nie ein Text oder ein Wert. `--action apps.unmasked` listet auf, wer wann
+wiederhergestellt hat. `key.forgotten` und `apps.forgotten` sind Werte, die aus dem Tresor eines
+API-Schlüssels entfernt wurden, mit `keys forget` und über die API für Anwendungen: wie viele Werte
+angefragt, vergessen und nicht gefunden wurden, bei der API auch das Token, nie ein Wert.
 Zum Fortsetzen übergeben Sie den ausgegebenen Log-Cursor mit `--cursor` und genau denselben
 ursprünglichen Filtern. Verwenden Sie absolute Daten oder genaue Epochensekunden, wenn Sie später
 fortsetzen wollen: Eine relative Zeit wie `7d` ändert sich zwischen Aufrufen. Ersetzen Sie `--until`

@@ -102,6 +102,8 @@ def _emails(text: str) -> Iterator[Span]:
 # --- phone ---------------------------------------------------------------------------------------
 
 _PHONE_CANDIDATE = re2.compile(r"(?:\+|\b00)?\(?\d[\d ()./\-]{6,20}\d\b")
+# What ``phone_end`` reads of a line: a candidate takes 25 characters at most, and its last ``\b`` the one after it.
+_PHONE_WINDOW = 48
 # Dates, times and dotted versions look like formatted numbers.
 _NOT_PHONE = re2.compile(r"^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d+(?:\.\d+){2,})")
 _DECIMAL = re2.compile(r"^\d+\.\d+$")
@@ -110,34 +112,107 @@ _CODE_PHONE = re2.compile(r"^(?:\+|00)|[ ()]")
 DEFAULT_PHONE_REGIONS = ("IT", "US", "GB")
 
 
+def _phone_shaped(candidate: str) -> bool:
+    """Whether a candidate has the digits and groups of a phone number, not those of a date, a version, a decimal or a
+    list of single digits."""
+    digits = sum(c.isdigit() for c in candidate)
+    if digits < 8 or digits > 15:
+        return False
+    if _NOT_PHONE.match(candidate) or _DECIMAL.match(candidate):
+        return False
+    groups = [g for g in _PHONE_SEPARATORS.split(candidate) if g]
+    return sum(1 for g in groups if len(g) == 1) <= 2  # "0 1 2 3 4 5": lists of digits
+
+
+def _phone_valid(candidate: str, regions: tuple[str, ...]) -> bool:
+    for region in (None,) if candidate.startswith("+") else regions:
+        try:
+            number = phonenumbers.parse(candidate, region)
+        except phonenumbers.NumberParseException:
+            continue
+        if phonenumbers.is_valid_number(number):
+            return True
+    return False
+
+
+# What a key that names a phone is made of: its words, apart by a sign or a capital (``phone``, ``mobile_phone``,
+# ``phoneNumber``, ``TEL``), never a part of a longer word (``telemetry``, ``cellar``). A key names a phone when its
+# last word is one of these, or "number" and the like after one (``phone_number``, ``tel_no``): ``cell_id``,
+# ``mobile_version``, ``fax_sent`` and ``phone_count`` name what is about a phone, which is not one.
+_PHONE_KEY_WORDS = frozenset(
+    {
+        *("phone", "phones", "tel", "telephone", "mobile", "cell", "cellphone", "fax", "gsm"),
+        *("msisdn", "whatsapp", "telefono", "telefon", "cellulare", "handy", "portable", "movil", "celular"),
+    }
+)
+_NUMBER_WORDS = frozenset({"number", "numbers", "num", "no", "nr"})
+_KEY_WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
+_KEY_MOST = 41  # characters of a key read before an ``=``
+
+
+def _names_a_phone(text: str, equals: int) -> bool:
+    """Whether the key that ends right before the ``=`` at ``equals`` names a phone."""
+    start = equals
+    while start > 0 and equals - start < _KEY_MOST and (text[start - 1].isalnum() or text[start - 1] in "_.-"):
+        start -= 1
+    words = [word.lower() for word in _KEY_WORD.findall(text[start:equals])]
+    if words and words[-1] in _NUMBER_WORDS:
+        words.pop()
+        return bool(words) and words[-1] in _PHONE_KEY_WORDS
+    return bool(words) and words[-1] in _PHONE_KEY_WORDS
+
+
+def _glued_phone(text: str, start: int, candidate: str) -> bool:
+    """Whether a number that follows one of ``._/#=`` right away may be a phone. A ``+`` makes it one wherever it
+    stands. After an ``=`` it is also one, with ``00`` (``mobile=0039...``) or none (``phone=347 123 4567``), when the
+    key names a phone: any other number there (``count=3471234567``, ``id=0012345678901``) is a value, as it was."""
+    if candidate.startswith("+"):
+        return True
+    return text[start - 1] == "=" and _names_a_phone(text, start - 1)
+
+
 def _phones(text: str, natural: bool, regions: Iterable[str]) -> Iterator[Span]:
     regions = tuple(regions)
     for m in _PHONE_CANDIDATE.finditer(text):
         candidate = text[m.start() : m.end()]
-        digits = sum(c.isdigit() for c in candidate)
-        if digits < 8 or digits > 15:
+        if not _phone_shaped(candidate):
             continue
-        if _NOT_PHONE.match(candidate) or _DECIMAL.match(candidate):
-            continue
-        groups = [g for g in _PHONE_SEPARATORS.split(candidate) if g]
-        if sum(1 for g in groups if len(g) == 1) > 2:
-            continue  # "0 1 2 3 4 5": lists of digits
         if not natural and (not _CODE_PHONE.search(candidate) or "." in candidate or "/" in candidate):
             # In code a bare digit run, digits joined by "-", or anything with "." or "/" is an id, a
             # build number, a date or arithmetic far more often than a phone: require "+", "00", a
             # space or parentheses, and no dots or slashes.
             continue
         prev = text[m.start() - 1 : m.start()]
-        if prev and (prev.isalnum() or prev in "._/#="):
+        if prev and (prev.isalnum() or (prev in "._/#=" and not _glued_phone(text, m.start(), candidate))):
             continue
-        for region in (None,) if candidate.startswith("+") else regions:
-            try:
-                number = phonenumbers.parse(candidate, region)
-            except phonenumbers.NumberParseException:
-                continue
-            if phonenumbers.is_valid_number(number):
-                yield Span(m.start(), m.end(), "PHONE", EntityClass.PII, "pii:phone")
-                break
+        if _phone_valid(candidate, regions):
+            yield Span(m.start(), m.end(), "PHONE", EntityClass.PII, "pii:phone")
+
+
+def phone_end(
+    text: str, start: int, regions: Iterable[str] = DEFAULT_PHONE_REGIONS, limit: int | None = None
+) -> int | None:
+    """Where a valid phone number that begins exactly at ``start`` ends, else None. For a value that begins there
+    (an unquoted ``key=value``): nothing is asked of what is before it, nor of prose or code. ``limit``: where the
+    value ends as it is read without it; the shape of a phone number that does not go past it is no use (None, and
+    ``phonenumbers`` is not asked, which costs a parse for each region of every number of a numeric log)."""
+    if text[start : start + 1] not in ("+", "(", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
+        return None
+    if limit is not None:
+        # A value that a space, a parenthesis and a digit or another one follows may go on as a phone number: a letter
+        # after the space (the next pair's key), a delimiter or the end of the line, never.
+        after = text[limit : limit + 2]
+        if len(after) < 2 or after[0] not in " ()" or after[1] not in "0123456789 (":
+            return None
+    # Only the few characters a candidate can take, never the line: RE2's wrapper encodes the whole text it is given at
+    # each call, and a call for each pair of a long line would cost the square of its length. A value begins after an
+    # ``=``, no character of a word, so the ``\b`` of ``\b00`` reads the same at the window's start.
+    window = text[start : start + _PHONE_WINDOW]
+    m = _PHONE_CANDIDATE.match(window)
+    if m is None or (limit is not None and start + m.end() <= limit):
+        return None
+    candidate = window[: m.end()]
+    return start + m.end() if _phone_shaped(candidate) and _phone_valid(candidate, tuple(regions)) else None
 
 
 # --- IBAN ----------------------------------------------------------------------------------------

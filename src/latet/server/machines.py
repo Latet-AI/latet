@@ -95,11 +95,12 @@ from latet.server.logs import REFUSED
 from latet.server.settings import SERVER_API
 from latet.server.shared import SettingsSavedChangePending, SharedItemsError
 from latet.server.spaces import IdentityUnavailable, SpaceUnavailable
-from latet.server.tokens import KEY_PREFIX, TOKEN_PREFIX, route_key
+from latet.server.tokens import KEY_PREFIX, TOKEN_PREFIX, bearer_token, route_key
 
 if TYPE_CHECKING:
     from latet.server.app import Server
     from latet.server.bus import Bus
+    from latet.server.grants import Grant
     from latet.server.identities import Identity
 
 log = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ KNOWN_SECONDS = 3600.0  # how long a credential found valid skips its bucket's l
 KNOWN_SIZE = 10_000  # credentials an instance's memory keeps so at most: the one found valid longest ago goes first
 NAMES_KEPT = 32  # user names, emails and host names each, that a person's computers add to their identity at most
 NAME_CHARS = 320  # characters of one of them, and of a full name, at most (an email's longest)
-CODE_CHARS = 128  # characters of what is tried as a one-time code at most (one is 32): past it, no code, nothing read
+CODE_CHARS = 128  # characters of what is tried as a one-time code at most (one is 43: its prefix and 32; an older, 32)
 LABEL_CHARS = 1_000  # characters of a computer's label read at most (Identities keeps 100 of them, cleaned)
 # Bytes of a body read at most, and parsed on the event loop: a code and a label; a person's identity from a computer
 # (NAMES_KEPT texts of each kind, in any script). Past them the call is refused unparsed (413), whatever max_request_mb
@@ -181,6 +182,20 @@ _WORK = ThreadPoolExecutor(WORK_THREADS, thread_name_prefix="latet-work")
 # own entries. Neither the lookups nor the people's settings wait behind them, nor they behind the people's locks.
 STORE_THREADS = 4
 _STORE = ThreadPoolExecutor(STORE_THREADS, thread_name_prefix="latet-store")
+# The threads of the applications API's entries in the administration log (an unmask's, written before its answer):
+# they wait on the log's chain as the store threads' entries do, apart from them, so that a key's burst of unmasks
+# (``requests_in_flight`` of them) queues behind the applications' own entries alone, never ahead of an enrolment, a
+# revocation or the server's own work. Two: one entry being written, the next waiting on the chain; the chain writes
+# one at a time whatever waits on it.
+APPS_LOG_THREADS = 2
+_APPS_LOG = ThreadPoolExecutor(APPS_LOG_THREADS, thread_name_prefix="latet-apps-log")
+# The threads of the applications API's forgets (Task 11b), each with its entry of the administration log in its own
+# transaction: a forget gives the key's older reviewer answers and history rows their keyed hashes first (seconds, once
+# after an upgrade), then waits on rows and on the log's chain. Apart from the unmasks' entries (review 11b's I2), so
+# that a key's forgets never hold back any key's unmasks, nor an enrolment or a revocation: they queue behind each other
+# alone, two at a time for the server.
+FORGET_THREADS = 2
+_FORGET = ThreadPoolExecutor(FORGET_THREADS, thread_name_prefix="latet-forget")
 UNANSWERED = Paced()  # work that did not finish for the gate or a machine's call: said once a minute
 UNBUILT = Paced()  # a person's space that could not be built for a machine's call: said once a minute
 SHED = Paced()  # credentials refused because the credentials' threads were busy (``CREDENTIALS_BUSY``): once a minute
@@ -592,6 +607,15 @@ def token_of(scope: Mapping[str, Any]) -> str:
     return found[0].decode("latin-1") if len(found) == 1 else ""
 
 
+def bearer_of(scope: Mapping[str, Any]) -> str:
+    """The token of a request's one ``Authorization`` header (``Bearer`` in any case, one space or more as RFC 7235
+    allows, the token: the applications API's), read as the metrics' scrape reads it (``tokens.bearer_token``), and
+    decoded as ``token_of`` decodes ``x-latet-token``: "" when there is none, there are two, or it is written otherwise
+    (another scheme, no token)."""
+    token = bearer_token(scope)
+    return token.decode("latin-1") if token is not None else ""
+
+
 def key_of(scope: Mapping[str, Any]) -> str:
     """The computer's key a request carries (``x-latet-computer-key``), read as ``token_of`` reads the token: "" when
     it is not there or is there more than once."""
@@ -728,6 +752,20 @@ async def in_store[T](work: Callable[..., T], *args: Any) -> T:
     return await _answered(loop.run_in_executor(_STORE, functools.partial(work, *args)))
 
 
+async def in_log[T](work: Callable[..., T], *args: Any) -> T:
+    """``work(*args)`` in the threads of the applications API's entries in the administration log
+    (``APPS_LOG_THREADS``), never in the store threads. Raises StoresUnavailable."""
+    loop = asyncio.get_running_loop()
+    return await _answered(loop.run_in_executor(_APPS_LOG, functools.partial(work, *args)))
+
+
+async def in_forget[T](work: Callable[..., T], *args: Any) -> T:
+    """``work(*args)`` in the threads of the applications API's forgets (``FORGET_THREADS``), never in those of its
+    unmasks' entries nor in the store threads. Raises StoresUnavailable."""
+    loop = asyncio.get_running_loop()
+    return await _answered(loop.run_in_executor(_FORGET, functools.partial(work, *args)))
+
+
 def refused_here(limits: Limits, known: Known, credential: str, key: str) -> bool:
     """Whether ``credential`` is refused before anything is asked of a thread or a store: its bucket (``key``) is past
     its limit as this instance remembers it (``Limits``), and this instance's own memory did not find it valid in the
@@ -771,25 +809,26 @@ def checked[T](
     return found, False
 
 
-async def secret_identity(server: Server, token: str, bucket: str) -> Identity | None:
-    """The enabled identity of ``token`` (a personal token or an API key), as the gate and every machine's call find
-    it: from this instance's memory when it holds it (no store asked); otherwise checked by the limiter of the client's
-    ``bucket`` (``checked``, with ``Server.known_secrets``; TooManyMisses past it, on the event loop when this instance
-    remembers the bucket so, but for a token found valid elsewhere: ``admitted``), one lookup at a time for each token
-    (``OneAtATime``). A text that is no token is none, at no cost. Raises StoresUnavailable."""
+async def secret_grant(server: Server, token: str, bucket: str) -> Grant | None:
+    """What ``token`` (a personal token or an API key) of an enabled identity grants (its identity, its id and what it
+    may do), as the gate and every machine's call find it: from this instance's memory when it holds it (no store
+    asked); otherwise checked by the limiter of the client's ``bucket`` (``checked``, with ``Server.known_secrets``;
+    TooManyMisses past it, on the event loop when this instance remembers the bucket so, but for a token found valid
+    elsewhere: ``admitted``), one lookup at a time for each token (``OneAtATime``). A text that is no token is none, at
+    no cost. Raises StoresUnavailable."""
     if not token.startswith((TOKEN_PREFIX, KEY_PREFIX)):
         return None
-    identity = server.identities.remembered(secret=token)
-    if identity is not None:
-        return identity
+    grant = server.identities.remembered_grant(secret=token)
+    if grant is not None:
+        return grant
     key = miss_key(bucket)
 
-    async def looked_up() -> tuple[Identity | None, bool]:
+    async def looked_up() -> tuple[Grant | None, bool]:
         if (elsewhere := await admitted(server.known_secrets, server.limits, token, key)) is None:
             return None, True
         return await pre_auth(
             checked, server.bus, server.known_secrets, server.limits, token, key, LOOKUP_LIMIT, LOOKUP_WINDOW,
-            server.identities.by_secret, elsewhere,
+            server.identities.grant_by_secret, elsewhere,
         )  # fmt: skip
 
     hashed = server.known_secrets.hashed(token)
@@ -797,6 +836,13 @@ async def secret_identity(server: Server, token: str, bucket: str) -> Identity |
     if limited:
         raise TooManyMisses
     return found
+
+
+async def secret_identity(server: Server, token: str, bucket: str) -> Identity | None:
+    """The enabled identity of ``token``: ``secret_grant``'s, for a machine's call, which asks nothing of what the token
+    may do. Raises TooManyMisses and StoresUnavailable as it does."""
+    grant = await secret_grant(server, token, bucket)
+    return grant.identity if grant is not None else None
 
 
 def _new(held: Iterable[str | None], sent: Iterable[str | None]) -> list[str]:
@@ -973,11 +1019,14 @@ def machine_routes(server: Server) -> list[Route]:
         return JSONResponse({"code": code, "url": f"{url}{UI}/login?code={code}"})
 
     async def whoami(request: Request) -> Response:
-        identity = await caller(request)
-        if identity is None:
-            return _error("unauthorized", 401)
         secret = token_of(request.scope)
-        return JSONResponse({**_who(identity), "url": url, "version": __version__, **routes_of(url, secret)})
+        grant = await secret_grant(server, secret, address(request))
+        if grant is None:
+            return _error("unauthorized", 401)
+        # Its addresses call a model through Latet, which restores what comes back: a token without mask and unmask is
+        # given none, as the administration gives it none (they would refuse it).
+        routes = routes_of(url, secret) if grant.gateway else {}
+        return JSONResponse({**_who(grant.identity), "url": url, "version": __version__, **routes})
 
     async def put_identity(request: Request) -> Response:
         identity = await caller(request)

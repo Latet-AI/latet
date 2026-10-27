@@ -192,6 +192,26 @@ im Geheimnisspeicher des Programms. `keys rotate "Billing CI" --out replacement.
 ersetzt die Zugangsdaten; aktualisieren Sie Schlüssel und Routenadressen des Programms
 zusammen. Auch ein Routenschlüssel in einer Adresse ist vertraulich.
 
+Ein Schlüssel kann mehrere Token haben, jeder mit eigenen Berechtigungen aus `scan`, `mask`, `unmask`
+und `forget`, für Programme, die die [API für Anwendungen](../../applications/) aufrufen: Eine
+Anwendung, die ihre Logs maskiert versendet, braucht nur `mask`, das Support-Werkzeug, das sie liest,
+nur `unmask`.
+
+```sh
+latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper --mask --out shipper.token
+latet server --server https://latet.acme.lan keys tokens "Billing CI"
+```
+
+Der erste Token des Schlüssels darf analysieren, maskieren und wiederherstellen; `forget`, das Werte aus
+dem Tresor des Schlüssels entfernt, erhält ein eigener Token
+([Werte vergessen](../../applications/forget/)). Nur der erste Token des Schlüssels hat eine Adresse
+für Modelle: Ein Token, der mit `keys add-token` erstellt wurde, wird dort abgewiesen, welche
+Berechtigungen er auch hat, und ruft nur die API für Anwendungen auf, wo jede Wiederherstellung im
+Administrationsprotokoll steht. Sobald ein Schlüssel mehrere Token hat, braucht
+`keys rotate` die Option `--token` mit der ID, die `keys tokens` auflistet, und
+`keys tokens "Billing CI" --revoke TOKEN_ID` stoppt einen. `keys limit "Billing CI" 1000000` gibt dem
+Tresor des Schlüssels eine eigene Grenze, über oder unter dem `vault_limit` des Servers.
+
 ## Gemeinsame Einstellungen und Regeln von API-Schlüsseln festlegen
 
 Die gemeinsamen Einstellungen enthalten, was der Server zum Betrieb braucht, für jeden Bereich

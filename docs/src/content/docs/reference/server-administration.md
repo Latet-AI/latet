@@ -26,7 +26,7 @@ account's environment: processes of the same user can read another process's env
 `LATET_SERVER_ADMIN_TOKEN` is for a CI or container secret store, paired with
 `LATET_SERVER_URL`; it is never sent to a different server.
 
-`keys add`, `keys rotate` and `admin-token issue` accept `--out FILE`: the new private
+`keys add`, `keys add-token`, `keys rotate` and `admin-token issue` accept `--out FILE`: the new private
 file receives the secret and the command prints only its id and file. Never put a code, key or
 administration token in a ticket, shared channel or agent conversation. A person's one-time
 code lets whoever uses it connect a computer as that person and open their dashboard; issuing it is recorded.
@@ -91,6 +91,26 @@ Losing the **master key** is worse than losing a token: it seals every space's k
 no vault can be read again. Keep a copy apart from the database's backups, as
 [Server operations](../../concepts/server-operations/) says.
 
+## Forgetting values of an API key
+
+When a person asks that their data leave an API key's vault, `keys forget` takes their values out of
+it, with what the key's conversations and history keep of them, on every instance once the calls
+already running there end:
+
+```sh
+latet server --server https://latet.acme.lan keys forget "Shop" --file erasure.txt
+```
+
+The file holds one value a line, in UTF-8; without `--file`, type the values in your terminal, an
+empty line ending them. A value is never taken from the command line, which the shell keeps in its
+history, and the command refuses an agent, as `config get` does. It asks before it sends them, at
+your terminal even with `--yes`; a script needs `--yes`. Each value is found exactly as written: list
+every form that should go, and an address's company domain too, which the vault keeps as a value of
+its own. Each call, of 1,000 values at most, is a `key.forgotten` entry with how many values were
+asked, forgotten and not in the vault, never a value. It works on a disabled key as well. An
+application does the same with a token given `--forget` (`keys add-token "Shop" erasure --forget`),
+which no other permission brings: see [forgetting values](../../applications/forget/).
+
 ## Reading the administration log
 
 `latet server log --limit 100000 --json` reads successive pages, newest timestamp first,
@@ -100,10 +120,19 @@ also have a byte limit. JSON output contains only entries, one per line; notices
 
 `--since` includes its boundary and `--until` excludes it. `--actor` selects one identity or
 administration token; `--action` selects an action, or a literal prefix ending in `*`.
-Actions name what changed (`person.added`, `code.issued`, `token.revoked`, `key.rotated`,
-`settings.changed`, `shared.changed`, `admin-token.issued`, `admin-token.revoked`), and reads are
+Actions name what changed (`person.added`, `code.issued`, `token.added`, `token.revoked`, `key.rotated`,
+`key.updated`, `settings.changed`, `shared.changed`, `admin-token.issued`, `admin-token.revoked`), and reads are
 recorded under the call's name (`status.read`, `log.read`): `--action 'admin-token.*'` selects every
 change of the administration tokens.
+
+An API key's tokens are named by their id, never by their secret or their name: `token.added` gives
+the new token and its permissions, `key.rotated` the token that stands (`token`) and the one it
+replaced (`replaced`), and `key.updated` a change such as the key's vault limit (`vault_limit`).
+`apps.unmasked` is an unmask through the [applications API](../apps-api/): the token, how many texts
+and how many values it restored, never a text or a value. `--action apps.unmasked` lists who
+unmasked, and when. `key.forgotten` and `apps.forgotten` are values taken out of an API key's vault,
+by `keys forget` and through the applications API: how many values were asked, forgotten and not in
+the vault, and for the API the token, never a value.
 To resume, pass the printed log cursor with `--cursor` and exactly the same original filters.
 Use absolute dates or exact epoch seconds when you need to resume later: a relative time such
 as `7d` changes between invocations. Never replace `--until` with a rounded time from the

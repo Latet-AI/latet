@@ -19,6 +19,7 @@ JSON document's values are masked one by one, each with its path (``items[].sku`
 
 from __future__ import annotations
 
+import bisect
 import fnmatch
 import re
 import urllib.parse
@@ -31,7 +32,15 @@ import re2
 from latet.config import FieldRule
 from latet.engine import document
 from latet.engine.detectors.base import DetectContext, quiet_options
-from latet.engine.detectors.structural import _PLACEHOLDER, _key_kind, connection_secrets
+from latet.engine.detectors.pii import DEFAULT_PHONE_REGIONS, phone_end
+from latet.engine.detectors.structural import (
+    _PLACEHOLDER,
+    _STATUS,
+    _key_kind,
+    _status_name,
+    _status_shaped,
+    connection_secrets,
+)
 from latet.engine.types import EntityClass, Policy, SlotKind, Span
 
 # Tools that read files: what they return is code or documents, never "data" for strict mode.
@@ -334,21 +343,35 @@ _KV = re.compile(r'(?<![\w.\-/])([A-Za-z_][\w.\-]{0,40})=("([^"\n]{0,2000})"|[^\
 _JSONISH = re.compile(r'"([A-Za-z_][\w.\-]{0,64})"\s*:\s*(?:"((?:[^"\\\n]|\\.){0,4000})"|(-?\d+(?:\.\d+)?)(?![\w.]))')
 
 
-def _key_values(lines: list[tuple[int, str]]) -> list[Cell]:
+def _kv_pairs(line: str, regions: Sequence[str]) -> list[tuple[re.Match[str], int]]:
+    """The ``key=value`` pairs of a line, each with where its value ends: at the first space or delimiter, but over the
+    groups of a phone number that begins it (``phone=+39 347 123 4567``), whose spaces are no end."""
+    pairs: list[tuple[re.Match[str], int]] = []
+    for m in _KV.finditer(line):
+        end = m.end()
+        if m.group(3) is None:  # not quoted
+            stop = phone_end(line, m.start(2), regions, limit=end)
+            if stop is not None and stop > end:
+                end = stop
+        pairs.append((m, end))
+    return pairs
+
+
+def _key_values(lines: list[tuple[int, str]], regions: Sequence[str] = DEFAULT_PHONE_REGIONS) -> list[Cell]:
     """``key=value`` pairs on log lines (two or more, apart by spaces only) and ``"key": value``."""
     cells: list[Cell] = []
     for base, line in lines:
         if "=" in line:
-            found = list(_KV.finditer(line))
-            run: list[re.Match[str]] = []
-            for m in found:
-                if run and line[run[-1].end() : m.start()].strip(" \t"):
+            angles = _angles(line)
+            run: list[tuple[re.Match[str], int]] = []
+            for pair in _kv_pairs(line, regions):
+                if run and line[run[-1][1] : pair[0].start()].strip(" \t"):
                     if len(run) >= 2:
-                        cells += [_kv_cell(base, line, r) for r in run]
+                        cells += [_kv_cell(base, line, r, end, angles) for r, end in run]
                     run = []
-                run.append(m)
+                run.append(pair)
             if len(run) >= 2:
-                cells += [_kv_cell(base, line, r) for r in run]
+                cells += [_kv_cell(base, line, r, end, angles) for r, end in run]
         if '":' in line or '" :' in line:
             for m in _JSONISH.finditer(line):
                 group = 2 if m.group(2) is not None else 3
@@ -357,16 +380,41 @@ def _key_values(lines: list[tuple[int, str]]) -> list[Cell]:
     return cells
 
 
-def _kv_cell(base: int, line: str, m: re.Match[str]) -> Cell:
+_ANGLE = re.compile(r"[<>]")
+
+
+def _angles(line: str) -> tuple[list[int], list[int]]:
+    """Where the ``<`` and the ``>`` of a line are, in order: a pair asks for the last of each before it once, not by
+    reading back through the line, which costs the square of its length on a long line of pairs."""
+    opens: list[int] = []
+    closes: list[int] = []
+    if "<" in line:
+        for m in _ANGLE.finditer(line):
+            (opens if m.group() == "<" else closes).append(m.start())
+    return opens, closes
+
+
+def _last_before(places: list[int], at: int) -> int:
+    """The last of ``places`` (in order) before ``at``, or -1."""
+    i = bisect.bisect_left(places, at)
+    return places[i - 1] if i else -1
+
+
+def _kv_cell(base: int, line: str, m: re.Match[str], end: int, angles: tuple[list[int], list[int]]) -> Cell:
+    """``end``: where the pair ends (``_kv_pairs``): a quoted value ends inside it, before its quote. ``angles``: where
+    the line's ``<`` and ``>`` are (``_angles``)."""
     group = 3 if m.group(3) is not None else 2
     # An attribute of markup: quoted, inside a tag (``<`` and a name before it, no ``>`` between), not after one.
-    tag = line.rfind("<", 0, m.start())
-    markup = m.group(3) is not None and tag > line.rfind(">", 0, m.start()) and line[tag + 1 : tag + 2].isalpha()
-    return Cell(base + m.start(group), base + m.end(group), m.group(1), markup)
+    markup = False
+    if group == 3 and angles[0]:
+        tag = _last_before(angles[0], m.start())
+        markup = tag > _last_before(angles[1], m.start()) and line[tag + 1 : tag + 2].isalpha()
+    return Cell(base + m.start(group), base + (m.end(group) if group == 3 else end), m.group(1), markup)
 
 
-def cells(text: str) -> list[Cell]:
-    """Every value of a structure found in ``text``, with the name of its field."""
+def cells(text: str, regions: Sequence[str] = DEFAULT_PHONE_REGIONS) -> list[Cell]:
+    """Every value of a structure found in ``text``, with the name of its field. ``regions``: those of the phone numbers
+    a ``key=value`` value takes in whole (``phone_regions``)."""
     if not text or len(text) > _MAX_TEXT:
         return []
     lines = _lines(text)
@@ -394,7 +442,7 @@ def cells(text: str) -> list[Cell]:
         out += _snapshot(lines)
     # On every line, a table's rows too: a cell can hold key=value pairs or JSON (psql's jsonb, a string console.table
     # prints), whose secret names say what they hold where the cell's column says nothing (the masking merges both).
-    out += _key_values(lines)
+    out += _key_values(lines, regions)
     return out
 
 
@@ -431,9 +479,14 @@ def shown_rule(rule: str, field: str, shown: str) -> str:
     return rule
 
 
-def _literal_secret(value: str, kind: str) -> bool:
+def _literal_secret(value: str, kind: str, status: bool = False) -> bool:
+    """Whether ``value``, under a field whose name says it holds a secret of ``kind``, is one. Not a placeholder, a
+    status word, nor, under a name that says what a check found (``status``: ``auth_status``, ``token_error``), a
+    value of the shape of a status."""
     value = value.strip()
-    if _NOTHING.match(value) or _PLACEHOLDER.match(value):
+    if _NOTHING.match(value) or _PLACEHOLDER.match(value) or _STATUS.match(value):
+        return False
+    if status and _status_shaped(value):
         return False
     return len(value) >= (3 if kind == "password" else 6)
 
@@ -554,8 +607,11 @@ class FieldDetector:
         files: Sequence[str] = (),
         hosts: Sequence[str] = (),
         policies: Mapping[str, Policy] | None = None,
+        phone_regions: Sequence[str] = DEFAULT_PHONE_REGIONS,
     ) -> None:
-        """``policies``: each type's policy where the rules apply, which says how strict a rule is (``_rank``)."""
+        """``policies``: each type's policy where the rules apply, which says how strict a rule is (``_rank``).
+        ``phone_regions``: those of the phone numbers an unquoted ``key=value`` value takes in whole."""
+        self.phone_regions = tuple(phone_regions)
         self.rules = [(_pattern(r.name), r) for r in rules]
         self.layered = any(r._layer for r in rules)
         self.policies = dict(policies or {})
@@ -628,7 +684,7 @@ class FieldDetector:
             return
         if not strict and not self.rules and not _secretish(text):
             return  # no structure here can hold a secret name: nothing to look for
-        for cell in cells(text):
+        for cell in cells(text, self.phone_regions):
             yield from self._value(text, cell.start, cell.end, cell.field, strict, known, cell.markup)
 
     def _file(self, text: str, path: str, known: dict[str, _Field], edited: bool = False) -> Iterator[Span]:
@@ -648,7 +704,7 @@ class FieldDetector:
         if self.rules or _secretish(view.text):
             found += [
                 span
-                for cell in cells(view.text)
+                for cell in cells(view.text, self.phone_regions)
                 for span in self._value(view.text, cell.start, cell.end, cell.field, False, known, cell.markup)
             ]
         for span in found:
@@ -676,7 +732,8 @@ class FieldDetector:
         # A value's rule names its field, as long as a rule could name it (the dashboard proposes a column by it): a
         # longer one, which no rule can name, is named by its kind, and costs each value no more than a field's name.
         secret = f"field-secret:{last}" if len(last) <= _NAMED else f"field-secret:{kind or 'secret'}"
-        return _Field(self._rule(field), kind, secret, f"strict:{field}" if len(field) <= _NAMED else "strict")
+        strict = f"strict:{field}" if len(field) <= _NAMED else "strict"
+        return _Field(self._rule(field), kind, secret, strict, _status_name(last))
 
     def _leaf(self, text: str, field: str, strict: bool, known: dict[str, _Field]) -> Iterator[Span]:
         """A decoded JSON value and the path of its key.
@@ -688,7 +745,7 @@ class FieldDetector:
         if about.rule is not None or about.kind is not None:
             yield from self._value(text, 0, len(text), field, strict, known)
             return
-        found = cells(text) if strict or self.rules or _secretish(text) else []
+        found = cells(text, self.phone_regions) if strict or self.rules or _secretish(text) else []
         if found:
             for cell in found:
                 yield from self._value(text, cell.start, cell.end, cell.field, strict, known, cell.markup)
@@ -715,7 +772,7 @@ class FieldDetector:
                 yield Span(start, end, (rule.type or "FIELD").upper(), eclass, f"field:{rule.name}")
             return
         kind = about.kind
-        if kind is not None and _literal_secret(value, kind):  # a field kept in clear still keeps its secrets
+        if kind is not None and _literal_secret(value, kind, about.status):  # a field in clear still keeps its secrets
             parts = connection_secrets(value, start, about.secret) if kind == "connection" else None
             if parts is None:
                 etype = "PASSWORD" if kind == "password" else "ASSIGNED_SECRET"
@@ -742,6 +799,9 @@ class _Field:
     kind: str | None
     secret: str  # a secret found by the field's name
     strict: str  # a value strict data mode masks
+    status: bool = (
+        False  # its last word says what a check found about a secret (`auth_status`): see ``_literal_secret``
+    )
 
 
 def _strip_space(text: str, start: int, end: int) -> tuple[int, int]:

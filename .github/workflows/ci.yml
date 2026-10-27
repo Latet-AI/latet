@@ -21,8 +21,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --locked
-      - run: uv run ruff check src tests scripts
-      - run: uv run ruff format --check src tests scripts
+      - run: uv run ruff check src tests scripts sdk/python
+      - run: uv run ruff format --check src tests scripts sdk/python
       - run: uv run pyright
       - run: uv run python scripts/gen_reference.py --check
 
@@ -45,6 +45,32 @@ jobs:
       - run: uv run pytest -q ${{ matrix.os != 'ubuntu-latest' && '-m "not timing"' || '' }}
         env:
           HYPOTHESIS_PROFILE: ci
+      - run: uv run pytest -q sdk/python/tests
+
+  sdk-python:
+    # The Python client of the applications API (sdk/python) on its own, without Latet beside it, on the oldest Python
+    # it supports and the newest; and built as the release builds it (the server's side of it is in the `server` job:
+    # tests/server/test_apps_sdk_contract.py).
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: The client and its tests, in an environment of their own
+        run: |
+          uv venv --no-project
+          uv pip install -e "sdk/python[langchain]" pytest pytest-asyncio pytest-socket
+          .venv/bin/python -m pytest sdk/python
+      - run: uv build sdk/python --out-dir dist
+      - name: The wheel holds the client and its license alone
+        run: python3 -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert all(n.startswith(('latet_client/', 'latet_client-')) for n in names), names; assert 'latet_client/py.typed' in names and any(n.endswith('licenses/LICENSE') for n in names), names"
 
   server:
     # The tests of a Latet server's backends, against PostgreSQL and Valkey as service containers, Valkey asking for a

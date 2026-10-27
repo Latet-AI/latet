@@ -84,9 +84,13 @@ exemples des outils.
   cookie de session `HttpOnly`, `SameSite=Strict`, et chaque modification exige un en-tête que les autres
   sites ne peuvent pas envoyer. Voir le
   [guide du tableau de bord](../dashboard/#la-confidentialité-du-tableau-de-bord-lui-même).
-- Le plugin Claude Code communique avec le daemon au moyen d'un jeton aléatoire, conservé dans
-  `bridge.token` dans le dossier de données. Sans ce jeton, le daemon refuse de masquer, de remettre en
-  place ou de vérifier quoi que ce soit.
+- Le plugin Claude Code communique avec le daemon au moyen d'un jeton aléatoire qui commence par
+  `latet_brg_`, conservé dans `bridge.token` dans le dossier de données (un jeton créé par une version
+  précédente n'a pas de préfixe et fonctionne comme avant). Pour le remplacer par un jeton qui a le
+  préfixe, exécutez `latet stop`, supprimez `bridge.token` dans le
+  [dossier de données](../getting-started/uninstall/), exécutez `latet start` (il en crée un nouveau)
+  puis `latet agents apply`, qui écrit le nouveau jeton dans les réglages de vos agents. Sans ce jeton,
+  le daemon refuse de masquer, de remettre en place ou de vérifier quoi que ce soit.
 - **Vos agents atteignent le daemon en http simple sur `127.0.0.1`, et c'est voulu.** Ce trafic
   n'atteint jamais une carte réseau : aucune autre machine, pas même sur votre Wi-Fi, ne peut le voir. Un
   programme sur votre machine qui pourrait le lire (avec des droits d'administrateur, ou sous votre

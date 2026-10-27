@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -41,10 +41,28 @@ Pin = Callable[[str], Awaitable[tuple[str, str, dict[str, Any]]]]
 @dataclass(frozen=True)
 class OnServer:
     """An identity's space on a Latet server: the server's address (the Host its requests name), and the identity, the
-    only one whose requests the server hands to this app (``scope["latet.identity"]``)."""
+    only one whose requests the server hands to this app (``scope["latet.identity"]``). ``audit`` writes an entry of
+    the server's administration log with the identity as its actor and its target (``await audit(action, details,
+    client's address)``, in the server's log threads, never the space's: it raises when the entry is not written),
+    which the applications API writes each unmask in before it answers; the server sets it as it builds the space.
+    ``kind``: the identity's, a person's or an API key's, whose space alone has the applications API. ``forget`` takes
+    values out of the identity's vault in its store, by the values themselves (``await forget(values, details,
+    client's address)``, Task 11b), with the administration log's ``apps.forgotten`` entry (``details`` and the counts)
+    in the same transaction, in the server's threads of forgets: the ids forgotten, how many of the values the vault
+    does not hold, and the generation its new fakes are drawn in from then on (None: unchanged); it raises
+    ``server.vault.NotRecorded`` when the entry was not written (nothing forgotten), and an error a store that did not
+    answer raises otherwise. The space's memory is the caller's to drop (``StoredVault.forgotten``). Two are the same
+    space by the server and the identity alone."""
 
     url: str
     identity: str
+    audit: Callable[[str, Mapping[str, Any], str | None], Awaitable[None]] | None = field(
+        default=None, compare=False, repr=False
+    )
+    kind: Literal["person", "key"] = field(default="person", compare=False)
+    forget: (
+        Callable[[Sequence[str], Mapping[str, Any], str | None], Awaitable[tuple[list[str], int, int | None]]] | None
+    ) = field(default=None, compare=False, repr=False)
 
 
 @dataclass
@@ -192,6 +210,13 @@ def create_app(config: GatewayConfig | None = None) -> Starlette:
 
         bridge = Bridge(config.mediator, config.bridge_token, config.recorder, config.aws, on_server)
         bridge_routes = bridge.routes()
+    # The applications API, in an API key's space on a server alone (its token, which the server's gate checks): a
+    # computer has none, nor a person's space.
+    apps_routes: list[Route] = []
+    if config.mediator is not None and on_server is not None and on_server.kind == "key":
+        from latet.bridge.apps import Apps
+
+        apps_routes = Apps(config.mediator, on_server).routes()
 
     async def shutdown(request: Request) -> Response:
         import hmac
@@ -211,6 +236,7 @@ def create_app(config: GatewayConfig | None = None) -> Starlette:
         routes=[
             Route("/_latet/health", health, methods=["GET"]),
             *bridge_routes,
+            *apps_routes,
             *(config.dashboard.routes() if config.dashboard is not None else []),
             *shutdown_route,
             WebSocketRoute("/{path:path}", proxy_ws),

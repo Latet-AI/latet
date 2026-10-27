@@ -107,11 +107,19 @@ la clave maestra separada de las copias de seguridad de la base de datos. Sin la
 correspondiente no se pueden recuperar los datos cifrados.
 
 Algunos metadatos siguen siendo legibles en PostgreSQL: nombres y direcciones de correo
-de las identidades, identificadores externos, etiquetas y fechas de los tokens, nombres
+de las identidades, identificadores externos, etiquetas, permisos y fechas de los tokens, nombres
 de reglas de la caja fuerte, contadores y fechas, y actores, acciones, destinos, identificadores,
 recuentos y direcciones de clientes del registro de administración. Los identificadores
-de proyecto y conversación del historial usan hashes con clave. Valkey usa nombres
-derivados con clave, datos sensibles cifrados y mensajes de coordinación firmados.
+de proyecto y conversación del historial usan hashes con clave. La caja fuerte de una clave de API
+guarda además las palabras de sus valores y de sus valores ficticios como hashes con clave, con los
+que se encuentran en un texto: un hash no muestra ninguna palabra, solo qué entradas comparten una.
+Las filas de su historial y las respuestas que recuerda su revisor local guardan hashes con clave de
+las entradas y los valores de la caja fuerte que nombran, para que un olvido las encuentre: quien lee
+la base de datos puede saber qué filas nombran la misma entrada o el mismo valor, nunca qué valor es.
+Las filas de una persona no guardan ninguno. Cada caja fuerte guarda el hash con clave de cada valor
+ficticio que retiró (el de un valor olvidado, o uno sustituido), para que ningún otro valor lo
+reciba: muestra cuántos valores ficticios se retiraron, nunca cuáles.
+Valkey usa nombres derivados con clave, datos sensibles cifrados y mensajes de coordinación firmados.
 
 El cifrado en reposo no oculta los originales al servidor en ejecución ni a su operador.
 Las vistas autorizadas del panel reciben los originales en el navegador. Un administrador

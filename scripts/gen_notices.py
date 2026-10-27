@@ -12,7 +12,7 @@ Sources, in output order:
 2. Runtime-image supplements: verified inputs listed in ``scripts/notices/runtime-image.json``
    with original license texts stored beside that manifest, independent of the generator's OS.
 3. Python distributions installed in the project environment (``importlib.metadata``),
-   excluding Latet itself. ``uv.lock`` decides which installed distributions belong to the
+   excluding Latet's own packages (``OWN``). ``uv.lock`` decides which installed distributions belong to the
    project and whether each one is a runtime or a development dependency, so the output does
    not depend on stray packages in the environment.
 4. npm packages declared in ``dashboard/package.json`` and ``docs/package.json``, read from
@@ -44,6 +44,10 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "THIRD_PARTY_NOTICES.md"
 NOTICES_DIR = Path(__file__).resolve().parent / "notices"
 SELF = "latet"
+# The repository's own packages: Latet itself and its Python client in sdk/python (MIT license, its own LICENSE). They
+# are Latet's, not third-party software, so they are not listed; what they need is reached through them as if the
+# package that asks for them asked for it too.
+OWN = frozenset({SELF, "latet-client"})
 
 # Hand-maintained: third-party code copied or ported into this repository.
 VENDORED: tuple[dict[str, str], ...] = (
@@ -324,14 +328,24 @@ def _walk_lock(root: LockedPackage, by_name: dict[str, list[LockedPackage]]) -> 
     reach: dict[tuple[str, str], Reach] = {}
     queue: list[tuple[str, str]] = []
 
-    def push(dep: dict[str, object], parent: str, os_only: bool, runtime: bool) -> None:
+    def push(
+        dep: dict[str, object], parent: str, os_only: bool, runtime: bool, through: frozenset[str] = frozenset()
+    ) -> None:
         target = _resolve(dep, by_name)
         if target is None or target.name == SELF:
             return
-        key = (target.name, target.version)
         marker = str(dep.get("marker", ""))
         child_os = os_only or bool(_OS_MARKER.search(marker))
         extras = {str(x) for x in dep.get("extra", [])}  # type: ignore[attr-defined]
+        if target.name in OWN:  # not listed: what it needs is reached as if `parent` needed it
+            if target.name not in through:
+                edges = list(target.deps)
+                for extra in sorted(extras):
+                    edges += target.optional.get(extra, [])
+                for edge in edges:
+                    push(edge, parent, child_os, runtime, through | {target.name})
+            return
+        key = (target.name, target.version)
         new = key not in reach
         state = reach.setdefault(key, Reach(target))
         state.parents.add(parent)
@@ -481,7 +495,7 @@ def python_sections() -> list[str]:
                     _dist_texts(d),
                 )
                 for d in md.distributions()
-                if _canonical(d.metadata["Name"]) != SELF
+                if _canonical(d.metadata["Name"]) not in OWN
             ),
             key=lambda e: _canonical(e.name),
         )

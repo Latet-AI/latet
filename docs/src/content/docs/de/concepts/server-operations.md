@@ -314,7 +314,7 @@ Server der vorgeschriebene Kontrollpunkt des Unternehmens ist.
 
 Das voreingestellte Limit für Anfragekörper beträgt 32 MiB. `requests_in_flight` ist
 standardmäßig 16 je Identität auf einer Instanz, mit getrennten Kontingenten für Ziel-,
-Dashboard- und Bridge-Anfragen. Long Polling und Streams haben eigene Grenzen. Prüfen
+Dashboard-, Bridge- und Anwendungsanfragen. Long Polling und Streams haben eigene Grenzen. Prüfen
 Sie bei Kapazitätsablehnungen Last und Grenzen, statt den Schutz abzuschalten. Beim
 Herunterfahren bleiben einer Instanz 30 Sekunden zum Abschluss. Lange Streams können
 abbrechen; Clients müssen Verbindungsabbrüche behandeln.
@@ -325,6 +325,17 @@ ist standardmäßig 2 und darf die für die Instanz verfügbaren Prozessoren nic
 das Lesebudget sein. Mehr Leser benötigen neben CPU auch Speicher. Ein ungelesenes Bild
 wird je nach geschütztem Pfad zurückgehalten oder seine geprüfte Anfrage abgelehnt.
 Längere Zeitlimits verbessern nicht die Erkennungsgenauigkeit.
+
+Der Bereich eines API-Schlüssels hält die Werte im Speicher, die der Schlüssel zuletzt
+verwendet hat (`key_working_values`, standardmäßig 5.000, etwa 10 MiB pro Schlüssel), und
+dauerhaft seine neuesten kurzen Geheimnisse, die kein Wort eines Textes findet, wenn andere
+Buchstaben an sie grenzen (`key_held_secrets`, standardmäßig 1.000, etwa 2,2 KB pro Stück auf
+jeder Instanz). Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele kurze Geheimnisse
+sieht, etwa ein Sitzungstoken in jeder Logzeile: Jeder Text, den der Schlüssel maskiert oder
+wiederherstellt, wird nach jedem gehaltenen durchsucht, sodass auch seine Aufrufe etwas
+langsamer werden (das Wiederherstellen mit 1.000 gehaltenen etwa ein Zehntel
+langsamer)
+([der Tresor eines Schlüssels](../../applications/#der-tresor-eines-schlüssels)).
 
 ### Verbindungen, Grenzen und Vertrauen
 
@@ -343,11 +354,16 @@ Längere Zeitlimits verbessern nicht die Erkennungsgenauigkeit.
   `x-latet-computer-key`), der im Anmeldedatenspeicher dieses Rechners bleibt. Ein fehlender oder falscher
   Schlüssel wird abgelehnt (403 `computer_key_required`) und zählt für seine Adresse wie abgelehnte Zugangsdaten.
 - **Eine Identität** hat höchstens `requests_in_flight` laufende Anfragen auf einer Instanz (standardmäßig 16);
-  darüber 429 mit `Retry-After`. Ein Body wird bis `max_request_mb` gelesen (standardmäßig 32 MiB); ein JSON-Body
+  darüber 429 mit `Retry-After`. Ein Body wird bis `max_request_mb` gelesen (standardmäßig 32 MiB), ein Aufruf der API für
+  Anwendungen bis `apps_request_mb` (8 MiB); ein JSON-Body
   nahe dieser Grenze hält die Sperre des Interpreters ein bis drei Sekunden, wo immer er geparst wird; halten Sie
   die Grenze also so niedrig, wie Ihre Agenten es erlauben, und betreiben Sie mehrere Instanzen.
-- **PostgreSQL:** Jede Instanz hält bis zu 10 Verbindungen; `max_connections` von PostgreSQL muss die 10 jeder
-  Instanz und die Befehle der Administratoren abdecken.
+- **PostgreSQL:** Jede Instanz hält bis zu `database_pool` Verbindungen (standardmäßig 10) für die Arbeit aller
+  Identitäten; `max_connections` von PostgreSQL muss den Pool jeder Instanz und die Befehle der Administratoren
+  abdecken. Ein Aufruf der API für Anwendungen, der neue Werte speichert, hält eine davon, bis er endet, höchstens
+  drei Zehntel des Pools (drei von zehn); darüber hinaus speichern Aufrufe jeden neuen Wert sofort, was langsamer
+  ist. Erhöhen Sie `database_pool` und mit ihm `max_connections` für eine Instanz, die für viele neue Schlüssel
+  gleichzeitig maskiert.
 - **Valkey:** Jede Instanz hält bis zu `valkey_connections` Verbindungen (standardmäßig 100), darüber wartet ein
   Aufruf höchstens fünf Sekunden. `maxclients` von Valkey muss die Verbindungen aller Instanzen abdecken. Der
   Verbindungsaufbau zu Valkey, sein TLS und seine erste Antwort teilen sich eine Grenze von fünf Sekunden.
@@ -383,6 +399,19 @@ latet server migrate --check
 - **Die Tabellen ändern sich:** Halten Sie alle Instanzen an, führen Sie `latet server migrate` einmal
   mit der neuen Version aus und starten Sie die Instanzen dann mit ihr. Eine Instanz startet nicht auf
   Tabellen einer anderen Version.
+- **Programme nutzen die API für Anwendungen:** Halten Sie jede ältere Instanz an, bevor die neuen
+  starten, auch wenn die Tabellen gleich bleiben. Solange zwei Versionen nebeneinander laufen, findet
+  eine neuere Instanz einen Wert, den eine ältere in den Tresor eines Schlüssels schreibt, unter
+  Umständen erst, wenn der Bereich des Schlüssels neu aufgebaut wird
+  ([einen Server aktualisieren](../../applications/#einen-server-aktualisieren)).
+- **Eine Version, die den Tresor eines Schlüssels neu indiziert** (das Changelog sagt es): Die erste
+  Instanz, die den Bereich eines API-Schlüssels aufbaut, bildet die Wörter seines Tresors neu, bevor sie
+  den ersten Aufruf dieses Schlüssels beantwortet, etwa 40 Sekunden für 200.000 Werte und viereinhalb
+  Minuten für 1.000.000. Das geschieht einmal pro Schlüssel, aber eine Instanz baut vier Bereiche
+  gleichzeitig auf, von Personen wie von Schlüsseln, sodass mehrere große Schlüssel, die nach einem
+  Neustart zusammen aufgebaut werden, die ersten Aufrufe aller anderen Bereiche auf dieser Instanz
+  aufhalten: Senden Sie jedem großen Schlüssel einen Aufruf, einen Schlüssel nach dem anderen, bevor
+  der Verkehr zurückkommt.
 
 Im Compose-Beispiel laufen dieselben Schritte in Containern des neuen Images, wenn sich die Tabellen
 ändern:
@@ -437,10 +466,27 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 Die ausgegebenen Variablen enthalten den Routenschlüssel: Halten Sie sie so geheim wie den Schlüssel, nie in
-einem Repository oder einem gemeinsam genutzten Profil.
+einem Repository oder einem gemeinsam genutzten Profil. Nur der erste Token des Schlüssels hat diese
+Adressen: Ein Token, der mit `keys add-token` erstellt wurde, hat keine, welche Berechtigungen er auch
+hat, und ruft nur die API für Anwendungen auf. `latet env` fragt den Server, welcher Art der Token ist:
+Für einen solchen Token gibt es keine Variable aus und sagt das.
 
 Das Programm muss dem Zertifikat des Servers vertrauen: einem Zertifikat einer Zertifizierungsstelle, der es schon
 vertraut, oder dem Zertifikat, das seinen eigenen Vertrauenseinstellungen hinzugefügt wurde.
+
+Ein Programm, das seine eigenen Logs oder Dokumente maskiert, ruft stattdessen die
+[API für Anwendungen](../../applications/) auf: keine Variablen, ein Token des Schlüssels in seinem
+`Authorization`-Header, mit nur den Berechtigungen, die es braucht. Seine Aufrufe teilen den Bereich des
+Schlüssels mit dessen Agenten, also auch dessen Tresor und Ersatzwerte.
+
+Zwei Arten seiner Arbeit stehen für den ganzen Server an, nicht pro Schlüssel. Der Eintrag jeder
+Wiederherstellung im Verwaltungsprotokoll wird vor ihrer Antwort geschrieben, einer nach dem anderen
+an der Kette des Protokolls, von zwei Threads jeder Instanz für die Wiederherstellungen aller
+Schlüssel; und das Vergessen läuft auf jeder Instanz zu zweit, für alle Schlüssel. Ein Schlüssel, der
+viele Wiederherstellungen auf einmal sendet oder eine lange Liste vergisst, verzögert die
+Wiederherstellungen oder das Vergessen der anderen Schlüssel, nie eine Anmeldung, einen Widerruf oder
+das, was Agenten senden. Das Verwaltungsprotokoll wächst um eine Zeile pro Aufruf zur
+Wiederherstellung.
 
 ## Protokolle, Metriken und Wiederherstellung
 
@@ -456,6 +502,14 @@ ist keine neue vollständige Prüfung. Prometheus-Metriken verwenden einen getre
 Listener, standardmäßig `127.0.0.1:7283`, und benötigen `metrics_token_file`. Unterscheiden Sie ein unbekanntes
 Urteil von einer beschädigten Kette. Die [Verwaltungsreferenz](../../reference/server-administration/)
 definiert Protokollseiten und die genaue Bedeutung von `latet_ocr_unread_total{reason}`.
+
+Jede Wiederherstellung über die API für Anwendungen ist ein Eintrag `apps.unmasked` im
+Administrationsprotokoll, mit dem Token und der Zahl der wiederhergestellten Werte, und jedes
+Vergessen ein Eintrag `apps.forgotten`, mit dem Token und der Zahl der aus dem Tresor des Schlüssels
+entfernten Werte; Analysieren und Maskieren
+werden nur in den Metriken gezählt (`latet_apps_texts_total` und `latet_apps_values_total`, nach Operation,
+und die Anfragen als `latet_http_requests_total{kind="apps"}`), ohne Label für den Schlüssel
+([was der Server festhält](../../reference/apps-api/#was-der-server-festhält)).
 
 In dieser Compose-Konfiguration lesen Sie `127.0.0.1:7283` innerhalb jeder Instanz mit
 ihrem Metrik-Token aus. Es gibt keinen veröffentlichten Metrik-Port, keine Caddy-Route und

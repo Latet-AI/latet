@@ -611,6 +611,8 @@ const falsePositives: ChapterDef = {
   }),
 }
 
+// What the final check says of the chapter's request: one leak, for the key that the pair `DEMO_API_KEY=...` and
+// gitleaks' generic rule both find, named as the masking names it (tests/unit/test_engine.py keeps it so).
 const stoppedLeak = (): MockLeak => ({
   type: 'GENERIC_API_KEY',
   kind: 'user_text',

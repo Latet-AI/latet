@@ -433,6 +433,9 @@ def server_certificate(
 ADMIN_TOKEN = re.compile(r"latet_adm_[A-Za-z0-9_-]{43}")
 TOKEN_ID = re.compile(r"t_[a-z2-7]{10}")
 ADMIN_TOKEN_ID = re.compile(r"a_[a-z2-7]{10}")
+# The values an API key's own vault limit may be: the server's range (``latet.server.identities``), kept here so that a
+# number outside it is refused before anything is asked of the server.
+VAULT_LIMITS = (1_000, 100_000_000)
 LOG_MOST = 10_000
 _LOG_REQUEST_MOST = 1_000
 _LOG_RECEIVE_MOST = 128 * 1024 * 1024
@@ -466,9 +469,25 @@ def _escaped(value: str) -> str:
 
 
 def _not_secret(value: str) -> None:
-    if value.startswith(("latet_pat_", "latet_ck_", "latet_key_", "latet_adm_")):
+    from latet.engine.detectors.latet import starts_a_secret
+
+    if starts_a_secret(value):
         _stop(
             "That is a secret, not a name, id or file. It is now in shell history: replace it with "
+            "`latet server admin-token revoke`, `keys rotate`, or `people tokens --revoke`."
+        )
+
+
+def _no_secret_in(value: str) -> None:
+    """A name or a label the server keeps in clear and lists to every administrator: refused when it holds a secret of
+    Latet's anywhere, whatever its case, as the server refuses it (``holds_a_secret_start``), not only when it begins
+    with one (``_not_secret``, which a file's path may hold a prefix in)."""
+    from latet.engine.detectors.latet import holds_a_secret_start
+
+    _not_secret(value)
+    if holds_a_secret_start(value.casefold()):
+        _stop(
+            "That holds a secret, and a name is no place for one. It is now in shell history: replace it with "
             "`latet server admin-token revoke`, `keys rotate`, or `people tokens --revoke`."
         )
 
@@ -597,11 +616,13 @@ def admin_call(
     deadline: float = 60.0,
     receive: ReceiveBudget | None = None,
     end: float | None = None,
+    timeout: float = 10.0,
 ) -> Any:
     """The server's administration, from any computer over HTTPS: ``path`` below ``/_latet/server/v1/admin/``
     (``"status"``), or the whole path; with the token of --admin-token-file or LATET_SERVER_ADMIN_TOKEN, at --server,
-    LATET_SERVER_URL or this computer's server. Raises ServerError(status, message) for an answer that is not 2xx
-    (status 0: nothing answered), and NotConnected (no server named, no token). Later parts' commands use it too."""
+    LATET_SERVER_URL or this computer's server. Its answer is read within ``deadline`` seconds in all, each read within
+    ``timeout``. Raises ServerError(status, message) for an answer that is not 2xx (status 0: nothing answered), and
+    NotConnected (no server named, no token). Later parts' commands use it too."""
     from urllib.parse import unquote, urlencode
 
     from latet.server.client import ServerClient, answer_of, pin_certificate
@@ -622,7 +643,7 @@ def admin_call(
         pinned = pin_certificate(url, pinned)
     if query:
         where += "?" + urlencode(query)
-    with ServerClient(url, None, pinned) as client:
+    with ServerClient(url, None, pinned, timeout=timeout) as client:
         sent = dict(body) if body is not None else None
         accounting: dict[str, Any] = {"receive": receive} if receive is not None else {}
         if end is not None:
@@ -813,7 +834,9 @@ def _private_write(path: Path, text: str) -> None:
         _stop("The private output file could not be written; the server may have issued the secret. Check its list.", 1)
 
 
-def _show_key(identity: dict[str, Any], key: Any, out: Path | None) -> None:
+def _show_key(
+    identity: dict[str, Any], key: Any, out: Path | None, *, what: str = "API key", variables: bool = True
+) -> None:
     from latet.server.connection import API_KEY, USER_ID
 
     user = identity.get("id")
@@ -826,11 +849,59 @@ def _show_key(identity: dict[str, Any], key: Any, out: Path | None) -> None:
         _stop("the server's answer is not an API key and identity", 1)
     if out is not None:
         _private_write(out, key + "\n")
-        typer.echo(f"{user}: API key in {_escaped(str(out))}")
+        typer.echo(f"{user}: {what} in {_escaped(str(out))}")
         return
-    typer.echo(f"{_identity_name(identity)}'s API key, shown once: keep it where the program keeps its secrets.")
+    typer.echo(f"{_identity_name(identity)}'s {what}, shown once: keep it where the program keeps its secrets.")
     typer.echo(f"  {key}")
-    _key_variables(key, user)
+    if variables:
+        _key_variables(key, user)
+
+
+def _permissions_said(value: Any, separator: str = ",") -> str:
+    """A token's permissions as the server lists them, in one word: Latet's names, sorted, ``none`` for a row allowed
+    nothing, and ``?`` for an answer that is no list of Latet's names."""
+    from latet.server.grants import PERMISSIONS
+
+    if not isinstance(value, list) or any(not isinstance(name, str) or name not in PERMISSIONS for name in value):
+        return "?"
+    return separator.join(sorted(set(value))) or "none"
+
+
+def _calls_a_model(permissions: Any, addresses: Any) -> bool:
+    """Whether a token the server has just issued has an address for models: the server gave its addresses (``base``:
+    to a key's first token alone, a token added to a key having none, Ruling T13b) and says it holds mask and unmask.
+    Closed when the server says less or nothing at all: an answer without addresses or permissions gets no address."""
+    from latet.server.grants import GATEWAY
+
+    said = isinstance(permissions, list) and {name for name in permissions if isinstance(name, str)} >= GATEWAY
+    return said and isinstance(addresses, str)
+
+
+def _show_token(
+    identity: dict[str, Any],
+    key: Any,
+    out: Path | None,
+    *,
+    name: Any,
+    permissions: Any,
+    addresses: Any,
+    token_id: Any = None,
+    what: str,
+) -> None:
+    """The secret of a token the server has just issued, shown once or written privately, with what it may do. Only a
+    token that may call a model through Latet (``addresses``: the server's ``base`` for it) gets the addresses and
+    variables of a key; any other is told it has none."""
+    who = f"Token {_text(name)}"
+    if isinstance(token_id, str) and TOKEN_ID.fullmatch(token_id):
+        who += f" ({token_id})"
+    typer.echo(f"{who}, permissions: {_permissions_said(permissions, ', ')}.")
+    gateway = _calls_a_model(permissions, addresses)
+    _show_key(identity, key, out, what=what, variables=gateway)
+    if not gateway:
+        typer.echo(
+            "This token calls the applications API alone, so it has no address for models: an agent calls through"
+            " Latet with the key's first token."
+        )
 
 
 @server_app.command("status")
@@ -859,11 +930,19 @@ def server_status() -> None:
             typer.echo(f"  {key}: {shown}")
     vault = _object_field(answer, "vault")
     near = _rows(vault, "near")
-    who = ", ".join(f"{_text(i.get('id'))}: {_count(i.get('values'))}" for i in near)
-    plural = "y" if len(near) == 1 else "ies"
+    # Each against its own limit (an API key may have one; a server before that says none, and only the values), with
+    # the fakes of its forgotten values it keeps retired, which take no room but stay, weighed with them.
+    who = ", ".join(
+        f"{_text(i.get('id'))}: {_count(i.get('values'))}"
+        + (f" (and {_count(i['retired'])} retired fakes)" if i.get("retired") else "")
+        + (f" of {_count(i['limit'])}" if "limit" in i else "")
+        for i in near
+    )
+    plural, their = ("y", "its") if len(near) == 1 else ("ies", "their")
     typer.echo(
-        f"  vault: {len(near)} identit{plural} near the limit of {_count(vault.get('limit'))} values"
+        f"  vault: {len(near)} identit{plural} near {their} limit"
         + (f" ({who})" if who else "")
+        + f"; the server's limit is {_count(vault.get('limit'))} values"
     )
     chain = _object_field(answer, "audit").get("chain")
     typer.echo(f"  administration log: chain {_text(chain)}")
@@ -1078,30 +1157,332 @@ def keys_add(
 
 @keys_cli.command("list")
 def keys_list() -> None:
-    """Every API key: enabled or not, and when it was last used."""
+    """Every API key: enabled or not, when it was last used, and its vault limit if it has one of its own."""
     keys = _identities("key")
     if not keys:
         typer.echo('No API key yet: latet server keys add "Billing CI"')
     for key in keys:
         state = "disabled" if key.get("disabled") is True else "enabled"
-        typer.echo(f"{key['id']}  {_text(key.get('name'))}  {state}  last used {_seen(key.get('last_seen'))}")
+        own = "" if key.get("vault_limit") is None else f"  vault limit {_count(key['vault_limit'])}"
+        typer.echo(f"{key['id']}  {_text(key.get('name'))}  {state}  last used {_seen(key.get('last_seen'))}{own}")
+
+
+def _key_tokens(found: dict[str, Any]) -> list[dict[str, Any]]:
+    """The tokens the server lists for an API key, as it answers them."""
+    return _rows(_ask("GET", f"identities/{found['id']}/tokens"), "tokens")
+
+
+def _token_of(found: dict[str, Any], tokens: list[dict[str, Any]], token_id: str, done: str) -> dict[str, Any]:
+    """The key's token with this id, among the ones listed; none is a stop, and nothing is sent."""
+    for token in tokens:
+        if token.get("id") == token_id:
+            return token
+    _stop(
+        f"No token of {_identity_name(found)} has that id: nothing was {done} "
+        f"(`latet server keys tokens {found['id']}` lists theirs)",
+        1,
+    )
+
+
+@keys_cli.command("tokens")
+def keys_tokens(
+    key: Key,
+    revoke: Annotated[str | None, typer.Option(help="Revoke this token's id.")] = None,
+    yes: Yes = False,
+) -> None:
+    """An API key's tokens: each one's name, what it may do, whether it serves the key's agents (has an address), and
+    when it was last used; --revoke stops one."""
+    if revoke is not None:
+        _id(revoke, TOKEN_ID)
+    found = _find("key", key)
+    tokens = _key_tokens(found)
+    if revoke is not None:
+        named = _token_of(found, tokens, revoke, "revoked")
+        _confirm(
+            f"Revoke the token {revoke} ({_text(named.get('name', named.get('label')))}) of {_identity_name(found)} "
+            f"on {_target_url()}? Whatever uses its secret or its address stops within seconds.",
+            yes,
+        )
+        answer = _ask(
+            "DELETE",
+            f"identities/{found['id']}/tokens",
+            recovery=f"keys tokens {found['id']}",
+            query={"token": revoke},
+        )
+        count = _count(answer.get("revoked"))
+        if count == 0:
+            _stop(
+                f"No token of {_identity_name(found)} has that id any more: nothing was revoked "
+                f"(`latet server keys tokens {found['id']}` lists theirs)",
+                1,
+            )
+        if count == "?":
+            _stop("The server's revoked count is not a count: ?", 1)
+        typer.echo(f"The token {revoke} of {_identity_name(found)} is revoked: its secret and its address stop.")
+        return
+    if not tokens:
+        typer.echo(f"{_identity_name(found)} has no token: `latet server keys rotate {found['id']}` makes it one.")
+    for token in tokens:
+        token_id = token.get("id")
+        shown = token_id if isinstance(token_id, str) and TOKEN_ID.fullmatch(token_id) else "?"
+        name, permissions = _text(token.get("name", token.get("label"))), _permissions_said(token.get("permissions"))
+        # The key's first token (and every token made before tokens had permissions) serves its agents through its
+        # address: said, so that it is not revoked by mistake for one added with the same permissions (final review M2).
+        agents = ", serves agents (has an address)" if token.get("agents") is True else ""
+        typer.echo(f"{shown}  {name} {permissions}{agents} last used {_seen(token.get('last_used'))}")
+        if token.get("tampered") is True:
+            typer.echo("  its row does not hold: made or changed without the server's key, it opens nothing")
+
+
+@keys_cli.command("add-token")
+def keys_add_token(
+    key: Key,
+    name: Annotated[str, typer.Argument(help="What the token is for, such as logs.")],
+    scan: Annotated[bool, typer.Option("--scan", help="It may say what a text holds, and change nothing.")] = False,
+    mask: Annotated[
+        bool, typer.Option("--mask", help="It may replace what a text holds with fakes (and so scan it).")
+    ] = False,
+    unmask: Annotated[
+        bool, typer.Option("--unmask", help="It may put the real values back in place of the fakes.")
+    ] = False,
+    forget: Annotated[
+        bool,
+        typer.Option("--forget", help="It may take values out of the key's vault; no other permission brings it."),
+    ] = False,
+    out: Annotated[Path | None, typer.Option(help="Write the token privately; print no secret.")] = None,
+) -> None:
+    """Give an API key another token with the permissions you choose, shown once or written privately with --out.
+
+    A token added so calls the applications API alone, where each unmask is in the administration log: it has no
+    address for models, whatever it may do, and agents use the key's first token. --forget is given by name alone: the
+    key's first token cannot forget. Each token stops on its own: `keys tokens` lists them, `keys tokens --revoke`
+    stops one.
+    """
+    _no_secret_in(name)
+    asked = (("scan", scan), ("mask", mask), ("unmask", unmask), ("forget", forget))
+    chosen = [word for word, wanted in asked if wanted]
+    if not chosen:
+        _stop("give at least one of --scan, --mask, --unmask and --forget")
+    _check_out(out)
+    found = _find("key", key)
+    answer = _ask(
+        "POST",
+        f"identities/{found['id']}/tokens",
+        {"name": name, "permissions": chosen},
+        recovery=f"keys tokens {found['id']}",
+    )
+    token = _object_field(answer, "token")
+    kept = token.get("name", name)
+    _show_token(
+        found,
+        answer.get("key"),
+        out,
+        name=kept,
+        permissions=token.get("permissions"),
+        addresses=answer.get("base"),
+        token_id=token.get("id"),
+        what=f"token {_text(kept)}",
+    )
 
 
 @keys_cli.command("rotate")
 def keys_rotate(
     key: Key,
+    token: Annotated[
+        str | None,
+        typer.Option(help="The token to rotate: its id, as `keys tokens` lists it. A key with several needs it."),
+    ] = None,
     yes: Yes = False,
     out: Annotated[Path | None, typer.Option(help="Write the new key privately; print no secret.")] = None,
 ) -> None:
-    """Rotate an API key: the old key and its addresses stop on every instance within seconds."""
+    """Rotate one of an API key's tokens: its old secret and addresses stop on every instance within seconds.
+
+    The token keeps its name and its permissions. A key with several tokens needs --token; a key with one rotates
+    that one, which this command names to the server after listing it.
+    """
+    if token is not None:
+        _id(token, TOKEN_ID)
     _check_out(out)
     found = _find("key", key)
+    tokens = _key_tokens(found)
+    named: dict[str, Any] | None = None
+    if token is not None:
+        named = _token_of(found, tokens, token, "rotated")
+    elif len(tokens) == 1:
+        named = tokens[0]
+        if not isinstance(named.get("id"), str) or not TOKEN_ID.fullmatch(named["id"]):
+            _stop("The server lists a token whose id is not one: nothing was rotated.", 1)
+    which = f"the token {_text(named.get('name', named.get('label')))} ({named['id']}) of " if named else ""
     _confirm(
-        f"Rotate {_identity_name(found)} on {_target_url()}? The old key and its addresses stop within seconds.", yes
+        f"Rotate {which}{_identity_name(found)} on {_target_url()}? The old key and its addresses stop within seconds.",
+        yes,
     )
-    answer = _ask("POST", f"identities/{found['id']}/rotate")
+    answer = _ask(
+        "POST",
+        f"identities/{found['id']}/rotate",
+        {"token": named["id"]} if named else None,
+        recovery=f"keys tokens {found['id']}",
+    )
     typer.echo("The old key and its addresses stop on every instance within seconds.")
-    _show_key(found, answer.get("key"), out)
+    _show_token(
+        found,
+        answer.get("key"),
+        out,
+        name=answer.get("name", "key"),
+        permissions=answer.get("permissions"),
+        addresses=answer.get("base"),
+        token_id=answer.get("token"),
+        what="API key",
+    )
+
+
+def _vault_limit(given: str) -> int | None:
+    """The limit a command line gives: a whole number of values within the server's range, or None for ``default``.
+    Anything else is refused, in words that give the range, before anything is asked of the server."""
+    if given == "default":
+        return None
+    least, most = VAULT_LIMITS
+    if re.fullmatch(r"[0-9]{1,12}", given) and least <= int(given) <= most:  # ASCII digits alone
+        return int(given)
+    _stop(f"A vault limit is a whole number of values from {least} to {most}, or default for the server's limit.")
+
+
+@keys_cli.command("limit")
+def keys_limit(
+    key: Key,
+    limit: Annotated[
+        str,
+        typer.Argument(
+            help="How many values its vault may hold (1000 to 100000000), or default for the server's limit.",
+            metavar="N|default",
+        ),
+    ],
+) -> None:
+    """Set how many values an API key's vault may hold, or give it the server's limit again.
+
+    A key with no limit of its own has the server's (vault_limit). A vault that holds the most it may refuses the
+    call that would add a value (the applications API answers 507) and lets nothing of that call out. A limit below
+    the values the vault holds is kept, and the vault takes no new value until the limit is raised or values are
+    forgotten (`keys forget`). The change reaches every instance within seconds.
+    """
+    wanted = _vault_limit(limit)
+    found = _find("key", key)
+    answer = _ask("PATCH", f"identities/{found['id']}", {"vault_limit": wanted}, recovery="keys list")
+    identity = _object_field(answer, "identity")
+    if identity.get("vault_limit") != wanted:  # an answer that does not show the change is no success
+        shown = "the server's" if wanted is None else wanted
+        _stop(f"The server's answer does not show the vault limit ({shown}): check `latet server keys list`.", 1)
+    who = f"{_text(found.get('name'))} ({found['id']})"
+    if wanted is None:
+        typer.echo(f"{who} has the server's vault limit again: the change reaches every instance within seconds.")
+        return
+    typer.echo(f"{who} may hold {wanted} values in its vault: the change reaches every instance within seconds.")
+    held = identity.get("vault_values")
+    if type(held) is int and held > wanted:
+        typer.echo(
+            f"Its vault holds {held} values already: it takes no new value until the limit is raised or values "
+            "are forgotten (`latet server keys forget`)."
+        )
+
+
+FORGET_AT_ONCE = 1000  # values one forget of the administration takes at most (the applications API's MOST_TEXTS)
+# Seconds a call of ``keys forget`` waits for the server's answer, each read and in all: a key's first forget after an
+# upgrade gives the local reviewer's older answers and the history's older rows their keyed hashes first (review 11b's
+# N5), minutes on a key with much history, where every other call waits 10 s for a read. One that stops waiting is safe
+# to run again: what the server forgot stays forgotten, counted as not held then.
+FORGET_SECONDS = 300.0
+
+
+def _values_to_forget(file: Path | None) -> list[str]:
+    """The values a forget names, each once, in the order given: one a line of ``file`` (UTF-8, a byte-order mark and
+    the line endings left out, an empty line skipped), or typed in your terminal, an empty line ending them; never from
+    the command line, which a shell keeps in its history. Stops, nothing sent, when there is neither, when the file
+    cannot be read, or when no value is given; its words quote none of them."""
+    from latet.cli.agent import at_your_terminal
+
+    if file is not None:
+        try:
+            text = file.read_bytes().decode("utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            _stop(f"{_escaped(str(file))} cannot be read as a UTF-8 text file: nothing was sent.")
+        lines = [line.removesuffix("\r") for line in text.split("\n")]
+    elif at_your_terminal():
+        typer.echo("Type the values to forget, one a line; an empty line ends them.", err=True)
+        lines = []
+        while (line := sys.stdin.readline().removesuffix("\n").removesuffix("\r")) != "":
+            lines.append(line)
+    else:
+        _stop(
+            "Give the values to forget in a file, one a line (--file FILE), or type them in a terminal of your own: "
+            "never on the command line, which a shell keeps in its history."
+        )
+    values = list(dict.fromkeys(line for line in lines if line))
+    if not values:
+        _stop("No value to forget was given: nothing was sent.")
+    return values
+
+
+def _forget_count(answer: dict[str, Any], key: str) -> int:
+    """A count of the server's answer to a forget: a whole number, or a stop."""
+    found = answer.get(key)
+    if type(found) is not int or found < 0:
+        _stop(f"The server's {key} count is not a count: ?", 1)
+    return found
+
+
+@keys_cli.command("forget")
+def keys_forget(
+    key: Key,
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file", help="The values to forget, one a line (UTF-8); without it, type them in your terminal."
+        ),
+    ] = None,
+    yes: Yes = False,
+) -> None:
+    """Forget values of an API key's vault: each taken out of it on every instance within seconds, once you agree.
+
+    The values are read one a line from --file, or typed in your terminal, never from the command line. Each is found
+    exactly as written: another case or another written form is another value of the vault. A value forgotten is gone
+    with its fake, which restores nothing from then on, and it gets a new fake if it is met again. An address at a
+    company's domain keeps the domain as a value of its own: forget it too if it should go. Each call is recorded in
+    the administration log (key.forgotten) with its counts, never a value. A key's first forget after an upgrade can
+    take minutes on a key with much history: each call waits up to five minutes, and running it again is safe.
+    """
+    from latet.cli.agent import agent_name
+
+    if agent_name(strict=True) is not None:
+        _stop("The values to forget are personal data: run it yourself in a terminal of your own.")
+    values = _values_to_forget(file)
+    found = _find("key", key)
+    many = "" if len(values) == 1 else "s"
+    _confirm(
+        f"Forget {len(values)} value{many} from the vault of {_identity_name(found)} on {_target_url()}? Their fakes "
+        "will restore nothing.",
+        yes,
+    )
+    forgotten = unknown = 0
+    for start in range(0, len(values), FORGET_AT_ONCE):
+        try:
+            answer = _ask(
+                "POST",
+                f"identities/{found['id']}/forget",
+                {"values": values[start : start + FORGET_AT_ONCE]},
+                recovery="log --action key.forgotten",
+                timeout=FORGET_SECONDS,
+                deadline=FORGET_SECONDS,
+            )
+        except typer.Exit:
+            if start:
+                were = "value was" if forgotten == 1 else "values were"
+                typer.echo(f"{forgotten} {were} forgotten before this, by the calls that went through.", err=True)
+            raise
+        forgotten += _forget_count(answer, "forgotten")
+        unknown += _forget_count(answer, "unknown")
+    who = f"{_text(found.get('name'))} ({found['id']})"
+    gone = f"{forgotten} value{'' if forgotten == 1 else 's'} forgotten"
+    typer.echo(f"{gone} from the vault of {who}; {unknown} {'was' if unknown == 1 else 'were'} not in it.")
 
 
 @keys_cli.command("disable")
@@ -1892,7 +2273,7 @@ def token_issue(
     if never and not label:
         _stop("--never needs --label")
     if label is not None:
-        _not_secret(label)
+        _no_secret_in(label)
     _check_out(out)
     body: dict[str, Any] = {"label": label or "administration"}
     if never:

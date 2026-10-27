@@ -24,7 +24,9 @@ valores. Hay tres cosas que lo aprovechan:
 - **Tablas:** psql, CSV, TSV y separadas por `;`, markdown, HTML, y las tablas de la instantánea de
   accesibilidad de un navegador (`columnheader`, `cell`), y las tablas dibujadas con caracteres de
   recuadro (`console.table` de Node, el estilo unicode de psql).
-- **Pares `key=value`:** dos o más en una línea, como en un registro.
+- **Pares `key=value`:** dos o más en una línea, como en un registro. Un valor sin comillas termina en su
+  primer espacio, salvo un número de teléfono que lo empiece: entonces incluye sus grupos
+  (`phone=+39 347 123 4567`).
 - **JSON:** un documento entero valor a valor, cada uno con su ruta (`items[].sku`); un fragmento
   `"key": value` dentro de otro texto, como una línea de registro, por su clave.
 

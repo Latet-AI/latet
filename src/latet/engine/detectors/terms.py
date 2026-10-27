@@ -435,7 +435,7 @@ class _WordIndex:
         return ([first, furthest] if furthest[1] > first[1] else [first]), spent
 
 
-def _forms(value: str) -> list[str]:
+def forms(value: str) -> list[str]:
     """A term as given, composed and decomposed: a keyboard composes "ë", macOS writes file names decomposed (an "e"
     and a combining mark), and the two never compare equal."""
     if value.isascii():
@@ -482,7 +482,7 @@ class _TermSet:
         for t in terms:
             if t.etype != "LATET_ROUTE_KEY" and not has_letter_or_digit(t.value):
                 continue
-            for form in _forms(t.value):
+            for form in forms(t.value):
                 written = t if form == t.value else replace(t, value=form)
                 if written is not t:
                     self._given[_plain(written)] = _plain(t)

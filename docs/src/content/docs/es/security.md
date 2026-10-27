@@ -82,8 +82,12 @@ ha ejecutado: comprueba también las descripciones, los esquemas y los ejemplos 
 - El panel necesita un enlace de inicio de sesión de un solo uso que da `latet dashboard`, después una
   cookie de sesión `HttpOnly`, `SameSite=Strict`, y cada cambio necesita una cabecera que otros sitios
   no pueden enviar. Consulta la [guía del panel](../dashboard/#la-privacidad-del-propio-panel).
-- El plugin de Claude Code habla con el daemon con un token aleatorio, guardado en `bridge.token` en la
-  carpeta de datos. Sin el token, el daemon se niega a enmascarar, restaurar o comprobar nada.
+- El plugin de Claude Code habla con el daemon con un token aleatorio que empieza por `latet_brg_`,
+  guardado en `bridge.token` en la carpeta de datos (un token creado por una versión anterior no tiene
+  prefijo y funciona como antes). Para sustituirlo por uno con prefijo, ejecuta `latet stop`, borra
+  `bridge.token` en la [carpeta de datos](../getting-started/uninstall/), ejecuta `latet start` (crea
+  uno nuevo) y `latet agents apply`, que escribe el nuevo token en los ajustes de tus agentes. Sin el
+  token, el daemon se niega a enmascarar, restaurar o comprobar nada.
 - **Tus agentes llegan al daemon por http simple en `127.0.0.1`, y es a propósito.** Ese tráfico nunca
   llega a una tarjeta de red: ningún otro equipo, ni siquiera en tu wifi, puede verlo. Un programa de
   tu equipo que pudiera leerlo (con permisos de administrador, o con tu usuario) podría leer

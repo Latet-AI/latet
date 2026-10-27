@@ -33,9 +33,14 @@ _CREDENTIAL_NAMES = (
     r"|x-amz-(?:signature|credential|security-token)|x-goog-(?:signature|credential)"
 )
 _QUERY = re.compile(rf"(?i)((?:[?&;'\"]|%3F|%26)(?:{_CREDENTIAL_NAMES})(?:=|%3D))[^&#\s\"']+")
-_SECRET = re.compile(r"(latet_(?:pat|key|adm|ck)_)[A-Za-z0-9_-]+")
+_SECRET = re.compile(r"(latet_(?:pat|key|adm|ck|scim)_)[A-Za-z0-9_-]+")
 _HEADER = re.compile(
     r"(?i)(x-latet-(?:token|admin|computer-key)\\?['\"]?\s*(?:[:=]|,)\s*(?:b?\\?['\"])?)[^\s\"',;})\]\\]+"
+)
+# The bridge token (43 characters after its prefix) and the one-time code (32), which a computer has as well as a
+# server: to their length, so that a word that only begins like one (`latet_code_review`) is left as it is.
+_LOCAL_SECRET = re.compile(
+    r"(latet_(?:brg|code)_)(?:(?<=brg_)[A-Za-z0-9_-]{43}|(?<=code_)[A-Za-z0-9_-]{32})(?![A-Za-z0-9_-])"
 )
 _CREDENTIAL = re.compile(
     r"(?i)\b((?:proxy-)?authorization|x-api-key|api-key|x-amz-security-token|cookie|set-cookie)"
@@ -61,6 +66,7 @@ def redacted(path: str) -> str:
     path = _ROUTE.sub(r"\1***", path)
     path = _QUERY.sub(r"\1***", path)
     path = _SECRET.sub(r"\1***", path)
+    path = _LOCAL_SECRET.sub(r"\1***", path)
     path = _HEADER.sub(r"\1***", path)
     path = _CREDENTIAL.sub(r"\1\2***", path)
     path = _JSON_CREDENTIAL.sub(r"\1***", path)

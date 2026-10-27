@@ -1,9 +1,9 @@
 """Counts of what happens, for a Latet server's metrics (`/_latet/metrics`): reported where it happens (the engine
-masking a text, an exchange ending, a request waiting for a person's decision) and heard by whoever listens. On a
-computer nobody listens, and a report costs a function call. A report hands over what its caller holds, as it is: what a
-listener hears of it (each value's type and class, an exchange's agent and whether Latet stopped it) is made here,
-inside the catch that keeps a metric from ever breaking the traffic it counts. Never a value: a type, an agent, a
-count."""
+masking a text, an exchange ending, a request waiting for a person's decision, a call of the applications API) and
+heard by whoever listens. On a computer nobody listens, and a report costs a function call. A report hands over what its
+caller holds, as it is: what a listener hears of it (each value's type and class, an exchange's agent and whether Latet
+stopped it) is made here, inside the catch that keeps a metric from ever breaking the traffic it counts. Never a value:
+a type, an agent, a count."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class Listener(Protocol):
     def exchange(self, agent: str, stopped: bool) -> None: ...
 
     def waiting(self, delta: int) -> None: ...
+
+    def apps(self, operation: str, texts: int, values: int) -> None: ...
 
 
 _listeners: weakref.WeakSet[Listener] = weakref.WeakSet()  # a server's Metrics, while it lives
@@ -109,3 +111,10 @@ def waiting(delta: int) -> None:
     (-1)."""
     if _listeners:
         _tell("waiting", lambda: (delta,))
+
+
+def apps(operation: str, texts: int, values: int) -> None:
+    """A call of the applications API answered (``operation``: scan, mask, unmask or forget): how many texts it took
+    (forget: values), and how many values it found, replaced or restored in them (forget: took out of the vault)."""
+    if _listeners:
+        _tell("apps", lambda: (operation, texts, values))

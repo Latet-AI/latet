@@ -1,0 +1,52 @@
+name: Release latet-client
+
+# Runs on a tag of the Python client (sdk-python-v0.1.0), apart from Latet's own releases (v1.2.3). It builds the package
+# in sdk/python and sends it to PyPI as `latet-client`, with trusted publishing: configure the "pypi-sdk" environment
+# and a trusted publisher for this workflow on pypi.org before the first tag.
+on:
+  push:
+    tags: ["sdk-python-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Check the tag matches the package version
+        run: |
+          version="$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml','rb'))['project']['version'])")"
+          test "sdk-python-v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
+      - run: uv build
+        working-directory: sdk/python
+      - name: The wheel holds the client and its license alone
+        run: python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('sdk/python/dist/*.whl')[0]).namelist(); assert all(n.startswith(('latet_client/', 'latet_client-')) for n in names), names; assert 'latet_client/py.typed' in names and any(n.endswith('licenses/LICENSE') for n in names), names"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "sdk/python/dist/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: sdk/python/dist
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi-sdk
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

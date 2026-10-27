@@ -107,11 +107,19 @@ mit dem Hauptschlüssel. Bewahren Sie den Hauptschlüssel getrennt von Datenbank
 auf. Ohne den passenden Schlüssel lassen sich verschlüsselte Daten nicht wiederherstellen.
 
 Einige Metadaten bleiben in PostgreSQL lesbar: Identitätsnamen und E-Mail-Adressen,
-externe Kennungen, Tokenbezeichnungen und Zeitpunkte, Regelnamen im Tresor, Zähler und
+externe Kennungen, Tokenbezeichnungen, Berechtigungen und Zeitpunkte, Regelnamen im Tresor, Zähler und
 Zeitpunkte sowie Akteure, Aktionen, Ziele, Kennungen, Anzahlen und Clientadressen des
 Administrationsprotokolls. Projekt- und Gesprächskennungen im Verlauf verwenden Hashes
-mit Schlüssel. Valkey verwendet mit Schlüssel abgeleitete Namen, verschlüsselte sensible
-Nutzdaten und signierte Koordinationsnachrichten.
+mit Schlüssel. Der Tresor eines API-Schlüssels speichert außerdem die Wörter seiner Werte und
+Ersatzwerte als Hashes mit Schlüssel, über die ein Text sie findet: Ein Hash zeigt kein Wort, nur
+welche Einträge eines gemeinsam haben. Die Zeilen seines Verlaufs und die gemerkten Antworten seines
+lokalen Prüfers speichern Hashes mit Schlüssel der Einträge und Werte des Tresors, die sie nennen,
+damit ein Vergessen sie findet: Wer die Datenbank liest, kann erkennen, welche Zeilen denselben
+Eintrag oder denselben Wert nennen, nie, welcher Wert es ist. Die Zeilen einer Person speichern
+keine. Jeder Tresor speichert den Hash mit Schlüssel jedes Ersatzwerts, den er stillgelegt hat (den
+eines vergessenen Werts oder einen ersetzten), damit kein anderer Wert ihn erhält: Er zeigt, wie
+viele Ersatzwerte stillgelegt wurden, nie welche. Valkey verwendet mit Schlüssel abgeleitete Namen,
+verschlüsselte sensible Nutzdaten und signierte Koordinationsnachrichten.
 
 Die Verschlüsselung gespeicherter Daten verbirgt Originale nicht vor dem laufenden
 Server oder seinem Betreiber. Berechtigte Dashboardansichten erhalten Originale im

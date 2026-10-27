@@ -97,6 +97,20 @@ def test_secret_columns_stay_masked():
     assert found["email"] == ("mask", "people")
 
 
+def test_a_column_named_for_a_status_of_a_secret_is_masked_unless_every_value_has_a_status_shape():
+    """`auth_status`, `token_state`...: the name says what a check found, so a column of lowercase words, numbers, times,
+    dates and booleans is none of a secret's; one value of any other shape and it is masked by its name, as it was."""
+    text = (
+        "id,auth_status,token_state,password_changed\n"
+        "1,failed,saml,2026-10-26\n"
+        "2,ok,bearer-local,2026-10-27T12:00:01Z\n"
+        "3,pending,Winter2024x,2026-10-28\n"
+    )
+    found = _proposals(text)
+    assert found["auth_status"][1] != "secret-name" and found["password_changed"][1] != "secret-name"
+    assert found["token_state"] == ("mask", "secret-name")  # one value of another shape
+
+
 @pytest.mark.parametrize("case", DB_CASES)
 def test_nothing_to_protect_is_ever_proposed_in_clear(case):
     """Every value the bench says must be reported stays out of the columns proposed in clear."""

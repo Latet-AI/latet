@@ -11,9 +11,9 @@ marked *fail-closed* stops the request if it fails, rather than letting text thr
 
 | Detector | Finds | Kind | Profiles | If it fails |
 | --- | --- | --- | --- | --- |
-| `latet-credentials` | Latet personal tokens, computer keys, API keys and administration tokens, and route keys in HTTPS identity addresses. | secret | all | fail-closed |
+| `latet-credentials` | Latet personal tokens, computer keys, API keys, administration tokens, SCIM tokens, bridge tokens and one-time codes, and route keys in HTTPS identity addresses. | secret | all | fail-closed |
 | `gitleaks` | API keys and tokens of known services, with the gitleaks ruleset: patterns, keywords, entropy thresholds and allowlists as gitleaks applies them. | secret | all | fail-closed |
-| `assignment` | Values assigned to sensitive names (``DB_PASSWORD=…``, ``"api_key": "…"``, ``$env:TOKEN = …``). | secret | all | fail-closed |
+| `assignment` | Values assigned to sensitive names (``DB_PASSWORD=…``, ``"api_key": "…"``, ``$env:TOKEN = …``), and ``name=…`` pairs wherever they stand in a line. | secret | all | fail-closed |
 | `private-key` | The whole body of a PEM/OpenSSH/PGP private key block (header and footer stay visible). | secret | all | fail-closed |
 | `credentials` | Passwords in ``scheme://user:pass@host``, JWTs and bearer/basic credentials. | secret | all | fail-closed |
 | `fields` | Values by the field they sit in: secret names, your field rules and strict data mode. | secret; your fields; data values | all | fail-closed |
@@ -33,10 +33,17 @@ They use the same policies, allow lists, conversation restoration and outbound-t
 | `LATET_COMPUTER_KEY` | `latet_ck_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_API_KEY` | `latet_key_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_ADMIN_TOKEN` | `latet_adm_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
+| `LATET_SCIM_TOKEN` | `latet_scim_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
+| `LATET_BRIDGE_TOKEN` | `latet_brg_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
+| `LATET_ONE_TIME_CODE` | `latet_code_` followed by 32 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_ROUTE_KEY` | The 16 to 128 URL-safe characters after `/u/` in `https://<host>/u/<route-key>`. | Entire route key drawn again; host and other path segments kept. |
 
 URL-safe characters are `A-Z`, `a-z`, `0-9`, `_` and `-`. A credential is matched as a complete token;
 a route key as a complete path segment. Only the route key is replaced in an identity address.
+
+A bridge token or a one-time code made by an earlier version has no prefix. It stays valid until it is
+replaced (a code, until its day ends). Latet masks it by the name it is written under, as it masks any
+other secret, not by a shape of its own.
 
 ## Personal data
 

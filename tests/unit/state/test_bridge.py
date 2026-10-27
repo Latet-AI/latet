@@ -13,7 +13,7 @@ import pytest
 import redis
 from starlette.applications import Starlette
 
-from latet.bridge.api import Bridge
+from latet.bridge.api import Bridge, a_store_not_answering
 from latet.engine import wellformed
 from latet.engine.types import EntityClass
 from latet.engine.vault import MaskingError
@@ -454,6 +454,24 @@ async def test_a_plugin_call_whose_store_does_not_answer_is_answered_503(live, m
     [record] = [r for r in caplog.records if r.name == "latet.bridge.api"]
     assert record.levelno == logging.WARNING and record.exc_info is None
     assert "10.0.0.5" not in caplog.text and "db.acme.lan" not in caplog.text and EMAIL not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("error", "silent"),
+    [
+        (redis.exceptions.TimeoutError("Timeout reading from 10.0.0.5:6379"), True),
+        (redis.exceptions.ConnectionError("Error connecting to 10.0.0.5:6379"), True),
+        (psycopg.OperationalError("connection to server at db.acme.lan failed"), True),
+        (TimeoutError(), True),
+        (ConnectionResetError(), True),
+        (ValueError("a fault of Latet's own"), False),
+        (MaskingError("masking failed"), False),
+    ],
+    ids=["valkey-timeout", "valkey-gone", "postgresql", "timeout", "connection", "own-fault", "masking"],
+)
+def test_a_store_that_does_not_answer_is_told_by_its_error(error, silent):
+    """What the bridge and the applications API answer 503: one helper, public, that both read."""
+    assert a_store_not_answering(error) is silent
 
 
 async def test_a_plugin_calls_failure_of_its_own_is_no_503(live, monkeypatch):

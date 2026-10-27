@@ -50,6 +50,8 @@ Latet Enterprise license; developing and testing with them is free. Write to
 - **Contributing.** Contributions are accepted under the [contributor license agreement](CLA.md):
   you keep your copyright and allow your contribution to be part of Latet under every license it is
   offered under, the commercial ones included.
+- **The Python client.** `sdk/python` (`latet-client`) is under the MIT license, in its own
+  [LICENSE](sdk/python/LICENSE) file; the rest of this repository keeps the licenses above.
 - **Third-party software** in Latet keeps its own licenses, listed in
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The optional models Latet downloads on request
   (name detection, text recognition) come with their own licenses too, shown when you install them.

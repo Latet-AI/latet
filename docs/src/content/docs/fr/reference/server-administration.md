@@ -28,7 +28,7 @@ du shell et des variables d'environnement du compte : les processus du même uti
 lire l'environnement d'un autre processus. `LATET_SERVER_ADMIN_TOKEN` est destiné au magasin
 de secrets d'une CI ou d'un conteneur, avec `LATET_SERVER_URL` ; il n'est jamais envoyé à un autre serveur.
 
-`keys add`, `keys rotate` et `admin-token issue` acceptent `--out FILE` : le nouveau fichier
+`keys add`, `keys add-token`, `keys rotate` et `admin-token issue` acceptent `--out FILE` : le nouveau fichier
 privé reçoit le secret et la commande n'affiche que son identifiant et le fichier. Ne mettez
 jamais de code, clé ou jeton d'administration dans un ticket, un canal partagé ou une conversation
 avec un agent. Le code à usage unique d'une personne permet à quiconque l'utilise de connecter
@@ -98,6 +98,27 @@ Perdre la **clé principale** est pire que perdre un jeton : elle scelle la clé
 et sans elle aucun coffre-fort ne pourra plus être lu. Gardez-en une copie à part des sauvegardes
 de la base de données, comme l'explique [Exploitation du serveur](../../concepts/server-operations/).
 
+## Oublier des valeurs d'une clé d'API
+
+Quand une personne demande que ses données quittent le coffre-fort d'une clé d'API, `keys forget` en
+retire ses valeurs, avec ce que les conversations et l'historique de la clé en gardent, sur chaque
+instance dès que les appels déjà en cours y sont finis :
+
+```sh
+latet server --server https://latet.acme.lan keys forget "Shop" --file erasure.txt
+```
+
+Le fichier contient une valeur par ligne, en UTF-8 ; sans `--file`, tapez les valeurs dans votre
+terminal, une ligne vide les terminant. Une valeur n'est jamais prise sur la ligne de commande, que le
+shell garde dans son historique, et la commande refuse un agent, comme `config get`. Elle demande avant
+de les envoyer, dans votre terminal même avec `--yes` ; un script a besoin de `--yes`. Chaque valeur est
+cherchée exactement telle qu'elle est écrite : citez chaque forme qui doit disparaître, et aussi le
+domaine d'entreprise d'une adresse, que le coffre-fort garde comme une valeur à part. Chaque appel, de
+1 000 valeurs au plus, est une entrée `key.forgotten` avec le nombre de valeurs demandées, oubliées et
+absentes du coffre-fort, jamais une valeur. Cela fonctionne aussi sur une clé désactivée. Une
+application fait de même avec un jeton à qui vous avez donné `--forget` (`keys add-token "Shop" erasure
+--forget`), qu'aucune autre permission n'inclut : voir [oublier des valeurs](../../applications/forget/).
+
 ## Lire le journal d'administration
 
 `latet server log --limit 100000 --json` lit les pages successives, du plus récent au plus ancien,
@@ -108,10 +129,20 @@ entrées, une par ligne ; les avis sont écrits sur stderr.
 
 `--since` inclut sa borne et `--until` l'exclut. `--actor` sélectionne une identité ou un jeton
 d'administration ; `--action` sélectionne une action ou un préfixe littéral terminé par `*`.
-Les actions nomment ce qui a changé (`person.added`, `code.issued`, `token.revoked`, `key.rotated`,
-`settings.changed`, `shared.changed`, `admin-token.issued`, `admin-token.revoked`), et les lectures
-sont enregistrées sous le nom de l'appel (`status.read`, `log.read`) : `--action 'admin-token.*'`
-sélectionne tous les changements des jetons d'administration.
+Les actions nomment ce qui a changé (`person.added`, `code.issued`, `token.added`, `token.revoked`,
+`key.rotated`, `key.updated`, `settings.changed`, `shared.changed`, `admin-token.issued`,
+`admin-token.revoked`), et les lectures sont enregistrées sous le nom de l'appel (`status.read`,
+`log.read`) : `--action 'admin-token.*'` sélectionne tous les changements des jetons d'administration.
+
+Les jetons d'une clé d'API sont nommés par leur identifiant, jamais par leur secret ni par leur nom :
+`token.added` donne le nouveau jeton et ses permissions, `key.rotated` le jeton qui reste (`token`) et
+celui qu'il a remplacé (`replaced`), et `key.updated` un changement comme la limite du coffre-fort de
+la clé (`vault_limit`). `apps.unmasked` est une restauration par
+l'[API pour les applications](../apps-api/) : le jeton, le nombre de textes et le nombre de valeurs
+restaurés, jamais un texte ni une valeur. `--action apps.unmasked` liste qui a restauré, et quand.
+`key.forgotten` et `apps.forgotten` sont des valeurs retirées du coffre-fort d'une clé d'API, par
+`keys forget` et par l'API pour les applications : le nombre de valeurs demandées, oubliées et absentes,
+et pour l'API le jeton, jamais une valeur.
 Pour reprendre, passez le curseur du journal affiché à `--cursor`, avec exactement les filtres
 d'origine. Utilisez des dates absolues ou des secondes epoch exactes pour reprendre plus tard :
 une durée relative comme `7d` change entre les exécutions. Ne remplacez jamais `--until` par un

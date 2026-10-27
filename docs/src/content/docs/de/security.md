@@ -85,9 +85,13 @@ lief: Er prüft auch die Beschreibungen, Schemas und Beispiele der Tools.
   Sitzungscookie mit `HttpOnly` und `SameSite=Strict`, und jede Änderung verlangt einen Header, den
   andere Websites nicht senden können. Siehe die
   [Anleitung zum Dashboard](../dashboard/#der-datenschutz-des-dashboards-selbst).
-- Das Plugin für Claude Code spricht mit dem Daemon über ein zufälliges Token, das in `bridge.token`
-  im Datenordner liegt. Ohne das Token weigert sich der Daemon, irgendetwas zu maskieren, wieder
-  einzusetzen oder zu prüfen.
+- Das Plugin für Claude Code spricht mit dem Daemon über ein zufälliges Token, das mit `latet_brg_`
+  beginnt und in `bridge.token` im Datenordner liegt (ein Token aus einer früheren Version hat kein
+  Präfix und funktioniert wie bisher). Um es durch eines mit Präfix zu ersetzen, führen Sie
+  `latet stop` aus, löschen Sie `bridge.token` im [Datenordner](../getting-started/uninstall/), führen
+  Sie `latet start` aus (es legt ein neues an) und `latet agents apply`, das das neue Token in die
+  Einstellungen Ihrer Agenten schreibt. Ohne das Token weigert sich der Daemon, irgendetwas zu
+  maskieren, wieder einzusetzen oder zu prüfen.
 - **Ihre Agenten erreichen den Daemon über einfaches http auf `127.0.0.1`, und das ist Absicht.**
   Dieser Verkehr erreicht nie eine Netzwerkkarte: Kein anderer Rechner, nicht einmal in Ihrem WLAN,
   kann ihn sehen. Ein Programm auf Ihrem Rechner, das ihn lesen könnte (mit Administratorrechten

@@ -13,9 +13,13 @@ detectors read every piece of text a request carries. This page explains them wi
 Secrets are masked in every [profile](../profiles/).
 
 Latet's own credentials are included: `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
-(`latet_ck_`), `LATET_API_KEY` (`latet_key_`) and `LATET_ADMIN_TOKEN` (`latet_adm_`), each
-prefix followed by 43 URL-safe
-characters (`A-Z`, `a-z`, `0-9`, `_`, `-`). In `https://<host>/u/<route-key>`, the 16 to 128
+(`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
+`LATET_SCIM_TOKEN` (`latet_scim_`, the SCIM token of an Enterprise server), `LATET_BRIDGE_TOKEN`
+(`latet_brg_`, the token your Claude Code plugin gives the daemon of your computer) and
+`LATET_ONE_TIME_CODE` (`latet_code_`, the code an administrator gives a person to connect a
+computer), each prefix followed by 43 URL-safe characters (32 for the one-time code; `A-Z`, `a-z`,
+`0-9`, `_`, `-`). A bridge token or a one-time code made by an earlier version has no prefix: it is
+masked by the name it is written under, like any secret. In `https://<host>/u/<route-key>`, the 16 to 128
 URL-safe characters of the route key are masked as `LATET_ROUTE_KEY`; the host and the other
 path segments stay. This applies on your computer and in a server space, including environment
 dumps, Claude Code's `settings.json` and Codex's `config.toml`. Local tool calls get the real
@@ -30,7 +34,25 @@ values back. An outbound tool call containing a fake is stopped where Latet can 
   decides, whatever the value looks like: `DB_PASSWORD=...`, `"api_key": "..."` and
   `$env:TOKEN = ...` are masked; `APP_NAME=shop` and `DEBUG=true` are not. Placeholders such as
   `changeme`, `${DB_PASSWORD}` or `<your-key>` are left alone, and so are references in code such
-  as `process.env.API_KEY`.
+  as `process.env.API_KEY`. A `password=...` pair is masked wherever it stands in a line, after other
+  words in a log (`INFO login ok password=...`), in parentheses, in the query of a URL or after `--`
+  in a command (`--password=...`); after a strong name (`password`, `secret`, `api_key`,
+  `access_token`...) a quoted literal is masked after a colon or a spaced equal sign too
+  (`{ password: 's3cr3t' }`, `SET password = '...'`). A comparison (`token==expected`) is no pair.
+  Two kinds of value are left after a secret's name, because they say what a check found and are not
+  the secret. A status word, in lowercase, under any name (`auth=failed`, `token=expired`): `ok`,
+  `fail`, `failed`, `failure`, `denied`, `refused`, `rejected`, `accepted`, `granted`, `success`,
+  `succeeded`, `error`, `expired`, `missing`, `invalid`, `valid`, `required`, `present`, `absent`,
+  `revoked`, `rotated`, `refreshed`, `pending`, `unknown`, `anonymous`, `unauthorized`, `forbidden`,
+  `enabled`, `disabled`, `active`, `inactive`, `skipped` and `passed`. And, under a name that ends in
+  `status`, `state`, `result`, `results`, `outcome`, `scheme`, `changed`, `reason` or `error`
+  (`auth_status`, `token_error`, `password_changed`), a value of the shape of a status: a lowercase word
+  of 20 characters at most with one `-` or `_` at most, a number of 10 digits at most, a time, a date
+  or a boolean; any other value there (`password_changed=Winter2024x`, a passphrase such as
+  `correct-horse-battery-staple`, a longer number) is masked. A name that ends in `reset`, `source`, `arg`,
+  `option` or `flag` is still a secret's name (`password_reset`, `token_source`), and only after `--`
+  in the middle of a line is an option that ends so (`--pass-arg=...`) left, for it takes the name of
+  something.
 - **Private keys**: the whole body of a PEM, OpenSSH or PGP private key block. The `BEGIN` and
   `END` lines stay visible, so the model still knows a key is there.
 - **Credentials**: the password in `postgres://user:password@host/db` and other URLs, JSON Web

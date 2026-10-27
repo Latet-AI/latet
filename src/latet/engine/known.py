@@ -28,7 +28,7 @@ import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from latet.engine.detectors.base import DetectContext
 from latet.engine.detectors.terms import WORD_INDEX_FROM, KnownValuesDetector
@@ -114,6 +114,16 @@ class PartedValues:
         data = text.encode()
         for part in self._parts:
             yield from part.spans(text, data)
+
+
+class Matchers(Protocol):
+    """What a vault's maskers read its values and fakes through (``Vault.matchers``): ``ValueMatchers``, or an
+    applications call's own (``engine.stored``)."""
+
+    @property
+    def chars(self) -> int: ...
+
+    def current(self) -> Matched: ...
 
 
 @dataclass(frozen=True, slots=True)

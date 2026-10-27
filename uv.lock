@@ -1050,7 +1050,7 @@ wheels = [
 
 [[package]]
 name = "latet"
-version = "0.9.10"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "brotli" },
@@ -1095,6 +1095,7 @@ dev = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "latet", extra = ["ner", "ocr", "server"] },
+    { name = "latet-client", extra = ["langchain"] },
     { name = "openai" },
     { name = "packaging" },
     { name = "pyright" },
@@ -1142,6 +1143,7 @@ dev = [
     { name = "langchain-openai", specifier = ">=1.7.2" },
     { name = "langgraph", specifier = ">=1.2.16" },
     { name = "latet", extras = ["ner", "ocr", "server"] },
+    { name = "latet-client", extras = ["langchain"], editable = "sdk/python" },
     { name = "openai", specifier = ">=3.35.1" },
     { name = "packaging", specifier = ">=26.3" },
     { name = "pyright", specifier = ">=1.1.414" },
@@ -1151,6 +1153,26 @@ dev = [
     { name = "python-stdnum", specifier = ">=2.2" },
     { name = "ruff", specifier = ">=0.16.10" },
 ]
+
+[[package]]
+name = "latet-client"
+version = "0.1.0"
+source = { editable = "sdk/python" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.optional-dependencies]
+langchain = [
+    { name = "langchain-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3" },
+]
+provides-extras = ["langchain"]
 
 [[package]]
 name = "markdown-it-py"

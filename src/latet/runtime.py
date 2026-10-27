@@ -8,7 +8,6 @@ import hashlib
 import hmac
 import json
 import logging
-import secrets
 import threading
 import time
 from collections.abc import Callable, Collection, Iterable
@@ -31,6 +30,7 @@ from latet.engine.review import ReviewPolicy
 from latet.engine.reviewer import Reviewer
 from latet.engine.reviewer.client import ReviewClient, key_id
 from latet.engine.reviewer.reviewer import KeyReader, api_key_of, client_for, fixed_key
+from latet.engine.stored import HELD_SECRETS, WORKING_VALUES, StoredVault
 from latet.engine.vault import Entity, MaskingError, Vault
 from latet.gateway.app import GatewayConfig
 from latet.gateway.approvals import Approvals, Change
@@ -54,8 +54,8 @@ from latet.state.local import (  # noqa: F401 - REVIEWED_FILE: its old name
     LocalSettings,
     local_backends,
 )
-from latet.state.protocols import HistoryStore, IdentityRef, SettingsStore, StateBackends, VaultStore
-from latet.storage.keys import load_bridge_token, load_root_key
+from latet.state.protocols import HistoryStore, IdentityRef, KeyVaultStore, SettingsStore, StateBackends, VaultStore
+from latet.storage.keys import load_bridge_token, load_root_key, new_bridge_token
 from latet.vision.masking import ImageMasking, OcrUnreadReason
 from latet.vision.policy import image_policy
 
@@ -699,6 +699,24 @@ def image_masking(
     return ImageMasking(shared_ocr(*models.folders(data)), store)
 
 
+def _key_vault(key: bytes, store: KeyVaultStore, new_values: NewValues, working: int, held: int) -> StoredVault:
+    """An API key's vault: its newest ``working`` values in memory, every other one found in its store as a text needs
+    it (``StoredVault``, R7). The values kept by a Latet before the store kept their anchor words (or kept them by an
+    older version of the anchors) get them first, said once in the log when there were any; and the store counts the
+    vault's values itself, for its limit, as the space no longer loads them all, and the generation its new fakes are
+    drawn in (Task 11b: moved by each forget of values by themselves)."""
+    filled = store.backfill_words()
+    if filled:
+        log.info("the words of %d values of an API key's vault were made, so that they are found in its texts", filled)
+    store.count = store.count_entities()
+    store.load_generation()
+    return StoredVault(
+        key, store, working=working, held_at_most=held, on_insert=new_values.keep, on_rule=store.save_rule,
+        on_learn=new_values.learn,
+        on_replace=store.replace_fake,
+    )  # fmt: skip
+
+
 def make_runtime(
     config: Config | None = None,
     data: Path | None = None,
@@ -711,13 +729,17 @@ def make_runtime(
     reading: ServerReading | None = None,
     reviewer_key: KeyReader | None = None,
     ocr_unread: Callable[[OcrUnreadReason], None] | None = None,
+    working: int = WORKING_VALUES,
+    held: int = HELD_SECRETS,
 ) -> Runtime:
     """A Latet's runtime, over ``backends`` (None: this computer's, ``local_backends``); ``identity``: whose space it is
     on a Latet server (None on a computer), ``reading``: the bounds of the text recognitions the server's spaces share
     (its settings'; read only with ``identity``). Backends are given with ``root_key``, the key their vault is sealed
     with: never this computer's own, which another instance would not have. Without ``record`` nothing is recorded, not
     even in a history that is given. ``reviewer_key``: on a server, where the space's reviewer takes its key from;
-    none given, it asks with none. A computer reads its own key as before."""
+    none given, it asks with none. A computer reads its own key as before. ``working``: how many values an API key's
+    space keeps in memory (``StoredVault``; the server's ``key_working_values``), ``held``: the secrets it holds glued
+    for good (``key_held_secrets``)."""
     from latet.server.logs import frames_only
 
     frames_only()  # an error this process logs is shown by its types and frames, never its words (daemon.log too)
@@ -734,8 +756,9 @@ def make_runtime(
     key = root_key if root_key is not None else load_root_key(data)  # given: the tutorial's sandbox, never saved
     if backends is not None:
         return _started(
-            config, data, capture, record, config_file, key, backends, identity, reading, reviewer_key, ocr_unread
-        )
+            config, data, capture, record, config_file, key, backends, identity, reading, reviewer_key, ocr_unread,
+            working, held,
+        )  # fmt: skip
     backends = local_backends(data, config_file, key, record=record)
     try:
         return _started(
@@ -760,6 +783,8 @@ def _started(
     reading: ServerReading | None = None,
     reviewer_key: KeyReader | None = None,
     ocr_unread: Callable[[OcrUnreadReason], None] | None = None,
+    working: int = WORKING_VALUES,
+    held: int = HELD_SECRETS,
 ) -> Runtime:
     """The runtime ``make_runtime`` answers, over backends that are open (its own to close, or given)."""
     # An identity's space on a Latet server: nothing of the server's machine is the identity's (its user, host name and
@@ -802,10 +827,14 @@ def _started(
     store = backends.vault
     new_values = NewValues(store)
     # A fake kept before the vault refused one that shows its value is drawn again as the vault loads (``on_replace``).
-    vault = Vault(
-        key, store.load_entities(), on_insert=new_values.keep, on_rule=store.save_rule, on_learn=new_values.learn,
-        on_replace=store.replace_fake,
-    )  # fmt: skip
+    vault: Vault
+    if identity is not None and identity.kind == "key" and isinstance(store, KeyVaultStore):
+        vault = _key_vault(key, store, new_values, working, held)
+    else:  # a person's space, a computer, and a key's over a store that reads no vault by parts: all of it in memory
+        vault = Vault(
+            key, store.load_entities(), on_insert=new_values.keep, on_rule=store.save_rule, on_learn=new_values.learn,
+            on_replace=store.replace_fake,
+        )  # fmt: skip
     identity_config = resolve_identity(config, detect=not space)
     built = build(config, vault, identity_config, conversations=backends.conversations, given=backends.given)
     built.engine.rules_tag = digest(config)
@@ -833,7 +862,7 @@ def _started(
         mediator=Mediator(
             built.engine, built.verifier, Approvals(backends.approvals, backends.approvals_feed), given=backends.given
         ),
-        bridge_token=load_bridge_token(data) if not space else secrets.token_urlsafe(32),
+        bridge_token=load_bridge_token(data) if not space else new_bridge_token(),
         recorder=recorder,
         unreadable=store.unreadable,
         aws=AwsCredentialStore(sessions=backends.aws),

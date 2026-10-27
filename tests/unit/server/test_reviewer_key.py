@@ -200,6 +200,9 @@ def test_another_secrets_file_even_a_hard_link_is_refused(tmp_path, name):
         "latet_admin_x",
         "latet_token_x",
         "latet_key_x",
+        "latet_scim_" + "x" * 43,
+        "latet_brg_" + "x" * 43,
+        "latet_code_" + "x" * 32,
     ],
 )
 def test_another_secret_is_never_a_reviewer_key(tmp_path, value):
@@ -221,6 +224,13 @@ def test_a_key_of_its_own_is_accepted(tmp_path):
     path = tmp_path / "reviewer"
     path.write_text(KEY, "utf-8")
     assert reviewer_key_of(_settings(path), MasterKey([ROOT_KEY])) == KEY
+
+
+def test_a_key_that_only_begins_like_a_code_is_a_key_of_its_own(tmp_path):
+    path = tmp_path / "reviewer"
+    own = "latet_code_review-" + "k" * 30
+    path.write_text(own, "utf-8")
+    assert reviewer_key_of(_settings(path), MasterKey([ROOT_KEY])) == own
 
 
 def test_every_version_of_a_master_key_file_is_refused(tmp_path, monkeypatch):

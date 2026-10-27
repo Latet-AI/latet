@@ -110,6 +110,15 @@ def upstream_error(message: str, status: int = 502, *, shape: ErrorShape) -> Res
     return JSONResponse(body, status_code=status, headers={"x-should-retry": "false"})
 
 
+@dataclass(slots=True)
+class _Turn:
+    """What ``Forwarder.handle`` learns of a request as it is forwarded: what its masking prepared, and whether the
+    relay of a restored stream lets the conversation's hold go itself."""
+
+    prepared: Prepared | None = None
+    streams: bool = False
+
+
 def error_shape(upstream: Upstream, prepared: Prepared | None) -> ErrorShape:
     """The shape this request's client reads: Anthropic's for the Messages API, whatever the route, with
     Bedrock's own field for a Bedrock call; Google's for the Gemini API and for Google's calls on Vertex (a request
@@ -254,6 +263,18 @@ class Forwarder:
         return outgoing
 
     async def handle(self, request: Request) -> Response:
+        """``request`` forwarded (``_handle``); and what a conversation's vault held in memory for its answer
+        (``Engine.hold``: an API key's) let go however the request ends: by the restore of its answer as it is streamed
+        (the relay lets it go as it ends), or here, for an answer restored whole, refused, never sent or never
+        answered."""
+        turn = _Turn()
+        try:
+            return await self._handle(request, turn)
+        finally:
+            if not turn.streams:
+                self._answered(turn.prepared)
+
+    async def _handle(self, request: Request, turn: _Turn) -> Response:
         wire = wire_path(request.scope)
         upstream = self.routes.match(wire)
         if upstream is None:
@@ -290,7 +311,7 @@ class Forwarder:
             masked = await self._prepared(upstream, request, read, lowered, body, path, outcome)
             if isinstance(masked, Response):
                 return masked
-            prepared = masked
+            prepared = turn.prepared = masked
             if prepared.reviews and not prepared.block_reason:  # the local reviewer reads it first
                 prepared = await self.mediator.review_prepared(prepared)
             if not prepared.block_reason:  # then you, when the Live Reviewer is on
@@ -426,6 +447,7 @@ class Forwarder:
             finally:
                 if transform is not None:
                     transform.close()
+                    self._answered(prepared)
                 await response.aclose()
                 if exchange:
                     exchange.response_end(error=error)
@@ -434,8 +456,21 @@ class Forwarder:
                 self._record(outcome, error=error)
 
         streamed = StreamingResponse(relay(), status_code=response.status_code)
+        turn.streams = transform is not None  # its relay lets the conversation's hold go as it ends
         streamed.raw_headers = [(k.encode("latin-1"), v.encode("latin-1")) for k, v in response_headers]
         return streamed
+
+    def _answered(self, prepared: Prepared | None) -> None:
+        """A conversation's answer restored (or ended): what its vault kept in memory for it may go again
+        (``Engine.release``; an API key's vault, ``StoredVault.hold``)."""
+        if self.mediator is None or prepared is None or prepared.session is None:
+            return
+        if not prepared.held or prepared.released:
+            # Once, and only for a request that held: any other release would let another request of the conversation,
+            # its answer awaited meanwhile, lose its hold.
+            return
+        prepared.released = True
+        self.mediator.engine.release(prepared.session, prepared.hold)  # its own hold's count, never a newer one's
 
     async def _redirected(
         self,
@@ -492,6 +527,7 @@ class Forwarder:
             error = type(exc).__name__
             raise
         finally:
+            self._answered(prepared)
             await response.aclose()
             if whole.exchange:
                 whole.exchange.response_end(error=error)
