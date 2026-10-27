@@ -25,6 +25,13 @@ model gets the work, not the values.
 Google Vertex, Microsoft Foundry or Azure OpenAI, Latet reads that route from the agent's settings
 and goes in front of it: [Company endpoints](https://docs.latet.ai/agents/company-endpoints/).
 
+**In your own programs too.** A Latet server masks for your applications as well, through an HTTP
+API described in OpenAPI: log lines before they reach Datadog or Splunk, documents before a RAG
+index, values a person asks you to forget. Python programs call it with the
+[`latet-client`](https://pypi.org/project/latet-client/) SDK, which works with LangChain, and n8n
+workflows with the [Latet nodes](https://www.npmjs.com/package/@latet-ai/n8n-nodes-latet):
+[API, SDK and n8n](#your-own-programs-api-python-sdk-langchain-and-n8n).
+
 **See it at work first.** Once it is [installed](#install), `latet tutorial` opens a sandbox in your
 browser: a pretend agent sends requests full of invented secrets and personal data through the real
 Latet, and chapter by chapter the dashboard shows what Latet did with each value. Nothing leaves
@@ -433,7 +440,7 @@ explain the steps and check the machine: point it at [`llms-server.md`](llms-ser
 See [server setup, connection and administration](https://docs.latet.ai/getting-started/server/)
 and [server operations](https://docs.latet.ai/concepts/server-operations/).
 
-### Your own programs: scan, mask, unmask and forget
+## Your own programs: API, Python SDK, LangChain and n8n
 
 A Latet server also masks for your own programs, through its applications API. An application masks
 its log lines before it ships them to Datadog, Splunk or Elastic, or its documents before a RAG
@@ -457,9 +464,20 @@ to a token of its own: no other permission brings it.
 latet server --server https://latet.acme.lan keys add-token "Shop logs" shipper --mask --out shipper.token
 ```
 
-From Python, [`latet-client`](sdk/python/README.md) (under the MIT license) calls it, with a LangChain
+**The HTTP API.** Any language calls it: JSON over HTTPS with the token in a header, described in
+[OpenAPI 3.1](https://docs.latet.ai/apps-api.openapi.json), so a client can be generated from it; the
+[HTTP reference](https://docs.latet.ai/reference/apps-api/) gives the contract. A server also serves
+the description of its own version, with no token, at
+`https://latet.acme.lan/_latet/docs/apps-api.openapi.json`.
+
+**Python and LangChain.** [`latet-client`](https://pypi.org/project/latet-client/), under the MIT
+license, wraps the API ([its README](sdk/python/README.md)). With the `langchain` extra it adds a
 document transformer and runnables for the RAG flow: mask the documents and the question, call the
 model directly, unmask its answer.
+
+```sh
+pip install "latet-client[langchain]"
+```
 
 ```python
 from latet_client import Latet
@@ -468,10 +486,16 @@ with Latet("https://latet.acme.lan", token) as latet:
     lines = latet.mask(log_lines, kind="data")  # a list in, a list out, in the same order
 ```
 
-Other languages call its HTTP API, described in OpenAPI. A key's vault lives in PostgreSQL, so a log
-space of millions of values works on every instance. See [the applications API](https://docs.latet.ai/applications/),
-with its pages for [logs](https://docs.latet.ai/applications/logs/), [RAG](https://docs.latet.ai/applications/rag/)
-and [forgetting values](https://docs.latet.ai/applications/forget/), its limits and its throughput.
+**n8n.** The [Latet nodes for n8n](https://www.npmjs.com/package/@latet-ai/n8n-nodes-latet) scan,
+mask, unmask and forget the texts of a workflow's items: mask what a workflow sends to a model or a
+service, unmask what comes back. In n8n: **Settings > Community Nodes > Install**, then
+`@latet-ai/n8n-nodes-latet` ([n8n in the documentation](https://docs.latet.ai/applications/n8n/)).
+
+A key's vault lives in PostgreSQL, so a log space of millions of values works on every instance.
+See [the applications API](https://docs.latet.ai/applications/),
+with its pages for [logs](https://docs.latet.ai/applications/logs/), [RAG](https://docs.latet.ai/applications/rag/),
+[n8n](https://docs.latet.ai/applications/n8n/) and [forgetting values](https://docs.latet.ai/applications/forget/),
+its limits and its throughput.
 
 ## Privacy guarantees and limits
 

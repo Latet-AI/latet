@@ -9,7 +9,9 @@ La [API para aplicaciones](../../applications/) de un servidor de Latet responde
 bajo `https://<tu servidor>/_latet/apps/v1/`. Esta es la versión 1: un cambio que rompería un programa
 escrito para ella llega como `v2`, a su lado. La [descripción OpenAPI](../../../apps-api.openapi.json)
 dice lo mismo para las herramientas que generan un cliente; los programas en Python pueden usar
-`latet-client` ([registros](../../applications/logs/), [RAG](../../applications/rag/)).
+`latet-client` ([registros](../../applications/logs/), [RAG](../../applications/rag/)). Un servidor de
+Latet también sirve la descripción de su propia versión, sin token, en
+`https://<tu servidor>/_latet/docs/apps-api.openapi.json`.
 
 ## Autenticación
 

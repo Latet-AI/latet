@@ -9,7 +9,8 @@ The [applications API](../../applications/) of a Latet server answers four opera
 `https://<your server>/_latet/apps/v1/`. This is version 1: a change that would break a program
 written for it comes as `v2`, beside it. The [OpenAPI description](../../apps-api.openapi.json)
 says the same for tools that generate a client; Python programs can use `latet-client`
-([logs](../../applications/logs/), [RAG](../../applications/rag/)).
+([logs](../../applications/logs/), [RAG](../../applications/rag/)). A Latet server also serves the
+description of its own version, with no token, at `https://<your server>/_latet/docs/apps-api.openapi.json`.
 
 ## Authentication
 

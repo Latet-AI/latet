@@ -37,7 +37,9 @@ Was sie mehr bietet als eine Schwärzungsregel:
 
 Zwei Seiten führen durch die beiden Einsätze, für die sie gebaut wurde: [Logs](logs/) und
 [RAG](rag/). Die [HTTP-Referenz](../reference/apps-api/) beschreibt den Vertrag für Programme in jeder
-Sprache; Python-Programme können das Paket `latet-client` verwenden.
+Sprache, und mit der [OpenAPI-Beschreibung](../../apps-api.openapi.json) der API lässt sich ein Client
+dafür erzeugen. Python-Programme können das Paket [`latet-client`](https://pypi.org/project/latet-client/)
+verwenden, das mit LangChain zusammenarbeitet, und n8n-Workflows die [Latet-Nodes für n8n](n8n/).
 
 ## Ein erster Aufruf
 

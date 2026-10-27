@@ -124,6 +124,7 @@ export default defineConfig({
 						{ slug: 'applications' },
 						{ slug: 'applications/logs' },
 						{ slug: 'applications/rag' },
+						{ slug: 'applications/n8n' },
 						{ slug: 'applications/forget' },
 					],
 				},

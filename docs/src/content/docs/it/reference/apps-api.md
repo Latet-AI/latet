@@ -9,7 +9,9 @@ L'[API per le applicazioni](../../applications/) di un server Latet risponde a q
 `https://<il tuo server>/_latet/apps/v1/`. Questa è la versione 1: una modifica che romperebbe un
 programma scritto per essa arriva come `v2`, accanto. La [descrizione OpenAPI](../../../apps-api.openapi.json)
 dice le stesse cose per gli strumenti che generano un client; i programmi Python possono usare
-`latet-client` ([log](../../applications/logs/), [RAG](../../applications/rag/)).
+`latet-client` ([log](../../applications/logs/), [RAG](../../applications/rag/)). Un server Latet serve
+anche la descrizione della propria versione, senza token, all'indirizzo
+`https://<il tuo server>/_latet/docs/apps-api.openapi.json`.
 
 ## Autenticazione
 
