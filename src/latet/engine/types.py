@@ -18,6 +18,19 @@ class EntityClass(IntEnum):
     SECRET = 50
 
 
+# The fewest letters and digits of a secret's fake that Latet draws itself (0.10.2). A secret shorter than this gets a
+# fake with this many (``generators.gen_short_secret``): 0.10.0 gave it one of its own shape (four digits for `1234`,
+# ten thousand strings), which a later text could hold by chance inside an id or a number, and which an unmask of the
+# whole vault restored there.
+SECRET_FAKE_SHORTEST = 12
+# A secret's fake of this many characters or fewer is short (``vault.short_fake``): one 0.10.0 gave a short secret, of
+# its shape (3 to 8 characters), kept for ever (R7), or one a recognizer of yours gives in its rule's shape. A
+# conversation's restore puts it back as 0.10.0 did, inside a word too; an unmask of the whole vault, which reads every
+# fake of the vault for every text, only where it stands as a whole word. A fake of 9 to 11 characters is as rare in a
+# text by chance as a longer one, and is restored as one.
+SHORT_FAKE_LONGEST = 8
+
+
 class SlotKind(StrEnum):
     """Where a piece of text sits in a request; drives which detectors run."""
 

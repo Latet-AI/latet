@@ -32,6 +32,7 @@ from latet.engine.pipeline import (
     SlotResult,
     dump_notice,
     personal_values,
+    shows_known,
     unread_notice,
 )
 from latet.engine.review import ReviewPolicy, block_reason
@@ -949,15 +950,15 @@ class Mediator:
     def settle(self, call: Call) -> None:
         """Mask again the texts of a request that a later text of it made stale: the vault learnt a
         value from the later one (an address's domain, a secret found by its key) that an earlier one
-        had left in clear. The texts new to the conversation are masked again, in place. One sent as
-        it was kept is asked again whether it may leave so (``_leaves_as_it_left``): known to have
-        left so in its conversation, it leaves as it left; otherwise, holding in clear a value the
-        vault knows now, it is masked anew, with every sight of it in the request."""
+        had left in clear, whole or in part (an IBAN around a secret it masked). The texts new to the conversation are
+        masked again, in place. One sent as it was kept is asked again whether it may leave so
+        (``_leaves_as_it_left``): known to have left so in its conversation, it leaves as it left; otherwise, holding
+        in clear a value the vault knows now, it is masked anew, with every sight of it in the request."""
         if self.engine.vault.version == call.version:
             return
         groups = dict(call.new)
         for key, (session, again, sights) in call.kept.items():
-            if all(self._leaves_as_it_left(session, key, left) for left, _ in sights):
+            if all(self._leaves_as_it_left(session, key, left, done.original) for left, done in sights):
                 continue
             masking, dones = groups.get(key, (again, []))  # also masked anew in the request: one group
             groups[key] = (masking, [*(done for _, done in sights), *dones])
@@ -1007,8 +1008,8 @@ class Mediator:
         flags = f"{int(from_model)}{int(keep_surrogates)}{int(json_mode)}{'t' if as_text else ''}"
         key = self._given_key(session, kind, value, path, tool, flags)
         given = None if extra or not session.kept else self.given.masked(key)
-        if given is not None and not self._leaves_as_it_left(session, key, given):
-            given = None  # a value the vault knows is in clear in it, and it never left so: masked anew
+        if given is not None and not self._leaves_as_it_left(session, key, given, value):
+            given = None  # a value the vault knows is in clear in it, whole or in part, and it never left so: anew
 
         def new() -> Masked:
             done = self._mask_new(
@@ -1053,19 +1054,22 @@ class Mediator:
         message = "\x00".join((session.key, rules, kind.value, flags, path or "", tool or "", text)).encode()
         return hmac.new(self.engine.vault.cache_key, message, hashlib.sha256).digest()
 
-    def _leaves_as_it_left(self, session: Session, key: bytes, left: Left) -> bool:
-        """Whether a text its conversation sent before leaves again as it was kept (``left``): while it shows in clear
-        no value the vault knows, or once the final check saw that very text leave in the conversation. A text is kept
-        as it is masked, before its request leaves (it may never leave), and another process may have kept it again
-        since, or someone who writes the store written an older version back: one that never left must not bring a
-        value masked since back in clear. Nor, in an API key's vault, one that names an entry the vault no longer
-        holds (``Vault.forgot_any``): its value was forgotten by itself since (Task 11b), and the text is masked anew,
-        never sent with the old fake, which restores nothing, nor that entry shown to the conversation again, which
-        would name it in the conversation's record (Ruling 11b-R1); asked before the check of the version, which such a
-        forget heard elsewhere does not move. A person's Forget leaves the texts as they left (review 11b's N2). Checked
-        once per vault version, for the text read now. The values the kept text holds among those its request's words
-        found (an API key's vault, which keeps most of its values in its store) are brought into memory first, in
-        whatever form the text was kept (``Vault.weigh``), and those it names, by their ids."""
+    def _leaves_as_it_left(self, session: Session, key: bytes, left: Left, original: str) -> bool:
+        """Whether a text its conversation sent before (``original``, as its client sends it) leaves again as it was
+        kept (``left``): while it shows in clear no value the vault knows, whole or in part (``shows_known``: one learnt
+        since around a value masked in it too, 0.10.2), or once the final check saw that very text leave in the
+        conversation. A JSON document masked value by value has its replacements' places inside its values, none in
+        ``original``: any value the vault knows in it has that asked. A text is kept as it is masked, before its request
+        leaves (it may never leave), and another process may have kept it again since, or someone who writes the store
+        written an older version back: one that never left must not bring a value masked since back in clear, nor leave
+        a value learnt since around one masked in it in clear in part. Nor, in an API key's vault, one that names an
+        entry the vault no longer holds (``Vault.forgot_any``): its value was forgotten by itself since (Task 11b), and
+        the text is masked anew, never sent with the old fake, which restores nothing, nor that entry shown to the
+        conversation again, which would name it in the conversation's record (Ruling 11b-R1); asked before the check of
+        the version, which such a forget heard elsewhere does not move. A person's Forget leaves the texts as they left
+        (review 11b's N2). Checked once per vault version, for the text read now. The values the kept text holds among
+        those its request's words found (an API key's vault, which keeps most of its values in its store) are brought
+        into memory first, in whatever form the text was kept (``Vault.weigh``), and those it names, by their ids."""
         vault = self.engine.vault
         vault.weigh([left.text])  # first: what it brings into memory moves the version
         named = [r.entity_id for r in left.replacements if r.entity_id]
@@ -1075,7 +1079,12 @@ class Mediator:
         mark = hmac.new(vault.cache_key, b"L\x00" + key + left.text.encode(), hashlib.sha256).digest()
         if self._as_it_left.get(mark) == version:
             return True
-        if self._masker(session).known_in(left.text) and not self.verifier.sent(session.key, left.text):
+        masker = self._masker(session)
+        if left.exact:
+            shown = shows_known(masker, original, left.text, left.replacements)
+        else:  # a JSON document masked value by value: its replacements place no value in ``original``
+            shown = masker.known_outside(original, ())
+        if shown and not self.verifier.sent(session.key, left.text):
             return False
         self._as_it_left.put(mark, version)
         return True
@@ -1182,9 +1191,14 @@ class Mediator:
                 version = self.engine.vault.version
                 masked = map_json_values(value, leaf, numbers, name)
                 if self.engine.vault.version != version:
-                    # A value masked before a later one taught the vault a value in it is masked again, one from the
-                    # cache too, a key as a value: an output sent before leaves again as it left (``given``).
-                    stale = [pair for pair, result in results.items() if masker.known_in(result.text)]
+                    # A value masked before a later one taught the vault a value in it, or around a value masked in it,
+                    # is masked again, one from the cache too, a key as a value: an output sent before leaves again as
+                    # it left (``given``).
+                    stale = [
+                        pair
+                        for pair, result in results.items()
+                        if shows_known(masker, pair[0], result.text, result.replacements)
+                    ]
                     for text, key in stale:
                         results[text, key] = masking(text, key, again=True)
                     if stale:

@@ -18,7 +18,7 @@ Ein Ersatzwert ist ein erfundener Wert im selben Format wie das Original:
 | Art | Original (bleibt auf Ihrem Rechner) | Ersatzwert (an den Anbieter gesendet) |
 | --- | --- | --- |
 | API-Schlüssel | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Passwort in einer URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Passwort in einer URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
 | E-Mail-Adresse | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Telefonnummer | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -28,13 +28,16 @@ Ein Ersatzwert ist ein erfundener Wert im selben Format wie das Original:
 Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
 
 - **Formaterhaltend.** Ein Schlüssel behält sein Präfix (`pk_`, `ghp_`, `sk-ant-api03-`...), seine
-  Länge und seinen Zeichensatz. Eine E-Mail-Adresse bleibt eine E-Mail-Adresse: Eine öffentliche
-  Webmail-Domain wie `gmail.com` bleibt erhalten, jede andere Domain wird zu einer erfundenen unter
-  `.example`. IBANs, Kartennummern, nationale Identifikationsnummern, Steuernummern und
-  Umsatzsteuer-Identifikationsnummern erhalten gültige Prüfziffern, und öffentliche IP-Adressen
-  wandern in Bereiche, die im Internet nie geroutet werden: die für Dokumentation und für
-  Leistungstests reservierten. Das Modell kann den Code und die Konfiguration rund um diese Werte
-  weiterhin nachvollziehen.
+  Länge und seinen Zeichensatz. Ein Geheimnis mit weniger als zwölf Zeichen, etwa die `1234` von
+  `password=1234`, erhält stattdessen einen längeren Ersatzwert derselben Arten, seine Sonderzeichen
+  an ihrer Stelle (zwölf Buchstaben und Ziffern, fünfzehn Ziffern für eine Zahl), damit keine ID und
+  keine Zahl eines anderen Textes ihn zufällig enthält. Eine E-Mail-Adresse bleibt eine
+  E-Mail-Adresse: Eine öffentliche Webmail-Domain wie `gmail.com` bleibt erhalten, jede andere
+  Domain wird zu einer erfundenen unter `.example`. IBANs, Kartennummern, nationale
+  Identifikationsnummern, Steuernummern und Umsatzsteuer-Identifikationsnummern erhalten gültige
+  Prüfziffern, und öffentliche IP-Adressen wandern in Bereiche, die im Internet nie geroutet werden:
+  die für Dokumentation und für Leistungstests reservierten. Das Modell kann den Code und die
+  Konfiguration rund um diese Werte weiterhin nachvollziehen.
 - **Ersatzwerte gehen nicht aus.** Wo der Tresor mehr Werte einer Art enthält, als seine Listen
   Ersatzwerte haben (Tausende Adressen in einer Kundenliste), erhält ein neuer Wert einen Ersatzwert,
   wie Menschen solche Werte schreiben: Namen beider Sprachen, dann Ziffern nach dem Namen

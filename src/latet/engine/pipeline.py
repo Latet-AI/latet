@@ -50,6 +50,18 @@ def _field_tag(field: str | None) -> str:
     )
 
 
+def shows_known(masker: Masker, text: str, masked: str, replacements: Sequence[Replacement]) -> bool:
+    """Whether ``masked``, ``text`` as it was masked (``replacements``, by their places in ``text``), leaves in clear,
+    whole or in part, a value the vault knows now: one ``text`` holds outside every value masked in it
+    (``Masker.known_outside``), a value learnt since around a value masked there too, which ``masked`` never shows
+    whole (0.10.2). One reading of ``text`` in place of one of ``masked``: each value masked in it is one more that the
+    vault's detector confirms there. The model's own bytes, given back in place of the text restored from them (no
+    replacement, and not ``text``: ``remember_model_output``), are read as they are."""
+    if not replacements and masked != text:
+        return bool(masker.known_in(masked))
+    return masker.known_outside(text, replacements)
+
+
 def personal_values(replacements: Iterable[Replacement]) -> int:
     """How many different values about people the replacements stand for."""
     return len({r.entity_id or r.original for r in replacements if r.eclass in PERSONAL})
@@ -364,8 +376,8 @@ class Engine:
         context: str = "",
     ) -> SlotResult:
         """Mask one text, the way it was masked before (the cache is keyed by its text), unless the vault
-        has learnt since a value it left in clear: then it is masked again, and kept that way. A
-        conversation sends its own texts again as they left (``Mediator.mask_value``).
+        has learnt since a value it left in clear, whole or in part (``shows_known``): then it is masked again, and
+        kept that way. A conversation sends its own texts again as they left (``Mediator.mask_value``).
 
         ``extra`` are values the local reviewer or you (in the Live Reviewer) found in it: the block is
         masked again with them, and that becomes what it is sent as from now on. ``again`` masks it
@@ -397,8 +409,8 @@ class Engine:
             if hit is not None and hit[2] != version:
                 if not self.vault.holds_since(hit[2]):
                     self.vault.prefetch([text])  # values left memory since: memory alone no longer vouches for it
-                if masker.known_in(hit[0]):
-                    hit = None  # it left a value the vault learnt since in clear: masked again below
+                if shows_known(masker, text, hit[0], hit[1]):
+                    hit = None  # it left a value the vault learnt since in clear, whole or in part: masked again below
                 else:
                     hit = (hit[0], hit[1], version)
                     self._frozen.put(fkey, hit)
@@ -437,7 +449,9 @@ class Engine:
     ) -> bytes:
         scope_key = scope.key if scope is not None else ""
         where = f"{path or ''}|{tool or ''}|{_field_tag(field)}"
-        flags = f"{int(from_model)}{int(keep_surrogates)}"
+        # An applications call reads a short fake of 0.10.0 inside a word as no fake, a conversation as one
+        # (``Vault.whole_vault_call``): one engine serves both in a key's space, and neither gets the other's reading.
+        flags = f"{int(from_model)}{int(keep_surrogates)}{int(self.vault.whole_vault_call())}"
         return self._key(f"F{self.rules_version}|{scope_key}|{kind}|{flags}|{where}", text)
 
     def cached(
@@ -452,9 +466,10 @@ class Engine:
         field: str | None = None,
     ) -> bool:
         """Whether ``mask_text`` gives ``text`` as it was masked before, its masker not run for it: one the cache keeps,
-        in which the vault has learnt nothing since that it leaves in clear; one recalled as the model's own bytes; any,
-        where Latet is off in the session's project. Not one masked before values left the vault's memory: memory alone
-        cannot say (``Vault.holds_since``); nor one masked before a call failed to keep its values (``kept_since``)."""
+        in which the vault has learnt nothing since that it leaves in clear, whole or in part (``shows_known``); one
+        recalled as the model's own bytes; any, where Latet is off in the session's project. Not one masked before
+        values left the vault's memory: memory alone cannot say (``Vault.holds_since``); nor one masked before a call
+        failed to keep its values (``kept_since``)."""
         if not text:
             return True
         scope = self.scope(session)
@@ -466,7 +481,9 @@ class Engine:
         if hit is None or not self.vault.kept_since(hit[2]):
             return False
         masker = scope.masker if scope is not None else self.masker
-        return hit[2] == self.vault.version or (self.vault.holds_since(hit[2]) and not masker.known_in(hit[0]))
+        return hit[2] == self.vault.version or (
+            self.vault.holds_since(hit[2]) and not shows_known(masker, text, hit[0], hit[1])
+        )
 
     def adopt(self, session: Session, text: str, masker: Masker) -> None:
         """Surrogates already in ``text`` (a resumed conversation) belong to ``session`` too, those its vault keeps out
@@ -496,7 +513,9 @@ class Engine:
         """``text`` with every fake of the vault in it restored, whatever conversation or call it was issued in, and
         how many different values were restored. A person's name is restored whole only: one of its parts alone
         (``Bianchi``, of ``Laura Bianchi``) may be an ordinary word, or another person's
-        (``restores_for(parts=False)``)."""
+        (``restores_for(parts=False)``); and so is a short secret's fake of 0.10.0 (``vault.short_fake``), which a text
+        can hold by chance inside an id or a number, every fake of the vault being read for it
+        (``restores_for(whole_vault=True)``)."""
         if not text:
             return text, 0
         restored, ids = restore_text(text, self._unmasking(text))
@@ -507,11 +526,11 @@ class Engine:
         every entity it holds, whatever the text, they are kept while neither their count nor its version moved, with
         the conversations' restores (``_WHOLE_VAULT``); a vault that narrows them to the text has them made for each."""
         if type(self.vault).candidates_in is not Vault.candidates_in:  # overridden: they depend on the text
-            return restores_for(self.vault.candidates_in(text), parts=False)
+            return restores_for(self.vault.candidates_in(text), parts=False, whole_vault=True)
         count, version = self.vault.count, self.vault.version  # read first: a value kept meanwhile moves them past it
         kept = self._restores.get(_WHOLE_VAULT)
         if kept is not None and kept[0] == count and kept[1] == version:
             return kept[2]
-        found = restores_for(self.vault.candidates_in(text), parts=False)
+        found = restores_for(self.vault.candidates_in(text), parts=False, whole_vault=True)
         self._restores.put(_WHOLE_VAULT, (count, version, found))
         return found

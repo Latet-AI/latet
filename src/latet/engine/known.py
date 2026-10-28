@@ -55,6 +55,9 @@ def value_chars(entity: Entity) -> int:
     return max(len(entity.original), len(entity.surrogate))
 
 
+_NO_SHORT_FAKES = KnownValuesDetector(())  # a part's detector of short fakes inside a word, when it holds none
+
+
 class _Part:
     """Some of the vault's entities, and the detectors of their values and of their fakes, made once it changed."""
 
@@ -63,7 +66,7 @@ class _Part:
     def __init__(self) -> None:
         self.members: dict[_Key, Entity] = {}
         self.chars = 0
-        self.made: tuple[KnownValuesDetector, KnownValuesDetector] | None = None
+        self.made: tuple[KnownValuesDetector, KnownValuesDetector, KnownValuesDetector] | None = None
 
     def add(self, key: _Key, entity: Entity) -> None:
         self.members[key] = entity
@@ -74,10 +77,11 @@ class _Part:
         self.chars -= value_chars(self.members.pop(key))
         self.made = None
 
-    def detectors(self, pause: bool = False) -> tuple[KnownValuesDetector, KnownValuesDetector]:
-        """Its two detectors, compiled now when it changed: two calls to RE2, each holding the GIL for its whole
-        compile. ``pause``: one of many parts compiled in a row (a first reading, a reading of every value again), each
-        compile then followed by a pause (``LET_GO``), so that the event loop takes its turn between two."""
+    def detectors(self, pause: bool = False) -> tuple[KnownValuesDetector, KnownValuesDetector, KnownValuesDetector]:
+        """Its detectors of values, of fakes and of short fakes inside a word, compiled now when it changed: a call
+        to RE2 each (none for no short fake, as a rule), each holding the GIL for its whole compile. ``pause``: one of
+        many parts compiled in a row (a first reading, a reading of every value again), each compile then followed by a
+        pause (``LET_GO``), so that the event loop takes its turn between two."""
         if self.made is None:
             entities = list(self.members.values())
             # A value masked by strict data mode stays in its structure: `admin` in a table is not `admin` in code.
@@ -86,16 +90,26 @@ class _Part:
             )
             if pause:
                 time.sleep(LET_GO)
-            from latet.engine.vault import fake_reading  # the vault imports this module
+            from latet.engine.vault import fake_reading, short_fake  # the vault imports this module
 
             # A fake, and how a fake written in escapes reads (`Nicola Greco` for `Nicola%20Greco`): either sent back
             # in a later text is masked as a value of its own, so that the model's answer comes back as it was sent.
+            # A short fake (0.10.0's of a short secret, ``vault.short_fake``) only where it stands as a whole word,
+            # as an unmask of the whole vault restores it; and inside a word too apart (``Matched.echo_inside``), as a
+            # conversation's restore puts it back there.
             fakes = [(e.surrogate, e.etype, e.eclass) for e in entities]
             fakes += [(reading, e.etype, e.eclass) for e in entities if (reading := fake_reading(e)) is not None]
-            echo = KnownValuesDetector(fakes, rule="echo", bounded=True)
+            shorts = [e for e in entities if short_fake(e)]
+            whole = {e.surrogate for e in shorts} | {r for e in shorts if (r := fake_reading(e)) is not None}
+            echo = KnownValuesDetector(fakes, rule="echo", bounded=True, whole=whole)
             if pause:
                 time.sleep(LET_GO)
-            self.made = (known, echo)
+            inside = _NO_SHORT_FAKES
+            if whole:  # a vault of 0.10.0's short secrets: a compile more
+                inside = KnownValuesDetector([fake for fake in fakes if fake[0] in whole], rule="echo", bounded=True)
+                if pause:
+                    time.sleep(LET_GO)
+            self.made = (known, echo, inside)
         return self.made
 
 
@@ -128,11 +142,15 @@ class Matchers(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Matched:
-    """The vault's values (``known``) and fakes (``echo``) as they were at its ``version``."""
+    """The vault's values (``known``) and fakes (``echo``) as they were at its ``version``; and its short fakes
+    (``vault.short_fake``) found inside a word too (``echo_inside``), which ``echo`` finds only where they stand as
+    whole words: a conversation's masking reads both, as it restores them as 0.10.0 did, an applications call's
+    ``echo`` alone, as an unmask of the whole vault restores them (``Vault.whole_vault_call``)."""
 
     version: int
     known: PartedValues
     echo: PartedValues
+    echo_inside: PartedValues
 
 
 _MATCHED = ("original", "surrogate", "etype", "eclass")  # what the detectors read of an entity
@@ -189,8 +207,9 @@ class ValueMatchers:
             self._whole = False
             self._held = Matched(
                 version,
-                PartedValues(tuple(known for known, _ in made if not known.empty)),
-                PartedValues(tuple(echo for _, echo in made if not echo.empty)),
+                PartedValues(tuple(known for known, _, _ in made if not known.empty)),
+                PartedValues(tuple(echo for _, echo, _ in made if not echo.empty)),
+                PartedValues(tuple(inside for _, _, inside in made if not inside.empty)),
             )
             return self._held
 

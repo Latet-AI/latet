@@ -18,7 +18,7 @@ A surrogate is a fake value with the same shape as the original:
 | Kind | Original (stays on your machine) | Surrogate (sent upstream) |
 | --- | --- | --- |
 | API key | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Password in a URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Password in a URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
 | Email | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Phone number | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -28,11 +28,13 @@ A surrogate is a fake value with the same shape as the original:
 your machine.</small>
 
 - **Format-preserving.** A key keeps its prefix (`pk_`, `ghp_`, `sk-ant-api03-`...), its length and
-  its character set. An email stays an email: a public webmail domain such as `gmail.com` is kept,
-  any other domain becomes a fake one under `.example`. IBANs, card numbers, national IDs, tax and
-  VAT numbers get valid check digits, and public IP addresses move to ranges never routed on the
-  internet, those reserved for documentation and for benchmarking. The model can still reason about
-  the code and configuration around them.
+  its character set. A secret shorter than twelve characters, such as the `1234` of `password=1234`,
+  gets a longer fake of the same kinds instead, its signs in place (twelve letters and digits, fifteen
+  digits for a number), so that no id or number of another text holds it by chance. An email stays an
+  email: a public webmail domain such as `gmail.com` is kept, any other domain becomes a fake one
+  under `.example`. IBANs, card numbers, national IDs, tax and VAT numbers get valid check digits, and
+  public IP addresses move to ranges never routed on the internet, those reserved for documentation
+  and for benchmarking. The model can still reason about the code and configuration around them.
 - **Never short of fakes.** Where the vault holds more values of one kind than its lists have fakes
   (thousands of addresses in a list of customers), a new value gets a fake written as people write
   such values: names of both languages, then digits after the name (`luca84@gmail.com`), a given

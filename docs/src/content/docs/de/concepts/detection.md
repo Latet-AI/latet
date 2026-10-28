@@ -84,7 +84,15 @@ PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
 ```
 
 Der Hostname ist kein geheimer Wert und bleibt. Das Passwort und der Schlüssel werden durch
-Ersatzwerte gleicher Länge und im selben Format ersetzt (Ihre werden andere sein).
+Ersatzwerte gleicher Länge und im selben Format ersetzt (Ihre werden andere sein). Ein Geheimnis mit
+weniger als zwölf Zeichen erhält stattdessen einen längeren Ersatzwert derselben Arten, seine
+Sonderzeichen an ihrer Stelle, zwölf Buchstaben und Ziffern, fünfzehn Ziffern für eine Zahl:
+`password=1234` geht als `password=582194736201937` hinaus, `token=ab12f3` als `token=9e04c7b1d2fa`.
+Ein Ersatzwert, so kurz wie der Wert, käme zufällig in den IDs und Zahlen späterer Texte vor, und
+eine Wiederherstellung würde sie verändern. Ein kurzer Ersatzwert, der vor Latet 0.10.2 vergeben
+wurde (acht Zeichen oder weniger), bleibt: Eine Unterhaltung stellt ihn wie bisher wieder her,
+`unmask` der [API für Anwendungen](../../applications/#der-tresor-eines-schlüssels), das einen
+ganzen Tresor liest, nur dort, wo er als ganzes Wort steht.
 
 ### Platzhalter
 

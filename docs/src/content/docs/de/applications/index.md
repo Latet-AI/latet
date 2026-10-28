@@ -233,24 +233,45 @@ einen Index der Wörter der Werte und Ersatzwerte. Dieser Index enthält Hashes,
 Schlüssel gebildet sind, nie ein Wort im Klartext.
 
 **Geheimnisse, an die andere Buchstaben grenzen.** In PostgreSQL wird ein Geheimnis, das als eine
-einzige Folge von Buchstaben und Ziffern ohne Leerzeichen oder Satzzeichen geschrieben ist, über sein
-Wort gefunden, und über seine ersten und letzten sechs Zeichen, wenn auf einer Seite andere Buchstaben
-oder Ziffern angrenzen. Grenzen sie auf beiden Seiten an (`xhunter2y`), oder grenzt überhaupt etwas
-an, wenn das Wort an seinem Rand sechs Zeichen oder weniger hat, findet es kein Wort des Textes. Darum
-hält eine Instanz die kurzen Geheimnisse eines Schlüssels dauerhaft im Speicher, die aus einer
-einzigen Folge von 16 Zeichen oder weniger oder mit einem so kurzen Wort am Rand: die neuesten
-`key_held_secrets` davon (1.000, sofern die Einstellungen des Servers nichts anderes sagen), gefunden,
-wie auch immer etwas an sie grenzt. Ein älteres wird gefunden, wo nichts an es grenzt, oder wo eine
-Seite frei ist und es sieben Zeichen oder mehr hat; ein längeres überall dort, wo eine Seite frei ist.
-Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele kurze Geheimnisse sieht, etwa ein
-Sitzungstoken in jeder Logzeile: Jedes gehaltene belegt etwa 2,2 KB auf jeder Instanz, und jeder Text,
-den der Schlüssel maskiert oder wiederherstellt, wird danach durchsucht, was seine Aufrufe etwas
-verlangsamt. Gemessen wie unten mit einem eigenen Sitzungstoken in jeder Zeile (ein Wert mehr, der in
-jeder aufzubewahren ist), maskierte ein neuer Schlüssel mit 1.000 gehaltenen solchen Geheimnissen 73
-Zeilen pro Sekunde und stellte 1.935 wieder her, gegenüber 75 und 2.103 ohne gehaltene. Auch ein
-Ersatzwert, der so angrenzt, dass keines seiner Wörter für sich steht, wird nicht gefunden; das
-Maskieren erzeugt so einen nie. Wie überall in Latet wird ein Wert ab vier Zeichen wiedererkannt, der
-Name einer Person ab drei ([bekannte Werte](../concepts/detection/#bekannte-werte)).
+einzige Folge von Buchstaben und Ziffern ohne Leerzeichen oder Satzzeichen geschrieben ist, über
+sein Wort gefunden, und über seine ersten und letzten sechs Zeichen, wenn auf einer Seite andere
+Buchstaben oder Ziffern angrenzen. Grenzen sie auf beiden Seiten an (`xhunter2y`), oder grenzt
+überhaupt etwas an, wenn das Wort an seinem Rand sechs Zeichen oder weniger hat, findet es kein Wort
+des Textes. Darum hält eine Instanz die kurzen Geheimnisse eines Schlüssels dauerhaft im Speicher,
+die aus einer einzigen Folge von 16 Zeichen oder weniger oder mit einem so kurzen Wort am Rand: die
+neuesten `key_held_secrets` davon (1.000, sofern die Einstellungen des Servers nichts anderes
+sagen), gefunden, wie auch immer etwas an sie grenzt. Ein älteres wird gefunden, wo nichts an es
+grenzt, oder wo eine Seite frei ist und es sieben Zeichen oder mehr hat; ein längeres überall dort,
+wo eine Seite frei ist. Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele kurze
+Geheimnisse sieht, etwa ein Sitzungstoken in jeder Logzeile: Jedes gehaltene belegt etwa 2,2 KB auf
+jeder Instanz, und jeder Text, den der Schlüssel maskiert oder wiederherstellt, wird danach
+durchsucht, was seine Aufrufe etwas verlangsamt. Gemessen wie unten mit einem eigenen Sitzungstoken
+in jeder Zeile (ein Wert mehr, der in jeder aufzubewahren ist), maskierte ein neuer Schlüssel mit
+1.000 gehaltenen solchen Geheimnissen 73 Zeilen pro Sekunde und stellte 1.935 wieder her, gegenüber
+75 und 2.103 ohne gehaltene. Ein Ersatzwert wird gefunden, wo etwas an ihn grenzt, wie sein
+Geheimnis: Er behält dessen Sonderzeichen an ihrer Stelle, sodass ein Ersatzwert, an den so etwas
+grenzt, dass keines seiner Wörter für sich steht, der eines im Speicher gehaltenen Geheimnisses ist,
+und gefunden wird, solange das Geheimnis gehalten wird. Wie überall in Latet wird ein Wert ab vier
+Zeichen wiedererkannt, der Name einer Person ab drei ([bekannte
+Werte](../concepts/detection/#bekannte-werte)).
+
+**Kurze Geheimnisse.** Ein Geheimnis mit weniger als zwölf Zeichen (`password=1234`, ein kurzes
+Token) erhält einen längeren Ersatzwert derselben Arten, seine Sonderzeichen an ihrer Stelle:
+fünfzehn Ziffern für eine Zahl (mit ihrem Vorzeichen und ihrem Dezimalpunkt, damit eine JSON-Zahl
+eine Zahl bleibt), zwölf Hexadezimalziffern für einen hexadezimalen Wert, sonst zwölf Buchstaben und
+Ziffern. Ein Ersatzwert, so kurz wie sein Wert, käme zufällig in den IDs und Zahlen anderer
+Logzeilen vor, und eine Wiederherstellung würde Zeilen verändern, die das Geheimnis nie enthielten.
+
+Ein kurzer Ersatzwert, den der Tresor eines Schlüssels vor Latet 0.10.2 vergeben hat (acht Zeichen
+oder weniger), bleibt, wie jeder Ersatzwert. `unmask`, das jeden Ersatzwert des Tresors des
+Schlüssels liest, setzt nur dort den Wert für ihn ein, wo er als ganzes Wort steht, ohne Buchstabe,
+Ziffer oder Unterstrich daneben. Der Preis: Wo der Wert eines solchen Geheimnisses in einem längeren
+Wort oder einer längeren Zahl maskiert wurde (`postgres` in `postgresql://`, `1234` in
+`order_id=9912343`), lässt `unmask` dort seinen Ersatzwert stehen. Eine Unterhaltung des ersten
+Tokens des Schlüssels, über das Gateway oder das Plugin, stellt ihn wie bisher wieder her, auch
+innerhalb eines Wortes, da sie nur die Ersatzwerte wiederherstellt, die ihr gezeigt wurden. Solange
+eine Instanz des Servers noch 0.10.0 ausführt, gibt sie neuen kurzen Geheimnissen kurze Ersatzwerte,
+und auch diese bleiben: Aktualisieren Sie jede Instanz.
 
 **Was ein gescheiterter Aufruf behält.** Ein `mask`-Aufruf, der beim Maskieren scheitert (ein 507, ein
 Commit, der PostgreSQL nicht erreicht), behält keinen seiner neuen Werte, wenn er dafür eine der

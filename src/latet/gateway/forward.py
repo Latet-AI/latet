@@ -23,7 +23,15 @@ from latet.gateway.aws import AwsCredentialStore, AwsError, profile_tag
 from latet.gateway.capture import Capture, Exchange
 from latet.gateway.cloud import Signing
 from latet.gateway.headers import DROP_PREFIXES, REQUEST_DROP, RESPONSE_DROP, forwardable
-from latet.gateway.mediate import REWRITE, STOPPED_ANSWER, Mediator, Prepared, ResponseTransform
+from latet.gateway.mediate import (
+    REWRITE,
+    STOPPED_ANSWER,
+    VERIFY,
+    Mediator,
+    Prepared,
+    ResponseTransform,
+    protocol_for,
+)
 from latet.gateway.recorder import Outcome, Recorder, ResponseCapture, agent_of
 from latet.gateway.routes import RouteTable, Upstream, readable_path, wire_path
 from latet.gateway.sigv4 import AwsCredentials, sign
@@ -140,6 +148,11 @@ _SEE = ". Nothing was sent; run `latet dashboard` to see where it was"
 _SEE_IN_TUTORIAL = ". Nothing was sent; see where it was in Latet's pane"
 
 
+def too_large(error: DecodedTooLarge) -> str:
+    """Why a request whose body would decode past a server's bound is stopped (413): the bound, nothing of the body."""
+    return f"{error}, the most this server takes (max_request_mb)"
+
+
 def stopped(reason: str, tutorial: bool = False) -> str:
     """What an agent is told of a request Latet stopped, over HTTP or a WebSocket: Latet named once, why, that
     nothing was sent, and where to see it (in the tutorial's sandbox, its own pane)."""
@@ -218,21 +231,39 @@ class Forwarder:
     ) -> Prepared | Response:
         """The request masked (``Mediator.prepare``); or the answer that stops it, when the vault is at its limit or no
         fake is free and ``prepare`` lets it through, or when its body would decode past a server's ``max_request_mb``:
-        never sent unmasked, nor decoded further."""
+        never sent unmasked, nor decoded further. A request stopped so is recorded as one Latet stopped, with its
+        reason (``_refused``)."""
         assert self.mediator is not None
         try:
             return await self.mediator.run(self.mediator.prepare, upstream, request.method, read, lowered, body)
         except DecodedTooLarge as error:  # a few KiB that would inflate past the limit: stopped (its words, the limit)
             log.warning("stopped %s %s: %s", request.method, path, type(error).__name__)
-            self._record(outcome, status=413, error=type(error).__name__)
-            reason = f"{error}, the most this server takes (max_request_mb)"
+            reason = too_large(error)
+            self._refused(outcome, upstream, request.method, read, body, reason, 413)
             return upstream_error(stopped(reason, self.tutorial), 413, shape=error_shape(upstream, None))
         except MaskingError as error:  # VaultFull, or no fake free: stopped, and said so (its words name no value)
             log.warning("stopped %s %s: %s", request.method, path, type(error).__name__)
-            self._record(outcome, status=400, error=type(error).__name__)
-            return upstream_error(
-                stopped(f"masking failed: {error}", self.tutorial), 400, shape=error_shape(upstream, None)
-            )
+            reason = f"masking failed: {error}"
+            self._refused(outcome, upstream, request.method, read, body, reason, 400)
+            return upstream_error(stopped(reason, self.tutorial), 400, shape=error_shape(upstream, None))
+
+    def _refused(
+        self,
+        outcome: Outcome | None,
+        upstream: Upstream,
+        method: str,
+        read: str,
+        body: bytes,
+        reason: str,
+        status: int,
+    ) -> None:
+        """A request ``prepare`` did not give back, recorded as one Latet stopped (``reason``, never sent): it was shown
+        as a request sent unread, with an error. Its status alone: an error's code would read as something else (a
+        signed request's as its AWS login)."""
+        if outcome is not None:
+            outcome.prepared = Prepared(VERIFY, protocol_for(upstream, method, read), b"", block_reason=reason)
+            outcome.body_bytes = len(body)
+        self._record(outcome, status=status)
 
     def _outgoing(
         self,

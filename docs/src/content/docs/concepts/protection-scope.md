@@ -100,8 +100,9 @@ only in the Code tab, with the plugin. See [Claude Code](../../agents/claude-cod
 
 **Context and metadata.** File names, paths, code structure, comments and business logic are sent
 as they are, apart from the values Latet detects in them, such as your user name inside a home
-path. Surrogates keep the shape of the original (length, format, prefix), and the surrounding text
-can reveal what a value is ("the production database password").
+path. Surrogates keep the shape of the original (length, format, prefix; a secret shorter than
+twelve characters gets a longer surrogate), and the surrounding text can reveal what a value is
+("the production database password").
 
 **What a JSON document holds where masking does not reach.** A card number written as a JSON
 number, which the `balanced` profile does not mask, is found by the final check, which then stops

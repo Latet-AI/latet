@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from latet.engine.escapes import TAIL, cased, ends_with_escape, readings, written_forms
-from latet.engine.vault import Entity, restored_whole, written_in_escapes
+from latet.engine.vault import Entity, fake_restored_whole, restored_whole, written_in_escapes
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,12 +23,17 @@ def _json_inner(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)[1:-1]
 
 
-def restores_for(entities: Iterable[Entity], json_mode: bool = False, parts: bool = True) -> list[Restore]:
+def restores_for(
+    entities: Iterable[Entity], json_mode: bool = False, parts: bool = True, *, whole_vault: bool = False
+) -> list[Restore]:
     """Every textual form a surrogate may take in model output, with its matching original form. ``parts``: a person's
     name restored by its parts too (``Bianchi`` alone, of ``Laura Bianchi``), as a conversation shown the name restores
     it; off where the fakes of a whole vault are restored, in which one part alone may be an ordinary word or another
     person's (``Engine.unmask``), and a name of one word is restored in the form it was given alone: in upper or lower
-    case it may be an ordinary word too (`anna`), which would become a real name (Ruling T4a)."""
+    case it may be an ordinary word too (`anna`), which would become a real name (Ruling T4a). ``whole_vault``: the
+    fakes of a whole vault are restored (``Engine.unmask``), and a short one (``vault.short_fake``, 0.10.0's of a short
+    secret) only where it stands as a whole word (``vault.fake_restored_whole``); a conversation's restore puts it back
+    inside a word too, as 0.10.0 did."""
     out: dict[str, Restore] = {}
     entities = list(entities)  # read twice
 
@@ -44,8 +49,10 @@ def restores_for(entities: Iterable[Entity], json_mode: bool = False, parts: boo
                 add(s_form, o_form, e, word)
 
     for e in entities:
-        word = restored_whole(e.etype, e.eclass)
-        add_all(_forms(e.etype, e.surrogate, e.original, word, parts), e, word)
+        # A fake of a word, in its cases too, only where it stands as a whole word; in a whole vault's restore, a short
+        # secret's (0.10.0's, which an id or a number can hold by chance) so too, as it is written.
+        cased_too, word = restored_whole(e.etype, e.eclass), fake_restored_whole(e, whole_vault)
+        add_all(_forms(e.etype, e.surrogate, e.original, cased_too, parts), e, word)
     # A value kept as written in escapes (`Mario%20Rossi`): the other forms a model may write its fake in, each for the
     # value exactly as written; and its fake as it reads (`Nicola Greco` for `Nicola%20Greco`, which the vault keeps
     # apart from every other value and fake), in every form a fake takes, for the value as it reads (`Mario Rossi`), as
@@ -54,11 +61,11 @@ def restores_for(entities: Iterable[Entity], json_mode: bool = False, parts: boo
         words = written_in_escapes(e)
         if words is None:
             continue  # found as it is written, or written as it reads
-        word = restored_whole(e.etype, e.eclass)
+        cased_too, word = restored_whole(e.etype, e.eclass), fake_restored_whole(e, whole_vault)
         add_all([(form, e.original) for form in written_forms(e.original, e.surrogate, words=words)], e, word)
         read = readings(e.original, e.surrogate, words=words)
         if read is not None and read[0] != e.surrogate:
-            add_all(_forms(e.etype, *read, word, parts), e, word)
+            add_all(_forms(e.etype, *read, cased_too, parts), e, word)
     return list(out.values())
 
 

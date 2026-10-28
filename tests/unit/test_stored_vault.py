@@ -22,6 +22,7 @@ from latet.engine.anchors import anchor
 from latet.engine.build import build, build_masker
 from latet.engine.known import ValueMatchers
 from latet.engine.pipeline import Engine, Session
+from latet.engine.rehydrate import restore_text
 from latet.engine.stored import EVICT_SHARE, WORKING_VALUES, StoredVault
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import Entity, FakeTaken, MaskingError, Vault, fake_reading
@@ -31,6 +32,17 @@ from latet.gateway.routes import Upstream
 from latet.server.settings import KEY_WORKING_VALUES, ServerSettings
 
 from ..conftest import ROOT_KEY
+from .test_short_secrets import (
+    INSIDE,
+    INSIDE_TEXT,
+    OLD,
+    PAIR,
+    TOKEN,
+    fake_of_0_10_0,
+    given_before,
+    ids_holding,
+    inside_unmasked,
+)
 
 NAME = "Ferruccio Lanzavecchia"  # a person the name model found once: its anchor is lanzavecchia
 ACCENTED = "Niccol\N{LATIN SMALL LETTER O WITH GRAVE} Ferri"  # composed (NFC), as a keyboard writes it
@@ -1548,7 +1560,9 @@ def test_a_value_held_for_good_is_a_candidate_only_of_a_text_that_holds_its_fake
     vault = StoredVault(ROOT_KEY, store, working=1_000, held_at_most=200, on_insert=store.save_entity)
     engine = _engine(vault)
     tokens = [vault.intern("GENERIC_API_KEY", EntityClass.SECRET, _token(n)) for n in range(200)]
-    password = vault.intern("PASSWORD", EntityClass.SECRET, "p@ss/w0rd")  # held glued, its fake quoted in a URL
+    # Held glued (its anchor of six letters begins it), its fake quoted in a URL: of twelve characters, as a fake of a
+    # shorter secret has none of its signs (0.10.1).
+    password = vault.intern("PASSWORD", EntityClass.SECRET, "s3cr3t/p@ss!")
     wordless = vault.intern("PASSWORD", EntityClass.SECRET, "ab cd")  # no word: held for good
     held = [*tokens[1:], password, wordless]  # the oldest token let go: 200 held glued at most
     assert {e.id for e in held} == vault._for_good and quote(password.surrogate, safe="") != password.surrogate
@@ -1824,3 +1838,214 @@ def test_a_value_kept_again_with_another_fake_elsewhere_drops_the_masked_texts()
     assert _learned(vault, again) is True
     assert vault.by_original("laura.bianchi@gmail.com").surrogate == "giada.ferri@gmail.example"
     assert vault.by_surrogate(held.surrogate) is None
+
+
+# 0.10.1: a short secret's fake is never found inside an unrelated word, in an API key's vault as in a person's
+# (``test_short_secrets.py``): held for good, in the working set, or in the store alone.
+
+
+def _short_secrets(vault: StoredVault) -> list[str]:
+    """``PAIR`` and ``TOKEN`` masked by an applications call of ``vault``: the fakes of their short secrets."""
+    engine = _engine(vault)
+    with vault.holding(scoped=True):
+        vault.prefetch([PAIR, TOKEN])
+        done = [engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False)) for text in (PAIR, TOKEN)]
+    return [r.replacement for masked in done for r in masked.replacements]
+
+
+def _unmasked(vault: StoredVault, engine: Engine, text: str, call: bool) -> tuple[str, int]:
+    """``text`` restored by ``engine``: in an applications call (its fakes asked for once, ``prefetch_fakes``), or
+    alone."""
+    if not call:
+        return engine.unmask(text)
+    with vault.holding(scoped=True):
+        vault.prefetch_fakes([text])
+        return engine.unmask(text)
+
+
+def _masked_in(vault: StoredVault, engine: Engine, text: str, call: bool) -> str:
+    """``text`` masked by ``engine``: in an applications call (its values and fakes asked for once), or on the
+    gateway's path."""
+    if not call:
+        return engine.mask_text(text, SlotKind.TOOL_RESULT, Session("g", kept=False)).text
+    with vault.holding(scoped=True):
+        vault.prefetch([text])
+        return engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False)).text
+
+
+def test_a_keys_short_secret_gets_a_long_fake():
+    store = _Store()
+    digits, hexadecimal = _short_secrets(_vault(store))
+    assert len(digits) == 15 and digits.isdigit() and len(hexadecimal) == 12
+    assert {e.surrogate for e in store.rows.values()} == {digits, hexadecimal}
+
+
+SHORT_KEPT = [(0, stored.HELD_SECRETS), (100, 0), (0, 0)]  # an instance's working set and secrets held glued
+SHORT_KEPT_IDS = ["held glued", "in the working set", "in the store alone"]
+
+
+@pytest.mark.parametrize("call", [False, True], ids=["alone", "an applications call"])
+@pytest.mark.parametrize(("memory", "held"), SHORT_KEPT, ids=SHORT_KEPT_IDS)
+def test_no_id_that_never_held_a_keys_short_secret_is_unmasked_or_masked_by_chance(call, memory, held):
+    """The finding of 0.11.0's Task 1, on an API key's vault: lines whose ids hold the digits or the hexadecimal digits
+    a short secret's fake had in 0.10.0 come back from an unmask as they were (`request_id=347bf309420a2290` came back
+    `347bf573020a2290`), and a mask keeps no value of them."""
+    store = _Store()
+    _short_secrets(_vault(store))
+    vault = StoredVault(ROOT_KEY, store, working=memory, held_at_most=held, on_insert=store.save_entity)
+    engine = _engine(vault)
+    lines = ids_holding(fake_of_0_10_0("PASSWORD", "1234"), fake_of_0_10_0("ASSIGNED_SECRET", "ab12f3"))
+    count = len(store.rows)
+    for line in lines:
+        assert _unmasked(vault, engine, line, call) == (line, 0)
+        assert _masked_in(vault, engine, line, call) == line
+    assert len(store.rows) == count
+
+
+@pytest.mark.parametrize("call", [False, True], ids=["a conversation", "an applications call"])
+@pytest.mark.parametrize(("memory", "held"), SHORT_KEPT, ids=SHORT_KEPT_IDS)
+def test_a_keys_short_fake_given_before_is_unmasked_only_as_a_whole_word_and_masked_as_its_restore_reads_it(
+    call, memory, held
+):
+    """R7 on an API key's vault: a short fake 0.10.0 kept in the store stays. An unmask of the whole vault restores it
+    where it stands as a whole word, never inside an id or a number that holds it by chance; an applications call's
+    masking takes such an id as no fake either, and keeps no value of it; a conversation's masking takes the short fake
+    inside the id for a fake, as 0.10.0 did, and the conversation's restore gives the id back as it was sent. Its value
+    is masked with it as always, and mask's echo finds it standing alone, where the vault finds a fake (in memory, or in
+    an applications call)."""
+    store = _Store()
+    old = given_before(Vault(ROOT_KEY))
+    for entity in old:  # as 0.10.0 kept them
+        store.rows[entity.id] = entity
+    vault = StoredVault(ROOT_KEY, store, working=memory, held_at_most=held, on_insert=store.save_entity)
+    engine = _engine(vault)
+    digits, hexadecimal = (e.surrogate for e in old)
+    answer = f'password={digits} and the token "{hexadecimal}".'
+    for unmasked_in_a_call in (False, True):
+        assert _unmasked(vault, engine, answer, unmasked_in_a_call) == ('password=1234 and the token "ab12f3".', 2)
+    count = len(store.rows)
+    for line in ids_holding(digits, hexadecimal):
+        for unmasked_in_a_call in (False, True):
+            assert _unmasked(vault, engine, line, unmasked_in_a_call) == (line, 0)
+        if call:
+            assert _masked_in(vault, engine, line, call) == line
+        else:
+            session = Session("g", kept=False)
+            masked = engine.mask_text(line, SlotKind.TOOL_RESULT, session).text
+            assert restore_text(masked, engine.restores(session, json_mode=False))[0] == line
+    if call:
+        assert len(store.rows) == count
+    count = len(store.rows)
+    assert _masked_in(vault, engine, PAIR, call) == PAIR.replace("1234", digits)  # the fake it always had
+    if call or memory or held:  # a fake the vault finds: in memory, or in an applications call
+        assert digits not in _masked_in(vault, engine, f"pin {digits} ok", call)
+        # A value of its own: new in an applications call; a conversation's masking took it for one already, in an id.
+        assert len(store.rows) == count + call
+
+
+@pytest.mark.parametrize("memory", [0, 100], ids=["held glued", "in the working set"])
+def test_a_keys_short_secret_masked_inside_a_word_comes_back_in_a_conversation_and_as_a_whole_word_from_an_unmask(
+    memory,
+):
+    """The review of 0.10.1 (C1), on an API key's vault: values of short secrets of 0.10.0 inside longer words and
+    numbers (`postgres` in `postgresql://`, `1234` in `order_id=9912343`, `admin1` in `admin12`), masked there with
+    their short fakes as always. A conversation (the gateway's path) gets the model's answer back whole, as 0.10.0 gave
+    it; an unmask of the whole vault (an applications call's) restores the one standing as a whole word, and leaves the
+    others as their fakes: the documented cost of never restoring a short fake inside an id by chance."""
+    store = _Store()
+    old = given_before(Vault(ROOT_KEY), INSIDE)
+    for entity in old:
+        store.rows[entity.id] = entity
+    vault = StoredVault(ROOT_KEY, store, working=memory, on_insert=store.save_entity)
+    engine = _engine(vault)
+    session = Session("g", kept=False)
+    masked = engine.mask_text(INSIDE_TEXT, SlotKind.TOOL_RESULT, session).text
+    expected = inside_unmasked(masked, old)
+    assert restore_text(masked, engine.restores(session, json_mode=False))[0] == INSIDE_TEXT
+    later = StoredVault(ROOT_KEY, store, working=memory, on_insert=store.save_entity)
+    in_a_call = _masked_in(later, _engine(later), INSIDE_TEXT, True)
+    assert in_a_call == masked
+    for call in (False, True):
+        assert _unmasked(later, _engine(later), in_a_call, call) == (expected, 1)
+
+
+@pytest.mark.parametrize("call", [False, True], ids=["alone", "an applications call"])
+def test_a_keys_fake_of_nine_to_eleven_characters_given_before_is_unmasked_inside_a_word(call):
+    """A secret of 9 to 11 characters got a fake of as many in 0.10.0, as rare by chance as a longer one: an unmask of
+    the whole vault restores it inside a word, as 0.10.0 did."""
+    store = _Store()
+    old = given_before(Vault(ROOT_KEY), (("PASSWORD", "Winter2024", None), ("API_KEY", "tok_9fQ2xL7", None)))
+    for entity in old:
+        store.rows[entity.id] = entity
+    vault = StoredVault(ROOT_KEY, store, working=0, on_insert=store.save_entity)
+    text = "ref xWinter2024y and tok_9fQ2xL7qq end"
+    masked = _masked_in(vault, _engine(vault), text, True)
+    assert masked == text.replace("Winter2024", old[0].surrogate).replace("tok_9fQ2xL7", old[1].surrogate)
+    later = StoredVault(ROOT_KEY, store, working=0, on_insert=store.save_entity)
+    assert _unmasked(later, _engine(later), masked, call) == (text, 2)
+
+
+@pytest.mark.parametrize("call_first", [True, False], ids=["the applications call first", "the conversation first"])
+def test_an_applications_call_and_a_conversation_each_mask_a_text_as_their_restore_reads_it(call_first):
+    """The final re-review of 0.10.1: a key's space masks its applications calls and its first token's conversations
+    through one engine, whose cache keeps a text as it was masked. An applications call takes a short fake of 0.10.0
+    inside an id for no fake (an unmask of the whole vault leaves it), a conversation for one (its restore puts the
+    secret there): each gets its own reading, never the other's. The model's answer that names the id comes back as
+    the client sent it; the applications call keeps no value of the id (but the one a conversation took the fake for
+    first, masked as any value), and its unmask gives the id back as it was."""
+    store = _Store()
+    [old] = given_before(Vault(ROOT_KEY), OLD[:1])
+    store.rows[old.id] = old
+    vault = _vault(store)
+    engine = _engine(vault)
+    text = f"GET /orders 200 order_id=99{old.surrogate}3 took 12 ms"
+
+    def in_a_call() -> None:
+        count = len(store.rows)
+        with vault.holding(scoped=True):
+            vault.prefetch([text])
+            done = engine.mask_text(text, SlotKind.USER_TEXT, Session("apps", kept=False))
+        assert not done.cached and len(store.rows) == count
+        assert done.text == text or not call_first  # the short fake inside the id: no fake in an applications call
+        with vault.holding(scoped=True):
+            vault.prefetch_fakes([done.text])
+            assert engine.unmask(done.text)[0] == text
+
+    if call_first:
+        in_a_call()
+    conversation = Session("conversation", kept=False)
+    assert engine.mask_text(PAIR, SlotKind.USER_TEXT, conversation).text == PAIR.replace("1234", old.surrogate)
+    masked = engine.mask_text(text, SlotKind.USER_TEXT, conversation)
+    assert not masked.cached and masked.text != text  # the short fake inside the id: masked as a value of its own
+    assert restore_text(masked.text, engine.restores(conversation, json_mode=False))[0] == text
+    if not call_first:
+        in_a_call()
+
+
+# Review I1 of 0.10.1: a short secret with a sign at an edge or inside, its longest run at an edge, glued on both sides:
+# not held glued (its run of seven letters or more is found by its edge), its fake found by its edge as well.
+GLUED_SIGNED = [("Summer2024!", "ref xSummer2024!y end"), ("abcdefg-h", "ref xabcdefg-hy end")]
+
+
+@pytest.mark.parametrize(("secret", "text"), [*GLUED_HELD, *GLUED_SIGNED])
+def test_a_keys_short_secret_glued_to_letters_or_digits_gets_a_long_fake_and_comes_back_whole(secret, text):
+    """Review I1's glued secrets, with the fake of twelve letters and digits they get now, their signs in place: masked
+    glued by an applications call, and restored there by another instance that holds them in its store alone (those
+    held glued: in memory), alone and in a call. A fake of one run where the value has a sign at its edge was found
+    by no word of the text (0.10.1's first fix: `ref x29AeFGWbrONqy end`, restored 0)."""
+    store = _Store()
+    keeper = _vault(store)
+    kept = keeper.intern("API_KEY", EntityClass.SECRET, secret)
+    _many(keeper)
+    vault = _vault(store)
+    with vault.holding(scoped=True):
+        vault.prefetch([text])
+        masked = _engine(vault).mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False)).text
+    assert secret not in masked and kept.surrogate in masked
+    assert sum(c.isalnum() for c in kept.surrogate) == 12 and stored.held_glued(kept) == (
+        secret not in dict(GLUED_SIGNED)
+    )
+    later = StoredVault(ROOT_KEY, store, working=0, on_insert=store.save_entity)
+    assert not _held(later, kept) or stored.held_glued(kept)
+    for call in (False, True):
+        assert _unmasked(later, _engine(later), masked, call) == (text, 1)

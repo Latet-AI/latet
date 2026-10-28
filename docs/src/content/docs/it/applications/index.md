@@ -230,20 +230,40 @@ segreta, mai una parola in chiaro.
 lettere e cifre, senza spazi né punteggiatura, viene trovato dalla sua parola, e dai suoi primi e
 ultimi sei caratteri quando altre lettere o cifre sono attaccate a uno dei suoi lati. Attaccato su
 entrambi i lati (`xhunter2y`), o attaccato in qualunque modo quando la parola al suo bordo ha sei
-caratteri o meno, nessuna parola del testo lo trova. Per questo un'istanza tiene in memoria per sempre
-i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o con una parola così
-breve a un bordo: i `key_held_secrets` più recenti (1.000, se le impostazioni del server non dicono
-altro), trovati comunque siano attaccati. Uno più vecchio viene trovato dove niente
-gli è attaccato, o dove un lato è libero e ha sette caratteri o più; uno più lungo, ovunque un lato sia
+caratteri o meno, nessuna parola del testo lo trova. Per questo un'istanza tiene in memoria per
+sempre i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o con una
+parola così breve a un bordo: i `key_held_secrets` più recenti (1.000, se le impostazioni del server
+non dicono altro), trovati comunque siano attaccati. Uno più vecchio viene trovato dove niente gli è
+attaccato, o dove un lato è libero e ha sette caratteri o più; uno più lungo, ovunque un lato sia
 libero. Aumenta `key_held_secrets` per una chiave che vede molti segreti brevi, come un token di
 sessione in ogni riga di log: ognuno tenuto occupa circa 2,2 KB su ogni istanza, e ogni testo che la
-chiave maschera o ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate. Misurata
-come sotto con un token di sessione proprio in ogni riga (un valore in più da conservare in ognuna),
-una chiave nuova con 1.000 di questi segreti tenuti ha mascherato 73 righe al secondo e ne ha
-ripristinate 1.935, contro 75 e 2.103 senza segreti tenuti. Nemmeno un valore fittizio
-attaccato in modo che nessuna delle sue parole resti a sé viene trovato; il mascheramento non ne
-produce mai. Come ovunque in Latet, un valore viene riconosciuto di nuovo da quattro caratteri, il nome
-di una persona da tre ([valori noti](../concepts/detection/#valori-noti)).
+chiave maschera o ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate.
+Misurata come sotto con un token di sessione proprio in ogni riga (un valore in più da conservare in
+ognuna), una chiave nuova con 1.000 di questi segreti tenuti ha mascherato 73 righe al secondo e ne
+ha ripristinate 1.935, contro 75 e 2.103 senza segreti tenuti. Un valore fittizio viene trovato
+attaccato come il suo segreto: ne mantiene i segni al loro posto, così un valore fittizio attaccato
+in modo che nessuna delle sue parole resti a sé è quello di un segreto tenuto in memoria, e viene
+trovato finché il segreto è tenuto. Come ovunque in Latet, un valore viene riconosciuto di nuovo da
+quattro caratteri, il nome di una persona da tre ([valori
+noti](../concepts/detection/#valori-noti)).
+
+**Segreti brevi.** Un segreto di meno di dodici caratteri (`password=1234`, un token breve) riceve
+un valore fittizio più lungo degli stessi tipi, con i suoi segni al loro posto: quindici cifre per
+un numero (con il suo segno e il suo punto decimale, così che un numero JSON resti un numero),
+dodici cifre esadecimali per un valore esadecimale, altrimenti dodici lettere e cifre. Un valore
+fittizio breve quanto il suo valore comparirebbe per caso negli id e nei numeri di altre righe di
+log, e un ripristino cambierebbe righe che non hanno mai contenuto il segreto.
+
+Un valore fittizio breve che la cassaforte di una chiave ha dato prima di Latet 0.10.2 (di otto
+caratteri o meno) resta, come ogni valore fittizio. `unmask`, che legge ogni valore fittizio della
+cassaforte della chiave, lo rimette solo dove sta come parola intera, senza lettere, cifre o
+trattini bassi accanto. Il costo: dove il valore di un segreto del genere è stato mascherato dentro
+una parola o un numero più lungo (`postgres` in `postgresql://`, `1234` in `order_id=9912343`),
+`unmask` vi lascia il suo valore fittizio. Una conversazione del primo token della chiave,
+attraverso il gateway o il plugin, lo rimette come prima, anche dentro una parola, perché ripristina
+solo i valori fittizi che la conversazione ha visto. Finché un'istanza del server esegue ancora la
+0.10.0, dà valori fittizi brevi ai nuovi segreti brevi, e anche quelli restano: aggiorna ogni
+istanza.
 
 **Che cosa conserva una chiamata che fallisce.** Una chiamata `mask` che fallisce mentre maschera (un
 507, un commit che non arriva a PostgreSQL) non conserva nessuno dei suoi valori nuovi quando teneva

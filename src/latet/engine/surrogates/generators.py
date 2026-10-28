@@ -3,7 +3,9 @@
 Every generator is a pure function of (original, rng): the same seed always gives the same fake,
 which keeps masked conversations byte-stable. Surrogates keep the shape a model expects (prefix,
 length, character classes, valid checksums) but never contain quotes, backslashes or ``$``, so they
-survive JSON and shell quoting unchanged.
+survive JSON and shell quoting unchanged. A secret shorter than ``SECRET_FAKE_SHORTEST`` characters
+is the exception: its fake has that many letters and digits, of its kinds, its signs in place
+(``gen_short_secret``), so that no id or number of a later text holds it by chance.
 
 A fake never shows its original: a word drawn from a list (a name, a company, a town, a host's word)
 is never one of the original's words, nor holds one, nor is a part of one, nor holds the whole
@@ -48,6 +50,7 @@ from latet.engine.surrogates.data.names import (
     STREET_TYPES,
     Names,
 )
+from latet.engine.types import SECRET_FAKE_SHORTEST
 
 
 class Drbg:
@@ -136,6 +139,83 @@ def secret_prefix_length(value: str) -> int:
 
 def gen_secret(original: str, rng: Drbg) -> str:
     return shape(original, rng, keep=secret_prefix_length(original))
+
+
+_SHORT_DRAWS = 64  # fakes of a short secret drawn in turn until one does not hold the value (a one-digit `7`: a few)
+# The digits of a short number's fake (`1234`): a few more than ``SECRET_FAKE_SHORTEST``, as ten kinds of characters
+# make fewer strings than sixteen, and logs are full of long numbers (a time in milliseconds has thirteen digits, a
+# snowflake id nineteen). Fifteen digits are still a number JSON and JavaScript read exactly (below 2^53).
+SHORT_NUMBER_FAKE = 15
+
+
+def _kept_sign(c: str) -> bool:
+    """A character of a short secret its fake keeps in place: a sign or a space, as ``shape`` keeps one; never one a
+    fake must not carry (``_UNSAFE``, a control character), which is drawn as a letter or a digit is."""
+    return not c.isalnum() and c not in _UNSAFE and (c.isprintable() or c in "\n\r\t")
+
+
+def _short_kinds(characters: str) -> tuple[str, bool]:
+    """The characters a short secret's fake draws from, and whether they are digits, by its letters and digits:
+    digits for digits, hexadecimal digits in its case for hexadecimal, else letters in its cases and digits."""
+    if characters and all(c in _DIGITS for c in characters):
+        return _DIGITS, True
+    hexadecimal = any(c.isalpha() for c in characters)
+    if hexadecimal and all(c in _HEX_LOWER for c in characters):
+        return _HEX_LOWER, False
+    if hexadecimal and all(c in _HEX_UPPER for c in characters):
+        return _HEX_UPPER, False
+    upper = any(c.isupper() for c in characters)
+    lower = any(c.islower() for c in characters) or not upper
+    return (_LOWER if lower else "") + (_UPPER if upper else "") + _DIGITS, False
+
+
+def gen_short_secret(original: str, rng: Drbg) -> str:
+    """The fake of a secret shorter than ``SECRET_FAKE_SHORTEST`` characters (0.10.2): its signs and spaces in place
+    (``_kept_sign``), and between them runs drawn from the kinds of the value's letters and digits (``_short_kinds``),
+    its longest run (the first of the longest) drawn longer, so that the fake has ``SECRET_FAKE_SHORTEST`` letters and
+    digits, ``SHORT_NUMBER_FAKE`` for a number. A fake of the value's own shape, as 0.10.0 gave it, could be held by
+    chance inside an id or a number of a later text (`5821` in `order_id=9958213`), and restored there; this one is
+    not. Its runs stand as the value's do, so that a text that glues letters to it is read as one that glues them to
+    the value: where a sign ends the value (`Summer2024!`, `abcdefg-h`), its longest run is found by its edge, as the
+    value's is (``anchors.edges``), where a fake of one run glued on both sides would be found by no word. A number
+    keeps its sign and its decimal point, no zero first (unless the value has one and more digits after it, `0042`, no
+    JSON number) and none last after a point, so that a JSON number stays one, read and written again as it was
+    (`-12`, `1.5`, `0`: fifteen digits, which a double holds exactly). One that holds the value is drawn again, from the
+    same ``rng``: the same value gets the same fake."""
+    kept = [_kept_sign(c) for c in original]
+    runs: list[tuple[int, int]] = []  # each run of drawn characters, by where it starts and ends in the value
+    for at, sign in enumerate(kept):
+        if not sign:
+            if runs and runs[-1][1] == at:
+                runs[-1] = (runs[-1][0], at + 1)
+            else:
+                runs.append((at, at + 1))
+    kinds, number = _short_kinds("".join(c for c in original if c.isalnum()))
+    lengths = [end - start for start, end in runs] or [0]
+    longest = lengths.index(max(lengths))
+    lengths[longest] += max(0, (SHORT_NUMBER_FAKE if number else SECRET_FAKE_SHORTEST) - sum(lengths))
+    head = original[runs[0][0] : runs[0][1]] if runs else ""
+    zero_first = not number or (len(head) > 1 and head[0] == "0")
+    zero_last = not number or len(runs) < 2 or original[runs[-1][0] - 1] != "."
+    folded = original.casefold()
+    fake = ""
+    for _ in range(_SHORT_DRAWS):
+        drawn = []
+        for n, length in enumerate(lengths):
+            run = [rng.choice(kinds) for _ in range(length)]
+            if run and n == 0 and not zero_first:
+                run[0] = rng.choice(_DIGITS[1:])
+            if run and n == len(lengths) - 1 and not zero_last:
+                run[-1] = rng.choice(_DIGITS[1:])
+            drawn.append("".join(run))
+        pieces, cursor = [], 0
+        for (start, end), run in zip(runs, drawn, strict=False):
+            pieces += [original[cursor:start], run]
+            cursor = end
+        fake = "".join(pieces) + original[cursor:] + ("" if runs else drawn[0])
+        if folded not in fake.casefold():
+            break
+    return fake  # one that still holds it (no draw in 64 did) is refused by the vault, which draws its next counter
 
 
 def gen_latet_token(original: str, rng: Drbg) -> str:

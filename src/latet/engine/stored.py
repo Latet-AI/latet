@@ -488,6 +488,11 @@ class StoredVault(Vault):
         """This thread's call under way, if any."""
         return self._calls.get(threading.get_ident())
 
+    def whole_vault_call(self) -> bool:
+        """``Vault.whole_vault_call``'s: this thread's call is an applications call (``holding(scoped=True)``)."""
+        call = self._call()
+        return call is not None and call.scoped
+
     def _noted_in_call(self, entity_id: str) -> None:
         """The value of ``entity_id``, kept as given: the store's once this thread's call that
         keeps its changes together commits: undone in memory if it does not (``_undo``)."""
