@@ -18,7 +18,7 @@ Un valore fittizio è un valore inventato con lo stesso formato dell'originale:
 | Tipo | Originale (resta sul tuo computer) | Valore fittizio (inviato al provider) |
 | --- | --- | --- |
 | Chiave API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Password in un URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Password in un URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
 | Email | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Numero di telefono | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -28,7 +28,10 @@ Un valore fittizio è un valore inventato con lo stesso formato dell'originale:
 creata sul tuo computer.</small>
 
 - **Conserva il formato.** Una chiave mantiene il suo prefisso (`pk_`, `ghp_`, `sk-ant-api03-`...),
-  la sua lunghezza e il suo insieme di caratteri. Un'email resta un'email: un dominio di webmail
+  la sua lunghezza e il suo insieme di caratteri. Un segreto di meno di dodici caratteri, come il
+  `1234` di `password=1234`, riceve invece un valore fittizio più lungo degli stessi tipi, con i
+  suoi segni al loro posto (dodici lettere e cifre, quindici cifre per un numero), così che nessun
+  id o numero di un altro testo lo contenga per caso. Un'email resta un'email: un dominio di webmail
   pubblica come `gmail.com` viene mantenuto, ogni altro dominio diventa un dominio fittizio sotto
   `.example`. IBAN, numeri di carta, numeri identificativi nazionali, numeri fiscali e partite IVA
   ricevono cifre di controllo valide, e gli indirizzi IP pubblici passano a intervalli che internet

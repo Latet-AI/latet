@@ -113,8 +113,8 @@ sensiblen Wert im Klartext enthalten würde, maskiert aber nur im Code-Tab, mit 
 **Kontext und Metadaten.** Dateinamen, Pfade, Codestruktur, Kommentare und Geschäftslogik werden
 unverändert gesendet, abgesehen von den Werten, die Latet darin erkennt, etwa Ihrem Benutzernamen in
 einem Pfad des Home-Verzeichnisses. Ersatzwerte behalten die Form des Originals (Länge, Format,
-Präfix), und der umgebende Text kann verraten, was ein Wert ist ("das Passwort der
-Produktionsdatenbank").
+Präfix; ein Geheimnis mit weniger als zwölf Zeichen erhält einen längeren Ersatzwert), und der
+umgebende Text kann verraten, was ein Wert ist ("das Passwort der Produktionsdatenbank").
 
 **Was ein JSON-Dokument dort enthält, wo das Maskieren nicht hinreicht.** Eine Kartennummer, die als
 JSON-Zahl geschrieben ist und die das Profil `balanced` nicht maskiert, wird von der abschließenden

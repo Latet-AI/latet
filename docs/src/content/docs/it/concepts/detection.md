@@ -81,7 +81,15 @@ PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
 ```
 
 Il nome host non è un segreto e resta. La password e la chiave vengono sostituite da valori fittizi
-della stessa lunghezza e dello stesso formato (i tuoi saranno diversi).
+della stessa lunghezza e dello stesso formato (i tuoi saranno diversi). Un segreto di meno di dodici
+caratteri riceve invece un valore fittizio più lungo degli stessi tipi, con i suoi segni al loro
+posto, di dodici lettere e cifre, quindici cifre per un numero: `password=1234` esce come
+`password=582194736201937`, `token=ab12f3` come `token=9e04c7b1d2fa`. Un valore fittizio breve
+quanto il valore comparirebbe per caso negli id e nei numeri dei testi successivi, e un ripristino
+li cambierebbe. Un valore fittizio breve dato prima di Latet 0.10.2 (di otto caratteri o meno)
+resta: una conversazione lo ripristina come prima, e `unmask` dell'[API per le
+applicazioni](../../applications/#la-cassaforte-di-una-chiave), che legge un'intera cassaforte, solo
+dove sta come parola intera.
 
 ### Segnaposto
 

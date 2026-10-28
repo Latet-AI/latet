@@ -35,9 +35,11 @@ from latet.engine.vault import Vault
 from latet.gateway import ws
 from latet.gateway.app import GatewayConfig, OnServer, create_app
 from latet.gateway.aws import profile_tag
+from latet.gateway.forward import too_large
 from latet.gateway.routes import destination_upstream
 from latet.projects import Projects
 from latet.protocols.base import ImageRef
+from latet.protocols.codec import DecodedTooLarge
 from latet.runtime import image_masking, make_runtime, personal_names
 from latet.server import egress
 from latet.server.queue import BatchRefused
@@ -1088,6 +1090,22 @@ def test_a_compressed_request_that_would_decode_past_the_limit_is_stopped_and_no
         assert fine.status_code == 200
     assert len(seen) == 1  # the one under the limit, and none of the others
     assert "DecodedTooLarge" in caplog.text
+
+
+def test_a_request_stopped_for_decoding_past_the_limit_is_on_the_dashboard_as_stopped(space):
+    """The identity's History shows the request as Latet stopped it, in the 413's words (the limit, nothing of the
+    body), not as one sent unread."""
+    rt, _ = space
+    rt.mediator.body_limit = 1024 * 1024
+    seen = _upstream(rt)
+    big = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x" * (2 * 1024 * 1024)}]}).encode()
+    headers = {**BEARER, "content-encoding": "gzip", "content-type": "application/json"}
+    with _client(rt) as c:
+        assert c.post("/llm/v1/chat/completions", content=gzip.compress(big), headers=headers).status_code == 413
+    assert seen == [] and rt.recorder is not None and rt.recorder.drain()
+    [row] = rt.exchanges.summaries_since(0)
+    assert row["status"] == 413 and "blocked" in row["flags"] and "error" not in row["flags"]
+    assert row["block_reason"] == too_large(DecodedTooLarge(1024 * 1024))
 
 
 def test_a_request_the_live_reviewers_queue_does_not_keep_is_stopped_with_its_reason(space, monkeypatch):

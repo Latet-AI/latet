@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from bisect import bisect_right
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
 import re2
@@ -640,8 +640,10 @@ class KnownValuesDetector:
     """Every original already in the vault, matched exactly wherever it appears again."""
 
     # ``bounded``: the RE2 memory in proportion to the values, as each part of a vault's values has it
-    # (``latet.engine.known``): one of many, and compiled faster so. (Kept out of the class's docstring: the detectors'
-    # reference page is made from it.)
+    # (``latet.engine.known``): one of many, and compiled faster so. ``whole``: strings found only where they stand as
+    # whole words, a secret's too, which is otherwise found inside a word: a vault's short fakes (``vault.short_fake``,
+    # 0.10.0's of a short secret), which an id or a number can hold by chance, decided for each entity
+    # (``known._Part``). (Kept out of the class's docstring: the detectors' reference page is made from it.)
 
     id = "known-values"
     mandatory = True
@@ -653,6 +655,7 @@ class KnownValuesDetector:
         rule: str = "known-values",
         *,
         bounded: bool = False,
+        whole: Collection[str] = (),
     ) -> None:
         self._rule = rule
         self._classes: dict[str, tuple[str, EntityClass]] = {}
@@ -660,7 +663,8 @@ class KnownValuesDetector:
         for original, etype, eclass in values:
             if long_enough(original, etype, min_length):
                 self._classes[original] = (etype, eclass)
-                terms.append(Term(original, etype, case_sensitive=True, whole_word=eclass != EntityClass.SECRET))
+                inside = eclass == EntityClass.SECRET and original not in whole
+                terms.append(Term(original, etype, case_sensitive=True, whole_word=not inside))
         self._set = _TermSet(terms, bounded=bounded)
 
     @property

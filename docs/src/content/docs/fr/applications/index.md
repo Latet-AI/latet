@@ -232,24 +232,43 @@ index des mots des valeurs et des valeurs factices. Cet index contient des empre
 une clé secrète, jamais un mot en clair.
 
 **Secrets collés à d'autres lettres.** Dans PostgreSQL, un secret écrit comme une seule suite de
-lettres et de chiffres, sans espace ni ponctuation, est trouvé par son mot, et par ses six premiers et
-six derniers caractères quand d'autres lettres ou chiffres sont collés à l'un de ses côtés. Collé des
-deux côtés (`xhunter2y`), ou collé de quelque façon que ce soit quand le mot à son bord a six
+lettres et de chiffres, sans espace ni ponctuation, est trouvé par son mot, et par ses six premiers
+et six derniers caractères quand d'autres lettres ou chiffres sont collés à l'un de ses côtés. Collé
+des deux côtés (`xhunter2y`), ou collé de quelque façon que ce soit quand le mot à son bord a six
 caractères ou moins, aucun mot du texte ne le trouve. Une instance garde donc en mémoire pour de bon
 les secrets courts d'une clé, ceux d'une seule suite de 16 caractères ou moins ou avec un mot aussi
-court à un bord : les `key_held_secrets` plus récents (1 000 si les réglages du serveur ne disent pas
-autre chose), trouvés quelle que soit la façon dont ils sont collés. Un plus ancien est trouvé là où
-rien ne lui est collé, ou là où un côté est libre et qu'il a sept caractères ou plus ; un plus long,
-partout où un côté est libre. Augmentez `key_held_secrets` pour une clé qui voit beaucoup de secrets
-courts, comme un jeton de session dans chaque ligne de journal : chacun occupe environ 2,2 Ko sur
-chaque instance, et chaque texte que la clé masque ou restaure est parcouru pour le chercher, ce qui
-ralentit un peu ses appels. Mesurée comme ci-dessous avec un jeton de session propre à chaque ligne
-(une valeur de plus à garder dans chacune), une nouvelle clé qui en gardait 1 000 a masqué 73 lignes
-par seconde et en a restauré 1 935, contre 75 et 2 103 sans aucun secret gardé. Une
-valeur factice collée de sorte qu'aucun de ses mots ne soit isolé n'est pas trouvée non plus ; le
-masquage n'en produit jamais. Comme partout dans Latet, une valeur est reconnue à nouveau à partir de
-quatre caractères, le nom d'une personne à partir de trois
-([valeurs connues](../concepts/detection/#valeurs-connues)).
+court à un bord : les `key_held_secrets` plus récents (1 000 si les réglages du serveur ne disent
+pas autre chose), trouvés quelle que soit la façon dont ils sont collés. Un plus ancien est trouvé
+là où rien ne lui est collé, ou là où un côté est libre et qu'il a sept caractères ou plus ; un plus
+long, partout où un côté est libre. Augmentez `key_held_secrets` pour une clé qui voit beaucoup de
+secrets courts, comme un jeton de session dans chaque ligne de journal : chacun occupe environ 2,2
+Ko sur chaque instance, et chaque texte que la clé masque ou restaure est parcouru pour le chercher,
+ce qui ralentit un peu ses appels. Mesurée comme ci-dessous avec un jeton de session propre à chaque
+ligne (une valeur de plus à garder dans chacune), une nouvelle clé qui en gardait 1 000 a masqué 73
+lignes par seconde et en a restauré 1 935, contre 75 et 2 103 sans aucun secret gardé. Une valeur
+factice est trouvée collée comme son secret : elle en garde les signes à leur place, si bien qu'une
+valeur factice collée de sorte qu'aucun de ses mots ne soit isolé est celle d'un secret gardé en
+mémoire, et est trouvée tant que le secret est gardé. Comme partout dans Latet, une valeur est
+reconnue à nouveau à partir de quatre caractères, le nom d'une personne à partir de trois ([valeurs
+connues](../concepts/detection/#valeurs-connues)).
+
+**Secrets courts.** Un secret de moins de douze caractères (`password=1234`, un jeton court) reçoit
+une valeur factice plus longue des mêmes sortes, ses signes à leur place : quinze chiffres pour un
+nombre (avec son signe et son point décimal, pour qu'un nombre JSON reste un nombre), douze chiffres
+hexadécimaux pour une valeur hexadécimale, sinon douze lettres et chiffres. Une valeur factice aussi
+courte que sa valeur apparaîtrait par hasard dans les identifiants et les nombres d'autres lignes de
+journal, et une restauration changerait des lignes qui n'ont jamais contenu le secret.
+
+Une valeur factice courte que le coffre-fort d'une clé a donnée avant Latet 0.10.2 (huit caractères
+ou moins) reste, comme toute valeur factice. `unmask`, qui lit chaque valeur factice du coffre-fort
+de la clé, ne la remplace par la valeur que là où elle est un mot entier, sans lettre, chiffre ni
+tiret bas à côté. Le prix : là où la valeur d'un tel secret a été masquée dans un mot ou un nombre
+plus long (`postgres` dans `postgresql://`, `1234` dans `order_id=9912343`), `unmask` y laisse sa
+valeur factice. Une conversation du premier jeton de la clé, par la passerelle ou le plugin, la
+restaure comme avant, à l'intérieur d'un mot aussi, puisqu'elle ne restaure que les valeurs factices
+qu'on lui a montrées. Tant qu'une instance du serveur exécute encore la 0.10.0, elle donne des
+valeurs factices courtes aux nouveaux secrets courts, et celles-ci restent aussi : mettez à jour
+chaque instance.
 
 **Ce que conserve un appel qui échoue.** Un appel `mask` qui échoue pendant le masquage (un 507, une
 validation qui n'atteint pas PostgreSQL) ne conserve aucune de ses nouvelles valeurs quand il tenait

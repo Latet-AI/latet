@@ -113,8 +113,9 @@ l'onglet Code, avec le plugin. Voir [Claude Code](../../agents/claude-code/#couv
 **Contexte et métadonnées.** Les noms de fichiers, les chemins, la structure du code, les commentaires
 et la logique métier sont envoyés tels quels, à part les valeurs que Latet y détecte, comme votre nom
 d'utilisateur dans le chemin de votre répertoire personnel. Les valeurs factices gardent la forme de
-l'original (longueur, format, préfixe), et le texte qui les entoure peut révéler ce qu'est une valeur
-("le mot de passe de la base de données de production").
+l'original (longueur, format, préfixe ; un secret de moins de douze caractères reçoit une valeur
+factice plus longue), et le texte qui les entoure peut révéler ce qu'est une valeur ("le mot de
+passe de la base de données de production").
 
 **Ce qu'un document JSON contient là où le masquage n'atteint pas.** Un numéro de carte écrit comme
 un nombre JSON, que le profil `balanced` ne masque pas, est trouvé par la vérification finale, qui

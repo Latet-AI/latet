@@ -85,8 +85,16 @@ SMTP_PASSWORD=jeeepo3ixhbkw
 PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
 ```
 
-Le nom d'hôte n'est pas un secret et reste tel quel. Le mot de passe et la clé sont remplacés par des
-valeurs factices de la même longueur et du même format (les vôtres seront différentes).
+Le nom d'hôte n'est pas un secret et reste tel quel. Le mot de passe et la clé sont remplacés par
+des valeurs factices de la même longueur et du même format (les vôtres seront différentes). Un
+secret de moins de douze caractères reçoit à la place une valeur factice plus longue des mêmes
+sortes, ses signes à leur place, de douze lettres et chiffres, quinze chiffres pour un nombre :
+`password=1234` part comme `password=582194736201937`, `token=ab12f3` comme `token=9e04c7b1d2fa`.
+Une valeur factice aussi courte que la valeur apparaîtrait par hasard dans les identifiants et les
+nombres des textes suivants, et une restauration les changerait. Une valeur factice courte donnée
+avant Latet 0.10.2 (huit caractères ou moins) reste : une conversation la restaure comme avant, et
+`unmask` de l'[API pour les applications](../../applications/#le-coffre-fort-dune-clé), qui lit un
+coffre-fort entier, seulement là où elle est un mot entier.
 
 ### Espaces réservés
 

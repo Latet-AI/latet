@@ -111,8 +111,9 @@ sé un valore sensibile in chiaro, ma maschera solo nella scheda Code, con il pl
 **Contesto e metadati.** I nomi dei file, i percorsi, la struttura del codice, i commenti e la logica
 di business vengono inviati così come sono, a parte i valori che Latet vi rileva, come il tuo nome
 utente in un percorso della cartella home. I valori fittizi mantengono la forma dell'originale
-(lunghezza, formato, prefisso), e il testo intorno può rivelare che cos'è un valore ("la password del
-database di produzione").
+(lunghezza, formato, prefisso; un segreto di meno di dodici caratteri riceve un valore fittizio più
+lungo), e il testo intorno può rivelare che cos'è un valore ("la password del database di
+produzione").
 
 **Ciò che un documento JSON contiene dove il mascheramento non arriva.** Un numero di carta scritto
 come numero JSON, che il profilo `balanced` non maschera, viene trovato dal controllo finale, che

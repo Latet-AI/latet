@@ -19,6 +19,9 @@ from latet.bridge.apps import APPS_API, MOST_TEXTS
 from latet.config import LiveReview, LlmReview
 from latet.engine.detectors.base import DetectorSkipped
 from latet.engine.pipeline import Session
+from latet.engine.surrogates.generators import Drbg, shape
+from latet.engine.types import EntityClass
+from latet.engine.vault import Entity
 from latet.server import app as app_module
 from latet.server.app import create_server_app
 from latet.server.machines import STORE_THREADS, StoresUnavailable, in_store
@@ -27,6 +30,7 @@ from latet.server.settings import ServerSettings
 from latet.server.tokens import route_key
 
 from ..unit.test_reviewer import FakeServer, reviewer
+from ..unit.test_short_secrets import INSIDE, INSIDE_TEXT, OLD, PAIR, TOKEN, ids_holding, inside_unmasked
 from .support import DATABASE, URL, captured_logs, listening, until
 
 pytestmark = pytest.mark.server
@@ -160,6 +164,101 @@ async def test_a_fake_of_the_space_is_masked_as_a_value(server):
         back = (await _post(client, secret, "unmask", {"texts": [twice["text"]]})).json()["results"][0]
     assert twice["text"] != once and twice["counts"] == {"EMAIL": 1}
     assert back == {"text": once, "restored": 1}
+
+
+def _first_fake(vault, etype, value):
+    """The fake 0.10.0 gave ``value`` in ``vault`` at its first draw: its shape, as long as it is."""
+    return shape(value, Drbg(vault._k_sur, vault._seed(etype, value, 0)))
+
+
+def _entries(server, key):
+    with server.db.connection() as conn:
+        return conn.execute("SELECT count(*) FROM vault_entities WHERE identity_id = %s", (key.id,)).fetchone()[0]
+
+
+async def test_a_short_secret_gets_a_long_fake_and_no_id_comes_back_changed(server):
+    """0.10.1, the finding of 0.11.0's Task 1: a key's short secrets (`password=1234`, `token=ab12f3`) get long fakes
+    (fifteen digits, twelve hexadecimal digits); a log line whose id holds the digits or the hexadecimal digits their
+    fakes had in 0.10.0 comes back from unmask as it was (`request_id=347bf309420a2290` came back `347bf573020a2290`),
+    and mask keeps no value of it (it kept the fake found inside the id as a value of its own)."""
+    key, secret = server.identities.add_key("Billing CI")
+    async with _calling(server) as client:
+        masked = (await _post(client, secret, "mask", {"texts": [PAIR, TOKEN]})).json()["results"]
+        vault = (await server.spaces.runtime(key)).built.vault
+        lines = ids_holding(*(_first_fake(vault, etype, value) for etype, value, _ in OLD))
+        count = _entries(server, key)
+        unmasked = await _post(client, secret, "unmask", {"texts": lines})
+        again = await _post(client, secret, "mask", {"texts": lines})
+    assert unmasked.json()["results"] == [{"text": line, "restored": 0} for line in lines]
+    assert [result["text"] for result in again.json()["results"]] == lines and _entries(server, key) == count
+    fakes = [fake for result in masked for fake in _values_of(result["text"], result["replacements"])]
+    assert [len(fake) for fake in fakes] == [15, 12] and fakes[0].isdigit()
+
+
+async def test_a_short_fake_given_before_is_restored_only_as_a_whole_word(server):
+    """R7: the short fakes 0.10.0 gave a key's short secrets stay, read from PostgreSQL by an instance built after:
+    unmask restores them where they stand as whole words and never inside an id or a number, and mask masks their
+    values with them as always and keeps no value of an id that holds one."""
+    key, secret = server.identities.add_key("Billing CI")
+    async with _calling(server) as client:
+        await _post(client, secret, "scan", {"texts": ["warm up"]})  # the key's space built
+        vault = (await server.spaces.runtime(key)).built.vault
+        old = [
+            Entity(
+                vault.entity_id(etype, value), etype, EntityClass.SECRET, value, _first_fake(vault, etype, value), 0,
+                time.time(), rule,
+            )
+            for etype, value, rule in OLD
+        ]  # fmt: skip
+        for entity in old:  # as 0.10.0 kept them
+            assert await asyncio.to_thread(vault._store.save_entity, entity) is None
+        await server.spaces.drop(key.id)  # built again, from the store
+        digits, hexadecimal = (entity.surrogate for entity in old)
+        assert len(digits) == 4 and len(hexadecimal) == 6
+        lines = ids_holding(digits, hexadecimal)
+        answer = f'password={digits} and the token "{hexadecimal}".'
+        unmasked = await _post(client, secret, "unmask", {"texts": [answer, *lines]})
+        count = _entries(server, key)
+        again = await _post(client, secret, "mask", {"texts": [*lines, PAIR]})
+    assert unmasked.json()["results"] == [
+        {"text": 'password=1234 and the token "ab12f3".', "restored": 2},
+        *({"text": line, "restored": 0} for line in lines),
+    ]
+    assert [result["text"] for result in again.json()["results"]] == [*lines, PAIR.replace("1234", digits)]
+    assert _entries(server, key) == count
+
+
+async def test_short_fakes_given_before_inside_a_word_come_back_where_they_stand_whole(server):
+    """The review of 0.10.1 (C1), through the applications API: values of short secrets of 0.10.0 inside longer words
+    and numbers (`postgres` in `postgresql://`, `1234` in `order_id=9912343`, `admin1` in `admin12`) are masked there
+    with their short fakes, as always; unmask, an unmask of the whole vault, restores the one standing as a whole word
+    and leaves the others as their fakes, the documented cost. A fake of 9 to 11 characters (`Winter2024`'s) is
+    restored inside a word, as 0.10.0 restored it."""
+    key, secret = server.identities.add_key("Billing CI")
+    async with _calling(server) as client:
+        await _post(client, secret, "scan", {"texts": ["warm up"]})  # the key's space built
+        vault = (await server.spaces.runtime(key)).built.vault
+        old = [
+            Entity(
+                vault.entity_id(etype, value), etype, EntityClass.SECRET, value, _first_fake(vault, etype, value), 0,
+                time.time(), rule,
+            )
+            for etype, value, rule in (*INSIDE, ("PASSWORD", "Winter2024", None))
+        ]  # fmt: skip
+        for entity in old:  # as 0.10.0 kept them
+            assert await asyncio.to_thread(vault._store.save_entity, entity) is None
+        await server.spaces.drop(key.id)  # built again, from the store
+        texts = [INSIDE_TEXT, "ref xWinter2024y end"]
+        masked = [
+            result["text"] for result in (await _post(client, secret, "mask", {"texts": texts})).json()["results"]
+        ]
+        unmasked = await _post(client, secret, "unmask", {"texts": masked})
+    winter = old[-1].surrogate
+    assert len(winter) == 10 and masked[1] == f"ref x{winter}y end"
+    assert unmasked.json()["results"] == [
+        {"text": inside_unmasked(masked[0], old[:-1]), "restored": 1},
+        {"text": texts[1], "restored": 1},
+    ]
 
 
 async def test_the_space_gets_the_grant_and_not_the_token(server, monkeypatch):

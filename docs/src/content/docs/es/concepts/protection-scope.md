@@ -113,8 +113,9 @@ plugin. Consulta [Claude Code](../../agents/claude-code/#cobertura) y
 **Contexto y metadatos.** Los nombres de archivo, las rutas, la estructura del código, los
 comentarios y la lógica de negocio se envían tal cual, salvo los valores que Latet detecta en ellos,
 como tu nombre de usuario dentro de una ruta del directorio personal. Los valores ficticios
-mantienen la forma del original (longitud, formato, prefijo), y el texto que los rodea puede revelar
-qué es un valor ("la contraseña de la base de datos de producción").
+mantienen la forma del original (longitud, formato, prefijo; un secreto de menos de doce caracteres
+recibe un valor ficticio más largo), y el texto que los rodea puede revelar qué es un valor ("la
+contraseña de la base de datos de producción").
 
 **Lo que un documento JSON contiene donde el enmascaramiento no llega.** Un número de tarjeta escrito
 como número JSON, que el perfil `balanced` no enmascara, lo encuentra la comprobación final, que

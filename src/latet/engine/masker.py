@@ -112,9 +112,20 @@ class Masker:
         """Where issued surrogates occur in ``text``, as 0.9.8 found them (composed or decomposed alike), and how fakes
         written in escapes read; but a reading that is a value the vault knows too, in either form (the value wins:
         ``Vault.a_value_over_a_reading``), and a fake found where it is written and again where its escapes read, at
-        the same place, once."""
-        _, echo = self._refresh()
-        spans = read_escaped(text, lambda t: list(echo.detect(t, DetectContext())))
+        the same place, once. A short fake (``vault.short_fake``, 0.10.0's of a short secret) inside a word too, as a
+        conversation's restore puts it back there; in an applications call only where it stands as a whole word, as an
+        unmask of the whole vault restores it (``Vault.whole_vault_call``): an id that holds one by chance is no fake
+        there."""
+        held = self.vault.matchers.current()
+        echo, inside = held.echo, None if self.vault.whole_vault_call() else held.echo_inside
+
+        def read(t: str) -> list[Span]:
+            found = list(echo.detect(t, DetectContext()))
+            if inside is not None:
+                found = sorted([*found, *inside.detect(t, DetectContext())], key=lambda s: (s.start, -s.end))
+            return found
+
+        spans = read_escaped(text, read)
         value_wins = self.vault.a_value_over_a_reading
         places: set[tuple[int, int]] = set()
         out = []
@@ -133,6 +144,25 @@ class Masker:
         known = self._known_values()
         spans = read_escaped(text, lambda t: list(known.detect(t, DetectContext())))
         return [s for s in spans if not self.fake_or_let_through(text, s)]
+
+    def known_outside(self, text: str, replacements: Iterable[Replacement]) -> bool:
+        """Whether a value in the vault is in ``text`` outside every value ``replacements`` masked in it (their masking
+        of ``text``, by its places): in clear, or around or across a value masked (an IBAN the vault learnt as a
+        secret's group after ``text`` was masked with that secret alone; `Mario Rossi` learnt whole, `Rossi` masked
+        alone). Its masking holds a fake where part of such a value was, so it shows no value in clear there
+        (``known_in``), and the rest of that value is in clear. A value inside one value masked needs nothing, a fake
+        or a value you let through neither; one reading of ``text``, as ``known_in``'s."""
+        places = sorted((r.start, r.end) for r in replacements if r.policy != Policy.ALLOW)
+        starts = [start for start, _ in places]
+        reach = list(accumulate((end for _, end in places), max))  # the furthest end of the places begun up to each
+        known = self._known_values()
+        for span in read_escaped(text, lambda t: list(known.detect(t, DetectContext()))):
+            at = bisect.bisect_right(starts, span.start) - 1
+            if at >= 0 and span.end <= reach[at]:
+                continue  # inside a value masked (the one begun at or before it that reaches furthest)
+            if not self.fake_or_let_through(text, span):
+                return True
+        return False
 
     def fake_or_let_through(self, text: str, span: Span) -> bool:
         """Whether what ``span`` found is a fake, or a value you let through: as it is written, or as it reads where

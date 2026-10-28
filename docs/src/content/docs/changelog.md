@@ -11,6 +11,41 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.10.2 (2026-10-28)
+
+- Fixed: a secret shorter than twelve characters (`password=1234`, `token=ab12f3`) got a fake of its
+  own shape, four digits or six hexadecimal digits, which a later text could hold by chance inside an
+  id or a number. The applications API's unmask, which reads every fake of a key's vault, then put the
+  secret there: a log line that never held it came back changed (`request_id=347bf309420a2290` as
+  `347bf573020a2290`), and its mask took the fake found inside a word for a value of its own. Such a
+  secret now gets a longer fake of the same kinds, its signs in place: fifteen digits for a number
+  (its sign and decimal point kept, so that a JSON number stays one), twelve hexadecimal digits for a
+  hexadecimal value, otherwise twelve letters and digits. A secret of twelve characters or more, and
+  personal data, keep fakes of their shape. A short fake given before (eight characters or fewer)
+  stays, as every fake does. A conversation, on a computer or a server, puts it back as before, inside
+  a word too, as it restores only the fakes it was shown. The applications API's unmask puts it back
+  only where it stands as a whole word, with no letter, digit or underscore next to it: where such a
+  secret's value was masked inside a longer word or number (`postgres` in `postgresql://`, `1234` in
+  `order_id=9912343`), unmask leaves its fake there. A fake of 9 to 11 characters is put back as
+  before everywhere. A recognizer of yours of the `secret` class keeps the fake its rule gives, of the
+  value's shape; one of eight characters or fewer is put back as a short fake given before is. Upgrade
+  every instance of a server: one still running 0.10.0 gives new short secrets short fakes, and those
+  stay too.
+- Fixed: a request Latet refuses before masking it (its masking fails, or, on a server, its body would
+  decode past `max_request_mb`) showed in History as sent unread, with an error, though nothing was
+  sent. It now shows as blocked and not sent, with its reason in Latet's words and the size of its
+  body, and on a server the stops metric (`latet_agent_stops_total`) counts it.
+- Fixed: a text masked before the vault learnt a value around a value already masked in it kept the
+  rest of that value in clear when it was masked again. An IBAN glued to letters on both sides
+  (`MarioIT60X0542811101000000123456Ferri`) that held a secret the vault knew had only that secret
+  masked; once a later text taught the vault the whole IBAN, the same text masked again as it was
+  masked before (by a later applications call, in a new conversation, or within the same call or
+  request) still showed the IBAN's other characters. A name learnt whole (`Mario Rossi`) around a
+  surname masked before (`Rossi`) left `Mario` in clear the same way. The final check did not stop it,
+  as no whole value was in clear. Such a text is now masked again, whole. A conversation's text that
+  never left (its request blocked or given up) is masked anew too; one that left is sent again as it
+  left, as before.
+
 ## 0.10.0 (2026-10-27)
 
 - The applications API: a Latet server answers `POST /_latet/apps/v1/scan`, `mask` and `unmask` for an

@@ -228,24 +228,44 @@ PostgreSQL cuando los textos de una llamada lo necesitan, con una sola búsqueda
 un índice de las palabras de los valores y de los valores ficticios. Ese índice contiene hashes
 calculados con una clave secreta, nunca una palabra en claro.
 
-**Secretos pegados a otras letras.** En PostgreSQL, un secreto escrito como una sola serie de letras y
-dígitos, sin espacios ni puntuación, se encuentra por su palabra, y por sus seis primeros y seis
+**Secretos pegados a otras letras.** En PostgreSQL, un secreto escrito como una sola serie de letras
+y dígitos, sin espacios ni puntuación, se encuentra por su palabra, y por sus seis primeros y seis
 últimos caracteres cuando otras letras o dígitos están pegados a uno de sus lados. Pegado por ambos
-lados (`xhunter2y`), o pegado de cualquier modo cuando la palabra de su borde tiene seis caracteres o
-menos, ninguna palabra del texto lo encuentra. Por eso una instancia guarda en memoria para siempre los
-secretos cortos de una clave, los de una sola serie de 16 caracteres o menos o con una palabra así de
-corta en un borde: los `key_held_secrets` más recientes (1.000 si los ajustes del servidor no dicen
-otra cosa), que se encuentran estén pegados como estén. Uno más antiguo se encuentra donde nada está
-pegado a él, o donde un lado está libre y tiene siete caracteres o más; uno más largo, dondequiera que
-un lado esté libre. Sube `key_held_secrets` para una clave que ve muchos secretos cortos, como un token
-de sesión en cada línea de registro: cada uno que se guarda ocupa unos 2,2 KB en cada instancia, y cada
-texto que la clave enmascara o restaura se recorre para buscarlo, lo que hace sus llamadas un poco más
-lentas. Medida como abajo con un token de sesión propio en cada línea (un valor más que guardar en
-cada una), una clave nueva con 1.000 de esos secretos guardados enmascaró 73 líneas por segundo y
-restauró 1.935, frente a 75 y 2.103 sin ninguno guardado. Tampoco se encuentra
-un valor ficticio pegado de modo que ninguna de sus palabras quede suelta; el enmascaramiento nunca
-produce uno. Como en todo Latet, un valor se vuelve a reconocer a partir de cuatro caracteres, el
-nombre de una persona a partir de tres ([valores conocidos](../concepts/detection/#valores-conocidos)).
+lados (`xhunter2y`), o pegado de cualquier modo cuando la palabra de su borde tiene seis caracteres
+o menos, ninguna palabra del texto lo encuentra. Por eso una instancia guarda en memoria para
+siempre los secretos cortos de una clave, los de una sola serie de 16 caracteres o menos o con una
+palabra así de corta en un borde: los `key_held_secrets` más recientes (1.000 si los ajustes del
+servidor no dicen otra cosa), que se encuentran estén pegados como estén. Uno más antiguo se
+encuentra donde nada está pegado a él, o donde un lado está libre y tiene siete caracteres o más;
+uno más largo, dondequiera que un lado esté libre. Sube `key_held_secrets` para una clave que ve
+muchos secretos cortos, como un token de sesión en cada línea de registro: cada uno que se guarda
+ocupa unos 2,2 KB en cada instancia, y cada texto que la clave enmascara o restaura se recorre para
+buscarlo, lo que hace sus llamadas un poco más lentas. Medida como abajo con un token de sesión
+propio en cada línea (un valor más que guardar en cada una), una clave nueva con 1.000 de esos
+secretos guardados enmascaró 73 líneas por segundo y restauró 1.935, frente a 75 y 2.103 sin ninguno
+guardado. Un valor ficticio se encuentra pegado como su secreto: conserva los signos del secreto en
+su sitio, así que un valor ficticio pegado de modo que ninguna de sus palabras quede suelta es el de
+un secreto guardado en memoria, y se encuentra mientras el secreto se guarda. Como en todo Latet, un
+valor se vuelve a reconocer a partir de cuatro caracteres, el nombre de una persona a partir de tres
+([valores conocidos](../concepts/detection/#valores-conocidos)).
+
+**Secretos cortos.** Un secreto de menos de doce caracteres (`password=1234`, un token corto) recibe
+un valor ficticio más largo de los mismos tipos, con sus signos en su sitio: quince dígitos para un
+número (con su signo y su punto decimal, para que un número JSON siga siendo un número), doce
+dígitos hexadecimales para un valor hexadecimal, si no doce letras y dígitos. Un valor ficticio tan
+corto como su valor aparecería por casualidad en los identificadores y los números de otras líneas
+de registro, y una restauración cambiaría líneas que nunca contuvieron el secreto.
+
+Un valor ficticio corto que la caja fuerte de una clave dio antes de Latet 0.10.2 (de ocho
+caracteres o menos) se queda, como todo valor ficticio. `unmask`, que lee cada valor ficticio de la
+caja fuerte de la clave, solo lo sustituye por el valor donde está como palabra completa, sin letra,
+dígito ni guion bajo al lado. El coste: donde el valor de un secreto así se enmascaró dentro de una
+palabra o un número más largo (`postgres` en `postgresql://`, `1234` en `order_id=9912343`),
+`unmask` deja ahí su valor ficticio. Una conversación del primer token de la clave, a través del
+gateway o del plugin, lo restaura como antes, también dentro de una palabra, porque solo restaura
+los valores ficticios que se le mostraron. Mientras una instancia del servidor siga ejecutando la
+0.10.0, da valores ficticios cortos a los nuevos secretos cortos, y también esos se quedan:
+actualiza cada instancia.
 
 **Qué conserva una llamada que falla.** Una llamada `mask` que falla mientras enmascara (un 507, una
 confirmación que no llega a PostgreSQL) no conserva ninguno de sus valores nuevos cuando ocupaba para

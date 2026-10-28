@@ -217,9 +217,26 @@ is free. Raise `key_held_secrets` for a key that sees many short secrets, such a
 each log line: each one held takes about 2.2 KB on every instance, and every text the key masks or
 unmasks is read for it, which slows its calls a little. Measured as below with a session token of its
 own in every line (one more value to keep in each), a new key with 1,000 of them held masked 73 lines
-a second and unmasked 1,935, against 75 and 2,103 with none held. A fake glued so that none of its words stands apart is not
-found either; masking never makes one. As everywhere in Latet, a value is matched again from four
-characters, a person's name from three ([known values](../concepts/detection/#known-values)).
+a second and unmasked 1,935, against 75 and 2,103 with none held. A fake is found glued as its secret
+is: it keeps the secret's signs in place, so a fake glued so that none of its words stands apart is
+one of a secret held in memory, and is found while the secret is held. As everywhere in Latet, a
+value is matched again from four characters, a person's name from three
+([known values](../concepts/detection/#known-values)).
+
+**Short secrets.** A secret shorter than twelve characters (`password=1234`, a short token) gets a
+longer fake of the same kinds, its signs in place: fifteen digits for a number (its sign and decimal
+point kept, so that a JSON number stays one), twelve hexadecimal digits for a hexadecimal value,
+otherwise twelve letters and digits. A fake as short as its value would turn up by chance inside the
+ids and numbers of other log lines, and an unmask would change lines that never held the secret.
+
+A short fake that a key's vault gave before Latet 0.10.2 (eight characters or fewer) stays, as every
+fake does. Unmask, which reads every fake of the key's vault, puts it back only where it stands as a
+whole word, with no letter, digit or underscore next to it. The cost: where such a secret's value
+was masked inside a longer word or number (`postgres` in `postgresql://`, `1234` in
+`order_id=9912343`), unmask leaves its fake there. A conversation of the key's first token, through
+the gateway or the plugin, puts it back as before, inside a word too, as it restores only the fakes
+the conversation was shown. While an instance of the server still runs 0.10.0, it gives new short
+secrets short fakes, and those stay too: upgrade every instance.
 
 **What a call that fails keeps.** A mask call that fails while it masks (a 507, a commit that does not
 reach PostgreSQL) keeps none of its new values when it held one of the instance's transactions for

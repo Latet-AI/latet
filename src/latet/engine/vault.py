@@ -36,9 +36,10 @@ from latet.engine.surrogates.generators import (
     gen_data,
     gen_email,
     gen_secret,
+    gen_short_secret,
     shape,
 )
-from latet.engine.types import EntityClass
+from latet.engine.types import SECRET_FAKE_SHORTEST, SHORT_FAKE_LONGEST, EntityClass
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,24 @@ _WORDLIKE = {"PERSON", "USERNAME", "CLIENT", "COMPANY", "ORG", "CUSTOM", "PROJEC
 def restored_whole(etype: str, eclass: EntityClass) -> bool:
     """A surrogate of this kind is restored only where it stands as a whole word."""
     return etype in _WORDLIKE or eclass in (EntityClass.CUSTOM, EntityClass.NER, EntityClass.LLM, EntityClass.STRUCT)
+
+
+def short_fake(entity: Entity) -> bool:
+    """Whether ``entity``'s fake is a secret's of ``SHORT_FAKE_LONGEST`` characters or fewer: one 0.10.0 gave a short
+    secret (of its shape, kept for ever, R7), or one a recognizer of yours gives in its rule's shape. A text that never
+    held the secret can hold it by chance inside an id or a number (`5821` in `order_id=9958213`). The one decision for
+    the entity, of its fake as written, for its restores and for the detectors of its fake (``known._Part``)."""
+    return entity.eclass == EntityClass.SECRET and len(entity.surrogate) <= SHORT_FAKE_LONGEST
+
+
+def fake_restored_whole(entity: Entity, whole_vault: bool = False) -> bool:
+    """Whether ``entity``'s fake is restored only where it stands as a whole word (no letter, digit or underscore
+    next to it): a fake of a word (``restored_whole``); and, where the fakes of the whole vault are restored
+    (``whole_vault``: ``Engine.unmask``, which reads every fake of the vault for every text), a short one
+    (``short_fake``), which a text can hold by chance inside an id or a number. A conversation's restore, of the fakes
+    it was shown alone, restores a short fake inside a word too, as 0.10.0 did: a secret glued to letters (`xhunter2y`)
+    was masked there, and comes back there, as every other fake does."""
+    return restored_whole(entity.etype, entity.eclass) or (whole_vault and short_fake(entity))
 
 
 def _shows(candidate: str, original: str) -> bool:
@@ -323,6 +342,13 @@ class Vault:
         value its texts hold into memory first (an applications call), which a vault that keeps most of its values
         elsewhere masks with the detectors of those alone (``engine.stored``); here every value is read, as always."""
         yield
+
+    def whole_vault_call(self) -> bool:
+        """Whether this thread's call is an applications call (``holding(scoped=True)``), whose texts an unmask of the
+        whole vault restores (``Engine.unmask``): its masking takes a short fake (``short_fake``) for a fake only where
+        it stands as a whole word, as that unmask restores it (``known.Matched.echo_inside``). Never here: a person's
+        vault serves conversations alone."""
+        return False
 
     def holds_since(self, version: int) -> bool:
         """Whether every value it learnt or kept since ``version`` is still in its memory, so that its detectors alone
@@ -701,6 +727,8 @@ class Vault:
         if eclass == EntityClass.STRUCT:
             return gen_data(original, rng)
         if eclass == EntityClass.SECRET:
+            if len(original) < SECRET_FAKE_SHORTEST:  # 0.10.2: a fake no id or number holds by chance
+                return gen_short_secret(original, rng)
             return shape(original, rng) if etype in _SHAPE_SECRETS else gen_secret(original, rng)
         if eclass == EntityClass.CUSTOM and original.replace(" ", "").isalpha():
             try:

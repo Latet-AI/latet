@@ -80,7 +80,14 @@ PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
 ```
 
 The host name is not a secret and stays. The password and the key are replaced by fakes of the
-same length and shape (yours will differ).
+same length and shape (yours will differ). A secret shorter than twelve characters gets a longer
+fake of the same kinds instead, its signs in place, twelve letters and digits, fifteen digits for a
+number: `password=1234` leaves as `password=582194736201937`, `token=ab12f3` as
+`token=9e04c7b1d2fa`. A fake as short as the value would turn up by chance inside the ids and
+numbers of later texts, and an unmask would change them. A short fake given before Latet 0.10.2
+(eight characters or fewer) stays: a conversation puts it back as before, and the unmask of the
+[applications API](../../applications/#a-keys-vault), which reads a whole vault, only where it
+stands as a whole word.
 
 ### Placeholders
 

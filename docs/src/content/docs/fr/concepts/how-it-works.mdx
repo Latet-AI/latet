@@ -18,7 +18,7 @@ Une valeur factice est une fausse valeur du même format que l'original :
 | Type | Original (reste sur votre machine) | Valeur factice (envoyée au fournisseur) |
 | --- | --- | --- |
 | Clé d'API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Mot de passe dans une URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Mot de passe dans une URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
 | Adresse e-mail | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Numéro de téléphone | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -28,12 +28,16 @@ Une valeur factice est une fausse valeur du même format que l'original :
 dérivées d'une clé créée sur votre machine.</small>
 
 - **Même format.** Une clé garde son préfixe (`pk_`, `ghp_`, `sk-ant-api03-`...), sa longueur et son
-  jeu de caractères. Une adresse e-mail reste une adresse e-mail : un domaine de messagerie publique
-  comme `gmail.com` est conservé, tout autre domaine devient un domaine factice sous `.example`. Les
-  IBAN, les numéros de carte, les numéros d'identité nationaux, les numéros fiscaux et les numéros de
-  TVA reçoivent des chiffres de contrôle valides, et les adresses IP publiques passent dans des plages
-  jamais routées sur internet, celles réservées à la documentation et aux tests de performance. Le
-  modèle peut toujours raisonner sur le code et la configuration qui les entourent.
+  jeu de caractères. Un secret de moins de douze caractères, comme le `1234` de `password=1234`,
+  reçoit à la place une valeur factice plus longue des mêmes sortes, ses signes à leur place (douze
+  lettres et chiffres, quinze chiffres pour un nombre), pour qu'aucun identifiant ni aucun nombre
+  d'un autre texte ne la contienne par hasard. Une adresse e-mail reste une adresse e-mail : un
+  domaine de messagerie publique comme `gmail.com` est conservé, tout autre domaine devient un
+  domaine factice sous `.example`. Les IBAN, les numéros de carte, les numéros d'identité nationaux,
+  les numéros fiscaux et les numéros de TVA reçoivent des chiffres de contrôle valides, et les
+  adresses IP publiques passent dans des plages jamais routées sur internet, celles réservées à la
+  documentation et aux tests de performance. Le modèle peut toujours raisonner sur le code et la
+  configuration qui les entourent.
 - **Des valeurs factices qui ne manquent pas.** Là où le coffre-fort contient plus de valeurs d'une
   sorte que ses listes n'ont de valeurs factices (des milliers d'adresses dans une liste de clients),
   une nouvelle valeur reçoit une valeur factice écrite comme on écrit ces valeurs : des noms des deux

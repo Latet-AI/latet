@@ -18,7 +18,7 @@ Un valor ficticio es un valor inventado con el mismo formato que el original:
 | Tipo | Original (se queda en tu equipo) | Valor ficticio (se envía al proveedor) |
 | --- | --- | --- |
 | Clave de API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Contraseña en una URL | <span class="real">`postgres://app:S3cr3t-Pa55@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24@db.internal/shop`</span> |
+| Contraseña en una URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
 | Correo electrónico | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Número de teléfono | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -28,13 +28,16 @@ Un valor ficticio es un valor inventado con el mismo formato que el original:
 creada en tu equipo.</small>
 
 - **Conserva el formato.** Una clave mantiene su prefijo (`pk_`, `ghp_`, `sk-ant-api03-`...), su
-  longitud y su juego de caracteres. Un correo electrónico sigue siendo un correo electrónico: un
-  dominio de webmail público como `gmail.com` se mantiene, y cualquier otro dominio pasa a ser uno
-  ficticio bajo `.example`. Los IBAN, los números de tarjeta, los números de identificación
-  nacional, los números fiscales y los números de IVA reciben dígitos de control válidos, y las
-  direcciones IP públicas pasan a rangos que internet nunca enruta, los reservados para
-  documentación y para pruebas de rendimiento. El modelo puede seguir razonando sobre el código y la
-  configuración que los rodean.
+  longitud y su juego de caracteres. Un secreto de menos de doce caracteres, como el `1234` de
+  `password=1234`, recibe en su lugar un valor ficticio más largo de los mismos tipos, con sus
+  signos en su sitio (doce letras y dígitos, quince dígitos para un número), para que ningún
+  identificador ni número de otro texto lo contenga por casualidad. Un correo electrónico sigue
+  siendo un correo electrónico: un dominio de webmail público como `gmail.com` se mantiene, y
+  cualquier otro dominio pasa a ser uno ficticio bajo `.example`. Los IBAN, los números de tarjeta,
+  los números de identificación nacional, los números fiscales y los números de IVA reciben dígitos
+  de control válidos, y las direcciones IP públicas pasan a rangos que internet nunca enruta, los
+  reservados para documentación y para pruebas de rendimiento. El modelo puede seguir razonando
+  sobre el código y la configuración que los rodean.
 - **Valores ficticios que no se agotan.** Donde la caja fuerte guarda más valores de un tipo de los
   que sus listas tienen como valores ficticios (miles de direcciones en una lista de clientes), un
   valor nuevo recibe un valor ficticio escrito como la gente escribe esos valores: nombres de los dos
