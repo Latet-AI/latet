@@ -31,6 +31,36 @@ schemas and examples too.
   requests are logged, retained or used once they arrive, so it keeps the originals away from them.
 - **The network** in between is protected by TLS as usual.
 
+## Conversations, projects and restoration
+
+Conversation IDs group requests; they do not authenticate a person or create a vault. The gateway
+uses the first nonempty header in this order: `x-claude-code-session-id`, `session-id`, `session_id`,
+`thread-id`, `x-session-id`. For the Responses API, a known `previous_response_id` comes next, then
+a string `prompt_cache_key`. Those names are looked up within the current server identity's space
+or local runtime.
+
+Without one of these identifiers, Latet derives a key from the opening of the request's history,
+using only the first 8,192 characters of its compact serialization. Separate chats with identical
+openings, or with differences only after that prefix, can therefore share a conversation. This is
+reuse of the same input, not a cryptographic hash collision. It keeps stateless follow-up requests
+together, but cannot establish which logical chat the client intended.
+
+Within that shared conversation, the response can restore values recorded by either chat. For
+example, if the provider replies in chat B with a surrogate previously issued in chat A, Latet may
+restore A's original locally. Distinct explicit IDs avoid this accidental grouping when the client
+uses them consistently. They are not an authorization boundary. In ordinary HTTP request text, a
+client-pasted surrogate is masked as a new literal value; it does not mean the original it once
+represented. A provider's reply containing an unknown surrogate does not grant access to another
+server space's originals.
+
+Each server identity has its own vault and conversation records. Matching headers, response IDs,
+cache keys or openings do not cross that boundary. The same surrogate bytes can exist in separate
+vaults; restoration uses the receiving vault's own association. On a computer, projects in one Latet runtime
+share its vault: where supported, `x-latet-project` selects project settings, not a separate store or a new
+conversation. Separate configured data folders and vaults provide separate stores; merely working
+in different repositories does not. See [Projects](../concepts/projects/) and
+[Latet on a server](../concepts/server/).
+
 ## In scope
 
 - Accidental disclosure of recognizable values to the provider through prompts, files, tool output

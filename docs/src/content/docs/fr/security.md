@@ -36,6 +36,40 @@ exemples des outils.
   hors de sa portée.
 - **Le réseau** entre les deux est protégé par TLS, comme d'habitude.
 
+## Conversations, projets et restitution
+
+Les identifiants de conversation regroupent les requêtes ; ils n'authentifient pas une personne et
+ne créent pas de coffre. La passerelle utilise le premier en-tête non vide dans cet ordre :
+`x-claude-code-session-id`, `session-id`, `session_id`, `thread-id`, `x-session-id`. Pour la Responses
+API viennent ensuite un `previous_response_id` connu, puis un `prompt_cache_key` de type chaîne.
+Ces noms sont recherchés dans l'espace de l'identité courante du serveur ou dans l'instance locale.
+
+Sans l'un de ces identifiants, Latet dérive une clé du début de l'historique de la requête, en
+utilisant seulement les 8 192 premiers caractères de sa sérialisation compacte. Des chats distincts
+dont le début est identique, ou qui ne diffèrent qu'après ce préfixe, peuvent donc partager une
+conversation. Il s'agit de la réutilisation de la même entrée, pas d'une collision cryptographique
+de hachage. Cela regroupe les requêtes successives des clients sans état, mais ne permet pas de
+déterminer quel chat logique le client voulait désigner.
+
+Dans cette conversation partagée, la réponse peut restituer des valeurs enregistrées par les deux
+chats. Par exemple, si le fournisseur répond dans le chat B avec un substitut émis précédemment dans
+le chat A, Latet peut restituer localement l'original de A. Des identifiants explicites distincts
+évitent ce regroupement accidentel si le client les utilise de façon cohérente. Ils ne constituent
+pas une frontière d'autorisation. Dans le texte des requêtes HTTP ordinaires, un substitut collé par
+le client est masqué comme une nouvelle valeur littérale ; il ne désigne pas l'original qu'il
+représentait. Une réponse du fournisseur contenant un substitut inconnu ne donne pas accès aux
+originaux d'un autre espace du serveur.
+
+Chaque identité du serveur possède son coffre et ses enregistrements de conversation. Des en-têtes,
+identifiants de réponse, clés de cache ou débuts identiques ne franchissent pas cette frontière.
+Les mêmes octets d'un substitut peuvent exister dans des coffres séparés ; la restitution utilise
+l'association du coffre destinataire. Sur un ordinateur, les projets d'une même instance Latet
+partagent son coffre : lorsque cette fonction est prise en charge,
+`x-latet-project` sélectionne les réglages du projet, pas un stockage séparé ni une nouvelle
+conversation. Des dossiers de données et des coffres configurés séparément offrent des stockages
+séparés ; travailler dans des dépôts différents ne suffit pas. Voir [Projets](../concepts/projects/)
+et [Latet sur un serveur](../concepts/server/).
+
 ## Dans le périmètre
 
 - La divulgation accidentelle de valeurs reconnaissables au fournisseur, par les prompts, les fichiers,

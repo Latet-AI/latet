@@ -36,6 +36,39 @@ lief: Er prüft auch die Beschreibungen, Schemas und Beispiele der Tools.
   Originale daher von ihm fern.
 - **Das Netzwerk** dazwischen ist wie üblich durch TLS geschützt.
 
+## Unterhaltungen, Projekte und Wiederherstellung
+
+Unterhaltungs-IDs gruppieren Anfragen; sie authentifizieren keine Person und erstellen keinen
+Tresor. Das Gateway verwendet den ersten nicht leeren Header in dieser Reihenfolge:
+`x-claude-code-session-id`, `session-id`, `session_id`, `thread-id`, `x-session-id`. Bei der Responses
+API folgt eine bekannte `previous_response_id`, dann ein `prompt_cache_key` als Zeichenkette.
+Diese Namen werden im Bereich der aktuellen Serveridentität oder in der lokalen Instanz gesucht.
+
+Ohne einen dieser Bezeichner leitet Latet einen Schlüssel aus dem Anfang des Anfrageverlaufs ab,
+wobei nur die ersten 8.192 Zeichen seiner kompakten Serialisierung verwendet werden. Getrennte Chats
+mit identischem Anfang oder Unterschieden erst nach diesem Präfix können deshalb dieselbe
+Unterhaltung teilen. Das ist die Wiederverwendung derselben Eingabe, keine kryptografische
+Hash-Kollision. Sie hält Folgeanfragen zustandsloser Clients zusammen, kann aber nicht feststellen,
+welchen logischen Chat der Client gemeint hat.
+
+In dieser gemeinsamen Unterhaltung kann die Antwort Werte wiederherstellen, die von beiden Chats
+erfasst wurden. Antwortet der Anbieter etwa in Chat B mit einem zuvor in Chat A ausgegebenen
+Ersatzwert, kann Latet das Original aus A lokal wiederherstellen. Unterschiedliche explizite IDs
+vermeiden diese unbeabsichtigte Gruppierung, wenn der Client sie konsequent verwendet. Sie sind
+keine Berechtigungsgrenze. Im Text gewöhnlicher HTTP-Anfragen wird ein vom Client eingefügter
+Ersatzwert als neuer wörtlicher Wert maskiert; er bezeichnet nicht das Original, das er zuvor
+vertrat. Eine Anbieterantwort mit einem unbekannten Ersatzwert gewährt keinen Zugriff auf die
+Originale eines anderen Serverbereichs.
+
+Jede Serveridentität besitzt ihren eigenen Tresor und ihre eigenen Unterhaltungsdatensätze.
+Gleiche Header, Antwort-IDs, Cache-Schlüssel oder Anfänge überschreiten diese Grenze nicht. Dieselben
+Ersatzwert-Bytes können in getrennten Tresoren vorkommen; wiederhergestellt wird nach der Zuordnung des
+empfangenden Tresors. Auf einem Rechner teilen Projekte einer Latet-Instanz deren Tresor: Wo unterstützt,
+wählt `x-latet-project` Projekteinstellungen,
+keinen getrennten Speicher und keine neue Unterhaltung. Getrennt konfigurierte Datenordner und
+Tresore bieten getrennte Speicher; verschiedene Repositorys allein reichen nicht. Siehe
+[Projekte](../concepts/projects/) und [Latet auf einem Server](../concepts/server/).
+
 ## Im Geltungsbereich
 
 - Versehentliche Weitergabe erkennbarer Werte an den Anbieter über Prompts, Dateien,

@@ -5,6 +5,9 @@ description: Préparer un environnement de développement, lancer les vérificat
 
 Avant de vous lancer dans un travail important, ouvrez une issue pour en discuter.
 
+Pour publier une version, suivez [Publier Latet](../releasing/) : fusionnez, attendez toute la CI
+sur le commit exact de main, puis créez le tag.
+
 ## Environnement de développement
 
 Il vous faut [uv](https://docs.astral.sh/uv/) ; il installe la version de Python qu'utilise le

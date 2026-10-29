@@ -44,6 +44,16 @@ OpenCode signed in with ChatGPT, or with its models on Amazon Bedrock or Azure. 
 Mantle API for Claude Code, and Bedrock through a VPC endpoint or its FIPS address with your AWS
 login (with a Bedrock API key both work already). Antigravity CLI, verified with Latet.
 
+## pi, oh-my-pi and ThinkRail
+
+A plugin for [pi](https://github.com/earendil-works/pi) and
+[oh-my-pi](https://github.com/can1357/oh-my-pi) would mask sensitive values inside the agent, before
+each request is built, as the plugin for Claude Code does. The masking would not depend on the
+provider, so it would cover JetBrains AI and subscriptions as well as API keys, and each request
+would also go through Latet's gateway and show in the dashboard. JetBrains ThinkRail runs pi, so its
+conversations would be protected too; its subagents and a button for the dashboard wait until
+ThinkRail loads extensions made by others.
+
 ## Latet Enterprise
 
 Latet Enterprise is for a company whose security team sets the rules for everyone. On top of the

@@ -5,6 +5,9 @@ description: Set up a development environment, run the checks, keep the document
 
 Before starting on something large, open an issue to discuss it.
 
+For version publication, follow [Releasing Latet](../releasing/): merge, wait for the exact main commit's
+complete CI, then create the tag.
+
 ## Development setup
 
 You need [uv](https://docs.astral.sh/uv/); it installs the Python version the project uses.

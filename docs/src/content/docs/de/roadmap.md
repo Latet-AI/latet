@@ -47,6 +47,16 @@ nutzt. Die Mantle-API von Amazon Bedrock für Claude Code sowie Bedrock über ei
 seine FIPS-Adresse mit Ihrer AWS-Anmeldung (mit einem API-Schlüssel für Bedrock funktionieren beide
 schon). Antigravity CLI, mit Latet geprüft.
 
+## pi, oh-my-pi und ThinkRail
+
+Ein Plugin für [pi](https://github.com/earendil-works/pi) und
+[oh-my-pi](https://github.com/can1357/oh-my-pi) würde sensible Werte im Agenten selbst maskieren,
+bevor jede Anfrage erstellt wird, wie es das Plugin für Claude Code tut. Die Maskierung hinge nicht
+vom Anbieter ab: Sie würde neben API-Schlüsseln auch JetBrains AI und Abonnements abdecken, und jede
+Anfrage liefe zusätzlich über das Gateway von Latet und erschiene im Dashboard. JetBrains ThinkRail
+nutzt pi, also wären auch seine Unterhaltungen geschützt; seine Subagenten und eine Schaltfläche für
+das Dashboard warten darauf, dass ThinkRail Erweiterungen von anderen lädt.
+
 ## Latet Enterprise
 
 Latet Enterprise ist für ein Unternehmen, dessen Sicherheitsteam die Regeln für alle festlegt. Zusätzlich

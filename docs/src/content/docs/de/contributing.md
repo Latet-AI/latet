@@ -5,6 +5,9 @@ description: Eine Entwicklungsumgebung einrichten, die Prüfungen ausführen, di
 
 Bevor Sie mit etwas Größerem beginnen, eröffnen Sie ein Issue, um es zu besprechen.
 
+Für eine Veröffentlichung folgen Sie [Latet veröffentlichen](../releasing/): zusammenführen,
+die vollständige CI für den genauen main-Commit abwarten, dann das Tag erstellen.
+
 ## Entwicklungsumgebung
 
 Sie brauchen [uv](https://docs.astral.sh/uv/); es installiert die Python-Version, die das Projekt

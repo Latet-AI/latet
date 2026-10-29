@@ -5,6 +5,9 @@ description: Prepara un entorno de desarrollo, ejecuta las comprobaciones, mant�
 
 Antes de empezar con algo grande, abre una incidencia para comentarlo.
 
+Para publicar una versión, sigue [Publicar Latet](../releasing/): integra, espera toda la CI
+del commit exacto de main y crea el tag.
+
 ## Entorno de desarrollo
 
 Necesitas [uv](https://docs.astral.sh/uv/), que instala la versión de Python que usa el proyecto.

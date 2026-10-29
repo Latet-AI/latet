@@ -6,6 +6,7 @@ hold none of the lookups another identity needs."""
 
 import asyncio
 import collections
+import concurrent.futures
 import ipaddress
 import threading
 import time
@@ -613,6 +614,199 @@ def test_a_save_resolves_names_in_the_egress_threads_counted_for_its_holder_and_
         release.set()
     monkeypatch.setattr(egress, "resolve", _resolving(PUBLIC))
     assert egress.bounded("u_emilycarte")("web.acme.com", 443) == [ipaddress.ip_address(PUBLIC)]
+
+
+@pytest.mark.parametrize("clock_step", [0.0, 0.019])
+def test_a_save_that_waited_out_its_budget_starts_no_more_lookups_on_a_coarse_clock(monkeypatch, clock_step):
+    """A real wait can time out before monotonic's next tick; the whole save's budget is still spent."""
+    release, workers = threading.Event(), []
+    owner = egress._LOOKUPS
+    now = 100.0
+    make_thread = egress.threading.Thread
+
+    def owned_thread(**kwargs):
+        worker = make_thread(**kwargs)
+        workers.append(worker)  # own it before _in_thread starts it, even if the resolver has not entered yet
+        return worker
+
+    def stuck(host, port):
+        assert release.wait(5)
+        return [ipaddress.ip_address(PUBLIC)]
+
+    monkeypatch.setattr(egress, "threading", types.SimpleNamespace(Thread=owned_thread))
+    monkeypatch.setattr(egress, "resolve", stuck)
+    monkeypatch.setattr(egress, "time", types.SimpleNamespace(monotonic=lambda: now))
+    resolve = egress.bounded("u_emilycarte", seconds=0.02)
+    now += clock_step
+    try:
+        assert resolve("first.example", 443) == []
+        assert owner.held("u_emilycarte") == 1
+        assert resolve("second.example", 443) == []
+        assert owner.held("u_emilycarte") == 1
+        assert len(workers) == 1
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        assert owner.held("u_emilycarte") == 0
+
+
+@pytest.mark.parametrize("clock_step", [0.0, 0.019])
+def test_coarse_clock_regression_joins_worker_delayed_before_resolver_entry(monkeypatch, clock_step):
+    """Exercise the regression itself while every worker is held before entering its resolver."""
+    enter, owned = threading.Event(), []
+    owner = egress._LOOKUPS
+
+    class DelayedThread(threading.Thread):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            owned.append(self)  # inventory exists before _in_thread can start this worker
+
+        def run(self):
+            assert enter.wait(5)
+            super().run()
+
+        def join(self, timeout=None):
+            enter.set()  # cleanup releases the pre-resolver gate, after the timed wait and count assertions
+            super().join(timeout)
+
+    monkeypatch.setattr(egress, "threading", types.SimpleNamespace(Thread=DelayedThread))
+    try:
+        test_a_save_that_waited_out_its_budget_starts_no_more_lookups_on_a_coarse_clock(monkeypatch, clock_step)
+        assert len(owned) == 1
+    finally:
+        enter.set()
+        for worker in owned:
+            worker.join(5)
+            assert not worker.is_alive()
+        assert owner.held("u_emilycarte") == owner._under_way == 0
+        assert owner._pending == {}
+
+
+@pytest.mark.parametrize("error", [OSError, TimeoutError])
+def test_a_save_uses_the_rest_of_its_budget_after_an_answer_or_resolver_error(monkeypatch, error):
+    asked, workers = [], []
+    owner = egress._LOOKUPS
+
+    def resolver(host, port):
+        workers.append(threading.current_thread())
+        asked.append(host)
+        if host == "error.example":
+            raise error("test resolver unavailable")
+        return [ipaddress.ip_address(PUBLIC)]
+
+    monkeypatch.setattr(egress, "resolve", resolver)
+    resolve = egress.bounded("u_emilycarte", seconds=5)
+    try:
+        assert resolve("first.example", 443) == [ipaddress.ip_address(PUBLIC)]
+        assert resolve("error.example", 443) == []
+        assert resolve("second.example", 443) == [ipaddress.ip_address(PUBLIC)]
+        assert asked == ["first.example", "error.example", "second.example"]
+    finally:
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        assert owner.held("u_emilycarte") == 0
+
+
+@pytest.mark.parametrize("completion", ["answer", "error", "cancelled"])
+def test_a_real_wait_timeout_spends_the_budget_even_if_completion_races_it(monkeypatch, completion):
+    """The wait's exception is distinct from a resolver's own TimeoutError, including after completion."""
+    started = []
+
+    class FinishesAsTheWaitExpires(concurrent.futures.Future):
+        def result(self, timeout=None):
+            if completion == "answer":
+                self.set_result([ipaddress.ip_address(PUBLIC)])
+            elif completion == "error":
+                self.set_exception(TimeoutError("resolver timeout"))
+            else:
+                assert self.cancel()
+            raise TimeoutError("wait expired")
+
+    def start(host, port):
+        started.append(host)
+        return FinishesAsTheWaitExpires()
+
+    monkeypatch.setattr(egress, "_in_thread", start)
+    monkeypatch.setattr(egress, "time", types.SimpleNamespace(monotonic=lambda: 100.0))
+    resolve = egress.bounded("u_emilycarte", seconds=1)
+    assert resolve("first.example", 443) == []
+    assert resolve("second.example", 443) == []
+    assert started == ["first.example"]
+    assert egress._LOOKUPS.held("u_emilycarte") == egress._LOOKUPS._under_way == 0
+    assert egress._LOOKUPS._pending == {}
+
+
+def test_lookup_completion_releases_only_the_owner_that_started_it(monkeypatch):
+    """A worker outliving a fixture's global replacement cannot change the next fixture's counts."""
+    release, workers = threading.Event(), []
+    first, second = egress._LOOKUPS, egress._Lookups()
+
+    def resolver(host, port):
+        workers.append(threading.current_thread())
+        assert release.wait(5)
+        return [ipaddress.ip_address(PUBLIC)]
+
+    monkeypatch.setattr(egress, "resolve", resolver)
+    try:
+        old = first.start("old.example", 443, "u_emilycarte")
+        monkeypatch.setattr(egress, "_LOOKUPS", second)
+        assert second.held("u_emilycarte") == 0
+        assert first.held("u_emilycarte") == 1
+        new = second.start("new.example", 443, "u_emilycarte")
+        assert first.held("u_emilycarte") == second.held("u_emilycarte") == 1
+        release.set()
+        assert old.result(timeout=5) == new.result(timeout=5) == [ipaddress.ip_address(PUBLIC)]
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        assert first.held("u_emilycarte") == second.held("u_emilycarte") == 0
+        assert first._under_way == second._under_way == 0
+
+
+@pytest.mark.parametrize("round_number", range(8))
+def test_concurrent_names_obey_each_identitys_limit_until_their_workers_end(monkeypatch, round_number):
+    release, workers = threading.Event(), []
+    owner = egress._LOOKUPS
+    contenders = egress.LOOKUPS_PER_HOLDER * 3
+    ready = threading.Barrier(contenders)
+
+    def resolver(host, port):
+        workers.append(threading.current_thread())
+        assert release.wait(10)
+        return [ipaddress.ip_address(PUBLIC)]
+
+    def start(number):
+        ready.wait(timeout=5)
+        try:
+            return owner.start(f"name{number}.round{round_number}.example", 443, "u_emilycarte")
+        except EgressRefused:
+            return None
+
+    monkeypatch.setattr(egress, "resolve", resolver)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=contenders) as callers:
+            attempts = list(callers.map(start, range(contenders)))
+        accepted = [attempt for attempt in attempts if attempt is not None]
+        assert len(accepted) == owner.held("u_emilycarte") == egress.LOOKUPS_PER_HOLDER
+        assert sum(attempt is None for attempt in attempts) == contenders - egress.LOOKUPS_PER_HOLDER
+        other = owner.start("other.example", 443, "u_danielokaf")
+        assert owner.held("u_danielokaf") == 1
+        assert owner._under_way == egress.LOOKUPS_PER_HOLDER + 1
+        release.set()
+        for lookup in [*accepted, other]:
+            assert lookup.result(timeout=5) == [ipaddress.ip_address(PUBLIC)]
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(5)
+            assert not worker.is_alive()
+        assert owner.held("u_emilycarte") == owner.held("u_danielokaf") == owner._under_way == 0
+        assert owner._pending == {}
 
 
 def test_the_port_and_the_capture_folder_are_the_servers():

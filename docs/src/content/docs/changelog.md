@@ -11,6 +11,21 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.10.3 (2026-10-29)
+
+- Fixed: on a Latet server, a settings save that checks destination names (from the dashboard or the
+  administration) went on to start a lookup for the next name after one lookup had used up the save's
+  whole time, when the system clock had not moved on yet (seen on Windows). It now starts none: those
+  names are checked when the server connects, as names that do not answer in time already were.
+- The [security](../security/) page explains how Latet groups requests into conversations: the
+  headers and fields it reads, the opening of the history it uses when there are none, why two chats
+  that open the same way can share a conversation and restore each other's values, and that each
+  server identity keeps its own vault and conversations.
+- A version is published only once the complete CI of its exact commit on `main` has succeeded: the
+  release workflow checks it before it builds anything, and stops otherwise. The new page
+  [Releasing Latet](../releasing/) describes the steps, the contributing guides link to it, and the
+  pull request template asks which checks were run, who reviewed the change, and where the evidence is.
+
 ## 0.10.2 (2026-10-28)
 
 - Fixed: a secret shorter than twelve characters (`password=1234`, `token=ab12f3`) got a fake of its

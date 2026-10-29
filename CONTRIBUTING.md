@@ -4,6 +4,9 @@ Thank you for helping. This page covers the development setup and the checks a c
 the [contributing guide](https://docs.latet.ai/contributing/) in the documentation goes
 further (the dashboard, the documentation site, adding a language).
 
+Maintainers publishing a version follow [Releasing Latet](https://docs.latet.ai/releasing/):
+merge the single public version commit, wait for its complete main CI, then tag that exact commit.
+
 ## Before you start
 
 - **Issues first.** A bug goes in an issue, with the steps that reproduce it; a pull request that

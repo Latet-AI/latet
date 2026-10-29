@@ -5,6 +5,9 @@ description: Prepara un ambiente di sviluppo, esegui i controlli, tieni aggiorna
 
 Prima di iniziare qualcosa di grande, apri una issue per discuterne.
 
+Per pubblicare una versione, segui [Pubblicare Latet](../releasing/): integra, attendi l'intera CI
+sull'esatto commit di main, poi crea il tag.
+
 ## Ambiente di sviluppo
 
 Ti serve [uv](https://docs.astral.sh/uv/), che installa la versione di Python usata dal progetto.

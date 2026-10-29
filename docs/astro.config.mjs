@@ -157,6 +157,7 @@ export default defineConfig({
 				{ slug: 'security' },
 				{ slug: 'troubleshooting' },
 				{ slug: 'contributing' },
+				{ slug: 'releasing' },
 				{ slug: 'roadmap' },
 				{ slug: 'changelog' },
 			],
