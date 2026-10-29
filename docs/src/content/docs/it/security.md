@@ -35,6 +35,37 @@ anche le descrizioni, gli schemi e gli esempi degli strumenti.
   originali lontani da lui.
 - **La rete** in mezzo è protetta da TLS, come al solito.
 
+## Conversazioni, progetti e ripristino
+
+Gli ID di conversazione raggruppano le richieste; non autenticano una persona e non creano un vault.
+Il gateway usa il primo header non vuoto in quest'ordine: `x-claude-code-session-id`, `session-id`,
+`session_id`, `thread-id`, `x-session-id`. Per la Responses API segue un `previous_response_id`
+conosciuto, poi un `prompt_cache_key` di tipo stringa. Questi nomi vengono cercati nello spazio
+dell'identità corrente sul server o nell'istanza locale.
+
+Senza uno di questi identificatori, Latet ricava una chiave dall'inizio della cronologia della
+richiesta, usando solo i primi 8.192 caratteri della sua serializzazione compatta. Chat distinte con
+inizi identici, o con differenze solo dopo quel prefisso, possono quindi condividere una
+conversazione. È il riuso dello stesso input, non una collisione crittografica dell'hash. Tiene
+insieme le richieste successive dei client senza stato, ma non può stabilire quale chat logica il
+client intendesse.
+
+In quella conversazione condivisa, la risposta può ripristinare valori registrati da entrambe le
+chat. Se, per esempio, il provider risponde nella chat B con un sostituto emesso prima nella chat A,
+Latet può ripristinare localmente l'originale di A. ID espliciti distinti evitano questo raggruppamento
+accidentale quando il client li usa coerentemente. Non sono un confine di autorizzazione. Nel testo
+delle normali richieste HTTP, un sostituto incollato dal client viene mascherato come nuovo valore
+letterale; non indica l'originale che rappresentava. Una risposta del provider con un sostituto
+sconosciuto non dà accesso agli originali di un altro spazio sul server.
+
+Ogni identità sul server ha il proprio vault e i propri record di conversazione. Header, ID di
+risposta, chiavi di cache o inizi uguali non attraversano quel confine. Gli stessi byte di un sostituto
+possono esistere in vault separati; il ripristino usa l'associazione del vault ricevente. Sul computer,
+i progetti di una stessa istanza Latet condividono il vault: dove supportato, `x-latet-project` seleziona le impostazioni
+del progetto, non un archivio separato o una nuova conversazione. Cartelle dati e vault configurati
+separatamente offrono archivi separati; lavorare in repository diversi non basta. Vedi
+[Progetti](../concepts/projects/) e [Latet su un server](../concepts/server/).
+
 ## Nel perimetro
 
 - La divulgazione accidentale di valori riconoscibili al provider attraverso i prompt, i file,

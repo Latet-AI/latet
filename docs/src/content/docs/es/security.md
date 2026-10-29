@@ -35,6 +35,39 @@ ha ejecutado: comprueba también las descripciones, los esquemas y los ejemplos 
   originales lejos de él.
 - **La red** que hay en medio está protegida por TLS, como siempre.
 
+## Conversaciones, proyectos y restauración
+
+Los identificadores de conversación agrupan peticiones; no autentican a una persona ni crean una
+bóveda. La pasarela usa la primera cabecera no vacía en este orden: `x-claude-code-session-id`,
+`session-id`, `session_id`, `thread-id`, `x-session-id`. Para la Responses API siguen un
+`previous_response_id` conocido y después un `prompt_cache_key` de tipo cadena. Estos nombres se
+buscan en el espacio de la identidad actual del servidor o en la instancia local.
+
+Sin uno de estos identificadores, Latet deriva una clave del inicio del historial de la petición,
+usando solo los primeros 8192 caracteres de su serialización compacta. Chats distintos con inicios
+idénticos, o con diferencias solo después de ese prefijo, pueden compartir una conversación. Es la
+reutilización de la misma entrada, no una colisión criptográfica del hash. Mantiene juntas las
+peticiones sucesivas de clientes sin estado, pero no permite determinar qué chat lógico pretendía
+identificar el cliente.
+
+En esa conversación compartida, la respuesta puede restaurar valores registrados por cualquiera de
+los dos chats. Por ejemplo, si el proveedor responde en el chat B con un sustituto emitido antes en
+el chat A, Latet puede restaurar localmente el original de A. Identificadores explícitos distintos
+evitan esa agrupación accidental cuando el cliente los usa de forma coherente. No son un límite de
+autorización. En el texto de las peticiones HTTP normales, un sustituto pegado por el cliente se
+enmascara como un nuevo valor literal; no significa el original que representaba. Una respuesta del
+proveedor con un sustituto desconocido no da acceso a los originales de otro espacio del servidor.
+
+Cada identidad del servidor tiene su propia bóveda y sus registros de conversación. Cabeceras,
+identificadores de respuesta, claves de caché o inicios iguales no atraviesan ese límite. Los mismos
+bytes de un sustituto pueden existir en bóvedas separadas; la restauración usa la asociación de la
+bóveda receptora. En un equipo, los proyectos de una misma instancia de Latet comparten su bóveda:
+cuando se admite, `x-latet-project`
+selecciona los ajustes del proyecto, no un almacén separado ni una conversación nueva. Carpetas de
+datos y bóvedas configuradas por separado proporcionan almacenes separados; trabajar en repositorios
+distintos no basta. Consulta [Proyectos](../concepts/projects/) y
+[Latet en un servidor](../concepts/server/).
+
 ## Dentro del alcance
 
 - La revelación accidental de valores reconocibles al proveedor a través de los prompts, los archivos,

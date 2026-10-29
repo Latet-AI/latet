@@ -339,14 +339,27 @@ def bounded(holder: str | None, seconds: float | None = None) -> Resolver:
     that may not be resolved now (``LOOKUPS_PER_HOLDER``, ``RESOLVER_THREADS``) resolves to nothing here: it is judged
     when the server connects (``pin``)."""
     deadline = time.monotonic() + (RESOLVE_SECONDS if seconds is None else seconds)
+    exhausted = False
 
     def resolved(host: str, port: int) -> list[Address]:
+        nonlocal exhausted
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if exhausted or remaining <= 0:
             return []
         try:
-            return _LOOKUPS.start(host, port, holder).result(timeout=remaining)
-        except Exception:  # not in time, or too many of the holder's under way: not judged here, nor said in the log
+            lookup = _LOOKUPS.start(host, port, holder)
+        except Exception:  # no lookup now: a later name may still be checked within this save's remaining budget
+            return []
+        try:
+            return lookup.result(timeout=remaining)
+        except TimeoutError as exc:
+            # The wait spent the whole save's remaining budget, even when a coarse clock still reports time left.
+            # A completed resolver can itself raise TimeoutError: Future re-raises that same exception object.
+            # A distinct wait timeout still spends the budget when completion or cancellation races this handler.
+            if not lookup.done() or lookup.cancelled() or lookup.exception() is not exc:
+                exhausted = True
+            return []
+        except Exception:  # a resolver error: not judged here, nor said in the log
             return []
 
     return resolved

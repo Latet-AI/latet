@@ -48,6 +48,16 @@ di Amazon Bedrock per Claude Code, e Bedrock tramite un endpoint VPC o il suo in
 tuo login AWS (con una chiave API di Bedrock funzionano già entrambi). Antigravity CLI, verificato
 con Latet.
 
+## pi, oh-my-pi e ThinkRail
+
+Un plugin per [pi](https://github.com/earendil-works/pi) e
+[oh-my-pi](https://github.com/can1357/oh-my-pi) maschererebbe i valori sensibili dentro l'agente,
+prima che ogni richiesta venga costruita, come fa il plugin per Claude Code. Il mascheramento non
+dipenderebbe dal provider, quindi coprirebbe JetBrains AI e gli abbonamenti oltre alle chiavi API, e
+ogni richiesta passerebbe anche dal gateway di Latet e comparirebbe nella dashboard. JetBrains
+ThinkRail usa pi, quindi anche le sue conversazioni sarebbero protette; i suoi subagenti e un
+pulsante per la dashboard aspettano che ThinkRail carichi estensioni fatte da altri.
+
 ## Latet Enterprise
 
 Latet Enterprise è per un'azienda il cui team di sicurezza stabilisce le regole per tutti. In più

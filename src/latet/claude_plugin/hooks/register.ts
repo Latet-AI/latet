@@ -10,7 +10,7 @@ import type { EngineInterface } from 'claude-code'
 
 const DEFAULT_BRIDGE = 'http://127.0.0.1:5283'
 // Kept equal to plugin.json and the Python package by the release check.
-const PLUGIN_VERSION = '0.10.2'
+const PLUGIN_VERSION = '0.10.3'
 const API = '/_latet/engine/v1/'
 // Tools whose arguments leave this machine (web, Anthropic-hosted connectors) or start another
 // model conversation: they keep the surrogates the model wrote.
