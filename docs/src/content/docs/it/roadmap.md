@@ -58,6 +58,19 @@ ogni richiesta passerebbe anche dal gateway di Latet e comparirebbe nella dashbo
 ThinkRail usa pi, quindi anche le sue conversazioni sarebbero protette; i suoi subagenti e un
 pulsante per la dashboard aspettano che ThinkRail carichi estensioni fatte da altri.
 
+## File con dati sensibili
+
+I file che un agente invia al modello, come PDF, documenti Word e fogli Excel, verrebbero mascherati
+come il testo, un formato alla volta. In ogni file di un formato che sa leggere, Latet sostituirebbe
+i valori sensibili con valori fittizi e invierebbe il file mascherato, poi rimetterebbe i valori
+reali nella risposta, anche nei file che il modello restituisce. Un file in un formato che Latet non
+legge ancora viene trattato come oggi. In una conversazione viene inviato così com'è, con la
+segnalazione *Non ispezionato* nella dashboard, oppure non viene inviato con `images: mask` o
+`block` (vedi [Cosa legge il gateway](../agents/openai-compatible/#cosa-legge-il-gateway)). Se
+invece viene caricato a parte, tramite l'API dei file di un provider, lo rifiutano un server Latet e
+Latet sui percorsi di Google, mentre da un computer passa senza modifiche verso gli altri provider
+(vedi [Cosa è protetto e cosa no](../concepts/protection-scope/)).
+
 ## Latet Enterprise
 
 Latet Enterprise è per un'azienda il cui team di sicurezza stabilisce le regole per tutti. In più

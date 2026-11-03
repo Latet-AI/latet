@@ -11,6 +11,18 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.10.4 (2026-11-04)
+
+- Fixed: on Windows, local name detection could stop finding names when Latet ran inside an app
+  installed as a package, such as the Claude desktop app. Windows keeps such an app's files in a
+  folder of the app's own (`...\Packages\Claude_...\LocalCache\Local\latet`) and shows them at the
+  usual place, so the name model's folder could be found at the usual place while its files were in
+  the app's folder, also when it was reached through a link to the usual place. ONNX Runtime, from
+  version 1.24 on (an install gets 1.30.0 now), then refused to load the model ("External data path
+  escapes model directory"), and requests went on with names left in clear: only the daemon's log
+  said that the local name model could not be loaded. Latet now opens the model from the place its
+  file really is, and names are found again. Everywhere else the model loads as before.
+
 ## 0.10.3 (2026-10-29)
 
 - Fixed: on a Latet server, a settings save that checks destination names (from the dashboard or the

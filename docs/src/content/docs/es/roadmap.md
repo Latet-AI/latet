@@ -57,6 +57,20 @@ API, y cada petición pasaría también por la puerta de enlace de Latet y apare
 JetBrains ThinkRail usa pi, así que sus conversaciones también quedarían protegidas; sus subagentes
 y un botón para el panel esperan a que ThinkRail cargue extensiones hechas por otros.
 
+## Archivos con datos sensibles
+
+Los archivos que un agente envía al modelo, como los PDF, los documentos de Word y las hojas de
+Excel, se enmascararían como el texto, un formato tras otro. En cada archivo de un formato que sepa
+leer, Latet sustituiría los valores sensibles por valores ficticios y enviaría el archivo
+enmascarado, y después restauraría los valores reales en la respuesta, también en los archivos que
+devuelva el modelo. Un archivo en un formato que Latet aún no lee se trata como hoy. En una
+conversación se envía tal cual, con el indicador *No inspeccionado* en el panel, o no se envía con
+`images: mask` o `block` (ver
+[Qué lee la puerta de enlace](../agents/openai-compatible/#qué-lee-la-puerta-de-enlace)). Si se sube
+por separado, a través de la API de archivos de un proveedor, lo rechazan un servidor de Latet y
+Latet en las rutas de Google, mientras que desde un equipo pasa sin cambios a los demás proveedores
+(ver [Qué está protegido y qué no](../concepts/protection-scope/)).
+
 ## Latet Enterprise
 
 Latet Enterprise es para una empresa cuyo equipo de seguridad fija las reglas de todos. Sobre la

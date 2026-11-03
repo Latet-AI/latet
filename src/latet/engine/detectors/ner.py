@@ -201,13 +201,14 @@ class OnnxTokenModel:
         import onnxruntime
         import tokenizers
 
-        config = json.loads((self.directory / "config.json").read_text("utf-8"))
+        directory = self.directory
+        config = json.loads((directory / "config.json").read_text("utf-8"))
         id2label = config["id2label"]
         labels = [id2label[str(i)] for i in range(len(id2label))]
         if config.get("model_type") != "openai_privacy_filter" or "B-private_person" not in labels:
             raise RuntimeError("config.json is not Privacy Filter's: not the expected model")
         self._labels = labels
-        tokenizer = tokenizers.Tokenizer.from_file(str(self.directory / "tokenizer.json"))
+        tokenizer = tokenizers.Tokenizer.from_file(str(directory / "tokenizer.json"))
         tokenizer.no_truncation()
         tokenizer.no_padding()
         self._tokenizer = tokenizer
@@ -215,9 +216,13 @@ class OnnxTokenModel:
         options.intra_op_num_threads = self.threads
         options.log_severity_level = 3
         self._np = numpy
-        self._session = onnxruntime.InferenceSession(
-            str(self.directory / "onnx" / "model_quantized.onnx"), options, providers=["CPUExecutionProvider"]
-        )
+        # The model file's own place, every link followed: onnxruntime (1.30) takes its external data
+        # (model_quantized.onnx_data) only inside the model's folder, the folder and the data's path both resolved.
+        # Windows shows a packaged app's files (the Claude desktop app's) at the usual place and keeps them in a folder
+        # of the package's: a model folder that is at both places resolves to the usual one, its files to the package's
+        # (through a link to the usual place too), the load was refused, and no name was found from then on.
+        model = (directory / "onnx" / "model_quantized.onnx").resolve()
+        self._session = onnxruntime.InferenceSession(str(model), options, providers=["CPUExecutionProvider"])
 
     def _loaded(self) -> None:
         with self._lock:
