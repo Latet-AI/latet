@@ -1,6 +1,8 @@
 import hashlib
 import itertools
+import json
 import re
+import sys
 import threading
 from pathlib import Path
 
@@ -439,6 +441,50 @@ def _wrapped(text: str, label_in_calls: set[int] | None = None) -> tuple[OnnxTok
     session = _Session(text, label_in_calls)
     model._session, model._tokenizer, model._labels, model._np = session, _Tokenizer(), LABELS_PF, np
     return model, session
+
+
+def _linked_folder(how: str, link: Path, target: Path) -> None:
+    """``link``, a folder that leads to ``target``: a junction (Windows) or a symbolic link to a folder."""
+    if how == "junction":
+        if sys.platform != "win32":
+            pytest.skip("junctions are Windows' own")
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except OSError:  # Windows without the right to make one (no Developer Mode, not an administrator)
+            pytest.skip("this system does not let the test make a symbolic link")
+
+
+@pytest.mark.parametrize("how", ["junction", "symlink"])
+def test_the_model_is_opened_from_its_files_own_place(tmp_path, monkeypatch, how):
+    """onnxruntime 1.30 takes a model's external data (``model_quantized.onnx_data``) only inside the folder of the
+    model's path as it is given, both resolved. Windows keeps a packaged app's files (the Claude desktop app's) in a
+    folder of the package's while showing them at the usual place, and there the model's folder and its files resolve
+    to two different places: the load was refused ("External data path escapes model directory"), and no name was
+    found from then on. The model is opened by its file's own place, every link followed; a link to the folder, which
+    a test can make, stands for that redirection."""
+    import onnxruntime
+    import tokenizers
+
+    real = tmp_path / "models" / "privacy-filter"
+    (real / "onnx").mkdir(parents=True)
+    labels = {str(index): label for index, label in enumerate(LABELS_PF)}
+    (real / "config.json").write_text(json.dumps({"model_type": "openai_privacy_filter", "id2label": labels}), "utf-8")
+    (real / "tokenizer.json").write_text("{}", "utf-8")
+    (real / "onnx" / "model_quantized.onnx").write_bytes(b"")
+    link = tmp_path / "linked"
+    _linked_folder(how, link, real)
+    opened = []
+    monkeypatch.setattr(onnxruntime, "InferenceSession", lambda path, *args, **kwargs: opened.append(path) or object())
+    read = type("Read", (), {"no_truncation": lambda self: None, "no_padding": lambda self: None})
+    monkeypatch.setattr(tokenizers.Tokenizer, "from_file", staticmethod(lambda path: read()))
+    model = OnnxTokenModel(link)
+    model._load()
+    assert opened == [str((real / "onnx" / "model_quantized.onnx").resolve())]
+    assert model.ready and model._labels == LABELS_PF
 
 
 def test_a_name_in_a_long_text_is_found_once_and_whole():

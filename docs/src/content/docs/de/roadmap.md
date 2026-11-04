@@ -57,6 +57,20 @@ Anfrage liefe zusätzlich über das Gateway von Latet und erschiene im Dashboard
 nutzt pi, also wären auch seine Unterhaltungen geschützt; seine Subagenten und eine Schaltfläche für
 das Dashboard warten darauf, dass ThinkRail Erweiterungen von anderen lädt.
 
+## Dateien mit sensiblen Daten
+
+Dateien, die ein Agent an das Modell sendet, etwa PDFs, Word-Dokumente und Excel-Tabellen, würden
+wie Text maskiert, ein Format nach dem anderen. In jeder Datei eines Formats, das es lesen kann,
+würde Latet die sensiblen Werte durch Ersatzwerte ersetzen und die maskierte Datei senden; in der
+Antwort würde es die Originale wieder einsetzen, auch in Dateien, die das Modell zurückschickt. Eine
+Datei in einem Format, das Latet noch nicht liest, wird behandelt wie heute. In einer Unterhaltung
+wird sie so gesendet, wie sie ist, und im Dashboard als *Nicht gelesen* markiert, oder mit
+`images: mask` oder `block` nicht gesendet (siehe
+[Was das Gateway liest](../agents/openai-compatible/#was-das-gateway-liest)). Wird sie für sich über
+die Datei-API eines Anbieters hochgeladen, lehnen ein Latet-Server und Latet auf den Routen von
+Google sie ab, während sie von einem Rechner aus unverändert an die anderen Anbieter geht (siehe
+[Was geschützt ist und was nicht](../concepts/protection-scope/)).
+
 ## Latet Enterprise
 
 Latet Enterprise ist für ein Unternehmen, dessen Sicherheitsteam die Regeln für alle festlegt. Zusätzlich

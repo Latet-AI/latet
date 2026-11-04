@@ -59,6 +59,20 @@ tableau de bord. JetBrains ThinkRail utilise pi, donc ses conversations seraient
 ses sous-agents et un bouton vers le tableau de bord attendent que ThinkRail charge des extensions
 écrites par d'autres.
 
+## Fichiers contenant des données sensibles
+
+Les fichiers qu'un agent envoie au modèle, comme les PDF, les documents Word et les classeurs Excel,
+seraient masqués comme le texte, un format après l'autre. Dans chaque fichier d'un format qu'il sait
+lire, Latet remplacerait les valeurs sensibles par des valeurs factices et enverrait le fichier
+masqué, puis remettrait les originaux en place dans la réponse, y compris dans les fichiers que le
+modèle renvoie. Un fichier dans un format que Latet ne lit pas encore est traité comme aujourd'hui.
+Dans une conversation, il est envoyé tel quel, avec l'indicateur *Non inspecté* dans le tableau de
+bord, ou il n'est pas envoyé avec `images: mask` ou `block` (voir
+[Ce que lit la passerelle](../agents/openai-compatible/#ce-que-lit-la-passerelle)). Envoyé à part,
+par l'API de fichiers d'un fournisseur, il est refusé par un serveur Latet et par Latet sur les
+routes de Google, alors que depuis un ordinateur il passe inchangé vers les autres fournisseurs (voir
+[Ce qui est protégé et ce qui ne l'est pas](../concepts/protection-scope/)).
+
 ## Latet Enterprise
 
 Latet Enterprise s'adresse à une entreprise dont l'équipe de sécurité fixe les règles pour tout le

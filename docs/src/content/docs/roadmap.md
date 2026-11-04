@@ -54,6 +54,19 @@ would also go through Latet's gateway and show in the dashboard. JetBrains Think
 conversations would be protected too; its subagents and a button for the dashboard wait until
 ThinkRail loads extensions made by others.
 
+## Files with sensitive data
+
+The files an agent sends to the model, such as PDFs, Word documents and Excel sheets, would be
+masked like text, one format at a time. In each file of a format it reads, Latet would replace the
+sensitive values with fakes and send the masked file, then put the real values back in the answer,
+in the files the model sends back too. A file in a format Latet does not read yet is handled as
+today. In a conversation it is sent as it is and flagged *Not inspected* in the dashboard, or not
+sent with `images: mask` or `block` (see
+[What the gateway reads](../agents/openai-compatible/#what-the-gateway-reads)). Uploaded on its own,
+through a provider's files API, it is refused by a Latet server and on Google's routes, and from a
+computer it passes unchanged to the other providers (see
+[What is and isn't protected](../concepts/protection-scope/)).
+
 ## Latet Enterprise
 
 Latet Enterprise is for a company whose security team sets the rules for everyone. On top of the
