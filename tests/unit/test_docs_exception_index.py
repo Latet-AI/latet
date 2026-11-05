@@ -63,8 +63,8 @@ def test_security_says_what_postgresql_keeps_of_exceptions(lang):
 @pytest.mark.parametrize("lang", LANGUAGES)
 def test_the_changelog_says_what_postgresql_keeps_of_exceptions(lang):
     text = (DOCS / lang / "changelog.md").read_text(encoding="utf-8")
-    unreleased = text.split("\n## ", 2)[1]
-    item = _bullet(unreleased, "latet server status")
+    release = text.split("\n## 0.11.0 (", 1)[1].split("\n## ", 1)[0]  # the release that brought the index
+    item = _bullet(release, "latet server status")
     assert "PostgreSQL" in item, f"{lang or 'en/'}changelog.md: the index is not named"
     for word in _CHANGELOG[lang]:
         assert word in item, f"{lang or 'en/'}changelog.md: {word!r}"

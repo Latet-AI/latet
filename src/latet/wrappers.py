@@ -1069,6 +1069,8 @@ def _codex_carrier_names(documents: tuple[dict[str, Any], ...]) -> tuple[str, st
 
 def _codex_program_data() -> Path:
     """Read the same known folder as pinned Codex; never trust PROGRAMDATA."""
+    if sys.platform != "win32":  # a known folder is Windows's (and a type checker on another system reads it so)
+        raise OSError("Codex policy location unavailable")
     import ctypes
 
     class Guid(ctypes.Structure):

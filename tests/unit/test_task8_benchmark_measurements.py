@@ -33,6 +33,8 @@ bench_apps, bench_apps_server, bench_engine, terms_bench, vault_fuzz = _load_ben
 
 def helper(name):
     path = ROOT / "notes" / "captures" / "perf0102" / name
+    if not path.exists():  # the public repository carries no notes/: the campaign's own tooling is not there
+        pytest.skip(f"the measurement campaign's {name} lives in notes/, which this checkout does not have")
     spec = importlib.util.spec_from_file_location(name.replace("-", "_"), path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

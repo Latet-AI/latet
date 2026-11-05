@@ -1319,7 +1319,14 @@ async def test_an_idle_space_weighs_what_it_holds(server):
             TermConfig(value=f"Client {n:05d}") for n in range(1_000)]}))  # fmt: skip
         with_terms = space_size(runtime)
         assert with_terms - idle >= 1_000 * 256  # its masker holds each term
-        count = runtime.built.vault.count
+
+        def but_the_index() -> int:
+            # The index of prints, its log of what changed and the words of what calls found are weighed at what they
+            # hold, and move in the background (a telling of 64 bytes lands when the space's freshness moves): left
+            # out here, read at the same moment as the rest.
+            return space_size(runtime) - runtime.store.index_bytes - getattr(runtime.built.vault, "words_bytes", 0)
+
+        before, count = but_the_index(), runtime.built.vault.count
         secret = await asyncio.to_thread(
             runtime.built.vault.intern, "PASSWORD", EntityClass.SECRET, "hunter2-correct-horse"
         )
@@ -1329,7 +1336,7 @@ async def test_an_idle_space_weighs_what_it_holds(server):
         # hold of it (2,841 bytes measured for a value of 40 characters: 3,136 weighed).
         chars = max(len(secret.original), len(secret.surrogate))
         weighed = spaces_module._PER_VALUE + spaces_module._PER_CHAR * chars
-        assert added == 1 and space_size(runtime) - with_terms == weighed
+        assert added == 1 and but_the_index() - before == weighed
 
 
 async def test_a_spaces_long_values_are_weighed_by_their_length(server):

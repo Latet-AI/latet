@@ -280,6 +280,8 @@ def start_entries(system: str | None = None) -> list[tuple[str, str]]:
 
 
 def _run_values() -> Iterator[tuple[str, str]]:
+    if sys.platform != "win32":  # the registry is Windows's (and a type checker on another system reads it so)
+        return
     try:
         import winreg
 
