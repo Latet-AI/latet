@@ -24,6 +24,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Literal
 
+from latet.server.launch_controls import launch_control
+
 if TYPE_CHECKING:
     from latet.server.identities import Identity
 
@@ -126,10 +128,13 @@ def bridge_needs(path: str) -> frozenset[Permission]:
     """What a call of the plugin's bridge needs of its token, by ``path`` as the gate reads it after an identity's
     address (``/_latet/engine/v1/rehydrate``): nothing for ``ping`` and ``route-check``; ``mask`` for ``mask``,
     ``verify``, ``outbound``, ``instructions`` and ``approvals/wait``; ``unmask`` for ``rehydrate`` and ``scope``;
-    ``mask`` and ``unmask`` for ``aws-sessions`` and everything under it. Any other path, under the bridge or not, needs
+    ``mask`` and ``unmask`` for ``aws-sessions`` and everything under it, and for canonical launch controls.
+    Any other path, under the bridge or not, needs
     scan, mask and unmask (``DEFAULT``, what a token without permissions of its own holds): a call this list does not
     name is refused to a token with less, never let through. The gate asks it of a token that serves agents alone, a
     token added to a key being refused every call of the bridge before (Ruling T13b): a second guard."""
+    if launch_control(path):
+        return GATEWAY
     if not path.startswith(_ENGINE):
         return DEFAULT
     call = path.removeprefix(_ENGINE)

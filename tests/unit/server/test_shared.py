@@ -886,7 +886,7 @@ def test_every_setting_is_a_rule_for_everyone_a_setting_the_server_shares_or_eac
     assert rules | settings | own == set(Config.model_fields)
     assert not (rules & settings) and not (rules & own) and not (settings & own)
     assert settings == {"upstreams", "llm_review", "ocr", "history", "retention_days", "port", "capture_dir"}
-    assert own == {"identity", "projects"}
+    assert own == {"identity", "projects", "request_resources", "request_exceptions"}  # P2-6: her own exceptions
 
 
 def test_the_settings_in_force_take_the_servers_settings_and_only_the_rules_an_edition_gives():

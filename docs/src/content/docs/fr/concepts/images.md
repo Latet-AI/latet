@@ -57,7 +57,8 @@ modèle reçoit à sa place une courte note, *[image withheld by Latet: ...]*, a
 valide, à une image si longue pour sa largeur, ou si large pour sa hauteur, qu'il faudrait la lire en
 plus de 16 parties (la capture d'une page de plus de 29 000 pixels de long environ), et à toute image
 pendant que les modèles sont encore en cours de chargement (une requête les attend jusqu'à
-20 secondes).
+20 secondes). D'une requête que Latet ne fait que vérifier, comme celles de Claude Code, on ne peut
+pas retirer une image : une requête avec une image que Latet ne sait pas lire n'est pas envoyée.
 
 ## Quelles images
 
@@ -65,7 +66,7 @@ pendant que les modèles sont encore en cours de chargement (une requête les at
 | --- | --- |
 | Images dans les messages : les images base64 de Claude, les URL `data:` d'OpenAI Chat et Responses, Codex en HTTP et sur son WebSocket, les images en ligne de Gemini (`inlineData`) | oui |
 | Captures d'écran renvoyées par les outils : Read de Claude Code sur une image, les serveurs MCP comme celui d'un navigateur, le computer use d'OpenAI | oui |
-| Images désignées par leur adresse (une URL `https://`, un ID de fichier), PDF et autres documents, audio | non : envoyés tels quels, avec l'indicateur *Non inspecté*, ou non envoyés (voir plus bas) |
+| Images désignées par leur adresse (une URL `https://`, un ID de fichier), PDF et autres documents, audio | non : la requête n'est pas envoyée |
 
 ## Les réglages
 
@@ -75,7 +76,7 @@ pendant que les modèles sont encore en cours de chargement (une requête les at
 
 | `images` | Avec la reconnaissance de texte | Sans elle |
 | --- | --- | --- |
-| `allow` (par défaut) | les images sont lues et masquées | les images sont envoyées telles quelles, avec l'indicateur *Non inspecté* |
+| `allow` (par défaut) | les images sont lues et masquées | aucune requête avec une image n'est envoyée |
 | `mask` | seules les images lues et masquées sont envoyées : une requête qui en transporte une que Latet ne peut pas lire (un PDF, une image désignée par son adresse) n'est pas envoyée | aucune requête contenant une image n'est envoyée |
 | `block` | aucune requête qui transporte une image ou un document n'est envoyée | de même |
 
@@ -84,7 +85,47 @@ pendant que les modèles sont encore en cours de chargement (une requête les at
 - Le `latet.yaml` d'un dépôt ne peut que réduire les images envoyées. En envoyer davantage, depuis vos
   réglages ou l'un de vos projets, et `ocr: off`, attendent votre approbation quand c'est un agent qui
   les demande ([Les agents et vos réglages](../agents-and-settings/)).
-- Un agent arrêté reçoit une erreur qui dit pourquoi et quoi faire.
+- Avec `ocr: off`, comme sans la reconnaissance de texte, aucune requête avec une image n'est
+  envoyée.
+- Un agent arrêté reçoit une erreur qui dit pourquoi et quoi faire. Sans la reconnaissance de texte,
+  on lui dit d'exécuter `latet ocr install` et de commencer une nouvelle conversation, puisque l'image
+  reste dans son historique :
+
+  ```text
+  Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
+  ```
+
+## Les photos et leurs métadonnées
+
+Une requête que Latet réécrit (Codex, OpenCode et les autres agents en mode passerelle) envoie chaque
+image réécrite, sans ses métadonnées. Une requête que Latet ne fait que vérifier, comme celles de
+Claude Code, part telle que l'agent l'a construite, donc Latet y rend compte de chaque octet de chaque
+image : la structure de son format, lue selon sa grammaire ; le texte de ses métadonnées (le
+commentaire *Screenshot* d'une capture d'écran, le programme qui l'a créée, le nom de son profil de
+couleurs), lu par la vérification finale ; et les pixels de l'image principale, dont la
+reconnaissance de texte a lu le texte. Ce qui reste n'est pas envoyé :
+
+- une position (GPS) dans les métadonnées d'une photo ;
+- les notes que le fabricant d'un appareil photo écrit sous une forme qui lui est propre ;
+- la miniature qu'un appareil garde dans une photo, et toute autre image à l'intérieur, comme les
+  cartes de profondeur et de gain d'une photo en mode portrait d'un téléphone ;
+- ce qui suit la fin de l'image, comme la vidéo d'une photo animée.
+
+L'agent apprend comment continuer :
+
+```text
+Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
+```
+
+Ramenez la conversation avant l'image, ou commencez-en une nouvelle, puis joignez à nouveau l'image
+sans ses métadonnées : sur iOS, *Partager*, *Options*, *Position* désactivée ; dans Aperçu sur macOS,
+*Outils*, *Afficher l'inspecteur*, *Supprimer les informations de lieu* ; sous Windows, *Propriétés*
+du fichier, *Détails*, *Supprimer les propriétés et informations personnelles*. Une capture d'écran
+ordinaire n'a rien de tout cela, et passe.
+
+Une image WebP d'origine ne peut pas y être expliquée octet par octet, et elle est refusée aussi :
+exportez-la en PNG, puis revenez en arrière ou commencez une nouvelle conversation. Une requête que
+Latet réécrit envoie une image WebP réécrite en PNG.
 
 ## Dans Claude Code
 
@@ -129,7 +170,10 @@ envoie :
   lue peut ne pas être reconnue.
 - **Le modèle lit la valeur factice.** S'il la lit mal, sa réponse contient la valeur factice mal lue,
   pour laquelle Latet ne peut pas remettre en place la vraie valeur.
-- **Les PDF et autres documents ne sont pas lus**, ni les images désignées par leur adresse : voir le
-  tableau ci-dessus.
+- **Les PDF et autres documents ne sont pas lus**, ni les images désignées par leur adresse : une
+  requête qui en porte un n'est pas envoyée.
+- **Les codes QR et les codes-barres ne sont pas décodés.** La reconnaissance de texte lit du texte :
+  les données qu'un code contient partent avec l'image. N'envoyez pas un code qui contient une valeur
+  que vous protégez.
 - **Seulement du texte.** Les visages, les signatures, les logos et l'écriture manuscrite ne sont pas
   recouverts.

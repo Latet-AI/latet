@@ -271,7 +271,7 @@
     },
     "uninspected": {
       "label": "No inspeccionado",
-      "help": "Una parte de esta petición no se ha leído ({{detail}}): los PDF y otros documentos, las imágenes indicadas por su dirección y las imágenes cuando el reconocimiento de texto está desactivado o no está instalado se envían tal cual."
+      "help": "Una parte de esta solicitud no se leyó ({{detail}}): documentos, imágenes indicadas por su dirección e imágenes mientras el reconocimiento de texto está desactivado o sin instalar. Latet 0.11 rechaza una solicitud así; una versión anterior la enviaba tal cual."
     },
     "degraded": {
       "label": "Degradado",
@@ -283,7 +283,11 @@
     },
     "project-off": {
       "label": "Latet desactivado",
-      "help": "Latet está desactivado en este proyecto (tus propios ajustes para él): la petición se ha enviado tal cual, y solo se han restaurado los valores ficticios que ya estaban en la conversación."
+      "help": "Latet está desactivado en este proyecto (en tu propia configuración para él). Latet 0.11 rechaza una solicitud así en lugar de enviarla sin enmascarar; una versión anterior la enviaba tal cual."
+    },
+    "project-claimed": {
+      "label": "Proyecto declarado",
+      "help": "Una cabecera o una carpeta en el texto de la solicitud nombra su proyecto, y Latet no puede verificarlo: solo se aplicaron las reglas del proyecto que añaden protección, nunca sus relajaciones ni sus excepciones."
     },
     "withheld": {
       "label": "Retenido",
@@ -723,7 +727,8 @@
       "noNewBlocks_many": "Nada nuevo: los {{count}} bloques ya se habían enviado.",
       "noNewBlocks_other": "Nada nuevo: los {{count}} bloques ya se habían enviado.",
       "noBlocks": "No se ha registrado ningún bloque de texto."
-    }
+    },
+    "launch": "Inicio:"
   },
   "exchange": {
     "back": "En directo",
@@ -743,6 +748,12 @@
       "verifiedNothing": "No había nada que enmascarar.",
       "notVerified": "No verificada.",
       "notVerifiedDetail": "La comprobación final no ha confirmado esta petición. Mira los indicadores y las fugas de abajo.",
+      "partlyUnread": "Nada sensible en claro en lo que Latet leyó.",
+      "partlyUnreadDetail": "No se leyeron todas sus partes: lo que pasó sin leerse, y por qué regla, figura abajo.",
+      "notRecorded": "Registrada por una versión anterior de Latet.",
+      "notRecordedDetail": "No consta cuánto de esta solicitud leyó, así que no figura como verificada.",
+      "pluginCheck": "Una comprobación del plugin de Claude Code.",
+      "pluginCheckDetail": "Se hizo dentro de Claude Code y no envió nada por sí misma; la solicitud que leyó es un intercambio aparte.",
       "uninspected": "La comprobación solo cubre el texto: Latet ha enviado {{what}} tal cual.",
       "reviewAllowed": "Enviada al revisor del modo automático.",
       "reviewAllowedDetail": "Llevaba {{what}}, que tus reglas dejan pasar al revisor. Los secretos y los datos personales nunca pasan."
@@ -1126,7 +1137,8 @@
       "action": "Mostrar",
       "hide": "Ocultar",
       "hidden": "Oculto",
-      "shown": "Se muestra durante {{seconds}} segundos y luego se vuelve a ocultar."
+      "shown": "Se muestra durante {{seconds}} segundos y luego se vuelve a ocultar.",
+      "launchKey": "Clave de lanzamiento de Latet"
     },
     "forget": {
       "action": "Olvidar",
@@ -1357,7 +1369,7 @@
       "noModel": "El texto de las imágenes todavía no se lee: descarga los modelos de reconocimiento de texto (unos 31 MB, una sola vez).",
       "toggle": "Leer el texto de las imágenes",
       "on": "Las capturas de pantalla se leen en este equipo y lo que enmascaran tus reglas se cubre con su valor ficticio.",
-      "off": "Las imágenes se envían tal cual, y el panel las marca con un indicador."
+      "off": "Las imágenes no se leen: una solicitud que lleva una imagen se rechaza."
     },
     "ner": {
       "title": "Detección de nombres local",
@@ -1843,7 +1855,7 @@
       "off": "Desactivada",
       "onHelp": "Tus reglas globales, con las del proyecto por encima.",
       "secretsHelp": "Aquí solo se enmascaran los secretos: claves, tokens, contraseñas. Los datos personales se envían tal cual.",
-      "offHelp": "En este proyecto no se enmascara ni se bloquea nada, tampoco los secretos: las peticiones se envían tal cual. Los valores ficticios que ya estén en una conversación se siguen restaurando."
+      "offHelp": "Las solicitudes de los agentes que trabajan en este proyecto se rechazan: Latet nunca las envía sin enmascarar. Para llegar directamente a un proveedor desde esta carpeta, inicia el agente sin Latet, con una configuración que apunte al proveedor."
     },
     "effective": {
       "title": "En vigor",
@@ -2342,6 +2354,161 @@
     "elsewhere": {
       "title": "Inicia el tutorial desde un terminal",
       "body": "Este es tu propio Latet. El tutorial se ejecuta en su propio entorno aislado, con un agente simulado y un modelo simulado, y se abre en tu navegador. En un terminal:"
+    }
+  },
+  "coverage": {
+    "title": "Cobertura",
+    "blocked": {
+      "before": "Detenida antes de enviarse: nada de ella llegó al proveedor.",
+      "attempted": "Detenida tras un intento: un intento anterior puede haber llegado ya al proveedor."
+    },
+    "refusal": {
+      "header": "Llevaba una cabecera que ningún perfil de solicitud prevé.",
+      "query": "Llevaba un parámetro de consulta que ningún perfil de solicitud prevé.",
+      "body-member": "Su cuerpo llevaba un campo que ningún perfil de solicitud prevé.",
+      "body-member-closed": "Su cuerpo llevaba un campo que ningún perfil de solicitud prevé, donde ninguna excepción puede llegar (dentro de un elemento del proveedor, la fuente de una imagen o un turno WebSocket).",
+      "route": "Ningún perfil de solicitud integrado cubre su ruta.",
+      "expired": "La excepción que la dejaba pasar ha caducado.",
+      "resource": "Nombraba un modelo, un recurso o una región que Latet no reconoce por su forma.",
+      "sensitive": "Su dirección o sus cabeceras contenían un valor sensible.",
+      "auth": "Las credenciales no se pudieron leer, o fueron rechazadas.",
+      "egress": "Su destino no se puede alcanzar desde esta máquina.",
+      "parse": "Una parte no se podía leer como indica su protocolo, así que Latet no podía dar cuenta de toda la solicitud.",
+      "limit": "Superaba lo que Latet lee de una solicitud, o Latet estaba demasiado ocupado.",
+      "state": "No se pudo leer un estado que Latet necesita para decidir.",
+      "masking": "El enmascaramiento falló.",
+      "other": "Las reglas de Latet no la dejan salir."
+    },
+    "remedy": {
+      "exception": "Una excepción exacta la deja pasar: nombra la cabecera o el parámetro en request_exceptions de tu configuración y aprueba el cambio en la página Aprobaciones.",
+      "exception-docs": "Una excepción exacta, nombrada en tu configuración y aprobada por ti, puede dejar pasar un campo así:",
+      "exceptionDocsLink": "cómo aprobar una",
+      "renew": "Renovarla es una nueva aprobación: cambia la excepción en tu configuración y aprueba el cambio.",
+      "resource": "Añade el valor a request_resources en tu configuración para este destino.",
+      "websocket": "En esta versión de Latet, un WebSocket no admite excepciones de solicitudes.",
+      "none": "Ninguna excepción puede dejarla pasar."
+    },
+    "outcome": {
+      "read": "Se leyó cada parte de la solicitud y nada salió sin leerse.",
+      "passed": "Leída y dejada pasar por:",
+      "unread": "Una parte salió sin leerse, como permiten las reglas nombradas aquí, así que no figura como verificada.",
+      "unknown": "No consta cuánto de esta solicitud leyó Latet: la registró una versión anterior de Latet."
+    },
+    "allowedByRule": "permitida por una regla",
+    "pass": {
+      "checked-only": "solo comprobada (valores que la comprobación final leyó sin tener que enmascararlos)",
+      "image-remainder": "permitida por una regla: el resto de una imagen cuyo texto se leyó",
+      "sent-before": "texto ya enviado en esta conversación",
+      "model-written": "texto que escribió el modelo",
+      "provider-echo": "un elemento opaco del proveedor, que él mismo envió antes en esta conversación, pasado sin leerse",
+      "provider-encrypted": "permitida por una regla: un campo cifrado del proveedor, pasado sin leerse",
+      "exception": "una excepción que aprobaste"
+    },
+    "launch": {
+      "launched": "Iniciado por Latet, clave verificada",
+      "launched-key-missing": "Iniciado por Latet, falta la clave",
+      "trusted": "Vinculado por el plugin de Claude Code",
+      "claimed": "No iniciado por Latet",
+      "launchedHelp": "Latet inició este agente y verificó la clave que le dio: se aplican las relajaciones y las excepciones del proyecto.",
+      "keyMissingHelp": "Latet inició este agente, pero sus solicitudes no llevaban la clave que Latet le dio, así que se trataron como declaradas: se aplicaron las reglas del proyecto que añaden protección, no sus relajaciones ni sus excepciones.",
+      "trustedHelp": "El plugin de Claude Code vinculó esta sesión a su proyecto: se aplican las relajaciones y las excepciones del proyecto.",
+      "claimedHelp": "Nada que Latet pueda verificar dice de dónde viene esta solicitud: un proyecto que nombre solo puede añadir protección."
+    },
+    "project": {
+      "trusted": "Proyecto {{name}}, de confianza: se aplican todas sus reglas.",
+      "claimed": "Proyecto {{name}}, declarado: solo se aplicaron sus reglas que añaden protección."
+    },
+    "removed": {
+      "headers_one": "Latet quitó {{count}} cabecera que su perfil declara eliminable.",
+      "headers_many": "Latet quitó {{count}} cabeceras que su perfil declara eliminables.",
+      "headers_other": "Latet quitó {{count}} cabeceras que su perfil declara eliminables.",
+      "members_one": "Latet quitó {{count}} campo del cuerpo que su perfil declara eliminable.",
+      "members_many": "Latet quitó {{count}} campos del cuerpo que su perfil declara eliminables.",
+      "members_other": "Latet quitó {{count}} campos del cuerpo que su perfil declara eliminables.",
+      "authAfter": "El proveedor respondió {{status}} después de que Latet quitara una cabecera: quizá sea una que necesita."
+    },
+    "profile": "Perfil de solicitud"
+  },
+  "exceptions": {
+    "title": "Excepciones de solicitudes",
+    "help": "Cada una deja pasar exactamente lo que nombra, en el perfil de solicitud de un destino, y que Latet rechazaría si no. Las apruebas tú, una a una, y duran los días que indican (30 si no indican ninguno, 90 como máximo), salvo las que hiciste permanentes.",
+    "empty": "No hay excepciones de solicitudes.",
+    "yoursAlone": "Son solo tuyas: las excepciones de otras personas o de otras claves no se aplican a tus solicitudes.",
+    "expiryWarning_one": "{{count}} excepción termina en los próximos 7 días. Renovarla es una nueva aprobación.",
+    "expiryWarning_many": "{{count}} excepciones terminan en los próximos 7 días. Renovar una es una nueva aprobación.",
+    "expiryWarning_other": "{{count}} excepciones terminan en los próximos 7 días. Renovar una es una nueva aprobación.",
+    "columns": {
+      "what": "Qué deja pasar",
+      "where": "Dónde",
+      "who": "Para",
+      "state": "Estado"
+    },
+    "component": {
+      "header": "Cabecera",
+      "query": "Parámetro de consulta",
+      "body": "Campo del cuerpo"
+    },
+    "role": {
+      "credential": "La credencial propia del destino, enviada tal cual y nunca leída",
+      "checked": "Su valor se comprueba antes de salir"
+    },
+    "reason": {
+      "destination-credential": "Credencial de un destino",
+      "custom-header": "Cabecera que defines para un agente",
+      "query-parameter": "Parámetro de consulta",
+      "other": "Otro"
+    },
+    "scope": {
+      "identity": "Cada solicitud tuya, en cada proyecto",
+      "project": "Solicitudes del proyecto {{name}}, cuando Latet confía en su proyecto"
+    },
+    "issuer": {
+      "owner": "Aprobada por ti",
+      "person": "Aprobada por ti, en el servidor",
+      "administration": "Aprobada por la administración del servidor"
+    },
+    "state": {
+      "pending": "Esperando tu aprobación",
+      "revised": "Hay que aprobarla de nuevo: su perfil se revisó",
+      "expiredLabel": "Caducada",
+      "expiringLabel": "Caduca pronto",
+      "activeLabel": "Activa",
+      "forbidden": "No está en vigor: esta edición no permite excepciones permanentes",
+      "expiring_one": "Queda {{count}} día",
+      "expiring_many": "Quedan {{count}} días",
+      "expiring_other": "Quedan {{count}} días",
+      "until": "Hasta el {{date}}",
+      "ended": "Caducó el {{date}}",
+      "approveThere": "Apruébala en la página Aprobaciones"
+    },
+    "permanent": "Permanente",
+    "revoke": "Revocar",
+    "revokeOne": "Revocar la excepción {{id}}",
+    "revoking": "Revocando…",
+    "revoked": "Excepción {{id}} revocada: las solicitudes que la necesitan vuelven a rechazarse.",
+    "status": {
+      "uses_one": "{{count}} uso de una excepción desde que arrancó el daemon, contado en memoria y borrado cuando se reinicia.",
+      "uses_many": "{{count}} usos de excepciones desde que arrancó el daemon, contados en memoria y borrados cuando se reinicia.",
+      "uses_other": "{{count}} usos de excepciones desde que arrancó el daemon, contados en memoria y borrados cuando se reinicia.",
+      "historyOff": "El historial está desactivado: estos recuentos son todo lo que queda de los usos de las excepciones.",
+      "summed": "Sumados entre las instancias del servidor.",
+      "instanceAlone": "No se pudieron leer los recuentos de las otras instancias: solo los de esta.",
+      "overflow_one": "{{count}} uso no se pudo contar: los recuentos están llenos.",
+      "overflow_many": "{{count}} usos no se pudieron contar: los recuentos están llenos.",
+      "overflow_other": "{{count}} usos no se pudieron contar: los recuentos están llenos."
+    },
+    "change": {
+      "title": "Excepciones de solicitudes que este cambio deja pasar",
+      "added": "Nueva",
+      "widened": "Ampliada",
+      "madePermanent": "Hecha permanente",
+      "renewed": "Renovada",
+      "identityWarning": "Cubre toda tu identidad: cada solicitud tuya, en cada proyecto, no un solo proyecto.",
+      "projectOnly": "Solo para solicitudes del proyecto {{name}}, cuando Latet confía en su proyecto.",
+      "permanent": "Permanente: nunca caduca. Apruébala solo si lo elegiste a propósito.",
+      "lasts_one": "Dura {{count}} día una vez aprobada.",
+      "lasts_many": "Dura {{count}} días una vez aprobada.",
+      "lasts_other": "Dura {{count}} días una vez aprobada."
     }
   }
 }

@@ -1,8 +1,8 @@
 """An API key's space keeps its newest values in memory and finds every other one in PostgreSQL (``StoredVault``, R7):
 a vault of any size works on every instance, a value found once is masked for ever, wherever and however old, and
-unmask restores a fake of any age, made on any instance, before or after a restart. A person's space keeps its whole
-vault, as before; a vault kept by an earlier Latet gets its words as its space is built; and the gateway restores a
-key's conversation as it did. The working set follows the server's setting (``key_working_values``)."""
+unmask restores a fake of any age, made on any instance, before or after a restart. A person's space is on its store as
+well (``test_person_vault``); a key's vault kept by an earlier Latet gets its words as its space is built; and the
+gateway restores a key's conversation as it did. The working set follows the server's setting (``key_working_values``)."""
 
 import asyncio
 import contextlib
@@ -15,9 +15,9 @@ from starlette.testclient import TestClient
 
 from latet.bridge.api import STORE_UNAVAILABLE
 from latet.bridge.apps import APPS_API
+from latet.engine import lookup
 from latet.engine.stored import HELD_SECRETS, StoredVault
 from latet.gateway.routes import Upstream
-from latet.server import vault as vault_module
 from latet.server.app import create_server_app
 from latet.server.db import Database
 from latet.server.settings import ServerSettings, load_server_settings
@@ -138,13 +138,8 @@ async def test_a_value_found_long_ago_is_masked_on_every_instance(instances):
     assert NAME not in logs.getvalue() and "Lanzavecchia" not in logs.getvalue()
 
 
-async def test_a_persons_space_keeps_its_whole_vault(server):
-    _working(server)
-    person, _ = server.identities.add_person("Emily Carter")
-    key, _ = server.identities.add_key("Billing CI")
-    async with listening(server):
-        assert not isinstance(await _vault(server, person), StoredVault)
-        assert isinstance(await _vault(server, key), StoredVault)
+# A person's space no longer keeps its whole vault in memory (Task 9 of the server performance plan): it is on its store
+# as an API key's is, its tests in ``test_person_vault``.
 
 
 async def test_the_working_set_follows_the_setting(server, monkeypatch):
@@ -273,7 +268,7 @@ async def test_a_store_that_does_not_answer_masks_and_restores_nothing(server, m
         def silent(*args, **kwargs):
             raise psycopg.OperationalError("the connection was closed")
 
-        monkeypatch.setattr(store, "with_words", silent)
+        monkeypatch.setattr(store, "_connection", silent)
         for operation, text in (("mask", f"to {FIRST}"), ("scan", f"to {FIRST}"), ("unmask", f"from {masked}")):
             answer = await client.post(f"{APPS_API}/{operation}", json={"texts": [text]}, headers=_bearer(secret))
             assert answer.status_code == 503, operation
@@ -315,15 +310,23 @@ async def test_a_mask_whose_new_values_are_not_kept_is_answered_503_and_keeps_no
 
 
 async def test_a_call_past_what_one_call_may_weigh_is_refused_422(server, monkeypatch):
-    """Ruling T8a (c): texts whose words name more of the key's values than one call may weigh are refused with 422 and
-    words that say so, nothing masked; never a 500, never a part."""
-    monkeypatch.setattr(vault_module, "CANDIDATES_AT_MOST", 3)
+    """Ruling T8a (c), as 0.10.2 has it: texts whose words name more of the key's values than one call may weigh
+    (``CANDIDATES_AT_MOST``) are refused with 422 and words that say so, nothing masked; never a 500, never a part. Past
+    Task 8's own bound of candidates alone they are masked (Task 8's fix round 6: no refusal 0.10.2 did not make)."""
+    from latet.server import vault as vault_module
+
     _, secret = server.identities.add_key("Billing CI")
     async with _calling(server) as client:
         roles = ("info", "sales", "admin", "support", "office")  # mailboxes of roles: found by their domain's name
         await _masked(client, secret, [f"write to {role}@lanzavecchia.it" for role in roles])
+        body = {"texts": ["ask lanzavecchia about the renewal"]}
+        with monkeypatch.context() as limited:
+            limited.setattr(lookup, "LOOKUP_CANDIDATES", 3)
+            for operation in ("mask", "scan"):
+                answer = await client.post(f"{APPS_API}/{operation}", json=body, headers=_bearer(secret))
+                assert answer.status_code == 200, operation
+        monkeypatch.setattr(vault_module, "CANDIDATES_AT_MOST", 3)
         for operation in ("mask", "scan"):
-            body = {"texts": ["ask lanzavecchia about the renewal"]}
             answer = await client.post(f"{APPS_API}/{operation}", json=body, headers=_bearer(secret))
             assert answer.status_code == 422, operation
             assert answer.json() == {
@@ -351,7 +354,10 @@ def test_the_gateway_still_restores_a_keys_conversation(server, upstream):
         texts = [f"login by {_email(n)}" for n in range(500)]
         assert client.post(f"{APPS_API}/mask", json={"texts": texts}, headers=_bearer(secret)).status_code == 200
         before = len(upstream.received)
-        body = {"model": "m", "messages": [{"role": "user", "content": f"write to {FIRST} about the invoice"}]}
+        body = {
+            "model": "gpt-4.1-mini",
+            "messages": [{"role": "user", "content": f"write to {FIRST} about the invoice"}],
+        }
         answer = client.post(
             f"/u/{route_key(secret)}/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-test"}
         )

@@ -53,7 +53,8 @@ guide.
 
 Every exchange as it happens: agent, provider, model, how long it took and how much of
 that was Latet, token usage (including prompt-cache reads), how many values were masked, and
-flags such as *Blocked*, *Not inspected* (PDFs, images not read), *Image: masked*, *Withheld* (the
+flags such as *Blocked*, *Not inspected* (a request an earlier version sent with parts unread),
+*Project claimed*, *Image: masked*, *Withheld* (the
 [dump guard](../concepts/production-data/#the-dump-guard)), *From the history* (a conversation that
 began before Latet was on: see [Troubleshooting](../troubleshooting/#every-request-of-a-conversation-is-blocked)),
 *Auto mode review* or *Unknown route*.
@@ -103,6 +104,55 @@ values that stopped it boxed in red: click one to see what it is, and choose *No
 is not, and the next identical request goes through. With `history: metadata`, which keeps no
 texts, they are listed by type and length only. The reason Latet gave the agent is there too.
 Requests stopped inside Claude Code by the plugin's own final check show up here too.
+
+### How a request was covered
+
+Each exchange has a *Coverage* section that says how Latet accounted for every part of its request
+([Every part of a request](../concepts/protection-scope/#every-part-of-a-request)):
+
+- **Stopped before it was sent,** with why, in plain words, and what to do. A request stopped after
+  an attempt (a Bedrock request whose AWS login had to be renewed between two attempts) says that an
+  earlier attempt may already have reached the provider. An exact request exception is offered for a
+  header or a query parameter no profile names; for a body member no profile names, the exchange says
+  how to approve one, unless the member is *where no exception can reach it (inside a provider's item,
+  an image's source, or a WebSocket turn)*. None is offered for a credential, a destination, a part
+  Latet could not read or a work limit, nor on a WebSocket: *A WebSocket takes no request exception
+  in this version of Latet.*
+- **Every part read,** or **read, and let through by** what is named: *checked only* (values the final
+  check read and did not need to mask), *allowed by rule* (the rest of an image whose text was read,
+  or a provider's encrypted field), a provider's opaque item it sent earlier in this conversation,
+  text sent before in this conversation, text the model wrote, or a request exception you approved.
+  What left unread is never shown as verified.
+- **What Latet removed:** how many headers and body members its profile declares removable (Codex's
+  `client_metadata`, say); when the provider answered `401` or `403` after Latet removed a header,
+  the exchange says so.
+- **Its request profile** (`anthropic.messages.1`), which an exception for that kind of call names.
+- **Its project, trusted or claimed,** and **its launch:** *Launched by Latet, key verified*,
+  *Launched by Latet, key missing*, *Bound by the Claude Code plugin* or *Not launched by Latet*
+  ([Projects](../concepts/projects/#launch-keys)). Sessions show the launch too.
+
+An exchange recorded by an older Latet is never shown as verified: it says *Recorded by an older
+Latet. How much of this request it read was not recorded, so it is not shown as verified.* A check
+the Claude Code plugin ran inside Claude Code is shown as *A check of the Claude Code plugin's.*,
+never as verified: it sent nothing itself, and the request it read is an exchange of its own.
+
+<Screenshot name="coverage" alt="An exchange's coverage: what let parts of it through unread, how its session was bound, its project trusted, the header Latet removed, and its request profile" caption="Coverage: how Latet accounted for each part of a request." />
+
+### Request exceptions
+
+**Protected agents** lists your [request exceptions](../getting-started/upgrading-to-0-11/#approving-an-exact-exception):
+what each lets through (a header, a query parameter or a body member, and whether it is the
+destination's own credential), where (its destination and request profile), for whom (every request
+of yours, or one project's requests when Latet trusts their project), and its state: *Waiting for your
+approval*, *Active*, *Ending soon* (with the days left), *Expired*, *Permanent*, or *Needs approval
+again: its profile was revised*. A warning says when one ends within seven days. *Revoke* takes one
+away at once. Below, the uses of exceptions counted in memory since the daemon started, cleared when
+it restarts: with the history off, they are all that is kept of them, and a server adds up its
+instances' counts. A new exception, or one widened, renewed or made permanent, waits on **Approvals**
+under *Settings*, which shows what it lets through, how long it lasts, and, for one without a
+project, that it covers your whole identity.
+
+<Screenshot name="exceptions" alt="The request exceptions on Protected agents: what each lets through, its destination and request profile, whom it covers, and its state, with Revoke" caption="Request exceptions: what each lets through, where, for whom, and its state." />
 
 ### Approvals
 
@@ -286,7 +336,7 @@ What follows is about the dashboard on your own computer. For a Latet server's d
 - What the history keeps is chosen under History in **Rules**, in the *Advanced* tab: *Everything*
   (the text blocks, the answers and the timings, so you can see exactly what was sent), *Metadata
   only* (counts, timings and flags, no text) or *Nothing* (exchanges are not recorded, and **Live**
-  stays empty).
+  stays empty; the counts of the request exceptions used stay in memory until Latet restarts).
 - History is kept for 14 days by default; *Keep for*, under History in **Rules**, sets 1 to 365
   days. Blocks resent with every turn are stored once.
 - You can clear the history at any time from the dashboard; the vault is kept.

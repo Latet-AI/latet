@@ -647,7 +647,7 @@ def _key_settings(
         if isinstance(settings, PgSettings):
             settings.recording = recording
         try:
-            runtime.update_config(change)
+            runtime.update_config(change, approving=True)  # the administration approves what it sets (D3)
             after = runtime.config
             try:
                 settings.save_reviewed(after)
@@ -1608,6 +1608,14 @@ def admin_routes(server: Server) -> list[Route]:
         )
         return [{"status": "warn", "title": "Rules for everyone", "detail": detail}]
 
+    def _permanent_exceptions() -> list[dict[str, str]]:
+        from latet.server.space_settings import listed_exceptions
+
+        try:
+            return listed_exceptions(server.db)
+        except Exception:  # the database does not answer: none known (its line says database false)
+            return []
+
     async def status(request: Request, call: _Call) -> Response:
         limit = server.settings.vault_limit
 
@@ -1616,7 +1624,14 @@ def admin_routes(server: Server) -> list[Route]:
                 chain = server.chain.read()
             except Exception:  # Valkey does not answer: no verdict is known
                 chain = "unknown"
+            whole: bool | None = None
+            try:  # Task 10: every instance alive, each worker of each machine, as its last beat said it
+                instances, whole = server.instances_read()
+            except Exception:  # Valkey does not answer: none known (its line says valkey false), whole or not unknown
+                instances = []
             return {
+                "instances": instances,
+                "instances_whole": whole,
                 "identities": {
                     "people": len(server.identities.all("person")),
                     "keys": len(server.identities.all("key")),
@@ -1633,6 +1648,7 @@ def admin_routes(server: Server) -> list[Route]:
                 "database": server.db.ping(),
                 "valkey": server.bus.ping(),
                 "kept": _kept_rules_line(),
+                "exceptions": _permanent_exceptions(),
             }
 
         found_ = await _in_pool(state)
@@ -1641,6 +1657,11 @@ def admin_routes(server: Server) -> list[Route]:
             "spaces": server.spaces.count(), "vault": found_["vault"],  # the identities at 90% of their limit or more
             "audit": found_["audit"], "database": found_["database"], "valkey": found_["valkey"],
             "edition": found_["kept"],  # E1: and the lines of Edition.checks()
+            "instances": found_["instances"],
+            # The final re-review's R-4: false when the list was cut at its bound (an instance may be missing), None
+            # when Valkey did not answer.
+            "instances_whole": found_["instances_whole"],
+            "exceptions": found_["exceptions"],  # the permanent request exceptions, by id and scope category (D3)
         }  # fmt: skip
         return JSONResponse(answer)
 

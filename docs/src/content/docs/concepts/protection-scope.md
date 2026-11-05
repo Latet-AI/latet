@@ -43,6 +43,38 @@ in the keys of a JSON document too. A key written like a field's name, in lowerc
 `_` and `-` (`exit_code`, but also `mario_rossi`), is not shown to it: the detectors read it as they
 read every key.
 
+## Every part of a request
+
+Latet reads every part of a request before it sends it, on a computer as on a server, and sends
+nothing it did not account for:
+
+- **The path** must match a route one of Latet's request profiles knows, each of its parts held to its
+  form: a model's id, a region, a resource you listed. Any other call is refused, one without a body
+  included.
+- **Query parameters** are named by the profile, each value held to its form. One no profile names
+  is refused.
+- **Headers.** A credential is sent as it came, never logged or recorded. Every other header is held
+  to the form its agent gives it, or read by the final check when it can hold free text
+  (`user-agent`). The headers SDKs and tracing add (`x-stainless-*`, `traceparent`...), and the
+  agents' own that can carry free text (a Claude Code subagent's ids, Codex's turn metadata...), are
+  taken off and counted in the dashboard: [Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off) lists them by agent. Any
+  other header is refused, its name told to the agent alone.
+- **The body.** Its texts are masked, or checked where Latet only checks the request. Every other
+  member is held to its form (a model's id, a tool's name, a setting) and read by the final check
+  where it holds text. A member no profile names is refused, the agent told where it was, never its
+  name.
+
+In the dashboard, each exchange says whether every part of its request was read, or what let a
+part through: *checked only* (a value the final check read and did not need to mask), *allowed by
+rule* (one of Latet's built-in rules, such as the provider's own encrypted fields given back), or an
+[exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) you approved. A refusal tells the agent that nothing was sent. When a second attempt is refused
+after a first one reached the provider (a Bedrock request signed again once its AWS login had
+expired), the agent is told that no further attempt was sent and that the first may have arrived,
+never that nothing was sent.
+
+Two things stay outside: what an agent sends without Latet's address, which Latet never sees, and
+the [local reviewer](../llm-review/), which receives the original texts because you set it up to.
+
 ## Not protected
 
 **Values the detectors do not recognize.** Latet masks only what it detects. A secret in an
@@ -54,13 +86,15 @@ vault are masked. Dates of birth are not detected. Detection always has false ne
 
 **Images.** With the optional [text recognition](../images/), the text in a screenshot is read on
 your machine and each value found is covered with its fake. It is best effort, like names: text it
-does not read leaves as it is. Without it, images are sent as they are and flagged *Not inspected*.
+does not read leaves as it is. Without it, a request that carries an image is not sent. On a
+request Latet only checks, such as Claude Code's, a photo's location, a camera's maker notes and an
+image inside the image are refused too ([Photos and their metadata](../images/#photos-and-their-metadata)).
+QR codes and barcodes are not decoded: the data they hold leaves with the image.
 
-**PDFs and other documents, images by their address, audio clips.** Their content is not read and is
-sent as is, by a Latet server too; the dashboard marks those requests as *Not inspected*. Do not
-attach documents that contain sensitive data, or set `images: block` (the `max` profile does the
-same): a request that carries one is then not sent. A browser's pages, read as text, are masked like
-any tool output ([production data](../production-data/)); its screenshots are images.
+**PDFs and other documents, images by their address, audio clips.** Their content is not read, so a
+request that carries one is not sent, on a computer as on a server, whatever `images` says. Give the
+agent the text instead. A browser's pages, read as text, are masked like any tool output
+([production data](../production-data/)); its screenshots are images.
 
 **Web tools, subagents and claude.ai connectors keep the fakes (Claude Code).** WebFetch,
 WebSearch, subagents and claude.ai connectors (Gmail, Calendar...) receive the surrogates the model
@@ -152,20 +186,21 @@ masking and refusal rules.
 of their parameters and the examples of their input are masked like the conversation, and so are the
 schema of a structured output, a predicted output, and what a request says of whom it is for (`user`,
 `safety_identifier`, `metadata`). The tools' names, what lets the provider run a tool of its own (a
-remote MCP server's address and headers, a web search's location) and the other request settings
-are forwarded as they are. In Claude Code, the plugin masks the tools' descriptions and the final
-check reads `metadata` and the schema of a structured output; from a computer, the schemas of the
-tools' parameters are sent as they are, and a Latet server checks them (see below). A client other
+remote MCP server's address and headers, a web search's location) and the other request settings are
+each held to the form their profile gives them, and read by the final check where they hold text; one
+no profile names stops the request ([Every part of a request](#every-part-of-a-request)). In Claude
+Code, the plugin masks the tools' descriptions, and the final check reads `metadata`, the schema of
+a structured output and the schemas of the tools' parameters (see below). A client other
 than Claude Code on a route Latet only checks (a subscription's sign-in, Bedrock, Vertex) has no
 plugin: the final check reads its tools' descriptions, parameters and examples too, and stops a
 request that would let a value out in clear in them.
 
-**Claude Code's tools on a server.** The plugin masks the tools' descriptions, including those of
-`tool_addition`. A Latet server does not take the request's markers as proof that the plugin ran:
-its final check reads each tool's description, the schema of its parameters and the examples of its
-input, as it does for a client with no plugin, and stops a request that would let a value out in
-clear in them. An MCP tool whose schema names a customer's address therefore stops Claude Code's
-requests on a server until the value is removed from the schema or allowed in your settings. A tool
+**Claude Code's tools.** The plugin masks the tools' descriptions, including those of
+`tool_addition`. Latet does not take the request's markers as proof that the plugin ran, on a
+computer as on a server: its final check reads each tool's description, the schema of its parameters
+and the examples of its input, as it does for a client with no plugin, and stops a request that
+would let a value out in clear in them. An MCP tool whose schema names a customer's address therefore
+stops Claude Code's requests until the value is removed from the schema or allowed in your settings. A tool
 definition in a form Latet does not read is refused, as for every client. The metadata,
 structured-output and fallback-schema checks described here still apply.
 
@@ -174,10 +209,9 @@ each `fallbacks[].output_config.format`. Rewriting masks sensitive schemas; on c
 sensitive schemas are refused and safe bytes stay unchanged. Model-only fallbacks remain supported.
 An enabled server refuses malformed fallback containers and output schemas.
 
-**What Latet does not read, on a Latet server.** A computer sends as it came what Latet does not
-read; a Latet server refuses it, with an error that says why. It refuses a request whose body Latet
-does not read: one to an endpoint other than a model's call, such as files or batches, or with a
-method other than POST. It refuses content in a form Latet does not read: a completions prompt given
+**What Latet does not read.** Latet refuses what it does not read, on a computer as on a server,
+with an error that says why. It refuses a call no profile names: files or batches, say, or a method
+the route does not take. It refuses content in a form Latet does not read: a completions prompt given
 as tokens; a prompt variable, a tool definition or an answer's format of a kind it does not know; a
 part of content, a block of a message or an input item of a kind it does not know, in chat
 completions, Anthropic's messages and the Responses API alike, or one that is not an object; a field
@@ -186,17 +220,18 @@ that is neither text nor blocks; and, in the Responses API, the audio of a live 
 (`audio`, `output_audio`) and what was heard in an audio clip. It refuses a WebSocket frame other
 than a turn (`response.create`; `response.cancel` passes) and, on a request it only checks (Claude
 Code, Bedrock, Vertex), an image whose text it could not read, whatever `images` says. What the
-provider made and is given back as it made it passes: the model's reasoning, a compaction, the calls
-of the provider's own tools and their results. So does what holds no content, such as a reference
-to an earlier item, and a request with no body, such as the list of models.
+provider made and is given back as it made it passes when Latet saw it come from the provider in
+that conversation: the model's reasoning and its signatures, a compaction, the calls of the
+provider's own tools and their results. Where Latet did not see it (a computer's daemon restarted,
+say), a built-in rule lets the provider's own encrypted fields through, only in the model's turns and
+only to the provider's own address, never through a company gateway; the dashboard shows them as
+*allowed by rule*. What holds no content passes too, such as a reference to an earlier item, and so
+does a request with no body on a route a profile names, such as the list of models.
 
-An enabled server also refuses chat messages carrying `name`, Anthropic `search_result` blocks,
-and document blocks carrying `title` or `context`, including inside tool results and with
-`images: allow`. These optional forms are unsupported on the server even when their values are
-empty or null. A document without a title or context follows the `images` setting, as everywhere.
-A computer does not refuse these forms, and does not mask them either: their text leaves as it
-came. A search result and a document are flagged *Not inspected*; a chat message's `name` is
-neither masked nor flagged, so keep the values you protect out of it.
+Latet also refuses chat messages carrying `name`, Anthropic `search_result` blocks, and document
+blocks carrying `title` or `context`, including inside tool results, on a computer as on a server.
+These optional forms are unsupported even when their values are empty or null. A document without a
+title or context is refused as every document is.
 
 **Claude Code's auto mode review.** Auto mode's reviewer is sent your OS user name and the paths of
 your home and working directories, plus any host name or git author in your CLAUDE.md or the action,
@@ -216,7 +251,7 @@ already reached Anthropic with the name in clear are sent again with every reque
 them in the dashboard instead of blocking them: they were sent already, and blocking would stop the
 conversation. Start a new conversation to leave them behind.
 
-**Data sent earlier.** Anything sent before Latet was installed, or while it was off, is already
-with the provider.
+**Data sent earlier.** Anything sent before Latet was installed, or, before 0.11, from a project
+where it was off, is already with the provider.
 
 See the [security and threat model](../../security/) for the reasoning behind these limits.

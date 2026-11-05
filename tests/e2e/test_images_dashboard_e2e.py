@@ -44,7 +44,7 @@ def _runtime(tmp_path, monkeypatch, upstream, history="full"):
 def _send(client, data: str) -> None:
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
     body = {
-        "model": "m",
+        "model": "claude-sonnet-4-5",
         "max_tokens": 5,
         "messages": [{"role": "user", "content": [{"type": "text", "text": "look"}, image]}],
     }

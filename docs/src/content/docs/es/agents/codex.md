@@ -83,6 +83,23 @@ por Latet de la misma manera. Consulta [Puntos de conexión de empresa](../compa
 - Codex lee los archivos con comandos de shell, así que el
   [modo de datos estricto](../../concepts/production-data/#qué-herramientas) cubre también los archivos que
   lee. Indica su herramienta de base de datos en `data_tools` para cubrir solo esa.
+- La ruta, los remotos y el commit del repositorio que Codex añade a cada petición, en la cabecera
+  `x-codex-turn-metadata` y en `client_metadata` del cuerpo, se quitan antes de enviarla, igual que
+  la cabecera `x-openai-subagent`, el tipo o la etiqueta libre que Codex da a un subagente; el panel
+  las cuenta. Su lista de modelos pasa; una llamada que Latet no lee, como recuperar una respuesta guardada, se rechaza.
+- Las cabeceras tuyas en `http_headers` o `env_http_headers` de un proveedor se rechazan, nombrando
+  cada una, hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la
+  deje pasar (`openai.responses.1`). Por el WebSocket de una sesión de ChatGPT, ninguna excepción se
+  aplica en la 0.11.0: una cabecera o un parámetro de consulta que Latet no lee cierra la conexión antes
+  de que se abra, y el cierre dice por qué y nombra la cabecera o el parámetro, nunca su valor. El
+  historial registra el rechazo.
+- **Su proyecto.** `latet codex` da a Codex una clave de lanzamiento a través de un proveedor de
+  `model_providers` (`env_http_headers`), desde Codex 0.115: los ajustes de su proyecto se aplican
+  entonces por completo. En los proveedores integrados de Codex (con la sesión de ChatGPT, o el
+  proveedor de OpenAI), y antes de la 0.115, no puede viajar ninguna clave: `latet codex` lo dice al
+  arrancar, y el proyecto que Codex nombra en sus peticiones queda declarado, así que sus reglas que
+  añaden protección se aplican y sus relajaciones no
+  ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)).
 
 Probado en condiciones reales: la CLI de Codex con la sesión iniciada con ChatGPT. Codex Desktop lee el
 mismo `config.toml`; si algo no funciona ahí, por favor,

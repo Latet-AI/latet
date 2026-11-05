@@ -1,6 +1,6 @@
-"""What the server's extra asks of its two drivers: the versions the code was written against and tested with, since it
-leans on what they do (the bus on how redis-py reads a blocking subscription and bounds a handshake, the database on
-how psycopg and libpq take an address)."""
+"""What the server's extra asks of its two drivers and of numpy: the versions the code was written against and tested
+with, since it leans on what they do (the bus on how redis-py reads a blocking subscription and bounds a handshake, the
+database on how psycopg and libpq take an address, the index of a vault's prints on numpy 2's arrays)."""
 
 import tomllib
 from importlib.metadata import version
@@ -11,7 +11,7 @@ from packaging.version import Version
 
 ROOT = Path(__file__).resolve().parents[3]
 # The oldest version of each that the server is written for, and the lowest the extra may therefore allow.
-FLOORS = {"redis": Version("8.1"), "psycopg": Version("3.3")}
+FLOORS = {"redis": Version("8.1"), "psycopg": Version("3.3"), "numpy": Version("2.0")}
 
 
 def _server_extra() -> dict[str, Requirement]:

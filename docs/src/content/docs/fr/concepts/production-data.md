@@ -173,8 +173,8 @@ peut-être jamais lues, sont masquées comme le fichier, même quand `data_tools
   leurs instructions et leurs documents en markdown, et un motif pour tous les fichiers (`*`) ne les
   touche pas. Dans un fichier markdown qu'un motif désigne, seuls ses tableaux sont masqués, jamais
   son texte.
-- **Les fichiers PDF ne sont pas couverts :** Latet ne lit pas le texte d'un PDF. `images: mask` ou
-  `block` empêche tout simplement l'envoi des documents ([images](../images/)).
+- **Les fichiers PDF ne sont pas couverts :** Latet ne lit pas le texte d'un PDF, donc une requête qui
+  en porte un comme document n'est pas envoyée ([images](../images/)).
 
 ### Adresses web qui comptent comme données
 

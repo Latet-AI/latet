@@ -33,8 +33,8 @@ from ..conftest import ROOT_KEY
 
 MIB = 2**20
 EMAIL = "emily.carter@acme.com"
-CHAT = {"model": "m", "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
-HEADERS = {"authorization": "Bearer sk-test", "session-id": "s-loop"}
+CHAT = {"model": "gpt-4o", "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
+HEADERS = {"authorization": "Bearer sk-test", "session-id": "019a0000-0000-7000-8000-0000000100f0"}
 HELD = 0.25  # the longest a turn of the event loop may take, in seconds, while the gateway restores megabytes
 
 
@@ -99,7 +99,7 @@ async def _gateway(provider: _Provider) -> AsyncIterator[tuple[httpx.AsyncClient
     mediator = Mediator(built.engine, built.verifier)
     config = GatewayConfig(
         port=5283,
-        upstreams=[Upstream("openai", "/openai", "http://127.0.0.1:1")],
+        upstreams=[Upstream("openai", "/openai", "http://127.0.0.1:1", envelope_expected=frozenset())],
         mediator=mediator,
         client=lambda: httpx.AsyncClient(transport=httpx.MockTransport(provider)),
     )
@@ -206,33 +206,84 @@ async def test_an_answer_is_decoded_in_turns_with_the_event_loops_other_work(con
     assert answered.status_code == 200 and turns.turns >= len(body) // (64 * 2**10)
 
 
-async def test_a_stream_of_small_events_is_restored_without_waiting_for_the_engines_thread():
+class _Behind:
+    """The engine's thread busy (masking another request, say) from the moment the provider answers: what is handed to
+    it from then on, by name. What may be: the answer's settlement (``ResponseFinalizer``, its ``_work``, which root
+    accepted for 0.11, the answer's end waiting for it), what it carried recorded as left (``record_left``) and what
+    the provider's output names kept (``provenance._record``), neither awaited by the answer; a restore handed there
+    would wait behind the masking. The restore alone is pinned: either the answer reaches its client while the thread is
+    still busy, or its settlement reaches the thread then; each shows that nothing of the restore waited there. Since
+    8f1aa0d2 an answer over HTTP, not compressed, of ``RESTORED_ON_LOOP`` at most is settled where it ends, nothing of
+    it handed to the thread: these answers then reach their clients while it is busy, and no settlement is handed."""
+
+    ALLOWED = frozenset(
+        {
+            "latet.gateway.response_finalizer._work",
+            "latet.gateway.mediate.Mediator.record_left",
+            "latet.gateway.provenance._record",
+        }
+    )
+
+    def __init__(self, mediator: Mediator, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.gate, self.names, self.settling = threading.Event(), [], asyncio.Event()
+        self.loop = asyncio.get_running_loop()
+        submit, armed = mediator.executor.submit, []
+
+        def watched(function, *args, **kwargs):
+            if armed:
+                self.names.append(f"{function.__module__}.{function.__qualname__}")
+                if self.names[-1] == "latet.gateway.response_finalizer._work":
+                    self.loop.call_soon_threadsafe(self.settling.set)
+            return submit(function, *args, **kwargs)
+
+        def busy() -> None:
+            submit(self.gate.wait, 30)
+            armed.append(True)
+
+        monkeypatch.setattr(mediator.executor, "submit", watched)
+        self.busy = busy
+
+    async def restored(self, post: asyncio.Task[httpx.Response]) -> None:
+        """Until the answer (``post``) is restored: answered while the thread is still busy, or its settlement waiting
+        behind the masking. Either way nothing of the restore waited there, and nothing but ``ALLOWED`` was handed to
+        it."""
+        settled = asyncio.create_task(self.settling.wait())
+        try:
+            done, _ = await asyncio.wait({post, settled}, timeout=5, return_when=asyncio.FIRST_COMPLETED)
+            assert done, f"neither answered nor settled while the engine's thread was busy: {self.names}"
+            assert not self.gate.is_set()
+            assert set(self.names) <= self.ALLOWED, self.names
+        finally:
+            settled.cancel()
+            self.gate.set()
+
+
+async def test_a_stream_of_small_events_is_restored_without_waiting_for_the_engines_thread(monkeypatch):
     provider = _Provider()
-    gate = threading.Event()
     async with _gateway(provider) as (client, mediator):
         chunk = {"choices": [{"index": 0, "delta": {"content": f" {provider.stand_in}"}}]}
         events = (b"data: " + json.dumps(chunk).encode() + b"\n\n") * 50 + b"data: [DONE]\n\n"
         provider.then = _answer("text/event-stream", events)
-        provider.meanwhile = lambda: mediator.executor.submit(gate.wait, 30)  # masking another request, say
-        try:
-            post = client.post("/openai/v1/chat/completions", json={**CHAT, "stream": True}, headers=HEADERS)
-            streamed = await asyncio.wait_for(post, 5)
-        finally:
-            gate.set()
+        behind = _Behind(mediator, monkeypatch)
+        provider.meanwhile = behind.busy
+        post = asyncio.create_task(
+            client.post("/openai/v1/chat/completions", json={**CHAT, "stream": True}, headers=HEADERS)
+        )
+        await behind.restored(post)
+        streamed = await asyncio.wait_for(post, 30)
     assert _streamed(streamed.text) == f" {EMAIL}" * 50
 
 
-async def test_a_short_answer_is_restored_without_waiting_for_the_engines_thread():
+async def test_a_short_answer_is_restored_without_waiting_for_the_engines_thread(monkeypatch):
     provider = _Provider()
-    gate = threading.Event()
     async with _gateway(provider) as (client, mediator):
         answer = {"choices": [{"index": 0, "message": {"role": "assistant", "content": f"to {provider.stand_in}"}}]}
         provider.then = _answer("application/json", json.dumps(answer).encode())
-        provider.meanwhile = lambda: mediator.executor.submit(gate.wait, 30)
-        try:
-            answered = await asyncio.wait_for(client.post("/openai/v1/chat/completions", json=CHAT, headers=HEADERS), 5)
-        finally:
-            gate.set()
+        behind = _Behind(mediator, monkeypatch)
+        provider.meanwhile = behind.busy
+        post = asyncio.create_task(client.post("/openai/v1/chat/completions", json=CHAT, headers=HEADERS))
+        await behind.restored(post)
+        answered = await asyncio.wait_for(post, 30)
     assert answered.json()["choices"][0]["message"]["content"] == f"to {EMAIL}"
 
 
@@ -308,7 +359,7 @@ async def _turn(app, frame: dict) -> list[str]:
         "raw_path": path.encode(),
         "query_string": b"",
         "root_path": "",
-        "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", b"s-ws")],
+        "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", b"019a0000-0000-7000-8000-0000000000e5")],
         "client": ("127.0.0.1", 50000),
         "server": ("127.0.0.1", 5283),
         "subprotocols": [],
@@ -324,14 +375,20 @@ async def _turn(app, frame: dict) -> list[str]:
 async def test_a_websocket_message_of_megabytes_is_restored_whole_while_the_event_loop_runs():
     frame = {
         "type": "response.create",
-        "model": "x",
+        "model": "gpt-4o",
         "input": [
             {"type": "message", "role": "user", "content": [{"type": "input_text", "text": f"write to {EMAIL}"}]}
         ],
     }
     with _Codex(12 * MIB) as codex:
         built = build(Config(), Vault(ROOT_KEY))
-        upstream = Upstream("chatgpt", "/backend-api/codex", codex.url, keep_prefix=True)
+        upstream = Upstream(
+            "chatgpt",
+            "/backend-api/codex",
+            codex.url,
+            keep_prefix=True,
+            envelope_expected=frozenset(),
+        )
         app = create_app(
             GatewayConfig(port=5283, upstreams=[upstream], mediator=Mediator(built.engine, built.verifier))
         )

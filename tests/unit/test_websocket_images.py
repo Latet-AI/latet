@@ -64,7 +64,8 @@ class _Client:
             "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws", "http_version": "1.1",
             "server": ("127.0.0.1", 5283), "client": ("127.0.0.1", 50000), "root_path": "",
             "path": "/relay/v1/responses", "raw_path": b"/relay/v1/responses", "query_string": b"",
-            "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", b"s-1")], "subprotocols": [],
+            "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", b"019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2e02")],
+            "subprotocols": [],
         }  # fmt: skip
         self.socket = WebSocket(scope, self._receive, self._send)
 
@@ -121,7 +122,7 @@ async def test_an_image_withheld_or_covered_over_a_websocket_leaves_as_it_was_de
     reader = FakeOcr()
     png = reader.screenshot(["Customer since 2019, VIP"])  # nothing in it any detector masks
     part = {"type": "input_image", "image_url": f"data:image/png;base64,{png}"}
-    frame = {"type": "response.create", "model": "m", "input": [{"role": "user", "content": [part]}]}
+    frame = {"type": "response.create", "model": "gpt-5.1-codex", "input": [{"role": "user", "content": [part]}]}
     upstream, client, mediator = _Answering(), _Client(), _mediator(way, on_server, reader)
     feed = await mediator.approvals.watch()  # as a dashboard watches the queue
     routes = RouteTable([Upstream("relay", "/relay", f"http://127.0.0.1:{upstream.port}")])

@@ -50,9 +50,19 @@ more of a value's shape: a short secret, or one whose anchor touches its edge. A
 with the words of an older version, gets them once, from whichever instance builds the space first
 (``backfill_words``).
 
+Beside each word's keyed hash, its print (``latet.server.prints``, migration 013): a cheap keyed fingerprint of the word
+under a key of its own derived from the root key, the slot of its role, which an instance holds in memory for the whole
+vault in a few megabytes (``latet.server.index``) to find which words of a text are any value's or fake's; and the count
+of the change that wrote the row last (``counted``). A print says nothing a keyed hash does not: which rows share a word
+of one role. A vault kept by 0.10.0 gets its prints once, in the background, on one instance at a time
+(``fill_prints``), a print written only beside the word whose keyed hash is the row's.
+
 A change the other instances must hear of (a value kept, the rule of one, a value forgotten) bumps the identity's change
 counter (``change_counters``) in its own transaction, and is told once committed, with that count: ``changed(kind,
-entity_id, counter)``, kind ``entity``, ``rule`` or ``forgotten``. An instance that missed it finds it by the counter.
+entity_id, counter)``, kind ``entity``, ``rule`` or ``forgotten``. The statement that moves the count stamps the word
+rows of the entries it counts with it, and a part of the backfill of the words or of the prints moves it once and is
+told as ``words`` (no entry's): an instance's index of prints catches up by the rows counted past what it read. An
+instance that missed a change finds it by the counter.
 An applications call keeps its new values together (``together``, Ruling T10i): in one transaction, the counter
 moved once, last, by as many as they are, and each told once they are committed, with a count of its own. A few calls
 of an instance at once (``Database.together``, Ruling 10b-R2); past them, a call keeps each value at once.
@@ -70,34 +80,42 @@ holds the loop until the network gives up."""
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import hashlib
 import hmac
 import json
 import logging
+import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import replace
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Final, LiteralString, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Final, LiteralString, NamedTuple
 
 import psycopg
 from cryptography.exceptions import InvalidTag
+from psycopg import sql
 
 from latet.engine import modules
 from latet.engine.anchors import ANCHORS_VERSION, EDGE
 from latet.engine.known import LET_GO
-from latet.engine.stored import edges_of, held_glued, word_of
+from latet.engine.lookup import LookupBudget, TooMany
+from latet.engine.response_guard import latet_key
+from latet.engine.stored import WORKING_VALUES, edges_of, held_glued, word_of
 from latet.engine.types import EntityClass
 from latet.engine.vault import Entity, EntryGone, FakeTaken, MaskingError, fake_reading
+from latet.server.index import BUILD_TURNS, IndexTooLarge, PrintCache, PrintIndex, _reading, gone_owner
+from latet.server.prints import SLOT, print_key, prints
 from latet.server.sealing import DERIVE, Sealer, derived
 
 if TYPE_CHECKING:
     from psycopg import Connection
 
     from latet.server.db import Database
-    from latet.state.protocols import Role
+    from latet.state.protocols import JobLock, Role
 
 log = logging.getLogger(__name__)
 _REVIEW_DAYS = 90  # a text not sent again for this long is reviewed again if it ever comes back
@@ -125,35 +143,57 @@ CANDIDATES_AT_MOST = 100_000
 # Seconds a forget waits for a row another transaction holds (``forget_entity``): a call that keeps its values together
 # holds its new rows until it ends, a few seconds; a forget waits no longer than this, then fails, to be tried again.
 FORGET_LOCK_SECONDS = 5
+# Seconds an instance holds the job of giving a vault's word rows their prints (``fill_prints``) before another may take
+# it, should the instance stop meanwhile. One that runs longer (a vault of millions of values) may meet another
+# instance's run on its last parts: each writes only the prints that are missing, and nothing is written twice.
+PRINTS_HOLD_SECONDS = 900
+# Why a vault's index is not ready, as the space's log line says it (``PgVaultStore.index_failure``): the prints its
+# words lack, or the type of the error that stopped a build or a catch-up.
+PRINTS_UNMADE = "its prints are not all made"
+INDEX_TOO_LARGE = "its vault is past the size an index is built for"  # ``index.IndexTooLarge``
+# What changed by name (``PgVaultStore.named_after``), kept for the vaults that resync their memory by it: so many
+# tellings and so many names at most, the oldest let go first (a vault further behind confirms its whole memory). A
+# vault takes in every telling since its last at each call, so that it is rarely more than a few behind; and names
+# past a lookup's part buy nothing a whole resync does not (a vault holds its working set, and confirms no more of it by
+# name than whole): the log is about 650 KB at most (20-character ids in sets), counted in the space's weight
+# (``index_bytes``).
+NAMED_KEPT = 256
+NAMED_IDS_KEPT = WORDS_AT_ONCE
+_TELLING_BYTES: Final = 64  # a telling's tuple and its place in the log, besides its names
 
 _SELECT: Final = (
     "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
     " WHERE identity_id = %s"
 )
 # The keyed hashes of an entry's anchor words, its value's and its fake's (NULL: a string without one), written with
-# the entry in its transaction.
+# the entry in its transaction, each with its print (``prints``: its role's of the word's four; NULL with the word).
 _WORDS: Final = (
-    "INSERT INTO vault_words (identity_id, entity_id, role, word, version)"
-    " VALUES (%s, %s, 'original', %s, %s), (%s, %s, 'surrogate', %s, %s)"
-    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version"
+    "INSERT INTO vault_words (identity_id, entity_id, role, word, version, print)"
+    " VALUES (%s, %s, 'original', %s, %s, %s), (%s, %s, 'surrogate', %s, %s, %s)"
+    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version,"
+    " print = EXCLUDED.print"
 )
 # The edges of an entry's value and fake (``stored.words_of``: the head and the tail of a string the vault finds inside
 # a word, Ruling T10h), each a row of its own role (``original-head``...), its word a keyed hash under its string's
-# label.
+# label, with its print.
 _EDGES: Final = (
-    "INSERT INTO vault_words (identity_id, entity_id, role, word, version)"
-    " SELECT %s, %s, r.role, r.word, %s FROM unnest(%s::text[], %s::bytea[]) AS r (role, word)"
-    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version"
+    "INSERT INTO vault_words (identity_id, entity_id, role, word, version, print)"
+    " SELECT %s, %s, r.role, r.word, %s, r.print"
+    " FROM unnest(%s::text[], %s::bytea[], %s::int8[]) AS r (role, word, print)"
+    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version,"
+    " print = EXCLUDED.print"
 )
 # An entry's fake's edges, gone with its fake given anew.
 _FAKE_EDGES_GONE: Final = (
     "DELETE FROM vault_words WHERE identity_id = %s AND entity_id = %s AND role IN ('surrogate-head', 'surrogate-tail')"
 )
-# Its fake's word, when its fake is given anew (``replace_fake``): in place of the old one's, or the first word of an
-# entry kept before the words were (``backfill_words`` adds its value's, and leaves this one as it is).
+# Its fake's word, with its print, when its fake is given anew (``replace_fake``): in place of the old one's, or the
+# first word of an entry kept before the words were (``backfill_words`` adds its value's, and leaves this one as it is).
 _FAKE_WORD: Final = (
-    "INSERT INTO vault_words (identity_id, entity_id, role, word, version) VALUES (%s, %s, 'surrogate', %s, %s)"
-    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version"
+    "INSERT INTO vault_words (identity_id, entity_id, role, word, version, print)"
+    " VALUES (%s, %s, 'surrogate', %s, %s, %s)"
+    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version,"
+    " print = EXCLUDED.print"
 )
 # The statements that read an API key's entries by their words name the identity as a value PostgreSQL's planner is
 # not shown (``(SELECT %s::text)``, known once the statement runs), so that it plans for an identity of the average
@@ -170,6 +210,54 @@ _WITH_WORDS: Final = (
     "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
     " WHERE identity_id = (SELECT %s::text) AND id IN (SELECT w.entity_id FROM vault_words w"
     " WHERE w.identity_id = (SELECT %s::text) AND w.role = ANY(%s) AND w.word = ANY(%s)) ORDER BY seq LIMIT %s"
+)
+# The stored vault's bounded path. The predicates and row order are the ordinary word lookup's. The limited
+# candidate set is sized inside PostgreSQL; payload past the remaining aggregate allowance becomes NULL before
+# transfer. Even fetchmany(ROWS_AT_ONCE) can therefore transfer no more than that allowance, not N times it.
+# A NULL sentinel is refused, never mistaken for an unreadable entry or an absent candidate. The entries of the words
+# found are asked as an array of their ids (``id = ANY(ARRAY(...))``, the same entries as ``id IN (...)``): PostgreSQL
+# reads the words by their index, then the entries by their key, whatever the vault's size, where ``IN`` let it
+# hash-join a scan of every entry of the key (Task 8's fix round 4: 68 ms a statement at 200,000 values, 25 this way;
+# 18 and 17 at 2,000). Sent unprepared (``_unprepared``), as every bounded lookup.
+_BOUNDED_WORDS: Final = (
+    "WITH candidates AS MATERIALIZED ("
+    " SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded, seq,"
+    " octet_length(original)::bigint + octet_length(surrogate) + octet_length(id) + octet_length(etype)"
+    " + coalesce(octet_length(rule), 0) AS payload FROM vault_entities"
+    " WHERE identity_id = (SELECT %s::text) AND id = ANY(ARRAY(SELECT w.entity_id FROM vault_words w"
+    " WHERE w.identity_id = (SELECT %s::text) AND w.role = ANY(%s) AND w.word = ANY(%s))) ORDER BY seq LIMIT %s"
+    "), sized AS (SELECT *, sum(payload) OVER (ORDER BY seq) <= %s AS fits FROM candidates)"
+    " SELECT CASE WHEN fits THEN id END, CASE WHEN fits THEN etype END, eclass,"
+    " CASE WHEN fits THEN original END, CASE WHEN fits THEN surrogate END, counter, created,"
+    " CASE WHEN fits THEN rule END, decoded, payload FROM sized ORDER BY seq"
+)
+# Every role of each requested print is fetched. A print-only cache must never mark a role-filtered subset
+# complete: two roles can collide. Decrypted anchors/edges are validated after this complete fetch.
+_BY_PRINTS: Final = (
+    "WITH candidates AS MATERIALIZED ("
+    " SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded, seq,"
+    " ARRAY(SELECT DISTINCT p.print FROM vault_words p WHERE p.identity_id = e.identity_id"
+    " AND p.entity_id = e.id AND p.print = ANY(%s)) AS prints,"
+    " octet_length(original)::bigint + octet_length(surrogate) + octet_length(id) + octet_length(etype)"
+    " + coalesce(octet_length(rule), 0) AS payload FROM vault_entities e"
+    " WHERE identity_id = (SELECT %s::text) AND id IN (SELECT w.entity_id FROM vault_words w"
+    " WHERE w.identity_id = (SELECT %s::text) AND w.print = ANY(%s)) ORDER BY seq LIMIT %s"
+    "), sized AS (SELECT *, sum(payload + 8 * cardinality(prints)) OVER (ORDER BY seq) <= %s AS fits FROM candidates)"
+    " SELECT CASE WHEN fits THEN id END, CASE WHEN fits THEN etype END, eclass,"
+    " CASE WHEN fits THEN original END, CASE WHEN fits THEN surrogate END, counter, created,"
+    " CASE WHEN fits THEN rule END, decoded, payload + 8 * cardinality(prints),"
+    " CASE WHEN fits THEN prints END FROM sized ORDER BY seq"
+)
+_BOUNDED_IDS: Final = (
+    "WITH candidates AS MATERIALIZED ("
+    " SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded, seq,"
+    " octet_length(original)::bigint + octet_length(surrogate) + octet_length(id) + octet_length(etype)"
+    " + coalesce(octet_length(rule), 0) AS payload FROM vault_entities"
+    " WHERE identity_id = (SELECT %s::text) AND id = ANY(%s) ORDER BY seq LIMIT %s"
+    "), sized AS (SELECT *, sum(payload) OVER (ORDER BY seq) <= %s AS fits FROM candidates)"
+    " SELECT CASE WHEN fits THEN id END, CASE WHEN fits THEN etype END, eclass,"
+    " CASE WHEN fits THEN original END, CASE WHEN fits THEN surrogate END, counter, created,"
+    " CASE WHEN fits THEN rule END, decoded, payload FROM sized ORDER BY seq"
 )
 # Every word of the vault's values (or of its fakes), their edges too, with its entry: what a text of too many words is
 # met with.
@@ -188,8 +276,57 @@ _GLUED_NEWEST: Final = (
     " WHERE identity_id = (SELECT %s::text) AND id IN (SELECT w.entity_id FROM vault_words w"
     " WHERE w.identity_id = (SELECT %s::text) AND w.word IS NULL AND w.role = 'held') ORDER BY seq DESC LIMIT %s"
 )
+# The values whose value or fake no word finds glued on both sides (``stored.glued_both``: a head and a tail row of one
+# role), the oldest first: what a space that keeps them all holds in memory for good (``load_glued``).
+_GLUED_BOTH: Final = (
+    "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
+    " WHERE identity_id = (SELECT %s::text) AND id IN (SELECT h.entity_id FROM vault_words h JOIN vault_words t"
+    " ON t.identity_id = h.identity_id AND t.entity_id = h.entity_id AND t.role = replace(h.role, '-head', '-tail')"
+    " WHERE h.identity_id = (SELECT %s::text) AND h.role IN ('original-head', 'surrogate-head')) ORDER BY seq"
+)
+
+
+def _unprepared(cursor: psycopg.Cursor[Any], query: LiteralString | sql.Composed, args: tuple[Any, ...]) -> None:
+    """A bounded lookup sent never prepared, planned for its own arguments each time: psycopg prepares a statement on a
+    connection after five executions, and PostgreSQL then plans it once for any arguments (a generic plan), which on a
+    small vault walks every entry of the key in its order of keeping (Task 8's fix round 4: 227 ms a statement at 2,000
+    values, against 18 planned for its own words; 47 against 12 for ``_BY_PRINTS``)."""
+    cursor.execute(query, args, prepare=False)
+
+
+def _guarded(query: LiteralString) -> sql.Composed:
+    """Compose only this module's literal retention selectors; identities and limits remain bound parameters."""
+    sized = query.replace(
+        "decoded FROM",
+        "decoded, seq, octet_length(original)::bigint + octet_length(surrogate)"
+        " + octet_length(id) + octet_length(etype) + coalesce(octet_length(rule), 0) AS payload FROM",
+    )
+    return sql.SQL(
+        "WITH candidates AS MATERIALIZED ({} LIMIT %s),"
+        " sized AS (SELECT *, sum(payload) OVER (ORDER BY seq) <= %s AS fits FROM candidates)"
+        " SELECT CASE WHEN fits THEN id END, CASE WHEN fits THEN etype END, eclass,"
+        " CASE WHEN fits THEN original END, CASE WHEN fits THEN surrogate END, counter, created,"
+        " CASE WHEN fits THEN rule END, decoded, payload FROM sized ORDER BY seq"
+    ).format(sql.SQL(sized))
+
+
+_BOUNDED_UNANCHORED: Final = _guarded(_UNANCHORED)
+_BOUNDED_HELD: Final = _guarded(_GLUED_NEWEST.removesuffix(" LIMIT %s"))
+_BOUNDED_GLUED: Final = _guarded(_GLUED_BOTH)
 # How many values the vault holds, those that do not open as well (``count_entities``).
 _COUNTED: Final = "SELECT COUNT(*) FROM vault_entities WHERE identity_id = %s"
+# The dashboard's page of a vault kept in PostgreSQL (``listed``): how many values of each type it holds, whatever is
+# shown; the entries of a type and a class (an empty type, a NULL class: any), the newest first, by id among those of
+# the same instant, in the order of its characters (as Python sorts them); and how many there are.
+_TYPES: Final = "SELECT etype, COUNT(*) FROM vault_entities WHERE identity_id = %s GROUP BY etype"
+_OF_KIND: Final = _SELECT + " AND (%s::text = '' OR etype = %s) AND (%s::int IS NULL OR eclass = %s)"
+_NEWEST: Final = ' ORDER BY created DESC, id COLLATE "C"'
+_OF_KIND_COUNTED: Final = (
+    "SELECT COUNT(*) FROM vault_entities WHERE identity_id = %s"
+    " AND (%s::text = '' OR etype = %s) AND (%s::int IS NULL OR eclass = %s)"
+)
+# The entries of one class, the oldest first (``of_class``).
+_OF_CLASS: Final = _SELECT + " AND eclass = %s ORDER BY seq"
 # How many words of the current version (or a later one) the entries lack: each has two, its value's and its fake's
 # (a word row names an entry that is there, once for each role; the edges are not counted, as few entries have them),
 # so none when there are twice as many of them as entries. Two counts, which a vault of millions answers in a fraction
@@ -232,16 +369,54 @@ _OLD_EDGES: Final = (
     "DELETE FROM vault_words WHERE identity_id = %s AND entity_id = ANY(%s)"
     " AND role NOT IN ('original', 'surrogate') AND version < %s"
 )
-# Their words and edges: each one not there yet, each one of an older version, and each NULL one that has a word now (of
-# no later version: a newer Latet's NULL stays its own); one of the current version written meanwhile stays as it is.
-# The words written, by entry.
+# Their words and edges, each with its print: each one not there yet, each one of an older version, and each NULL one
+# that has a word now (of no later version: a newer Latet's NULL stays its own); one of the current version written
+# meanwhile stays as it is (one kept by 0.10.0 gets its print from ``fill_prints``). The words written, by entry.
 _ADD_WORDS: Final = (
-    "INSERT INTO vault_words (identity_id, entity_id, role, word, version) SELECT %s, w.entity_id, w.role, w.word, %s"
-    " FROM unnest(%s::text[], %s::text[], %s::bytea[]) AS w (entity_id, role, word)"
-    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version"
+    "INSERT INTO vault_words (identity_id, entity_id, role, word, version, print)"
+    " SELECT %s, w.entity_id, w.role, w.word, %s, w.print"
+    " FROM unnest(%s::text[], %s::text[], %s::bytea[], %s::int8[]) AS w (entity_id, role, word, print)"
+    " ON CONFLICT (identity_id, entity_id, role) DO UPDATE SET word = EXCLUDED.word, version = EXCLUDED.version,"
+    " print = EXCLUDED.print"
     " WHERE vault_words.version < EXCLUDED.version"
     " OR (vault_words.word IS NULL AND EXCLUDED.word IS NOT NULL AND vault_words.version <= EXCLUDED.version)"
     " RETURNING entity_id, word"
+)
+# Whether a NULL word of the current version (or an older one) is one the entry has now (``words_complete``): the rows
+# of a value or a fake with no anchor, or of an entry that did not open when its words were made, by their entry and
+# role, through the index of the words.
+_NULL_ROLES: Final = (
+    "SELECT entity_id, role FROM vault_words WHERE identity_id = %s AND word IS NULL"
+    " AND role IN ('original', 'surrogate') AND version <= %s"
+)
+# Whether a word row of the identity has no print (``prints_complete``), through ``vault_words_printless``: one kept by
+# 0.10.0, which ``fill_prints`` gives one.
+_PRINTLESS: Final = (
+    "SELECT EXISTS (SELECT 1 FROM vault_words WHERE identity_id = %s AND word IS NOT NULL AND print IS NULL)"
+)
+# The entries with a word and no print, a part at a time after the one read last, in the order of ``seq``: ``_SELECT``'s
+# columns, then ``seq``. Each entry's rows are counted by their key, as ``_WORDLESS`` counts them: a part costs the
+# entries it walks, where a join with every row without a print would read them all again for each part.
+_PRINTLESS_ENTRIES: Final = (
+    "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded, seq"
+    " FROM vault_entities e WHERE identity_id = %s AND seq > %s"
+    " AND (SELECT COUNT(*) FROM vault_words w WHERE w.identity_id = e.identity_id AND w.entity_id = e.id"
+    " AND w.word IS NOT NULL AND w.print IS NULL) > 0 ORDER BY seq LIMIT %s"
+)
+# A part's entries held while their prints are written, in the order of ``seq`` as every write of several entries holds
+# them: neither a backfill of the words on another instance (``_HELD``, which shares them), nor a fake given anew, a
+# rule or a forget writes their rows meanwhile, so that no two transactions wait for each other's rows.
+_HELD_FOR_PRINTS: Final = (
+    "SELECT id FROM vault_entities WHERE identity_id = %s AND id = ANY(%s::text[]) ORDER BY seq FOR NO KEY UPDATE"
+)
+# The prints of a part's rows (``fill_prints``), each written only beside the word whose keyed hash is the one its
+# entry makes now (a row written by hand, or moved from another entry or role, gets none), and only where none is (a
+# fake given anew meanwhile wrote its own).
+_PRINTS: Final = (
+    "UPDATE vault_words AS w SET print = p.print"
+    " FROM unnest(%s::text[], %s::text[], %s::bytea[], %s::int8[]) AS p (entity_id, role, word, print)"
+    " WHERE w.identity_id = %s AND w.entity_id = p.entity_id AND w.role = p.role AND w.word = p.word"
+    " AND w.print IS NULL"
 )
 # The entry a string of the vault's names as a fake's (``by_reading``: how a fake in escapes reads, ``_read_as``).
 _BY_READING: Final = (
@@ -273,6 +448,13 @@ _GENERATION: Final = "SELECT counter FROM change_counters WHERE owner = %s"
 _NEXT_GENERATION: Final = (
     "INSERT INTO change_counters (owner, counter) VALUES (%s, 1)"
     " ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + 1 RETURNING counter"
+)
+# The count of the forgets that deleted an entry (owner ``<id>:gone``, ``index.gone_owner``), moved in the forget's
+# transaction: deleted rows cannot name themselves to an index's catch-up, which empties its cache whole when it finds
+# this count moved (``PrintIndex.catch_up``), and drops only what the rows stamped name otherwise.
+_GONE: Final = (
+    "INSERT INTO change_counters (owner, counter) VALUES (%s, 1)"
+    " ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + 1"
 )
 # A fake's string: not kept when the vault knows the string already, as a value, as another fake, or as a fake retired
 # (``_RETIRED``).
@@ -350,17 +532,18 @@ _REFAKE: Final = (
 _OLD_FAKE: Final = (
     "UPDATE vault_strings SET role = 'retired', entity_id = NULL WHERE identity_id = %s AND key = %s AND entity_id = %s"
 )
-# The count of the identity's announced changes, bumped last in a change's transaction: its row stays locked until the
-# change commits, so the counts follow the order the changes are kept in, and the change waits for nothing after it.
+# The count of the identity's announced changes, moved last in a change's transaction, by one, or by as many changes as
+# a call kept together (``_Together``: the count of the last of them, the others' the ones before it, in the order they
+# were kept): its row stays locked until the change commits, so the counts follow the order the changes are kept in,
+# and the change waits for nothing after it. The same statement writes that count into the word rows of the entries it
+# counts (``counted``, the plan's S3), in one round trip as the count alone took: an instance whose index of prints
+# read the count before them catches up with them by it (``latet.server.index``), whether or not it heard the change.
 _COUNT: Final = (
-    "INSERT INTO change_counters (owner, counter) VALUES (%s, 1)"
-    " ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + 1 RETURNING counter"
-)
-# The count moved by as many changes as a call kept together (``_Together``), last in their transaction as one change's
-# is: the count of the last of them, the others' the ones before it, in the order they were kept.
-_COUNT_MANY: Final = (
-    "INSERT INTO change_counters (owner, counter) VALUES (%s, %s)"
-    " ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + EXCLUDED.counter RETURNING counter"
+    "WITH c AS (INSERT INTO change_counters (owner, counter) VALUES (%s, %s)"
+    " ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + EXCLUDED.counter RETURNING counter),"
+    " s AS (UPDATE vault_words SET counted = (SELECT counter FROM c)"
+    " WHERE identity_id = %s AND entity_id = ANY(%s::text[]))"
+    " SELECT counter FROM c"
 )
 
 
@@ -374,9 +557,41 @@ class VaultFull(MaskingError):
         self.limit = limit
 
 
-class TooManyCandidates(MaskingError):
+class TooManyCandidates(TooMany):
     """The texts of one call name more of the vault's values (or fakes) than one call may open (``CANDIDATES_AT_MOST``):
-    the call is refused, nothing of it masked or restored. Its words name no value."""
+    the call is refused, nothing of it masked or restored (an API key's, as 0.10.2 refused it; a person's space reads
+    its whole vault instead, ``StoredVault.whole_past_bounds``). Its words name no value."""
+
+
+# What a lookup read as 0.10.2 read it may transfer (``_LegacyBudget``): no bound but its candidates'.
+_UNBOUNDED_BYTES: Final = 1 << 62
+
+
+class _LegacyBudget(LookupBudget):
+    """0.10.2's bound of a lookup alone (``with_words``): ``CANDIDATES_AT_MOST`` rows read, unreadable rows and cached
+    candidates counted, past them ``TooManyCandidates``; no bound of characters or bytes, which 0.10.2 did not have
+    (Task 8's fix round 6: an API key's call past Task 8's own bounds reads as 0.10.2 did, never refused for them)."""
+
+    def row(self, size: int = 0) -> None:
+        if self.candidates >= CANDIDATES_AT_MOST:
+            raise _too_many()
+        self.candidates += 1
+        self.bytes += size
+
+    def entity(self, entity: Entity, *, counted: bool = False) -> None:
+        if not counted:
+            self.row()
+
+    def check(self, value: int, limit: int) -> None:
+        """No bound of Task 8's: 0.10.2's alone (``row``)."""
+
+    @property
+    def row_room(self) -> int:
+        return CANDIDATES_AT_MOST + 1 - self.candidates
+
+    @property
+    def byte_room(self) -> int:
+        return _UNBOUNDED_BYTES
 
 
 class OlderGeneration(FakeTaken):
@@ -462,10 +677,9 @@ class _Together:
             return  # nothing was written
         last = 0
         try:
-            if self.changes:
-                row = conn.execute(_COUNT_MANY, (store.identity, len(self.changes))).fetchone()
-                assert row is not None  # RETURNING gives the row it counted
-                last = int(row[0])
+            if self.changes:  # their entries' rows stamped with the last count (``_COUNT``)
+                entries = list(dict.fromkeys(entity_id for _, entity_id in self.changes))
+                last = store._count(conn, entries, len(self.changes))
         except BaseException as exc:
             stack.__exit__(type(exc), exc, exc.__traceback__)  # rolled back, the connection handed back
             raise
@@ -484,23 +698,34 @@ class _Together:
 
 
 class PgVaultStore:
+    # Its lookups bound each statement themselves (``bounded_words``: ``WORDS_AT_ONCE`` words, or prints, a statement,
+    # every answer bounded before it is sent): a stored vault asks it for all of a call's words at once.
+    lookup_batch: ClassVar[int | None] = None
+
     def __init__(
         self,
         db: Database,
         identity_id: str,
         root_key: bytes,
         *,
-        changed: Callable[[str, str, int], None] | None = None,
+        changed: Callable[[str, str | None, int], None] | None = None,
         limit: int = VAULT_LIMIT,
         forgets_values: bool = True,
+        jobs: JobLock | None = None,
+        index: bool = False,
+        cache: int = WORKING_VALUES,
     ) -> None:
         """``forgets_values``: whether its values are forgotten by themselves (an API key's, Task 11b), so that the
         local reviewer's answers are kept with the keyed hashes of the values they found (``save_review``); a person's
-        are kept with none (the final review's M6, Ruling F1)."""
+        are kept with none (the final review's M6, Ruling F1). ``jobs``: what runs a job on one instance at a time (the
+        server's Valkey, ``Bus.hold``), so that a vault's prints are made by one (``fill_prints``); None: by whichever
+        asks."""
         self.db, self.identity = db, identity_id
         self.forgets_values = forgets_values
         self._sealer = Sealer(root_key, b"storage")
         self._images = derived(root_key, DERIVE, b"image-decisions")  # what names a decision's row
+        self._prints = print_key(root_key)  # the key of its words' prints (``latet.server.prints``)
+        self._jobs = jobs
         self._changed = changed or (lambda _kind, _entity, _counter: None)
         self._unreadable: set[str] = set()  # the entries met that do not open, by id
         self.unreadable = 0  # how many: `latet doctor` says so
@@ -514,6 +739,162 @@ class PgVaultStore:
         # (``load_generation``, ``save_entity``): read and written under that vault's lock alone.
         self.generation = 0
         self._generations = f"{identity_id}:forgets"  # whose count of ``change_counters`` it is
+        self.index = PrintIndex(db, identity_id, self._prints) if index else None
+        self._cache = PrintCache(max(0, cache))
+        self._index_lock = threading.RLock()
+        self._index_build = threading.Lock()
+        self._building_index: PrintIndex | None = None
+        # Why its index was last found not ready (``PRINTS_UNMADE``, or an error's type: never its words), for the
+        # space's log line; None once one is ready.
+        self.index_failure: str | None = None
+        self._closed = threading.Event()
+        self._counter_seen = 0
+        self._observed: tuple[int, int] = (0, 0)
+        # What changed, by name, each time ``freshness`` moves (``_telling``, ``named_after``): the entries each
+        # catch-up of the published index named, told with the move of its cache, under the log's lock; None where
+        # nothing says what changed (a forget, a barrier, a counter read with no index, a fresh index). Each telling
+        # with what it weighs.
+        self._named: collections.deque[tuple[int, frozenset[str] | None, int]] = collections.deque()
+        self._named_seq = 0  # the last told
+        self._named_floor = 0  # the last let go of the log
+        self._named_ids = 0  # the ids the log holds
+        self._named_bytes = 0  # what it weighs (``index_bytes``)
+        self._named_lock = threading.Lock()
+
+    @property
+    def freshness(self) -> tuple[int, int]:
+        """Each vault observes this itself, even when a message worker already consumed the counter."""
+        index = self.index
+        return max(self._counter_seen, index.watermark if index is not None else 0), self._cache.epoch
+
+    @property
+    def named_seq(self) -> int:
+        """How far what changed was told (``named_after``): where a vault made now starts. Read under the log's lock,
+        so that every telling up to it has its fence up (``_telling``)."""
+        with self._named_lock:
+            return self._named_seq
+
+    @contextlib.contextmanager
+    def _telling(self, entities: Iterable[str] | None) -> Iterator[None]:
+        """What changed: ``entities`` by name, or None, not known by name; told as ``freshness`` moves for it, the move
+        made inside (its fence: the cache told or emptied, the index published, the counter seen), under the log's
+        lock, which its readers take too (``named_seq``, ``named_after``). No vault reads a telling before what it
+        tells of is done, which would let it confirm its memory and then bring in from the cache what the fence was to
+        take away, with nothing left to name it (the review of fix round 4's I-1). Taken inside an index's own lock (a
+        catch-up's) or the store's index lock (a publication), never the other way, and before the cache's; nothing it
+        holds calls out. At most ``NAMED_KEPT`` tellings and ``NAMED_IDS_KEPT``
+        names are kept, the oldest let go first; a telling of more names than that is kept as not known by name. What
+        the log holds is weighed (``index_bytes``)."""
+        names = None if entities is None else frozenset(entities)
+        if names is not None and len(names) > NAMED_IDS_KEPT:
+            names = None
+        weight = _TELLING_BYTES + (sys.getsizeof(names) + sum(map(sys.getsizeof, names)) if names is not None else 0)
+        with self._named_lock:
+            self._named_seq += 1
+            self._named.append((self._named_seq, names, weight))
+            self._named_ids += len(names) if names is not None else 0
+            self._named_bytes += weight
+            while len(self._named) > NAMED_KEPT or self._named_ids > NAMED_IDS_KEPT:
+                seq, dropped, weighed = self._named.popleft()
+                self._named_floor = seq
+                self._named_ids -= len(dropped) if dropped is not None else 0
+                self._named_bytes -= weighed
+            yield
+
+    def named_after(self, seq: int) -> tuple[int, set[str] | None]:
+        """What changed since the telling ``seq`` (``named_seq`` when a vault last confirmed its memory), and how far
+        that goes: the entries named, or None where one telling since did not know them by name, or where the log no
+        longer reaches back to ``seq``; then a vault confirms its whole memory (``StoredVault.resync``). The tellings
+        after ``seq`` alone are read, the newest first; none of them before its fence is up (``_telling``)."""
+        with self._named_lock:
+            if seq < self._named_floor:
+                return self._named_seq, None
+            names: set[str] = set()
+            for told, entities, _ in reversed(self._named):
+                if told <= seq:
+                    break
+                if entities is None:
+                    return self._named_seq, None
+                names |= entities
+            return self._named_seq, names
+
+    @property
+    def index_bytes(self) -> int:
+        """What the vault's index, the one being built, the cache of its answers and the log of what changed weigh in
+        this process: the space's weight counts it (``Spaces``)."""
+        index, building = self.index, self._building_index
+        return (
+            (index.nbytes if index is not None else 0)
+            + (building.nbytes + building.building_bytes if building is not None else 0)
+            + self._cache.nbytes
+            + self._named_bytes
+        )
+
+    def invalidate(self) -> None:
+        """A lost message/resync barrier, including for fetches still in flight."""
+        with self._telling(None):
+            self._cache.clear()
+
+    def build_index(self) -> bool:
+        """Build a fresh index, then catch up and publish it while the store is still open.
+
+        Masking keeps the published index or authoritative SQL throughout. An occupied lease, incomplete fill,
+        allocation/aggregate limit or database failure never makes a partial index ready: why is kept in
+        ``index_failure`` (``PRINTS_UNMADE``, ``INDEX_TOO_LARGE``, or the error's type), which the space says once and
+        builds it again for, but for its size
+        (``spaces.Spaces._index_judged``). Once published, and its build's turn handed on, whether a fake has a reading
+        is read (``PrintIndex.check_readings``): until then, and when that read fails, every fake is looked up exactly.
+        """
+        if self.index is None or self._closed.is_set() or not self._index_build.acquire(blocking=False):
+            return False
+        fresh = PrintIndex(self.db, self.identity, self._prints)
+        while not BUILD_TURNS.acquire(timeout=0.1):
+            if self._closed.is_set():
+                self._index_build.release()
+                return False
+        self._building_index = fresh
+        try:
+            if self._closed.is_set():
+                return False
+            if not self.prints_complete():
+                self.fill_prints()
+            if self._closed.is_set():
+                return False
+            if not self.prints_complete() or not fresh.build():
+                self.index_failure = PRINTS_UNMADE  # their lease held by another instance, or a fill cut short
+                return False
+            with self._index_lock:
+                if self._closed.is_set():
+                    return False
+                # The live index may have advanced while the new snapshot was being built.
+                fresh.catch_up()
+                if self._closed.is_set():
+                    return False
+                previous = self.index
+                if previous is not None and fresh.watermark < previous.watermark:
+                    return False
+                # A fresh index: what changed since the old one's watermark is not known by name. Told with what it
+                # tells of, the cache emptied and the index published.
+                with self._telling(None):
+                    self._cache.clear()
+                    fresh.told = fresh.watermark  # the cache, emptied, holds nothing its rows changed
+                    self.index = fresh
+                self.index_failure = None
+        except Exception as exc:
+            # Driver messages can contain source text. Only the exception class is kept, said by the space once.
+            self.index_failure = INDEX_TOO_LARGE if isinstance(exc, IndexTooLarge) else type(exc).__name__
+            return False
+        finally:
+            self._building_index = None
+            BUILD_TURNS.release()
+            self._index_build.release()
+        if not self._closed.is_set():
+            try:
+                fresh.check_readings()
+            except Exception as exc:
+                why = type(exc).__name__
+                log.info("the readings of the fakes of %s were not read (%s): each is looked up", self.identity, why)
+        return True
 
     def _moved_by(self, change: int) -> None:
         """The count moved by ``change`` (values kept, or forgotten when negative), never below none."""
@@ -551,6 +932,11 @@ class PgVaultStore:
             return
         with self.db.connection() as conn:
             yield conn
+
+    def _autocommit(self) -> contextlib.AbstractContextManager[Connection[Any]]:
+        """A connection of the pool in autocommit, for reads of a statement each (``index._reading``): never this
+        thread's changes kept together, which only ``_connection`` reads through."""
+        return _reading(self.db)
 
     def _keeping(self) -> _Together | None:
         """This thread's changes kept together, their transaction open (at their first change); None when it keeps
@@ -698,7 +1084,7 @@ class PgVaultStore:
             self._sealer.keyed(f"surrogate\x00{e.surrogate}"), e.counter, e.created, modules.kept(e.rule), e.decoded,
             self._generations, self.generation,
         )  # fmt: skip
-        value_word, fake_word = self._words(e)
+        (value_word, value_print), (fake_word, fake_print) = self._words(e)
         edged = self._edges(e, "original") + self._edges(e, "surrogate")
         counter, kept, generation = 0, None, self.generation
         fake = (self.identity, self._sealer.keyed(e.surrogate), e.id, self._generations, self.generation)
@@ -720,13 +1106,17 @@ class PgVaultStore:
                 conn.execute(_VALUE, (self.identity, self._sealer.keyed(e.original), e.id))
                 conn.execute(
                     _WORDS,
-                    (self.identity, e.id, value_word, ANCHORS_VERSION, self.identity, e.id, fake_word, ANCHORS_VERSION),
-                )
+                    (
+                        self.identity, e.id, value_word, ANCHORS_VERSION, value_print,
+                        self.identity, e.id, fake_word, ANCHORS_VERSION, fake_print,
+                    ),
+                )  # fmt: skip
                 if edged:
-                    roles, words = zip(*edged, strict=True)
-                    conn.execute(_EDGES, (self.identity, e.id, ANCHORS_VERSION, list(roles), list(words)))
+                    roles, words, printed = zip(*edged, strict=True)
+                    edges = (self.identity, e.id, ANCHORS_VERSION, list(roles), list(words), list(printed))
+                    conn.execute(_EDGES, edges)
                 if together is None:
-                    counter = self._count(conn)
+                    counter = self._count(conn, [e.id])
             else:  # the same value kept first (by its id, or under another type), the fake taken, an older generation
                 kept = conn.execute(
                     _SELECT + " AND (id = %s OR original_key = %s) ORDER BY seq LIMIT 1",
@@ -776,7 +1166,7 @@ class PgVaultStore:
                 "UPDATE vault_entities SET rule = %s WHERE identity_id = %s AND id = %s AND rule IS NULL",
                 (modules.kept(e.rule), self.identity, e.id),
             ).rowcount
-            counter = self._count(conn) if done and not own else 0
+            counter = self._count(conn, [e.id]) if done and not own else 0  # its rows name a changed entry
         if done and own and together is not None:
             together.changed("rule", e.id)
         elif done:
@@ -797,7 +1187,8 @@ class PgVaultStore:
             self.identity, old.id, self._sealer.keyed(f"surrogate\x00{old.surrogate}"),
         )  # fmt: skip
         drawn = replace(new, etype=old.etype, eclass=old.eclass)
-        fake_word = self._word("surrogate", word_of(drawn, "surrogate"))
+        fake = word_of(drawn, "surrogate")
+        fake_word, fake_print = self._word("surrogate", fake), self._print("surrogate", fake)
         edged = self._edges(drawn, "surrogate")
         try:
             with self.db.transaction() as conn:
@@ -807,16 +1198,18 @@ class PgVaultStore:
                     )
                 if not conn.execute(_REFAKE, row).rowcount:
                     raise _Changed
-                conn.execute(_FAKE_WORD, (self.identity, old.id, fake_word, ANCHORS_VERSION))
+                conn.execute(_FAKE_WORD, (self.identity, old.id, fake_word, ANCHORS_VERSION, fake_print))
                 conn.execute(_FAKE_EDGES_GONE, (self.identity, old.id))
                 if edged:
-                    roles, words = zip(*edged, strict=True)
-                    conn.execute(_EDGES, (self.identity, old.id, ANCHORS_VERSION, list(roles), list(words)))
+                    roles, words, printed = zip(*edged, strict=True)
+                    conn.execute(
+                        _EDGES, (self.identity, old.id, ANCHORS_VERSION, list(roles), list(words), list(printed))
+                    )
                 gone = [old.surrogate] + [read for read in (fake_reading(old),) if read is not None]
                 for was in map(self._sealer.keyed, gone):
                     conn.execute(_OLD_FAKE, (self.identity, was, old.id))
                 self._read_as(conn, replace(new, id=old.id))
-                counter = self._count(conn)
+                counter = self._count(conn, [old.id])
         except _Changed:
             try:
                 now = self.load_entity(old.id)
@@ -842,7 +1235,9 @@ class PgVaultStore:
             done = conn.execute(
                 "DELETE FROM vault_entities WHERE identity_id = %s AND id = %s", (self.identity, entity_id)
             ).rowcount
-            counter = self._count(conn)
+            if done:  # its rows went with it: they name nothing to a catch-up, this count does
+                conn.execute(_GONE, (gone_owner(self.identity),))
+            counter = self._count(conn, [entity_id])  # its rows gone with it: none stamped
         self._moved_by(-done)
         self._changed("forgotten", entity_id, counter)
 
@@ -895,6 +1290,7 @@ class PgVaultStore:
                 conn.execute(_NO_LONGER_ALSO, (self.identity, ids))
                 conn.execute(_STRINGS_GONE, (self.identity, ids))
                 conn.execute(_ENTRIES_GONE, (self.identity, ids))
+                conn.execute(_GONE, (gone_owner(self.identity),))  # their rows name nothing to a catch-up
             if found:
                 conn.execute(_ANSWERS_GONE, (self.identity, found))
             if ids and gone is not None:
@@ -905,9 +1301,7 @@ class PgVaultStore:
                 moved = conn.execute(_NEXT_GENERATION, (self._generations,)).fetchone()
                 assert moved is not None  # RETURNING gives the row it counted
                 generation = int(moved[0])
-                row = conn.execute(_COUNT_MANY, (self.identity, len(ids))).fetchone()
-                assert row is not None  # RETURNING gives the row it counted
-                changes = int(row[0])
+                changes = self._count(conn, ids, len(ids))  # their rows gone with them: none stamped
             conn.execute("SET LOCAL lock_timeout TO DEFAULT")  # what ``last`` waits for is its own (the log's chain)
             if last is not None:
                 last(conn, len(ids), len(asked) - len(ids))
@@ -961,9 +1355,11 @@ class PgVaultStore:
             after = bytes(rows[-1][0])
             time.sleep(LET_GO)  # more may follow: the event loop takes its turn first
 
-    def _count(self, conn: Connection[Any]) -> int:
-        """Bump the identity's change counter in ``conn``'s transaction: the count the change is told with."""
-        row = conn.execute(_COUNT, (self.identity,)).fetchone()
+    def _count(self, conn: Connection[Any], entity_ids: list[str], by: int = 1) -> int:
+        """Move the identity's change counter by ``by`` in ``conn``'s transaction, and stamp the word rows of
+        ``entity_ids`` with the count it reaches (``_COUNT``): the count the change (the last of ``by``) is told
+        with."""
+        row = conn.execute(_COUNT, (self.identity, by, self.identity, entity_ids)).fetchone()
         assert row is not None  # RETURNING gives the row it counted
         return int(row[0])
 
@@ -974,9 +1370,30 @@ class PgVaultStore:
         its own, so that a value's word and a fake's are never one hash; None for a string without one."""
         return None if word is None else self._sealer.keyed_pair(f"{role}-word\x00{word}")[0]
 
-    def _words(self, e: Entity) -> tuple[bytes | None, bytes | None]:
-        """The keyed hashes of ``e``'s two words (``stored.word_of``): its value's and its fake's."""
-        return self._word("original", word_of(e, "original")), self._word("surrogate", word_of(e, "surrogate"))
+    def _print(self, role: str, word: str | None) -> int | None:
+        """The print a row of ``role`` keeps of ``word`` (``latet.server.prints``: its role's slot of the word's four);
+        None for none, as the row's word is."""
+        return None if word is None else prints(self._prints, word)[SLOT[role]]
+
+    def _words(self, e: Entity) -> tuple[tuple[bytes | None, int | None], tuple[bytes | None, int | None]]:
+        """The keyed hashes of ``e``'s two words (``stored.word_of``), its value's and its fake's, each with its
+        print."""
+        value, fake = word_of(e, "original"), word_of(e, "surrogate")
+        return (
+            (self._word("original", value), self._print("original", value)),
+            (self._word("surrogate", fake), self._print("surrogate", fake)),
+        )
+
+    def _rows_of(self, e: Entity) -> list[tuple[str, bytes | None, int | None]]:
+        """Every word row ``e`` has, each by its role, with its keyed hash and its print: its two words, then its edges
+        (``_edges``, a `held` row too)."""
+        (value, value_print), (fake, fake_print) = self._words(e)
+        return [
+            ("original", value, value_print),
+            ("surrogate", fake, fake_print),
+            *self._edges(e, "original"),
+            *self._edges(e, "surrogate"),
+        ]
 
     def _edge(self, role: Role, word: str | None) -> bytes | None:
         """The keyed hash of an edge (``stored.edges_of``) of a value's or a fake's: the second half of the word's
@@ -997,20 +1414,57 @@ class PgVaultStore:
                     found.add(edge)
         return found
 
-    def _edges(self, e: Entity, role: Role) -> list[tuple[str, bytes | None]]:
+    def _hashed_parts(self, roles: tuple[Role, ...], words: Iterable[str]) -> Iterator[list[bytes]]:
+        """``_hashed``'s hashes of ``words``, a part at a time, each of WORDS_AT_ONCE hashes at most and sorted: a word
+        gives two a role at most, and a part is given before the next word could take it past that, so that no more
+        than WORDS_AT_ONCE are made and held at once, however many words a call asks (RESUME-5)."""
+        most = max(1, WORDS_AT_ONCE - 2 * len(roles))
+        part: set[bytes] = set()
+        for word in sorted(set(words)):
+            for role in roles:
+                hashed, edge = self._sealer.keyed_pair(f"{role}-word\x00{word}")
+                part.add(hashed)
+                if len(word) == EDGE:
+                    part.add(edge)
+            if len(part) >= most:
+                done, part = sorted(part), set()
+                yield done
+        if part:
+            yield sorted(part)
+
+    def _printed_parts(self, roles: tuple[Role, ...], words: Iterable[str]) -> Iterator[list[int]]:
+        """The prints of ``words`` in the slots of ``roles`` (each as a word, and one of ``EDGE`` letters as an edge
+        too), a part at a time, each of WORDS_AT_ONCE prints at most and sorted, made as ``_hashed_parts`` makes its
+        hashes."""
+        most = max(1, WORDS_AT_ONCE - 2 * len(roles))
+        part: set[int] = set()
+        for word in words:
+            made = prints(self._prints, word)
+            for role in roles:
+                part.add(made[SLOT[role]])
+                if len(word) == EDGE:
+                    part.add(made[SLOT[f"{role}-head"]])
+            if len(part) >= most:
+                done, part = sorted(part), set()
+                yield done
+        if part:
+            yield sorted(part)
+
+    def _edges(self, e: Entity, role: Role) -> list[tuple[str, bytes | None, int | None]]:
         """The edges of ``e``'s value (``original``) or fake (``surrogate``), where the vault finds it inside a word
-        (``stored.edges_of``, Ruling T10h), each with its role (``original-head``...) and its keyed hash (``_edge``): a
-        text's words, hashed so, find the string by its word or by an edge. A value held in memory for good because no
-        word finds it glued (``stored.held_glued``) has a `held` row as well (its word NULL), by which a space loads the
-        newest of them (``load_held``)."""
+        (``stored.edges_of``, Ruling T10h), each with its role (``original-head``...), its keyed hash (``_edge``) and
+        its print (``_print``): a text's words, hashed so, find the string by its word or by an edge. A value held in
+        memory for good because no word finds it glued (``stored.held_glued``) has a `held` row as well (its word and
+        its print NULL), by which a space loads the newest of them (``load_held``)."""
         head, tail = edges_of(e, role)
-        found: list[tuple[str, bytes | None]] = []
+        found: list[tuple[str, bytes | None, int | None]] = []
         for side, word in (("head", head), ("tail", tail)):
             hashed = self._edge(role, word)
             if hashed is not None:
-                found.append((f"{role}-{side}", hashed))
+                name = f"{role}-{side}"
+                found.append((name, hashed, self._print(name, word)))
         if role == "original" and held_glued(e):
-            found.append(("held", None))
+            found.append(("held", None, None))
         return found
 
     def _read(
@@ -1076,6 +1530,172 @@ class PgVaultStore:
         holds of them in memory for good (Ruling 10b-R3), never all of them."""
         return self._read(_GLUED_NEWEST, (self.identity, self.identity, n), held=True, newest_first=True)
 
+    @property
+    def closed(self) -> bool:
+        """Whether its space closed it (``close``, ``revoke_index``): its background work stops at its next part."""
+        return self._closed.is_set()
+
+    def of_class(self, eclass: EntityClass) -> Iterator[Entity]:
+        """Every value of the vault of the class ``eclass``, the oldest first, those out of a space's memory too (the
+        names a person's space forgets once its filters reject them, ``Runtime.forget_rejected_names``), given one at a
+        time as a cursor of PostgreSQL's reads them ``ROWS_AT_ONCE`` rows at a time (``streamed``): never every name
+        of the vault in memory at once (Task 9's I4). One that does not open is left out and counted."""
+        return self.streamed(_OF_CLASS, (self.identity, int(eclass)))
+
+    def whole_entities(self) -> list[Entity]:
+        """Every value of the vault, the oldest first, through ``streamed``: what a person's vault reads past a bound of
+        a call (``StoredVault._whole_read``), with none of ``load_entities``' doings (the counts set anew, the rules
+        written, the warning of a vault over its limit said at each read)."""
+        return list(self.streamed(_SELECT + " ORDER BY seq", (self.identity,)))
+
+    def streamed(self, query: LiteralString, args: tuple[Any, ...]) -> Iterator[Entity]:
+        """The entities of ``query``'s rows (``_SELECT``'s columns), in its order, opened ``ROWS_AT_ONCE`` at a time
+        through a cursor of PostgreSQL's (its connection held until the last is given or the iterator closed), the GIL
+        let go between two parts, and nothing else done: no count of the vault or of what does not open set anew (one
+        that does not open is counted, and said once, as ``_opened`` says it), no rule written, nothing logged but
+        that."""
+        with self._connection() as conn, conn.cursor(name="vault_streamed") as cursor:
+            cursor.execute(query, args)
+            while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                for row in rows:
+                    with contextlib.suppress(UnreadableEntry):
+                        yield self._opened(row)
+                if len(rows) == ROWS_AT_ONCE:
+                    time.sleep(LET_GO)
+
+    def listed(
+        self, *, q: str, etype: str, eclass: str, page: int, per_page: int
+    ) -> tuple[list[Entity], int, dict[str, int]]:
+        """The dashboard's page of the vault (a person's space, which holds its working set alone in memory): the
+        ``page``-th of ``per_page`` values, the newest first (by ``created``, then by id), a page past the last being
+        the last; how many values match; and how many values of each type the whole vault holds, whatever matches. The
+        type (``etype``, as kept) and the class (``eclass``, its name; one no class has matches nothing) are filtered by
+        PostgreSQL; a search (``q``, in lower case: part of a value, of a fake or of a type, or an entry's id) opens
+        the entries of that type and class ``ROWS_AT_ONCE`` at a time, the newest first, keeping the page's alone and
+        the last page's: never the whole vault in memory, nor in the working set. A value that does not open is left
+        out of a search and of its count, and counted (``unreadable``); without a search it is counted among those that
+        match, as PostgreSQL counts them."""
+        with self._connection() as conn:
+            types = {str(found): int(n) for found, n in conn.execute(_TYPES, (self.identity,)).fetchall()}
+        chosen = EntityClass.__members__.get(eclass) if eclass else None
+        if eclass and chosen is None:
+            return [], 0, types
+        number = int(chosen) if chosen is not None else None
+        args = (self.identity, etype, etype, number, number)
+        if not q:
+            with self._connection() as conn:
+                row = conn.execute(_OF_KIND_COUNTED, args).fetchone()
+            total = int(row[0]) if row is not None else 0
+            pages = max(1, -(-total // per_page))
+            at = (min(max(1, page), pages) - 1) * per_page
+            shown = self._read(_OF_KIND + _NEWEST + " LIMIT %s OFFSET %s", (*args, per_page, at), held=False)
+            return shown, total, types
+        start, total = (max(1, page) - 1) * per_page, 0
+        shown, last = [], deque[Entity](maxlen=per_page)
+        with self._connection() as conn, conn.cursor(name="vault_listed") as cursor:
+            cursor.execute(_OF_KIND + _NEWEST, args)
+            while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                for row in rows:
+                    try:
+                        e = self._opened(row)
+                    except UnreadableEntry:
+                        continue
+                    # Latet's own launch key is never found by its words (N-1): its original is not searched.
+                    in_original = not latet_key(e.etype, e.original) and q in e.original.lower()
+                    if not (q in e.surrogate.lower() or q in e.etype.lower() or q == e.id or in_original):
+                        continue
+                    if start <= total < start + per_page:
+                        shown.append(e)
+                    last.append(e)
+                    total += 1
+                time.sleep(LET_GO)  # the event loop takes its turn between two parts
+        pages = max(1, -(-total // per_page))
+        if total and page > pages:  # past the last: the last, the matches after the pages before it
+            shown = list(last)[-(total - (pages - 1) * per_page) :]
+        return shown, total, types
+
+    def load_glued(self) -> list[Entity]:
+        """The values whose value or fake no word finds glued on both sides (``stored.glued_both``: a head and a tail
+        row of one role), the oldest first: what a space that keeps them all whatever their age holds in memory for
+        good (``StoredVault(glued_all=True)``)."""
+        return self._read(_GLUED_BOTH, (self.identity, self.identity), held=True)
+
+    def current(self) -> bool:
+        """Observe the counter, with safe SQL after an index failure. Each vault also observes ``freshness``.
+
+        The counter is authoritative even with no index: negative engine caches and an open call's final check
+        need to notice remote commits. A local transaction reads through its own connection, never publishing
+        its uncommitted rows into the process index or cache.
+        """
+        if self._closed.is_set():
+            raise psycopg.OperationalError("the vault store is closed")
+        # No store lock while waiting for a pool connection: a transaction owning the last connection may
+        # itself be doing this final check. PrintIndex serializes its own catch-ups and only publishes arrays.
+        index, joined = self.index, self._joined()
+        indexed = False
+        if index is not None and index.ready and (joined is None or joined.conn is None):
+            try:
+                if index.told < index.watermark:
+                    # Built, or caught up by a caller that told no cache (``told`` moves before the watermark): what
+                    # its rows named is not known here.
+                    index.tell(self._cache, self._telling)
+                index.catch_up(cache=self._cache, named=self._telling)
+                with self._index_lock:
+                    if self.index is index:
+                        self._counter_seen = max(self._counter_seen, index.watermark)
+                        indexed = True
+            except Exception as exc:  # its type alone, said by the space (``Spaces._build_index_again``), built again
+                self.index_failure = type(exc).__name__
+                with self._telling(None):
+                    index.ready = False
+                    self._cache.clear()
+        if not indexed:
+            # A detached catch-up certifies no published index. Read the authority without the publication lock;
+            # lookups below reject any replacement whose watermark is behind this observed counter.
+            with self._connection() as conn:
+                row = conn.execute("SELECT counter FROM change_counters WHERE owner = %s", (self.identity,)).fetchone()
+            counter = int(row[0]) if row else 0
+            if counter > self._counter_seen:
+                # A count read alone names nothing: a vault that sees it confirms its whole memory.
+                with self._telling(None):
+                    # The cache is read only while the published index is ready and its watermark is at least this
+                    # counter (``bounded_words``), and every catch-up of that index tells the cache what its rows name:
+                    # past this counter, the cache waits for the index to catch up, and is told then. With no index
+                    # ready, nothing tells it.
+                    ready = self.index
+                    if ready is None or not ready.ready:
+                        self._cache.clear()
+                    self._counter_seen = max(self._counter_seen, counter)
+        now = self.freshness
+        changed = now != self._observed
+        self._observed = now
+        return changed if self.index is not None else False  # SQL-only stores retain KeyVaultStore.current's contract
+
+    def may_be_fake(self, string: str) -> bool:
+        """False only for a current, complete index and an anchored string with no fake-role print.
+
+        Wordless and escaped/short legacy fakes retain authoritative exact lookup. The caller checks freshness
+        at its operation boundary; a standalone exact lookup checks here too.
+        """
+        from latet.engine.anchors import address_word, anchor, dotted
+
+        index = self.index
+        joined = self._joined()
+        if (
+            index is None
+            or not index.ready
+            or index.watermark < self._counter_seen
+            or index.may_have_readings
+            or self._closed.is_set()
+            or (joined is not None and joined.conn is not None)
+        ):
+            return True
+        words = {word for word in (address_word(string), dotted(string), anchor(string)) if word is not None}
+        if not words:
+            return True
+        wanted = [prints(self._prints, word)[SLOT["surrogate"]] for word in words]
+        return bool(index.present(wanted).any())
+
     def by_original(self, value: str) -> Entity | None:
         """The entity of ``value``, by its keyed hash; None when there is none, or it does not open."""
         found = self._read(
@@ -1107,6 +1727,10 @@ class PgVaultStore:
         asked: tuple[Role, ...] = (role,) if isinstance(role, str) else tuple(role)
         if not asked or any(r not in ("original", "surrogate") for r in asked):
             raise ValueError("a word is a value's (original) or a fake's (surrogate)")
+        if self.index is not None:
+            self.current()
+            if self.index.ready:
+                return self.bounded_words(asked, words, _LegacyBudget())
         hashed = sorted(self._hashed(asked, words))  # a role's label is in each hash: one statement asks for all
         roles = [name for r in asked for name in (r, f"{r}-head", f"{r}-tail")]
         if len(hashed) > WORDS_ASKED_AT_MOST:
@@ -1124,6 +1748,188 @@ class PgVaultStore:
             if sum(read) > CANDIDATES_AT_MOST:
                 raise _too_many()
         return list(found.values())
+
+    def bounded_words(self, role: Role | tuple[Role, ...], words: Iterable[str], budget: LookupBudget) -> list[Entity]:
+        """The same candidates as ``with_words``, bounded by the outer masking/restoring call. Never reads all
+        vault words. Charge unreadable rows too, and reject before opening a row beyond either cumulative bound
+        (LookupLimitExceeded: the stored vault reads past it as the release before read, ``engine.lookup``). The SQL
+        guard limits the entire encrypted payload transferred, even for one arbitrarily large row. More than
+        ``CANDIDATES_AT_MOST`` rows read for these words: ``TooManyCandidates``, where 0.10.2's ``with_words`` refused
+        them.
+        """
+        asked: tuple[Role, ...] = (role,) if isinstance(role, str) else tuple(role)
+        if not asked or any(r not in ("original", "surrogate") for r in asked):
+            raise ValueError("a word is a value's (original) or a fake's (surrogate)")
+        budget.check(0, 0)
+        if self._closed.is_set():
+            raise psycopg.OperationalError("the vault store is closed")
+        before = budget.candidates
+        found = self._bounded_words(asked, set(words), budget)
+        if budget.candidates - before > CANDIDATES_AT_MOST:
+            raise _too_many()
+        return found
+
+    def _bounded_words(self, asked: tuple[Role, ...], wanted: set[str], budget: LookupBudget) -> list[Entity]:
+        index, joined = self.index, self._joined()
+        if (
+            index is not None
+            and index.ready
+            and index.watermark >= self._counter_seen
+            and (joined is None or joined.conn is None)
+        ):
+            return self._indexed_words(index, asked, wanted, budget)
+        roles = [name for r in asked for name in (r, f"{r}-head", f"{r}-tail")]
+        found: dict[str, Entity] = {}
+        cut: list[tuple[str | None, str, str]] = []
+        # One connection for every part, each answered whole by a cursor of the client's: an answer is bounded in rows
+        # and in bytes before it is sent (``_BOUNDED_WORDS``), so that the whole of it, up to the call's remaining byte
+        # allowance (64 MiB of payload a call at most), is held at once where a cursor of PostgreSQL's held a part of
+        # ``ROWS_AT_ONCE`` rows; it saves the round trips of declaring and closing one. The words are hashed a part at
+        # a time (``_hashed_parts``), never more than WORDS_AT_ONCE hashes at once (RESUME-5).
+        with self._connection() as conn:
+            for hashed in self._hashed_parts(asked, wanted):
+                # (a part is WORDS_AT_ONCE hashes at most, but where WORDS_AT_ONCE is below one word's hashes)
+                for start in range(0, len(hashed), WORDS_AT_ONCE):
+                    part = hashed[start : start + WORDS_AT_ONCE]
+                    budget.check(0, 0)
+                    args = (self.identity, self.identity, roles, part, budget.row_room, budget.byte_room)
+                    with conn.cursor() as cursor:
+                        _unprepared(cursor, _BOUNDED_WORDS, args)
+                        while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                            for row in rows:
+                                budget.row(int(row[9]))
+                                # Oversized rows have no string fields on the wire. row() has already refused their
+                                # size.
+                                assert row[0] is not None
+                                plain = row[:9]
+                                cut += self._field_names_cut([plain])
+                                with contextlib.suppress(UnreadableEntry):
+                                    entity = self._opened(plain)
+                                    budget.entity(entity, counted=True)
+                                    found.setdefault(entity.id, entity)
+                            if len(rows) == ROWS_AT_ONCE:
+                                time.sleep(LET_GO)
+        self._cut_field_names(cut)
+        return list(found.values())
+
+    def _indexed_words(
+        self, index: PrintIndex, roles: tuple[Role, ...], words: set[str], budget: LookupBudget
+    ) -> list[Entity]:
+        if index.told < index.watermark:  # moved by no catch-up that told this cache (``current``'s own check)
+            index.tell(self._cache, self._telling)
+        # Capture the epoch BEFORE both cache lookup and SQL. A catch-up or resync may race with either.
+        since = self._cache.epoch
+        # The words printed a part at a time, never more than WORDS_AT_ONCE prints at once (RESUME-5's bounded
+        # hashing), each part asked of the index, and only the prints it holds kept.
+        wanted: set[int] = set()
+        for part in self._printed_parts(roles, words):
+            wanted.update(printed for printed, present in zip(part, index.present(part), strict=True) if present)
+        found, unknown = self._cache.get(wanted)
+        for entity in found:
+            budget.entity(entity)
+        by_id = {entity.id: entity for entity in found}
+        pending = sorted(unknown)
+        if not pending:
+            return self._matching(by_id, roles, words)
+        cut: list[tuple[str | None, str, str]] = []
+        # One connection of the pool for every part, in autocommit: each statement is a read of its own, as each part's
+        # transaction was, with no BEGIN and COMMIT around it; and each answered whole by a cursor of the client's, as
+        # it is bounded in rows and in bytes before it is sent (``_BY_PRINTS``): the whole of it, up to the call's
+        # remaining byte allowance, is held at once. Never this thread's open transaction: the caller reads the index
+        # only outside one (``bounded_words``).
+        with self._autocommit() as conn:
+            for start in range(0, len(pending), WORDS_AT_ONCE):
+                part = pending[start : start + WORDS_AT_ONCE]
+                fetched: dict[int, list[Entity]] = {printed: [] for printed in part}
+                unreadable = False
+                budget.check(0, 0)
+                args = (part, self.identity, self.identity, part, budget.row_room, budget.byte_room)
+                with conn.cursor() as cursor:
+                    _unprepared(cursor, _BY_PRINTS, args)
+                    while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                        for row in rows:
+                            budget.row(int(row[9]))
+                            assert row[0] is not None
+                            cut += self._field_names_cut([row[:9]])
+                            try:
+                                entity = self._opened(row[:9])
+                            except UnreadableEntry:
+                                # Cache entries cannot represent unreadable-row charges. Re-fetch this group next time.
+                                unreadable = True
+                                continue
+                            budget.entity(entity, counted=True)
+                            by_id.setdefault(entity.id, entity)
+                            for printed in row[10]:
+                                fetched[int(printed)].append(entity)
+                        if len(rows) == ROWS_AT_ONCE:
+                            time.sleep(LET_GO)
+                if not unreadable:
+                    self._cache.put(fetched, since)
+        self._cut_field_names(cut)
+        return self._matching(by_id, roles, words)
+
+    @staticmethod
+    def _matching(by_id: dict[str, Entity], roles: tuple[Role, ...], words: set[str]) -> list[Entity]:
+        """Those of ``by_id`` whose decrypted word or edge of one of ``roles`` is one of ``words``."""
+        # All roles shared the complete cache group; only the actual decrypted role/word may leave this method.
+        return [
+            entity
+            for entity in by_id.values()
+            if any(
+                word_of(entity, role) in words or any(edge in words for edge in edges_of(entity, role))
+                for role in roles
+            )
+        ]
+
+    def bounded_ids(self, ids: Iterable[str], budget: LookupBudget) -> list[Entity]:
+        """Authoritative by-id confirmation with the same pre-transfer and cumulative row guards."""
+        budget.check(0, 0)
+        if self._closed.is_set():
+            raise psycopg.OperationalError("the vault store is closed")
+        asked = sorted(set(ids))
+        found: list[Entity] = []
+        # One connection, each part answered whole by a cursor of the client's: bounded before it is sent.
+        with self._connection() as conn:
+            for start in range(0, len(asked), WORDS_AT_ONCE):
+                budget.check(0, 0)
+                args = (self.identity, asked[start : start + WORDS_AT_ONCE], budget.row_room, budget.byte_room)
+                with conn.cursor() as cursor:
+                    _unprepared(cursor, _BOUNDED_IDS, args)
+                    while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                        for row in rows:
+                            budget.row(int(row[9]))
+                            assert row[0] is not None
+                            with contextlib.suppress(UnreadableEntry):
+                                entity = self._opened(row[:9])
+                                budget.entity(entity, counted=True)
+                                found.append(entity)
+        return found
+
+    def bounded_retained(
+        self, held: int, glued: bool, budget: LookupBudget
+    ) -> tuple[list[Entity], list[Entity], list[Entity]]:
+        """Refresh retained values under the same row, character and pre-wire payload limits as the call: on one
+        connection, each answer bounded before it is sent and read whole by a cursor of the client's."""
+        with self._connection() as conn:
+            unanchored = self._retained(conn, _BOUNDED_UNANCHORED, budget, budget.row_room)
+            newest = self._retained(conn, _BOUNDED_HELD, budget, min(held, budget.row_room)) if held else []
+            both = self._retained(conn, _BOUNDED_GLUED, budget, budget.row_room) if glued else []
+        return unanchored, newest[::-1], both  # load_held's newest-first contract
+
+    def _retained(self, conn: Connection[Any], query: sql.Composed, budget: LookupBudget, room: int) -> list[Entity]:
+        budget.check(0, 0)
+        found = []
+        with conn.cursor() as cursor:
+            _unprepared(cursor, query, (self.identity, self.identity, room, budget.byte_room))
+            while rows := cursor.fetchmany(ROWS_AT_ONCE):
+                for row in rows:
+                    budget.row(int(row[9]))
+                    assert row[0] is not None
+                    with contextlib.suppress(UnreadableEntry):
+                        entity = self._opened(row[:9])
+                        budget.entity(entity, counted=True)
+                        found.append(entity)
+        return found
 
     def _met(self, roles: list[str], hashed: set[bytes]) -> list[str]:
         """The ids of the entries whose value's (or fake's) word or edge (``roles``) is one of ``hashed``: every such
@@ -1173,18 +1979,22 @@ class PgVaultStore:
         last (``args``): how many got one. Each part's entries are held (``_HELD``) while their words are written, a
         word written only while its own string's keyed hash is the one read (the value's word of an entry whose fake
         changed meanwhile is written), and in the order they were read, as another instance writing the same ones
-        writes them."""
+        writes them; each word with its print. A part that wrote a row moves the identity's count once, its entries'
+        rows stamped with it (``_COUNT``), and tells it as `words` once committed (no entry's: the index of prints of
+        each instance catches up by it, the plan's S3)."""
         filled, after = 0, 0
         while True:
+            if self._closed.is_set():  # its space closed: the next build of it makes the rest (a person's, Task 9)
+                return filled
             with self.db.connection() as conn:
                 rows = conn.execute(query, args(after)).fetchall()
             if not rows:
                 return filled
-            # By entry, in the order read: the keyed hashes of its value and fake, and their words; their edges; and
-            # the keyed hash of how its fake reads, where it is written in escapes (an entry kept by 0.9.9 or 0.9.10
-            # has no such row).
-            read: dict[str, tuple[tuple[bytes, bytes], tuple[bytes | None, bytes | None]]] = {}
-            edged: dict[str, tuple[list[tuple[str, bytes | None]], list[tuple[str, bytes | None]]]] = {}
+            # By entry, in the order read: the keyed hashes of its value and fake, and their words with their prints;
+            # their edges; and the keyed hash of how its fake reads, where it is written in escapes (an entry kept by
+            # 0.9.9 or 0.9.10 has no such row).
+            read: dict[str, tuple[tuple[bytes, bytes], tuple[tuple[bytes | None, int | None], ...]]] = {}
+            edged: dict[str, tuple[list[tuple[str, bytes | None, int | None]], ...]] = {}
             readings: dict[str, bytes] = {}
             for row in rows:
                 try:
@@ -1194,38 +2004,143 @@ class PgVaultStore:
                     if (reading := fake_reading(opened)) is not None:
                         readings[row[0]] = self._sealer.keyed(reading)
                 except UnreadableEntry:
-                    both = (None, None)  # its words cannot be known
+                    both = ((None, None), (None, None))  # its words cannot be known
                 read[row[0]] = ((row[10], row[11]), both)
+            counter = 0
             with self.db.transaction() as conn:
                 held = {row[0]: (row[1], row[2]) for row in conn.execute(_HELD, (self.identity, list(read)))}
                 ids: list[str] = []
                 roles: list[str] = []
                 words: list[bytes | None] = []
+                printed: list[int | None] = []
                 for entity_id, (keys, both) in read.items():
                     now = held.get(entity_id)
                     if now is None:
                         continue  # forgotten meanwhile
                     sides = edged.get(entity_id, ([], []))
-                    for role, key, current, word, its in zip(
+                    for role, key, current, (word, its_print), its in zip(
                         ("original", "surrogate"), keys, now, both, sides, strict=True
                     ):
                         if key == current:  # else its string changed meanwhile, and the change wrote its word
-                            for name, hashed in ((role, word), *its):
+                            for name, hashed, its_printed in ((role, word, its_print), *its):
                                 ids.append(entity_id)
                                 roles.append(name)
                                 words.append(hashed)
+                                printed.append(its_printed)
                 conn.execute(_OLD_EDGES, (self.identity, list(read), ANCHORS_VERSION))
-                added = conn.execute(_ADD_WORDS, (self.identity, ANCHORS_VERSION, ids, roles, words)).fetchall()
+                added = conn.execute(
+                    _ADD_WORDS, (self.identity, ANCHORS_VERSION, ids, roles, words, printed)
+                ).fetchall()
                 # How each fake still as it was read reads: a string the vault knows from now on (``_read_as``), but
                 # where it is one already, as a value or a fake (a collision kept before, left as it is).
                 fakes = [
                     e for e, key in readings.items() if (now := held.get(e)) is not None and read[e][0][1] == now[1]
                 ]
                 conn.execute(_READINGS, (self.identity, [readings[e] for e in fakes], fakes))
+                if added:  # rows written: counted, last, as a change is
+                    counter = self._count(conn, list(read))
+            if counter:
+                self._changed("words", None, counter)
             filled += len({entity_id for entity_id, word in added if word is not None})
             self._cut_field_names(self._field_names_cut(rows))
             after = rows[-1][9]
             time.sleep(LET_GO)  # the event loop takes its turn between two parts
+
+    # --- the prints of the words (latet.server.prints, the server performance plan's Task 5) -----------
+
+    def words_complete(self) -> bool:
+        """Whether every value has its words, so that the backfill (``backfill_words``) would make none: each entry its
+        two of the current version of the anchors (or a later one), and no NULL one that its entry has a word for now
+        (a value or a fake with no anchor, and an entry that does not open, keep theirs NULL: those are complete). The
+        two counts of ``_MISSING``, then the few entries with a NULL word, opened."""
+        with self._connection() as conn:
+            missing = conn.execute(_MISSING, (self.identity, self.identity, ANCHORS_VERSION)).fetchone()
+            if missing is not None and missing[0] > 0:
+                return False
+            nulls = conn.execute(_NULL_ROLES, (self.identity, ANCHORS_VERSION)).fetchall()
+        roles: dict[str, list[Role]] = {}
+        for entity_id, role in nulls:
+            roles.setdefault(str(entity_id), []).append("original" if role == "original" else "surrogate")
+        return not any(word_of(e, role) is not None for e in self.by_ids(roles) for role in roles[e.id])
+
+    def prints_complete(self) -> bool:
+        """Whether every word row has its print (``vault_words_printless`` holds none of the identity's rows): what an
+        index of the vault's prints needs to stand for its words (``latet.server.index``)."""
+        with self._connection() as conn:
+            row = conn.execute(_PRINTLESS, (self.identity,)).fetchone()
+        return row is not None and not row[0]
+
+    def fill_prints(self) -> int:
+        """Give a print to each word row that has none (a vault kept by 0.10.0): how many rows got one. On one instance
+        at a time (``jobs``: ``prints:<identity>`` held ``PRINTS_HOLD_SECONDS``); none while another holds the job,
+        which makes them. ``ROWS_AT_ONCE`` entries at a time, in the order of ``seq``, the GIL let go between two parts:
+        each entry opened, its words made as ``stored.word_of`` and ``stored.edges_of`` make them, and a print written
+        only beside the word whose keyed hash is the row's (``_PRINTS``): a row whose hash its entry does not make now
+        (written by hand, an older version's that the backfill makes again) and the rows of an entry that does not open
+        (counted in ``unreadable``) get their unusable word NULLed; the encrypted entry stays. Each part's entries are
+        held while their prints
+        are written (``_HELD_FOR_PRINTS``); a part that wrote one moves the identity's count once, its rows stamped with
+        it, and tells it as `words` once committed. A fill that wrote any and walked every row tells `prints` at its
+        end, with the last count, so that the other instances' spaces build their indexes again
+        (``spaces.Spaces._changed``). Safe to run again, and on two instances at once: it gives nothing twice."""
+        jobs = self._jobs
+        # The measured million-value fill exceeds five minutes. Size the lease from the actual population,
+        # with a wide per-entry margin; expiration only permits a second idempotent walk, never partial readiness.
+        seconds = max(PRINTS_HOLD_SECONDS, self.count_entities() * 0.002)
+        holding = jobs.hold(f"prints:{self.identity}", seconds) if jobs is not None else contextlib.nullcontext(True)
+        with holding as mine:
+            if not mine:
+                return 0
+            return self._fill_prints()
+
+    def _fill_prints(self) -> int:
+        filled, after, told = 0, 0, 0
+        while True:
+            if self._closed.is_set():
+                return filled
+            with self.db.connection() as conn:
+                rows = conn.execute(_PRINTLESS_ENTRIES, (self.identity, after, ROWS_AT_ONCE)).fetchall()
+            if not rows:
+                break
+            ids: list[str] = []
+            roles: list[str] = []
+            words: list[bytes] = []
+            printed: list[int | None] = []
+            for row in rows:
+                try:
+                    opened = self._opened(row)
+                except UnreadableEntry:
+                    continue  # under the row lock below, its unusable words become NULL
+                for role, hashed, its_print in self._rows_of(opened):
+                    if hashed is not None:
+                        ids.append(opened.id)
+                        roles.append(role)
+                        words.append(hashed)
+                        printed.append(its_print)
+            part = [str(row[0]) for row in rows]
+            done = counter = 0
+            if part:
+                with self.db.transaction() as conn:
+                    conn.execute(_HELD_FOR_PRINTS, (self.identity, part))
+                    done = conn.execute(_PRINTS, (ids, roles, words, printed, self.identity)).rowcount
+                    nulled = conn.execute(
+                        "UPDATE vault_words SET word = NULL WHERE identity_id = %s AND entity_id = ANY(%s)"
+                        " AND word IS NOT NULL AND print IS NULL",
+                        (self.identity, part),
+                    ).rowcount
+                    if done or nulled:  # rows written: counted, last, as a change is
+                        counter = self._count(conn, part)
+            if counter:
+                self._changed("words", None, counter)
+                told = counter
+            filled += done
+            if len(rows) < ROWS_AT_ONCE:
+                break
+            after = rows[-1][9]
+            time.sleep(LET_GO)  # the event loop takes its turn between two parts
+        if told:  # every row walked: the fill is over
+            self._changed("prints", None, told)
+        return filled
 
     # --- the local reviewer's answers ---------------------------------------------------------------
 
@@ -1291,7 +2206,21 @@ class PgVaultStore:
             )
 
     def close(self) -> None:
-        """Nothing: the pool is the server's."""
+        """Revoke index publication immediately; the pool remains the server's."""
+        with self._index_lock:
+            self._closed.set()
+            if self.index is not None:
+                self.index.ready = False
+            self._cache.clear()
+
+    def revoke_index(self) -> None:
+        """Stop a pending build at once on the event loop; close completes its synchronization in a worker."""
+        self._closed.set()
+
+    def drop_cached(self, entity_id: str) -> None:
+        """An explicit forget notification also revokes older fetches of this id, and names it to the vaults' resync."""
+        with self._telling([entity_id]):
+            self._cache.drop([entity_id], [])
 
 
 def _too_many() -> TooManyCandidates:

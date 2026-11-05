@@ -55,6 +55,8 @@ def doctor_here(computer, quiet, monkeypatch):
         "check_port",
         "check_engine",
         "check_recognizers",
+        "check_exceptions",
+        "check_upgrade",
         "check_ner",
         "check_ocr",
         "check_reviewer",

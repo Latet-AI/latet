@@ -26,6 +26,14 @@ Junie CLI, Kilo Code, Continue and Crush also read settings from the project you
 own settings can point them at another address: check them before you work in a repository you did
 not write.
 
+Latet reads every part of each request these tools send
+([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)). Their model
+lists pass on the routes above. A header a tool lets you add is refused, naming it, until an
+[exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it
+through, and a call Latet does not read (files, audio, image generation) is refused. These tools are
+set up by hand, so a folder they name only adds protection
+([Projects](../../concepts/projects/#trusted-and-claimed)).
+
 ## At a glance
 
 Tested means that the tool itself was run through Latet to a test provider on each API it speaks:
@@ -135,6 +143,12 @@ on this computer is left as it is. With OpenRouter, set
 `COPILOT_PROVIDER_TYPE=anthropic` and your Anthropic key. To start `copilot` yourself instead, set
 `COPILOT_PROVIDER_BASE_URL` to Latet's address for it: `http://127.0.0.1:5283/openai/v1`,
 `/openrouter/api/v1` or `/anthropic`.
+
+`latet copilot` also gives Copilot a launch key in `COPILOT_PROVIDER_HEADERS`, added to the headers
+you set there, on an OpenAI-compatible provider over Chat Completions: Latet then trusts the
+session's project. Over the Responses API, Anthropic's API or a WebSocket it passes none and says so,
+and the project is claimed. Headers of your own in `COPILOT_PROVIDER_HEADERS` are refused, naming
+each one, until an exact exception lets it through.
 
 `COPILOT_PROVIDER_WIRE_API=responses` uses the Responses API instead. The model must support tool
 calling and streaming. Without `COPILOT_OFFLINE=true`, the CLI still sends telemetry to GitHub, and

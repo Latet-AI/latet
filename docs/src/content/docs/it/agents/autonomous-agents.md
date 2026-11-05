@@ -27,6 +27,15 @@ una chiave API di Anthropic. La chiave passa attraverso Latet fino al provider e
 nei log né mostrata nella dashboard. Hermes Agent con l'accesso tramite ChatGPT non ha bisogno di una
 chiave: passa da Latet con quell'accesso, come Codex ([più sotto](#accesso-con-chatgpt)).
 
+Latet legge ogni parte di ogni richiesta che questi agenti inviano
+([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)): una chiamata che non
+legge, come un upload o un batch, viene rifiutata, e così un header che aggiungi nelle impostazioni del
+provider di un agente, finché
+un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non lo lascia passare.
+Questi agenti sono configurati a mano, quindi Latet non considera attendibile nessun progetto per loro:
+una cartella che nominano aggiunge solo protezione, e le tue impostazioni per un progetto lì non
+allentano niente ([Progetti](../../concepts/projects/#attendibili-e-dichiarati)).
+
 ## Hermes Agent
 
 Hermes legge il suo modello e il suo endpoint da `config.yaml` nella sua cartella: `~/.hermes` su

@@ -566,9 +566,23 @@ class Metrics:
             return
         self._watching = True
         from latet.server import live, logs, machines, vault  # here: the server's, which this module is imported by
+        from latet.server.instance import process_memory  # here too: this module is imported by the server's
 
         self.gauge(
             "latet_spaces_open", "Identities' spaces kept in memory on this instance.", lambda: server.spaces.count()
+        )
+        self.gauge(
+            "latet_process_memory_bytes",
+            "This instance's process memory, in bytes: its resident set on Linux, its private bytes on Windows; left "
+            "out where it cannot be read. Each worker of `latet server run --workers` is an instance of its own.",
+            process_memory,
+        )
+        self.gauge(
+            "latet_vault_index_bytes",
+            "What the vaults of this instance's spaces take in memory for their indexes (the prints of their words and "
+            "the cache of the entries fetched by print), in bytes, as they count it, counted once a minute: part of "
+            "the process memory.",
+            lambda: server.spaces.index_bytes(),
         )
         self.gauge(
             "latet_identities_enabled",

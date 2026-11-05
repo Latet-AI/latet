@@ -75,3 +75,12 @@ def server_calls(protocol: str | None, body: Any) -> Iterator[tuple[str, list[Sl
                 yield name, [SlotRef(item, "arguments", SlotKind.OUTBOUND_TOOL, True, mode="json")]
     elif protocol == "gemini":  # Google's own tools: its search, a page's context, its maps
         yield from gemini.server_calls(body)
+
+
+def category(tool: object) -> str:
+    """Fixed safe reporting only; sensitive discovery and the agent's reason stay separate."""
+    if type(tool) is str and tool in {"WebSearch", "web_search"}:
+        return "web-search"
+    if type(tool) is str and tool in {"WebFetch", "web_fetch"}:
+        return "web-fetch"
+    return "remote-tool"

@@ -57,6 +57,7 @@ const FLAG_ICON: Record<ParsedFlag['key'], IconName> = {
   'unknown-route': 'question',
   'auto-mode-review': 'search',
   'project-off': 'eyeOff',
+  'project-claimed': 'question',
   withheld: 'ban',
   history: 'sessions',
   outbound: 'external',

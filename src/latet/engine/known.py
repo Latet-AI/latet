@@ -12,7 +12,10 @@ the vault holds, and a bounded cost per value. A value longer than the fresh par
 a part takes a part of its own, compiled once. So the parts are as many as the vault's characters make, never one for
 each long value, and a scan of a text makes that many searches. A value forgotten, or another instance's that takes the
 place of one under its id, has its part compiled again. Each part is compiled under an RE2 budget sized to it
-(``bounded``): many are held, and RE2 compiles them faster so.
+(``bounded``): many are held, and RE2 compiles them faster so. The parts of a vault on a server's store (an API key's,
+a person's since Task 9), which every text is read for whatever its words, get a larger budget for each byte of their
+patterns (``per_byte``, ``SCALED_PER_BYTE``), what their automata need (``StoredVault.detectors_bytes`` weighs what that
+adds).
 
 A reading of the values (``ValueMatchers.current``) takes what the vault changed since the reading before, in one step
 under the vault's lock (``Vault.take_changes``: the version, and for each value changed meanwhile what the vault holds
@@ -20,18 +23,23 @@ of it now), applies it to the parts and compiles each part that changed, then an
 no value the vault knew at that version is missing from them, nor between two readings. A value the vault keeps
 meanwhile is in the next reading. Readings take one lock: a second waits for the first, whose compiles are bounded each,
 with a pause between two when it compiles many parts in a row (``LET_GO``), so that the event loop takes its turn. One
-that fails (no memory) has every value read again by the next."""
+that fails (no memory) has every value read again by the next.
+
+A masker asks for the values and fakes of each text it reads (``Matchers.for_text``): a vault that holds every value in
+memory answers its parts whole, whatever the text; a vault on a server's store, an API key's or a person's
+(``engine.stored``), answers the few its parts hold and those the text's own words find, looked for in the text with
+``str.find`` (``TextValues``), and is told once the text is read (``Matched.seen``)."""
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from latet.engine.detectors.base import DetectContext
-from latet.engine.detectors.terms import WORD_INDEX_FROM, KnownValuesDetector
+from latet.engine.detectors.terms import _PLAIN_READ, WORD_INDEX_FROM, KnownValuesDetector, PlainTerms, Room
 from latet.engine.types import EntityClass, Span
 
 if TYPE_CHECKING:
@@ -59,34 +67,44 @@ _NO_SHORT_FAKES = KnownValuesDetector(())  # a part's detector of short fakes in
 
 
 class _Part:
-    """Some of the vault's entities, and the detectors of their values and of their fakes, made once it changed."""
+    """Some of the vault's entities, and the detectors of their values and of their fakes, made once it changed; and
+    what their RE2 alternations may use past ``BOUNDED_PER_BYTE``'s budget (``extra``)."""
 
-    __slots__ = ("chars", "made", "members")
+    __slots__ = ("chars", "extra", "made", "members")
 
     def __init__(self) -> None:
         self.members: dict[_Key, Entity] = {}
         self.chars = 0
         self.made: tuple[KnownValuesDetector, KnownValuesDetector, KnownValuesDetector] | None = None
+        self.extra = 0
 
     def add(self, key: _Key, entity: Entity) -> None:
         self.members[key] = entity
         self.chars += value_chars(entity)
         self.made = None
+        self.extra = 0  # given back with its detectors: made again, it asks again
 
     def drop(self, key: _Key) -> None:
         self.chars -= value_chars(self.members.pop(key))
         self.made = None
+        self.extra = 0
 
-    def detectors(self, pause: bool = False) -> tuple[KnownValuesDetector, KnownValuesDetector, KnownValuesDetector]:
+    def detectors(
+        self, pause: bool = False, per_byte: int | None = None, room: Room | None = None
+    ) -> tuple[KnownValuesDetector, KnownValuesDetector, KnownValuesDetector]:
         """Its detectors of values, of fakes and of short fakes inside a word, compiled now when it changed: a call
         to RE2 each (none for no short fake, as a rule), each holding the GIL for its whole compile. ``pause``: one of
         many parts compiled in a row (a first reading, a reading of every value again), each compile then followed by a
-        pause (``LET_GO``), so that the event loop takes its turn between two."""
+        pause (``LET_GO``), so that the event loop takes its turn between two. ``per_byte``: the RE2 memory each may use
+        for each byte of its pattern (``KnownValuesDetector``'s; None, the ordinary budget), within ``room``."""
         if self.made is None:
             entities = list(self.members.values())
             # A value masked by strict data mode stays in its structure: `admin` in a table is not `admin` in code.
             known = KnownValuesDetector(
-                ((e.original, e.etype, e.eclass) for e in entities if e.eclass != EntityClass.STRUCT), bounded=True
+                ((e.original, e.etype, e.eclass) for e in entities if e.eclass != EntityClass.STRUCT),
+                bounded=True,
+                per_byte=per_byte,
+                room=room,
             )
             if pause:
                 time.sleep(LET_GO)
@@ -101,16 +119,32 @@ class _Part:
             fakes += [(reading, e.etype, e.eclass) for e in entities if (reading := fake_reading(e)) is not None]
             shorts = [e for e in entities if short_fake(e)]
             whole = {e.surrogate for e in shorts} | {r for e in shorts if (r := fake_reading(e)) is not None}
-            echo = KnownValuesDetector(fakes, rule="echo", bounded=True, whole=whole)
+            echo = KnownValuesDetector(fakes, rule="echo", bounded=True, whole=whole, per_byte=per_byte, room=room)
             if pause:
                 time.sleep(LET_GO)
             inside = _NO_SHORT_FAKES
             if whole:  # a vault of 0.10.0's short secrets: a compile more
-                inside = KnownValuesDetector([fake for fake in fakes if fake[0] in whole], rule="echo", bounded=True)
+                inside = KnownValuesDetector(
+                    [fake for fake in fakes if fake[0] in whole],
+                    rule="echo",
+                    bounded=True,
+                    per_byte=per_byte,
+                    room=room,
+                )
                 if pause:
                     time.sleep(LET_GO)
             self.made = (known, echo, inside)
+            self.extra = known.extra + echo.extra + inside.extra
         return self.made
+
+
+class _Reads(Protocol):
+    """What a part of ``PartedValues`` is: a detector of some values, read over a text (``KnownValuesDetector``)."""
+
+    @property
+    def empty(self) -> bool: ...
+
+    def spans(self, text: str, data: bytes | None = None, lines: bool = False) -> Iterable[Span]: ...
 
 
 class PartedValues:
@@ -119,25 +153,103 @@ class PartedValues:
     id = "known-values"
     mandatory = True
 
-    def __init__(self, parts: tuple[KnownValuesDetector, ...]) -> None:
+    def __init__(self, parts: tuple[_Reads, ...]) -> None:
         self._parts = parts
+
+    def plus(self, more: _Reads) -> PartedValues:
+        """These parts and ``more`` (one that matches nothing left out)."""
+        return self if more.empty else PartedValues((*self._parts, more))
 
     def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
         if not self._parts:
             return
         data = text.encode()
         for part in self._parts:
-            yield from part.spans(text, data)
+            yield from part.spans(text, data, ctx.joined)
+
+
+class TextValues:
+    """Some values (or fakes) looked for in one text and its readings, ``KnownValuesDetector``'s arguments: the few
+    the text's own words find in a vault on a server's store, an API key's or a person's (``engine.stored``), with
+    ``str.find`` (``PlainTerms.spans``: what the detector finds, never less), as no RE2 pattern compiled for so few
+    costs less than reading the text with each.
+    Past ``WORD_INDEX_FROM`` of them, or where reading the text with each would read more than ``_PLAIN_READ``
+    characters (a long document of many), the detector itself, compiled for them (the review of Task 3, Ruling R3-2).
+    What it finds is kept (``found``: each string as the text writes it), for the vault to bring the entities found into
+    memory once the text is read (``Matched.seen``)."""
+
+    __slots__ = ("_detector", "_plain", "found")
+
+    def __init__(
+        self,
+        values: list[tuple[str, str, EntityClass]],
+        text: str,
+        *,
+        rule: str = "known-values",
+        whole: Collection[str] = (),
+    ) -> None:
+        self.found: set[str] = set()
+        self._plain: PlainTerms | None = None
+        self._detector: KnownValuesDetector | None = None
+        if len(values) > WORD_INDEX_FROM or len(values) * max(len(text), 1) > _PLAIN_READ:
+            self._detector = KnownValuesDetector(values, rule=rule, bounded=True, whole=whole)
+        elif values:
+            self._plain = PlainTerms(values, rule=rule, whole=whole)
+
+    @property
+    def empty(self) -> bool:
+        """It matches nothing."""
+        if self._detector is not None:
+            return self._detector.empty
+        return self._plain is None or self._plain.empty
+
+    def spans(self, text: str, data: bytes | None = None, lines: bool = False) -> list[Span]:
+        """``KnownValuesDetector.spans``'s: where its values are in ``text`` (``lines``: a text joined of lines, each
+        line's overlaps within the bound of that line alone, as the detector reads it, ``PlainTerms.spans``)."""
+        if self._detector is not None:
+            found = list(self._detector.spans(text, data, lines))
+        elif self._plain is not None:
+            found = self._plain.spans(text, lines)
+        else:
+            return []
+        self.found.update(text[span.start : span.end] for span in found)
+        return found
+
+
+def text_detectors(entities: Iterable[Entity], text: str) -> tuple[TextValues, TextValues, TextValues]:
+    """The detectors of ``entities``' values, of their fakes and of their short fakes inside a word, as a part of a
+    vault's values makes them (``_Part.detectors``), for one text (``TextValues``)."""
+    from latet.engine.vault import fake_reading, short_fake  # the vault imports this module
+
+    entities = list(entities)
+    known = TextValues([(e.original, e.etype, e.eclass) for e in entities if e.eclass != EntityClass.STRUCT], text)
+    fakes = [(e.surrogate, e.etype, e.eclass) for e in entities]
+    fakes += [(reading, e.etype, e.eclass) for e in entities if (reading := fake_reading(e)) is not None]
+    shorts = [e for e in entities if short_fake(e)]
+    whole = {e.surrogate for e in shorts} | {r for e in shorts if (r := fake_reading(e)) is not None}
+    echo = TextValues(fakes, text, rule="echo", whole=whole)
+    inside = TextValues([fake for fake in fakes if fake[0] in whole] if whole else [], text, rule="echo")
+    return known, echo, inside
 
 
 class Matchers(Protocol):
-    """What a vault's maskers read its values and fakes through (``Vault.matchers``): ``ValueMatchers``, or an
-    applications call's own (``engine.stored``)."""
+    """What a vault's maskers read its values and fakes through (``Vault.matchers``): ``ValueMatchers``, or the own of a
+    vault on a server's store, an API key's or a person's (``engine.stored``)."""
 
     @property
     def chars(self) -> int: ...
 
     def current(self) -> Matched: ...
+
+    def for_text(self, text: str, *, pieces: Iterable[str] | None = None) -> Matched:
+        """The values and fakes ``text`` is read for, in every reading of it (``Masker.detect``, ``known_in``,
+        ``surrogates_in``, each asking once for each text). ``pieces``: the texts ``text`` is joined of
+        (``Masker.joined``), each read where its escapes read on its own."""
+        ...
+
+
+def _nothing() -> None:
+    """Nothing to bring into memory (``Matched.seen``'s own)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,12 +257,16 @@ class Matched:
     """The vault's values (``known``) and fakes (``echo``) as they were at its ``version``; and its short fakes
     (``vault.short_fake``) found inside a word too (``echo_inside``), which ``echo`` finds only where they stand as
     whole words: a conversation's masking reads both, as it restores them as 0.10.0 did, an applications call's
-    ``echo`` alone, as an unmask of the whole vault restores them (``Vault.whole_vault_call``)."""
+    ``echo`` alone, as an unmask of the whole vault restores them (``Vault.whole_vault_call``). ``seen``: called by the
+    masker once a text's reading with them is over, which brings into memory what the text held of the values a vault
+    looked for in it alone (an API key's or a person's: those its words found in the store, Ruling T8a); nothing for a
+    vault that holds them all."""
 
     version: int
     known: PartedValues
     echo: PartedValues
     echo_inside: PartedValues
+    seen: Callable[[], None] = _nothing
 
 
 _MATCHED = ("original", "surrogate", "etype", "eclass")  # what the detectors read of an entity
@@ -165,8 +281,13 @@ class ValueMatchers:
     """A vault's values and fakes, in parts (the module's words). One for each vault (``Vault.matchers``): every masker
     of it reads through it."""
 
-    def __init__(self, vault: Vault) -> None:
+    def __init__(self, vault: Vault, *, per_byte: int | None = None, extra_most: int | None = None) -> None:
         self._vault = vault
+        self._per_byte = per_byte  # the RE2 memory of its parts for each byte of their patterns (``_Part.detectors``)
+        # What its parts may take past ``BOUNDED_PER_BYTE``'s budget at most (None: no ceiling), and what they were
+        # granted, as last read: a part made again asks within what the others hold (``Room``, Task 8's fix round 9).
+        self._extra_most = extra_most
+        self.extra_bytes = 0
         self._lock = threading.Lock()
         self._where: dict[_Key, _Part] = {}  # the part each entity is in
         self._full: list[_Part] = []
@@ -182,6 +303,10 @@ class ValueMatchers:
         their patterns take memory in proportion to. It lags the vault until the next reading: a server weighs each
         value's length as it is kept, by the vault's own count of the same (``Vault.chars``)."""
         return self._chars
+
+    def for_text(self, text: str, *, pieces: Iterable[str] | None = None) -> Matched:
+        """``Matchers.for_text``'s: every value and fake of the vault, whatever the text (``current``)."""
+        return self.current()
 
     def current(self) -> Matched:
         """The values and fakes as the vault holds them now (made again where it changed since the last reading)."""
@@ -200,7 +325,11 @@ class ValueMatchers:
                     self._apply(changed)
                 parts = [part for part in (*self._full, self._fresh, self._long) if part.members]
                 pause = sum(part.made is None for part in parts) > 1  # many compiles in a row: a turn between two
-                made = [part.detectors(pause) for part in parts]
+                room = None
+                if self._per_byte is not None and self._extra_most is not None:
+                    room = Room(self._extra_most - sum(part.extra for part in parts if part.made is not None))
+                made = [part.detectors(pause, self._per_byte, room) for part in parts]
+                self.extra_bytes = sum(part.extra for part in parts)
             except BaseException:
                 self._whole = True  # what was taken may be applied in part: the next reading reads every value
                 raise

@@ -12,7 +12,7 @@ from typing import ClassVar, Literal
 from urllib.parse import unquote, urlsplit
 
 from latet.gateway.routes import Resolved, Upstream
-from latet.logline import redacted
+from latet.logline import safe_method, safe_request_path
 
 Shape = Literal["bedrock", "bedrock-count", "vertex"]
 
@@ -36,8 +36,18 @@ class _AccessRedactor(logging.Filter):
     """uvicorn's access lines, which go to the console or to daemon.log, without a signing route's key."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.args, tuple):
-            record.args = tuple(redacted(arg) if isinstance(arg, str) else arg for arg in record.args)
+        args = record.args
+        if (
+            type(record.msg) is str
+            and record.msg == '%s - "%s %s HTTP/%s" %d'
+            and type(args) is tuple
+            and len(args) == 5
+        ):
+            version = args[3] if type(args[3]) is str and args[3] in {"1.0", "1.1", "2"} else "unknown"
+            status = args[4] if type(args[4]) is int and 100 <= args[4] <= 599 else 0
+            record.args = ("client", safe_method(args[1]), safe_request_path(args[2]), version, status)
+        else:
+            record.msg, record.args = "access request", ()
         return True
 
 
@@ -164,4 +174,14 @@ class VertexUpstream(Upstream):
         return Resolved(url, urlsplit(url).netloc, None, location)
 
 
-CLOUD_UPSTREAMS: tuple[Upstream, ...] = (BedrockUpstream(), VertexUpstream())
+# Google's GenAI SDKs in Vertex AI express mode (an API key, no project) take latet run's Gemini base URL and ask
+# for {base}/v1beta1/publishers/google/models/{model}:{operation}: Vertex AI's global endpoint serves it, the Gemini
+# API does not. The longer prefix wins over /gemini.
+VERTEX_EXPRESS = Upstream(
+    "vertex-express",
+    "/gemini/v1beta1/publishers",
+    "https://aiplatform.googleapis.com/v1beta1/publishers",
+    refuses_unread=True,
+    provider_origin="vertex",
+)
+CLOUD_UPSTREAMS: tuple[Upstream, ...] = (BedrockUpstream(), VertexUpstream(), VERTEX_EXPRESS)

@@ -23,6 +23,7 @@ from cryptography.exceptions import InvalidTag
 
 from latet.fileio import FileReadError, read_regular_bytes
 from latet.server.sealing import DERIVE, VERSIONS, Sealer, derived, version_of
+from latet.server.start_errors import MasterKeyError
 
 if TYPE_CHECKING:
     from latet.server.db import Database
@@ -31,10 +32,6 @@ if TYPE_CHECKING:
 _OWN = b"master"  # the purpose of what the master key seals itself: no sealer of it is handed out for this one
 _CHECK = b"the master key check"  # what the database's check value says: nothing, but that it opens
 MASTER_FILE_BYTES = 64 * 1024
-
-
-class MasterKeyError(RuntimeError):
-    """No master key, or not one: the server says how to give it."""
 
 
 class MasterKey:

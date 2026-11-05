@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { AgentIntegration, CheckStatus, DestinationUse } from '../api/types'
 import { DocsSectionLink } from '../components/DocsLinks'
 import { Icon, StatusGlyph } from '../components/Icon'
+import { RequestExceptionsSection } from '../components/RequestExceptions'
 import { useToast } from '../components/Toast'
 import { CommandLine, EmptyState, ErrorState, errorText, InlineCodeText, Loading, PageHeader } from '../components/ui'
 import { tk } from '../i18n'
@@ -207,6 +208,8 @@ export function IntegrationsPage() {
       </section>
 
       <Destinations destinations={destinations} onChange={data.reload} />
+
+      <RequestExceptionsSection />
 
       <section className="mt-8 grid max-w-[640px] gap-2">
         <h2 className="text-title font-semibold text-ink">{t('integrations.cli.title')}</h2>

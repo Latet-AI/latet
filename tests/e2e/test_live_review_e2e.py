@@ -58,7 +58,7 @@ def client(runtime):
 
 
 def _chat(client, content=PROMPT):
-    body = {"model": "m", "messages": [{"role": "user", "content": content}]}
+    body = {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": content}]}
     return client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-test"})
 
 

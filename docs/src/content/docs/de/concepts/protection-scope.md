@@ -48,6 +48,42 @@ Werte, die kein Detektor findet, auch in den Schlüsseln eines JSON-Dokuments. E
 der Name eines Feldes geschrieben ist, in Kleinbuchstaben, Ziffern, `_` und `-` (`exit_code`, aber
 auch `mario_rossi`), wird ihm nicht gezeigt: Die Detektoren lesen ihn, wie sie jeden Schlüssel lesen.
 
+## Jeder Teil einer Anfrage
+
+Latet liest jeden Teil einer Anfrage, bevor es sie sendet, auf einem Rechner wie auf einem Server, und
+sendet nichts, worüber es nicht Rechenschaft ablegen kann:
+
+- **Der Pfad** muss einer Route entsprechen, die eines der Anfrageprofile von Latet kennt, und jeder
+  seiner Teile muss seine Form haben: die ID eines Modells, eine Region, eine Ressource, die Sie
+  aufgelistet haben. Jeder andere Aufruf wird abgelehnt, auch einer ohne Inhalt.
+- **Abfrageparameter** werden vom Profil genannt, und jeder Wert muss seine Form haben. Einer, den kein
+  Profil nennt, wird abgelehnt.
+- **Header.** Zugangsdaten werden gesendet, wie sie kamen, nie protokolliert oder aufgezeichnet. Jeder
+  andere Header muss die Form haben, die sein Agent ihm gibt, oder wird von der abschließenden Prüfung
+  gelesen, wenn er freien Text enthalten kann (`user-agent`). Die Header, die SDKs und Tracing
+  hinzufügen (`x-stainless-*`, `traceparent`...), und die eigenen Header der Agenten, die freien Text
+  enthalten können (die IDs eines Subagenten von Claude Code, die Turn-Metadaten von Codex...),
+  werden entfernt und im Dashboard gezählt: [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie nach Agent
+  auf. Jeder andere Header wird abgelehnt, und sein Name wird nur dem Agenten genannt.
+- **Der Inhalt.** Seine Texte werden maskiert, oder geprüft, wo Latet die Anfrage nur prüft. Jedes
+  andere Element muss seine Form haben (die ID eines Modells, der Name eines Tools, eine Einstellung)
+  und wird von der abschließenden Prüfung gelesen, wo es Text enthält. Ein Element, das kein Profil
+  nennt, wird abgelehnt, und dem Agenten wird gesagt, wo es stand, nie sein Name.
+
+Im Dashboard zeigt jeder Austausch, ob jeder Teil seiner Anfrage gelesen wurde oder was einen Teil
+durchgelassen hat: *nur geprüft* (ein Wert, den die abschließende Prüfung gelesen hat und nicht
+maskieren musste), *durch eine Regel erlaubt* (eine der eingebauten Regeln von Latet, etwa für die
+verschlüsselten Felder, die der Anbieter selbst zurückgibt) oder eine
+[Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen), die Sie
+genehmigt haben. Eine Ablehnung sagt dem Agenten, dass nichts gesendet wurde. Wird ein
+zweiter Versuch abgelehnt, nachdem ein erster den Anbieter erreicht hat (eine Anfrage an Bedrock, die
+neu signiert wurde, nachdem ihre AWS-Anmeldung abgelaufen war), erfährt der Agent, dass kein weiterer
+Versuch gesendet wurde und der erste angekommen sein kann, nie, dass nichts gesendet wurde.
+
+Zwei Dinge bleiben außen vor: was ein Agent ohne die Adresse von Latet sendet, das Latet nie sieht,
+und der [lokale Prüfer](../llm-review/), der die Originaltexte erhält, weil Sie ihn so eingerichtet
+haben.
+
 ## Nicht geschützt
 
 **Werte, die die Detektoren nicht erkennen.** Latet maskiert nur, was es erkennt. Ein geheimer Wert
@@ -60,14 +96,15 @@ werden nicht erkannt. Bei der Erkennung gibt es immer falsch negative Ergebnisse
 
 **Bilder.** Mit der optionalen [Texterkennung](../images/) wird der Text in einem Screenshot auf
 Ihrem Rechner gelesen, und jeder gefundene Wert wird mit seinem Ersatzwert überdeckt. Das geschieht
-ohne Gewähr, wie bei Namen: Text, den sie nicht liest, geht unverändert hinaus. Ohne sie werden
-Bilder unverändert gesendet und als *Nicht gelesen* markiert.
+ohne Gewähr, wie bei Namen: Text, den sie nicht liest, geht unverändert hinaus. Ohne sie wird eine
+Anfrage mit einem Bild nicht gesendet. Bei einer Anfrage, die Latet nur prüft, wie denen von Claude
+Code, werden auch der Standort eines Fotos, die Herstellerangaben einer Kamera und ein Bild im Bild
+abgelehnt ([Fotos und ihre Metadaten](../images/#fotos-und-ihre-metadaten)). QR-Codes und Strichcodes
+werden nicht entschlüsselt: Die Daten, die sie enthalten, gehen mit dem Bild hinaus.
 
 **PDFs und andere Dokumente, per Adresse eingebundene Bilder, Audioclips.** Ihr Inhalt wird nicht
-gelesen und unverändert gesendet, auch von einem Latet-Server; das Dashboard markiert diese Anfragen
-als *Nicht gelesen*. Hängen Sie keine Dokumente an, die sensible Daten enthalten, oder setzen Sie
-`images: block` (das Profil `max` tut dasselbe): Eine Anfrage, die ein solches enthält, wird dann
-nicht gesendet. Die Seiten eines Browsers, als Text gelesen, werden wie jede Tool-Ausgabe maskiert
+gelesen, daher wird eine Anfrage, die ein solches enthält, nicht gesendet, auf einem Rechner wie auf
+einem Server, was immer `images` sagt. Geben Sie dem Agenten stattdessen den Text. Die Seiten eines Browsers, als Text gelesen, werden wie jede Tool-Ausgabe maskiert
 ([Produktionsdaten](../production-data/)); seine Screenshots sind Bilder.
 
 **Web-Tools, Subagenten und claude.ai-Connectors behalten die Ersatzwerte (Claude Code).** WebFetch,
@@ -175,21 +212,22 @@ Tools, die Schemas ihrer Parameter und die Beispiele ihrer Eingabe wie die Unter
 ebenso das Schema einer strukturierten Ausgabe, eine vorhergesagte Ausgabe und das, was eine Anfrage
 darüber sagt, für wen sie ist (`user`, `safety_identifier`, `metadata`). Die Namen der Tools, das,
 womit der Anbieter ein eigenes Tool ausführt (Adresse und Header eines entfernten MCP-Servers, der
-Standort einer Websuche), und die übrigen Einstellungen der Anfrage werden unverändert
-weitergeleitet. In Claude Code maskiert das Plugin die Beschreibungen der Tools, und die
-abschließende Prüfung liest `metadata` und das Schema einer strukturierten Ausgabe; von einem Rechner
-werden die Schemas der Tool-Parameter unverändert gesendet, und ein Latet-Server prüft sie (siehe
-unten). Ein anderer Client als Claude Code auf einem Weg, den Latet nur prüft (die Anmeldung eines
+Standort einer Websuche) und die übrigen Einstellungen der Anfrage müssen jeweils die Form haben,
+die ihr Profil ihnen gibt, und werden von der abschließenden Prüfung gelesen, wo sie Text enthalten;
+eines, das kein Profil nennt, stoppt die Anfrage ([Jeder Teil einer Anfrage](#jeder-teil-einer-anfrage)).
+In Claude Code maskiert das Plugin die Beschreibungen der Tools, und die abschließende Prüfung liest
+`metadata`, das Schema einer strukturierten Ausgabe und die Schemas der Tool-Parameter (siehe unten).
+Ein anderer Client als Claude Code auf einem Weg, den Latet nur prüft (die Anmeldung eines
 Abonnements, Bedrock, Vertex), hat kein Plugin: Die abschließende Prüfung liest auch die
 Beschreibungen, Parameter und Beispiele seiner Tools und stoppt eine Anfrage, die darin einen Wert im
 Klartext hinauslassen würde.
 
-**Die Tools von Claude Code auf einem Server.** Das Plugin maskiert die Beschreibungen der Tools, auch
-die von `tool_addition`. Ein Latet-Server nimmt die Marker der Anfrage nicht als Beleg dafür, dass das
-Plugin ausgeführt wurde: Seine abschließende Prüfung liest die Beschreibung jedes Tools, das Schema
+**Die Tools von Claude Code.** Das Plugin maskiert die Beschreibungen der Tools, auch die von
+`tool_addition`. Latet nimmt die Marker der Anfrage nicht als Beleg dafür, dass das Plugin ausgeführt
+wurde, auf einem Rechner wie auf einem Server: Seine abschließende Prüfung liest die Beschreibung jedes Tools, das Schema
 seiner Parameter und die Beispiele seiner Eingabe, wie bei einem Client ohne Plugin, und stoppt eine
 Anfrage, die darin einen Wert im Klartext hinauslassen würde. Ein MCP-Tool, dessen Schema die Adresse
-eines Kunden nennt, stoppt deshalb die Anfragen von Claude Code auf einem Server, bis der Wert aus dem
+eines Kunden nennt, stoppt deshalb die Anfragen von Claude Code, bis der Wert aus dem
 Schema entfernt oder in Ihren Einstellungen erlaubt ist. Eine Tool-Definition in einer Form, die Latet
 nicht liest, wird abgelehnt, wie bei jedem Client. Die hier beschriebenen Prüfungen von Metadaten,
 strukturierten Ausgaben und Fallback-Schemas gelten weiterhin.
@@ -200,10 +238,9 @@ Schemas maskiert; bei nur geprüften Anfragen werden sie abgelehnt, sichere Byte
 Fallbacks mit nur einem Modell bleiben unterstützt. Ein Server mit aktivem Schutz lehnt fehlerhafte
 Fallback-Container und Ausgabeschemas ab.
 
-**Was Latet nicht liest, auf einem Latet-Server.** Ein Rechner sendet unverändert, was Latet nicht
-liest; ein Latet-Server lehnt es ab, mit einem Fehler, der den Grund nennt. Er lehnt eine Anfrage
-ab, deren Body Latet nicht liest: an einen anderen Endpunkt als den Aufruf eines Modells, etwa files
-oder batches, oder mit einer anderen Methode als POST. Er lehnt Inhalte in einer Form ab, die Latet
+**Was Latet nicht liest.** Latet lehnt ab, was es nicht liest, auf einem Rechner wie auf einem
+Server, mit einem Fehler, der den Grund nennt. Es lehnt einen Aufruf ab, den kein Profil nennt: etwa
+files oder batches, oder eine Methode, die die Route nicht annimmt. Es lehnt Inhalte in einer Form ab, die Latet
 nicht liest: einen Completions-Prompt aus Tokens; eine Prompt-Variable, eine Tool-Definition oder
 das Format einer Antwort einer Art, die Latet nicht kennt; einen Teil des Inhalts, einen Block einer
 Nachricht oder ein Element der Eingabe einer Art, die Latet nicht kennt, in Chat Completions, den
@@ -214,19 +251,19 @@ einer Live-Unterhaltung (`audio`, `output_audio`) und das, was in einem Audiocli
 lehnt einen WebSocket-Frame ab, der keine Runde ist (`response.create`; `response.cancel` geht
 durch), und bei einer Anfrage, die er nur prüft (Claude Code, Bedrock, Vertex), ein Bild, dessen
 Text er nicht lesen konnte, was immer `images` sagt. Was der Anbieter erzeugt hat und ihm so
-zurückgegeben wird, wie er es erzeugt hat, geht durch: das Reasoning des Modells, eine
-Kompaktierung, die Aufrufe der eigenen Tools des Anbieters und ihre Ergebnisse. Ebenso geht durch,
-was nichts enthält, etwa ein Verweis auf ein früheres Element, und eine Anfrage ohne Body, etwa die
-Liste der Modelle.
+zurückgegeben wird, wie er es erzeugt hat, geht durch, wenn Latet es in dieser Unterhaltung vom
+Anbieter kommen sah: das Reasoning des Modells und seine Signaturen, eine Kompaktierung, die Aufrufe
+der eigenen Tools des Anbieters und ihre Ergebnisse. Wo Latet es nicht sah (der Daemon eines Rechners
+wurde zum Beispiel neu gestartet), lässt eine eingebaute Regel die verschlüsselten Felder des
+Anbieters selbst durch, nur in den Zügen des Modells und nur an die Adresse des Anbieters, nie über
+ein Unternehmens-Gateway; das Dashboard zeigt sie als *durch eine Regel erlaubt*. Ebenso geht durch,
+was nichts enthält, etwa ein Verweis auf ein früheres Element, und eine Anfrage ohne Body auf einer
+Route, die ein Profil nennt, etwa die Liste der Modelle.
 
-Ein Server mit aktivem Schutz lehnt außerdem Chat-Nachrichten mit `name`, Anthropic-Blöcke vom Typ
-`search_result` und Dokumentblöcke mit `title` oder `context` ab, auch innerhalb von Tool-Ergebnissen
-und bei `images: allow`. Diese optionalen Formen werden auf dem Server auch mit leeren Werten oder
-null nicht unterstützt. Ein Dokument ohne Titel oder Kontext folgt der Einstellung `images`, wie
-überall. Ein Rechner lehnt diese Formen nicht ab und maskiert sie auch nicht: Ihr Text geht so
-hinaus, wie er kam. Ein Suchergebnis und ein Dokument werden als *Nicht gelesen* markiert; das
-`name` einer Chat-Nachricht wird weder maskiert noch markiert, halten Sie die Werte, die Sie
-schützen, also aus ihm heraus.
+Latet lehnt außerdem Chat-Nachrichten mit `name`, Anthropic-Blöcke vom Typ `search_result` und
+Dokumentblöcke mit `title` oder `context` ab, auch innerhalb von Tool-Ergebnissen, auf einem Rechner
+wie auf einem Server. Diese optionalen Formen werden auch mit leeren Werten oder null nicht
+unterstützt. Ein Dokument ohne Titel oder Kontext wird abgelehnt wie jedes Dokument.
 
 **Die Prüfung im Auto-Modus von Claude Code.** Der Prüfer des Auto-Modus erhält Ihren Benutzernamen
 im Betriebssystem und die Pfade Ihres Home- und Arbeitsverzeichnisses, dazu jeden Hostnamen oder
@@ -248,7 +285,7 @@ werden mit jeder Anfrage erneut gesendet. Latet markiert sie im Dashboard, statt
 denn sie wurden bereits gesendet, und Blockieren würde die Unterhaltung anhalten. Beginnen Sie eine
 neue Unterhaltung, um sie hinter sich zu lassen.
 
-**Früher gesendete Daten.** Alles, was gesendet wurde, bevor Latet installiert war oder während es
-ausgeschaltet war, liegt bereits beim Anbieter.
+**Früher gesendete Daten.** Alles, was gesendet wurde, bevor Latet installiert war oder, vor 0.11,
+aus einem Projekt, in dem es ausgeschaltet war, liegt bereits beim Anbieter.
 
 Die Überlegungen hinter diesen Grenzen stehen unter [Sicherheit und Bedrohungsmodell](../../security/).

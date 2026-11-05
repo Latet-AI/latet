@@ -9,7 +9,7 @@
 # then `uv tool uninstall latet`.
 # It installs the latest release from GitHub, with local name detection and the text in images (without
 # them where they cannot be installed, unless the Latet installed here has them: it is then left as it
-# was); their models are downloaded only when you ask.
+# was); their models are downloaded only when you ask. The other extras of a Latet installed here stay.
 # LATET_SOURCE: what to install instead (a wheel file, or a requirement such as "latet @ <url>").
 # LATET_NO_MODIFY_PATH=1: leave the shell profile alone.
 set -eu
@@ -88,6 +88,29 @@ had_extras() {
     fi
 }
 
+# The extras of the Latet installed here besides name detection and the text in images, comma-separated (a
+# server's "server"): uv uninstalls those a requirement leaves out, so they are named again. None from a uv too old
+# to say.
+other_extras() {
+    LISTED="$("$UV" tool list --show-extras 2>/dev/null)" || return 0
+    NAMED="$(printf '%s\n' "$LISTED" | sed -n 's/^latet .*\[extras: \([A-Za-z0-9._, -]*\)\].*$/\1/p' | head -n 1)"
+    OTHERS=""
+    WAS="$IFS"
+    IFS=", "
+    for extra in $NAMED; do
+        case "$extra" in
+            ner | ocr | "") ;;
+            *)  # an extra's name, as uv takes it: never `-x` or `.y`
+                if printf '%s\n' "$extra" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$'; then
+                    OTHERS="${OTHERS:+$OTHERS,}$extra"
+                fi
+                ;;
+        esac
+    done
+    IFS="$WAS"
+    printf '%s' "$OTHERS"
+}
+
 find_uv() {
     if command -v uv >/dev/null 2>&1; then
         command -v uv
@@ -139,6 +162,13 @@ fi
 HAD=""  # set: the Latet installed here has name detection or the text in images
 if [ -n "$PLAIN" ] && had_extras; then
     HAD=1
+fi
+if [ -n "$PLAIN" ]; then
+    OTHERS="$(other_extras)"
+    if [ -n "$OTHERS" ]; then
+        SOURCE="latet[ner,ocr,$OTHERS] @ $WHEEL"
+        PLAIN="latet[$OTHERS] @ $WHEEL"
+    fi
 fi
 
 if command -v latet >/dev/null 2>&1; then

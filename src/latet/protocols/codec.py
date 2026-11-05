@@ -48,6 +48,13 @@ def _codings(header: str | None) -> list[str]:
     return [c.strip().lower() for c in header.split(",") if c.strip() and c.strip().lower() != "identity"]
 
 
+def coded(content_encoding: str | None) -> bool:
+    """Whether ``Content-Encoding`` names a coding other than identity. A coding can carry bytes its decoder skips
+    (what follows a deflate stream, gzip's header fields and further members, zstd's skippable frames, brotli's
+    metadata blocks), which no check reads: a request body so coded never leaves as the container it came in."""
+    return bool(_codings(content_encoding))
+
+
 def decode(body: bytes, content_encoding: str | None, *, limit: int | None = None) -> bytes:
     """Undo every coding listed in ``Content-Encoding``, last applied first. ``limit``: the bytes each coding undone
     may make, at most (DecodedTooLarge as soon as it would pass them; UnreadableBody for a body its coding does not
@@ -59,8 +66,10 @@ def decode(body: bytes, content_encoding: str | None, *, limit: int | None = Non
         return body
     if len(codings) > CODINGS_KEPT:
         raise UnsupportedEncodingError(f"{len(codings)} codings, where {CODINGS_KEPT} are read at most")
+    remaining = limit
     for coding in codings:
-        body = _bounded(body, coding, limit)
+        body = _bounded(body, coding, remaining)
+        remaining -= len(body)
     return body
 
 

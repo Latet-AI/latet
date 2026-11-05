@@ -12,7 +12,7 @@ import latet.cli.admin  # noqa: F401 - registers the commands, `ocr` among them
 from latet.api.rest import Dashboard
 from latet.cli.main import app
 from latet.config import Config, IdentityConfig, Profile, save_config
-from latet.doctor.checks import OK, check_ocr
+from latet.doctor.checks import OK, WARN, check_ocr
 from latet.engine.modelspec import VERIFIED, model_dir
 from latet.runtime import make_runtime
 from latet.vision import models
@@ -47,18 +47,19 @@ def test_installed_needs_both_models_verified(setup):
 
 
 @pytest.mark.parametrize(
-    ("config", "says"),
+    ("config", "status", "says"),
     [
-        (Config(profile=Profile.MAX), "not sent (the max profile)"),
-        (Config(images="block"), "not sent (`images: block`)"),
-        (Config(ocr="off"), "not read (`ocr: off`)"),
-        (Config(), "`latet ocr install` reads them"),
+        (Config(profile=Profile.MAX), OK, "not sent (the max profile)"),
+        (Config(images="block"), OK, "not sent (`images: block`)"),
+        # P2-2: no image leaves unread, so where images are not read a request that carries one is refused: a warning.
+        (Config(ocr="off"), WARN, "not read (`ocr: off`): a request that carries an image is refused"),
+        (Config(), WARN, "not read: a request that carries an image is refused (`latet ocr install` reads it)"),
     ],
 )
-def test_the_doctor_says_whether_images_are_read(setup, config, says):
+def test_the_doctor_says_whether_images_are_read(setup, config, status, says):
     save_config(config)
     [check] = check_ocr()
-    assert check.status == OK and says in check.detail
+    assert check.status == status and says in check.detail
 
 
 def test_ocr_status_and_remove(setup):

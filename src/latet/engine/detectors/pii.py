@@ -19,7 +19,7 @@ import phonenumbers
 import re2
 
 from latet.engine.detectors import checksums, ids
-from latet.engine.detectors.base import DetectContext, group
+from latet.engine.detectors.base import DetectContext, group, quiet_options
 from latet.engine.detectors.ids.regions.it import (  # noqa: F401 - their old home
     fiscal_code_check_char,
     fiscal_code_valid,
@@ -451,8 +451,47 @@ def _crypto(text: str) -> Iterator[Span]:
                 yield Span(m.start(), m.end(), "CRYPTO_WALLET", EntityClass.PII, "pii:btc-bech32")
 
 
+# What RE2 may use to compile the Set of all the scans' patterns and to run it (its DFA is rebuilt past it, slower):
+# 64 MB read the documents no faster than 256 MB and the log lines two and a half times slower (the spike's probe).
+_SET_MEMORY = 256 << 20
+# What a regular expression is read by, apart from the memory it may use and whether it logs: the Set reads every
+# pattern with RE2's defaults, so a pattern compiled otherwise is not asked of it.
+_MEANING = tuple(name for name in re2.Options.NAMES if name not in ("log_errors", "max_mem"))
+_DEFAULTS = quiet_options()  # RE2's defaults, but for what _MEANING leaves out
+
+
+def _by_defaults(regex: re2._Regexp) -> bool:
+    """Whether ``regex`` was compiled with RE2's defaults, as far as a match is concerned."""
+    return all(getattr(regex.options, name) == getattr(_DEFAULTS, name) for name in _MEANING)
+
+
+@cache
+def _set_of(patterns: tuple[str, ...], memory: int) -> re2.Set | None:
+    """One RE2 Set over ``patterns``, made once for every detector that asks for these: what it costs a detector is
+    its DFA's cache, and a process may hold many detectors (a Set can be read by many threads). None where RE2 cannot
+    make it within ``memory``, or there is no pattern."""
+    if not patterns:
+        return None
+    try:
+        found = re2.Set.SearchSet(quiet_options(max_mem=memory))
+        for pattern in patterns:
+            found.Add(pattern)
+        found.Compile()
+    except re2.error:
+        return None
+    return found
+
+
 class PiiDetector:
     """Structured personal data, each match validated (checksums, number plans, the IANA TLD list)."""
+
+    # With ``prefilter`` (the default) one RE2 Set over the patterns of every scan says, in one pass over the text,
+    # which scans have a match to read: a scan whose own pattern matches nowhere in the text finds nothing, so it is not
+    # run. The spans are the same either way, in the same order; ``prefilter=False`` runs every scan on every text, as
+    # 0.10.0 did. The scans are named ``email``, ``phone``, ``iban``, ``card``, ``ip``, ``crypto``, ``vat`` and
+    # ``id<k>`` for the k-th of the ID matchers, when they have a pattern (the Italian fiscal code and partita IVA are
+    # found by finders of their own: no pattern to ask, so they always run). (Kept out of the class's docstring: the
+    # detectors' reference page is made from it.)
 
     id = "pii"
     mandatory = False
@@ -462,6 +501,8 @@ class PiiDetector:
         enabled: Iterable[str] = ALL_PII,
         phone_regions: Iterable[str] = DEFAULT_PHONE_REGIONS,
         include_private_ips: bool = False,
+        *,
+        prefilter: bool = True,
     ) -> None:
         self.enabled = frozenset(enabled)
         self.phone_regions = tuple(phone_regions)
@@ -469,23 +510,79 @@ class PiiDetector:
         self._ids = [ids.IdMatcher(spec) for etype, spec in ids.SPECS.items() if etype in self.enabled]
         # The Italian partita IVA keeps its own type, IT prefix or not, while that type is on.
         self._vat_skip = frozenset({"IT"}) if "IT_VAT_CODE" in self.enabled else frozenset()
+        # Each ID matcher with its scan's name, None where it has no pattern (it always runs).
+        self._id_scans = [(matcher, None if matcher.regex is None else f"id{k}") for k, matcher in enumerate(self._ids)]
+        scans = self._scans()
+        self._names = frozenset(scans)  # every scan that has a pattern
+        self._set: re2.Set | None = None  # the Set over the patterns of the scans it can ask for, and what its patterns
+        self._set_names: tuple[str, ...] = ()  # belong to, by number
+        self._always: frozenset[str] = frozenset()  # the scans with a pattern the Set cannot ask for: they always run
+        if prefilter:
+            self._prefilter(scans)
+
+    def _scans(self) -> dict[str, list[re2._Regexp]]:
+        """The patterns of each scan that is on, by the scan's name."""
+        on = self.enabled
+        scans: dict[str, list[re2._Regexp]] = {}
+        if "EMAIL" in on:
+            scans["email"] = [_EMAIL]
+        if "PHONE" in on:
+            scans["phone"] = [_PHONE_CANDIDATE]
+        if "IBAN" in on:
+            scans["iban"] = [_IBAN]
+        if "CREDIT_CARD" in on:
+            scans["card"] = [_CARD]
+        if "IP_ADDRESS" in on:
+            scans["ip"] = [_IPV4, _IPV6]
+        if "CRYPTO_WALLET" in on or "CRYPTO" in on:
+            scans["crypto"] = [_BTC_BASE58, _BTC_BECH32]
+        if "VAT_NUMBER" in on:
+            scans["vat"] = [regex for _, regex in ids.vat._COMPILED]
+        for matcher, name in self._id_scans:
+            if name is not None and matcher.regex is not None:
+                scans[name] = [matcher.regex]
+        return scans
+
+    def _prefilter(self, scans: dict[str, list[re2._Regexp]]) -> None:
+        """The Set over the patterns of ``scans``, but for a scan with a pattern compiled otherwise than by RE2's
+        defaults: that one is left out and always runs. Where RE2 cannot make the Set (past its memory), every scan runs
+        on every text."""
+        asked = {name: regexes for name, regexes in scans.items() if all(_by_defaults(regex) for regex in regexes)}
+        names = tuple(name for name, regexes in asked.items() for _ in regexes)
+        found = _set_of(tuple(regex.pattern for regexes in asked.values() for regex in regexes), _SET_MEMORY)
+        if found is None:
+            return
+        self._set, self._set_names = found, names
+        self._always = self._names.difference(asked)
+
+    def matched(self, text: str) -> frozenset[str]:
+        """The scans whose pattern matches somewhere in ``text``, by name, from one pass of the Set. Without a Set
+        (``prefilter=False``, or none could be made) every scan, as each has to read the text."""
+        if self._set is None:
+            return self._names
+        hit = self._set.Match(text)
+        return frozenset(self._set_names[i] for i in hit) if hit else frozenset()
 
     def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
         on = self.enabled
         natural = ctx.kind.natural_language
-        if "EMAIL" in on:
+        hit = self.matched(text)
+        if self._always:
+            hit |= self._always
+        if "EMAIL" in on and "email" in hit:
             yield from _emails(text)
-        if "PHONE" in on:
+        if "PHONE" in on and "phone" in hit:
             yield from _phones(text, natural, self.phone_regions)
-        if "IBAN" in on:
+        if "IBAN" in on and "iban" in hit:
             yield from _ibans(text)
-        if "CREDIT_CARD" in on:
+        if "CREDIT_CARD" in on and "card" in hit:
             yield from _cards(text)
-        for matcher in self._ids:
-            yield from matcher.find(text, natural)
-        if "VAT_NUMBER" in on:
+        for matcher, name in self._id_scans:
+            if name is None or name in hit:
+                yield from matcher.find(text, natural)
+        if "VAT_NUMBER" in on and "vat" in hit:
             yield from ids.vat.find(text, self._vat_skip)
-        if "IP_ADDRESS" in on:
+        if "IP_ADDRESS" in on and "ip" in hit:
             yield from _ips(text, self.include_private_ips)
-        if "CRYPTO_WALLET" in on or "CRYPTO" in on:  # CRYPTO: the name before 0.1
+        if ("CRYPTO_WALLET" in on or "CRYPTO" in on) and "crypto" in hit:  # CRYPTO: the name before 0.1
             yield from _crypto(text)

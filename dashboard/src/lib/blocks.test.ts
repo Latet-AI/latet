@@ -30,6 +30,14 @@ describe('why a request was stopped', () => {
     expect(why).toMatchObject({ kind: 'review', details: ['user_name', 'paths'], others: ['URL_PASSWORD'] })
   })
 
+  it("gives the agent's words from the private view, never the summary's category code as words", () => {
+    const words = 'did not approve it in the Live Reviewer'
+    const coded = { ...detail(['blocked'], { reason: 'refused' }), sensitive: { block_reason: words } }
+    expect(explainBlock(coded)).toMatchObject({ kind: 'live', live: 'rejected', given: words })
+    expect(explainBlock(detail(['blocked'], { reason: 'masking-failed' }))).toMatchObject({ kind: 'other', given: null })
+    expect(explainBlock({ ...detail(['blocked'], { reason: 'too-large' }), sensitive: null })?.given).toBeNull()
+  })
+
   it('tells the Claude Code plugin, an old conversation, and a leak through the gateway apart', () => {
     expect(explainBlock(detail(['blocked', 'leak'], { transport: 'plugin', leaks: [leak('EMAIL')] }))?.kind).toBe('plugin')
     expect(explainBlock(detail(['blocked', 'leak', 'history'], { transport: 'plugin', leaks: [leak('EMAIL')] }))?.kind).toBe('history')

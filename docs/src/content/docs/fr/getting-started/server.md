@@ -17,6 +17,12 @@ lire (l'état, les listes de personnes et de clés, le journal) s'exécutent pou
 Choisissez le [service système ou Compose](../../concepts/server-operations/).
 Le service nécessite une installation de confiance à l'échelle du système et une configuration
 protégée ; le profil serveur de Compose fournit PostgreSQL, Valkey, deux instances et Caddy.
+Sous Linux, une instance peut tourner en plusieurs workers, un pour chaque cœur que la
+machine donne au serveur (`latet server run --workers N`, ou `LATET_SERVER_WORKERS` dans le
+`.env` de Compose) : chacun est une instance à part entière, avec sa propre mémoire et ses
+propres connexions à PostgreSQL et Valkey
+([plusieurs instances sur une machine](../../concepts/server-operations/#plusieurs-instances-sur-une-machine)).
+Un premier serveur peut commencer avec un seul.
 Définissez l'adresse HTTPS publique et préparez d'abord la clé principale et les fichiers
 secrets. L'initialisation affiche un jeton d'administration : gardez-le dans un terminal privé
 et un magasin de secrets. Pour un conteneur, suivez l'initialisation avec les journaux Docker
@@ -44,7 +50,8 @@ latet server --server https://latet.acme.lan status
 ```
 
 Saisissez le jeton d'administration à l'invite masquée. La réponse indique la base de
-données, Valkey, les identités et l'instance qui a répondu. Elle ne vérifie pas chaque
+données, Valkey, les identités, l'instance qui a répondu et chaque instance en vie, chaque
+worker sur une ligne à lui avec sa disponibilité, sa mémoire et sa version. Elle ne vérifie pas chaque
 agent et ne prouve pas que tout le trafic d'une machine passe par Latet.
 
 Pour administrer régulièrement le serveur, `--admin-token-file FILE` lit un fichier privé

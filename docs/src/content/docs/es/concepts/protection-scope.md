@@ -48,6 +48,40 @@ ningún detector encuentra, también en las claves de un documento JSON. Una cla
 nombre de un campo, en letras minúsculas, cifras, `_` y `-` (`exit_code`, pero también
 `mario_rossi`), no se le muestra: los detectores la leen como leen cada clave.
 
+## Cada parte de una petición
+
+Latet lee cada parte de una petición antes de enviarla, en un equipo igual que en un servidor, y no
+envía nada de lo que no haya dado cuenta:
+
+- **La ruta** debe coincidir con una ruta que conozca uno de los perfiles de petición de Latet, y cada
+  una de sus partes debe tener su forma: el id de un modelo, una región, un recurso que hayas
+  enumerado. Cualquier otra llamada se rechaza, también una sin cuerpo.
+- **Los parámetros de consulta** los nombra el perfil, y cada valor debe tener su forma. Uno que
+  ningún perfil nombra se rechaza.
+- **Las cabeceras.** Una credencial se envía tal como llegó, nunca se registra ni se guarda. Cualquier
+  otra cabecera debe tener la forma que le da su agente, o la lee la comprobación final cuando puede
+  contener texto libre (`user-agent`). Las cabeceras que añaden los SDK y el trazado
+  (`x-stainless-*`, `traceparent`...), y las propias de los agentes que pueden contener texto libre
+  (los id de un subagente de Claude Code, los metadatos del turno de Codex...), se quitan y se cuentan
+  en el panel: [Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet) las enumera por agente. Cualquier otra cabecera
+  se rechaza, y su nombre solo se le dice al agente.
+- **El cuerpo.** Sus textos se enmascaran, o se comprueban donde Latet solo comprueba la petición.
+  Cualquier otro miembro debe tener su forma (el id de un modelo, el nombre de una herramienta, un
+  ajuste) y lo lee la comprobación final donde contiene texto. Un miembro que ningún perfil nombra se
+  rechaza, y al agente se le dice dónde estaba, nunca su nombre.
+
+En el panel, cada intercambio dice si se leyó cada parte de su petición, o qué dejó pasar una parte:
+*solo comprobada* (un valor que la comprobación final leyó sin tener que enmascararlo), *permitida
+por una regla* (una de las reglas integradas de Latet, como la de los campos cifrados que devuelve el
+propio proveedor), o una
+[excepción](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) que aprobaste. Un rechazo le dice al agente que no se envió nada. Cuando se rechaza un segundo
+intento después de que un primero llegara al proveedor (una petición a Bedrock firmada de nuevo
+después de caducar su sesión de AWS), al agente se le dice que no se envió ningún intento más y que el
+primero pudo llegar, nunca que no se envió nada.
+
+Dos cosas quedan fuera: lo que un agente envía sin la dirección de Latet, que Latet nunca ve, y el
+[revisor local](../llm-review/), que recibe los textos originales porque lo configuraste así.
+
 ## No protegido
 
 **Valores que los detectores no reconocen.** Latet solo enmascara lo que detecta. Un secreto en un
@@ -60,14 +94,15 @@ no se detectan. La detección siempre tiene falsos negativos.
 
 **Imágenes.** Con el [reconocimiento de texto](../images/) opcional, el texto de una captura de
 pantalla se lee en tu equipo y cada valor encontrado se cubre con su valor ficticio. No ofrece
-garantías, igual que con los nombres: el texto que no lee sale tal cual. Sin él, las imágenes se
-envían tal cual, con el indicador *No inspeccionado*.
+garantías, igual que con los nombres: el texto que no lee sale tal cual. Sin él, una petición que
+lleva una imagen no se envía. En una petición que Latet solo comprueba, como las de Claude Code,
+también se rechazan la ubicación de una foto, las notas del fabricante de una cámara y una imagen
+dentro de la imagen ([Las fotos y sus metadatos](../images/#las-fotos-y-sus-metadatos)). Los códigos QR
+y los códigos de barras no se descodifican: los datos que contienen salen con la imagen.
 
 **PDF y otros documentos, imágenes indicadas por su dirección, clips de audio.** Su contenido no se
-lee y se envía tal cual, también desde un servidor de Latet; el panel marca esas peticiones como
-*No inspeccionado*. No adjuntes documentos que contengan datos sensibles, o configura
-`images: block` (el perfil `max` hace lo mismo): así, una petición que lleve uno no se envía. Las
-páginas de un navegador, leídas como texto, se enmascaran como cualquier salida de una herramienta
+lee, así que una petición que lleve uno no se envía, en un equipo igual que en un servidor, diga lo
+que diga `images`. Dale al agente el texto en su lugar. Las páginas de un navegador, leídas como texto, se enmascaran como cualquier salida de una herramienta
 ([datos de producción](../production-data/)); sus capturas de pantalla son imágenes.
 
 **Las herramientas web, los subagentes y los conectores de claude.ai se quedan con los valores
@@ -173,21 +208,22 @@ conversación, y también el esquema de una salida estructurada, una salida prev
 petición dice de para quién es (`user`, `safety_identifier`, `metadata`). Los nombres de las
 herramientas, lo que permite al proveedor ejecutar una herramienta propia (la dirección y las
 cabeceras de un servidor MCP remoto, la ubicación de una búsqueda web) y los demás ajustes de la
-petición se reenvían tal cual. En Claude Code, el plugin enmascara las descripciones de las
-herramientas y la comprobación final lee `metadata` y el esquema de una salida estructurada; desde un
-equipo, los esquemas de los parámetros de las herramientas salen tal cual, y un servidor de Latet los
-comprueba (ver más abajo). Un cliente distinto de Claude Code en una vía que Latet solo comprueba (el
+petición deben tener cada uno la forma que les da su perfil, y los lee la comprobación final donde
+contienen texto; uno que ningún perfil nombra detiene la petición
+([Cada parte de una petición](#cada-parte-de-una-petición)). En Claude Code, el plugin enmascara las
+descripciones de las herramientas, y la comprobación final lee `metadata`, el esquema de una salida
+estructurada y los esquemas de los parámetros de las herramientas (ver más abajo). Un cliente distinto de Claude Code en una vía que Latet solo comprueba (el
 acceso de una suscripción, Bedrock, Vertex) no tiene plugin: la comprobación final lee también las
 descripciones, los parámetros y los ejemplos de sus herramientas, y detiene una petición que dejaría
 salir en ellos un valor en claro.
 
-**Las herramientas de Claude Code en un servidor.** El plugin enmascara las descripciones de las
-herramientas, también las de `tool_addition`. Un servidor de Latet no toma los marcadores de la
-petición como prueba de que el plugin se ha ejecutado: su comprobación final lee la descripción de
+**Las herramientas de Claude Code.** El plugin enmascara las descripciones de las herramientas,
+también las de `tool_addition`. Latet no toma los marcadores de la petición como prueba de que el
+plugin se ha ejecutado, en un equipo igual que en un servidor: su comprobación final lee la descripción de
 cada herramienta, el esquema de sus parámetros y los ejemplos de su entrada, como para un cliente sin
 plugin, y detiene una petición que dejaría salir en ellos un valor en claro. Por eso, una herramienta
-MCP cuyo esquema nombra la dirección de un cliente detiene las peticiones de Claude Code en un
-servidor hasta que el valor se quita del esquema o se permite en tus ajustes. Una definición de
+MCP cuyo esquema nombra la dirección de un cliente detiene las peticiones de Claude Code hasta que
+el valor se quita del esquema o se permite en tus ajustes. Una definición de
 herramienta en una forma que Latet no lee se rechaza, como para cualquier cliente. Siguen
 aplicándose los controles de metadatos, salidas estructuradas y esquemas de reserva descritos aquí.
 
@@ -197,10 +233,9 @@ sensibles; en peticiones que solo se comprueban, se rechazan y los bytes seguros
 Siguen siendo compatibles los modelos alternativos que solo indican el modelo. Un servidor con la
 protección activa rechaza contenedores de modelos alternativos y esquemas de salida mal formados.
 
-**Lo que Latet no lee, en un servidor de Latet.** Un equipo envía tal cual lo que Latet no lee; un
-servidor de Latet lo rechaza, con un error que dice por qué. Rechaza una petición cuyo cuerpo Latet
-no lee: a un endpoint que no es la llamada a un modelo, como files o batches, o con un método
-distinto de POST. Rechaza contenido en una forma que Latet no lee: un prompt de completions dado como
+**Lo que Latet no lee.** Latet rechaza lo que no lee, en un equipo igual que en un servidor, con un
+error que dice por qué. Rechaza una llamada que ningún perfil nombra: files o batches, por ejemplo, o
+un método que la ruta no acepta. Rechaza contenido en una forma que Latet no lee: un prompt de completions dado como
 tokens; una variable de un prompt, una definición de herramienta o el formato de una respuesta de un
 tipo que no conoce; una parte de contenido, un bloque de un mensaje o un elemento de la entrada de un
 tipo que no conoce, tanto en las chat completions como en los mensajes de Anthropic y en la
@@ -210,18 +245,19 @@ bloques; y, en la Responses API, el audio de una conversación en directo (`audi
 lo que se oyó en un clip de audio. Rechaza un frame de WebSocket que no es un turno
 (`response.create`; `response.cancel` pasa) y, en una petición que solo comprueba (Claude Code,
 Bedrock, Vertex), una imagen cuyo texto no pudo leer, diga lo que diga `images`. Lo que el proveedor
-produjo y se le devuelve tal como lo produjo pasa: el razonamiento del modelo, una compactación, las
-llamadas de las herramientas propias del proveedor y sus resultados. También pasa lo que no contiene
-nada, como una referencia a un elemento anterior, y una petición sin cuerpo, por ejemplo la lista de
-modelos.
+produjo y se le devuelve tal como lo produjo pasa cuando Latet lo vio llegar del proveedor en esa
+conversación: el razonamiento del modelo y sus firmas, una compactación, las llamadas de las
+herramientas propias del proveedor y sus resultados. Donde Latet no lo vio (el daemon de un equipo se
+reinició, por ejemplo), una regla integrada deja pasar los campos cifrados del propio proveedor, solo
+en los turnos del modelo y solo hacia la dirección del proveedor, nunca a través de una pasarela de
+empresa; el panel los muestra como *permitida por una regla*. También pasa lo que no contiene nada,
+como una referencia a un elemento anterior, y una petición sin cuerpo en una ruta que nombra un
+perfil, por ejemplo la lista de modelos.
 
-Un servidor con la protección activa también rechaza mensajes chat con `name`, bloques Anthropic
-`search_result` y bloques de documento con `title` o `context`, incluso dentro de resultados de
-herramientas y con `images: allow`. Estas formas opcionales no son compatibles en el servidor ni con
-valores vacíos o null. Un documento sin título ni contexto sigue el ajuste `images`, como en todas
-partes. Un equipo no rechaza estas formas, pero tampoco las enmascara: su texto sale tal como vino.
-Un resultado de búsqueda y un documento se marcan *No inspeccionado*; el `name` de un mensaje de chat
-no se enmascara ni se marca, así que mantén los valores que proteges fuera de él.
+Latet también rechaza mensajes chat con `name`, bloques Anthropic `search_result` y bloques de
+documento con `title` o `context`, incluso dentro de resultados de herramientas, en un equipo igual que
+en un servidor. Estas formas opcionales no son compatibles ni con valores vacíos o null. Un documento
+sin título ni contexto se rechaza como cualquier documento.
 
 **La revisión del modo automático de Claude Code.** El revisor del modo automático recibe tu nombre
 de usuario del sistema operativo y las rutas de tu directorio personal y de tu directorio de
@@ -243,7 +279,7 @@ entonces, pero los turnos anteriores, que ya llegaron a Anthropic con el nombre 
 a enviar con cada petición. Latet los marca en el panel en lugar de bloquearlos: ya se enviaron, y
 bloquearlos detendría la conversación. Empieza una conversación nueva para dejarlos atrás.
 
-**Datos enviados antes.** Todo lo que se envió antes de instalar Latet, o mientras estaba
-desactivado, ya está en manos del proveedor.
+**Datos enviados antes.** Todo lo que se envió antes de instalar Latet o, antes de la 0.11, desde un
+proyecto en el que estaba desactivado, ya está en manos del proveedor.
 
 Los motivos de estos límites están en [Seguridad y modelo de amenazas](../../security/).

@@ -108,7 +108,8 @@ Bedrock e un endpoint VPC sono altri casi: vedi
 Le richieste a Bedrock vengono controllate, mai riscritte: arrivano da Claude Code, il cui plugin le ha
 già mascherate. Le risposte di Bedrock arrivano a Claude Code esattamente come le ha inviate Amazon;
 Latet le legge solo per mostrarle nella dashboard. Gli id dei modelli e gli ARN dei profili di
-inferenza arrivano ad Amazon esattamente come li ha scritti Claude Code.
+inferenza arrivano ad Amazon esattamente come li ha scritti Claude Code; un ARN va prima elencato in
+`request_resources` ([più sotto](#cosa-lascia-passare-una-destinazione)).
 
 ## Google Vertex
 
@@ -123,6 +124,29 @@ Claude Code su Microsoft Foundry (`CLAUDE_CODE_USE_FOUNDRY=1`, con `ANTHROPIC_FO
 `ANTHROPIC_FOUNDRY_BASE_URL`) e Codex su Azure OpenAI (un provider il cui `base_url` è
 `https://<resource>.openai.azure.com/openai/v1`) sono destinazioni come un gateway: l'indirizzo della
 risorsa viene salvato (`foundry-acme`, `azure-acme`) e la chiave passa così com'è.
+
+## Cosa lascia passare una destinazione
+
+Latet legge ogni parte di una richiesta verso una destinazione, come verso un provider
+([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)). Il `request_profile`
+di una destinazione, impostato su di essa in [`upstreams`](../../reference/configuration/#upstreams-items),
+dice quali chiamate accetta: `standard` (le rotte delle API di Anthropic e di OpenAI, il valore
+predefinito), `azure-openai-1` (Azure OpenAI, con la sua `api-version`) o `foundry-1` (Microsoft
+Foundry). Ogni altra chiamata viene rifiutata.
+
+- **La sua credenziale.** Un gateway che prende la sua chiave in `authorization` o in `x-api-key` non
+  ha bisogno d'altro. Uno che la vuole in un header suo (`x-acme-key`) rifiuta finché un'eccezione non
+  nomina quell'header come credenziale della destinazione, che Latet invia com'è arrivata e non legge
+  mai: vedi [Approvare un'eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta).
+- **I nomi dei suoi modelli e le versioni.** Un id di modello nella forma documentata da un provider
+  passa. I nomi propri di un gateway (`acme-large`), l'`api-version` che accetta una destinazione Azure
+  OpenAI o Foundry, ogni ARN di Bedrock, compreso quello di un profilo di inferenza applicativo, e un
+  progetto di Vertex vanno prima elencati in `request_resources`:
+  [Bedrock e Vertex: cosa elencare](../../getting-started/upgrading-to-0-11/#bedrock-e-vertex-cosa-elencare).
+- **Le firme del ragionamento attraverso un gateway.** Una conversazione attraverso LiteLLM o un altro
+  gateway che inoltra le firme del ragionamento di Claude passa finché Latet ricorda di averle viste
+  tornare. Dopo un riavvio del daemon, il suo turno successivo viene rifiutato: inizia una nuova
+  conversazione.
 
 ## Un modello su questo computer
 
@@ -148,16 +172,16 @@ locale e su internet passano sempre da Latet.
   organizzazione impostano `ANTHROPIC_BASE_URL` (o l'indirizzo di un cloud) su qualcos'altro, niente
   può scavalcarle. Latet lo dice e non avvia Claude Code. Il tuo reparto IT può impostare
   quell'indirizzo su Latet, come qui sotto.
-- **La Mantle API di Amazon Bedrock** (`CLAUDE_CODE_USE_MANTLE`): Latet non la legge ancora. Usa la
+- **La Mantle API di Amazon Bedrock** (`CLAUDE_CODE_USE_MANTLE`): Latet non la legge. Usa la
   Invoke API di Bedrock (`CLAUDE_CODE_USE_BEDROCK`) o il gateway della tua azienda.
 - **Amazon Bedrock attraverso un endpoint VPC** (un `ANTHROPIC_BEDROCK_BASE_URL` su
-  `vpce-….vpce.amazonaws.com`): non ancora supportato. Latet dovrebbe firmare per quell'endpoint, e
+  `vpce-….vpce.amazonaws.com`): non supportato. Latet dovrebbe firmare per quell'endpoint, e
   Amazon rifiuta una firma fatta per l'indirizzo di Latet. Latet lo dice e non avvia Claude Code: usa
   l'indirizzo pubblico di Bedrock, o il gateway della tua azienda. Con una chiave API di Bedrock
   (`AWS_BEARER_TOKEN_BEDROCK`) non c'è niente da firmare, e l'endpoint è una destinazione come
   qualsiasi indirizzo aziendale.
 - **L'indirizzo FIPS di Amazon Bedrock** (un `ANTHROPIC_BEDROCK_BASE_URL` su
-  `bedrock-runtime-fips.us-east-1.amazonaws.com`): non ancora supportato. Latet può inviare solo
+  `bedrock-runtime-fips.us-east-1.amazonaws.com`): non supportato. Latet può inviare solo
   all'indirizzo standard, che non è un endpoint FIPS, quindi lo dice e non avvia Claude Code, invece
   di lasciar cadere il tuo requisito FIPS. Usa il gateway della tua azienda, o l'indirizzo standard se
   non ti serve FIPS. Con una chiave API di Bedrock (`AWS_BEARER_TOKEN_BEDROCK`) non c'è niente da

@@ -140,7 +140,7 @@ def _settings(tmp_path, **more):
         "max_request_mb": 32, "database_private_network": False, "valkey_private_network": False,
         "valkey_unauthenticated": False, "database_url": "postgresql://emily@127.0.0.1:9/latet",
         "database_connect_timeout": 5, "database_pool": 10, "metrics_token_file": None, "metrics_host": "127.0.0.1",
-        "metrics_port": 7283,
+        "metrics_port": 7283, "workers": 1,
     }  # fmt: skip
     return SimpleNamespace(**{**found, **more})
 
@@ -421,6 +421,26 @@ def test_migrate_says_a_schema_newer_than_this_latet_and_never_that_it_is_up_to_
     assert done.exit_code == 0 and "up to date" in done.output
 
 
+def test_migrate_says_an_instance_alive_once_the_tables_are_migrated_and_ends_not_0(tmp_path, monkeypatch):
+    """The security re-review's R-2: the migrations applied, and an instance alive then (started while they ran): the
+    command says what it applied, then the words that say so, never "Not migrated", and its exit is not 0."""
+    _on_the_servers_machine(monkeypatch, _settings(tmp_path))
+    words = (
+        "The tables are migrated, and 1 instance of the server is alive (1 of Latet 0.10 or older): stop it, then "
+        "start it with this version of Latet"
+    )
+
+    def alive(settings, database=None):
+        raise instance.AliveAfterMigration(words, ["latet.server.migrations:013_vault_prints"])
+
+    monkeypatch.setattr(instance, "migrate_schema", alive)
+    monkeypatch.setattr(instance, "schema_state", lambda settings, database=None: pytest.fail("checked after"))
+    done = run_cli("server", "migrate")
+    assert done.exit_code == 1, done.output
+    assert "Applied: latet.server.migrations:013_vault_prints." in done.output and words in done.output
+    assert "Not migrated" not in done.output and "Start, or restart" not in done.output
+
+
 def test_init_without_a_master_key_prints_one_and_stops(tmp_path, monkeypatch):
     _on_the_servers_machine(monkeypatch, _settings(tmp_path))
     monkeypatch.setattr(instance, "ensure_master_key", lambda settings: "a-new-key-in-base64")
@@ -551,7 +571,11 @@ def test_what_the_databases_driver_says_is_said_by_its_type_alone(tmp_path, monk
     class Unrecorded(Unreachable):  # it keeps a check value, migrates, and refuses the entry
         @contextlib.contextmanager
         def connection(self):
-            yield SimpleNamespace(execute=lambda *args: SimpleNamespace(fetchone=lambda: ("master_check",)))
+            def execute(statement, *args):
+                value = None if statement == "SELECT to_regclass('schema_migrations')" else "master_check"
+                return SimpleNamespace(fetchone=lambda: (value,))
+
+            yield SimpleNamespace(execute=execute)
 
         @contextlib.contextmanager
         def transaction(self):
@@ -559,7 +583,9 @@ def test_what_the_databases_driver_says_is_said_by_its_type_alone(tmp_path, monk
             yield
 
     monkeypatch.setattr("latet.server.master.check_master_key", lambda db, master: None)
-    monkeypatch.setattr("latet.server.db.migrate", lambda db: ["latet.server.migrations:003_next"])
+    monkeypatch.setattr("latet.server.db.pending", lambda db: ["latet.server.migrations:003_next"])
+    monkeypatch.setattr(instance, "_none_alive", lambda settings, key, prefix: None)  # no instance alive
+    monkeypatch.setattr("latet.server.db.migrate", lambda db, *, master: ["latet.server.migrations:003_next"])
     with pytest.raises(DatabaseError) as recorded:
         instance.migrate_schema(_settings(tmp_path, master_key_file=key), Unrecorded())
     for raised in (issued.value, asked.value, recorded.value):
@@ -608,6 +634,91 @@ def test_run_refuses_a_schema_that_is_not_the_codes_and_says_which_command(tmp_p
     monkeypatch.setattr(instance, "make_instance", mismatch)
     done = run_cli("server", "run")
     assert done.exit_code == 2 and "latet server migrate" in done.output
+
+
+def test_run_hands_its_workers_to_the_supervisor_and_refuses_a_count_out_of_bounds(tmp_path, monkeypatch):
+    """Task 10: `--workers` over the settings' workers, one supervisor for any count (one worker runs in its own
+    process, as before); a count the option refuses starts nothing."""
+    from latet.server import workers
+
+    _on_the_servers_machine(monkeypatch, _settings(tmp_path))
+    made = []
+
+    class Supervising:
+        def __init__(self, settings, count, **kwargs):
+            made.append(count)
+            self.settings, self.workers = settings, count
+
+        def start(self):
+            made.append("start")
+
+        def run(self):
+            made.append("run")
+
+    monkeypatch.setattr(workers, "Supervisor", Supervising)
+    monkeypatch.setattr(workers, "_PLATFORM", "linux")
+    monkeypatch.setattr("latet.cli.server._logging_as", lambda settings: None)
+    assert run_cli("server", "run", "--workers", "3").exit_code == 0 and made == [3, "start", "run"]
+    made.clear()
+    assert run_cli("server", "run").exit_code == 0 and made == [1, "start", "run"]
+    made.clear()
+    for count in ("0", "65"):
+        refused = run_cli("server", "run", "--workers", count)
+        assert refused.exit_code == 2 and made == []
+
+
+def test_run_refuses_several_workers_on_windows_whoever_asks_for_them(tmp_path, monkeypatch):
+    """I2: on Windows a socket serves one process's event loop, so several workers are refused, by `--workers` or by
+    the settings' workers, in words that say where they run; one instance runs as before, and Linux is unchanged."""
+    from latet.server import workers
+
+    started = []
+
+    class Supervising:
+        def __init__(self, settings, count, **kwargs):
+            self.settings, self.workers = settings, count
+
+        def start(self):
+            started.append(self.workers)
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(workers, "Supervisor", Supervising)
+    monkeypatch.setattr("latet.cli.server._logging_as", lambda settings: None)
+    monkeypatch.setattr(workers, "_PLATFORM", "win32")
+    for settings, given in ((_settings(tmp_path), ("--workers", "2")), (_settings(tmp_path, workers=4), ())):
+        _on_the_servers_machine(monkeypatch, settings)
+        refused = run_cli("server", "run", *given)
+        assert refused.exit_code == 2 and "Linux" in refused.output and "load balancer" in refused.output
+        assert "--workers 1" in refused.output and "workers: 1" in refused.output  # the way to run here
+    assert started == []
+    _on_the_servers_machine(monkeypatch, _settings(tmp_path))
+    assert run_cli("server", "run").exit_code == 0 and started == [1]
+    monkeypatch.setattr(workers, "_PLATFORM", "linux")
+    assert run_cli("server", "run", "--workers", "2").exit_code == 0 and started == [1, 2]
+
+
+def test_run_says_a_stop_of_its_workers_as_a_stop_not_as_a_start(tmp_path, monkeypatch):
+    """M8: what ends the workers once they started (I1's start that fails three times in a row) is said as a stop."""
+    from latet.server import workers
+
+    class Supervising:
+        def __init__(self, settings, count, **kwargs):
+            self.settings, self.workers = settings, count
+
+        def start(self):
+            pass
+
+        def run(self):
+            raise RuntimeError("worker 0 cannot start: the workers stop")
+
+    _on_the_servers_machine(monkeypatch, _settings(tmp_path))
+    monkeypatch.setattr(workers, "Supervisor", Supervising)
+    monkeypatch.setattr(workers, "_PLATFORM", "linux")
+    monkeypatch.setattr("latet.cli.server._logging_as", lambda settings: None)
+    done = run_cli("server", "run", "--workers", "2")
+    assert done.exit_code == 2 and "Stopped: worker 0 cannot start" in done.output and "Not started" not in done.output
 
 
 def test_run_refuses_asyncios_debug_mode_before_it_opens_anything(tmp_path, monkeypatch):
@@ -738,7 +849,7 @@ def test_an_instance_listens_with_the_settings_certificate_and_logs_where_it_is_
         "latet.server.logs.configure_logging", lambda fmt, level, *, stream=None: logged.append((fmt, level, stream))
     )
     opened = _opened(settings, closed)
-    monkeypatch.setattr("latet.server.app.open_server", lambda s: opened)
+    monkeypatch.setattr("latet.server.app.open_server", lambda s, **_: opened)
     monkeypatch.setattr("latet.server.operations.server_app", lambda server: "the app")
 
     def served(app, host, port, log_level="info", log_config="default", **more):
@@ -766,7 +877,7 @@ def test_an_instance_says_at_its_start_which_opt_outs_it_trusts(tmp_path, monkey
         tmp_path, database_private_network=True, valkey_unauthenticated=True, host="127.0.0.1", port=_free_port()
     )
     monkeypatch.setattr("latet.server.logs.configure_logging", lambda *args, **kwargs: None)
-    monkeypatch.setattr("latet.server.app.open_server", lambda s: _opened(s, []))
+    monkeypatch.setattr("latet.server.app.open_server", lambda s, **_: _opened(s, []))
     monkeypatch.setattr("latet.server.operations.server_app", lambda server: "the app")
     monkeypatch.setattr(
         "latet.cli.main.uvicorn_server", lambda *a, **k: SimpleNamespace(config=SimpleNamespace(load=lambda: None))
@@ -785,7 +896,7 @@ def test_an_instance_is_never_made_in_asyncios_debug_mode(tmp_path, monkeypatch)
     """Whoever makes it: `latet server run` refuses first, and so does make_instance, which the Windows service's host
     calls itself (Task 14)."""
     monkeypatch.setattr("latet.server.logs.configure_logging", lambda *a, **k: pytest.fail("set up in debug mode"))
-    monkeypatch.setattr("latet.server.app.open_server", lambda settings: pytest.fail("opened in debug mode"))
+    monkeypatch.setattr("latet.server.app.open_server", lambda settings, **_: pytest.fail("opened in debug mode"))
     monkeypatch.setenv("PYTHONASYNCIODEBUG", "1")
     with pytest.raises(RuntimeError, match="PYTHONASYNCIODEBUG"):
         instance.make_instance(_settings(tmp_path))
@@ -797,7 +908,7 @@ def test_a_certificate_or_a_key_the_instance_cannot_load_stops_it_in_fixed_words
     settings.key.write_text("-----BEGIN PRIVATE KEY-----\nTHEKEYSOWNBYTES\n-----END PRIVATE KEY-----\n", "utf-8")
     _on_the_servers_machine(monkeypatch, settings)
     closed = []
-    monkeypatch.setattr("latet.server.app.open_server", lambda s: _opened(s, closed))
+    monkeypatch.setattr("latet.server.app.open_server", lambda s, **_: _opened(s, closed))
     monkeypatch.setattr("latet.server.operations.server_app", lambda server: Starlette())
     done = run_cli("server", "run")
     assert done.exit_code == 2, done.output
@@ -846,7 +957,7 @@ def _operated(monkeypatch, settings, closed):
         edition=SimpleNamespace(metrics=lambda metrics: None),
     )  # fmt: skip
     monkeypatch.setattr("latet.server.logs.configure_logging", lambda *args, **kwargs: None)
-    monkeypatch.setattr("latet.server.app.open_server", lambda s: server)
+    monkeypatch.setattr("latet.server.app.open_server", lambda s, **_: server)
     monkeypatch.setattr("latet.server.operations.server_app", lambda s: Operations(app, s))
     return server
 

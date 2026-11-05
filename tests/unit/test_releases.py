@@ -113,21 +113,181 @@ def test_github_out_of_reach_says_so():
         releases.latest(httpx.Client(transport=httpx.MockTransport(fail)))
 
 
+# --- the extras the installed Latet has ---------------------------------------------------------------
+# uv installs a tool with exactly the extras its requirement names, and uninstalls those it leaves out: a server
+# installed with `latet[server]`, as Server operations says, lost psycopg and redis on `latet upgrade`, which named
+# only ner and ocr, and `latet server run` then refused to start. The upgrade names every extra the installed Latet
+# has, beside name detection and the text in images.
+
+INSTALLED_WHEEL = "https://github.com/Latet-AI/latet/releases/download/v1.1.0/latet-1.1.0-py3-none-any.whl"
+
+
+def _receipt(
+    folder: Path, extras: list[str] | None = None, text: str | bytes | None = None, commands: str = "/tools"
+) -> Path:
+    """uv's receipt in the folder of a Latet installed as a tool: its requirement with ``extras`` (None: with none), its
+    commands in ``commands``; or ``text`` as it is."""
+    folder.mkdir(parents=True, exist_ok=True)
+    receipt = folder / "uv-receipt.toml"
+    if text is None:
+        named = f", extras = {json.dumps(extras)}" if extras is not None else ""
+        latet, daemon = (json.dumps(f"{Path(commands).as_posix()}/{name}") for name in ("latet", "latet-daemon"))
+        text = (
+            f'[tool]\nrequirements = [{{ name = "latet"{named}, url = "{INSTALLED_WHEEL}" }}]\n'
+            'python = ">=3.12, <3.14"\n'
+            f'entrypoints = [\n    {{ name = "latet", install-path = {latet}, from = "latet" }},\n'
+            f'    {{ name = "latet-daemon", install-path = {daemon}, from = "latet" }},\n]\n'
+        )
+    receipt.write_bytes(text if isinstance(text, bytes) else text.encode())
+    return receipt
+
+
+def test_a_requirement_names_the_extras_the_installed_latet_has_beside_names_and_images():
+    release = releases.Release("1.2.0", WHEEL)
+    assert release.requirement(keep={"server"}) == f"latet[ner,ocr,server] @ {WHEEL}"
+    assert release.requirement(keep=["server", "ner"]) == f"latet[ner,ocr,server] @ {WHEEL}"
+    assert release.requirement(keep=()) == f"latet[ner,ocr] @ {WHEEL}"
+    # Without name detection and the text in images, where they cannot be installed: the other extras stay.
+    assert release.requirement(extras=False, keep={"server"}) == f"latet[server] @ {WHEEL}"
+    assert release.requirement(extras=False, keep={"ocr", "server"}) == f"latet[server] @ {WHEEL}"
+    assert release.requirement(extras=False, keep={"ner"}) == f"latet @ {WHEEL}"
+    # Exactly the extras given: the command a Latet was installed with.
+    assert releases.named({"server"}, WHEEL) == f"latet[server] @ {WHEEL}"
+    assert releases.named((), WHEEL) == f"latet @ {WHEEL}"
+
+
+@pytest.mark.parametrize(
+    "extra", ["server] @ https://evil.example/latet.whl", "a b", "-x", "server\n", "\N{CYRILLIC SMALL LETTER DZE}erver"]
+)
+def test_a_requirement_never_takes_what_is_no_name_of_an_extra(extra):
+    with pytest.raises(ValueError, match="not the names of extras"):
+        releases.Release("1.2.0", WHEEL).requirement(keep={extra})
+
+
+def test_the_extras_installed_are_read_from_uvs_receipt_in_the_folder_of_the_latet_that_runs(tmp_path, monkeypatch):
+    """The receipt is uv's own record of the requirement it installed, extras included: what it replaces."""
+    import sys
+
+    assert releases._tool_folder() == Path(sys.prefix)  # a tool's environment is its folder in uv's
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
+    _receipt(tmp_path, ["server"])
+    assert releases.installed_extras() == {"server"}
+    _receipt(tmp_path, ["ner", "ocr", "server"])
+    assert releases.installed_extras() == {"ner", "ocr", "server"}
+    _receipt(tmp_path)  # installed with no extra: none, and none is taken from the packages installed here
+    assert releases.installed_extras() == set()
+    # An older uv wrote the requirement as it was given; names are compared as uv compares them.
+    _receipt(tmp_path, text=f'[tool]\nrequirements = ["Latet[Server, ner] @ {WHEEL}"]\n')
+    assert releases.installed_extras() == {"server", "ner"}
+    # The packages installed beside it (`--with`) have extras of their own: Latet's alone count.
+    _receipt(
+        tmp_path,
+        text='[tool]\nrequirements = [{ name = "rich", extras = ["jupyter"] }, { name = "latet", extras = ["server"] }]\n',
+    )
+    assert releases.installed_extras() == {"server"}
+    # Latet named twice (`uv tool install latet --with "latet[server]"`): the extras of both.
+    _receipt(
+        tmp_path,
+        text='[tool]\nrequirements = [{ name = "latet", url = "x" }, { name = "latet", extras = ["server"] }]\n',
+    )
+    assert releases.installed_extras() == {"server"}
+
+
+INSTALLED = {"psycopg", "redis", "numpy", "onnxruntime", "pillow"}  # the server's packages, and the text in images'
+
+
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        None,  # not installed by uv: no receipt
+        "[tool\nrequirements = [",  # not TOML
+        b'[tool]\nrequirements = [{ name = "latet", extras = ["\xff"] }]\n',  # not UTF-8
+        '[tool]\nrequirements = "latet[server]"\n',  # of another form
+        '[tool]\nrequirements = [{ name = "rich" }]\n',  # no Latet in it
+        '[tool]\nrequirements = [{ name = "latet", extras = "server" }]\n',
+        '[tool]\nrequirements = [{ name = "latet", extras = ["server] @ https://evil.example/latet.whl ; x"] }]\n',
+        '[tool]\nrequirements = ["latet[server,ner;x] @ https://evil.example/latet.whl"]\n',
+        '[tool]\nrequirements = ["latet[server @ https://evil.example/latet.whl"]\n',  # a bracket left open
+    ],
+)
+def test_a_receipt_missing_or_unreadable_gives_the_extras_whose_packages_are_all_installed(
+    tmp_path, monkeypatch, receipt
+):
+    """Read from Latet's own metadata: each extra with the packages it brings. Never an extra that is no name."""
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
+    if receipt is not None:
+        _receipt(tmp_path, text=receipt)
+    monkeypatch.setattr(releases, "_installed", lambda name: name in INSTALLED)
+    assert releases.installed_extras() == {"ocr", "server"}  # tokenizers, which ner needs, is not installed
+
+
+def test_a_receipt_that_is_a_folder_gives_the_extras_whose_packages_are_installed(tmp_path, monkeypatch):
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
+    (tmp_path / "uv-receipt.toml").mkdir()
+    monkeypatch.setattr(releases, "_installed", lambda name: name in INSTALLED)
+    assert releases.installed_extras() == {"ocr", "server"}
+
+
+def test_the_packages_installed_here_agree_with_what_names_and_images_need(tmp_path, monkeypatch):
+    """No receipt, the real metadata and packages of this environment: as `latet ner` and `latet ocr` find them."""
+    from latet.engine.detectors import ner
+    from latet.vision import models
+
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
+    found = releases.installed_extras()
+    assert ("ner" in found) == ner.runtime_available() and ("ocr" in found) == models.runtime_available()
+    assert found <= {"ner", "ocr", "server"}
+
+
+def test_a_server_without_its_extra_is_told_an_install_that_keeps_the_others_and_the_folders():
+    """What an operator whose upgrade took `server` away follows: the extras kept, the Pythons asked, the folders."""
+    from latet.server import instance
+
+    assert f'--python "{releases.PYTHONS}"' in instance.EXTRA and '"latet[ner,ocr,server] @ ' in instance.EXTRA
+    assert "UV_" in instance.EXTRA and "--force" not in instance.EXTRA
+
+
+def test_every_package_of_an_extra_is_named_for_that_extra_alone():
+    """The packages are read for an extra whose markers name it alone (`extra == 'server'`): one under a further
+    condition too (a platform) is not looked for, and an extra made of those only would never be found."""
+    requires = releases._requires()
+    if requires is None:
+        pytest.skip("Latet has no metadata here")
+    markers = [line.partition(";")[2] for line in requires if "extra" in line.partition(";")[2]]
+    assert markers and all(releases._ONLY_EXTRA.fullmatch(marker) for marker in markers), markers
+
+
+def test_a_latet_with_no_metadata_and_no_receipt_has_no_extra_to_keep(tmp_path, monkeypatch):
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
+    monkeypatch.setattr(releases, "_requires", lambda: None)
+    assert releases.installed_extras() == set()
+
+
 # --- latet upgrade ------------------------------------------------------------------------------------
 
 
 @pytest.fixture
-def upgrade(monkeypatch):
+def upgrade(monkeypatch, tmp_path):
     """`latet upgrade` with GitHub, uv and the daemon replaced: what it runs, in order. The Latet that runs it
-    has neither name detection nor the text in images, unless a test says so."""
+    has neither name detection nor the text in images, unless a test says so: uv's receipt in its folder
+    (``releases._tool_folder()``) names no extra."""
     from latet.engine.detectors import ner
     from latet.service import daemon
     from latet.vision import models
 
+    tools = tmp_path / "tools"  # uv's tool folder
+    _receipt(tools / "latet")
+    monkeypatch.setattr(releases, "_tool_folder", lambda: tools / "latet")
+    (tmp_path / "uv-tool-dir.txt").write_text(str(tools), encoding="utf-8")
     calls: list[list[str]] = []
     failing: set[str] = set()  # the requirements uv cannot install
 
-    def run(argv, check=False):
+    def run(argv, check=False, **kwargs):
+        if [str(a) for a in argv[1:]] == ["tool", "dir"]:  # what uv-tool-dir.txt says; uv cannot say without it
+            said = tmp_path / "uv-tool-dir.txt"
+            if not said.exists():
+                return subprocess.CompletedProcess(argv, 2, stdout="", stderr="error: no tool folder")
+            return subprocess.CompletedProcess(argv, 0, stdout=said.read_text(encoding="utf-8") + "\n", stderr="")
         calls.append([str(a) for a in argv])
         return subprocess.CompletedProcess(argv, 1 if argv[-1] in failing else 0)
 
@@ -197,6 +357,63 @@ def test_an_upgrade_never_takes_away_names_or_images_the_installed_latet_has(upg
     )
 
 
+def _installs(calls: list[list[str]]) -> list[str]:
+    return [call[-1] for call in calls if call[:3] == INSTALL[:3]]
+
+
+def test_an_upgrade_keeps_every_extra_the_installed_latet_has(upgrade):
+    """A server installed with `latet[server]` keeps psycopg and redis, and gets name detection and the text in
+    images as every Latet does."""
+    calls, _ = upgrade
+    _receipt(releases._tool_folder(), ["server"])
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 0, result.output
+    assert _installs(calls) == [f"latet[ner,ocr,server] @ {WHEEL}"]
+
+
+def test_where_names_and_images_cannot_be_installed_the_other_extras_stay(upgrade):
+    calls, failing = upgrade
+    _receipt(releases._tool_folder(), ["server"])
+    failing.add(f"latet[ner,ocr,server] @ {WHEEL}")
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 0, result.output
+    assert _installs(calls) == [f"latet[ner,ocr,server] @ {WHEEL}", f"latet[server] @ {WHEEL}"]
+    assert result.output.rstrip().splitlines()[-1].startswith("Off: name detection and the text in images")
+
+
+@pytest.mark.parametrize("extra", ["ner", "ocr"])
+def test_names_or_images_the_receipt_names_are_never_taken_away(upgrade, extra):
+    """uv installed this Latet with them, and would uninstall them: the upgrade fails instead, whatever the packages
+    found here say."""
+    calls, failing = upgrade
+    _receipt(releases._tool_folder(), [extra, "server"])
+    failing.add(f"latet[ner,ocr,server] @ {WHEEL}")
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 1, result.output
+    assert _installs(calls) == [f"latet[ner,ocr,server] @ {WHEEL}"]  # never without them
+    assert calls[-1] == ["daemon start"]
+    assert result.output.rstrip().endswith("Latet is as it was.")
+
+
+@pytest.mark.parametrize(
+    ("installed", "named"),
+    [
+        (set(), "ner,ocr"),
+        ({"numpy", "psycopg", "redis"}, "ner,ocr,server"),  # the server extra's packages (numpy since 0.11's index)
+        (INSTALLED | {"tokenizers"}, "ner,ocr,server"),
+    ],
+)
+def test_with_no_receipt_to_read_an_upgrade_names_no_fewer_extras_than_names_and_images(
+    upgrade, monkeypatch, installed, named
+):
+    calls, _ = upgrade
+    (releases._tool_folder() / "uv-receipt.toml").unlink()
+    monkeypatch.setattr(releases, "_installed", lambda name: name in installed)
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 0, result.output
+    assert _installs(calls) == [f"latet[{named}] @ {WHEEL}"]
+
+
 def test_upgrade_that_cannot_look_up_the_release_says_why_and_where_to_go(upgrade, monkeypatch):
     calls, _ = upgrade
 
@@ -209,6 +426,140 @@ def test_upgrade_that_cannot_look_up_the_release_says_why_and_where_to_go(upgrad
     assert result.output.splitlines()[0] == f"Could not look up the latest release: {LIMIT}."
     assert releases.PAGE in result.output and "LATET_SOURCE" in result.output  # the way out
     assert calls == []  # not even stopped
+
+
+def _unreachable(client=None):
+    raise releases.ReleaseError(LIMIT)
+
+
+def test_by_hand_the_installer_is_told_the_extras_the_installed_latet_has(upgrade, monkeypatch):
+    calls, _ = upgrade
+    _receipt(releases._tool_folder(), ["server"])
+    monkeypatch.setattr(releases, "latest", _unreachable)
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 1 and calls == []
+    assert 'LATET_SOURCE set to "latet[ner,ocr,server] @ <its wheel>"' in result.output, result.output
+
+
+# --- a Latet installed in folders of its own ------------------------------------------------------------------
+# uv installs a tool in the folders its UV_* variables name, its own by default: a server installed with
+# UV_TOOL_DIR=/opt/latet/tools (Server operations) was never upgraded by `latet upgrade`, which installed a second
+# Latet in root's home and started that. It stops instead, nothing changed, and says the command to run.
+
+
+def _elsewhere(tmp_path: Path, monkeypatch, extras: list[str] | None = None) -> "releases.Folders":
+    """The Latet that runs installed by uv in folders of its own (/opt/latet/...), with a Python uv installed there."""
+    folder = tmp_path / "opt" / "tools" / "latet"
+    _receipt(folder, extras, commands=str(tmp_path / "opt" / "bin"))
+    monkeypatch.setattr(releases, "_tool_folder", lambda: folder)
+    python = tmp_path / "opt" / "python" / "cpython-3.13.9-linux-x86_64-gnu"
+    monkeypatch.setattr(releases, "_python_folder", lambda: python)
+    return releases.Folders(folder.parent, tmp_path / "opt" / "bin", python.parent)
+
+
+def test_the_folders_of_a_latet_installed_by_uv_are_read_from_where_it_runs(tmp_path, monkeypatch):
+    import sys
+
+    assert releases._python_folder() == Path(sys.base_prefix)
+    folders = _elsewhere(tmp_path, monkeypatch, ["server"])
+    assert releases.tool_folders() == folders
+    monkeypatch.setattr(releases, "_python_folder", lambda: Path("/usr"))  # a Python uv did not install
+    assert releases.tool_folders() == releases.Folders(folders.tools, folders.commands, None)
+    _receipt(releases._tool_folder(), text='[tool]\nrequirements = [{ name = "latet" }]\n')  # no commands said
+    assert releases.tool_folders() == releases.Folders(folders.tools, None, None)
+    (releases._tool_folder() / "uv-receipt.toml").unlink()  # not installed by uv
+    assert releases.tool_folders() is None
+
+
+def test_an_upgrade_of_a_latet_installed_in_folders_of_its_own_stops_with_nothing_changed(
+    installation, monkeypatch, tmp_path
+):
+    calls, data, _, _ = installation
+    folders = _elsewhere(tmp_path, monkeypatch, ["server"])
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 1, result.output
+    assert calls == [] and not (data / "backups").exists()  # no daemon stopped, no copy, nothing installed
+    assert str(folders.tools) in result.output and str(tmp_path / "tools") in result.output
+    assert "Nothing changed" in result.output
+    # The command it was installed with, in its own folders: its extras as they are, the new release's wheel.
+    assert admin._install_command(folders, f"latet[server] @ {WHEEL}") in result.output, result.output
+
+
+def test_on_windows_a_latet_in_folders_of_its_own_is_never_handed_to_the_window(windows, monkeypatch, tmp_path):
+    calls, started = windows
+    _elsewhere(tmp_path, monkeypatch, ["server"])
+    assert CliRunner().invoke(app, ["upgrade"]).exit_code == 1
+    assert calls == [] and started == []
+
+
+def test_where_the_release_cannot_be_looked_up_a_latet_in_folders_of_its_own_is_never_sent_to_the_installer(
+    upgrade, monkeypatch, tmp_path
+):
+    calls, _ = upgrade
+    folders = _elsewhere(tmp_path, monkeypatch, ["server"])
+    monkeypatch.setattr(releases, "latest", _unreachable)
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 1 and calls == []
+    assert "LATET_SOURCE" not in result.output
+    assert admin._install_command(folders, "latet[server] @ <the release's wheel>") in result.output, result.output
+
+
+@pytest.mark.parametrize("case", ["same folder spelled otherwise", "uv cannot say", "not installed by uv"])
+def test_an_upgrade_goes_on_where_no_other_folder_is_known(upgrade, tmp_path, case):
+    calls, _ = upgrade
+    said = tmp_path / "uv-tool-dir.txt"
+    if case == "same folder spelled otherwise":
+        said.write_text(str(tmp_path / "tools" / "latet" / ".."), encoding="utf-8")
+    elif case == "uv cannot say":
+        said.unlink()
+    else:  # pip's, say (Troubleshooting): uv installs a copy of its own, as before
+        (releases._tool_folder() / "uv-receipt.toml").unlink()
+        said.write_text(str(tmp_path / "elsewhere"), encoding="utf-8")
+    result = CliRunner().invoke(app, ["upgrade"])
+    assert result.exit_code == 0, result.output
+    assert len(_installs(calls)) == 1
+
+
+def test_the_command_to_run_instead_names_each_folder_as_a_posix_shell_takes_it():
+    from pathlib import PurePosixPath
+
+    folders = releases.Folders(
+        PurePosixPath("/opt/latet/tools"), PurePosixPath("/usr/local/bin"), PurePosixPath("/opt/my latet/python")
+    )  # type: ignore[arg-type]
+    assert admin._install_command(folders, f"latet[server] @ {WHEEL}", windows=False) == (
+        "UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR='/opt/my latet/python' "
+        f"uv tool install --upgrade --python '>=3.12,<3.14' 'latet[server] @ {WHEEL}'"
+    )
+
+
+def test_the_command_to_run_instead_names_each_folder_as_powershell_takes_it():
+    from pathlib import PureWindowsPath
+
+    folders = releases.Folders(PureWindowsPath("C:/ProgramData/O'Brien/tools"), None, None)  # type: ignore[arg-type]
+    assert admin._install_command(folders, f"latet[server] @ {WHEEL}", windows=True) == (
+        r"$env:UV_TOOL_DIR = 'C:\ProgramData\O''Brien\tools'; "
+        f"uv tool install --upgrade --python '>=3.12,<3.14' 'latet[server] @ {WHEEL}'"
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "\N{LEFT SINGLE QUOTATION MARK}",
+        "\N{RIGHT SINGLE QUOTATION MARK}",
+        "\N{SINGLE LOW-9 QUOTATION MARK}",
+        "\N{SINGLE HIGH-REVERSED-9 QUOTATION MARK}",
+    ],
+)
+def test_powershell_quoting_doubles_every_quote_that_ends_its_strings(quote):
+    """PowerShell ends a single-quoted string at these as at `'`: a folder named O'Brien with a typographic apostrophe
+    would split the command in two. Each is doubled, as PowerShell's own escaping does."""
+    from pathlib import PureWindowsPath
+
+    folders = releases.Folders(PureWindowsPath(f"C:/Users/O{quote}Brien/tools"), None, None)  # type: ignore[arg-type]
+    assert admin._install_command(folders, f"latet[server] @ {WHEEL}", windows=True).startswith(
+        f"$env:UV_TOOL_DIR = 'C:\\Users\\O{quote}{quote}Brien\\tools'; uv tool install "
+    )
 
 
 def test_an_upgrade_that_fails_starts_the_old_latet_again(upgrade):
@@ -268,6 +619,17 @@ def test_on_windows_the_window_is_told_the_latet_that_runs_has_names_and_images(
     Path(argv[5]).unlink()
 
 
+def test_on_windows_the_window_is_given_the_extras_the_latet_that_runs_has(windows):
+    _, started = windows
+    _receipt(releases._tool_folder(), ["ner", "server"])
+    assert CliRunner().invoke(app, ["upgrade"]).exit_code == 0
+    [(argv, _)] = started
+    assert _argument(argv, "-Full") == f"latet[ner,ocr,server] @ {WHEEL}"
+    assert _argument(argv, "-Plain") == f"latet[server] @ {WHEEL}"
+    assert _argument(argv, "-Had") == "1"  # named in the receipt: never upgraded without them
+    Path(argv[5]).unlink()
+
+
 POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 
 
@@ -285,13 +647,21 @@ def _stand_ins(tmp_path: Path, failing: tuple[str, ...] = ()) -> tuple[Path, Pat
     return log, uv, latet
 
 
-def _window(tmp_path: Path, uv: Path, latet: Path, had: str = "0", wait: str = "none") -> subprocess.CompletedProcess:
+def _window(
+    tmp_path: Path,
+    uv: Path,
+    latet: Path,
+    had: str = "0",
+    wait: str = "none",
+    full: str = f"latet[ner,ocr] @ {WHEEL}",
+    plain: str = f"latet @ {WHEEL}",
+) -> subprocess.CompletedProcess:
     assert POWERSHELL is not None
     script = Path(admin.__file__).parent / "upgrade.ps1"
     return subprocess.run(
         [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-WaitFor", wait,
-         "-Uv", str(uv), "-Pythons", releases.PYTHONS, "-Full", f"latet[ner,ocr] @ {WHEEL}",
-         "-Plain", f"latet @ {WHEEL}", "-Had", had, "-Latet", str(latet), "-Version", "1.2.0", "-Quiet"],
+         "-Uv", str(uv), "-Pythons", releases.PYTHONS, "-Full", full, "-Plain", plain, "-Had", had,
+         "-Latet", str(latet), "-Version", "1.2.0", "-Quiet"],
         capture_output=True, text=True, timeout=120, check=False,
     )  # fmt: skip
 
@@ -328,6 +698,19 @@ def test_the_window_never_takes_away_names_or_images_and_starts_the_latet_that_w
         "latet start",
     ]
     assert "Latet is as it was." in done.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
+def test_the_window_installs_the_requirements_it_is_given_with_every_extra_in_them(tmp_path):
+    full, plain = f"latet[ner,ocr,server] @ {WHEEL}", f"latet[server] @ {WHEEL}"
+    log, uv, latet = _stand_ins(tmp_path, failing=(full,))
+    done = _window(tmp_path, uv, latet, full=full, plain=plain)
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"uv tool install --upgrade --python {releases.PYTHONS} {full}",
+        f"uv tool install --upgrade --python {releases.PYTHONS} {plain}",
+        "latet agents refresh",
+        "latet start",
+    ], done.stdout + done.stderr
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell")
@@ -507,6 +890,15 @@ def test_upgrade_to_a_version_installs_that_release(upgrade, monkeypatch):
     result = CliRunner().invoke(app, ["upgrade", "--to", "1.1.0"])
     assert result.exit_code == 0, result.output
     assert [*INSTALL, f"latet[ner,ocr] @ {OLD_WHEEL}"] in calls and "1.1.0" in result.output
+
+
+def test_upgrade_to_a_version_keeps_the_extras_the_installed_latet_has(upgrade, monkeypatch):
+    calls, _ = upgrade
+    _receipt(releases._tool_folder(), ["server"])
+    monkeypatch.setattr(releases, "tagged", lambda version, client=None: releases.Release(version, OLD_WHEEL))
+    result = CliRunner().invoke(app, ["upgrade", "--to", "1.1.0"])
+    assert result.exit_code == 0, result.output
+    assert _installs(calls) == [f"latet[ner,ocr,server] @ {OLD_WHEEL}"]
 
 
 def _went_to_1_2_0(installation, monkeypatch) -> Path:

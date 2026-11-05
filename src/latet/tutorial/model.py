@@ -13,6 +13,7 @@ import json
 import re
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, ClassVar, Final
 
 import httpx
@@ -22,11 +23,14 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from latet.gateway.routes import Upstream
-from latet.tutorial.chapters import Capture, NotReceived, Turn, render, render_json
+from latet.tutorial.chapters import ORDER, Capture, NotReceived, Turn, render, render_json
 
 NAME: Final = "Tutorial Model"
 MODEL_ID: Final = "tutorial-model"
 PRETEND_URL: Final = "http://pretend-model.invalid"  # a name no resolver answers: never reached over the network
+# The Tutorial Agent's conversation id, as TutorialAgent.new_conversation draws it: a chapter's id, then
+# secrets.token_hex(4). A closed grammar of Latet's own client, so it carries no text of the user's.
+SESSION_ID: Final = re.compile(rf"tutorial-(?:{'|'.join(map(re.escape, ORDER))})-[0-9a-f]{{8}}")
 TEXT_PIECE: Final = 4  # characters of text per event
 ARGS_PIECE: Final = 7  # characters of a tool call's input per event
 _METHODS: Final = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -37,9 +41,13 @@ class PretendUpstream(Upstream):
     """The sandbox's only route: `/anthropic/...` goes to the pretend model, never over a WebSocket."""
 
     websocket: ClassVar[bool] = False
+    # Its client's conversation id passes by its grammar on this route alone (a fixture profile): on a provider's
+    # route x-session-id keeps needing an owner's exact row.
+    fixture_ids: ClassVar[Mapping[str, re.Pattern[str]]] = MappingProxyType({"x-session-id": SESSION_ID})
     name: str = "anthropic"
     prefix: str = "/anthropic"
     base_url: str = PRETEND_URL
+    envelope_expected: frozenset[tuple[str, str]] = frozenset({("model", "tutorial-model")})
 
 
 @dataclass(slots=True)

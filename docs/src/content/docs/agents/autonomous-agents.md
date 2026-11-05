@@ -26,6 +26,14 @@ The key passes through Latet to the provider and is never logged or shown in the
 Agent signed in with ChatGPT needs no key: it goes through Latet with that sign-in, as Codex does
 ([below](#signed-in-with-chatgpt)).
 
+Latet reads every part of each request these agents send
+([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)): a call it does
+not read, such as an upload or a batch, is refused, and so is a header you add in an agent's provider
+settings, until an [exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception)
+lets it through. These agents are set up by hand, so Latet trusts no project for them: a folder they
+name only adds protection, and your settings for a project loosen nothing there
+([Projects](../../concepts/projects/#trusted-and-claimed)).
+
 ## Hermes Agent
 
 Hermes reads its model and endpoint from `config.yaml` in its folder: `~/.hermes` on macOS and

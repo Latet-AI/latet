@@ -30,6 +30,19 @@ latet gemini
 latet gemini -p "write the release notes for the payments module"
 ```
 
+`latet gemini` gibt Gemini CLI außerdem einen Startschlüssel in `GEMINI_CLI_CUSTOM_HEADERS`,
+zusätzlich zu den Headern, die Sie dort setzen, damit Latet dem Projekt der Sitzung vertraut; wo es
+nicht prüfen kann, ob Gemini CLI ihn senden wird, gibt es keinen mit, sagt das, und das Projekt, das
+Gemini CLI nennt, ist nur behauptet ([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)). Eigene Header in
+`GEMINI_CLI_CUSTOM_HEADERS` werden abgelehnt, jeder beim Namen genannt, bis eine
+[genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ihn durchlässt.
+
+Gemini CLI liest `GEMINI_CLI_CUSTOM_HEADERS` ab Version 0.19.0, und Latet hat geprüft, wie es sie von
+0.19.0 bis 0.66.0 sendet. Ein älteres Gemini CLI ignoriert die Variable: Seine Sitzung ist nur
+behauptet, und `latet doctor` nennt seine Version. Im ACP-Modus (`--acp` oder `--experimental-acp`, wie
+ein Editor Gemini CLI startet) kann der Editor Gemini CLI eine eigene Adresse und eigene Header geben,
+darum gibt `latet gemini` dort keinen Startschlüssel mit und sagt das beim Start.
+
 `latet run gemini` tut dasselbe. Gemini CLI übernimmt seine Adresse nur aus der Umgebung, darum ist
 es im globalen Modus nicht verfügbar: `latet global-install` richtet es nicht ein, und es gibt kein
 `latet agents apply gemini`. Eine dauerhafte Änderung würde ein Projekt mit einer eigenen
@@ -99,16 +112,20 @@ Auch Googles OpenAI-kompatibler Endpunkt läuft über Latet: Geben Sie einem Ope
   Deklarationen der Funktionen und das Schema der Antwort werden maskiert, und die Antworten
   wiederhergestellt.
 - **Bilder** in der Anfrage werden mit der optionalen [Texterkennung](../../concepts/images/) gelesen
-  und maskiert. Andere Dateien, und Dateien, die über ihre Adresse angegeben sind, werden so
-  gesendet, wie sie sind, und im Dashboard als *Nicht gelesen* markiert.
-- Das **Nachdenken** des Modells, und der Code, den Google für es ausführt, bleiben, wie das Modell
-  sie geschrieben hat.
+  und maskiert; ohne sie wird eine Anfrage mit einem Bild nicht gesendet. Andere Dateien, und
+  Dateien, die über ihre Adresse angegeben sind, werden abgelehnt.
+- Das **Nachdenken** des Modells bleibt, wie das Modell es geschrieben hat. Der Code, den Google für
+  es ausführt, und was dieser Code ausgegeben hat, sowie die Eingaben und Ausgaben von Googles
+  eigenen Tools (Google Search, URL-Kontext, Maps, File Search) werden maskiert, wie der Aufruf
+  einer Funktion und ihr Ergebnis.
 - **Jede andere Anfrage mit einem Body** auf diesen Routen wird abgelehnt, mit einem Fehler, der es
   sagt, und ein WebSocket der Live API wird geschlossen, bevor etwas durchgeht: Die Interactions
   API, die Live API, die Batch API, das Hochladen von Dateien und `:predict` von Vertex (seine
-  eigenen Embeddings und Bildmodelle) tragen eine Unterhaltung in Formen, die Latet noch nicht liest
-  (sie stehen auf der [Roadmap](../../roadmap/)). Eine Anfrage ohne Body, etwa die Liste der
-  Modelle, geht durch.
+  eigenen Embeddings und Bildmodelle) tragen eine Unterhaltung in Formen, die Latet nicht liest
+  (sie stehen auf der [Roadmap](../../roadmap/)). Die Liste der Modelle und das Lesen eines Modells
+  gehen durch; jeder andere Aufruf ohne Body wird ebenfalls abgelehnt.
+- Der Header der Google-Clientbibliothek `x-goog-api-client` wird entfernt; Ihr API-Schlüssel, im
+  Parameter `key` oder in `x-goog-api-key`, wird gesendet, wie er kam, und nie protokolliert.
 
 ## Grenzen
 

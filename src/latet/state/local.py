@@ -17,7 +17,15 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from latet.config import TERM_TOO_LONG, Config, left_out, load_config, save_config, write_private_where_allowed
+from latet.config import (
+    TERM_TOO_LONG,
+    Config,
+    left_out,
+    load_config,
+    save_config,
+    upstreams_document,
+    write_private_where_allowed,
+)
 from latet.engine.detectors.terms import TERM_LONGEST
 from latet.engine.pipeline import LRU, Session
 from latet.fileio import own_file  # the list below is read by it; ``projects`` reads a project's file by it
@@ -421,7 +429,9 @@ class LocalSettings:
         # For you alone, as the key beside it: it holds your terms, your identity and the values you let through. Where
         # the system refuses that it is written all the same: with no copy at all, a config.yaml edited while the
         # daemon is off would apply without waiting for you.
-        text = json.dumps(config.model_dump(mode="json"), indent=1)
+        document = config.model_dump(mode="json")
+        document["upstreams"] = upstreams_document(config)  # as config.yaml keeps them (I-4)
+        text = json.dumps(document, indent=1)
         write_private_where_allowed(self.data / REVIEWED_FILE, text)
 
     def prepare(self, config: Config, *, strict: bool = False) -> Config:
@@ -569,6 +579,7 @@ def local_backends(data: Path, config_file: Path | None, root_key: bytes, *, rec
     """This computer's: the vault (latet.db) and the history (exchanges.db; none without ``record``) in ``data``,
     sealed with ``root_key``; config.yaml (``config_file``) and config.reviewed.json; the rest in this process's
     memory, as before E0a."""
+    from latet.gateway.provenance import LocalEchoes
     from latet.gateway.recorder import Broadcaster
     from latet.storage.db import Store
     from latet.storage.exchanges import ExchangeStore
@@ -597,4 +608,5 @@ def local_backends(data: Path, config_file: Path | None, root_key: bytes, *, rec
         settings=LocalSettings(config_file, data),
         jobs=LocalJobLock(),
         aws=LocalAwsSessions(),
+        echoes=LocalEchoes(),
     )

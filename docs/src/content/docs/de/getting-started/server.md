@@ -17,6 +17,12 @@ lesen (der Status, die Listen der Personen und Schlüssel, das Protokoll).
 Wählen Sie den [Betriebssystemdienst oder Compose](../../concepts/server-operations/).
 Der Dienst braucht eine vertrauenswürdige systemweite Installation und geschützte
 Konfiguration; das Compose-Serverprofil enthält PostgreSQL, Valkey, zwei Instanzen und Caddy.
+Unter Linux kann eine Instanz als mehrere Worker laufen, einer für jeden Kern, den die
+Maschine dem Server gibt (`latet server run --workers N`, oder `LATET_SERVER_WORKERS` in der
+`.env` von Compose): Jeder ist eine eigene Instanz, mit eigenem Speicher und eigenen
+Verbindungen zu PostgreSQL und Valkey
+([mehrere Instanzen auf einer Maschine](../../concepts/server-operations/#mehrere-instanzen-auf-einer-maschine)).
+Ein erster Server kann mit einem beginnen.
 Legen Sie die öffentliche HTTPS-Adresse fest und bereiten Sie Hauptschlüssel und
 Geheimnisdateien vor. Die Initialisierung gibt ein Administrationstoken aus: bewahren Sie
 es in einem privaten Terminal und Geheimnisspeicher auf. Folgen Sie für Container der
@@ -46,7 +52,8 @@ latet server --server https://latet.acme.lan status
 ```
 
 Geben Sie das Administrationstoken an der verdeckten Eingabeaufforderung ein. Die Antwort
-nennt Datenbank, Valkey, Identitäten und die antwortende Instanz. Sie prüft nicht jeden
+nennt Datenbank, Valkey, Identitäten, die antwortende Instanz und jede laufende Instanz, jeden
+Worker in einer eigenen Zeile mit seiner Bereitschaft, seinem Speicher und seiner Version. Sie prüft nicht jeden
 Agenten und belegt nicht, dass der gesamte Verkehr eines Rechners durch Latet läuft.
 
 Für wiederholte Verwaltungsaufgaben liest `--admin-token-file FILE` eine private Datei

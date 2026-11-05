@@ -7,8 +7,8 @@ param(
     [string]$WaitFor,  # the process ids of the command and its launcher, comma-separated
     [string]$Uv,
     [string]$Pythons,
-    [string]$Full,  # the release with name detection and the text in images
-    [string]$Plain,  # the release without them
+    [string]$Full,  # the release with name detection, the text in images and the other extras the Latet that runs has
+    [string]$Plain,  # the release without the first two, with the other extras
     [string]$Had,  # 1: the Latet that runs has them, and is never upgraded without them
     [string]$Latet,
     [string]$Version,

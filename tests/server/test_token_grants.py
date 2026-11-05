@@ -131,14 +131,14 @@ def test_a_row_written_by_0_9_still_has_every_permission(server):
     assert _column(server, rotated.id) is None  # the same form: the rows that did not hold permissions still do not
 
 
-def test_permissions_changed_in_the_database_find_no_one(server, db):
+def test_permissions_changed_in_the_database_find_no_one(server):
     key, full = server.identities.add_key("Shipper")
     audit, scanning = _added(server, key.id, "audit", ["scan"])
     logs, masking = _added(server, key.id, "logs", ["mask"])
     [first] = [t.id for t in server.identities.tokens(key.id) if t.label == "key"]
     for secret in (full, scanning, masking):
         assert server.identities.holds_token(key.id, server.identities.secret_digest(secret))
-    with db.connection() as conn:  # written by hand, without the server's key
+    with server.db.connection() as conn:  # written by hand, without the server's key
         conn.execute("UPDATE tokens SET permissions = NULL WHERE id = %s", (audit.id,))  # widened to all three
         conn.execute("UPDATE tokens SET permissions = 'scan' WHERE id = %s", (first,))  # narrowed
         conn.execute("UPDATE tokens SET permissions = 'scan,unmask' WHERE id = %s", (logs.id,))  # swapped
@@ -166,13 +166,13 @@ def test_a_token_that_may_forget_keeps_it_in_its_row(server):
     assert server.identities.grant_by_secret(rotated).permissions == {"scan", "mask", "unmask", "forget"}
 
 
-def test_forget_written_into_a_row_by_hand_finds_no_one(server, db):
+def test_forget_written_into_a_row_by_hand_finds_no_one(server):
     """A writer of the database who gives a token forget (from NULL, or added to its list) makes a row whose tag does
     not hold: it finds no one, and forgets nothing."""
     key, full = server.identities.add_key("Shipper")
     logs, masking = _added(server, key.id, "logs", ["mask"])
     [first] = [t.id for t in server.identities.tokens(key.id) if t.label == "key"]
-    with db.connection() as conn:  # written by hand, without the server's key
+    with server.db.connection() as conn:  # written by hand, without the server's key
         conn.execute("UPDATE tokens SET permissions = 'forget,mask,scan,unmask' WHERE id = %s", (first,))
         conn.execute("UPDATE tokens SET permissions = 'forget,mask,scan' WHERE id = %s", (logs.id,))
     server.identities.forget()
@@ -184,9 +184,9 @@ def test_forget_written_into_a_row_by_hand_finds_no_one(server, db):
 @pytest.mark.parametrize(
     "form", ["mask", "scan,mask,unmask", "scan,mask", "SCAN", "", "mask,forget", "forget,mask", "FORGET"]
 )
-def test_the_database_refuses_a_form_stored_cannot_make(server, db, form):
+def test_the_database_refuses_a_form_stored_cannot_make(server, form):
     key, _ = server.identities.add_key("Shipper")
-    with db.connection() as conn, pytest.raises(psycopg.errors.CheckViolation):
+    with server.db.connection() as conn, pytest.raises(psycopg.errors.CheckViolation):
         conn.execute("UPDATE tokens SET permissions = %s WHERE identity_id = %s", (form, key.id))
 
 
@@ -285,13 +285,13 @@ def test_rotate_takes_no_token_of_another_key(server):
         server.identities.rotate_token(person.id)[1]
 
 
-def test_a_token_whose_row_does_not_hold_is_not_rotated_into_one_that_does(server, db):
+def test_a_token_whose_row_does_not_hold_is_not_rotated_into_one_that_does(server):
     """A writer of the database who sets a restricted token's permissions to NULL makes it find no one; an administrator
     who rotates it then must not get it back with all three. Revoked first, the key is rotated as a new one."""
     key, _ = server.identities.add_key("Shipper")
     info, _ = _added(server, key.id, "audit", ["scan"])
     server.identities.revoke(key.id, next(t.id for t in server.identities.tokens(key.id) if t.label == "key"))
-    with db.connection() as conn:
+    with server.db.connection() as conn:
         conn.execute("UPDATE tokens SET permissions = NULL WHERE id = %s", (info.id,))
     for token_id in (info.id, None):
         with pytest.raises(NoSuchToken):

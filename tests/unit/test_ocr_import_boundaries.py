@@ -64,8 +64,13 @@ class WithoutOcr(importlib.abc.MetaPathFinder):
         if any(fullname == name or fullname.startswith(name + '.') for name in blocked):
             raise ModuleNotFoundError('OCR dependencies deliberately absent', name=fullname)
 sys.meta_path.insert(0, WithoutOcr())
-for name in ('latet.server.metrics', 'latet.runtime', 'latet.server.app', 'latet.cli.main'):
+for name in ('latet.server.metrics', 'latet.runtime', 'latet.cli.main'):
     importlib.import_module(name)
+assert not any(name in sys.modules for name in blocked)
+# The server's extra holds numpy (its index of prints, latet.server.index) beside psycopg and redis: its app needs no
+# more of the OCR extra than that.
+blocked.discard('numpy')
+importlib.import_module('latet.server.app')
 assert not any(name in sys.modules for name in blocked)
 assert not any(thread.name.startswith('latet-ocr') for thread in threading.enumerate())
 assert {thread.ident for thread in threading.enumerate()} == before

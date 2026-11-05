@@ -242,10 +242,28 @@ def test_a_piece_of_many_small_events_is_parsed_in_time_in_proportion_to_it():
 
 def test_the_dashboards_capture_keeps_what_it_is_handed_and_reads_it_in_the_recorders_thread():
     """What the forwarder hands it on the event loop is only kept: a chunk of tens of thousands of tiny events was read
-    there in one go (0.4 s for 4 MiB, once its parser looked for each end once). The recorder reads it (``settle``)."""
+    there in one go (0.4 s for 4 MiB, once its parser looked for each end once). The recorder reads it (``settle``).
+    A well-formed stream (its message and its block started, then stopped): bare deltas are an answer whose shape the
+    bounded capture cannot tell, which it drops as ambiguous (02dbf660)."""
+
+    def sse(kind: str, data: dict) -> bytes:
+        return f"event: {kind}\ndata: {json.dumps(data)}\n\n".encode()
+
+    message = {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": []}
+    message |= {"stop_reason": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+    start = sse("message_start", {"type": "message_start", "message": message})
+    start += sse(
+        "content_block_start",
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+    )
+    stop = sse("content_block_stop", {"type": "content_block_stop", "index": 0}) + sse(
+        "message_stop", {"type": "message_stop"}
+    )
     event = b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"a"}}\n\n'
     count = 4 * 2**20 // len(event)
-    wire = gzip.compress(event * count)  # before the clock starts: the test's own setup, not what it weighs
+    wire = gzip.compress(
+        start + event * count + stop
+    )  # before the clock starts: the test's own setup, not what it weighs
     capture = ResponseCapture("anthropic", "text/event-stream", "gzip")
     started = time.perf_counter()
     capture.feed(wire)
@@ -265,13 +283,13 @@ def test_the_dashboards_capture_stops_past_its_cap_without_decoding_further(enco
         capture.end()
         capture.settle()  # what the recorder reads, in its thread
 
+    # Decoded once, as it is screened, and only up to its own cap (02dbf660: no decoder kept between feeds): the peak
+    # holds what that cap allows, never the 48 MiB the answer holds.
     assert _peak(handed_and_read) < MAX_DECODED + 8 * 2**20
-    assert capture.broken
-    decoded = capture._decoder
-    assert decoded is not None and decoded.total <= 8_000_000 + 2 * 2**20  # stopped at its own cap, not the answer's
-    total = decoded.total
-    capture.feed(wire)  # past its cap: nothing more is decoded
-    assert decoded.total == total
+    assert capture.broken and not capture.safe and capture.omission is not None
+    kept = (capture._raw_bytes, len(capture._raw))
+    capture.feed(wire)  # past its cap, and read: nothing more is kept, nor decoded
+    assert (capture._raw_bytes, len(capture._raw)) == kept
 
 
 def test_the_dashboards_capture_of_an_unencoded_event_that_never_ends_stops_at_its_cap():
@@ -319,7 +337,7 @@ def _masked_text(request: httpx.Request) -> str:
     return json.loads(request.content)["messages"][0]["content"]
 
 
-CHAT = {"model": "m", "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
+CHAT = {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
 HEADERS = {"authorization": "Bearer sk-test"}
 
 
@@ -387,7 +405,11 @@ def test_an_anthropic_event_stream_ends_with_its_own_error_event():
         headers = {"content-type": "text/event-stream", "content-encoding": "gzip"}
         return httpx.Response(200, headers=headers, stream=httpx.ByteStream(wire))
 
-    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
+    body = {
+        "model": "claude-sonnet-4-5",
+        "stream": True,
+        "messages": [{"role": "user", "content": f"write to {EMAIL}"}],
+    }
     with _gateway(bomb) as c:
         streamed = c.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "sk-test"})
     last = [block for block in streamed.text.split("\n\n") if block][-1]
@@ -545,8 +567,14 @@ class _Answering:
 
 
 def _relay_to(upstream: _Answering):
-    """A computer's relay to ``upstream``, and a client's socket on it."""
-    config = GatewayConfig(port=5283, upstreams=[Upstream("relay", "/relay", f"http://127.0.0.1:{upstream.port}")])
+    """A computer's relay to ``upstream``, and a client's socket on it, request protection on (a gateway without it
+    refuses every request since 855a0188)."""
+    built = build(Config(), Vault(ROOT_KEY))
+    config = GatewayConfig(
+        port=5283,
+        upstreams=[Upstream("relay", "/relay", f"http://127.0.0.1:{upstream.port}")],
+        mediator=Mediator(built.engine, built.verifier),
+    )
     client = TestClient(create_app(config), base_url="http://127.0.0.1:5283")
     return client, lambda: client.websocket_connect("/relay/v1/responses", headers={"host": "127.0.0.1:5283"})
 

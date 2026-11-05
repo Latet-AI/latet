@@ -57,7 +57,9 @@ lesen kann, wird zurückgehalten: Das Modell erhält an seiner Stelle einen kurz
 als 20 MB oder 40 Megapixel ist, eines, das kein gültiges Bild ist, eines, das für seine Breite so
 lang oder für seine Höhe so breit ist, dass es in mehr als 16 Teilen gelesen werden müsste (der
 Screenshot einer Seite, die länger als etwa 29.000 Pixel ist), und jedes Bild, solange die Modelle
-noch laden (eine Anfrage wartet bis zu 20 Sekunden auf sie).
+noch laden (eine Anfrage wartet bis zu 20 Sekunden auf sie). Aus einer Anfrage, die Latet nur
+prüft, wie denen von Claude Code, lässt sich kein Bild herausnehmen: Eine mit einem Bild, das Latet
+nicht lesen kann, wird nicht gesendet.
 
 ## Welche Bilder
 
@@ -65,7 +67,7 @@ noch laden (eine Anfrage wartet bis zu 20 Sekunden auf sie).
 | --- | --- |
 | Bilder in den Nachrichten: die base64-Bilder von Claude, die `data:`-URLs von OpenAI Chat und Responses, Codex über HTTP und über seinen WebSocket, die Inline-Bilder von Gemini (`inlineData`) | ja |
 | Screenshots, die Tools zurückgeben: Read von Claude Code auf einem Bild, MCP-Server wie der eines Browsers, Computer Use von OpenAI | ja |
-| Per Adresse eingebundene Bilder (eine `https://`-URL, eine Datei-ID), PDFs und andere Dokumente, Audio | nein: unverändert gesendet, mit der Markierung *Nicht gelesen*, oder nicht gesendet (siehe unten) |
+| Per Adresse eingebundene Bilder (eine `https://`-URL, eine Datei-ID), PDFs und andere Dokumente, Audio | nein: Die Anfrage wird nicht gesendet |
 
 ## Die Einstellungen
 
@@ -75,7 +77,7 @@ unter **Regeln** → **Schutz** → **Produktionsdaten**, in der
 
 | `images` | Mit Texterkennung | Ohne |
 | --- | --- | --- |
-| `allow` (Standard) | Bilder werden gelesen und maskiert | Bilder werden unverändert gesendet, mit der Markierung *Nicht gelesen* |
+| `allow` (Standard) | Bilder werden gelesen und maskiert | keine Anfrage mit einem Bild wird gesendet |
 | `mask` | nur gelesene und maskierte Bilder werden gesendet: Eine Anfrage, die eines enthält, das Latet nicht lesen kann (ein PDF, ein per Adresse eingebundenes Bild), wird nicht gesendet | keine Anfrage mit einem Bild wird gesendet |
 | `block` | keine Anfrage, die ein Bild oder ein Dokument enthält, wird gesendet | ebenso |
 
@@ -84,7 +86,46 @@ unter **Regeln** → **Schutz** → **Produktionsdaten**, in der
 - Die `latet.yaml` eines Repositorys kann nur bewirken, dass weniger Bilder gesendet werden. Mehr
   Bilder zu senden, über Ihre Einstellungen oder ein eigenes Projekt, und `ocr: off` warten auf Ihre
   Freigabe, wenn ein Agent sie verlangt ([Agenten und Ihre Einstellungen](../agents-and-settings/)).
-- Ein Agent, der gestoppt wird, erhält einen Fehler, der sagt, warum und was zu tun ist.
+- Mit `ocr: off` wird, wie ohne Texterkennung, keine Anfrage mit einem Bild gesendet.
+- Ein Agent, der gestoppt wird, erhält einen Fehler, der sagt, warum und was zu tun ist. Ohne
+  Texterkennung erfährt er, dass er `latet ocr install` ausführen und eine neue Unterhaltung beginnen
+  soll, da das Bild in ihrem Verlauf bleibt:
+
+  ```text
+  Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
+  ```
+
+## Fotos und ihre Metadaten
+
+Eine Anfrage, die Latet umschreibt (Codex, OpenCode und die anderen Agenten im Gateway-Modus), sendet
+jedes Bild neu geschrieben, ohne seine Metadaten. Eine Anfrage, die Latet nur prüft, wie die von
+Claude Code, geht so hinaus, wie der Agent sie gebaut hat, daher erfasst Latet dort jedes Byte jedes
+Bildes: den Aufbau seines Formats, nach dessen Grammatik gelesen; den Text seiner Metadaten (den
+Kommentar *Screenshot* eines Screenshots, das Programm, das es erstellt hat, den Namen seines
+Farbprofils), von der abschließenden Prüfung gelesen; und die Pixel des Hauptbildes, deren Text die
+Texterkennung gelesen hat. Was übrig bleibt, wird nicht gesendet:
+
+- ein Standort (GPS) in den Metadaten eines Fotos;
+- die Angaben, die der Hersteller einer Kamera in einer eigenen Form schreibt;
+- die Vorschau, die eine Kamera in einem Foto ablegt, und jedes andere Bild darin, etwa die Tiefen-
+  und Verstärkungskarten eines Porträtfotos vom Handy;
+- alles, was nach dem Ende des Bildes folgt, etwa das Video eines Live-Fotos.
+
+Der Agent erfährt, wie es weitergeht:
+
+```text
+Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
+```
+
+Setzen Sie die Unterhaltung auf den Stand vor dem Bild zurück oder beginnen Sie eine neue, und hängen
+Sie das Bild dann ohne seine Metadaten erneut an: unter iOS *Teilen*, *Optionen*, *Standort* aus; in
+der Vorschau unter macOS *Werkzeuge*, *Informationen einblenden*, *Ortsinformationen entfernen*;
+unter Windows in den *Eigenschaften* der Datei *Details*, *Eigenschaften und persönliche Informationen
+entfernen*. Ein gewöhnlicher Screenshot hat nichts davon und geht durch.
+
+Ein ursprüngliches WebP-Bild lässt sich dort nicht Byte für Byte erklären und wird ebenfalls
+abgelehnt: Exportieren Sie es als PNG, setzen Sie dann zurück oder beginnen Sie eine neue
+Unterhaltung. Eine Anfrage, die Latet umschreibt, sendet ein WebP-Bild neu als PNG geschrieben.
 
 ## In Claude Code
 
@@ -132,5 +173,8 @@ sendet:
 - **Das Modell liest den Ersatzwert.** Liest es ihn falsch, enthält seine Antwort den falsch
   gelesenen Ersatzwert, für den Latet den echten Wert nicht wieder einsetzen kann.
 - **PDFs und andere Dokumente werden nicht gelesen**, ebenso wenig per Adresse eingebundene Bilder:
-  siehe die Tabelle oben.
+  Eine Anfrage, die eines enthält, wird nicht gesendet.
+- **QR-Codes und Strichcodes werden nicht entschlüsselt.** Die Texterkennung liest Text: Die Daten,
+  die ein Code enthält, gehen mit dem Bild hinaus. Senden Sie keinen Code, der einen Wert enthält, den
+  Sie schützen.
 - **Nur Text.** Gesichter, Unterschriften, Logos und Handschrift werden nicht überdeckt.

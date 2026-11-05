@@ -27,6 +27,15 @@ Junie CLI, Kilo Code, Continue e Crush leggono le impostazioni anche dal progett
 impostazioni di un progetto possono puntarli a un altro indirizzo: controllale prima di lavorare in un
 repository che non hai scritto tu.
 
+Latet legge ogni parte di ogni richiesta che questi strumenti inviano
+([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)). I loro elenchi dei
+modelli passano sui percorsi qui sopra. Un header che uno strumento ti lascia aggiungere viene
+rifiutato, nominandolo, finché
+un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non lo lascia passare, e
+una chiamata che Latet non legge (file, audio, generazione di immagini) viene rifiutata. Questi
+strumenti sono configurati a mano, quindi una cartella che nominano aggiunge solo protezione
+([Progetti](../../concepts/projects/#attendibili-e-dichiarati)).
+
 ## In sintesi
 
 *Provato* significa che lo strumento stesso è stato fatto passare da Latet verso un provider di
@@ -138,6 +147,13 @@ destinazioni, e uno su questo computer resta com'è. Con OpenRouter, imposta
 Anthropic, `COPILOT_PROVIDER_TYPE=anthropic` e la tua chiave di Anthropic. Per avviare tu stesso
 `copilot`, imposta invece `COPILOT_PROVIDER_BASE_URL` all'indirizzo di Latet:
 `http://127.0.0.1:5283/openai/v1`, `/openrouter/api/v1` o `/anthropic`.
+
+`latet copilot` dà anche a Copilot una chiave di avvio in `COPILOT_PROVIDER_HEADERS`, aggiunta agli
+header che hai impostato lì, su un provider compatibile con OpenAI via Chat Completions: Latet
+considera allora attendibile il progetto della sessione. Via la Responses API, l'API di Anthropic o un
+WebSocket non ne passa nessuna e lo dice, e il progetto è dichiarato. Gli header tuoi in
+`COPILOT_PROVIDER_HEADERS` vengono rifiutati, nominandoli uno per uno, finché un'eccezione esatta non
+li lascia passare.
 
 `COPILOT_PROVIDER_WIRE_API=responses` usa invece la Responses API. Il modello deve supportare le
 chiamate agli strumenti e lo streaming. Senza `COPILOT_OFFLINE=true`, la CLI invia comunque la

@@ -94,7 +94,7 @@ def agent_files(tmp_path, monkeypatch):
 
 
 def _send(client, text, route="acme"):
-    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": text}]}
+    body = {"model": "gpt-4.1-mini", "stream": True, "messages": [{"role": "user", "content": text}]}
     return client.post(f"/{route}/v1/chat/completions", json=body, headers=KEY)
 
 

@@ -15,7 +15,9 @@ Secrets are masked in every [profile](../profiles/).
 Latet's own credentials are included: `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
 (`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
 `LATET_SCIM_TOKEN` (`latet_scim_`, the SCIM token of an Enterprise server), `LATET_BRIDGE_TOKEN`
-(`latet_brg_`, the token your Claude Code plugin gives the daemon of your computer) and
+(`latet_brg_`, the token your Claude Code plugin gives the daemon of your computer), `LATET_LAUNCH_KEY`
+(`latet_lk_`, the key `latet claude`, `latet codex` and the other launchers give the agent they start,
+which a command that prints the agent's environment puts in a tool's output) and
 `LATET_ONE_TIME_CODE` (`latet_code_`, the code an administrator gives a person to connect a
 computer), each prefix followed by 43 URL-safe characters (32 for the one-time code; `A-Z`, `a-z`,
 `0-9`, `_`, `-`). A bridge token or a one-time code made by an earlier version has no prefix: it is

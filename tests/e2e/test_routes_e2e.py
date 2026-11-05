@@ -17,8 +17,13 @@ from .fake_upstream import FakeUpstream
 pytestmark = pytest.mark.e2e
 
 GH_PAT = "ghp_" + "R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
-CLAUDE_CODE = {"user-agent": "claude-cli/2.1.294 (external, cli)", "x-claude-code-session-id": "cc-routes"}
+# Claude Code's session id is a UUID (crypto.randomUUID()); its model and OpenAI's are documented ids.
+CLAUDE_CODE = {
+    "user-agent": "claude-cli/2.1.294 (external, cli)",
+    "x-claude-code-session-id": "6a2d8f4b-9e1c-4f37-8d6a-1c5b3e9f2a74",
+}
 KEY = {"authorization": "Bearer sk-test"}
+GPT, CLAUDE = "gpt-4.1-mini", "claude-sonnet-4-5"
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +53,7 @@ def client(runtime):
 
 
 def _chat(text: str) -> dict:
-    return {"model": "m", "stream": True, "messages": [{"role": "user", "content": text}]}
+    return {"model": GPT, "stream": True, "messages": [{"role": "user", "content": text}]}
 
 
 def test_latet_headers_stay_on_this_computer(client, upstream, tmp_path):
@@ -66,10 +71,14 @@ def test_latet_headers_stay_on_this_computer(client, upstream, tmp_path):
     assert "Project Heron" not in upstream.all_received()  # the header still named the project
 
 
-def test_the_path_is_forwarded_as_sent(client, upstream):
-    r = client.post("/openai/v1/a%2Fb:c%3Ad/responses", json={"model": "m", "input": "hello"}, headers=KEY)
+def test_the_path_is_forwarded_as_sent(client, runtime, upstream):
+    """Gemini's encoded colon (a GenAI SDK may send `%3A`) is read as the colon it is, and sent as it was written."""
+    runtime.gateway.routes.use([*runtime.gateway.upstreams, Upstream("gemini", "/gemini", upstream.url)])
+    body = {"contents": [{"role": "user", "parts": [{"text": "hello"}]}]}
+    path = "/gemini/v1beta/models/gemini-2.5-flash%3AgenerateContent"
+    r = client.post(path, json=body, headers={"x-goog-api-key": "AIzaSyFAKE-gemini-0123456789"})
     assert r.status_code == 200
-    assert upstream.requests[-1]["path"] == "/v1/a%2Fb:c%3Ad/responses"
+    assert upstream.requests[-1]["path"] == "/v1beta/models/gemini-2.5-flash%3AgenerateContent"
 
 
 def test_routes_change_without_a_restart(client, runtime, upstream):
@@ -83,19 +92,23 @@ def test_routes_change_without_a_restart(client, runtime, upstream):
 def test_websocket_routes_change_without_a_restart(client, runtime, upstream):
     runtime.gateway.routes.use([*runtime.gateway.upstreams, Upstream("acmews", "/acmews", upstream.url)])
     text = {"type": "input_text", "text": "hello websocket"}
-    frame = {"type": "response.create", "model": "x", "input": [{"type": "message", "role": "user", "content": [text]}]}
-    headers = {"host": "127.0.0.1:5283", "session-id": "s-routes"}
-    with client.websocket_connect("/acmews/backend-api/codex/responses", headers=headers) as ws:
+    frame = {
+        "type": "response.create",
+        "model": "gpt-5.1-codex",
+        "input": [{"type": "message", "role": "user", "content": [text]}],
+    }
+    headers = {"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2d01"}  # Codex's UUIDv7
+    with client.websocket_connect("/acmews/v1/responses", headers=headers) as ws:  # a destination's Responses route
         ws.send_text(json.dumps(frame))
-        while json.loads(ws.receive_text())["type"] != "response.completed":
-            pass
+        while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+            assert event["type"] != "error", event  # an error ends the turn: never wait past it
     assert "hello websocket" in upstream.ws_received[-1]
 
 
 def test_a_block_answers_in_the_shape_of_its_protocol(client, runtime, upstream):
     runtime.gateway.routes.use([*runtime.gateway.upstreams, Upstream("gw", "/gw", upstream.url)])
     before = len(upstream.received)
-    body = {"model": "x", "messages": [{"role": "user", "content": f"deploy with {GH_PAT}"}]}
+    body = {"model": CLAUDE, "messages": [{"role": "user", "content": f"deploy with {GH_PAT}"}]}
     r = client.post("/gw/v1/messages", json=body, headers=CLAUDE_CODE)
     assert r.status_code == 400
     assert r.json()["type"] == "error" and r.json()["error"]["message"].startswith("Latet: ")

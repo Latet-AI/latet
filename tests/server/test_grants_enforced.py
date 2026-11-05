@@ -61,7 +61,7 @@ def _token(server, key_id, name, permissions):
 
 def _chat(client, secret, text):
     """An agent's request to OpenAI through the address of ``secret``."""
-    body = {"model": "m", "messages": [{"role": "user", "content": text}]}
+    body = {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": text}]}
     path = f"/u/{route_key(secret)}/openai/v1/chat/completions"
     return client.post(path, json=body, headers={"authorization": "Bearer sk-test"})
 

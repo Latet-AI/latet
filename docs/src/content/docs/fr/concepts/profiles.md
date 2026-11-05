@@ -22,7 +22,7 @@ Un profil décide quels [détecteurs](../detection/) sont actifs. Il y en a troi
 | Noms et adresses postales, avec le [modèle local de noms facultatif](../../getting-started/installation/) | dans vos prompts, vos pièces jointes et le texte des images | partout | ❌ |
 | Ce qu'aucun motif ne trouve, avec le [relecteur local facultatif](../llm-review/) | quand il est activé | quand il est activé | quand il est activé |
 | Le texte des images, avec la [reconnaissance de texte facultative](../images/) | masqué | non envoyé | masqué |
-| PDF, et images sans reconnaissance de texte | envoyés, et signalés | non envoyés | envoyés, et signalés |
+| PDF, et images sans reconnaissance de texte | non envoyés | non envoyés | non envoyés |
 
 - **`balanced`** convient à la plupart des travaux sur du code. C'est le profil par défaut.
 - **`max`** ajoute les adresses IP privées et les numéros d'identité de tous les pays, active le

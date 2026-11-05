@@ -31,6 +31,8 @@ mit **Regeln importieren**. Siehe
 
 Das entscheidet der Ordner, in dem der Agent arbeitet.
 - **Claude Code:** Das Plugin teilt ihn Latet mit.
+- **Ein Agent, den Latet startet** (`latet claude`, `latet codex`, `latet opencode`, `latet gemini`,
+  `latet copilot`): Sein [Startschlüssel](#startschlüssel) teilt ihn mit, wo der Agent einen mitführt.
 - **Codex, OpenCode und Gemini CLI:** Sie nennen den Ordner in ihren Anfragen.
 - **Jeder andere Client:** Er kann den Header `x-latet-project: <folder>` senden.
 
@@ -40,6 +42,83 @@ Das Projekt eines Ordners ist der Ordner der nächstgelegenen `latet.yaml`, gesu
 aufwärts bis zur Wurzel seines Git-Repositorys. Gibt es keine, ist es das Repository; außerhalb
 eines Repositorys der Ordner selbst. Es gilt nur die nächstgelegene Datei: Ein Unterordner mit
 eigener Datei ist ein eigenes Projekt, und die beiden werden nicht kombiniert.
+
+### Vertrauenswürdig und behauptet
+
+Latet vertraut dem Projekt einer Sitzung nur, wenn es dieses selbst kennt:
+
+- **Über das Plugin von Claude Code,** für einen Ordner, den Latet als Projekt kennt (einen mit einer
+  `latet.yaml` oder mit Ihren eigenen Einstellungen dafür). Das Plugin bindet die Sitzung an dieses
+  Projekt; jeder seiner Aufrufe an Latet hält die Bindung, die nach 30 Minuten ohne Aufruf endet.
+- **Über einen Startschlüssel,** für einen Agenten, den Latet in diesem Ordner gestartet hat.
+
+Ein Ordner, den nur die Anfrage nennt (der Header `x-latet-project` oder der Arbeitsordner, den Codex,
+OpenCode und Gemini CLI in ihre Anfragen schreiben), ist *nur behauptet*. Die Regeln eines
+behaupteten Projekts, die Schutz hinzufügen, gelten: seine Begriffe, seine Erkennungsregeln, ein
+strengeres Profil. Seine Lockerungen gelten nicht: Werte und Muster, die nie maskiert werden,
+ausgeschaltete Regeln für geheime Werte, ein schwächeres Profil oder eine schwächere Richtlinie,
+`data_tools`, die Hinweise und Bilder für den lokalen Prüfer. Ein behauptetes Projekt, in dem Latet
+aus ist, wird trotzdem abgelehnt, und eine
+[Anfrageausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) für ein
+Projekt gilt nur dort, wo sein Projekt vertrauenswürdig ist. Das Dashboard zeigt für jede Anfrage, ob
+ihr Projekt vertrauenswürdig oder nur behauptet war (*Projekt nur behauptet*), und wie ihr Start
+entschieden wurde.
+
+- **Bevor das Plugin eine Sitzung bindet.** Claude Code macht beim Start einige Aufrufe, vor dem
+  ersten Aufruf des Plugins an Latet: seine Modellliste und bei Bedrock seine ersten Anfragen. Sie
+  werden nur mit Ihren eigenen Regeln entschieden, weder mit den hinzugefügten Regeln des Projekts
+  noch mit seinen Lockerungen.
+- **Was die Bindung hereinlässt.** Eine Bindung gilt der ID einer Sitzung: Eine Anthropic-Messages-
+  Anfrage mit der ID einer laufenden Sitzung von Ihnen, die das Plugin gebunden hat, wird mit diesem
+  Projekt entschieden, samt Lockerungen und Ausnahmen, welches Ihrer Programme sie auch sendet. Sie
+  wird trotzdem von der abschließenden Prüfung gelesen und nie umgeschrieben, und die Anfragen einer
+  anderen Person erreichen sie nie. Eine Sitzung, die `latet claude` gestartet hat, braucht
+  stattdessen ihren Startschlüssel: Ihre ID allein bekommt keine Lockerung des Projekts.
+
+### Startschlüssel
+
+Wenn Latet einen Agenten startet, öffnet es einen Start für den Ordner: einen geheimen Schlüssel, nur
+für diesen Start gezogen, an das Projekt des Ordners und an Sie gebunden. Der Agent sendet ihn mit
+seinen Anfragen in einem Header, `x-latet-launch-key`, den Latet prüft und entfernt, bevor irgendetwas
+weitergesendet, aufgezeichnet oder protokolliert wird; Latet behält nur einen mit einem Schlüssel
+gebildeten Hash davon. Der Schlüssel endet mit dem Start: wenn der Agent sich beendet oder wenn der Befehl, der ihn
+gestartet hat, angehalten wird.
+
+| Befehl | Wie der Schlüssel reist |
+| --- | --- |
+| `latet claude` | `ANTHROPIC_CUSTOM_HEADERS`, in der privaten Einstellungsdatei dieser Sitzung |
+| `latet codex` | `env_http_headers` eines Anbieters aus `model_providers`, ab Codex 0.115; keiner bei den eingebauten Anbietern von Codex (mit ChatGPT-Anmeldung oder dem eigenen Anbieter von OpenAI) |
+| `latet opencode` | `options.headers` jedes Anbieters, den es umleitet |
+| `latet gemini` | `GEMINI_CLI_CUSTOM_HEADERS` |
+| `latet copilot` | `COPILOT_PROVIDER_HEADERS`, an einen OpenAI-kompatiblen Anbieter über Chat Completions; keiner über Responses, die API von Anthropic oder einen WebSocket |
+| `latet run` | keiner: Ein Programm, das es startet, kann keinen mitführen |
+
+Der Schlüssel kommt zu den Headern hinzu, die der Agent ohnehin sendet: Ihre eigenen bleiben, wie Sie
+sie geschrieben haben, und brauchen trotzdem eine eigene Ausnahme. Ein Agent, der ohne Schlüssel
+startet, erfährt in einem Satz den Grund, etwa `Latet: Codex older than 0.115 has no way to carry a
+launch key, so this session's project settings only add protection: their loosenings do not apply.`,
+und sein Projekt ist nur behauptet. Ein Ordner, der keines Ihrer Projekte ist, braucht keinen Schlüssel.
+
+- **Ein Geheimnis für Latet.** In der Ausgabe eines Tools oder in einer Nachricht wird ein gültiger
+  Schlüssel wie das eigene Token von Latet maskiert; wo Latet ihn nicht maskieren kann (eine Anfrage,
+  die es nur prüft), wird die Anfrage abgelehnt, mit dem Hinweis, zurückzusetzen oder eine neue
+  Unterhaltung zu beginnen.
+- **Besessen, nicht an einen Prozess gebunden.** Jedes Programm, das den Schlüssel besitzt, zählt als
+  dieser Start. Es läuft als derselbe Benutzer, und Latet gibt nicht vor, Programme auseinanderhalten
+  zu können.
+- **Unbekannt, beendet oder fremd.** Eine Anfrage mit einem Schlüssel, den Latet nicht kennt (sein
+  Daemon wurde zum Beispiel neu gestartet), wird als nur behauptet entschieden, nie deswegen abgelehnt.
+  Ein Schlüssel, dessen Start beendet ist, oder einer, der für ein anderes Projekt oder von einer
+  anderen Person gesendet wird, wird abgelehnt.
+- **In der Adresse.** Auf einem Rechner nimmt Latet den Schlüssel auch am Anfang des Pfads der Adresse
+  an, eine Form, die kein Startbefehl verwendet; ein Latet-Server lehnt sie ab.
+
+Das Dashboard zeigt, wie der Start jeder Anfrage entschieden wurde: *Von Latet gestartet, Schlüssel
+geprüft*, *Von Latet gestartet, Schlüssel fehlt* (ein von Latet gestarteter Agent, dessen Anfrage ohne
+einen Schlüssel kam, den Latet prüfen kann: als nur behauptet entschieden), *Vom Claude-Code-Plugin
+gebunden* (ein dauerhaft eingerichtetes Claude Code) oder *Nicht von Latet gestartet* (nur
+behauptet). `latet doctor` nennt
+jeden von Latet gestarteten Agenten, der ohne seinen Schlüssel gesehen wurde, mit seiner Version.
 
 ## Die Projektdatei
 
@@ -129,13 +208,20 @@ projects:
     allow_values: [acme-dev]
 ```
 
-Diese Einstellungen gelten nach der Projektdatei und dürfen sie auch lockern:
+Latet speichert den Ordner in kanonischer Form: unter Windows mit umgekehrten Schrägstrichen und
+großem Laufwerksbuchstaben, und ohne abschließendes Trennzeichen (`C:/work/shop/` wird als
+`C:\work\shop` gespeichert). Die ID des Projekts ändert sich nicht.
+
+Diese Einstellungen gelten nach der Projektdatei und dürfen sie auch lockern, in einer Sitzung,
+deren Projekt Latet [vertraut](#vertrauenswürdig-und-behauptet):
 - Werte und Muster, die nie maskiert werden;
 - ausgeschaltete Regeln für geheime Werte;
 - ein schwächeres Profil oder eine schwächere Richtlinie als die globale;
 - Felder, die im strikten Datenmodus im Klartext bleiben, ein ausgeschalteter strikter Datenmodus
-  (`data: normal`), gesendete Bilder, nicht gelesener Text in Bildern (`ocr: off`), ein höherer
-  oder ausgeschalteter Dump-Schutz.
+  (`data: normal`), gesendete Bilder, ein höherer oder ausgeschalteter Dump-Schutz.
+
+Wird der Text in Bildern dort nicht gelesen (`ocr: off`), bleibt jede Anfrage mit einem Bild im
+Projekt stehen.
 
 Nur Ihre eigenen Einstellungen schalten den [Live-Prüfer](../live-review/) in einem Projekt ein oder
 aus (`live_review`) und geben dem lokalen Prüfer dort Hinweise (`review_guidance`, siehe
@@ -159,11 +245,15 @@ Daten und Ihre Identität durch: das Profil `secrets`, in Ihren eigenen Einstell
 Projekt.
 
 `latet project off` schaltet Latet im Projekt des aktuellen Ordners aus (oder des angegebenen
-Ordners). Dasselbe tut *Schutz: Aus*:
-- dort wird nichts maskiert oder blockiert;
-- für Ersatzwerte, die schon in einer Unterhaltung stehen, werden die Originale weiterhin wieder
-  eingesetzt;
+Ordners). Dasselbe tut *Schutz: Aus*. Latet sendet dann keine Anfrage des Projekts:
+- jede wird abgelehnt, über HTTP und über einen WebSocket, ob das Projekt nun vertrauenswürdig oder
+  nur behauptet ist, mit einem Hinweis, wie man Latet dort einschaltet oder den Anbieter direkt
+  erreicht ([Umstieg auf 0.11](../../getting-started/upgrading-to-0-11/#ein-projekt-in-dem-latet-aus-ist));
+- `latet project off` und der Schalter im Dashboard sagen das, bevor sie es ausschalten;
 - das Dashboard markiert diese Austausche mit *Latet aus*.
+
+Um in einem Projekt personenbezogene Daten durchzulassen, wählen Sie *Nur Geheimnisse*: Seine
+Anfragen gehen weiter hinaus, mit maskierten Geheimnissen.
 
 `latet project on` schaltet es wieder ein. Nur Ihre eigenen Einstellungen können es ausschalten, nie
 eine Projektdatei. Schaltet ein Agent es aus oder geschieht das von Hand in `config.yaml`, wartet
@@ -218,7 +308,7 @@ Terminal: Latet merkt sich die Repositorys dann wieder, sobald Unterhaltungen si
 | `latet project init [FOLDER] [--suggest]` | Schreibt eine `latet.yaml` als Ausgangspunkt; `--suggest` fügt Entwürfe von Erkennern für die Formate hinzu, die dort keine Regel abdeckt |
 | `latet project show [FOLDER] [--json]` | Was in einem Projekt gilt und was ignoriert wird |
 | `latet project check [FOLDER]` | Prüft die Projektdatei, einschließlich der Erkenner |
-| `latet project off` / `on [FOLDER]` | Schaltet Latet in einem Projekt aus oder wieder ein |
+| `latet project off` / `on [FOLDER]` | Schaltet Latet in einem Projekt aus, wo seine Anfragen dann abgelehnt werden, oder wieder ein |
 | `latet repositories` | Die Repositorys, die Latet sich merkt, jedes mit seinem Zustand |
 | `latet repositories forget FOLDER` | Nimmt eines aus der Liste (nur Ihre Sache: Es verweigert einen Agenten) |
 | `latet rules add FILE --repo FOLDER` | Fügt Erkenner der Projektdatei statt `config.yaml` hinzu (`--project`: Ihren Einstellungen für das Projekt) |

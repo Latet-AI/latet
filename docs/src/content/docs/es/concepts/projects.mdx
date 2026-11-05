@@ -30,6 +30,9 @@ panel, en **Reglas** con **Importar reglas**. Consulta
 
 Lo decide la carpeta en la que trabaja el agente.
 - **Claude Code:** el plugin se la indica a Latet.
+- **Un agente que lanza Latet** (`latet claude`, `latet codex`, `latet opencode`, `latet gemini`,
+  `latet copilot`): se la indica su [clave de lanzamiento](#las-claves-de-lanzamiento), donde el agente
+  lleva una.
 - **Codex, OpenCode y Gemini CLI:** indican la carpeta en sus peticiones.
 - **Cualquier otro cliente:** puede enviar la cabecera `x-latet-project: <folder>`.
 
@@ -39,6 +42,77 @@ El proyecto de una carpeta es la carpeta del `latet.yaml` más cercano, subiendo
 hasta la raíz de su repositorio git. Si no hay ninguno, es el repositorio; fuera de un repositorio,
 la propia carpeta. Solo se aplica el archivo más cercano: una subcarpeta con su propio archivo es un
 proyecto aparte, y los dos no se combinan.
+
+### De confianza y declarados
+
+Latet solo considera de confianza el proyecto de una sesión cuando lo conoce por sí mismo:
+
+- **Por el plugin de Claude Code,** para una carpeta que Latet conoce como proyecto (una con un
+  `latet.yaml`, o con tus propios ajustes para ella). El plugin vincula la sesión a ese proyecto; cada
+  una de sus llamadas a Latet mantiene el vínculo, que termina tras 30 minutos sin ninguna.
+- **Por una clave de lanzamiento,** para un agente que Latet lanzó en esa carpeta.
+
+Una carpeta que solo nombra la petición (la cabecera `x-latet-project`, o la carpeta de trabajo que
+Codex, OpenCode y Gemini CLI escriben en sus peticiones) está *declarada*. Las reglas de un proyecto
+declarado que añaden protección se aplican: sus términos, sus reconocedores, un perfil más estricto.
+Sus relajaciones no: valores y patrones que nunca se enmascaran, reglas de secretos desactivadas, un
+perfil o una política más débiles, `data_tools`, las indicaciones y las imágenes del revisor local. Un
+proyecto declarado en el que Latet está desactivado se rechaza igualmente, y una
+[excepción de petición](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) para un
+proyecto solo se aplica donde su proyecto es de confianza. El panel muestra para cada petición si su
+proyecto era de confianza o declarado (*Proyecto declarado*), y cómo se decidió su lanzamiento.
+
+- **Antes de que el plugin vincule una sesión.** Claude Code hace algunas llamadas al arrancar, antes
+  de la primera llamada del plugin a Latet: su lista de modelos, y en Bedrock sus primeras peticiones.
+  Se deciden solo con tus propias reglas, ni con las reglas añadidas del proyecto ni con sus
+  relajaciones.
+- **Lo que deja entrar el vínculo.** Un vínculo es con el id de una sesión: una petición de Anthropic
+  Messages que lleva el id de una sesión tuya activa vinculada por el plugin se decide con ese
+  proyecto, relajaciones y excepciones incluidas, sea cual sea el programa tuyo que la envíe. La sigue
+  leyendo la comprobación final y nunca se reescribe, y las peticiones de otra persona nunca lo
+  alcanzan. Una sesión que arrancó `latet claude` necesita en cambio su clave de lanzamiento: su id por
+  sí solo no obtiene ninguna relajación del proyecto.
+
+### Las claves de lanzamiento
+
+Cuando Latet lanza un agente, abre un lanzamiento para la carpeta: una clave secreta generada solo para
+ese lanzamiento, ligada al proyecto de la carpeta y a ti. El agente la envía con sus peticiones en una
+cabecera, `x-latet-launch-key`, que Latet comprueba y quita antes de reenviar, registrar o anotar en un
+log cualquier cosa; Latet solo guarda un hash con clave de ella. La clave termina con el lanzamiento:
+cuando el agente sale, o cuando se detiene el comando que lo arrancó.
+
+| Comando | Cómo viaja la clave |
+| --- | --- |
+| `latet claude` | `ANTHROPIC_CUSTOM_HEADERS`, en el archivo de ajustes privado de esa sesión |
+| `latet codex` | `env_http_headers` de un proveedor de `model_providers`, desde Codex 0.115; ninguna en los proveedores integrados de Codex (con la sesión de ChatGPT, o el proveedor de OpenAI) |
+| `latet opencode` | `options.headers` de cada proveedor que redirige |
+| `latet gemini` | `GEMINI_CLI_CUSTOM_HEADERS` |
+| `latet copilot` | `COPILOT_PROVIDER_HEADERS`, hacia un proveedor compatible con OpenAI por Chat Completions; ninguna por Responses, la API de Anthropic o un WebSocket |
+| `latet run` | ninguna: un programa que arranca no tiene forma de llevar una |
+
+La clave se añade a las cabeceras que el agente ya envía: las tuyas se quedan como las escribiste, y
+siguen necesitando una excepción propia. A un agente que arranca sin clave se le dice por qué, en una
+frase como `Latet: Codex older than 0.115 has no way to carry a launch key, so this session's project
+settings only add protection: their loosenings do not apply.`, y su proyecto queda declarado. Una
+carpeta que no es uno de tus proyectos no necesita clave.
+
+- **Un secreto para Latet.** En la salida de una herramienta o en un mensaje, una clave vigente se
+  enmascara como el token de Latet; donde Latet no puede enmascararla (una petición que solo
+  comprueba), la petición se rechaza, con palabras que dicen que vuelvas atrás o empieces una
+  conversación nueva.
+- **En manos de alguien, no ligada a un proceso.** Cualquier programa que tenga la clave cuenta como ese
+  lanzamiento. Funciona con el mismo usuario, y Latet no pretende distinguir entre programas.
+- **Desconocida, terminada o de otro.** Una petición con una clave que Latet no conoce (su daemon se
+  reinició, por ejemplo) se decide como declarada, nunca se rechaza por eso. Una clave cuyo lanzamiento
+  terminó, o enviada para otro proyecto o por otra persona, se rechaza.
+- **En la dirección.** En un equipo, Latet también acepta la clave al principio de la ruta de la
+  dirección, una forma que ningún comando de lanzamiento usa; un servidor de Latet la rechaza.
+
+El panel muestra cómo se decidió el lanzamiento de cada petición: *Iniciado por Latet, clave
+verificada*, *Iniciado por Latet, falta la clave* (un agente lanzado por Latet cuya petición llegó sin
+una clave que Latet pueda comprobar: decidido como declarado), *Vinculado por el plugin de Claude
+Code* (un Claude Code configurado de forma permanente) o *No iniciado por Latet* (declarado). `latet doctor` nombra cada agente lanzado por
+Latet que se vio sin su clave, con su versión.
 
 ## El archivo del proyecto
 
@@ -126,13 +200,20 @@ projects:
     allow_values: [acme-dev]
 ```
 
-Se aplican después del archivo del proyecto, y también pueden relajarlo:
+Latet guarda la carpeta en forma canónica: en Windows con barras invertidas y letra de unidad en
+mayúscula, y sin separador final (`C:/work/shop/` se guarda como `C:\work\shop`). El id del proyecto
+no cambia.
+
+Se aplican después del archivo del proyecto, y también pueden relajarlo, en una sesión cuyo
+proyecto Latet considera [de confianza](#de-confianza-y-declarados):
 - valores y patrones que no se enmascaran nunca;
 - reglas de secretos desactivadas;
 - un perfil o una política más débiles que los globales;
 - campos que se dejan en claro en el modo de datos estricto, el modo de datos estricto desactivado
-  (`data: normal`), imágenes enviadas, el texto de las imágenes sin leer (`ocr: off`), la protección
-  contra volcados más alta o desactivada.
+  (`data: normal`), imágenes enviadas, la protección contra volcados más alta o desactivada.
+
+El texto de las imágenes sin leer en el proyecto (`ocr: off`) detiene allí cada petición con una
+imagen.
 
 Solo tus propios ajustes activan o desactivan el [Revisor en directo](../live-review/) en un
 proyecto (`live_review`), y dan ahí indicaciones al revisor local (`review_guidance`, consulta
@@ -156,10 +237,15 @@ pasar los datos personales y tu identidad: el perfil `secrets`, en tus propios a
 proyecto.
 
 `latet project off` desactiva Latet en el proyecto de la carpeta actual (o de la carpeta indicada).
-Lo mismo hace *Protección: Desactivada*:
-- ahí no se enmascara ni se bloquea nada;
-- los valores ficticios que ya están en una conversación se siguen restaurando;
+Lo mismo hace *Protección: Desactivada*. Latet no envía entonces ninguna petición del proyecto:
+- cada una se rechaza, por HTTP y por un WebSocket, sea el proyecto de confianza o declarado, con
+  palabras que dicen cómo activar Latet ahí o llegar directamente al proveedor
+  ([Pasar a la 0.11](../../getting-started/upgrading-to-0-11/#un-proyecto-en-el-que-latet-está-desactivado));
+- `latet project off` y el interruptor del panel lo dicen antes de desactivarlo;
 - el panel marca esos intercambios como *Latet desactivado*.
+
+Para dejar pasar los datos personales en un proyecto, elige *Solo secretos*: sus peticiones siguen
+saliendo, con los secretos enmascarados.
 
 `latet project on` lo vuelve a activar. Solo tus propios ajustes pueden desactivarlo, nunca un
 archivo del proyecto. Si lo desactiva un agente, o lo haces a mano en `config.yaml`, primero espera
@@ -213,7 +299,7 @@ repositorios a medida que las conversaciones llegan a ellos.
 | `latet project init [FOLDER] [--suggest]` | Escribe un `latet.yaml` del que partir; `--suggest` añade borradores de reconocedores para los formatos que ahí no cubre ninguna regla |
 | `latet project show [FOLDER] [--json]` | Lo que se aplica en un proyecto, y lo que se ignora |
 | `latet project check [FOLDER]` | Comprueba el archivo del proyecto, incluidos los reconocedores |
-| `latet project off` / `on [FOLDER]` | Desactiva Latet, o lo vuelve a activar, en un proyecto |
+| `latet project off` / `on [FOLDER]` | Desactiva Latet en un proyecto, donde sus peticiones se rechazan entonces, o lo vuelve a activar |
 | `latet repositories` | Los repositorios que Latet recuerda, cada uno con su estado |
 | `latet repositories forget FOLDER` | Saca uno de la lista (te corresponde solo a ti: rechaza un agente) |
 | `latet rules add FILE --repo FOLDER` | Añade reconocedores al archivo del proyecto en lugar de a `config.yaml` (`--project`: a tus ajustes para el proyecto) |

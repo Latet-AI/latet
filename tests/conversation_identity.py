@@ -16,7 +16,7 @@ def request(value: str, *, opening: str = "Continue the report.", responses: boo
         {"role": "assistant", "content": "Please provide the contact."},
         {"role": "user", "content": value},
     ]
-    return json.dumps({"model": "test", "input" if responses else "messages": messages, **extra}).encode()
+    return json.dumps({"model": "gpt-4.1-mini", "input" if responses else "messages": messages, **extra}).encode()
 
 
 def prepare(mediator: Mediator, raw: bytes, headers: dict[str, str] | None = None, *, responses=False) -> Prepared:
@@ -53,9 +53,8 @@ def answer(mediator: Mediator, prepared: Prepared, text: str) -> str:
 
 def release(mediator: Mediator, *requests: Prepared) -> None:
     for prepared in requests:
-        if prepared.session is not None and prepared.held and not prepared.released:
-            mediator.engine.release(prepared.session, prepared.hold)
-            prepared.released = True
+        if prepared.lease is not None:
+            prepared.lease.release()  # once: a second release of a lease takes nothing
 
 
 def name_response(mediator: Mediator, prepared: Prepared, response_id: str) -> None:

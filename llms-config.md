@@ -104,13 +104,49 @@ user asked, and never paste it in your answers.
 
 Only one change waits at a time: a newer one replaces it. Do not repeat a command the user undid.
 
+### A request Latet refused
+
+Latet reads every part of a request: an error such as
+`request envelope refused (envelope-header-unknown): header x-team` or
+`request body refused (unknown member in top-level)` means it refused a part it does not read, and
+sent nothing.
+
+- Tell the user what the error names (the header, the kind of refusal), never guess a value.
+- A header the user set for you (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers`, `env_http_headers`,
+  `COPILOT_PROVIDER_HEADERS`) can be let through only by an exact request exception. Propose one only
+  if the user wants that header to reach the provider, and add it only when they say so:
+
+  ```sh
+  latet config add request_exceptions '{destination: anthropic, profile: anthropic.messages.1, components: [{kind: header, name: x-team}], reason: custom-header}'
+  ```
+
+  It lowers protection, so it waits for the user's approval (exit code 3) and lasts 30 days. Never
+  set `permanent: true` unless the user asks for it in those words.
+- A body member no profile names (`unknown member in ...`) can be let through by an exact exception
+  naming its JSON pointer (`{kind: body, name: /metadata_x/team, type: string}`), except inside a
+  `provider item` or an `inline image`, and on a WebSocket, where no exception reaches it: tell the
+  user so instead.
+- A call Latet does not read (`envelope-route`: files, batches, audio...) has no exception: the
+  refusal says this version of Latet does not support it. Tell the user, who decides whether to change
+  your settings so that you do not make it, or to make it without Latet.
+- A Bedrock ARN, a Vertex project or a model name outside the providers' forms
+  (`envelope-resource`) goes in `request_resources`, which applies at once: show the user the row
+  first.
+- An image refused for want of text recognition needs `latet ocr install`, run by the user, and a new
+  conversation.
+
+See <https://docs.latet.ai/getting-started/upgrading-to-0-11/>.
+
 ## 4. Projects
 
 - `latet project init` writes an `latet.yaml` for the repository, shared with everyone who works
   on it. It can only add protection; the user reviews it like any other file.
 - The user's own settings for a project are in `config.yaml`: `--project FOLDER` on `config get`,
   `set`, `add` and `remove`, and `latet project off` / `on`. Turning Latet off in a project
-  lowers protection: it waits for the user.
+  lowers protection: it waits for the user. Once it applies, every request of agents working in that
+  project is refused, yours included: say so before you propose it. To let personal data through
+  and keep the requests going, the user can choose the `secrets` profile for the project instead
+  (`latet config set profile secrets --project .`).
 
 ## 5. Check
 

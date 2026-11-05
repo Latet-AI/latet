@@ -177,8 +177,8 @@ nunca leyó, se enmascaran como el archivo, aunque `data_tools` nombre otras her
   sus instrucciones y sus documentos en markdown, y un patrón para todos los archivos (`*`) los deja
   tal cual. En un archivo markdown que un patrón nombra solo se enmascaran sus tablas, nunca su
   texto.
-- **Los archivos PDF no se cubren:** Latet no lee el texto de un PDF. `images: mask` o `block` evita
-  que los documentos se envíen ([imágenes](../images/)).
+- **Los archivos PDF no se cubren:** Latet no lee el texto de un PDF, así que una petición que lleve
+  uno como documento no se envía ([imágenes](../images/)).
 
 ### Direcciones web que cuentan como datos
 

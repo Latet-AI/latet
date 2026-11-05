@@ -72,7 +72,7 @@ UNION_KEYS = (
     "terms", "recognizers", "fields", "data_tools", "data_files", "data_hosts", "allow_values", "allow_patterns",
     "disabled_secret_rules",
 )  # fmt: skip
-OWN_KEYS = ("projects", "identity")
+OWN_KEYS = ("projects", "identity", "request_resources", "request_exceptions")
 SERVER_KEYS = ("port", "capture_dir")
 REVIEWER_SERVER_KEYS = ("url", "remote", "model", "api_key_env", "api_key_file", "certificate", "slots", "chunk_chars")
 _LISTS = (*UNION_KEYS, "upstreams")

@@ -30,7 +30,8 @@ CANARIES = (GH_PAT, EMAIL, IBAN)
 PROMPT = f'deploy with key {GH_PAT}, notify {EMAIL}, pay to {IBAN} and quote "done"'
 KEY = "AIzaSyFAKE-gemini-0123456789"
 STREAM = "/gemini/v1beta/models/gemini-3-pro:streamGenerateContent"
-VERTEX = "/vertex/v1beta1/projects/p/locations/us-central1/publishers/google/models/gemini-3-pro:streamGenerateContent"
+PROJECT = "acme-vertex-prod"  # the owner's Vertex project, listed (a row): a project is never a model id
+VERTEX = f"/vertex/v1beta1/projects/{PROJECT}/locations/us-central1/publishers/google/models/gemini-3-pro:streamGenerateContent"
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +42,10 @@ def upstream():
 
 
 def _routes(upstream) -> list:
-    return [Upstream("gemini", "/gemini", upstream.url, refuses_unread=True), VertexUpstream(base=upstream.url)]
+    return [
+        Upstream("gemini", "/gemini", upstream.url, refuses_unread=True),
+        VertexUpstream(base=upstream.url, envelope_expected=frozenset({("project", PROJECT)})),
+    ]
 
 
 @pytest.fixture
@@ -127,9 +131,11 @@ def test_a_conversation_sent_back_leaves_as_the_model_wrote_it(client, upstream)
 
 
 def test_token_counts_and_embeddings_are_masked(client, upstream):
-    counted = client.post("/gemini/v1beta/models/g:countTokens", json={"contents": [_user(PROMPT)]})
+    counted = client.post("/gemini/v1beta/models/gemini-2.5-flash:countTokens", json={"contents": [_user(PROMPT)]})
     assert counted.json() == {"totalTokens": 12}
-    embedded = client.post("/gemini/v1beta/models/e:embedContent", json={"content": {"parts": [{"text": PROMPT}]}})
+    embedded = client.post(
+        "/gemini/v1beta/models/gemini-embedding-001:embedContent", json={"content": {"parts": [{"text": PROMPT}]}}
+    )
     assert embedded.status_code == 200
     _never_sent(upstream)
 
@@ -165,7 +171,7 @@ def test_the_key_is_in_no_record(runtime, upstream, tmp_path):
     assert upstream.requests[-1]["query"] == f"alt=sse&key={KEY}"
     runtime.recorder.drain()
     [last] = runtime.exchanges.list(limit=1)[0]
-    assert last["agent"] == "gemini-cli" and last["path"] == STREAM
+    assert last["agent"] == "gemini-cli" and last["path"] == "/{destination}/{version}/models/{model}:{operation}"
     assert KEY not in json.dumps(last)
     captured = "".join(path.read_text("utf-8") for path in (tmp_path / "capture").iterdir())
     assert captured and KEY not in captured

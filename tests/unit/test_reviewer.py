@@ -26,6 +26,7 @@ KEY = b"r" * 32
 UPSTREAM = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
 HEADERS = {"x-api-key": "test", "content-type": "application/json"}
 PROMPT = "mia moglie Maria ha la chemio giovedì, scrivi al dottor Ferri che salto la riunione"
+MODEL = "claude-sonnet-4-5"  # an Anthropic model id, as an agent sends it
 
 
 class FakeServer:
@@ -91,10 +92,17 @@ def mediator(server, memory=None, **review):
 def request(*tool_results, prompt=PROMPT):
     messages = [{"role": "user", "content": prompt}]
     for i, text in enumerate(tool_results):
-        call = {"type": "tool_use", "id": f"t{i}", "name": "Bash", "input": {"command": "ls"}}
+        call = {
+            "type": "tool_use",
+            "id": f"toolu_01Rv{i}Kq7mWz3vT9cP2xBnHd",
+            "name": "Bash",
+            "input": {"command": "ls"},
+        }
         messages.append({"role": "assistant", "content": [call]})
-        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": text}]})
-    return json.dumps({"model": "x", "messages": messages}).encode()
+        messages.append(
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call["id"], "content": text}]}
+        )
+    return json.dumps({"model": MODEL, "messages": messages}).encode()
 
 
 async def send(m, raw):
@@ -336,7 +344,11 @@ async def test_a_failed_review_stops_the_request_or_lets_it_leave_flagged():
 async def test_the_reviewer_blocks_only_when_allowed_to():
     record = "discharge letter: Mario Bianchi, born 1961, diagnosis"
     blocked = await send(mediator(FakeServer(block_on="discharge"), block=True), request(record))
+    # Its own reason, not the final check's "send the request again" that its masking's changed values would give,
+    # and still never a body the final check vouches for.
     assert blocked.block_reason and "stopped this request" in blocked.block_reason
+    assert "send the request again" not in blocked.block_reason
+    assert not blocked.body_verified and blocked.body_proof is None
     allowed = await send(mediator(FakeServer(block_on="discharge")), request(record))
     assert allowed.block_reason is None
 

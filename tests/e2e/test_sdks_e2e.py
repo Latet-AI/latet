@@ -7,6 +7,7 @@ tests/agents/test_frameworks.py."""
 import socket
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 import uvicorn
@@ -15,7 +16,7 @@ from latet.config import Config
 from latet.engine.build import build
 from latet.engine.vault import Vault
 from latet.gateway.app import GatewayConfig, create_app
-from latet.gateway.cloud import VertexUpstream
+from latet.gateway.cloud import VERTEX_EXPRESS, VertexUpstream
 from latet.gateway.mediate import Mediator
 from latet.gateway.routes import Upstream
 
@@ -52,7 +53,9 @@ def gateway(upstream):
             Upstream("anthropic", "/anthropic", upstream.url),
             Upstream("openai", "/openai", upstream.url),
             Upstream("gemini", "/gemini", upstream.url, refuses_unread=True),
-            VertexUpstream(base=upstream.url),
+            VertexUpstream(base=upstream.url, envelope_expected=frozenset({("project", "p")})),  # a project is listed
+            # Vertex AI express mode under latet run's Gemini base URL: cloud.VERTEX_EXPRESS, pointed at the fake.
+            replace(VERTEX_EXPRESS, base_url=upstream.url + "/v1beta1/publishers"),
         ],
         mediator=Mediator(built.engine, built.verifier),
     )
@@ -95,10 +98,10 @@ def test_the_openai_sdk_chat_gets_its_answer_back_and_the_provider_reads_no_secr
     from openai import OpenAI
 
     client = OpenAI()
-    reply = client.chat.completions.create(model="your-model", messages=[{"role": "user", "content": PROMPT}])
+    reply = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": PROMPT}])
     assert reply.choices[0].message.content == ECHO
     streamed = client.chat.completions.create(
-        model="your-model", messages=[{"role": "user", "content": PROMPT}], stream=True
+        model="gpt-4o-mini", messages=[{"role": "user", "content": PROMPT}], stream=True
     )
     assert "".join(c.choices[0].delta.content or "" for c in streamed if c.choices) == ECHO
     _never_sent(upstream)
@@ -107,7 +110,7 @@ def test_the_openai_sdk_chat_gets_its_answer_back_and_the_provider_reads_no_secr
 def test_the_openai_sdk_responses_get_their_answer_back_and_the_provider_reads_no_secret(latet_run, upstream):
     from openai import OpenAI
 
-    events = OpenAI().responses.create(model="your-model", input=PROMPT, stream=True)
+    events = OpenAI().responses.create(model="gpt-4o-mini", input=PROMPT, stream=True)
     text = "".join(e.delta for e in events if e.type == "response.output_text.delta")
     assert text == ECHO
     _never_sent(upstream)
@@ -117,10 +120,12 @@ def test_the_anthropic_sdk_gets_its_answer_back_and_the_provider_reads_no_secret
     from anthropic import Anthropic
 
     client = Anthropic()
-    message = client.messages.create(model="claude-x", max_tokens=200, messages=[{"role": "user", "content": PROMPT}])
+    message = client.messages.create(
+        model="claude-sonnet-4-5", max_tokens=200, messages=[{"role": "user", "content": PROMPT}]
+    )
     assert message.content[0].type == "text" and message.content[0].text == ECHO
     with client.messages.stream(
-        model="claude-x", max_tokens=200, messages=[{"role": "user", "content": PROMPT}]
+        model="claude-sonnet-4-5", max_tokens=200, messages=[{"role": "user", "content": PROMPT}]
     ) as stream:
         assert "".join(stream.text_stream) == ECHO
     _never_sent(upstream)
@@ -129,7 +134,7 @@ def test_the_anthropic_sdk_gets_its_answer_back_and_the_provider_reads_no_secret
 def test_langchain_on_the_openai_sdk_gets_its_answer_back_and_the_provider_reads_no_secret(latet_run, upstream):
     from langchain_openai import ChatOpenAI
 
-    reply = ChatOpenAI(model="your-model").invoke(PROMPT)
+    reply = ChatOpenAI(model="gpt-4o-mini").invoke(PROMPT)
     assert reply.content == ECHO
     _never_sent(upstream)
 
@@ -139,7 +144,7 @@ def test_a_langgraph_graph_on_langchain_gets_its_answer_back_and_the_provider_re
     from langchain_openai import ChatOpenAI
     from langgraph.graph import END, START, MessagesState, StateGraph
 
-    model = ChatOpenAI(model="your-model")
+    model = ChatOpenAI(model="gpt-4o-mini")
 
     def call(state: MessagesState) -> MessagesState:
         return {"messages": [model.invoke(state["messages"])]}

@@ -26,13 +26,14 @@ from latet.server.live import (
     SpaceJobs,
     ValkeyAwsSessions,
     ValkeyConversations,
+    ValkeyEchoes,
     ValkeyFeed,
     ValkeyGiven,
     ValkeySentBlocks,
     forget_shown,
 )
 from latet.server.queue import ValkeyApprovals
-from latet.server.space_settings import PgSettings
+from latet.server.space_settings import PgSettings, index_exceptions
 from latet.server.vault import PgVaultStore
 from latet.state import StateBackends
 
@@ -151,12 +152,20 @@ def space_backends(
         changed=changed,
         limit=vault_limit_of(server, vault_limit),
         forgets_values=keyed,
+        jobs=server.bus,  # its prints made on one instance at a time (``fill_prints``)
+        index=True,  # a person's space on its store too (Task 9): its words found through the prints
+        cache=server.settings.key_working_values,
     )
     given = ValkeyGiven(server.bus, identity_id, root_key)
     settings = PgSettings(
         server.db, server.shared, identity_id, root_key, stale=stale, kind=kind,
         changed=lambda counter: announce({"kind": "settings", "from": source, "counter": counter}),
         counted=lambda counter: count("settings", counter),
+        # Its approved request exceptions' index, kept with what approves them (root's ruling on F-3, Minor 4), by
+        # what this edition allows (Minor 1).
+        index=lambda conn, config: index_exceptions(
+            conn, identity_id, config, permanent_allowed=server.edition.permanent_exceptions()
+        ),
     )  # fmt: skip
     history = PgHistoryStore(
         server.db, identity_id, root_key, limit=server.settings.history_limit_mb * 1024 * 1024, forgets_values=keyed
@@ -167,6 +176,7 @@ def space_backends(
         conversations=conversations,
         sent=ValkeySentBlocks(server.bus, identity_id, root_key),
         given=given,
+        echoes=ValkeyEchoes(server.bus, identity_id, root_key),
         approvals=approvals,
         feed=feed,
         approvals_feed=approvals_feed,

@@ -28,6 +28,7 @@ import argparse
 import functools
 import ipaddress
 import itertools
+import json
 import random
 import statistics
 import sys
@@ -36,6 +37,7 @@ from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -324,6 +326,8 @@ class Measured:
     refused: Counter[int] = field(default_factory=Counter)
     refusal: str = ""
     blocked: int = 0
+    degraded: int = 0
+    requests: list[dict[str, Any]] = field(default_factory=list)
     answers: list[str | None] = field(default_factory=list)  # the text each text came back as; None: not answered
 
     def line(self, operation: str, what: str) -> str:
@@ -359,9 +363,19 @@ def _batches(texts: Sequence[str | None], size: int) -> Iterator[list[str | None
         yield list(texts[start : start + size])
 
 
-def run(client: httpx.Client, operation: str, texts: Sequence[str | None], size: int, kind: str | None) -> Measured:
+def run(
+    client: httpx.Client,
+    operation: str,
+    texts: Sequence[str | None],
+    size: int,
+    kind: str | None,
+    *,
+    workload: str = "unspecified",
+) -> Measured:
     """``operation`` on ``texts``, ``size`` in a call, one call after the other; a text that is None (not answered
     before) is left out, and answers None."""
+    from bench_engine import Load
+
     measured = Measured()
     for batch in _batches(texts, size):
         sent = [text for text in batch if text is not None]
@@ -371,9 +385,40 @@ def run(client: httpx.Client, operation: str, texts: Sequence[str | None], size:
         body: dict[str, object] = {"texts": sent}
         if kind is not None:
             body["kind"] = kind
+        load = Load()
         started = time.perf_counter()
-        answer = client.post(f"{APPS_API}/{operation}", json=body)
+        try:
+            answer = client.post(f"{APPS_API}/{operation}", json=body)
+        except httpx.HTTPError as error:
+            took = time.perf_counter() - started
+            cpu = load.sample()
+            sample = {
+                "operation": operation,
+                "workload": workload,
+                "request_index": len(measured.requests),
+                "texts": len(sent),
+                "seconds": took,
+                "cpu": cpu,
+                "status": None,
+                "error": type(error).__name__,
+            }
+            # A failed post never returns Measured; retain the bounded raw observation before re-raising.
+            print(json.dumps({"request_failure": sample}, allow_nan=False), flush=True)
+            raise
         took = time.perf_counter() - started
+        cpu = load.sample()
+        measured.requests.append(
+            {
+                "operation": operation,
+                "workload": workload,
+                "request_index": len(measured.requests),
+                "texts": len(sent),
+                "seconds": took,
+                "cpu": cpu,
+                "status": answer.status_code,
+            }
+        )
+        print(json.dumps({"request": measured.requests[-1]}, allow_nan=False), flush=True)
         if answer.status_code != 200:
             measured.refused[answer.status_code] += 1
             if not measured.refusal:
@@ -383,7 +428,12 @@ def run(client: httpx.Client, operation: str, texts: Sequence[str | None], size:
         measured.seconds.append(took)
         measured.texts += len(sent)
         measured.sent_bytes += sum(len(text.encode()) for text in sent)
-        results = iter(answer.json()["results"])
+        payload = answer.json()
+        results_list = payload["results"]
+        if len(results_list) != len(sent):
+            raise RuntimeError("response cardinality differs from the sent batch")
+        measured.degraded += int(bool(payload.get("degraded")))
+        results = iter(results_list)
         for text in batch:
             if text is None:
                 measured.answers.append(None)
@@ -391,6 +441,7 @@ def run(client: httpx.Client, operation: str, texts: Sequence[str | None], size:
             result = next(results)
             if "blocked" in result:
                 measured.blocked += 1
+            measured.degraded += int(bool(result.get("degraded")))
             measured.replaced += len(result.get("replacements", ())) + result.get("restored", 0)
             measured.answers.append(result.get("text"))
     return measured
@@ -458,14 +509,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ):
             if not texts:
                 continue
-            masked = run(client, "mask", texts, size, kind)
+            masked = run(client, "mask", texts, size, kind, workload=what)
             print(masked.line("mask", what), flush=True)
             measured.append(("mask", what, masked, texts))
             if args.unmask:
-                restored = run(client, "unmask", masked.answers, size, None)
+                restored = run(client, "unmask", masked.answers, size, None, workload=what)
                 print(restored.line("unmask", what), flush=True)
                 measured.append(("unmask", what, restored, texts))
+    qualified = True
     for operation, what, found, texts in measured:
+        qualified &= not found.refused and not found.blocked and not found.degraded
+        qualified &= all(sample["cpu"]["status"] == "ok" for sample in found.requests)
         if found.refused:
             said = ", ".join(f"{count} answered {status}" for status, count in sorted(found.refused.items()))
             print(f"{operation} {what}: {said} ({found.refusal})")
@@ -474,7 +528,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if operation == "unmask":
             back = sum(answer == text for answer, text in zip(found.answers, texts, strict=True))
             print(f"{what}: {back} of {len(texts)} came back as they were sent")
-    return 0
+            qualified &= back == len(texts)
+    return 0 if qualified else 1
 
 
 if __name__ == "__main__":

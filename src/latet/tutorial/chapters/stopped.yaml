@@ -37,7 +37,7 @@ steps:
       conversation, so on the way out Latet may not change it, only check it. The final check finds the key and stops
       the request. A key is a secret, so Not sensitive is no way out.
     checks:
-      - exchange: { ref: last, mode: verify, blocked: true, reason_contains: "would leave in clear" }
+      - exchange: { ref: last, mode: verify, blocked: true, reason_contains: refused, flags: [leak] }
       - model_received: { requests: 0 }
       - agent_error: { contains: "would leave in clear" }
       - shown: { marked: ["{{value:key}}"] }

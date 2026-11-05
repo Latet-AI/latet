@@ -93,10 +93,24 @@ d'API représente un programme, n'a pas de tableau de bord personnel et reçoit 
 
 Une instance est un processus serveur Latet en cours d'exécution. Plusieurs instances
 peuvent servir la même adresse HTTPS publique derrière un répartiteur de charge, avec
-la même base PostgreSQL, le même Valkey et la même clé principale. PostgreSQL conserve
-l'état durable ; Valkey coordonne l'état temporaire. Les requêtes ne nécessitent pas
-d'affinité de session. Ajouter des instances ne crée pas de copies distinctes de l'espace
-d'une personne. [Exploitation du serveur](../server-operations/) décrit les exigences des services.
+la même base PostgreSQL, le même Valkey et la même clé principale, et une machine peut en faire
+tourner plusieurs, appelées workers. PostgreSQL conserve l'état durable ; Valkey coordonne l'état
+temporaire. Les requêtes ne nécessitent pas d'affinité de session. Ajouter des instances ne crée pas
+de copies distinctes de l'espace d'une personne. [Exploitation du serveur](../server-operations/)
+décrit les exigences des services.
+
+Le coffre-fort d'une personne est gardé dans PostgreSQL, comme celui d'une clé d'API. Une instance
+qui sert la personne le garde entier en mémoire quand il a 35 000 valeurs ou moins au moment où
+l'espace est construit ; au-delà, elle garde les valeurs que la personne a utilisées en dernier, les
+empreintes des mots du coffre-fort et chaque valeur qu'aucun mot d'un texte ne trouve, et cherche les
+autres dans PostgreSQL quand un texte en a besoin. Avant chaque requête, elle lit dans PostgreSQL ce
+que les autres instances ont changé, si bien qu'une valeur gardée ou oubliée sur une instance avant le
+début d'une requête est vue par cette requête sur n'importe quelle autre. Une personne dont le
+coffre-fort contient des valeurs gardées avant Latet 0.10.0 est servie comme la 0.10.0 la servait
+jusqu'à ce que son espace soit reconstruit après que leurs mots ont été faits : son espace garde tout
+son coffre-fort en mémoire, quelle que soit sa taille, et ne lit aucun compteur de modifications, si
+bien qu'une valeur qu'une autre instance garde lui parvient par son message ou, quand le message se
+perd, par le contrôle suivant du battement.
 
 ## Ce que le serveur conserve
 
@@ -110,10 +124,15 @@ Certaines métadonnées restent lisibles dans PostgreSQL : noms et adresses e-ma
 identités, identifiants externes, libellés, permissions et dates des jetons, noms des règles du coffre-fort,
 compteurs et dates, ainsi qu'acteurs, actions, cibles, identifiants, nombres et adresses
 clientes du journal d'administration. Les identifiants de projet et de conversation
-de l'historique utilisent des hachages à clé. Le coffre-fort d'une clé d'API conserve aussi les
-mots de ses valeurs et de ses valeurs factices sous forme de hachages à clé, qui permettent de les
-trouver dans un texte : un hachage ne montre aucun mot, seulement quelles entrées en partagent un.
-Les lignes de son historique et les réponses mémorisées de son relecteur local gardent des hachages
+de l'historique utilisent des hachages à clé. Chaque coffre-fort, celui d'une personne comme celui
+d'une clé d'API, conserve aussi les mots de ses valeurs et de ses valeurs factices sous forme de
+hachages à clé, qui permettent de les trouver dans un texte, et à côté de chaque mot son empreinte,
+une empreinte de 64 bits sous une clé dérivée de celle de l'identité, que les instances gardent en
+mémoire, avec le numéro de la modification qui a écrit la ligne en dernier. Un hachage ou une empreinte
+ne montre aucun mot : quelqu'un qui lit la base de données voit quelles lignes d'une identité partagent
+un mot, combien elles sont, et d'après les numéros quelles lignes ont changé et dans quel ordre. Les
+empreintes du même mot sont différentes pour une autre identité. Les lignes de l'historique d'une clé
+d'API et les réponses mémorisées de son relecteur local gardent des hachages
 à clé des entrées et des valeurs du coffre-fort qu'elles nomment, pour qu'un oubli les trouve :
 quelqu'un qui lit la base de données peut savoir quelles lignes nomment la même entrée ou la même
 valeur, jamais de quelle valeur il s'agit. Les lignes d'une personne n'en gardent aucun. Chaque
@@ -198,11 +217,12 @@ propre joignable seulement en IPv4.
 - **Projets :** au plus 200 par personne.
 - **Valeurs :** une valeur de plus de 16 384 caractères est caviardée plutôt que remplacée par une valeur
   factice, et n'est jamais conservée ni restaurée ; un terme compte au plus 8 192 caractères.
-- **Mémoire :** une instance donne à ses espaces 2 Gio fixes, et un espace en utilise au plus la moitié. Un
-  espace arrivé à sa part n'apprend plus de nouvelle valeur : une requête qui en apporte une est arrêtée avec un
-  message qui le dit, jusqu'à ce que des valeurs soient oubliées dans le tableau de bord, que les règles ou les
-  projets soient moins nombreux, ou que le serveur en ait davantage. Aucun espace d'une autre personne n'est
-  fermé pour faire de la place.
+- **Mémoire :** une instance, et chaque worker, donne à ses espaces 2 Gio fixes, et un espace en utilise au plus
+  la moitié, avec jusqu'à un huitième de cette moitié en plus pour ses détecteurs (128 Mio). Un espace arrivé à
+  sa part n'apprend plus de nouvelle valeur : une requête qui en apporte une est arrêtée avec un message qui le
+  dit, jusqu'à ce que des valeurs soient oubliées dans le tableau de bord, que les règles ou les projets soient
+  moins nombreux, ou que le serveur en ait davantage. Aucun espace d'une autre personne n'est fermé pour faire de
+  la place. Ce que les détecteurs prennent en plus n'arrête jamais une valeur.
 - **Les statistiques** comptent les 100 000 derniers échanges, et une personne garde ses dix sessions du tableau
   de bord les plus récentes.
 

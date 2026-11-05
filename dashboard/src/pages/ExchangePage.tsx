@@ -5,6 +5,7 @@ import { ApiError, api } from '../api/client'
 import type { ExchangeDetail, Leak } from '../api/types'
 import { AgentLabel, FlagList, ModeBadge, TransportStatus } from '../components/badges'
 import { DocsPageLink, DocsWhyLink } from '../components/DocsLinks'
+import { CoverageList } from '../components/exchange/CoverageList'
 import { FlowStrip } from '../components/exchange/FlowStrip'
 import { ExchangeImages } from '../components/exchange/ExchangeImages'
 import { ClassLegend } from '../components/exchange/Legend'
@@ -19,7 +20,8 @@ import { RuleScope } from '../components/RuleName'
 import { rulesHref } from '../components/ScopeBar'
 import { knownValues, requestMarks } from '../components/masked/marks'
 import { CopyButton, EmptyState, ErrorState, Loading, Meta, Segmented } from '../components/ui'
-import { outboundTools } from '../lib/blocks'
+import { givenReason, outboundTools } from '../lib/blocks'
+import { coverageOutcome, showsVerified } from '../lib/coverage'
 import { signedBy } from '../lib/destinations'
 import { isBlocked, parseFlags } from '../lib/flags'
 import { flagDetail, KIND_LABEL, MODULE_LABEL, moduleCounts, REVIEW_DETAIL_LABEL, REVIEW_DETAIL_TITLE } from '../lib/labels'
@@ -110,13 +112,48 @@ export function Verdict({ detail }: { detail: ExchangeDetail }) {
       </p>
     )
   }
-  if (summary.verified) {
+  // An older record whose coverage is not known, and a check of the plugin's, say so in neutral words when its final
+  // check confirmed it, never in green (review I-3); one it did not confirm keeps the amber Not verified below, its
+  // coverage line still saying it was not recorded (re-review R-2).
+  const coverage = coverageOutcome(summary).kind
+  if ((coverage === 'unknown' || coverage === 'observed') && summary.verified) {
+    const [head, detail] =
+      coverage === 'unknown'
+        ? [t('exchange.verdict.notRecorded'), t('exchange.verdict.notRecordedDetail')]
+        : [t('exchange.verdict.pluginCheck'), t('exchange.verdict.pluginCheckDetail')]
+    return (
+      <p className="flex items-start gap-2 text-body text-ink" data-verdict={coverage}>
+        <span className="mt-0.5 text-ink-3">
+          <Icon name="info" size={18} />
+        </span>
+        <span>
+          <strong className="font-semibold">{head}</strong> {detail}
+          {uninspected.length > 0 && <> {t('exchange.verdict.uninspected', { what: fmt.list(uninspected) })}</>}
+        </span>
+      </p>
+    )
+  }
+  // Green only when nothing of it left unread (P2-7): a rule or an exception that let a part through unread, a part
+  // Latet could not inspect, are no "Verified".
+  if (showsVerified(summary)) {
     return (
       <p className="flex items-start gap-2 text-body text-ink">
         <StatusGlyph status="ok" size={18} />
         <span>
           <strong className="font-semibold">{t('exchange.verdict.verified')}</strong>{' '}
           {summary.masked > 0 ? t('exchange.verdict.verifiedMasked', { count: summary.masked }) : t('exchange.verdict.verifiedNothing')}
+          {uninspected.length > 0 && <> {t('exchange.verdict.uninspected', { what: fmt.list(uninspected) })}</>}
+        </span>
+      </p>
+    )
+  }
+  if (summary.verified) {
+    // The final check found nothing in clear, but not every part was read: said so, never in green.
+    return (
+      <p className="flex items-start gap-2 text-body text-ink">
+        <StatusGlyph status="warn" size={18} />
+        <span>
+          <strong className="font-semibold">{t('exchange.verdict.partlyUnread')}</strong> {t('exchange.verdict.partlyUnreadDetail')}
           {uninspected.length > 0 && <> {t('exchange.verdict.uninspected', { what: fmt.list(uninspected) })}</>}
         </span>
       </p>
@@ -195,9 +232,10 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
         <div className="mt-2">
           <Verdict detail={detail} />
         </div>
+        <CoverageList summary={summary} />
         {summary.flags.length > 0 && (
           <div className="mt-3">
-            <FlagList flags={summary.flags} focusable reason={detail.block_reason ?? summary.block_reason} why />
+            <FlagList flags={summary.flags} focusable reason={givenReason(detail)} why />
           </div>
         )}
         <dl className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-3 border-t border-line pt-4">
@@ -241,7 +279,7 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
               {summary.session}
             </Link>
           </Meta>
-          {summary.host && (
+          {summary.host && summary.host !== 'custom' && (
             <Meta label={t('exchange.meta.sentTo')}>
               <span className="mono" title={t('exchange.meta.sentToHelp')}>
                 {summary.host}
@@ -250,7 +288,11 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
           )}
           {signer && (
             <Meta label={t('exchange.meta.signed')} wrap>
-              {signer.by === 'profile' ? t('exchange.meta.signedProfile', { profile: signer.profile }) : t('exchange.meta.signedSession')}
+              {signer.by === 'profile'
+                ? t('exchange.meta.signedProfile', { profile: signer.profile })
+                : signer.by === 'session'
+                  ? t('exchange.meta.signedSession')
+                  : t('common.yes')}
             </Meta>
           )}
           <Meta label={t('exchange.meta.path')}>

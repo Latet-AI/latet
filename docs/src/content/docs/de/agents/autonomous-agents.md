@@ -29,6 +29,15 @@ Anbieter und wird nie protokolliert oder im Dashboard angezeigt. Hermes Agent mi
 ChatGPT braucht keinen Schlüssel: Er läuft mit dieser Anmeldung über Latet, wie Codex
 ([weiter unten](#mit-chatgpt-angemeldet)).
 
+Latet liest jeden Teil jeder Anfrage, die diese Agenten senden
+([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)): Ein Aufruf, den es nicht
+liest, etwa ein Upload oder ein Batch, wird abgelehnt, ebenso ein Header, den Sie in den
+Anbietereinstellungen eines Agenten hinzufügen, bis eine
+[genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ihn durchlässt. Diese Agenten
+werden von Hand eingerichtet, daher vertraut Latet für sie keinem Projekt: Ein Ordner, den sie nennen,
+fügt nur Schutz hinzu, und Ihre Einstellungen für ein Projekt lockern dort nichts
+([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)).
+
 ## Hermes Agent
 
 Hermes liest sein Modell und seinen Endpunkt aus `config.yaml` in seinem Ordner: `~/.hermes` unter

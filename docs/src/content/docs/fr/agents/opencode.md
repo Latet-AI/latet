@@ -40,6 +40,20 @@ latet opencode
 latet opencode run "add the payments key from .env to config/local.toml"
 ```
 
+`latet opencode` donne aussi à OpenCode une clé de lancement, dans `options.headers` de chaque
+fournisseur qu'il redirige, pour que Latet considère le projet de la session comme de confiance et applique
+entièrement ses réglages. OpenCode configuré durablement n'en porte pas : le projet qu'il nomme dans
+ses requêtes est déclaré, et seules ses règles qui ajoutent de la protection s'appliquent
+([Projets](../../concepts/projects/#de-confiance-et-déclarés)). Vos propres en-têtes dans `options.headers` d'un
+fournisseur sont refusés, chacun nommé, tant qu'une
+[exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne le laisse pas passer.
+
+`latet opencode` ne passe cette clé qu'à OpenCode 1.19.5 ou plus récent, la version que Latet a
+vérifiée : un OpenCode plus ancien pourrait envoyer la référence à la clé telle qu'elle est écrite, donc
+en dessous de la 1.19.5, ou quand Latet ne peut pas lire la version d'OpenCode, il n'en passe aucune. Il
+le dit au démarrage, le projet de la session est déclaré, et `latet doctor` nomme un OpenCode plus
+ancien que la 1.19.5.
+
 **OpenCode Desktop** lit la même configuration globale : `latet agents apply opencode` (ou
 `latet global-install`) le fait passer par Latet une fois l'application redémarrée, tandis que
 `latet opencode` ne lance que l'OpenCode en ligne de commande. `latet agents revert opencode` retire
@@ -52,6 +66,14 @@ latet opencode run "add the payments key from .env to config/local.toml"
   vous avertit : choisissez un modèle d'Anthropic, d'OpenAI ou d'OpenRouter.
   Claude Code et Codex passent par Latet avec ces clouds aussi : voir
   [Points de terminaison d'entreprise](../company-endpoints/).
+- **Les modèles d'Anthropic, d'OpenAI et de Google sur OpenRouter passent d'eux-mêmes.** Ceux de tout
+  autre fournisseur (`meta-llama/…`, `deepseek/…`) sont refusés tant qu'ils ne sont pas listés dans
+  `request_resources` :
+  [Bedrock et Vertex : ce qu'il faut lister](../../getting-started/upgrading-to-0-11/#bedrock-et-vertex--ce-quil-faut-lister).
+- **Une organisation de la console peut déplacer un fournisseur.** Quand OpenCode est connecté à une
+  organisation de la console OpenCode, les réglages de l'organisation peuvent changer l'adresse d'un
+  fournisseur, et les requêtes de ce fournisseur ne passent alors plus par Latet. Latet ne peut pas le
+  voir : lancez `latet doctor`, et vérifiez les réglages de l'organisation.
 - **La connexion ChatGPT n'est pas couverte.** Le plugin ChatGPT d'OpenCode a l'adresse du fournisseur
   intégrée en dur : une URL de base ne peut donc pas le rediriger. OpenCode connecté avec ChatGPT figure
   dans la [feuille de route](../../roadmap/).

@@ -22,7 +22,7 @@ Ein Profil legt fest, welche [Detektoren](../detection/) aktiv sind. Es gibt dre
 | Namen und Anschriften, mit dem [optionalen lokalen Namensmodell](../../getting-started/installation/) | in Ihren Prompts, Anhängen und im Text in Bildern | überall | ❌ |
 | Was kein Muster findet, mit dem [optionalen lokalen Prüfer](../llm-review/) | wenn er eingeschaltet ist | wenn er eingeschaltet ist | wenn er eingeschaltet ist |
 | Der Text in Bildern, mit der [optionalen Texterkennung](../images/) | maskiert | nicht gesendet | maskiert |
-| PDFs sowie Bilder ohne Texterkennung | gesendet und markiert | nicht gesendet | gesendet und markiert |
+| PDFs sowie Bilder ohne Texterkennung | nicht gesendet | nicht gesendet | nicht gesendet |
 
 - **`balanced`** passt zu den meisten Arbeiten an Code. Es ist das Standardprofil.
 - **`max`** fügt private IP-Adressen und die Identifikationsnummern aller Länder hinzu, schaltet den

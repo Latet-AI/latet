@@ -173,8 +173,8 @@ vengono mascherate come il file, anche quando `data_tools` indica altri strument
   leggono le loro istruzioni e i loro documenti in markdown, e un modello per ogni file (`*`) li
   lascia come sono. In un file markdown che un modello indica vengono mascherate solo le tabelle, mai
   il testo.
-- **I PDF non sono coperti:** Latet non legge il testo di un PDF. `images: mask` o `block` impedisce
-  del tutto l'invio dei documenti ([immagini](../images/)).
+- **I PDF non sono coperti:** Latet non legge il testo di un PDF, quindi una richiesta che ne contiene
+  uno come documento non viene inviata ([immagini](../images/)).
 
 ### Indirizzi web che contano come dati
 

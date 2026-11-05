@@ -11,6 +11,7 @@ from latet.config import Config
 from latet.engine.build import build
 from latet.engine.vault import Vault
 from latet.gateway.app import GatewayConfig, create_app
+from latet.gateway.image_coverage import NO_OCR
 from latet.gateway.mediate import Mediator
 from latet.gateway.routes import Upstream
 from latet.vision.policy import ImagePolicy
@@ -58,16 +59,25 @@ def client(upstream, mediator):
         yield c
 
 
+# Codex's session ids are its thread's UUIDv7 (one per conversation), its model a documented id.
+CODEX_MODEL = "gpt-5.1-codex"
+
+
 def _turn(text: str) -> dict:
     content = [{"type": "input_text", "text": text}, {"type": "input_image", "image_url": URL}]
-    return {"type": "response.create", "model": "x", "input": [{"type": "message", "role": "user", "content": content}]}
+    return {
+        "type": "response.create",
+        "model": CODEX_MODEL,
+        "input": [{"type": "message", "role": "user", "content": content}],
+    }
 
 
 def test_a_websocket_turn_with_an_image_obeys_images_block(client, upstream, mediator):
     mediator.images = ImagePolicy("block", "setting")
     before = len(upstream.received)
     with client.websocket_connect(
-        "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": "s-img"}
+        "/backend-api/codex/responses",
+        headers={"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2b01"},
     ) as ws:
         ws.send_text(json.dumps(_turn("what is in this screenshot?")))
         error = json.loads(ws.receive_text())
@@ -89,11 +99,12 @@ def test_a_websocket_turn_stopped_is_told_as_a_request_over_http_is(upstream, me
     and where to see it."""
     mediator.images = ImagePolicy("block", "setting")
     with TestClient(create_app(_config(upstream, mediator, tutorial)), base_url="http://127.0.0.1:5283") as client:
-        body = {"model": "x", "input": _turn("look")["input"]}
+        body = {"model": "gpt-4.1-mini", "input": _turn("look")["input"]}
         over_http = client.post("/openai/v1/responses", json=body, headers={"authorization": "Bearer test"})
         told = over_http.json()["error"]["message"]
         with client.websocket_connect(
-            "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": "s-img-told"}
+            "/backend-api/codex/responses",
+            headers={"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2b02"},
         ) as ws:
             ws.send_text(json.dumps(_turn("look")))
             error = json.loads(ws.receive_text())
@@ -101,18 +112,44 @@ def test_a_websocket_turn_stopped_is_told_as_a_request_over_http_is(upstream, me
     assert error["error"] == {"type": "latet_blocked", "message": told}
 
 
-def test_a_websocket_turn_with_an_image_goes_when_images_are_allowed(client, upstream):
+def test_a_websocket_turn_with_an_image_goes_when_images_are_allowed(client, upstream, reader):
+    """images: allow sends an image once its text is read: a WebSocket turn with one goes, the image as it came when
+    nothing in it is masked. Without text recognition no image leaves unread, whatever the setting: the turn is
+    refused, told what to do, as a request over HTTP is (``test_images_mask_refuses_what_it_cannot_read``)."""
+    data = reader.screenshot(["Order 4417 shipped"])
+    url = f"data:image/png;base64,{data}"
+    content = [{"type": "input_text", "text": "what is in this screenshot?"}, {"type": "input_image", "image_url": url}]
+    turn = {
+        "type": "response.create",
+        "model": CODEX_MODEL,
+        "input": [{"type": "message", "role": "user", "content": content}],
+    }
     with client.websocket_connect(
-        "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": "s-img-ok"}
+        "/backend-api/codex/responses",
+        headers={"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2b03"},
+    ) as ws:
+        ws.send_text(json.dumps(turn))
+        while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+            assert event["type"] != "error", event  # an error ends the turn: never wait past it
+    assert url in upstream.ws_received[-1]
+
+
+def test_without_text_recognition_a_websocket_turn_with_an_image_is_refused(client, upstream):
+    before = list(upstream.ws_received)
+    with client.websocket_connect(
+        "/backend-api/codex/responses",
+        headers={"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2b05"},
     ) as ws:
         ws.send_text(json.dumps(_turn("what is in this screenshot?")))
-        while json.loads(ws.receive_text())["type"] != "response.completed":
-            pass
+        error = json.loads(ws.receive_text())
+    assert error["type"] == "error" and error["error"]["type"] == "latet_blocked"
+    assert error["error"]["message"].startswith(f"{NO_OCR} Nothing was sent")  # it names Latet first
+    assert upstream.ws_received == before  # nothing left
 
 
 def test_http_with_images_block_says_why(client, upstream, mediator):
     mediator.images = ImagePolicy("block", "setting")
-    body = {"model": "x", "input": _turn("look")["input"]}
+    body = {"model": "gpt-4.1-mini", "input": _turn("look")["input"]}
     r = client.post("/openai/v1/responses", json=body, headers={"authorization": "Bearer test"})
     assert r.status_code == 400
     message = r.json()["error"]["message"]
@@ -138,7 +175,7 @@ def reader(mediator):
 def _anthropic(data: str, text: str = "what does this screenshot say?") -> dict:
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
     return {
-        "model": "m",
+        "model": "claude-sonnet-4-5",
         "max_tokens": 10,
         "messages": [{"role": "user", "content": [{"type": "text", "text": text}, image]}],
     }
@@ -191,16 +228,23 @@ def test_images_mask_refuses_what_it_cannot_read(client, upstream, mediator):
     before = len(upstream.received)
     r = client.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "test"})
     assert r.status_code == 400 and len(upstream.received) == before
-    assert "images: mask is set" in r.text and "latet ocr install" in r.text
+    # No image leaves unread under any setting: told to install text recognition and to rewind past the image.
+    assert r.json()["error"]["message"].startswith(f"{NO_OCR} Nothing was sent")  # it names Latet first
 
 
 def test_chat_and_responses_images_are_masked_too(client, upstream, reader):
     data = reader.screenshot([f"Email: {EMAIL}"])
     url = f"data:image/png;base64,{data}"
-    chat = {"model": "x", "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": url}}]}]}
+    chat = {
+        "model": "gpt-4.1-mini",
+        "messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": url}}]}],
+    }
     client.post("/openai/v1/chat/completions", json=chat, headers={"authorization": "Bearer t"})
     assert _sent(upstream)["messages"][0]["content"][0]["image_url"]["url"] != url
-    responses = {"model": "x", "input": [{"role": "user", "content": [{"type": "input_image", "image_url": url}]}]}
+    responses = {
+        "model": "gpt-4.1-mini",
+        "input": [{"role": "user", "content": [{"type": "input_image", "image_url": url}]}],
+    }
     client.post("/openai/v1/responses", json=responses, headers={"authorization": "Bearer t"})
     assert _sent(upstream)["input"][0]["content"][0]["image_url"] != url
     assert EMAIL not in upstream.all_received()
@@ -211,22 +255,23 @@ def test_a_websocket_turn_has_its_image_masked(client, upstream, reader):
     url = f"data:image/png;base64,{data}"
     turn = {
         "type": "response.create",
-        "model": "x",
+        "model": CODEX_MODEL,
         "input": [{"type": "message", "role": "user", "content": [{"type": "input_image", "image_url": url}]}],
     }
     with client.websocket_connect(
-        "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": "s-img-mask"}
+        "/backend-api/codex/responses",
+        headers={"host": "127.0.0.1:5283", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2b04"},
     ) as ws:
         ws.send_text(json.dumps(turn))
-        while json.loads(ws.receive_text())["type"] != "response.completed":
-            pass
+        while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+            assert event["type"] != "error", event  # an error ends the turn: never wait past it
     assert url not in upstream.ws_received[-1] and EMAIL not in upstream.all_received()
 
 
 def test_claude_code_images_are_checked_not_changed(client, upstream, reader):
     headers = {
         "user-agent": "claude-cli/2.1.294 (external, cli)",
-        "x-claude-code-session-id": "cc-img",
+        "x-claude-code-session-id": "5d3a9f1e-7c2b-4a86-8e4d-0b6f2c9a1e37",  # a UUID, as Claude Code's
         "x-api-key": "t",
     }
     clean = reader.screenshot(["Order 4417 shipped"])
@@ -241,8 +286,12 @@ def test_claude_code_images_are_checked_not_changed(client, upstream, reader):
 # --- the Claude Code plugin's images -------------------------------------------------------------------
 
 
+# The plugin's session is Claude Code's own session id, a UUID (crypto.randomUUID()).
+PLUGIN_SESSION = "e8b1c4d7-2f6a-4b93-a5e0-7c3d9f2b6a58"
+
+
 def _bridge(client, path: str, body: dict) -> dict:
-    r = client.post(BRIDGE + path, json={"session": "cc-plugin", **body}, headers={"x-latet-token": TOKEN})
+    r = client.post(BRIDGE + path, json={"session": PLUGIN_SESSION, **body}, headers={"x-latet-token": TOKEN})
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -258,7 +307,7 @@ def test_the_plugin_gets_its_image_back_masked_and_the_proxy_lets_it_through(cli
     # Claude Code then sends the masked image: the proxy knows it, reads nothing again, lets it go.
     headers = {
         "user-agent": "claude-cli/2.1.294 (external, cli)",
-        "x-claude-code-session-id": "cc-plugin",
+        "x-claude-code-session-id": PLUGIN_SESSION,
         "x-api-key": "t",
     }
     reads = reader.reads

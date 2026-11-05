@@ -30,9 +30,11 @@ uv run latet doctor
 Um eine Testinstanz von einem Latet zu trennen, das Sie wirklich nutzen, setzen Sie `LATET_DATA_DIR`
 und `LATET_CONFIG` auf einen Scratch-Ordner und wählen in dieser `config.yaml` einen anderen Port.
 
-`latet serve --passthrough` leitet den Datenverkehr ohne Maskierung weiter, und `--capture <folder>`
-schreibt jeden Austausch in lokale Dateien (Header mit Zugangsdaten geschwärzt), was hilft, wenn Sie
-ein Protokoll untersuchen. Mitschnitte enthalten Inhalte von Unterhaltungen: Committen Sie sie nie
+`latet serve --capture <folder>` schreibt jeden Austausch in lokale Dateien (Header mit
+Zugangsdaten geschwärzt), was hilft, wenn Sie ein Protokoll untersuchen. Einen Modus, der ohne
+Maskierung weiterleitet, gibt es nicht: Ein Teil einer Anfrage, den Latet nicht liest, wird
+abgelehnt, und die Aufrufe eines neuen Protokolls brauchen zuerst ein Anfrageprofil und seine
+Tests. Mitschnitte enthalten Inhalte von Unterhaltungen: Committen Sie sie nie
 (aus diesem Grund ignoriert git `notes/captures/`).
 
 ## Prüfungen

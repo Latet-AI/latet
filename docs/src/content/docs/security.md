@@ -61,6 +61,27 @@ conversation. Separate configured data folders and vaults provide separate store
 in different repositories does not. See [Projects](../concepts/projects/) and
 [Latet on a server](../concepts/server/).
 
+**Which project's rules apply.** A folder a request names (the header `x-latet-project`, or the
+working folder an agent writes into its requests) is only *claimed*: its project's rules that add
+protection apply, its loosenings and its request exceptions do not, and a claimed project where Latet
+is off is refused. A project is *trusted* only when Latet knows it for itself, from two sources:
+
+- **The Claude Code plugin's binding.** The plugin binds a session to the project of a folder Latet
+  knows; each of its calls keeps the binding, which ends after 30 minutes without one. This has an
+  accepted limit: an Anthropic Messages request carrying the id of a live session of yours that the
+  plugin bound is decided with that project, its loosenings and exceptions included, from whichever
+  client of yours sends it. It is still read by the final check and never rewritten, and no other
+  person's requests reach the binding. The calls Claude Code makes before the plugin's first call
+  that binds the session (its start-up calls) are decided with your own rules alone, neither the
+  project's added rules nor its loosenings.
+- **A launch key.** An agent Latet starts carries a secret key of that launch, bound to the folder's
+  project and to you; Latet checks it, takes it off before anything is sent on, and keeps only a
+  keyed hash of it. Any program that holds the key counts as that launch: it runs as the same user,
+  and Latet does not claim to bind a key to a process. A session `latet claude` started needs its
+  key, so its session id alone reaches nothing of the project's loosenings.
+
+See [Projects](../concepts/projects/#trusted-and-claimed).
+
 ## In scope
 
 - Accidental disclosure of recognizable values to the provider through prompts, files, tool output
@@ -68,6 +89,9 @@ in different repositories does not. See [Projects](../concepts/projects/) and
 - Requests that would leave with a sensitive value in clear in client mode, for example through a
   path the plugin does not cover: the plugin's final check and the daemon block them.
 - Web pages trying to use the local daemon (DNS rebinding, cross-site requests).
+- A part of a request Latet does not read: its path, query, headers and body are each read, taken
+  off by a declared rule, or let through by an exception you approved, or the request is not sent, on
+  a computer as on a server ([Every part of a request](../concepts/protection-scope/#every-part-of-a-request)).
 
 ## Out of scope
 
@@ -218,13 +242,23 @@ to one file:
   (at most 10 MB each), and go with their exchange.
 - What you decide on an image in the Live Reviewer, and an image the local reviewer withheld, are
   remembered sealed in the vault's database, by a keyed hash of the image.
-- An image that cannot be read is withheld, never sent as it was.
+- An image that cannot be read is withheld, never sent as it was; on a request Latet only checks,
+  the request is refused instead.
 
 **Traffic**
 
 - Credential headers (`Authorization`, API keys, cookies and similar) are forwarded unchanged but
   never written to logs or to the dashboard: only their length is recorded. Latet's own headers
-  (`x-latet-*`, one of which names a folder of yours) never leave your computer.
+  (`x-latet-*`, one of which names a folder of yours) are never sent on to a provider.
+- The launch key Latet gives an agent it starts, in `x-latet-launch-key`, is a secret like Latet's
+  token: checked, taken off, never logged or recorded. Found in a tool's output or a message, it is
+  masked; where it cannot be masked, the request is refused.
+- A header no profile names is refused: its name is told to the agent alone, and logs and the
+  history keep only its kind. The headers a profile declares removable are taken off and counted in
+  the dashboard: the SDKs' telemetry and tracing (`x-stainless-*`, `traceparent`...), and the agents'
+  own that can carry free text, such as a Claude Code subagent's ids or Codex's turn metadata, which
+  holds your repository's path and remotes ([Headers Latet takes off](../getting-started/upgrading-to-0-11/#headers-latet-takes-off)). On a request Latet only
+  checks, they are the only change: its body leaves byte for byte.
 - One exception, when you use Amazon Bedrock with your AWS login: Claude Code sends no credentials,
   and Latet signs each request for Amazon (SigV4) with your AWS profile. It reads the profile as the
   AWS CLI does, keeps the credentials in memory only, never writes them anywhere, and signs only
@@ -249,7 +283,10 @@ to one file:
   whose root certificate is installed there keeps working.
 - Raw capture of exchanges for debugging is off by default. When you turn it on
   (`latet serve --capture <folder>`), credential headers are redacted, but the captures still
-  hold conversation content: keep them on your machine.
+  hold conversation content: keep them on your machine. Latet's logs, the history's metadata and a
+  server's records of its decisions keep fixed categories and route templates, never a value, a
+  header's or a tool's name, or the path a request was sent to: the capture and the full history are
+  the records that hold content.
 
 The daemon makes no network connections other than forwarding your agent's requests to the
 provider (or the company endpoint) your agent already uses, and, when you turn it on, asking the local
@@ -270,6 +307,33 @@ dashboard or in this documentation site.
   verify` checks the chain.
 - The token a computer's agents hold opens the plugin's bridge and the space's proxy, never the
   dashboard: that also needs the computer key, which no agent is given.
+- A request exception is part of a person's own settings and applies once that person approves it.
+  Approving a permanent one writes an entry in the administration log with its id and the kind of its
+  scope alone, never its description; `latet server status` lists the permanent ones the same way.
+  It reads them from an index PostgreSQL keeps beside the sealed settings: for each approved
+  exception its id, the kind of its scope, whether it is permanent, its end, and whether it is in
+  force, waits for approval again after a profile revision or is not allowed by the edition; never
+  its description, its destination, a project's folder or what it names.
+- With the history off, the exceptions used are counted in memory, and shared through Valkey by
+  instance and identity, ids and numbers alone, for the dashboard. Valkey as Latet ships it keeps
+  nothing on disk; an operator who turns on its persistence writes these counts to disk.
+- With several workers on Linux, the port stays held for the server the whole time, even while no
+  worker listens, and only a program running as the server's own user can listen on it beside the
+  workers; such a program could take its connections: run the server as a user that runs nothing
+  else ([Server operations](../concepts/server-operations/)).
+- PostgreSQL keeps each vault's values and fakes sealed with the identity's key, and beside each word
+  of them a keyed hash and a print: a 64-bit fingerprint under a key derived from the identity's own,
+  which the instances hold in memory to find a text's values. A reader of the database learns no word
+  from them, but sees which rows of one identity share a word, how many do, and, from the change
+  counts on the rows, which rows changed and in what order: a print is not encryption. Two words can
+  share a print, so every value or fake a print points to is decrypted and compared with the text
+  before it masks or restores anything.
+- What Valkey holds and carries for a vault is ids, kinds, counts and sealed data: no value, fake,
+  word or print in clear, and no keyed hash of the vault. Tests check this on everything the instances
+  send Valkey while they mask, restore and forget values for an API key and a person, make a vault's
+  prints again and send their beats, and on the logs. Its messages are signed, which says who sent
+  them and keeps nothing secret; what must stay secret is sealed. The instances' beats carry numbers,
+  booleans and the version, never an identity.
 
 ## Reporting a vulnerability
 

@@ -65,13 +65,9 @@ Les fichiers qu'un agent envoie au modèle, comme les PDF, les documents Word et
 seraient masqués comme le texte, un format après l'autre. Dans chaque fichier d'un format qu'il sait
 lire, Latet remplacerait les valeurs sensibles par des valeurs factices et enverrait le fichier
 masqué, puis remettrait les originaux en place dans la réponse, y compris dans les fichiers que le
-modèle renvoie. Un fichier dans un format que Latet ne lit pas encore est traité comme aujourd'hui.
-Dans une conversation, il est envoyé tel quel, avec l'indicateur *Non inspecté* dans le tableau de
-bord, ou il n'est pas envoyé avec `images: mask` ou `block` (voir
-[Ce que lit la passerelle](../agents/openai-compatible/#ce-que-lit-la-passerelle)). Envoyé à part,
-par l'API de fichiers d'un fournisseur, il est refusé par un serveur Latet et par Latet sur les
-routes de Google, alors que depuis un ordinateur il passe inchangé vers les autres fournisseurs (voir
-[Ce qui est protégé et ce qui ne l'est pas](../concepts/protection-scope/)).
+modèle renvoie. Un fichier dans un format que Latet ne lit pas est refusé, dans une conversation
+comme envoyé à part par l'API de fichiers d'un fournisseur, sur un ordinateur comme sur un serveur
+(voir [Ce qui est protégé et ce qui ne l'est pas](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 

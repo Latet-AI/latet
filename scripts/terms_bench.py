@@ -82,8 +82,8 @@ def make_text(size: int, hits: Sequence[str], seed: int) -> str:
     return "".join(pieces)[:size]
 
 
-def memory_mb() -> float:
-    """What this process holds now: its private bytes on Windows, its resident pages on Linux, its peak elsewhere."""
+def memory_counters() -> dict[str, object]:
+    """Native byte counters, with current and process-lifetime peaks named separately."""
     if sys.platform == "win32":
         import ctypes
         from ctypes import wintypes
@@ -103,15 +103,42 @@ def memory_mb() -> float:
         kernel32, psapi = ctypes.windll.kernel32, ctypes.windll.psapi
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
         psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-        psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb)
-        return counters.PrivateUsage / 1e6
+        if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            return {"status": "unavailable", "platform": sys.platform}
+        return {
+            "status": "ok",
+            "platform": sys.platform,
+            "current_private_bytes": counters.PrivateUsage,
+            "current_working_set_bytes": counters.WorkingSetSize,
+            "lifetime_peak_working_set_bytes": counters.PeakWorkingSetSize,
+            "lifetime_peak_pagefile_bytes": counters.PeakPagefileUsage,
+        }
     try:
         with open("/proc/self/statm") as statm:
-            return int(statm.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1e6
+            return {
+                "status": "ok",
+                "platform": sys.platform,
+                "current_resident_bytes": int(statm.read().split()[1]) * os.sysconf("SC_PAGE_SIZE"),
+            }
     except OSError:
         import resource
 
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6  # bytes on macOS
+        multiplier = 1 if sys.platform == "darwin" else 1024
+        return {
+            "status": "ok",
+            "platform": sys.platform,
+            "lifetime_peak_resident_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * multiplier,
+        }
+
+
+def memory_mb() -> float:
+    """Preserve the existing platform-specific metric used by the memory guard."""
+    counters = memory_counters()
+    for name in ("current_private_bytes", "current_resident_bytes", "lifetime_peak_resident_bytes"):
+        value = counters.get(name)
+        if isinstance(value, int):
+            return value / 1e6
+    raise RuntimeError("process memory counters unavailable")
 
 
 @dataclass(frozen=True)

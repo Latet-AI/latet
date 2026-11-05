@@ -39,7 +39,7 @@ bevor sie den Rechner verlässt, ganz gleich, wodurch der Text in sie gelangt is
 | Webseiten | Ein Admin-Panel, das der Agent mit einem Browser-Tool öffnet | Die personenbezogenen Daten im Text der Seite werden maskiert |
 | Anweisungen | CLAUDE.md, AGENTS.md, der System-Prompt | Ihr Name, Ihr Benutzername, Ihr Hostname und die Domain Ihres Unternehmens werden maskiert |
 | Verlauf | Eine Sitzung, die zehn Tage später fortgesetzt wird | Derselbe Wert erhält jedes Mal denselben Ersatzwert |
-| Screenshots | Der Screenshot einer Rechnung | Mit der optionalen [Texterkennung](concepts/images/) wird der Text darin auf Ihrem Rechner gelesen und jeder Wert mit seinem Ersatzwert überdeckt; PDFs werden markiert oder nicht gesendet (`images: block`) |
+| Screenshots | Der Screenshot einer Rechnung | Mit der optionalen [Texterkennung](concepts/images/) wird der Text darin auf Ihrem Rechner gelesen und jeder Wert mit seinem Ersatzwert überdeckt; ohne sie, und mit einer PDF, wird die Anfrage nicht gesendet |
 | Was kein Muster erkennt | *"Mark aus dem Vertrieb führt heimlich Vorstellungsgespräche bei einem Konkurrenten"* | Der optionale [lokale Prüfer](concepts/llm-review/), Ihr eigenes Sprachmodell, findet es, bevor es den Rechner verlässt, nach den Anweisungen von Latet und [Ihren eigenen Hinweisen](concepts/llm-review/#ihre-hinweise): was in Ihrer Arbeit als sensibel gilt, überall oder in einem einzelnen Projekt |
 
 ## Wie Latet schützt
@@ -106,7 +106,7 @@ siehe [was Latet nicht schützen kann](agents/other-tools/#was-latet-nicht-schü
 <CardGrid>
 	<LinkCard
 		title="Pro- und Max-Abonnements von Claude"
-		description="Claude Code läuft unverändert und nutzt seine eigene Anmeldung; jede Anfrage verlässt den Rechner so, wie Claude Code sie erstellt hat."
+		description="Claude Code läuft unverändert und nutzt seine eigene Anmeldung; der Inhalt jeder Anfrage geht Byte für Byte hinaus, und nur wenige Header werden entfernt und gezählt."
 		href="agents/claude-code/#pro--und-max-abonnements"
 	/>
 	<LinkCard

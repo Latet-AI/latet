@@ -102,7 +102,9 @@ def _exchanged(outcome: Outcome) -> tuple[str, bool] | None:
 
     if outcome.transport not in EXCHANGES:
         return None
-    stopped = outcome.prepared is not None and bool(outcome.prepared.block_reason)
+    # Every refusal, as the history flags it: its arena's words, or its decision's code alone.
+    coded = getattr(outcome, "block_code", None) is not None
+    stopped = coded or (outcome.prepared is not None and bool(outcome.prepared.block_reason))
     return agent_of(outcome.headers, outcome.path)[0], stopped
 
 

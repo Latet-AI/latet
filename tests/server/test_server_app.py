@@ -407,6 +407,9 @@ async def test_a_purge_that_fails_is_tried_again_by_a_later_check(instances, pre
 
 
 async def test_a_change_whose_announcement_was_lost_is_applied_by_the_check(instances, monkeypatch):
+    # Her space served from memory, as a person's whose words are not all made yet is (Task 9): a value of a vault on
+    # its store joins memory only as a text needs it, and its catch-up is ``test_person_vault``'s and the keys' tests'.
+    monkeypatch.setattr("latet.server.vault.PgVaultStore.words_complete", lambda self: False)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     daniel, _ = a.identities.add_person("Daniel Okafor")

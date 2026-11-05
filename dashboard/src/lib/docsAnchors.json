@@ -78,6 +78,9 @@
       "stats": "statistiche",
       "vault": "cassaforte"
     },
+    "getting-started/upgrading-to-0-11/": {
+      "approving-an-exact-exception": "approvare-uneccezione-esatta"
+    },
     "troubleshooting/": {
       "a-request-was-blocked": "una-richiesta-è-stata-bloccata",
       "a-tool-output-was-withheld": "loutput-di-uno-strumento-è-stato-trattenuto",
@@ -167,6 +170,9 @@
       "sessions": "sitzungen",
       "stats": "statistik",
       "vault": "tresor"
+    },
+    "getting-started/upgrading-to-0-11/": {
+      "approving-an-exact-exception": "eine-genaue-ausnahme-genehmigen"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "eine-anfrage-wurde-blockiert",
@@ -258,6 +264,9 @@
       "stats": "statistiques",
       "vault": "coffre-fort"
     },
+    "getting-started/upgrading-to-0-11/": {
+      "approving-an-exact-exception": "approuver-une-exception-exacte"
+    },
     "troubleshooting/": {
       "a-request-was-blocked": "une-requête-a-été-bloquée",
       "a-tool-output-was-withheld": "une-sortie-doutil-a-été-retenue",
@@ -347,6 +356,9 @@
       "sessions": "sesiones",
       "stats": "estadísticas",
       "vault": "caja-fuerte"
+    },
+    "getting-started/upgrading-to-0-11/": {
+      "approving-an-exact-exception": "aprobar-una-excepción-exacta"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "se-ha-bloqueado-una-petición",

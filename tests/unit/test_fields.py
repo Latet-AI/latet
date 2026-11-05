@@ -404,11 +404,16 @@ def _conversation(prompt: str, *outputs: str) -> bytes:
     """A request to Anthropic's API: ``prompt``, then a command and its output for each of ``outputs``."""
     messages: list[dict] = [{"role": "user", "content": prompt}]
     for n, output in enumerate(outputs):
-        call = {"type": "tool_use", "id": f"t{n}", "name": "Bash", "input": {"command": "curl"}}
-        result = {"type": "tool_result", "tool_use_id": f"t{n}", "content": output}
+        call = {
+            "type": "tool_use",
+            "id": f"toolu_01Fd{n}Kq7mWz3vT9cP2xBnHd",
+            "name": "Bash",
+            "input": {"command": "curl"},
+        }
+        result = {"type": "tool_result", "tool_use_id": call["id"], "content": output}
         messages.append({"role": "assistant", "content": [call]})
         messages.append({"role": "user", "content": [result]})
-    return json.dumps({"model": "x", "messages": messages}).encode()
+    return json.dumps({"model": "claude-sonnet-4-5", "messages": messages}).encode()
 
 
 def test_through_the_gateway_another_conversation_sends_masked_what_one_sent_in_clear_before():
@@ -784,14 +789,24 @@ def test_the_dump_guard_flags_the_exchange_once():
     mediator, _ = _mediator(dump_guard=3)
     rows = "\n".join(f"cliente{i}@acme-mail.it" for i in range(6))
     body = {
-        "model": "x",
+        "model": "claude-sonnet-4-5",
         "messages": [
             {"role": "user", "content": "list the customers"},
             {
                 "role": "assistant",
-                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "psql"}}],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_01Dg7Qm2vZ9xR4tB8nW3cLpK",
+                        "name": "Bash",
+                        "input": {"command": "psql"},
+                    }
+                ],
             },
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": rows}]},
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_01Dg7Qm2vZ9xR4tB8nW3cLpK", "content": rows}],
+            },
         ],
     }
     upstream = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")

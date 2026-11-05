@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import uuid
 
 import pytest
 from starlette.responses import StreamingResponse
@@ -50,7 +51,7 @@ class ProtocolUpstream(FakeUpstream):
             document = {"owner": self.fake}
         arguments = json.dumps(document)
         if protocol == "chat":
-            call = {"index": 0, "id": "call-0", "type": "function", "function": {"name": "grant", "arguments": ""}}
+            call = {"index": 0, "id": CALL_ID, "type": "function", "function": {"name": "grant", "arguments": ""}}
             yield _sse(None, {"id": "ep-chat", "choices": [{"index": 0, "delta": {"tool_calls": [call]}}]})
             for piece in (arguments[:17], arguments[17:]):
                 yield _sse(
@@ -72,7 +73,7 @@ class ProtocolUpstream(FakeUpstream):
             {
                 "type": "content_block_start",
                 "index": 0,
-                "content_block": {"type": "tool_use", "id": "call-0", "name": "grant", "input": initial},
+                "content_block": {"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": initial},
             },
         )
         pieces = [] if self.reply == "nonempty" else [arguments[:17], arguments[17:]]
@@ -92,11 +93,22 @@ class ProtocolUpstream(FakeUpstream):
         yield _sse("message_stop", {"type": "message_stop"})
 
 
-def _body(text):
-    return {"model": "m", "max_tokens": 10, "stream": True, "messages": [{"role": "user", "content": text}]}
+# Model ids and tool call ids as providers issue them; a conversation's id is a UUID, as agents send it.
+MODELS = {"chat": "gpt-4.1-mini", "anthropic": "claude-sonnet-4-5"}
+CALL_ID, TOOL_ID = "call_Ep7Kx2mQ9vZ4rT8bW3nCd5fH", "toolu_01Ep7Kx2mQ9vZ4rT8bW3nCd"
+
+
+def _body(text, protocol="anthropic"):
+    return {
+        "model": MODELS[protocol],
+        "max_tokens": 10,
+        "stream": True,
+        "messages": [{"role": "user", "content": text}],
+    }
 
 
 def _headers(protocol, conversation, checked=False):
+    conversation = str(uuid.uuid5(uuid.NAMESPACE_URL, conversation))  # one UUID per named conversation
     if protocol == "chat":
         return {"authorization": "Bearer sk-test", "session-id": conversation}
     if checked:
@@ -231,7 +243,7 @@ def protocol_cluster(monkeypatch, request):
 
 
 def _teach(cluster, secret, protocol, conversation):
-    warm = _post(cluster.first, secret, protocol, _body("read " + secret), conversation)
+    warm = _post(cluster.first, secret, protocol, _body("read " + secret, protocol), conversation)
     events = _events(warm)
     assert not any("error" in event for event in events)
     assert secret not in cluster.upstream.all_received()
@@ -252,7 +264,7 @@ def test_real_server_collision_and_replay(protocol_cluster, protocol):
     conversation = "e0c-t16-collision"
     runtime, fake = _teach(cluster, secret, protocol, conversation)
     cluster.upstream.reply = "collision"
-    reply = _post(cluster.first, secret, protocol, _body("continue"), conversation)
+    reply = _post(cluster.first, secret, protocol, _body("continue", protocol), conversation)
     events = _events(reply)
     assert not any("error" in event for event in events)
     if protocol == "chat":
@@ -275,23 +287,23 @@ def test_real_server_collision_and_replay(protocol_cluster, protocol):
                 "role": "assistant",
                 "tool_calls": [
                     {
-                        "id": "call-0",
+                        "id": CALL_ID,
                         "type": "function",
                         "function": {"name": "grant", "arguments": json.dumps(arguments)},
                     }
                 ],
             },
-            {"role": "tool", "tool_call_id": "call-0", "content": "done"},
+            {"role": "tool", "tool_call_id": CALL_ID, "content": "done"},
         ]
     else:
         history = [
             {
                 "role": "assistant",
-                "content": [{"type": "tool_use", "id": "call-0", "name": "grant", "input": arguments}],
+                "content": [{"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": arguments}],
             },
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call-0", "content": "done"}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
         ]
-    body = _body("continue")
+    body = _body("continue", protocol)
     body["messages"] += history
     before = _snapshot(cluster.upstream)
     refused = _post(cluster.second, secret, protocol, body, conversation)
@@ -299,7 +311,7 @@ def test_real_server_collision_and_replay(protocol_cluster, protocol):
     assert _snapshot(cluster.upstream) == before
     integration._held_nothing(refused.text, secret, fake)
     cluster.upstream.reply = "normal"
-    clean = _post(cluster.second, secret, protocol, _body("new conversation"), "e0c-t16-new")
+    clean = _post(cluster.second, secret, protocol, _body("new conversation", protocol), "e0c-t16-new")
     assert "new conversation" in _text(protocol, _events(clean))
     assert len(cluster.upstream.received) == len(before[0]) + 1
 
@@ -311,24 +323,23 @@ def test_real_server_fallback_schema(protocol_cluster, mode):
     body = _body("plain text")
     sensitive = {"type": "json_schema", "schema": {"type": "object", "properties": {cluster.key: {"type": "string"}}}}
     body["fallbacks"] = [
-        {"model": "safe"},
-        {"model": "fallback-model", "output_config": {"format": sensitive, "effort": "high"}},
+        {"model": "claude-haiku-4-5"},
+        {"model": "claude-opus-4-5", "output_config": {"format": sensitive, "effort": "high"}},
     ]
     before = _snapshot(cluster.upstream)
     result = _post(cluster.first, cluster.personal, "anthropic", body, "e0c-t16-fallback", checked)
+    # The key is a property name of the fallback's schema: P2-2 checks that position and never rewrites it (a fake
+    # there would change the schema), so a request Latet rewrites is refused as one it only checks is, saying why.
+    assert result.status_code == 400 and _snapshot(cluster.upstream) == before
     if checked:
-        assert result.status_code == 400 and "Nothing was sent" in result.text
-        assert _snapshot(cluster.upstream) == before
-        integration._held_nothing(result.text, cluster.key)
+        assert "Nothing was sent" in result.text
     else:
-        assert "plain text" in _text("anthropic", _events(result))
-        assert len(cluster.upstream.received) == len(before[0]) + 1
-        sent = json.loads(cluster.upstream.received[-1])
-        assert cluster.key not in cluster.upstream.received[-1].decode()
-        assert sent["fallbacks"][0] == {"model": "safe"}
-        assert sent["fallbacks"][1]["output_config"]["effort"] == "high"
-        assert sent["fallbacks"][1]["output_config"]["format"] != sensitive
-    body["fallbacks"] = [{"model": "safe"}, {"model": "fallback-model", "output_config": {"format": SAFE_FORMAT}}]
+        assert "sensitive values would leave in clear: LATET_API_KEY" in result.text
+    integration._held_nothing(result.text, cluster.key)
+    body["fallbacks"] = [
+        {"model": "claude-haiku-4-5"},
+        {"model": "claude-opus-4-5", "output_config": {"format": SAFE_FORMAT}},
+    ]
     raw = json.dumps(body, indent=2).encode()
     endpoint = f"/u/{route_key(cluster.personal)}/llm/v1/messages"
     count = len(cluster.upstream.received)
@@ -345,7 +356,7 @@ def test_real_server_fallback_schema(protocol_cluster, mode):
 def test_real_server_forbidden_fields(protocol_cluster, kind):
     cluster = protocol_cluster
     protocol = "chat" if kind == "name" else "anthropic"
-    body = _body("done")
+    body = _body("done", protocol)
     if kind == "name":
         body["messages"] = [{"role": "assistant", "name": cluster.key, "content": "done"}]
     else:
@@ -369,7 +380,7 @@ def test_real_server_forbidden_fields(protocol_cluster, kind):
     assert refused.status_code == 400 and FIELDS_REFUSED in refused.text and "Nothing was sent" in refused.text
     assert _snapshot(cluster.upstream) == before
     integration._held_nothing(refused.text, *cluster.used)
-    clean = _post(cluster.first, cluster.personal, protocol, _body("ordinary supported text"))
+    clean = _post(cluster.first, cluster.personal, protocol, _body("ordinary supported text", protocol))
     assert "ordinary supported text" in _text(protocol, _events(clean))
     assert len(cluster.upstream.received) == len(before[0]) + 1
 

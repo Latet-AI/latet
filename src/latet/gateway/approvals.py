@@ -136,6 +136,9 @@ class Change:
     guidance: list[dict[str, str | None]] = field(default_factory=list)
     # The destinations it moves or removes, with their addresses: where requests would go.
     destinations: list[dict[str, str | None]] = field(default_factory=list)
+    # The request exceptions it adds, widens, renews or makes permanent, as the dashboard shows them before you approve
+    # (``protection.exception_changes``): what they name, where and for whom. For the dashboard only.
+    exceptions: list[dict[str, Any]] = field(default_factory=list)
     id: str = field(default_factory=lambda: secrets.token_urlsafe(9))
     created: float = field(default_factory=time.time)
 
@@ -152,6 +155,7 @@ class Change:
         if full:
             out["guidance"] = self.guidance
             out["destinations"] = self.destinations
+            out["exceptions"] = self.exceptions
         return out
 
 

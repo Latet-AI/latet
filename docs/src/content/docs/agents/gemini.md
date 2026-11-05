@@ -29,6 +29,20 @@ latet gemini
 latet gemini -p "write the release notes for the payments module"
 ```
 
+`latet gemini` also gives Gemini CLI a launch key in `GEMINI_CLI_CUSTOM_HEADERS`, added to the
+headers you set there, so that Latet trusts the session's project; where it cannot verify that Gemini
+CLI will send it, it passes none, says so, and the project Gemini CLI names is claimed
+([Projects](../../concepts/projects/#trusted-and-claimed)). Headers of your own in
+`GEMINI_CLI_CUSTOM_HEADERS` are refused, naming each one, until an
+[exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it
+through.
+
+Gemini CLI reads `GEMINI_CLI_CUSTOM_HEADERS` from version 0.19.0, and Latet has verified how it sends
+them from 0.19.0 to 0.66.0. An older Gemini CLI ignores the variable: its session is claimed, and
+`latet doctor` names its version. In ACP mode (`--acp` or `--experimental-acp`, as an editor starts
+Gemini CLI), the editor can give Gemini CLI an address and headers of its own, so `latet gemini`
+passes no launch key there and says so as it starts.
+
 `latet run gemini` does the same. Gemini CLI takes its address only from the environment, so it is not
 available in global mode: `latet global-install` does not set it up, and there is no
 `latet agents apply gemini`. A change for good would not reach a project with an `.env` file of its
@@ -94,14 +108,18 @@ Google's OpenAI-compatible endpoint goes through Latet too: give an OpenAI clien
   (`cachedContents`): the system instruction, every message, function calls and their results, the
   functions' declarations and the schema of the answer are masked, and the answers are restored.
 - **Images** sent in the request are read and masked with the optional
-  [text recognition](../../concepts/images/). Other files, and files given by their address, are
-  sent as they are and flagged *Not inspected* in the dashboard.
-- The model's **thinking**, and the code Google runs for it, are left as the model wrote them.
+  [text recognition](../../concepts/images/); without it, a request with an image is not sent. Other
+  files, and files given by their address, are refused.
+- The model's **thinking** is left as the model wrote it. The code Google runs for it and what that
+  code printed, and the inputs and outputs of Google's own tools (Google Search, URL context, Maps,
+  File Search), are masked, as a function's call and its result are.
 - **Any other request with a body** on these routes is refused, with an error that says so, and a
   WebSocket of the Live API is closed before anything goes through: the Interactions API, the Live
   API, the Batch API, file uploads and Vertex's `:predict` (its own embeddings and image models)
-  carry a conversation in forms Latet does not read yet (they are on the [roadmap](../../roadmap/)).
-  A request without a body, such as the list of models, passes.
+  carry a conversation in forms Latet does not read (they are on the [roadmap](../../roadmap/)).
+  Listing the models and reading one pass; any other call without a body is refused too.
+- Google's client library header `x-goog-api-client` is taken off; your API key, in the `key`
+  parameter or `x-goog-api-key`, is sent as it came and never logged.
 
 ## Limits
 

@@ -27,6 +27,15 @@ avec une clé d'API Anthropic. La clé traverse Latet jusqu'au fournisseur et n'
 affichée dans le tableau de bord. Hermes Agent connecté avec ChatGPT n'a besoin d'aucune clé : il passe
 par Latet avec cette connexion, comme Codex ([plus bas](#avec-la-connexion-chatgpt)).
 
+Latet lit chaque partie de chaque requête que ces agents envoient
+([Chaque partie d'une requête](../../concepts/protection-scope/#chaque-partie-dune-requête)) : un appel qu'il ne lit
+pas, comme un téléversement ou un lot, est refusé, de même qu'un en-tête que vous ajoutez dans les
+réglages du fournisseur d'un agent, tant qu'une
+[exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne le laisse pas passer. Ces
+agents sont configurés à la main, donc Latet ne considère aucun projet comme de confiance pour eux : un dossier
+qu'ils nomment ne fait qu'ajouter de la protection, et vos réglages pour un projet n'y assouplissent
+rien ([Projets](../../concepts/projects/#de-confiance-et-déclarés)).
+
 ## Hermes Agent
 
 Hermes lit son modèle et son point de terminaison dans `config.yaml`, dans son dossier : `~/.hermes`

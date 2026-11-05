@@ -80,6 +80,22 @@ same way. See [Company endpoints](../company-endpoints/).
   out unmasked.
 - Codex reads files with shell commands, so [strict data mode](../../concepts/production-data/#which-tools)
   covers the files it reads too. Name its database tool in `data_tools` to cover only that.
+- The repository's path, remotes and commit that Codex adds to each request, in the header
+  `x-codex-turn-metadata` and the body's `client_metadata`, are taken off before it is sent, and so
+  is the header `x-openai-subagent`, the kind or free label Codex gives a subagent; the dashboard
+  counts them. Its model list passes; a call Latet does not read, such as fetching a stored response, is refused.
+- Headers of your own in a provider's `http_headers` or `env_http_headers` are refused, naming each
+  one, until an [exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception)
+  lets it through (`openai.responses.1`). Over the WebSocket of a ChatGPT sign-in, no exception
+  applies in 0.11.0: a header or a query parameter Latet does not read closes the connection before
+  it opens, and the close says why and names the header or the parameter, never its value. The
+  history records the refusal.
+- **Its project.** `latet codex` gives Codex a launch key through a provider of `model_providers`
+  (`env_http_headers`), from Codex 0.115: its project's settings then apply in full. On Codex's
+  built-in providers (signed in with ChatGPT, or OpenAI's own provider), and before 0.115, no key can
+  travel: `latet codex` says so as it starts, and the project Codex names in its requests is claimed,
+  so its rules that add protection apply and its loosenings do not
+  ([Projects](../../concepts/projects/#trusted-and-claimed)).
 
 Tested live: the Codex CLI signed in with ChatGPT. Codex Desktop reads the same `config.toml`; if
 something does not work there, please [open an issue](https://github.com/Latet-AI/latet/issues).

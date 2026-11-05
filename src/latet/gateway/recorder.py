@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import codecs
 import contextlib
 import json
 import logging
@@ -17,28 +18,48 @@ import threading
 import time
 import urllib.parse
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, fields
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from latet import observe
 from latet.engine import wellformed
 from latet.engine.modules import kept, module_of, origin
 from latet.engine.pipeline import LRU, Engine
 from latet.engine.rehydrate import Annotator, Restore, restores_for
+from latet.engine.response_guard import safe_text, safe_tree
 from latet.engine.types import Replacement, SlotKind
 from latet.engine.vault import Vault
+from latet.gateway.cloud import shape_of
 from latet.gateway.headers import redacted
+from latet.gateway.launch_authority import LAUNCH_CATEGORIES
+from latet.gateway.outcome import BLOCK_CODES, Observation
+from latet.gateway.response_encoding import (
+    ResponseEncodingError,
+    brotli_parts,
+    inflate,
+    prove_brotli,
+    prove_zlib,
+    prove_zstd,
+    zstd_parts,
+)
+from latet.protocols import codec
+from latet.protocols.base import tool_source
 from latet.protocols.eventstream import EventStreamDecoder
-from latet.protocols.sse import SSEParser, StreamDecoder
+from latet.protocols.sse import MAX_EVENTS, SSEParser, StreamDecoder
 from latet.state.local import LocalJobLock, LocalSentBlocks
 from latet.storage.exchanges import (
     MAX_IMAGE,
     BlockRecord,
     ExchangeRecord,
     ImageRecord,
+    configured_destination,
+    history_coverage_summary,
+    history_project,
     new_exchange_id,
+    safe_leaks,
+    valid_project_id,
 )
 
 if TYPE_CHECKING:
@@ -125,6 +146,27 @@ def json_paths(
     return out
 
 
+def record_positions(value: Any, needed: set[tuple[int, Any]]) -> dict[tuple[int, Any], tuple[int, ...]]:
+    """Worker-only occurrence identities for selected references, without paths or payload copies. Each integer is
+    a child's position in its object/list, so a repeated reference reuses its occurrence and equal values cannot
+    impersonate it. Detached references stay absent, as they do in ``json_paths``."""
+    out: dict[tuple[int, Any], tuple[int, ...]] = {}
+
+    def walk(value: Any, parent: tuple[int, ...]) -> None:
+        items = value.items() if isinstance(value, dict) else enumerate(value)
+        for n, (key, item) in enumerate(items):
+            position = (*parent, n)
+            identity = (id(value), key)
+            if identity in needed:
+                out[identity] = position
+            if isinstance(item, dict | list):
+                walk(item, position)
+
+    if needed and isinstance(value, dict | list):
+        walk(value, ())
+    return out
+
+
 def _looks_json(text: str) -> bool:
     stripped = text.lstrip()
     if stripped[:1] not in ("{", "["):
@@ -143,7 +185,8 @@ def reconstruct(masked: str, replacements: list[dict[str, Any]], vault: Vault) -
     one forgotten since, and one redacted one way, whose replacement names no entry. The vault holds
     none for a value the detectors redacted; one the local reviewer or the Live Reviewer found under
     ``redact`` it keeps all the same, sealed, with a fake that never leaves, and that is not put back
-    here either. Returned replacements carry offsets on both sides.
+    here either; nor is a live launch key, kept sealed in the vault for the agent alone, never shown to a person, in
+    the Live Reviewer or the history (P2-6a's re-review, R-1). Returned replacements carry offsets on both sides.
     """
     out: list[str] = []
     spans: list[dict[str, Any]] = []
@@ -157,6 +200,8 @@ def reconstruct(masked: str, replacements: list[dict[str, Any]], vault: Vault) -
         size += start - pos
         piece = masked[start:end]
         entity = vault.get(r["entity"]) if r.get("entity") else None
+        if entity is not None and not safe_text(entity.original):
+            entity = None  # a live launch key: its stand-in stays
         if "via" not in r:  # recorded before modules and first rules were kept
             r = r | origin(r.get("rule"), entity.rule if entity else None, r.get("type"))
         if entity is None:
@@ -244,14 +289,27 @@ class Broadcaster:
                 queue.put_nowait(item)
 
 
-@dataclass
+@dataclass(slots=True, repr=False)
+class _ResponsePiece:
+    text: str
+    starts_lane: bool = False
+
+
+@dataclass(slots=True, repr=False)
+class _ResponseLane:
+    pieces: list[_ResponsePiece] = field(default_factory=list)
+
+
+@dataclass(repr=False)
 class ResponseCapture:
-    """The response as the model wrote it (before any restore): text, tool calls, token usage. What the forwarder hands
-    it on the event loop is only kept, ``_MAX_JSON_BODY`` of the wire at most, and read by ``settle`` in the recorder's
-    thread (a chunk of tens of thousands of tiny events, read where it was handed over, held the loop). It decodes at
-    most ``_MAX_JSON_BODY`` of an encoded answer, and reads one event or body of at most as much, and at most
-    ``MAX_EVENTS`` events: past that it is ``broken``, and decodes nothing more. A WebSocket turn's events are read as
-    they come (``event``), one message each."""
+    """One bounded, private response owner. Only ``screen`` admits its payload.
+
+    HTTP is coalesced into at most 123 blocks of 64 KiB; WS keeps original
+    message boundaries. Descriptor reservations precede retention: 128 bytes
+    per raw block, 256 per WS boundary/piece, 512 plus four bytes per key
+    character per lane/tool/header. Shared semantic pieces preserve ordering
+    without another full raw buffer. The 64-lane index includes ended lanes.
+    """
 
     protocol: str | None
     content_type: str = ""
@@ -260,160 +318,296 @@ class ResponseCapture:
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, int] = field(default_factory=dict)
     size: int = 0
-    done: bool = False  # a terminal event was seen (WebSocket turns)
-    failed: bool = False  # ... and it was an error
+    done: bool = False
+    failed: bool = False
     broken: bool = False
-    _events: SSEParser = field(default_factory=lambda: SSEParser(limit=_MAX_JSON_BODY))
-    _body: bytearray = field(default_factory=bytearray)
-    _decoder: StreamDecoder | None = None
-    _frames: EventStreamDecoder | None = None  # Bedrock's answers
-    _raw: list[bytes] = field(default_factory=list)  # the chunks handed over, still encoded: read by ``settle``
+    omission: str | None = None
+    safe: bool = False
+    headers: tuple[tuple[str, str], ...] = ()
+    _raw: list[bytes | str] = field(default_factory=list)
     _raw_bytes: int = 0
+    _metadata: int = 2048  # owner, bounded scalar/parser/container roots
     _ended: bool = False
     _settled: bool = False
+    _websocket: bool = False
+    _events: SSEParser = field(default_factory=lambda: SSEParser(limit=_MAX_JSON_BODY))
+    _body: bytearray = field(default_factory=bytearray)
+    _zlib_bits: int | None = None
+    _frames: EventStreamDecoder | None = None
+    _lanes: dict[tuple[str, ...], _ResponseLane] = field(default_factory=dict)
+    _rendered: list[_ResponsePiece] = field(default_factory=list)
+    _render_lane: _ResponseLane | None = None
+    _history_transitions: tuple[bool, ...] = ()
+    _calls: dict[tuple[str, ...], tuple[tuple[str, ...], tuple[str, ...], bool]] = field(default_factory=dict)
+    _blocks: dict[str, bool] = field(default_factory=dict)
+    _event_count: int = 0
 
     def __post_init__(self) -> None:
-        if self.content_type:
-            self._decoder = StreamDecoder(self.content_encoding, limit=_MAX_JSON_BODY)
+        if not self._charge(4 * (len(self.content_type) + len(self.content_encoding or ""))):
+            self.content_type = ""
+            self.content_encoding = None
 
-    @property
-    def _sse(self) -> bool:
-        return "text/event-stream" in self.content_type
+    def _charge(self, amount: int) -> bool:
+        if self._metadata + amount > 65536:
+            self.omit("response-budget")
+            return False
+        self._metadata += amount
+        return True
 
-    @property
-    def _eventstream(self) -> bool:
-        return "vnd.amazon.eventstream" in self.content_type
+    def metadata(self, headers: Iterable[tuple[str, str]]) -> None:
+        kept: list[tuple[str, str]] = []
+        for name, value in headers:
+            if not self._charge(256 + 4 * (len(name) + len(value))):
+                break
+            kept.append((name, value))
+        self.headers = tuple(kept)
+
+    def omit(self, category: str) -> None:
+        self.omission = self.omission or category
+        self.broken = True
+        self.safe = False
 
     def feed(self, chunk: bytes) -> None:
-        """A raw upstream chunk (still content-encoded), kept for ``settle``: on the event loop, where the forwarder
-        hands it over, it is neither decoded nor read. Past ``_MAX_JSON_BODY`` kept, the capture is ``broken`` and keeps
-        nothing."""
-        if self.broken or self._decoder is None or self._settled:
+        if not chunk or self.broken or self._ended or self._settled:
             return
         if self._raw_bytes + len(chunk) > _MAX_JSON_BODY:
-            self.broken = True
+            self.omit("response-budget")
             self._raw.clear()
             return
-        self._raw.append(bytes(chunk))
         self._raw_bytes += len(chunk)
+        at = 0
+        while at < len(chunk):
+            last = self._raw[-1] if self._raw else b""
+            if isinstance(last, bytes) and last and len(last) < 65536:
+                take = min(65536 - len(last), len(chunk) - at)
+                self._raw[-1] = last + chunk[at : at + take]
+            else:
+                if not self._charge(128):
+                    self._raw.clear()
+                    return
+                take = min(65536, len(chunk) - at)
+                self._raw.append(chunk[at : at + take])
+            at += take
+
+    def frame(self, data: str | bytes) -> None:
+        if self.broken or self._ended or self._settled:
+            return
+        self._websocket = True
+        if not isinstance(data, str):
+            self.omit("response-unsupported")
+            return
+        if len(data) > _MAX_JSON_BODY - self._raw_bytes:
+            self.omit("response-budget")
+            return
+        try:
+            size = len(data.encode("utf-8"))
+        except UnicodeError:
+            self.omit("response-malformed")
+            return
+        if self._raw_bytes + size > _MAX_JSON_BODY:
+            self.omit("response-budget")
+            return
+        if len(self._raw) >= MAX_EVENTS or not self._charge(256):
+            self.omit("response-budget")
+            return
+        self._raw_bytes += size
+        self._raw.append(data)
 
     def end(self) -> None:
-        """The answer is over: what was kept is read by ``settle``."""
         self._ended = True
 
-    def settle(self) -> None:
-        """What was kept, decoded and read, once (the recorder's thread): its text, its tool calls, its usage."""
-        if self._settled:
+    def _lane(self, key: tuple[str, ...], value: str, *, render: bool = False, repeat: bool = True) -> None:
+        if not isinstance(value, str):
+            self.omit("response-malformed")
             return
-        self._settled = True
-        kept, self._raw = self._raw, []
-        for chunk in kept:
-            self._read(chunk)
-        if self._ended:
-            self._read_end()
-
-    def _read(self, chunk: bytes) -> None:
-        if self.broken or self._decoder is None:
+        lane = self._lanes.get(key)
+        if lane is None:
+            if len(self._lanes) >= 64 or not self._charge(512 + 4 * sum(map(len, key))):
+                self.omit("response-budget")
+                return
+            lane = self._lanes[key] = _ResponseLane()
+        elif not repeat:
+            if "".join(piece.text for piece in lane.pieces) != value:
+                self.omit("response-ambiguous")
             return
-        try:
-            data = self._decoder.feed(chunk)  # past its cap it raises, and nothing more is decoded
-            if self._sse:
-                self._feed_sse(data)
-            elif self._eventstream:
-                self._feed_frames(data)
-            elif len(self._body) + len(data) > _MAX_JSON_BODY:  # not parsed: not decoded any further either
-                self.broken = True
+        if self.size + len(value) > _MAX_RESPONSE:
+            self.omit("response-budget")
+            return
+        self.size += len(value)
+        while value:
+            last = lane.pieces[-1] if lane.pieces else None
+            if last is not None and len(last.text) < 65536 and (not render or self._rendered[-1] is last):
+                take = min(65536 - len(last.text), len(value))
+                last.text += value[:take]
             else:
-                self._body += data
-        except Exception as exc:
-            self.broken = True
-            log.debug("response capture failed: %s", type(exc).__name__)  # by its type: its words can quote the answer
+                # The piece charge includes staging list growth and the screened text/transition references.
+                if not self._charge(256):
+                    return
+                take = min(65536, len(value))
+                starts_lane = render and self._render_lane is not None and self._render_lane is not lane
+                piece = _ResponsePiece(value[:take], starts_lane)
+                lane.pieces.append(piece)
+                if render:
+                    self._render_lane = lane
+                    self._rendered.append(piece)
+            value = value[take:]
 
-    def _read_end(self) -> None:
-        if self.broken or self._decoder is None:
-            return
-        try:
-            data = self._decoder.flush()
-            if self._sse:
-                self._feed_sse(data + b"\n\n")
-            elif self._eventstream:
-                self._feed_frames(data)
-            elif "json" in self.content_type:
-                self._body += data
-                self.feed_json(bytes(self._body))
-        except Exception as exc:
-            self.broken = True
-            log.debug("response capture failed: %s", type(exc).__name__)
-
-    def _feed_sse(self, data: bytes) -> None:
-        for event in self._events.feed(data):  # an event that never ends past the cap raises: broken
-            if event.data and event.data != "[DONE]":
-                self.event(event.data)
-
-    def _feed_frames(self, data: bytes) -> None:
-        """Bedrock's frames: each ``chunk`` event carries one of Anthropic's stream events, in base64."""
-        if self._frames is None:
-            self._frames = EventStreamDecoder()
-        for message in self._frames.feed(data):
-            kind = message.headers.get(":message-type")
-            if kind == "event" and message.headers.get(":event-type") == "chunk":
-                self.event(base64.b64decode(json.loads(message.payload)["bytes"]).decode("utf-8", "replace"))
-            elif kind in ("exception", "error"):
-                self.done = self.failed = True
+    def _tool(
+        self,
+        key: tuple[str, ...],
+        name: str = "",
+        args: str = "",
+        *,
+        delta_name: bool = False,
+        json_args: bool = True,
+    ) -> None:
+        if key not in self._calls:
+            if not self._charge(512 + 4 * sum(map(len, key))):
+                return
+            self._calls[key] = ((*key, "name"), (*key, "args"), json_args)
+        named, arguments, structured = self._calls[key]
+        if structured != json_args:
+            self.omit("response-ambiguous")
+        if name:
+            self._lane(named, name, repeat=delta_name)
+        self._lane(arguments, args)
 
     def event(self, data: str) -> None:
-        """One event's JSON (an SSE ``data:`` payload or a WebSocket text frame)."""
-        try:
-            obj = wellformed.loads(data)
-        except ValueError:
+        """Read one complete event only on the settlement worker (direct readers may also use it)."""
+        if not safe_text(data):
+            self.omission = self.omission or "response-credential"
+        self._event_count += 1
+        if self._event_count > MAX_EVENTS:
+            self.omit("response-budget")
             return
-        if isinstance(obj, dict):
-            self._event(obj)
+        read = wellformed.read(data)
+        if read.repeated:  # a key given twice: the agent's parser may have read the other copy
+            self.omit("response-malformed")
+            return
+        obj = read.doc  # a half of a character (a lone surrogate) is U+FFFD in the copy, as UTF-8 stores it
+        if not isinstance(obj, dict):
+            self.omit("response-malformed")
+            return
+        if not safe_tree(obj):
+            self.omission = self.omission or "response-credential"
+        self._event(obj)
 
     def _event(self, obj: dict[str, Any]) -> None:
-        etype = str(obj.get("type", ""))
-        if self.protocol == "gemini":
-            self._gemini(obj)
-            return
+        kind = obj.get("type", "")
         if self.protocol == "anthropic":
-            if etype == "content_block_start" and (obj.get("content_block") or {}).get("type") == "tool_use":
-                block = obj["content_block"]
-                self.tools[str(obj.get("index"))] = {"name": block.get("name", ""), "args": ""}
-            elif etype == "content_block_delta":
+            index = str(obj.get("index", ""))
+            if kind == "content_block_start":
+                if not index or index in self._blocks:
+                    self.omit("response-ambiguous")
+                    return
+                if len(self._blocks) >= 64 or not self._charge(256 + 4 * len(index)):
+                    self.omit("response-budget")
+                    return
+                block = obj.get("content_block") or {}
+                block_kind = block.get("type")
+                if block_kind not in ("tool_use", "text", "thinking"):
+                    self.omit("response-unsupported")
+                    return
+                self._blocks[index] = True
+                if block_kind == "tool_use":
+                    self._tool(("anthropic", index), block.get("name", ""))
+                    given = block.get("input")
+                    if given:
+                        self._tool(
+                            ("anthropic", index), args=json.dumps(given, ensure_ascii=False, separators=(",", ":"))
+                        )
+                else:
+                    field_name = "text" if block_kind == "text" else "thinking"
+                    self._lane(("anthropic", index, field_name), block.get(field_name, ""), render=field_name == "text")
+            elif kind == "content_block_delta":
+                if not self._blocks.get(index):
+                    self.omit("response-ambiguous")
+                    return
                 delta = obj.get("delta") or {}
-                if delta.get("type") == "text_delta":
-                    self._add_text(delta.get("text", ""))
-                elif delta.get("type") == "input_json_delta" and str(obj.get("index")) in self.tools:
-                    self._add_args(self.tools[str(obj.get("index"))], delta.get("partial_json", ""))
-            elif etype in ("message_start", "message_delta"):
+                part = delta.get("type")
+                if part == "text_delta":
+                    self._lane(("anthropic", index, "text"), delta.get("text", ""), render=True)
+                elif part == "input_json_delta":
+                    if ("anthropic", index) not in self._calls:
+                        self.omit("response-ambiguous")
+                    self._tool(("anthropic", index), args=delta.get("partial_json", ""))
+                elif part in ("thinking_delta", "signature_delta"):
+                    field_name = "thinking" if part == "thinking_delta" else "signature"
+                    self._lane(("anthropic", index, field_name), delta.get(field_name, ""))
+                else:
+                    self.omit("response-unsupported")
+            elif kind == "content_block_stop":
+                if not self._blocks.get(index):
+                    self.omit("response-ambiguous")
+                else:
+                    self._blocks[index] = False
+            elif kind in ("message_start", "message_delta"):
                 self._anthropic_usage((obj.get("message") or {}).get("usage") or obj.get("usage") or {})
-            elif etype in ("message_stop", "error"):
+            elif kind in ("message_stop", "error"):
                 self.done = True
-                self.failed = etype == "error"
-        elif etype.startswith("response.") or etype == "error":
-            if etype == "response.output_text.delta":
-                self._add_text(obj.get("delta", ""))
-            elif etype in ("response.function_call_arguments.delta", "response.custom_tool_call_input.delta"):
-                tool = self.tools.setdefault(str(obj.get("item_id")), {"name": "", "args": ""})
-                self._add_args(tool, obj.get("delta", ""))
-            elif etype == "response.output_item.added":
-                item = obj.get("item") or {}
-                if item.get("type") in ("function_call", "custom_tool_call"):
-                    self.tools[str(item.get("id"))] = {"name": item.get("name", ""), "args": ""}
-            if etype in ("response.completed", "response.done", "response.incomplete", "response.failed", "error"):
+                self.failed = kind == "error" or any(self._blocks.values())
+        elif isinstance(kind, str) and (kind.startswith("response.") or kind == "error"):
+            item = str(obj.get("item_id", obj.get("output_index", "")))
+            if kind.endswith(".delta") and not obj.get("item_id"):
+                self.omit("response-ambiguous")
+                return
+            part = str(obj.get("content_index", ""))
+            if kind in (
+                "response.output_text.delta",
+                "response.refusal.delta",
+                "response.reasoning_summary_text.delta",
+            ):
+                self._lane(
+                    ("responses", item, part, kind), obj.get("delta", ""), render=kind == "response.output_text.delta"
+                )
+            elif kind in ("response.function_call_arguments.delta", "response.custom_tool_call_input.delta"):
+                self._tool(
+                    ("responses", item),
+                    args=obj.get("delta", ""),
+                    json_args=kind == "response.function_call_arguments.delta",
+                )
+            elif kind == "response.output_item.added":
+                added = obj.get("item") or {}
+                if added.get("type") in ("function_call", "custom_tool_call"):
+                    self._tool(
+                        ("responses", str(added.get("id", obj.get("output_index", "")))),
+                        added.get("name", ""),
+                        json_args=added.get("type") == "function_call",
+                    )
+            elif kind.endswith(".delta"):
+                self.omit("response-unsupported")
+            if kind in ("response.completed", "response.done", "response.incomplete", "response.failed", "error"):
                 self.done = True
-                self.failed = etype in ("response.failed", "error")
+                self.failed = kind in ("response.incomplete", "response.failed", "error")
                 self._responses_usage((obj.get("response") or {}).get("usage") or {})
         elif "choices" in obj:
             for choice in obj.get("choices") or []:
+                index = str(choice.get("index", 0))
                 delta = choice.get("delta") or choice.get("message") or {}
-                if isinstance(delta.get("content"), str):
-                    self._add_text(delta["content"])
+                for field_name in ("content", "refusal", "reasoning_content"):
+                    value = delta.get(field_name)
+                    if value is not None:
+                        self._lane(("chat", index, field_name), value, render=field_name == "content")
                 for call in delta.get("tool_calls") or []:
-                    tool = self.tools.setdefault(str(call.get("index", len(self.tools))), {"name": "", "args": ""})
                     fn = call.get("function") or {}
-                    tool["name"] = tool["name"] or fn.get("name", "")
-                    self._add_args(tool, fn.get("arguments") or "")
+                    if "index" not in call and "id" not in call:
+                        self.omit("response-ambiguous")
+                    self._tool(
+                        ("chat", index, str(call.get("index", call.get("id")))),
+                        fn.get("name") or "",
+                        fn.get("arguments") or "",
+                        delta_name="delta" in choice,
+                    )
+                if delta.get("function_call"):
+                    fn = delta["function_call"]
+                    self._tool(
+                        ("chat", index, "legacy"),
+                        fn.get("name") or "",
+                        fn.get("arguments") or "",
+                        delta_name="delta" in choice,
+                    )
+                if choice.get("finish_reason"):
+                    self.done = True
             usage = obj.get("usage") or {}
             if usage:
                 cached = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
@@ -423,68 +617,81 @@ class ResponseCapture:
                     "cache_read": cached,
                     "cache_write": 0,
                 }
+        elif self.protocol == "gemini":
+            self._gemini(obj)
+        elif "delta" in obj:
+            self.omit("response-unsupported")
 
     def feed_json(self, body: bytes) -> None:
-        """A whole non-streamed response body."""
-        try:
-            obj = wellformed.loads(body)
-        except ValueError:
+        raw = body.decode("utf-8")
+        if not safe_text(raw):
+            self.omission = self.omission or "response-credential"
+        read = wellformed.read(raw)
+        if read.repeated:  # a key given twice: the agent's parser may have read the other copy
+            self.omit("response-malformed")
             return
-        if self.protocol == "gemini" and isinstance(obj, list):  # a stream sent as one array of answers
+        obj = read.doc  # a half of a character (a lone surrogate) is U+FFFD in the copy, as UTF-8 stores it
+        if self.protocol in ("anthropic", "responses", "chat") and not isinstance(obj, dict):
+            self.omit("response-malformed")
+            return
+        if not safe_tree(obj):
+            self.omission = self.omission or "response-credential"
+        if isinstance(obj, list) and self.protocol == "gemini":
             for answer in obj:
-                if isinstance(answer, dict):
-                    self._gemini(answer)
-            self.done = True
-            return
-        if not isinstance(obj, dict):
-            return
-        if self.protocol == "anthropic":
-            for block in obj.get("content") or []:
-                if block.get("type") == "text":
-                    self._add_text(block.get("text", ""))
-                elif block.get("type") == "tool_use":
-                    args = json.dumps(block.get("input"), ensure_ascii=False, separators=(",", ":"))
-                    self.tools[str(len(self.tools))] = {"name": block.get("name", ""), "args": args}
-            self._anthropic_usage(obj.get("usage") or {})
-        elif self.protocol == "responses":
-            for item in obj.get("output") or []:
-                if item.get("type") == "message":
-                    for part in item.get("content") or []:
-                        if part.get("type") == "output_text":
-                            self._add_text(part.get("text", ""))
-                elif item.get("type") in ("function_call", "custom_tool_call"):
-                    args = item.get("arguments") or item.get("input") or ""
-                    self.tools[str(item.get("id"))] = {"name": item.get("name", ""), "args": args}
-            self._responses_usage(obj.get("usage") or {})
-        else:
-            self._event(obj)
+                self._gemini(answer)
+        elif isinstance(obj, dict):
+            if self.protocol == "anthropic":
+                for index, block in enumerate(obj.get("content") or []):
+                    if block.get("type") == "text":
+                        self._lane(("anthropic", str(index), "text"), block.get("text", ""), render=True)
+                    elif block.get("type") == "tool_use":
+                        self._tool(
+                            ("anthropic", str(index)),
+                            block.get("name", ""),
+                            json.dumps(block.get("input"), ensure_ascii=False, separators=(",", ":")),
+                        )
+                self._anthropic_usage(obj.get("usage") or {})
+            elif self.protocol == "responses":
+                for index, item in enumerate(obj.get("output") or []):
+                    if item.get("type") == "message":
+                        for number, part in enumerate(item.get("content") or []):
+                            if part.get("type") == "output_text":
+                                self._lane(("responses", str(index), str(number)), part.get("text", ""), render=True)
+                    elif item.get("type") in ("function_call", "custom_tool_call"):
+                        self._tool(
+                            ("responses", str(index)),
+                            item.get("name", ""),
+                            item.get("arguments") or item.get("input") or "",
+                            json_args=item.get("type") == "function_call",
+                        )
+                self._responses_usage(obj.get("usage") or {})
+            else:
+                self._event(obj)
         self.done = True
 
     def _gemini(self, obj: dict[str, Any]) -> None:
-        """One of Gemini's answers, whole or an event of a stream: its candidates' text (not their thoughts), their
-        function calls, the token counts, and whether it finished or failed."""
         if "error" in obj:
             self.done = self.failed = True
-            return
-        candidates = obj.get("candidates")
-        for candidate in candidates if isinstance(candidates, list) else []:
-            content = candidate.get("content") if isinstance(candidate, dict) else None
-            parts = content.get("parts") if isinstance(content, dict) else None
-            for part in parts if isinstance(parts, list) else []:
-                if not isinstance(part, dict):
-                    continue
-                if isinstance(part.get("text"), str) and not part.get("thought"):
-                    self._add_text(part["text"])
+        for index, candidate in enumerate(obj.get("candidates") or []):
+            index = candidate.get("index", index)
+            for number, part in enumerate((candidate.get("content") or {}).get("parts") or []):
+                if isinstance(part.get("text"), str):
+                    self._lane(
+                        ("gemini", str(index), str(number), "thought" if part.get("thought") else "text"),
+                        part["text"],
+                        render=not part.get("thought"),
+                    )
                 call = part.get("functionCall")
-                if isinstance(call, dict) and isinstance(call.get("name"), str):
-                    args = call.get("args")
-                    text = json.dumps(args, ensure_ascii=False, separators=(",", ":")) if args is not None else ""
-                    tool = self.tools[str(len(self.tools))] = {"name": call["name"], "args": ""}
-                    self._add_args(tool, text)
-            if isinstance(candidate, dict) and candidate.get("finishReason"):
+                if isinstance(call, dict):
+                    self._tool(
+                        ("gemini", str(index), str(number)),
+                        call.get("name", ""),
+                        json.dumps(call.get("args"), ensure_ascii=False, separators=(",", ":")),
+                    )
+            if candidate.get("finishReason"):
                 self.done = True
-        usage = obj.get("usageMetadata")
-        if isinstance(usage, dict):
+        usage = obj.get("usageMetadata") or {}
+        if usage:
             cached = int(usage.get("cachedContentTokenCount") or 0)
             self.usage = {
                 "input": int(usage.get("promptTokenCount") or 0) - cached,
@@ -493,15 +700,210 @@ class ResponseCapture:
                 "cache_write": 0,
             }
 
-    def _add_text(self, text: str) -> None:
-        if self.size < _MAX_RESPONSE:
-            self.text.append(text)
-            self.size += len(text)
+    def _decoded(self, data: bytes) -> None:
+        if "text/event-stream" in self.content_type:
+            for event in self._events.feed(data):
+                if not safe_text(event.raw.decode("utf-8")):
+                    self.omission = self.omission or "response-credential"
+                if event.data == "[DONE]":
+                    self.done = True
+                elif event.data:
+                    self.event(event.data)
+        elif "vnd.amazon.eventstream" in self.content_type:
+            if self._frames is None:
+                self._frames = EventStreamDecoder(strict_text_headers=True)
+            for message in self._frames.feed(data):
+                if not safe_tree(message.headers):
+                    self.omission = self.omission or "response-credential"
+                if message.headers.get(":message-type") == "event" and message.headers.get(":event-type") == "chunk":
+                    envelope = wellformed.read(message.payload.decode("utf-8"))
+                    if envelope.mended or envelope.repeated or not isinstance(envelope.doc, dict):
+                        self.omit("response-malformed")
+                        return
+                    if not safe_tree(envelope.doc):
+                        self.omission = self.omission or "response-credential"
+                    self.event(base64.b64decode(envelope.doc["bytes"], validate=True).decode("utf-8"))
+                elif message.headers.get(":message-type") in ("exception", "error"):
+                    self.done = self.failed = True  # Bedrock's failed answer, as before: its words are never kept
+                else:
+                    self.omit("response-unsupported")
+        else:
+            if len(self._body) + len(data) > _MAX_JSON_BODY:
+                self.omit("response-budget")
+            elif not self.broken:
+                self._body.extend(data)
 
-    def _add_args(self, tool: dict[str, Any], text: str) -> None:
-        if self.size < _MAX_RESPONSE:  # a Write of a huge file must not grow the record without bound
-            tool["args"] += text
-            self.size += len(text)
+    def _decoded_parts(self) -> Iterator[bytes]:
+        if self._zlib_bits is not None:
+            yield from inflate(self._raw, self._zlib_bits, _MAX_JSON_BODY)
+            return
+        coding = (self.content_encoding or "").strip().lower()
+        if coding == "br":
+            yield from brotli_parts(self._raw, _MAX_JSON_BODY)
+            return
+        if coding == "zstd":
+            yield from zstd_parts(self._raw, _MAX_JSON_BODY)
+            return
+        decoder = StreamDecoder(self.content_encoding, limit=_MAX_JSON_BODY)
+        for chunk in self._raw:
+            if not isinstance(chunk, bytes):
+                raise ResponseEncodingError("response-malformed")
+            yield from decoder.pieces(chunk)
+        yield decoder.flush()
+
+    def settle(self) -> None:
+        """Compatibility for private readers; publication still requires ``safe``."""
+        self.screen()
+
+    def screen(self) -> bool:
+        if self._settled:
+            return self.safe
+        self._settled = True
+        try:
+            if not safe_text(self.content_type) or not safe_text(self.content_encoding or ""):
+                self.content_type = ""
+                self.content_encoding = None
+                self.omit("response-credential")
+            self.headers = tuple((k, v) for k, v in self.headers if safe_text(k) and safe_text(v))
+            if not self._ended:
+                self.omit("response-incomplete")
+            if not self.broken:
+                if self._websocket:
+                    for message in self._raw:
+                        if not isinstance(message, str):
+                            self.omit("response-unsupported")
+                            break
+                        self.event(message)
+                        if self.broken:
+                            break
+                else:
+                    coding = (self.content_encoding or "").strip().lower()
+                    if coding in ("gzip", "x-gzip", "deflate"):
+                        self._zlib_bits = prove_zlib(self._raw, coding, _MAX_JSON_BODY)
+                    elif coding in ("br", "zstd"):
+                        if not self._charge(256):
+                            return False
+                        prove = prove_brotli if coding == "br" else prove_zstd
+                        prove(self._raw, _MAX_JSON_BODY)
+                    for part in self._decoded_parts():
+                        self._decoded(part)
+                        if self.broken:
+                            break
+                    if not self.broken:
+                        if "text/event-stream" in self.content_type:
+                            if self._events.held or not self.done:
+                                self.omit("response-incomplete")
+                        elif self._frames is not None:
+                            if self._frames.held or not self.done:
+                                self.omit("response-incomplete")
+                        elif "json" in self.content_type:
+                            self.feed_json(bytes(self._body))
+                        elif self.content_type.startswith("text/"):
+                            value = self._body.decode("utf-8")
+                            self._lane(("text",), value, render=True)
+                            self.done = True
+                        else:
+                            self.omit("response-unsupported")
+                if not self.done or self.failed:
+                    self.omit("response-incomplete")
+            for lane in self._lanes.values():
+                if not safe_text("".join(piece.text for piece in lane.pieces)):
+                    self.omission = self.omission or "response-credential"
+            for _, args, structured in self._calls.values():
+                lane = self._lanes.get(args)
+                if structured and lane is not None:
+                    value = "".join(piece.text for piece in lane.pieces)
+                    if not value and self.protocol == "anthropic":
+                        continue
+                    read = wellformed.read(value)
+                    if read.repeated:  # a half of a character is the copy's U+FFFD, as the agent's text
+                        self.omit("response-malformed")
+                    elif not safe_tree(read.doc):
+                        self.omission = self.omission or "response-credential"
+            if self.omission is None:
+                self.text = [piece.text for piece in self._rendered]
+                if any(piece.starts_lane for piece in self._rendered):
+                    self._history_transitions = tuple(piece.starts_lane for piece in self._rendered)
+                for index, (name, args, _) in enumerate(self._calls.values()):
+                    named = self._lanes.get(name)
+                    arguments = self._lanes.get(args)
+                    self.tools[str(index)] = {
+                        "name": "".join(p.text for p in named.pieces) if named else "",
+                        "args": "".join(p.text for p in arguments.pieces) if arguments else "",
+                    }
+                self.safe = True
+        except ResponseEncodingError as exc:
+            self.omit(str(exc))
+        except Exception:
+            self.headers = ()
+            self.omit("response-malformed")
+        finally:
+            self._frames = None
+            self._body.clear()
+            self._events = SSEParser(limit=_MAX_JSON_BODY)
+            self._lanes.clear()
+            self._rendered.clear()
+            self._render_lane = None
+            self._calls.clear()
+            self._blocks.clear()
+            if not self.safe:
+                self.clear_payload()
+        return self.safe
+
+    def clear_payload(self) -> None:
+        self._raw.clear()
+        self.text.clear()
+        self.tools.clear()
+        self._body.clear()
+        self._lanes.clear()
+        self._rendered.clear()
+        self._render_lane = None
+        self._history_transitions = ()
+        self._calls.clear()
+
+    def history(self) -> _ScreenedResponse:
+        """Copy only screened observations, with no link to the staging graph."""
+        return _ScreenedResponse(
+            tuple(self.text) if self.safe else (),
+            tuple((tool["name"], tool["args"]) for tool in self.tools.values()) if self.safe else (),
+            tuple(self.usage.items()),
+            self.omission,
+            self._history_transitions if self.safe else (),
+        )
+
+    def publish(self, exchange: Any, status: int, *, terminal: bool) -> None:
+        """Second sequential worker operation; safe bytes alone reach the raw writer."""
+        try:
+            exchange.response_start(status, list(self.headers))
+            if self.safe:
+                if self._websocket:
+                    for message in self._raw:
+                        exchange.ws("down", message)
+                elif self.content_encoding:
+                    body = bytearray()
+                    for piece in self._decoded_parts():
+                        body.extend(piece)
+                    exchange.response_body(bytes(body))
+                elif "vnd.amazon.eventstream" in self.content_type:
+                    for chunk in self._raw:
+                        if isinstance(chunk, bytes):
+                            exchange.response_chunk(chunk)
+                else:
+                    text_decoder = codecs.getincrementaldecoder("utf-8")()
+                    for chunk in self._raw:
+                        if isinstance(chunk, bytes):
+                            value = text_decoder.decode(chunk)
+                            if value:
+                                exchange.response_text(value)
+                    tail = text_decoder.decode(b"", final=True)
+                    if tail:
+                        exchange.response_text(tail)
+            if self.omission:
+                exchange.response_omitted(self.omission)
+            if terminal:
+                exchange.response_end(error=self.omission)
+        finally:
+            self._raw.clear()
 
     def _anthropic_usage(self, usage: dict[str, Any]) -> None:
         for src, dst in (
@@ -545,17 +947,253 @@ class Outcome:
     error: str | None = None
     host: str | None = None  # where it went
     signed: str | None = None  # Latet signed it: `aws-profile:<name>` or `aws-session`
+    # What the plugin's bridge read of a request it never sends (in place of ``prepared``): recorded, never sent.
+    observed: Observation | None = None
+    # A WebSocket frame as its decision sent it (or would have): where its texts were is found in it. None for a request
+    # over HTTP, whose arena's body is what its decision leaves with.
+    payload: bytes | str | None = None
+    # Private producer handoff, never reconstructed from summary/request/JSON.
+    history_code: int = 0
+    # The code of the refusal that stopped it (``outcome.BLOCK_CODES``), as its decision says: what the history's
+    # summary shows of why, its words kept in the full history's private view. None: its arena's words alone say it
+    # was stopped (0.10's preparation, the plugin's checks), shown as ``refused``.
+    block_code: str | None = None
+    # What its decision rests on, by fixed categories alone (``exchanges.HISTORY_PASSES``): the built-in rules a
+    # ``Pass`` named and whether a request exception let something through; empty for a ``Forward``. Its envelope's
+    # profile (``request_profiles.Profile.id``) and the headers its profile removed (D4): ids and counts, never values.
+    passes: tuple[str, ...] = ()
+    profile: str | None = None
+    removed_headers: int = 0
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _Snapshot:
-    """Taken on the event loop, where sessions change: what the recorder thread may read."""
+    """Taken where the exchange ends (the event loop, where sessions change): its conversation's key, what its fakes
+    restore to (one ``Engine.restores`` pair a record), the state they were read in, and its project."""
 
     session: str
-    text: list[Restore]
-    json: list[Restore]
+    text: tuple[Restore, ...]
+    json: tuple[Restore, ...]
     version: tuple[int, int] = (0, 0)  # (entities in the session, vault version): same restores
-    project: dict[str, str] | None = None  # {id, name} of the session's project
+    project: tuple[tuple[str, str], ...] | None = None  # (("id", ...), ("name", ...)) of the session's project
+
+
+class _Block(NamedTuple):
+    """One text of an exchange as it left (or as the plugin's bridge read it), frozen as the exchange ended: its words
+    (shared, never copied), where it was in the request, what it is, whether the model wrote it, the tool whose output
+    it is and where that output came from as the request carried it (``SlotRef.sent_source``), and the values masked in
+    it, their offsets exact or not."""
+
+    text: str
+    # ("at", path): a bridge observation; ("slot", child occurrence ordinals): a request's text or JsonRef;
+    # ("image", n): the text read in its n-th image. None for a detached request slot.
+    place: tuple[Any, ...]
+    kind: SlotKind
+    from_model: bool
+    tool: str | None
+    source_input: tuple[int, ...] | None  # its tool call's input occurrence, read in the recorder's thread
+    replacements: tuple[Replacement, ...]
+    exact: bool
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class EncodedImage:
+    """An immutable shared carrier whose canonical base64 is needed only when the recorder worker persists it.
+
+    No live reference or additional image-sized string survives a pending review here: only the already owned raw
+    string and its encoding. The normalized result belongs to the recorder's current job, never to Prepared.
+    """
+
+    raw: str
+    form: str
+
+    def canonical(self) -> str:
+        if self.form == "data_url":
+            return self.raw.partition(",")[2]
+        if self.form == "base64url":
+            value = self.raw.replace("-", "+").replace("_", "/")
+            return value + "=" * (-len(value) % 4)
+        return self.raw
+
+
+class _Image(NamedTuple):
+    """One image of a request as it was sent, frozen as the exchange ended: where it was (found in the recorder's thread
+    by its occurrence in what was sent), what became of it, the text read in it (a block of
+    the request; None without one), and its base64 (None when it was withheld)."""
+
+    place: tuple[int, ...] | None  # its data's occurrence; None when the image's holder was detached
+    state: str
+    text: str | None
+    data: str | EncodedImage | None
+    media_type: str
+
+
+@dataclass(frozen=True, slots=True, weakref_slot=True, kw_only=True)
+class _RequestSnapshot:
+    """An exchange as the recorder's thread reads it: taken as it ends (``Recorder.finish``), on the thread that ends
+    it, from its outcome and its arena (or the plugin's bridge's observation), and immutable all the way down, holding
+    nothing of either (its texts shared, never copied): what the history is given is what the exchange was then,
+    whatever becomes of its arena or its outcome afterwards. The provider's answer as the model wrote it (``capture``)
+    is handed over with it, to be read in the recorder's thread: nothing feeds it once its exchange has ended."""
+
+    headers: tuple[tuple[str, str], ...]  # the client's request headers, lower-cased
+    upstream: str
+    path: str
+    transport: str
+    started: float
+    status: int | None
+    forwarded: float | None
+    ended: float | None
+    host: str | None
+    signed: str | None
+    body_bytes: int
+    request_headers: tuple[tuple[str, str], ...]  # as forwarded
+    restores: _Snapshot
+    # What its arena (or the bridge's observation) said of it, as it ended.
+    protocol: str | None
+    mode: str
+    model: str | None
+    block_reason: str | None
+    leaks: tuple[Leak, ...]
+    uninspected: tuple[str, ...]
+    degraded: tuple[str, ...]
+    review: bool
+    off: bool
+    withheld: int
+    history: bool
+    outbound: tuple[str, ...]  # tool names
+    bypass: bool
+    blocks: tuple[_Block, ...]
+    images: tuple[_Image, ...]
+    # What left, as the decision left with it (an HTTP request's body, a WebSocket frame), and its content-encoding:
+    # where each text and image was is found there, in the recorder's thread (``occurrence_paths``). An edited refusal
+    # may use its worker-frozen logical document: its unsent original body does not describe that document.
+    sent: bytes | str | None = None
+    encoding: str | None = None
+    counted: bool = False  # Bedrock token count: paths are relative to the decoded inner request, as before
+    history_code: int = 0  # owned immutable scalar, independent of Audit and the mutable Outcome
+    # Why it was stopped, by its category code alone (``Outcome.block_code``, or ``refused``); None when it was not.
+    block_code: str | None = None
+    # What its launch was decided as, by its fixed category (``launch_authority.LAUNCH_CATEGORIES``); None: not asked
+    # (the plugin's own calls, an exchange refused before its launch was decided).
+    launch: str | None = None
+    # What its decision rests on (``Outcome.passes``), its envelope's profile and what was removed of it (D4): fixed
+    # categories, a profile's id and counts, never a value.
+    passes: tuple[str, ...] = ()
+    profile: str | None = None
+    removed_headers: int = 0
+    removed_members: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _ScreenedResponse:
+    text: tuple[str, ...]
+    tools: tuple[tuple[str, str], ...]
+    usage: tuple[tuple[str, int], ...]
+    omission: str | None
+    transitions: tuple[bool, ...]
+
+    def history_text(self) -> str:
+        text = "".join(self.text)
+        if safe_text(text):
+            return text
+        size = len(text)
+        del text
+        separators = self.transitions.count(True)
+        if not separators or size + separators > _MAX_RESPONSE:
+            return ""
+
+        # The pieces are already screened. Only the exact newly composed string is admitted here.
+        parts = [""] * (len(self.text) + separators)
+        position = 0
+        for piece, starts_lane in zip(self.text, self.transitions, strict=True):
+            if starts_lane:
+                parts[position] = "\n"
+                position += 1
+            parts[position] = piece
+            position += 1
+        text = "".join(parts)
+        del parts
+        return text if safe_text(text) else ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RecordSnapshot(_RequestSnapshot):
+    """Normal recorder work contains only positively screened response payload."""
+
+    response_headers: tuple[tuple[str, str], ...] = ()
+    capture: _ScreenedResponse | None = None
+    error: str | None = None
+
+
+_OBSERVED_MODE = "verify"  # mediate.VERIFY: what the plugin's bridge observed was masked by the plugin, never rewritten
+
+
+def build_record_blocks(read: Prepared) -> tuple[_Block, ...]:
+    """The texts of an arena, with the tools' inputs that ran outside this computer as blocks of their own; where each
+    was is left to the recorder's thread (``_Block.place``)."""
+    pending = [*read.pending, *((slot, [], False) for slot in read.outbound_slots)]
+    images = {id(work): n for n, work in enumerate(read.images)}
+    blocks = []
+    for (slot, replacements, exact), text in zip(pending, (*read.frozen_texts, *read.frozen_outbound), strict=True):
+        n = images.get(id(slot.container))  # an image's text: where the image was
+        place = ("image", n) if n is not None else ("slot", read.record_positions.get((id(slot.container), slot.key)))
+        tool = getattr(slot, "tool", None) if slot.kind == SlotKind.TOOL_RESULT else None
+        given = getattr(slot, "source_input", None) if slot.kind == SlotKind.TOOL_RESULT else None
+        source = read.record_positions.get((id(given[0]), given[1])) if given and isinstance(given[0], dict) else None
+        blocks.append(_Block(text, place, slot.kind, slot.from_model, tool, source, tuple(replacements), exact))
+    return tuple(blocks)
+
+
+def build_record_images(read: Prepared) -> tuple[_Image, ...]:
+    images = []
+    for work, (_, _, data) in zip(read.images, read.frozen_image_data, strict=True):
+        text = work.text if work.slot is not None and work.text else None
+        place = read.record_positions.get((id(work.ref.holder), work.ref.key))
+        images.append(_Image(place, work.state, text, data, work.ref.media_type))
+    return tuple(images)
+
+
+def _frozen_blocks(read: Prepared) -> tuple[_Block, ...]:
+    """The worker's immutable metadata, shared without per-slot allocation on the finishing event loop."""
+    return read.record_blocks
+
+
+def _frozen_images(read: Prepared) -> tuple[_Image, ...]:
+    return read.record_images
+
+
+def occurrence_paths(document: Any, needed: set[tuple[int, ...] | None]) -> dict[tuple[int, ...], tuple[str, Any]]:
+    """Resolve selected immutable occurrence identities in frozen JSON, in the recorder's thread. Key names come
+    from that JSON alone; equal strings/objects and repeated references never consume another occurrence's path."""
+    out: dict[tuple[int, ...], tuple[str, Any]] = {}
+
+    def walk(value: Any, path: str, parent: tuple[int, ...]) -> None:
+        items = value.items() if isinstance(value, dict) else enumerate(value)
+        for n, (key, item) in enumerate(items):
+            position = (*parent, n)
+            at = f"{path}.{key}" if isinstance(value, dict) else f"{path}[{key}]"
+            if position in needed:
+                out[position] = (at, item)
+            if isinstance(item, dict | list):
+                walk(item, at, position)
+
+    if isinstance(document, dict | list):
+        walk(document, "$", ())
+    return out
+
+
+def _sent_document(sent: bytes | str, encoding: str | None, counted: bool = False) -> Any:
+    """What was sent, read again as the masking read it (``wellformed``), its content-encoding undone; None when it
+    does not read (nothing is then found in it)."""
+    try:
+        raw = codec.decode(sent, encoding) if isinstance(sent, bytes) and encoding else sent
+        document = wellformed.loads(raw)
+        if counted:
+            document = wellformed.loads(base64.b64decode(document["input"]["invokeModel"]["body"], validate=True))
+        return document
+    except Exception:
+        return None
 
 
 class Recorder:
@@ -587,14 +1225,60 @@ class Recorder:
     def enabled(self) -> bool:
         return self.store is not None
 
-    def finish(self, outcome: Outcome) -> None:
-        """Record an exchange (call on the event loop). Returns at once; the work is queued."""
-        observe.exchange(outcome)  # a server's metrics count every exchange, whatever the history keeps
-        if self._executor is None or self.history == "off":
-            return
+    def freeze_request(self, outcome: Outcome) -> _RequestSnapshot | None:
+        """Synchronously freeze request observations before any response teardown/await. Never raises: an outcome
+        that cannot be read is said by the error's type, and nothing of it is kept."""
         try:
             outcome.ended = outcome.ended or time.time()
-            snapshot = self._snapshot(outcome.prepared)
+        except Exception as exc:  # the dashboard must never break the traffic it observes
+            log.error("could not freeze an exchange: %s", type(exc).__name__)
+            return None
+        observe.exchange(outcome)
+        if self._executor is None or self.history == "off":
+            return None
+        try:
+            frozen = self._request_snapshot(outcome)
+        except Exception as exc:
+            log.error("could not freeze an exchange: %s", type(exc).__name__)
+            return None
+        if frozen is None:  # its arena could not make what the record needs (``Prepared.record_error``): said so
+            failure = getattr(outcome.prepared, "record_error", None)
+            log.error("could not queue an exchange for the dashboard: %s", failure or "unknown")
+        return frozen
+
+    def finish(self, outcome: Outcome) -> None:
+        """Compatibility for request-only refusals and bridge observations. Never raises: the dashboard must never
+        break the traffic it observes."""
+        request = self.freeze_request(outcome)
+        if request is None:  # nothing frozen (history off, or an outcome that could not be read): nothing to queue
+            return
+        try:
+            capture = outcome.capture if outcome.capture is not None and outcome.capture.safe else None
+            error = "response-incomplete" if outcome.capture and capture is None else outcome.error
+        except Exception as exc:
+            log.error("could not queue an exchange for the dashboard: %s", type(exc).__name__)
+            return
+        self.submit_safe(request, capture, (), error)
+
+    def submit_safe(
+        self,
+        request: _RequestSnapshot | None,
+        capture: ResponseCapture | None,
+        headers: tuple[tuple[str, str], ...],
+        error: str | None,
+    ) -> None:
+        """Admit frozen request plus screened response to the existing 500-job gate."""
+        if request is None or self._executor is None or self.history == "off":
+            return
+        if capture is not None and not capture.safe and (capture.text or capture.tools or capture._raw):
+            return
+        try:
+            snapshot = RecordSnapshot(
+                **{item.name: getattr(request, item.name) for item in fields(_RequestSnapshot)},
+                capture=capture.history() if capture is not None else None,
+                response_headers=headers,
+                error=error if error is None or (len(error) <= 128 and safe_text(error)) else "response-error",
+            )
             try:
                 loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
             except RuntimeError:
@@ -605,13 +1289,26 @@ class Recorder:
                     return
                 self._pending += 1
             try:
-                future = self._executor.submit(self._record, outcome, snapshot)
+                future = self._executor.submit(self._record, snapshot)
             except BaseException:
-                self._left()  # never queued (its thread ended meanwhile): not pending
+                self._left()
                 raise
             future.add_done_callback(lambda f: self._done(f, loop))
-        except Exception as exc:  # the dashboard must never break the traffic it observes
-            log.error("could not queue an exchange for the dashboard: %s", type(exc).__name__)  # its words can quote it
+        except Exception as exc:
+            log.error("could not queue an exchange for the dashboard: %s", type(exc).__name__)
+
+    def snapshot(self, outcome: Outcome) -> RecordSnapshot | None:
+        """Synchronous request-only snapshot; response capture requires finalizer admission."""
+        request = self._request_snapshot(outcome)
+        if request is None:
+            return None
+        capture = outcome.capture if outcome.capture is not None and outcome.capture.safe else None
+        return RecordSnapshot(
+            **{item.name: getattr(request, item.name) for item in fields(_RequestSnapshot)},
+            capture=capture.history() if capture is not None else None,
+            response_headers=capture.headers if capture is not None else (),
+            error="response-error" if outcome.error else None,
+        )
 
     def prune_now(self) -> None:
         """Prune the history now, not at the next interval: its retention was made shorter, or the interval passed with
@@ -655,24 +1352,104 @@ class Recorder:
         self.prune_now()  # restarts the interval
         return _PRUNE_EVERY
 
-    def _snapshot(self, prepared: Prepared | None) -> _Snapshot:
-        session = getattr(prepared, "session", None)
-        project = self._project(session)
+    def _request_snapshot(self, outcome: Outcome) -> _RequestSnapshot | None:
+        """``outcome`` as the recorder's thread will read it (``RecordSnapshot``), taken now: what its arena (or the
+        bridge's observation) held, its texts and where they were, its images as they were sent, and what its
+        conversation's fakes restore to (``_snapshot``); nothing of the arena or the outcome kept, nothing of either
+        changed. Its large parts are shared, never copied: the texts and the images' base64 are strings already."""
+        read: Prepared | Observation | None = outcome.prepared if outcome.prepared is not None else outcome.observed
+        restores = self._snapshot(read)
+        blocks: tuple[_Block, ...] = ()
+        images: tuple[_Image, ...] = ()
+        said: dict[str, Any] = {"protocol": None, "mode": "passthrough", "model": None, "block_reason": None}
+        said |= {"leaks": (), "uninspected": (), "degraded": (), "review": False, "off": False, "withheld": 0}
+        said |= {"history": False, "outbound": (), "bypass": False, "launch": None}
+        if isinstance(read, Observation):
+            said |= {"protocol": read.protocol, "mode": _OBSERVED_MODE, "block_reason": read.reason}
+            said |= {"leaks": read.leaks, "uninspected": read.uninspected, "history": read.history}
+            said |= {"outbound": read.outbound, "bypass": read.bypass}
+            blocks = tuple(
+                _Block(text.text, ("at", f"$[{i}]"), text.kind, text.from_model, None, None, (), False)
+                for i, text in enumerate(read.blocks)
+            )
+        elif read is not None:
+            if read.record_error is not None:
+                return None
+            said |= {"protocol": read.protocol, "mode": read.mode, "model": read.model}
+            said |= {"block_reason": read.block_reason, "leaks": tuple(read.leaks)}
+            said |= {"uninspected": tuple(read.uninspected), "degraded": tuple(read.degraded), "review": read.review}
+            said |= {"off": read.off, "withheld": read.withheld, "history": read.history}
+            said |= {"outbound": tuple(read.outbound), "bypass": read.bypass}
+            said["launch"] = read.launch if read.launch in LAUNCH_CATEGORIES else None
+            said["removed_members"] = len(getattr(read, "body_removed", ()) or ())
+            if read.pending or read.outbound_slots or read.images:
+                blocks, images = _frozen_blocks(read), _frozen_images(read)
+                # Where they were is found in what left (immutable: the decision's bytes, or the frame as it was sent),
+                # in the recorder's thread; a request's in its content-encoding, a frame's as it is.
+                logical = read.record_body
+                said["sent"] = (
+                    logical if logical is not None else (outcome.payload if outcome.payload is not None else read.body)
+                )
+                said["encoding"] = (
+                    outcome.headers.get("content-encoding") if logical is None and outcome.payload is None else None
+                )
+                said["counted"] = logical is None and (
+                    read.shape == "bedrock-count" or shape_of("POST", outcome.path) == "bedrock-count"
+                )
+        # Stopped, by its decision's code (a refusal its arena has no words for included: a proof that leaves a part
+        # unaccounted for, evidence its rules do not admit, the coverage limit); words with no code are the generic one.
+        code = outcome.block_code
+        block_code = code if type(code) is str and code in BLOCK_CODES else "refused" if said["block_reason"] else None
+        return _RequestSnapshot(
+            headers=tuple(outcome.headers.items()),
+            upstream=outcome.upstream,
+            path=outcome.path,
+            transport=outcome.transport,
+            started=outcome.started,
+            status=outcome.status,
+            forwarded=outcome.forwarded,
+            ended=outcome.ended,
+            host=outcome.host,
+            signed=outcome.signed,
+            body_bytes=outcome.body_bytes,
+            request_headers=tuple(outcome.request_headers),
+            restores=restores,
+            blocks=blocks,
+            images=images,
+            history_code=outcome.history_code,
+            block_code=block_code,
+            passes=tuple(outcome.passes),
+            profile=outcome.profile,
+            removed_headers=outcome.removed_headers,
+            **said,
+        )
+
+    def _snapshot(self, read: Prepared | Observation | None) -> _Snapshot:
+        session = getattr(read, "session", None)
+        project = self._project(read, session)
         if session is None or self.engine is None or not session.entity_ids:
-            return _Snapshot(getattr(session, "key", None) or "unscoped", [], [], project=project)
+            return _Snapshot(getattr(session, "key", None) or "unscoped", (), (), project=project)
         return _Snapshot(
             session.key,
-            self.engine.restores(session, json_mode=False),
-            self.engine.restores(session, json_mode=True),
+            tuple(self.engine.restores(session, json_mode=False)),
+            tuple(self.engine.restores(session, json_mode=True)),
             (len(session.entity_ids), self.engine.vault.version),
             project,
         )
 
-    def _project(self, session: Any) -> dict[str, str] | None:
-        pid = getattr(session, "project_id", None)
+    def _project(self, read: object, session: Any) -> tuple[tuple[str, str], ...] | None:
+        """The project whose rules the exchange was decided by, and how it came (D7): a request's own (``trusted``
+        through a binding Latet made, ``claimed`` by what it said, which binds no conversation); else its
+        conversation's, which only a trusted binding attaches (the plugin's bridge, whose observations these are)."""
+        pid = getattr(read, "project", None)  # an observation (the bridge's) has none of its own
+        binding = getattr(read, "binding", None) if pid else None
+        if pid is None:
+            pid, binding = getattr(session, "project_id", None), "trusted"
         peek = getattr(getattr(self.engine, "scopes", None), "peek", None)
         project = peek(pid) if pid and peek is not None else None
-        return {"id": project.id, "name": project.name} if project is not None else None
+        if project is None:
+            return None
+        return (("id", project.id), ("name", project.name), ("binding", binding if binding == "claimed" else "trusted"))
 
     def _annotator(self, snap: _Snapshot, json_mode: bool) -> Annotator | None:
         restores = snap.json if json_mode else snap.text
@@ -749,12 +1526,14 @@ class Recorder:
                 "the history's pruning was refused its lock: what was a day past its retention was pruned without it"
             )
 
-    def _record(self, outcome: Outcome, snap: _Snapshot) -> dict[str, Any]:
+    def _record(self, exchange: RecordSnapshot) -> dict[str, Any]:
+        """``exchange`` given to the history (in the recorder's thread): read from its snapshot alone, never from its
+        arena or its outcome."""
         store = self.store
         assert store is not None
         if time.time() - self._last_prune > _PRUNE_EVERY:
             self.prune_now()  # a job of its own, after this one: its failure never loses this exchange
-        prepared = outcome.prepared
+        snap = exchange.restores
 
         def found(
             text: str, json_mode: bool, rules: dict[str, str] | None = None, rule: str = "vault"
@@ -796,39 +1575,52 @@ class Recorder:
                     new_by_type[etype] += n
                     totals[1] += n
 
-        pending = list(getattr(prepared, "pending", None) or [])
-        # The inputs of tools that ran outside this computer with stand-ins in them, as blocks of their own.
-        pending += [(slot, [], False) for slot in getattr(prepared, "outbound_slots", None) or []]
+        # Its texts, the inputs of tools that ran outside this computer with stand-ins in them among them, as blocks.
         unresolved: list[BlockRecord] = []  # stored earlier, counts not cached (after a restart)
         ids: list[str] = []  # the block of each slot, empty ones included: a leak counts its slot among them
-        if pending:
-            paths = json_paths(prepared.document) if prepared is not None and prepared.document is not None else {}
-            texts = [slot.get() for slot, _, _ in pending]
-            ids = [store.block_id(t) for t in texts]
+        # Resolve occurrence identities, never key/text equality. Images and repeated outbound references share
+        # this index with texts and tool inputs; no lookup consumes an occurrence another reference also needs.
+        located: dict[tuple[int, ...], tuple[str, Any]] = {}
+        if exchange.sent is not None:
+            needed = {block.place[1] for block in exchange.blocks if block.place[0] == "slot"}
+            needed.update(block.source_input for block in exchange.blocks)
+            needed.update(image.place for image in exchange.images)
+            located = occurrence_paths(_sent_document(exchange.sent, exchange.encoding, exchange.counted), needed)
+
+        def path_of(place: tuple[int, ...] | None) -> str:
+            return located[place][0] if place is not None and place in located else "$"
+
+        image_paths = [path_of(image.place) for image in exchange.images]
+        if exchange.blocks:
+            ids = [store.block_id(block.text) for block in exchange.blocks]
             known = store.known_blocks(ids)
-            for (slot, replacements, exact), text, block_id in zip(pending, texts, ids, strict=True):
+            for block, block_id in zip(exchange.blocks, ids, strict=True):
+                text, replacements, exact = block.text, block.replacements, block.exact
                 if not text:
                     continue
-                path = paths.get((id(slot.container), slot.key), "$")
-                where = getattr(slot.container, "path_key", None)  # an image's text: the image's path
-                if where is not None:
-                    path = paths.get(where, "$") + "#text"
+                if block.place[0] == "at":
+                    path = block.place[1]
+                elif block.place[0] == "image":
+                    path = image_paths[block.place[1]] + "#text"
+                else:
+                    path = path_of(block.place[1])
                 new = self.sent.first(snap.session, block_id)
                 # A tool output's tool, and the file or the address it came from: what strict data mode covers depends
                 # on them (the dashboard's columns answer). Where it came from is kept as the request carried it, its
                 # call's input masked as every other text it kept, with where its values are masked: shown with them
                 # from the vault, so that a value forgotten there is gone from it too.
-                tool = getattr(slot, "tool", None) if slot.kind == SlotKind.TOOL_RESULT else None
+                tool = block.tool
                 source, source_found = None, []
-                sent = getattr(slot, "sent_source", None)
-                if slot.kind == SlotKind.TOOL_RESULT and callable(sent) and isinstance(left := sent(), str):
+                given = located.get(block.source_input) if block.source_input is not None else None
+                left = tool_source(given[1]) if given is not None else None
+                if left is not None:
                     source = kept_source(left)
                     source_found = found(source, False) if source else []
                 types = self._types.get(block_id)
                 # Seen before: stored already, or (metadata history, nothing stored) its counts cached.
                 if block_id in known or (types is not None and self.history == "metadata"):
                     record = BlockRecord(
-                        block_id, path, slot.kind.value, slot.from_model, new, tool=tool, source=source,
+                        block_id, path, block.kind.value, block.from_model, new, tool=tool, source=source,
                         source_found=source_found,
                     )  # fmt: skip
                     if types is None:
@@ -844,7 +1636,7 @@ class Recorder:
                         repl = found(text, _looks_json(text), rule="plugin")
                     known.add(block_id)
                     record = BlockRecord(
-                        block_id, path, slot.kind.value, slot.from_model, new, text, repl, tool=tool, source=source,
+                        block_id, path, block.kind.value, block.from_model, new, text, repl, tool=tool, source=source,
                         source_found=source_found,
                     )  # fmt: skip
                     kinds = Counter(
@@ -862,79 +1654,82 @@ class Recorder:
                 count(types, record.new)
 
         # The response, as the model wrote it.
-        capture = outcome.capture
+        capture = exchange.capture
         response = None
         restored = 0
         if capture is not None:
-            capture.settle()  # read here, off the event loop that handed it over
-            text = "".join(capture.text)
-            text_spans = found(text, False, rule="restore")
+            text = capture.history_text()
+            text_spans = found(text, False, rule="restore") if text else []
             tool_calls = []
-            for tool in capture.tools.values():
-                spans = found(tool["args"], True, rule="restore")
+            for name, args in capture.tools:
+                spans = found(args, True, rule="restore")
                 restored += len(spans)
-                tool_calls.append({"name": tool["name"], "args": tool["args"], "spans": spans})
+                tool_calls.append({"name": name, "args": args, "spans": spans})
             restored += len(text_spans)
             response = {
-                "headers": redacted(outcome.response_headers),
+                "headers": redacted(exchange.response_headers),
                 "text": text,
                 "text_spans": text_spans,
                 "tool_calls": tool_calls,
+                **({"omitted": capture.omission} if capture.omission else {}),
             }
 
         flags: list[str] = []
-        if getattr(prepared, "block_reason", None):
+        if exchange.block_reason or exchange.block_code:  # every refusal, whether its arena has words for it or not
             flags.append("blocked")
         leaks = [
             {"type": leak.etype, "kind": leak.kind.value, "preview": leak.preview, "new": leak.new}
             | ({"detail": leak.detail} if leak.detail else {})
             | ({"allowed": True} if leak.allowed else {})  # let through to auto mode's reviewer
             | self._place(leak, ids)
-            for leak in getattr(prepared, "leaks", None) or []
+            for leak in exchange.leaks
         ]
         if any(not leak.get("allowed") for leak in leaks):  # details the user lets through are no leak
             flags.append("leak")
-        flags += [f"uninspected:{u}" for u in sorted(set(getattr(prepared, "uninspected", None) or []))]
-        states = {getattr(w, "state", None) for w in getattr(prepared, "images", None) or []}
+        flags += [f"uninspected:{u}" for u in sorted(set(exchange.uninspected))]
+        states = {image.state for image in exchange.images}
         flags += [f"image:{s}" for s in ("masked", "withheld") if s in states]
-        flags += [f"degraded:{d}" for d in sorted(set(getattr(prepared, "degraded", None) or []))]
-        mode = getattr(prepared, "mode", "passthrough")
-        if getattr(prepared, "protocol", None) is None and mode == "passthrough":
+        flags += [f"degraded:{d}" for d in sorted(set(exchange.degraded))]
+        mode = exchange.mode
+        # A bodyless call its request profile admitted (a model list, D1) is no unknown route (P2-8a, ruling 6).
+        if exchange.protocol is None and mode == "passthrough" and exchange.profile is None:
             flags.append("unknown-route")
-        if getattr(prepared, "review", False):
+        if exchange.review:
             flags.append("auto-mode-review")
-        if getattr(prepared, "off", False):
+        if exchange.off:
             flags.append("project-off")
-        if getattr(prepared, "withheld", 0):
+        if snap.project is not None and dict(snap.project).get("binding") == "claimed":
+            flags.append("project-claimed")  # its project's rules that add protection alone applied (D7)
+        if exchange.withheld:
             flags.append("withheld")  # the dump guard kept a tool output from the model
-        if getattr(prepared, "history", False):
+        if exchange.history:
             flags.append("history")  # the values in clear came from history Latet never masked
         # A tool outside this computer got stand-ins: stopped by the Claude Code plugin, or run by the provider.
-        flags += [f"outbound:{tool}" for tool in sorted(set(getattr(prepared, "outbound", None) or []))]
-        if getattr(prepared, "bypass", False):
+        flags += [f"outbound:{tool}" for tool in sorted(set(exchange.outbound))]
+        if exchange.bypass:
             flags.append("route-bypass")  # the plugin found the session's requests going around Latet
-        if outcome.error:
+        if exchange.error:
             flags.append("error")
-        agent, version = agent_of(outcome.headers, outcome.path)
-        ended = outcome.ended or time.time()
+        agent, version = agent_of(dict(exchange.headers), exchange.path)
+        ended = exchange.ended or time.time()
         summary = {
             "id": new_exchange_id(),
-            "ts": outcome.started,
+            "ts": exchange.started,
             "session": snap.session,
             "agent": agent,
             "agent_version": version,
-            "upstream": outcome.upstream,
-            "host": outcome.host,
-            "signed": outcome.signed,
-            "path": outcome.path,
-            "protocol": getattr(prepared, "protocol", None),
+            "upstream": exchange.upstream,
+            "host": exchange.host,
+            "signed": exchange.signed,
+            "path": exchange.path,
+            "protocol": exchange.protocol,
             "mode": mode,
-            "transport": outcome.transport,
-            "model": getattr(prepared, "model", None),
-            "status": outcome.status,
-            "latency_ms": round((ended - outcome.started) * 1000),
-            "overhead_ms": round((outcome.forwarded - outcome.started) * 1000) if outcome.forwarded else None,
-            "tokens": (capture.usage or None) if capture else None,
+            "transport": exchange.transport,
+            "model": exchange.model,
+            "status": exchange.status,
+            "latency_ms": round((ended - exchange.started) * 1000),
+            "overhead_ms": round((exchange.forwarded - exchange.started) * 1000) if exchange.forwarded else None,
+            "tokens": dict(capture.usage) if capture and capture.usage else None,
             "masked": totals[0],
             "new_masked": totals[1],
             "by_type": dict(by_type),
@@ -943,25 +1738,74 @@ class Recorder:
             "by_module": dict(by_module),
             "restored": restored,
             "flags": flags,
-            "block_reason": getattr(prepared, "block_reason", None),  # previews only, never values
+            "block_reason": exchange.block_code,  # its category code: the words stay in the private view below
+            "launch": exchange.launch,  # what its launch was decided as, by its fixed category (P2-6a, root's I-5)
+            "passes": list(exchange.passes),  # the rules and exceptions it was let through by, by category (P2-7)
+            "profile": exchange.profile,  # its envelope's request profile, by its id
+            "removed": {"headers": exchange.removed_headers, "members": exchange.removed_members},
             "verified": mode != "passthrough" and not leaks and "blocked" not in flags and "project-off" not in flags,
-            "project": snap.project,
+            "project": dict(snap.project) if snap.project is not None else None,
         }
+        source = snap.session
+        project_id = valid_project_id(dict(snap.project).get("id")) if snap.project is not None else None
+        summary["session"] = store.history_group(source)
+        destination = (
+            exchange.upstream
+            if exchange.transport in ("http", "ws") and configured_destination(exchange.upstream)
+            else None
+        )
+        public = history_coverage_summary(summary, exchange.history_code, summary["id"])
+        public["session"] = summary["session"]
+        public["project"] = history_project(project_id)
+        if destination is not None:
+            public["upstream"] = "custom"
         if self.history == "metadata":  # counts, timings and flags only: no text, no headers
-            store.record(ExchangeRecord(summary=summary, leaks=leaks, body_bytes=outcome.body_bytes))
-            return summary
+            store.record(
+                ExchangeRecord(
+                    summary=summary,
+                    leaks=safe_leaks(leaks),
+                    body_bytes=exchange.body_bytes,
+                    destination_name=destination,
+                    session_source=source,
+                    project_id=project_id,
+                    history_code=exchange.history_code,
+                )
+            )
+            return public
+        private = {
+            key: summary[key]
+            for key in (
+                "agent_version",
+                "upstream",
+                "host",
+                "path",
+                "model",
+                "block_reason",
+                "session",
+                "project",
+            )
+        }
+        private["session"] = source
+        private["block_reason"] = exchange.block_reason  # the words told the agent: previews only, never values
+        private["outbound"] = list(exchange.outbound)
+        private["leaks"] = leaks
         store.record(
             ExchangeRecord(
                 summary=summary,
                 blocks=blocks,
-                images=self._images(store, prepared),
-                request_headers=redacted(outcome.request_headers),
+                images=self._images(store, exchange.images, image_paths),
+                request_headers=redacted(exchange.request_headers),
                 response=response,
                 leaks=leaks,
-                body_bytes=outcome.body_bytes,
+                body_bytes=exchange.body_bytes,
+                sensitive=private,
+                destination_name=destination,
+                session_source=source,
+                project_id=project_id,
+                history_code=exchange.history_code,
             )
         )
-        return summary
+        return public
 
     def _place(self, leak: Leak, ids: list[str]) -> dict[str, Any]:
         """Where a leak's value is, so the dashboard can mark it: the block it is in and its offsets there.
@@ -978,21 +1822,17 @@ class Recorder:
         }
 
     @staticmethod
-    def _images(store: HistoryStore, prepared: Any) -> list[ImageRecord]:
-        """The request's images as they were sent: kept once each, by their bytes; a withheld one only listed."""
-        works = getattr(prepared, "images", None) or []
-        if not works:
-            return []
-        paths = json_paths(prepared.document) if prepared.document is not None else {}
+    def _images(store: HistoryStore, images: tuple[_Image, ...], paths: list[str]) -> list[ImageRecord]:
+        """The request's images as they were sent, each where it was (``paths``): kept once each, by their bytes; a
+        withheld one only listed."""
         out = []
-        for work in works:
-            path = paths.get(work.path_key, "$")
-            block = store.block_id(work.text) if work.slot is not None and work.text else None
-            if work.state == "withheld":
-                out.append(ImageRecord(path, work.state, block=block))
+        for image, path in zip(images, paths, strict=True):
+            block = store.block_id(image.text) if image.text is not None else None
+            if image.data is None:  # withheld
+                out.append(ImageRecord(path, image.state, block=block))
                 continue
-            data = work.ref.data()
+            data = image.data.canonical() if isinstance(image.data, EncodedImage) else image.data
             kept = len(data) * 3 // 4 <= MAX_IMAGE
             image_id = store.image_id(data) if kept else None
-            out.append(ImageRecord(path, work.state, image_id, work.ref.media_type, data if kept else None, block))
+            out.append(ImageRecord(path, image.state, image_id, image.media_type, data if kept else None, block))
         return out

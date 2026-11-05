@@ -1106,6 +1106,15 @@ class Projects:
         self._tell_held_back()
         return project
 
+    def compared_id(self, folder: str) -> str:
+        """The id of the project ``folder`` belongs to, as projects are compared (R-105, D7): a computer's by its files
+        (the folder of its latet.yaml, else its repository's root), a server's, which reads no file, by the nearest
+        folder of your settings that holds it, else the folder itself (as ``resolve`` names it)."""
+        project = self.resolve(folder)
+        if self._files or project.personal is None:
+            return project.id
+        return project_id(project.personal.path)
+
     def get(self, pid: str) -> Project | None:
         """A project remembered, or one the dashboard lists (``known``) that no conversation has used, worked out now
         as it opens it: listed here, or one of your settings (on a server the list may come from another instance);

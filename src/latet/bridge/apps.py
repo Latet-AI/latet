@@ -46,6 +46,7 @@ from latet import observe
 from latet.bridge.api import STORE_UNAVAILABLE, a_store_not_answering
 from latet.bridge.review import MASKED, inline_review
 from latet.engine import wellformed
+from latet.engine.lookup import LookupLimitExceeded
 from latet.engine.masker import MaskReport
 from latet.engine.pipeline import WITHHELD_DUMP, Session
 from latet.engine.stored import StoredVault
@@ -235,7 +236,7 @@ class Apps:
             except VaultFull as exc:  # nothing of the call is answered, nothing leaves in clear (R9)
                 full = f"its limit is {exc.limit} values" if exc.limit is not None else "it holds the most it may"
                 return _error(507, f"this API key's vault is full: {full}; latet server keys limit raises it")
-            except TooManyCandidates as exc:  # nothing of it masked, nor restored: its words say so, and name no value
+            except (TooManyCandidates, LookupLimitExceeded) as exc:  # nothing of it masked or restored; no value named
                 return _error(422, str(exc))
             except MaskingError as exc:  # its words name no value, as the bridge's
                 # The vault's store, asked for the values a text may hold, did not answer (``StoredVault``): as below.
@@ -276,18 +277,25 @@ class Apps:
     def _scan(self, texts: list[str], kind: SlotKind) -> tuple[JSONResponse, int]:
         """In the bridge's thread: where the space's rules find values in each text, by the rules ``mask`` masks it by,
         with nothing kept (``Engine.find``). The values the texts may hold are brought into memory first, in one call
-        to the vault's store for all of them (``Vault.prefetch``), and held while they are read."""
+        to the vault's store for all of them (``Vault.prefetch``), and held while they are read; the call's lines are
+        read as one text (``Masker.joined``), each answered with what was found in it."""
         session = Session(APPS_SESSION, kept=False)
         results: list[dict[str, Any]] = []
         found = 0
         vault = self.engine.vault
         with vault.holding(scoped=True):
-            vault.prefetch(texts)
-            for text in texts:
-                spans = self.engine.find(text, kind, session)
-                found += len(spans)
-                findings = [_place(s.etype, s.eclass, s.start, s.end) for s in spans]
-                results.append({"findings": findings, "counts": _counts(s.etype for s in spans)})
+            for attempt in range(2):
+                results, found = [], 0
+                vault.prefetch(texts)
+                with self.mediator._masker(session).joined(texts, kind):
+                    for text in texts:
+                        spans = self.engine.find(text, kind, session)
+                        found += len(spans)
+                        findings = [_place(s.etype, s.eclass, s.start, s.end) for s in spans]
+                        results.append({"findings": findings, "counts": _counts(s.etype for s in spans)})
+                refresh = getattr(vault, "refresh", None)
+                if attempt or refresh is None or not refresh():
+                    break  # one final counter boundary; continuous writers cannot make an unbounded retry
         return _rendered({"results": results}), found
 
     async def mask(self, request: Request, grant: dict[str, Any], texts: list[str], kind: SlotKind) -> Response:
@@ -312,27 +320,32 @@ class Apps:
         space's own fakes too), then those a later text made stale masked again (``settle``); what the local reviewer is
         to read of them, and what ran weaker (``MaskReport.degraded``). The values the texts may hold are brought into
         memory first, in one call to the vault's store for all of them (``Vault.prefetch``), and held while they are
-        masked: a value found once is masked for ever."""
+        masked: a value found once is masked for ever. The call's lines are read as one text (``Masker.joined``), each
+        masked with what was found in it; a text masked again (``settle``) is read alone."""
         session = Session(APPS_SESSION, kept=False)  # a new one each call: it holds what it was shown in its memory
         report = MaskReport()
         config = self.mediator.review_config(session)
         if config is not None:  # what the gateway's requests do not wait for is reviewed after; an application's, now
             config = config.model_copy(update={"inline": list(_INLINE)})  # a list of its own, each call
-        masker = self.mediator._masker(session) if config is not None else None
+        masker = self.mediator._masker(session)
         vault = self.engine.vault
         with vault.holding(scoped=True):
             vault.prefetch(texts)
             call = self.mediator.call()
-            done = [
-                self.mediator.mask_value(text, kind, session, report, keep_surrogates=False, call=call, as_text=True)
-                for text in texts
-            ]
+            unread = [text for text in texts if not self.engine.cached(text, kind, session, keep_surrogates=False)]
+            with masker.joined(unread, kind, report):
+                done = [
+                    self.mediator.mask_value(
+                        text, kind, session, report, keep_surrogates=False, call=call, as_text=True
+                    )
+                    for text in texts
+                ]
             self.mediator.settle(call)  # a text masked before a later one of the call taught the vault a value in it
         out: list[dict[str, Any]] = []
         reviews: list[ReviewItem] = []
         for index, masked in enumerate(done):
             out.append({"text": masked.text, "count": len(masked.replacements), MASKED: masked})
-            if config is not None and masker is not None:
+            if config is not None:
                 review = self.mediator.review_item(config, masker, index, kind, masked)
                 if review is not None:
                     reviews.append(review)
@@ -373,11 +386,16 @@ class Apps:
         restored = 0
         vault = self.engine.vault
         with vault.holding():
-            vault.prefetch_fakes(texts)
-            for text in texts:
-                found, count = self.engine.unmask(text)
-                restored += count
-                results.append({"text": found, "restored": count})
+            for attempt in range(2):
+                results, restored = [], 0
+                vault.prefetch_fakes(texts)
+                for text in texts:
+                    found, count = self.engine.unmask(text)
+                    restored += count
+                    results.append({"text": found, "restored": count})
+                refresh = getattr(vault, "refresh", None)
+                if attempt or refresh is None or not refresh():
+                    break
         return results, restored
 
     async def forget(self, request: Request, grant: dict[str, Any], values: list[str]) -> Response:

@@ -38,6 +38,19 @@ latet opencode
 latet opencode run "add the payments key from .env to config/local.toml"
 ```
 
+`latet opencode` also gives OpenCode a launch key, in each routed provider's `options.headers`, so
+that Latet trusts the session's project and applies its settings in full. OpenCode set up for good
+carries none: the project it names in its requests is claimed, and only its rules that add
+protection apply ([Projects](../../concepts/projects/#trusted-and-claimed)). Headers of your own in a
+provider's `options.headers` are refused, naming each one, until an
+[exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it
+through.
+
+`latet opencode` passes that key only to OpenCode 1.19.5 or later, the version Latet has verified: an
+older OpenCode could send the key's reference as it is written, so below 1.19.5, or when Latet cannot
+read OpenCode's version, it passes none. It says so as it starts, the session's project is claimed,
+and `latet doctor` names an OpenCode older than 1.19.5.
+
 **OpenCode Desktop** reads the same global configuration: `latet agents apply opencode` (or
 `latet global-install`) routes it once you restart the app, while `latet opencode` starts the
 command-line OpenCode only. `latet agents revert opencode` takes Latet's addresses away again and
@@ -50,6 +63,13 @@ leaves the rest of the file as it is.
   choose an Anthropic, OpenAI or OpenRouter model.
   Claude Code and Codex go through Latet with those clouds too: see
   [Company endpoints](../company-endpoints/).
+- **OpenRouter's models by Anthropic, OpenAI and Google pass on their own.** Any other vendor's
+  (`meta-llama/…`, `deepseek/…`) is refused until it is listed in `request_resources`:
+  [Bedrock and Vertex: what to list](../../getting-started/upgrading-to-0-11/#bedrock-and-vertex-what-to-list).
+- **A console organisation can move a provider.** When OpenCode is signed in to an OpenCode console
+  organisation, the organisation's settings can change a provider's address, and that provider's
+  requests then do not go through Latet. Latet cannot see this: run `latet doctor`, and check the
+  organisation's settings.
 - **ChatGPT sign-in is not covered.** OpenCode's ChatGPT plugin has the provider's address built
   in, so a base URL cannot redirect it. OpenCode signed in with ChatGPT is on the
   [roadmap](../../roadmap/).

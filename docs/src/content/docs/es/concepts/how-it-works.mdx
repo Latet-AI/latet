@@ -108,8 +108,9 @@ Esto es lo que le ocurre a una clave de un archivo `.env`:
 3. Claude Code construye la petición como de costumbre. Solo contiene el valor ficticio. Justo antes
    de que la petición salga, el plugin hace una comprobación final sobre ella. Como
    `ANTHROPIC_BASE_URL` apunta al daemon de Latet (`127.0.0.1:5283`), la petición pasa después por
-   el daemon, que funciona en modo **solo verificación**: busca valores sensibles en claro, reenvía
-   los bytes sin cambios y registra el intercambio para el [panel](../../dashboard/).
+   el daemon, que funciona en modo **solo verificación**: busca valores sensibles en claro, comprueba
+   cada una de las demás partes de la petición (su dirección, sus cabeceras, cada miembro de su cuerpo), reenvía el
+   cuerpo sin cambios y registra el intercambio para el [panel](../../dashboard/).
 
 4. Anthropic recibe <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> y nada más. El modelo nunca
    ve la clave real.
@@ -128,8 +129,11 @@ Esto es lo que le ocurre a una clave de un archivo `.env`:
 
 </Steps>
 
-En modo cliente, lo único que puede hacer el daemon es bloquear: nunca cambia un byte, así que cada
-petición llega a Anthropic exactamente como la construyó Claude Code.
+En modo cliente, lo único que puede hacer el daemon es bloquear: nunca cambia el cuerpo de una
+petición, que llega a Anthropic byte a byte. De sus cabeceras, Latet solo quita las de telemetría y de
+trazado que añade el SDK de Claude Code (`x-stainless-*`, `traceparent`...) y las propias de Claude
+Code que pueden contener texto libre, como los id de un subagente, y las cuenta en el panel
+([Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet)).
 
 **Si el daemon no se está ejecutando**, el plugin intenta iniciarlo. Si no lo consigue, el plugin
 retiene el contenido en lugar de enviarlo sin enmascarar: tu prompt no se envía, un resultado de una
@@ -163,8 +167,13 @@ el daemon local el que enmascara. La misma clave de `.env`, esta vez con Codex:
 
 </Steps>
 
-El proveedor solo ve valores ficticios; el agente solo ve originales. Los bloques de thinking y el
-razonamiento cifrado pasan intactos.
+El proveedor solo ve valores ficticios; el agente solo ve originales. Los bloques de thinking, sus
+firmas y el razonamiento cifrado se devuelven tal como los produjo el proveedor: Latet los vio llegar
+del proveedor en esa conversación o, tras un reinicio, deja pasar los campos cifrados del propio
+proveedor con una regla integrada, solo en los turnos del modelo y solo hacia la dirección del
+proveedor. Cada otra parte de la petición, incluidas la dirección, la consulta y las cabeceras, se lee
+antes de salir, y una parte que Latet no conoce detiene la petición
+([Cada parte de una petición](../protection-scope/#cada-parte-de-una-petición)).
 
 Después, una comprobación final lee los textos de cada petición antes de que salga, los que Latet
 enmascara, como en el modo cliente, y detiene la que dejaría salir un valor en claro, diciendo por

@@ -359,7 +359,7 @@ def test_a_vault_kept_before_knows_how_its_fakes_read_once_its_words_are_made(ke
     mine, _ = keys
     old = [_linked(1, "Elena%20DeLuca"), _person(2, "Ida Russo", "Sara Galli"), _linked(3, "Sara%20Galli")]
     with monkeypatch.context() as at_0_9_10:
-        at_0_9_10.setattr(vault_module, "_WORDS", "SELECT %s, %s, %s, %s, %s, %s, %s, %s")  # neither words
+        at_0_9_10.setattr(vault_module, "_WORDS", "SELECT " + ", ".join(["%s"] * 10))  # neither words
         at_0_9_10.setattr(PgVaultStore, "_read_as", lambda self, conn, e: None)  # nor readings
         for e in old:
             assert mine.save_entity(e) is None
@@ -989,6 +989,27 @@ def test_the_secrets_held_glued_are_loaded_newest_first_and_no_more_than_asked(k
     assert tokens[0] in mine.with_words("original", words_in(f"key={glued} end"))
 
 
+def test_the_values_no_word_finds_glued_on_both_sides_are_loaded_oldest_first(keys):
+    """The plan's S4 (Task 7): a value or a fake of one run longer than an edge, which no word of a text finds glued on
+    both sides (``stored.glued_both``: a head and a tail row of one role), is loaded for a space that keeps them all
+    whatever their age (``load_glued``, a person's), the oldest first: a token of forty letters and digits (its value
+    and its fake), an IBAN (its fake alone, as its value is found whole); not an address, nor a secret its anchor
+    finds where nothing is glued to its other side. The store answers that it took in nothing kept elsewhere
+    (``current``): every lookup reads PostgreSQL."""
+    from latet.engine.stored import glued_both
+
+    mine, theirs = keys
+    long, its_fake = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b", "c3ab8ff13720e8ad9047dd39466b3c8974e592c2"
+    token = _entity(1, long, its_fake, "API_KEY", EntityClass.SECRET)
+    iban = _entity(2, "IT60X0542811101000000123456", "IT84W7093766632581800787511", "IBAN")
+    secret = _entity(3, "tok_9fQ2xL7pZ4", "jqb_9jI0bA3tA3", "API_KEY", EntityClass.SECRET)
+    for e in (token, _entity(4, LAURA, FAKE), iban, secret):
+        assert mine.save_entity(e) is None
+    assert glued_both(token, "original") and glued_both(token, "surrogate") and glued_both(iban, "surrogate")
+    assert [e.id for e in mine.load_glued()] == [token.id, iban.id]
+    assert theirs.load_glued() == [] and mine.current() is False
+
+
 def test_a_build_reads_no_held_secret_again(keys, monkeypatch):
     """Review N1: a build of the space read every held secret again (``backfill_words``' NULL words): those have their
     words, and the build reads none of them."""
@@ -1105,6 +1126,11 @@ OWN = [
     "latet.server.migrations:010_forget_permission",
     "latet.server.migrations:011_added_token_permissions",
     "latet.server.migrations:012_retired_fakes",
+    "latet.server.migrations:013_vault_prints",
+    "latet.server.migrations:014_launch_authority",
+    "latet.server.migrations:015_legacy_plugin_binding",
+    "latet.server.migrations:016_plugin_identity_quota",
+    "latet.server.migrations:017_request_exception_index",
 ]
 
 
@@ -1123,7 +1149,12 @@ def _tables(db) -> set[str]:
         )}  # fmt: skip
 
 
-def test_a_server_of_0_9_10_takes_the_api_keys_migrations_after_its_own(settings, schema, monkeypatch):
+def test_a_server_of_0_9_10_takes_the_api_keys_migrations_after_its_own(
+    settings,
+    schema,
+    monkeypatch,
+    migration_master,
+):
     """A database of 0.9.10 (its five migrations, 005_vault_decoded the last) is migrated to this Latet's: a key's
     permissions (006) and its vault read as needed (007) come after, an instance refusing the schema before; a value
     0.9.10 kept, found where escapes read, keeps how it was found, and gets its words once the vault is built."""
@@ -1140,13 +1171,21 @@ def test_a_server_of_0_9_10_takes_the_api_keys_migrations_after_its_own(settings
             assert [name.split(":")[1] for name in migrate(db)] == list(RELEASED)
             check_schema(db)
             identity = identity_in(db, "k_billingci0", "Billing CI", kind="key")
-            at_0_9_10.setattr(vault_module, "_WORDS", "SELECT %s, %s, %s, %s, %s, %s, %s, %s")  # 0.9.10 keeps none
+            at_0_9_10.setattr(vault_module, "_WORDS", "SELECT " + ", ".join(["%s"] * 10))  # 0.9.10 keeps none
+            # Its count alone, as 0.9.10 moved it (it stamps no word row: there is none).
+            at_0_9_10.setattr(
+                vault_module,
+                "_COUNT",
+                "INSERT INTO change_counters (owner, counter) SELECT %s, %s"
+                " WHERE %s::text IS NOT NULL AND %s::text[] IS NOT NULL ON CONFLICT (owner) DO UPDATE SET counter = change_counters.counter + EXCLUDED.counter"
+                " RETURNING counter",
+            )
             kept = replace(_entity(1, LAURA, FAKE), decoded=True)
             assert PgVaultStore(db, identity, ROOT_KEY).save_entity(kept) is None
         assert "vault_words" not in _tables(db) and "permissions" not in _columns(db, "tokens")
         with pytest.raises(SchemaMismatch, match="older than this Latet"):
             check_schema(db)
-        assert migrate(db) == OWN
+        assert migrate(db, master=migration_master) == OWN
         check_schema(db)
         assert "permissions" in _columns(db, "tokens") and "vault_limit" in _columns(db, "identities")
         store = PgVaultStore(db, identity, ROOT_KEY)
@@ -1157,12 +1196,12 @@ def test_a_server_of_0_9_10_takes_the_api_keys_migrations_after_its_own(settings
         db.close()
 
 
-def test_a_new_server_applies_every_migration_in_the_order_of_its_number(settings, schema):
+def test_a_new_server_applies_every_migration_in_the_order_of_its_number(settings, schema, migration_master):
     from latet.server.db import Database, check_schema, migrate
 
     db = Database(settings.database_url, schema=schema, max_size=2)
     try:
-        applied = migrate(db)
+        applied = migrate(db, master=migration_master)
         check_schema(db)
         assert [name.split(":")[1] for name in applied[: len(RELEASED)]] == list(RELEASED)
         assert applied[len(RELEASED) :] == OWN and applied == sorted(applied)

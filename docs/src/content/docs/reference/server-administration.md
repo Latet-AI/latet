@@ -14,6 +14,23 @@ Name the server and give its token at the hidden prompt:
 latet server --server https://latet.acme.lan status
 ```
 
+`status` lists every instance of the server that is alive, each worker of each machine on a line of its
+own: its id, its worker number, whether it is ready, its memory and its vaults' indexes in MiB, its
+spaces and its version; what an instance did not say is shown as unknown or left out. An instance of
+Latet 0.10 or older says nothing of itself: when an instance of 0.11 answers, it lists one of 0.10
+still alive by its id, as Latet 0.10 or older; a server still on 0.10 answers with the instance that
+answered alone. Before an upgrade, `latet server migrate` is the check: it changes no table while an
+instance of any version is alive, one of 0.10 for 30 seconds after it stops, and says how many are
+alive and of which version. The list comes from a bounded read of Valkey's keys: when that read was cut
+at its bound, `status` says `instances: the list is partial, cut at its bound: an instance may be
+alive and not listed`, and its answer's `instances_whole` is false (null when Valkey did not answer).
+
+On the server's machine, `latet server run --workers N` starts N instances, the workers, on the one
+port, each a process of its own; `LATET_SERVER_WORKERS` or `workers` in `server.yaml` gives the same,
+and `--workers` wins over both, the variable over the file. From 1 to 64, one by default. More than
+one needs Linux or the container image: on Windows `latet server run` refuses them, and the Windows
+service runs one ([several instances on one machine](../../concepts/server-operations/#several-instances-on-one-machine)).
+
 Or use `--admin-token-file FILE`: a private UTF-8 file holding the token alone, or a
 `{"url": "https://latet.acme.lan", "token": "<administration token>"}` record.
 A record is accepted only for its server. On POSIX use `chmod 600 FILE` (or `0400` for the
@@ -169,10 +186,12 @@ withheld. Its only label is `reason`, with five normal values:
 | `too_wide` | A text line exceeded the recognizer's width bound. |
 | `unavailable` | OCR was loading, failed to load, or encountered another handled execution failure. |
 
-A later occurrence of the same original image counts again when it receives a cached
-OCR failure. The counter measures unsuccessful image occurrences, not model calls.
-Internal retries, tiles, batches and reader repairs without a submitted image add
-nothing. Successful OCR, manual withholding, decoding or pixel-policy failures,
-OCR off or uninstalled, exact replay of Latet's own painted image or placeholder,
-and a computer's local OCR are excluded. Final checks of the same work do not count
-again. No label contains image content, a path or an identity.
+A later occurrence of the same original image counts again when it receives a cached OCR
+failure. The counter measures unsuccessful image occurrences, not model calls, with one
+exception: a request or WebSocket turn refused before any of its images is read, because
+the text recognition is not available, counts `unavailable` once, however many images it
+carries. Internal retries, tiles, batches and reader repairs without a submitted image
+add nothing. Successful OCR, manual withholding, decoding or pixel-policy failures, OCR
+off or uninstalled, exact replay of Latet's own painted image or placeholder, and a
+computer's local OCR are excluded. Final checks of the same work do not count again. No
+label contains image content, a path or an identity.

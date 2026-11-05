@@ -879,7 +879,7 @@ def test_latet_codex_gives_the_spaces_address_in_a_private_profile_file_never_on
     monkeypatch.setattr(wrappers, "codex_version", lambda exe="codex": (0, 162, 0))
     monkeypatch.setattr(wrappers, "codex_uses_chatgpt", lambda exe="codex": False)
     monkeypatch.setattr("latet.cli.main._require", lambda command: None)
-    monkeypatch.setattr("latet.cli.main._ensure_daemon", lambda: None)
+    monkeypatch.setattr("latet.cli.main._ensure_daemon", lambda *, _prepared=None: None)  # its signature
     seen = {}
 
     def launch(argv, env):
@@ -958,7 +958,7 @@ def test_a_persons_attached_profile_is_read_for_where_codex_goes(connected, tmp_
     monkeypatch.setattr(wrappers, "codex_version", lambda exe="codex": (0, 162, 0))
     monkeypatch.setattr(wrappers, "codex_uses_chatgpt", lambda exe="codex": False)
     monkeypatch.setattr("latet.cli.main._require", lambda command: None)
-    monkeypatch.setattr("latet.cli.main._ensure_daemon", lambda: None)
+    monkeypatch.setattr("latet.cli.main._ensure_daemon", lambda *, _prepared=None: None)  # its signature
     monkeypatch.setattr(wrappers, "run", lambda argv, env: pytest.fail("Codex was started"))
     from latet.cli.main import _codex
 
@@ -1735,7 +1735,8 @@ def test_an_agents_start_loads_nothing_of_a_server_when_this_computer_is_not_con
             "from latet import wrappers",
             "from latet.config import load_config",
             "from latet.integrations import agents",
-            "wrappers.claude_env(); wrappers.opencode_env(); wrappers.generic_env(); wrappers.server_base()",
+            "wrappers.claude_env(); wrappers.opencode_routed_content('{}', wrappers.base_url());"
+            " wrappers.generic_env(); wrappers.server_base()",
             "wrappers.extra_ca_env('codex'); wrappers.untrusting('codex'); wrappers.daemon_token()",
             "agents.ClaudeCode().route(load_config())",
             "print(sorted(name for name in ('httpx', 'truststore', 'latet.engine.reviewer') if name in sys.modules))",

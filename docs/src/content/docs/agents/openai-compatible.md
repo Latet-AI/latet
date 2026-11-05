@@ -32,6 +32,10 @@ The command sees `OPENAI_BASE_URL` and `OPENAI_API_BASE` set to `http://127.0.0.
 The official OpenAI, Anthropic and Google GenAI SDKs read these variables: see
 [Gemini CLI and Google GenAI](../gemini/) for Google's.
 
+A program `latet run` starts carries no launch key, so a folder it names (`x-latet-project`) is
+claimed: its project's rules that add protection apply, its loosenings do not
+([Projects](../../concepts/projects/#trusted-and-claimed)).
+
 ## For a whole shell: `latet env`
 
 `latet env` prints the same variables in your shell's syntax. To apply them to the current
@@ -112,11 +116,15 @@ sent in clear.
   streamed or not.
 - **Embeddings** (`/embeddings`): the input is masked.
 - **Images** sent as `data:` URLs are read and masked, with the optional
-  [text recognition](../../concepts/images/). Images by their address, audio and files are sent as
-  they are, and flagged *Not inspected* in the dashboard.
-- **Any other request** to OpenAI, Anthropic or OpenRouter, such as listing models, passes through
-  unchanged. On Google's routes, a request with a body Latet does not read is refused instead: what
-  Latet reads there is listed in [Gemini CLI and Google GenAI](../gemini/#what-the-gateway-reads).
+  [text recognition](../../concepts/images/); without it, a request with an image is not sent.
+  Images by their address, audio and files are refused.
+- **Listing the models and reading one** pass on OpenAI, Anthropic and OpenRouter. **Any other
+  request** (files, batches, audio, image generation, moderations, fetching a stored response) is
+  refused, and so is a header, a query parameter or a body member no profile names: an SDK's
+  `default_headers` or `extra_body` of your own, say, until an
+  [exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it
+  through. The SDKs' own telemetry and tracing headers (`x-stainless-*`, `traceparent`...) are taken
+  off and counted. What Latet reads on Google's routes is listed in [Gemini CLI and Google GenAI](../gemini/#what-the-gateway-reads).
 
 A request to Anthropic that comes from Claude Code, or that carries a Claude subscription token, is
 never rewritten: it is only checked, and blocked if a sensitive value is in it. See
@@ -125,7 +133,9 @@ never rewritten: it is only checked, and blocked if a sensitive value is in it. 
 ## Good to know
 
 - The gateway listens on `127.0.0.1` only and refuses requests that come from a web page.
-- A path outside the routes above gets a `404` error: `no upstream for this path`.
+- A path outside the routes above gets a `404` error: `no upstream for this path`. A call under one
+  of them that Latet does not read gets a `400` error that says nothing was sent:
+  `request envelope refused (envelope-route)`.
 - **Another OpenAI-compatible provider** (DeepSeek, Mistral, a model server on your network): add it as
   a destination, then use its route as the agent's base URL, `http://127.0.0.1:5283/deepseek/v1` here:
 

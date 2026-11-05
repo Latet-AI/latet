@@ -221,31 +221,44 @@ resta mascherato.
 
 Uno spazio di log può contenere milioni di valori, quindi un'istanza non tiene in memoria la
 cassaforte di una chiave. Tiene i valori usati più di recente dalla chiave (`key_working_values`,
-5.000 per impostazione predefinita, circa 10 MiB per chiave) e trova ogni altro valore in PostgreSQL
-quando i testi di una chiamata ne hanno bisogno, con una sola ricerca per tutti, attraverso un indice
-delle parole dei valori e dei valori fittizi. L'indice contiene hash calcolati con una chiave
-segreta, mai una parola in chiaro.
+5.000 per impostazione predefinita, circa 10 MiB per chiave) e le impronte di tutta la cassaforte:
+un'impronta di 64 bit di ogni parola dei suoi valori e dei suoi valori fittizi, calcolata con una
+chiave segreta, circa 15 MB per un milione di valori. Le parole di una chiamata vengono cercate prima
+tra le impronte: una parola senza impronta non è di nessun valore né di nessun valore fittizio, e a
+PostgreSQL non viene chiesta. I valori e i valori fittizi le cui parole ne hanno una vengono letti da
+PostgreSQL, tutti quelli della chiamata in una volta, e ognuno viene decifrato e confrontato con il
+testo prima di mascherare o ripristinare qualcosa, perché due parole possono avere la stessa
+impronta. Né le impronte né l'indice delle parole in PostgreSQL contengono una parola in chiaro.
+Prima di ogni chiamata l'istanza legge in PostgreSQL il contatore delle modifiche della chiave e
+recepisce ciò che le altre istanze hanno conservato o dimenticato nel frattempo, così un valore
+conservato su un'istanza prima che una chiamata cominci viene trovato da quella chiamata su
+qualsiasi altra, anche quando il messaggio che lo annunciava è andato perso. Una chiave con pochi
+valori funziona allo stesso modo: solo la cassaforte di una persona con 35.000 valori o meno viene
+tenuta intera in memoria ([gestione del server](../concepts/server-operations/)).
 
-**Segreti attaccati ad altre lettere.** Da PostgreSQL, un segreto scritto come un'unica sequenza di
-lettere e cifre, senza spazi né punteggiatura, viene trovato dalla sua parola, e dai suoi primi e
-ultimi sei caratteri quando altre lettere o cifre sono attaccate a uno dei suoi lati. Attaccato su
-entrambi i lati (`xhunter2y`), o attaccato in qualunque modo quando la parola al suo bordo ha sei
-caratteri o meno, nessuna parola del testo lo trova. Per questo un'istanza tiene in memoria per
-sempre i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o con una
-parola così breve a un bordo: i `key_held_secrets` più recenti (1.000, se le impostazioni del server
-non dicono altro), trovati comunque siano attaccati. Uno più vecchio viene trovato dove niente gli è
-attaccato, o dove un lato è libero e ha sette caratteri o più; uno più lungo, ovunque un lato sia
-libero. Aumenta `key_held_secrets` per una chiave che vede molti segreti brevi, come un token di
-sessione in ogni riga di log: ognuno tenuto occupa circa 2,2 KB su ogni istanza, e ogni testo che la
-chiave maschera o ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate.
-Misurata come sotto con un token di sessione proprio in ogni riga (un valore in più da conservare in
-ognuna), una chiave nuova con 1.000 di questi segreti tenuti ha mascherato 73 righe al secondo e ne
-ha ripristinate 1.935, contro 75 e 2.103 senza segreti tenuti. Un valore fittizio viene trovato
-attaccato come il suo segreto: ne mantiene i segni al loro posto, così un valore fittizio attaccato
-in modo che nessuna delle sue parole resti a sé è quello di un segreto tenuto in memoria, e viene
-trovato finché il segreto è tenuto. Come ovunque in Latet, un valore viene riconosciuto di nuovo da
-quattro caratteri, il nome di una persona da tre ([valori
-noti](../concepts/detection/#valori-noti)).
+**Segreti attaccati ad altre lettere.** Da PostgreSQL, un segreto scritto come un'unica sequenza di lettere e
+cifre, senza spazi né punteggiatura, viene trovato dalla sua parola, e dai suoi primi e ultimi sei caratteri
+quando altre lettere o cifre vi sono attaccate: su un lato, al bordo della sequenza del testo che lo contiene, e
+su entrambi i lati (`xhunter2y`), dentro quella sequenza, che una chiamata legge sei caratteri alla volta. Una
+chiamata legge al massimo un milione di queste posizioni: oltre, le sue sequenze successive vengono lette solo
+per le loro parole e i loro bordi. Un segreto di sei caratteri o meno, o la cui parola a un bordo attaccato ha
+sei caratteri o meno, non viene trovato da nessuna parola del testo quando è attaccato. Per questo un'istanza
+tiene in memoria per sempre i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o
+con una parola così breve a un bordo: i `key_held_secrets` più recenti (1.000, se le impostazioni del server non
+dicono altro), trovati comunque siano attaccati, anche oltre il milione di posizioni di una chiamata. Uno più
+vecchio, o uno più lungo, viene trovato dove niente gli è attaccato, attaccato su un lato quando la parola a
+quel bordo ha sette caratteri o più, e attaccato su entrambi i lati quando è un'unica sequenza di sette
+caratteri o più, entro il milione di posizioni della chiamata. Aumenta `key_held_secrets` per una chiave che
+vede molti segreti brevi, come un token di sessione in ogni riga di log: ognuno tenuto occupa circa 23 KB su
+ogni istanza che serve la chiave, per lo più nel rilevatore che lo trova, e ogni testo che la chiave maschera o
+ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate. Misurata con Latet 0.10.0 sul
+computer di [quanto è veloce](#quanto-è-veloce), con un token di sessione proprio in ogni riga (un valore in più
+da conservare in ognuna), una chiave nuova con 1.000 di questi segreti tenuti ha mascherato 73 righe al secondo
+e ne ha ripristinate 1.935, contro 75 e 2.103 senza segreti tenuti. Un valore fittizio viene trovato attaccato
+come il suo segreto: ne mantiene i segni al loro posto, così un valore fittizio attaccato in modo che nessuna
+delle sue parole resti a sé è quello di un segreto tenuto in memoria, e viene trovato finché il segreto è
+tenuto. Come ovunque in Latet, un valore viene riconosciuto di nuovo da quattro caratteri, il nome di una
+persona da tre ([valori noti](../concepts/detection/#valori-noti)).
 
 **Segreti brevi.** Un segreto di meno di dodici caratteri (`password=1234`, un token breve) riceve
 un valore fittizio più lungo degli stessi tipi, con i suoi segni al loro posto: quindici cifre per
@@ -286,13 +299,18 @@ che nessun ripristino rimetterà a posto.
   loro limite, e la metrica `latet_vault_near_limit` le conta, quindi alza un limite prima che venga
   raggiunto. Ogni istanza conta i valori nuovi di una chiamata prima di confermarli: due istanze, o
   una chiamata e un agente della stessa chiave, possono superare il limite dei valori nuovi di una
-  chiamata ciascuna prima che il valore successivo venga rifiutato.
+  chiamata ciascuna prima che il valore successivo venga rifiutato. Un indice delle impronte di una
+  cassaforte viene costruito fino a 16.777.216 impronte, circa otto milioni di valori del tipo che
+  [quanto è veloce](#quanto-è-veloce) misura: oltre, nessun indice viene costruito finché lo spazio
+  della chiave dura, e le sue chiamate cercano le loro parole solo in PostgreSQL, più lentamente.
 - **Una chiamata** accetta al massimo 1.000 testi e l'`apps_request_mb` del server (8 MiB se le sue
   impostazioni non dicono altro, mai più del suo `max_request_mb`): una chiamata attende in memoria il
   thread della chiave, e `latet-client` divide una lista più lunga in chiamate di 8 MiB al massimo. I
-  testi le cui parole nominano più di 100.000 valori o valori
-  fittizi della cassaforte vengono rifiutati con 422, senza mascherare nulla: invia meno testi per
-  chiamata.
+  testi le cui parole nominano più di 100.000 valori o valori fittizi della cassaforte vengono
+  rifiutati per intero con 422, con parole fisse che non nominano alcun valore: della chiamata non
+  viene mascherato né ripristinato nulla, quindi invia meno testi per chiamata. Un 503 è un'altra
+  cosa: un archivio del server (PostgreSQL, Valkey) non ha risposto, e la stessa chiamata si può
+  inviare di nuovo più tardi ([riferimento HTTP](../reference/apps-api/)).
 - **Chiamate contemporanee.** Una chiave ha al massimo `requests_in_flight` richieste di applicazioni
   su un'istanza (16 se le impostazioni non dicono altro); oltre, 429 con `Retry-After`.
 
@@ -300,41 +318,115 @@ che nessun ripristino rimetterà a posto.
 
 Le chiamate di una chiave vengono eseguite una dopo l'altra su un'istanza, nel thread del suo spazio;
 le chiamate di chiavi diverse, e quelle che arrivano a istanze diverse, vanno in parallelo. Per andare
-più veloce con una chiave, aggiungi istanze dietro il bilanciatore di carico.
+più veloce con una chiave, aggiungi istanze dietro il bilanciatore di carico, o più worker su una
+macchina Linux ([più istanze su una macchina](../concepts/server-operations/#più-istanze-su-una-macchina)).
 
-Misurato su un'istanza (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL in Docker Desktop sullo stesso
-computer), righe di log di circa 200 caratteri, ciascuna con un indirizzo email e un indirizzo IPv4
-pubblico, metà delle quali nomina un cliente già visto, 500 righe per chiamata come `data`; e
-documenti di circa 20 KB di prosa con dieci valori ciascuno, uno per chiamata:
+Misurato con Latet 0.11 su un'istanza (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL 18 in Docker
+Desktop sullo stesso computer, le impostazioni predefinite del server): 40.000 righe di log di circa
+200 caratteri, ciascuna con un indirizzo email e un indirizzo IPv4 pubblico, metà delle quali nomina
+un cliente già visto, in chiamate da 500 come `data`; poi 50 documenti di circa 20 KB di prosa con
+dieci valori ciascuno, uno per chiamata. Le righe al secondo sono le righe diviso il tempo che le loro
+chiamate hanno impiegato; il tempo di un documento è la mediana delle sue 50 chiamate:
 
 | La cassaforte della chiave | Mascheramento, righe al secondo | Ripristino, righe al secondo | Un documento, mascheramento / ripristino |
 | --- | ---: | ---: | ---: |
-| Nuova, impara i valori strada facendo | 189 | 2.691 | 77 / 28 ms |
-| 200.000 valori | 440 | 1.691 | 87 / 30 ms |
-| 1.000.000 di valori | 410 | 1.498 | 95 / 32 ms |
+| Nuova, impara i valori strada facendo | 191 | 2.894 | 126 / 31 ms |
+| 200.000 valori | 871 | 2.960 | 117 / 32 ms |
+| 1.000.000 di valori | 773 | 2.967 | 124 / 32 ms |
 
-Il mascheramento è limitato dai rilevatori: su un thread, con tutti i valori in memoria e nessun
-database, il motore maschera circa 900 righe di questo tipo al secondo. Una chiave nuova scrive anche
-ogni valore nuovo in PostgreSQL. Un'istanza tiene al massimo `database_pool` connessioni a PostgreSQL
-(10, se le impostazioni del server non dicono altro) per il lavoro di ogni identità, e lascia
-che tre decimi di esse (tre su dieci) siano tenute da chiamate che conservano i loro valori nuovi in una
-transazione ciascuna; le altre conservano ogni valore man mano, più lentamente. Aumenta `database_pool`
-per un'istanza che maschera per molte chiavi nuove alla volta, e con esso il `max_connections` di
-PostgreSQL ([gestione del server](../concepts/server-operations/#connessioni-limiti-e-fiducia)).
-`scripts/bench_apps.py` nel repository misura allo stesso modo un tuo server.
+Ogni documento porta valori nuovi per la chiave, che li scrive in PostgreSQL mentre li maschera: gli stessi 50
+documenti mascherati di nuovo, con i valori già noti, hanno richiesto 16,6 ms a 200.000 valori e 16,4 ms a
+1.000.000 (ripristino 23 ms in entrambi i casi). Anche una chiave nuova scrive la maggior parte dei valori delle
+sue righe, ed è per questo che ne maschera meno.
+
+Latet 0.10.0, misurato allo stesso modo sullo stesso computer, mascherava 350 e 304 righe al secondo
+a 200.000 e 1.000.000 di valori e 153 per una chiave nuova, ne ripristinava 2.114 e 2.014, e
+mascherava un documento in un tempo da 163 a 182 ms. Latet 0.11 si proponeva di mascherare almeno
+1.000 righe di questo tipo al secondo su un'istanza a 200.000 e a 1.000.000 di valori, e un documento
+in 30 ms o meno: ne maschera 871 e 773, e un documento in 30 ms solo quando la chiave ne conosce già i
+valori. La maggior parte del tempo di una chiamata di mascheramento va ai rilevatori, e una parte
+all'attesa di PostgreSQL.
+
+Un'istanza trova i valori di una chiave attraverso le impronte delle parole della sua cassaforte ([la cassaforte
+di una chiave](#la-cassaforte-di-una-chiave)), che occupano circa 15 MB per un milione di valori (14,77 MB a
+1.000.000) e vengono costruite in background mentre lo spazio della chiave si apre: in 1,5 secondi a 1.000.000
+di valori (la mediana di tre aperture, da 1,42 a 1,62 s). Finché non sono pronte, le chiamate della chiave
+cercano le loro parole solo in PostgreSQL: in una misurazione precedente con Latet 0.11, con le impronte
+disattivate, la chiave da 200.000 valori ha mascherato 494 righe al secondo e ne ha ripristinate 1.382. Ogni
+chiamata legge prima il contatore delle modifiche della chiave, 0,51 ms come mediana, e recepisce ciò che è
+cambiato nel frattempo: 1,87 ms per un valore nuovo e 2,11 ms per 100, anche questi come mediana.
+
+In una chiamata di testi già mascherati, solo quelli nuovi vengono letti di nuovo, ma ognuno degli
+altri viene comunque cercato e confrontato con ciò che la chiave ha mascherato: 500 testi già
+mascherati e uno nuovo hanno richiesto 168 ms, quello nuovo da solo 6,1 ms (mediane di tre
+esecuzioni).
+
+Su una macchina Linux i worker si sommano. Misurato in Docker sullo stesso computer (una macchina
+virtuale Linux con 20 processori e 16 GB, PostgreSQL 18.6 e Valkey 9.1.2 in container accanto), con
+`latet server run --workers` e una chiave API da 200.000 valori: 200.000 righe distinte del tipo
+descritto sopra in chiamate da 62, quattro connessioni per worker, ogni numero di worker per 20
+secondi, la mediana di tre giri; la memoria è la memoria residente di ogni worker dopo i giri:
+
+| Worker | Mascheramento, righe al secondo | Ripristino, righe al secondo | Memoria per worker |
+| ---: | ---: | ---: | ---: |
+| 1 | 1.190 | 1.947 | 227 MB |
+| 2 | 2.260 | 3.711 | 227 MB |
+| 4 | 4.253 | 6.594 | 216 MB |
+| 8 | 7.477 | 10.147 | 185 MB |
+
+Otto worker hanno mascherato 6,28 volte quanto uno e ripristinato 5,21 volte, dove Latet 0.11 si
+proponeva di arrivare ad almeno 5 volte in entrambi; nessun giro con otto worker ha ripristinato a meno
+di 5,07 volte. Il kernel assegna le connessioni ai worker secondo un hash, non a turno, quindi alcuni
+worker ne ricevono più di altri: da 1 a 10 delle 32 in un giro con otto worker. Il processo che avvia
+i worker occupava da 47 a 48 MB accanto a loro. Queste chiamate arrivano da più connessioni insieme,
+quindi confronta le righe di questa tabella tra loro, non con la prima tabella.
+
+Scrivere valori nuovi richiede connessioni a PostgreSQL: un'istanza, e ogni worker, ne tiene al
+massimo `database_pool` (10, se le impostazioni del server non dicono altro) per il lavoro di ogni
+identità, e lascia che tre decimi di esse (tre su dieci) siano tenute da chiamate che conservano i
+loro valori nuovi in una transazione ciascuna; le altre conservano ogni valore man mano, più
+lentamente. Aumenta `database_pool` per un'istanza che maschera per molte chiavi nuove alla volta, e
+con esso il `max_connections` di PostgreSQL
+([gestione del server](../concepts/server-operations/#connessioni-limiti-e-fiducia)).
+`scripts/bench_apps.py` nel repository misura un tuo server come è stata misurata la prima tabella.
 
 ## Aggiornare un server
 
-Dopo un aggiornamento che cambia il modo in cui sono indicizzate le parole di una cassaforte, la prima
-istanza che costruisce lo spazio di una chiave le rifà prima di rispondere alla prima chiamata della
-chiave: circa 40 secondi per 200.000 valori e quattro minuti e mezzo per 1.000.000 sul computer
-indicato sopra. Una chiamata che arriva nel frattempo aspetta, e un'istanza costruisce quattro spazi
-alla volta, quindi poche chiavi grandi ritardano le prime chiamate delle altre chiavi su quell'istanza.
-Il changelog dice quando una versione lo fa; in quel caso invia a ogni chiave grande una chiamata, con
-un timeout abbastanza lungo, prima che i suoi programmi ripartano.
+Latet 0.11 cambia le tabelle. Ferma ogni istanza e ogni worker, su ogni macchina, esegui
+`latet server migrate` una volta con la 0.11, poi avviali tutti con essa
+([aggiornare](../concepts/server-operations/#aggiornare-e-aggiungere-istanze)). Un'istanza non parte
+su tabelle di un'altra versione, quindi tra l'arresto e l'avvio nessuna chiamata riceve risposta, e
+`latet server migrate` non cambia nulla finché un'istanza è attiva, una della 0.10 per 30 secondi
+dopo il suo arresto. La migrazione aggiunge a ogni riga di parola di ogni cassaforte un posto vuoto
+per la sua impronta e per il conteggio della modifica che l'ha scritta per ultima, con i loro indici:
+su un database con casseforti grandi richiede più tempo delle migrazioni precedenti, e le impronte
+stesse vengono calcolate dopo, in background.
 
-Mentre istanze di due versioni girano insieme, un valore scritto da un'istanza più vecchia viene
-trovato dalle più nuove finché lo tengono in memoria, ma non in PostgreSQL finché lo spazio della
-chiave non viene ricostruito. Quando l'API per le applicazioni è in uso, ferma ogni istanza più vecchia
-prima che partano quelle nuove, anche quando le tabelle restano le stesse
-([aggiornare](../concepts/server-operations/#aggiornare-e-aggiungere-istanze)).
+Una cassaforte conservata da Latet 0.10 non ha ancora impronte. Dopo il riavvio, la prima istanza che costruisce
+lo spazio di una chiave risponde subito alle chiamate della chiave, cercando le loro parole in PostgreSQL come
+faceva la 0.10, e calcola le impronte della cassaforte in background, una volta, un'istanza alla volta; ogni
+istanza poi costruisce il proprio indice delle impronte e lo usa. Fino ad allora le chiamate della chiave
+mascherano gli stessi valori, più lentamente ([quanto è veloce](#quanto-è-veloce): 494 righe al secondo a
+200.000 valori con le impronte disattivate, in una misurazione precedente), e nessuna viene rifiutata per
+questo. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
+che non rispondono, un aggiornamento dell'indice fallito), le chiamate restano sulla ricerca in PostgreSQL
+finché l'indice non viene costruito di nuovo: subito quando un'altra istanza ha calcolato le impronte,
+altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto. Il log dice una volta quando un
+indice smette di essere usato e una volta quando viene usato di nuovo. Una cassaforte oltre la dimensione per
+cui si costruisce un indice ([limiti](#limiti)) resta sulla ricerca in PostgreSQL finché il suo spazio dura. Le
+parole stesse restano come le ha fatte la 0.10: la 0.11 non le rifà.
+
+Una versione che cambia il modo in cui sono fatte le parole di una cassaforte (il changelog lo dice)
+rifà le parole di una chiave nella prima istanza che ne costruisce lo spazio, prima che quello spazio
+risponda alla prima chiamata della chiave: Latet 0.10.0 impiegava circa 40 secondi per 200.000 valori
+e quattro minuti e mezzo per 1.000.000 sul computer indicato sopra. Una chiamata che arriva nel
+frattempo aspetta, e un'istanza costruisce quattro spazi alla volta, quindi poche chiavi grandi
+ritardano le prime chiamate delle altre chiavi su quell'istanza: dopo una versione del genere, invia
+a ogni chiave grande una chiamata, con un timeout abbastanza lungo, prima che i suoi programmi
+ripartano.
+
+Mentre istanze di due versioni girano insieme, cosa che una versione che non cambia le tabelle
+consente, un valore scritto da un'istanza più vecchia viene trovato dalle più nuove finché lo tengono
+in memoria, ma non in PostgreSQL finché lo spazio della chiave non viene ricostruito. Quando l'API per
+le applicazioni è in uso, ferma ogni istanza più vecchia prima che partano quelle nuove, anche quando
+le tabelle restano le stesse.

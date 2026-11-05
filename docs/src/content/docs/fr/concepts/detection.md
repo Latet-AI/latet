@@ -16,7 +16,10 @@ Les secrets sont masqués dans tous les [profils](../profiles/).
 Les identifiants de Latet sont inclus : `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
 (`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
 `LATET_SCIM_TOKEN` (`latet_scim_`, le jeton SCIM d'un serveur Enterprise), `LATET_BRIDGE_TOKEN`
-(`latet_brg_`, le jeton que le plugin Claude Code donne au daemon de votre ordinateur) et
+(`latet_brg_`, le jeton que le plugin Claude Code donne au daemon de votre ordinateur), `LATET_LAUNCH_KEY`
+(`latet_lk_`, la clé que `latet claude`, `latet codex` et les autres commandes de lancement donnent à
+l'agent qu'elles démarrent, et qu'une commande qui affiche l'environnement de l'agent met dans la sortie
+d'un outil) et
 `LATET_ONE_TIME_CODE` (`latet_code_`, le code qu'un administrateur donne à une personne pour connecter
 un ordinateur), chaque préfixe suivi de 43 caractères compatibles avec les URL (32 pour le code à
 usage unique ; `A-Z`, `a-z`, `0-9`, `_`, `-`). Un jeton du bridge ou un code à usage unique créé par une

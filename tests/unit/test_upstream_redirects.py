@@ -4,9 +4,11 @@ address it names, past Latet. Latet follows none either. The client is answered 
 ``Location`` and nothing of the upstream's answer: over HTTP, in a stream and at a WebSocket's handshake, on a computer
 (here) as on a server (``tests/unit/server/test_identity_app.py``)."""
 
+import contextlib
 import logging
 import socket
 import threading
+import time
 
 import httpx
 import pytest
@@ -52,7 +54,10 @@ def _gateway():
     built = build(Config(), Vault(ROOT_KEY))
     config = GatewayConfig(
         port=5283,
-        upstreams=[Upstream("openai", "/openai", PROVIDER), Upstream("anthropic", "/anthropic", PROVIDER)],
+        upstreams=[
+            Upstream("openai", "/openai", PROVIDER, envelope_expected=frozenset({("model", "m")})),
+            Upstream("anthropic", "/anthropic", PROVIDER, envelope_expected=frozenset({("model", "m")})),
+        ],
         mediator=Mediator(built.engine, built.verifier),
         client=lambda: httpx.AsyncClient(transport=httpx.MockTransport(provider)),
     )
@@ -173,24 +178,57 @@ class _Answering:
         self.sock.bind(("127.0.0.1", 0))
         self.sock.listen(8)
         self.port = self.sock.getsockname()[1]
-        threading.Thread(target=self._serve, daemon=True).start()
+        self.stopped = threading.Event()
+        self.lock = threading.Lock()
+        self.active: socket.socket | None = None
+        self.thread = threading.Thread(target=self._serve)
+        self.thread.start()
+        print(f"P24_PORT_OPEN {self.port}")
 
     def _serve(self) -> None:
-        while True:
+        while not self.stopped.is_set():
             try:
                 conn, _ = self.sock.accept()
             except OSError:
                 return
             with conn:
-                conn.settimeout(5)
-                head = b""
-                while b"\r\n\r\n" not in head and (chunk := conn.recv(4096)):
-                    head += chunk
-                self.heads.append(head.lower())
-                conn.sendall(self.answer)
+                with self.lock:
+                    self.active = conn
+                try:
+                    deadline = time.monotonic() + 5
+                    head = b""
+                    while not self.stopped.is_set() and b"\r\n\r\n" not in head and len(head) < 65536:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        conn.settimeout(remaining)
+                        chunk = conn.recv(min(4096, 65536 - len(head)))
+                        if not chunk:
+                            break
+                        head += chunk
+                    self.heads.append(head.lower())
+                    if not self.stopped.is_set():
+                        conn.sendall(self.answer)
+                except OSError:
+                    if not self.stopped.is_set():
+                        raise
+                finally:
+                    with self.lock:
+                        self.active = None
 
     def close(self) -> None:
+        self.stopped.set()
+        with contextlib.suppress(OSError):
+            self.sock.shutdown(socket.SHUT_RDWR)
         self.sock.close()
+        with self.lock:
+            if self.active is not None:
+                with contextlib.suppress(OSError):
+                    self.active.shutdown(socket.SHUT_RDWR)
+                self.active.close()
+        self.thread.join(timeout=5)
+        assert not self.thread.is_alive()
+        print(f"P24_PORT_CLOSED {self.port}")
 
 
 @pytest.mark.parametrize("where", ["the same host", "the same host, as a path", "another host"])
@@ -203,7 +241,12 @@ def test_a_websockets_redirect_reaches_the_client_as_a_clear_error_and_is_not_fo
         "another host": f"ws://localhost:{elsewhere.port}/v1/responses",  # another name: another origin
     }[where]
     moved.answer = f"HTTP/1.1 {status} Moved\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n".encode()
-    config = GatewayConfig(port=5283, upstreams=[Upstream("relay", "/relay", f"http://127.0.0.1:{moved.port}")])
+    built = build(Config(), Vault(ROOT_KEY))
+    config = GatewayConfig(
+        port=5283,
+        upstreams=[Upstream("relay", "/relay", f"http://127.0.0.1:{moved.port}")],
+        mediator=Mediator(built.engine, built.verifier),
+    )
     try:
         with (
             TestClient(create_app(config), base_url="http://127.0.0.1:5283") as client,

@@ -40,6 +40,8 @@ def decode(data: str, max_pixels: int = MAX_PIXELS, *, max_scans: int | None = N
     an animation, nor (``max_scans``: a server's spaces') a JPEG of more scans than that."""
     from PIL import Image, ImageOps, UnidentifiedImageError
 
+    if len(data) > 4 * ((MAX_BYTES + 2) // 3):
+        raise ImageError(f"larger than {MAX_BYTES // 2**20} MB")
     try:
         raw = base64.b64decode(data, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -72,6 +74,8 @@ def _has_alpha(image: Image.Image) -> bool:
 
 def encode(image: Image.Image, media_type: str) -> tuple[str, str]:
     """The image's base64 and media type: the same format as it came in (a GIF becomes a PNG)."""
+    image = image.copy()
+    image.info.clear()
     out = io.BytesIO()
     if media_type == "image/jpeg":
         image.convert("RGB").save(out, "JPEG", quality=92, subsampling=0, optimize=False)

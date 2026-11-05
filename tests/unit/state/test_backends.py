@@ -40,7 +40,7 @@ def test_the_state_package_needs_nothing_of_a_server():
     subprocess.run([sys.executable, "-c", code], check=True)
     assert [f for f in StateBackends.__dataclass_fields__] == [
         "vault", "history", "conversations", "sent", "given", "approvals", "feed", "approvals_feed", "sign_ins",
-        "settings", "jobs", "aws",
+        "settings", "jobs", "aws", "echoes",  # what a request's answers may echo back (its own store)
     ]  # fmt: skip
 
 

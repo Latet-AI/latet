@@ -55,7 +55,9 @@ retiene: el modelo recibe en su lugar una nota breve, *[image withheld by Latet:
 motivo. Eso le pasa a una imagen animada, a una de más de 20 MB o 40 megapíxeles, a una que no es
 una imagen válida, a una tan larga para su anchura, o tan ancha para su altura, que habría que leerla
 en más de 16 partes (la captura de una página de más de unos 29.000 píxeles de largo), y a cualquier
-imagen mientras los modelos se siguen cargando (una petición los espera hasta 20 segundos).
+imagen mientras los modelos se siguen cargando (una petición los espera hasta 20 segundos). A una
+petición que Latet solo comprueba, como las de Claude Code, no se le puede quitar una imagen: una con
+una imagen que Latet no sabe leer no se envía.
 
 ## Qué imágenes
 
@@ -63,7 +65,7 @@ imagen mientras los modelos se siguen cargando (una petición los espera hasta 2
 | --- | --- |
 | Imágenes en los mensajes: las imágenes base64 de Claude, las URL `data:` de OpenAI Chat y Responses, Codex por HTTP y por su WebSocket, las imágenes en línea de Gemini (`inlineData`) | sí |
 | Capturas de pantalla que devuelven las herramientas: Read de Claude Code sobre una imagen, servidores MCP como el de un navegador, el computer use de OpenAI | sí |
-| Imágenes indicadas por su dirección (una URL `https://`, el ID de un archivo), PDF y otros documentos, audio | no: se envían tal cual, con el indicador *No inspeccionado*, o no se envían (ver más abajo) |
+| Imágenes indicadas por su dirección (una URL `https://`, el ID de un archivo), PDF y otros documentos, audio | no: la petición no se envía |
 
 ## Los ajustes
 
@@ -73,7 +75,7 @@ un proyecto.
 
 | `images` | Con reconocimiento de texto | Sin él |
 | --- | --- | --- |
-| `allow` (predeterminado) | las imágenes se leen y se enmascaran | las imágenes se envían tal cual, con el indicador *No inspeccionado* |
+| `allow` (predeterminado) | las imágenes se leen y se enmascaran | no se envía ninguna petición con una imagen |
 | `mask` | solo se envían las imágenes leídas y enmascaradas: una petición que lleva una que Latet no puede leer (un PDF, una imagen indicada por su dirección) no se envía | no se envía ninguna petición con una imagen |
 | `block` | no se envía ninguna petición que lleve una imagen o un documento | lo mismo |
 
@@ -82,7 +84,47 @@ un proyecto.
 - El `latet.yaml` de un repositorio solo puede hacer que se envíen menos imágenes. Enviar más, desde
   tus ajustes o desde un proyecto tuyo, y `ocr: off` esperan tu aprobación cuando los pide un agente
   ([Los agentes y tus ajustes](../agents-and-settings/)).
-- Un agente al que se detiene recibe un error que explica por qué y qué hacer.
+- Con `ocr: off`, igual que sin reconocimiento de texto, no se envía ninguna petición con una
+  imagen.
+- Un agente al que se detiene recibe un error que explica por qué y qué hacer. Sin reconocimiento de
+  texto, se le dice que ejecute `latet ocr install` y que empiece una conversación nueva, porque la
+  imagen se queda en su historial:
+
+  ```text
+  Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
+  ```
+
+## Las fotos y sus metadatos
+
+Una petición que Latet reescribe (Codex, OpenCode y los demás agentes en modo pasarela) envía cada
+imagen reescrita, sin sus metadatos. Una petición que Latet solo comprueba, como las de Claude Code,
+sale tal como la construyó el agente, así que allí Latet da cuenta de cada byte de cada imagen: la
+estructura de su formato, leída según su gramática; el texto de sus metadatos (el comentario
+*Screenshot* de una captura, el programa que la creó, el nombre de su perfil de color), leído por la
+comprobación final; y los píxeles de la imagen principal, cuyo texto leyó el reconocimiento de texto.
+Lo que sobra no se envía:
+
+- una ubicación (GPS) en los metadatos de una foto;
+- las notas que el fabricante de una cámara escribe en una forma propia;
+- la miniatura que una cámara guarda dentro de una foto, y cualquier otra imagen dentro de ella, como
+  los mapas de profundidad y de ganancia de la foto en modo retrato de un móvil;
+- lo que sigue al final de la imagen, como el vídeo de una foto en movimiento.
+
+Al agente se le dice cómo seguir:
+
+```text
+Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
+```
+
+Lleva la conversación a antes de la imagen, o empieza una nueva, y vuelve a adjuntar la imagen sin sus
+metadatos: en iOS, *Compartir*, *Opciones*, *Ubicación* desactivada; en Vista Previa de macOS,
+*Herramientas*, *Mostrar inspector*, *Eliminar información de ubicación*; en Windows, *Propiedades*
+del archivo, *Detalles*, *Quitar propiedades e información personal*. Una captura de pantalla normal no
+tiene nada de esto, y pasa.
+
+Una imagen WebP original no se puede explicar allí byte a byte, y también se rechaza: expórtala como
+PNG, y luego vuelve atrás o empieza una conversación nueva. Una petición que Latet reescribe envía una
+imagen WebP reescrita como PNG.
 
 ## En Claude Code
 
@@ -128,6 +170,9 @@ Claude Code las envíe:
   leído puede no reconocerse.
 - **El modelo lee el valor ficticio.** Si lo lee mal, su respuesta lleva el valor ficticio mal
   leído, y Latet no puede restaurar el valor real.
-- **Los PDF y otros documentos no se leen**, ni las imágenes indicadas por su dirección: consulta la
-  tabla de arriba.
+- **Los PDF y otros documentos no se leen**, ni las imágenes indicadas por su dirección: una petición
+  que lleva uno no se envía.
+- **Los códigos QR y los códigos de barras no se descodifican.** El reconocimiento de texto lee texto:
+  los datos que contiene un código salen con la imagen. No envíes un código que contenga un valor que
+  proteges.
 - **Solo texto.** Las caras, las firmas, los logotipos y la escritura a mano no se cubren.

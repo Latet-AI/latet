@@ -93,10 +93,23 @@ für ein Programm, hat kein persönliches Dashboard und erhält seine Einstellun
 
 Eine Instanz ist ein laufender Latet-Serverprozess. Mehrere Instanzen können dieselbe
 öffentliche HTTPS-Adresse hinter einem Lastverteiler bedienen und dieselbe PostgreSQL-Datenbank,
-Valkey und denselben Hauptschlüssel verwenden. PostgreSQL speichert dauerhaften Zustand;
-Valkey koordiniert kurzlebigen Zustand. Anfragen benötigen keine Sitzungsbindung.
-Weitere Instanzen erzeugen keine getrennten Kopien des Bereichs einer Person. Die
-Dienstanforderungen stehen unter [Serverbetrieb](../server-operations/).
+Valkey und denselben Hauptschlüssel verwenden, und eine Maschine kann mehrere davon betreiben,
+Worker genannt. PostgreSQL speichert dauerhaften Zustand; Valkey koordiniert kurzlebigen Zustand.
+Anfragen benötigen keine Sitzungsbindung. Weitere Instanzen erzeugen keine getrennten Kopien des
+Bereichs einer Person. Die Dienstanforderungen stehen unter [Serverbetrieb](../server-operations/).
+
+Der Tresor einer Person liegt in PostgreSQL, wie der eines API-Schlüssels. Eine Instanz, die die
+Person bedient, hält ihn ganz im Speicher, wenn er beim Aufbau des Bereichs 35.000 Werte oder weniger
+hat; darüber hält sie die Werte, die die Person zuletzt verwendet hat, die Fingerabdrücke der Wörter
+des Tresors und jeden Wert, den kein Wort eines Textes findet, und sucht die anderen in PostgreSQL,
+sobald ein Text sie braucht. Vor jeder Anfrage liest sie in PostgreSQL, was die anderen Instanzen
+geändert haben, sodass ein Wert, der auf einer Instanz gespeichert oder vergessen wurde, bevor eine
+Anfrage beginnt, von dieser Anfrage auf jeder anderen gesehen wird. Eine Person, deren Tresor Werte
+enthält, die vor Latet 0.10.0 gespeichert wurden, wird bedient, wie 0.10.0 sie bediente, bis ihr
+Bereich neu aufgebaut wird, nachdem deren Wörter erzeugt sind: Ihr Bereich hält ihren ganzen Tresor im
+Speicher, gleich wie groß, und liest keinen Änderungszähler, sodass ein Wert, den eine andere Instanz
+speichert, ihn über seine Nachricht erreicht oder, wenn die Nachricht verloren geht, über die nächste
+Prüfung des Herzschlags.
 
 ## Was der Server speichert
 
@@ -106,20 +119,24 @@ wird mit dem Hauptschlüssel des Servers verschlüsselt; gemeinsame Einstellunge
 mit dem Hauptschlüssel. Bewahren Sie den Hauptschlüssel getrennt von Datenbanksicherungen
 auf. Ohne den passenden Schlüssel lassen sich verschlüsselte Daten nicht wiederherstellen.
 
-Einige Metadaten bleiben in PostgreSQL lesbar: Identitätsnamen und E-Mail-Adressen,
-externe Kennungen, Tokenbezeichnungen, Berechtigungen und Zeitpunkte, Regelnamen im Tresor, Zähler und
-Zeitpunkte sowie Akteure, Aktionen, Ziele, Kennungen, Anzahlen und Clientadressen des
-Administrationsprotokolls. Projekt- und Gesprächskennungen im Verlauf verwenden Hashes
-mit Schlüssel. Der Tresor eines API-Schlüssels speichert außerdem die Wörter seiner Werte und
-Ersatzwerte als Hashes mit Schlüssel, über die ein Text sie findet: Ein Hash zeigt kein Wort, nur
-welche Einträge eines gemeinsam haben. Die Zeilen seines Verlaufs und die gemerkten Antworten seines
-lokalen Prüfers speichern Hashes mit Schlüssel der Einträge und Werte des Tresors, die sie nennen,
-damit ein Vergessen sie findet: Wer die Datenbank liest, kann erkennen, welche Zeilen denselben
-Eintrag oder denselben Wert nennen, nie, welcher Wert es ist. Die Zeilen einer Person speichern
-keine. Jeder Tresor speichert den Hash mit Schlüssel jedes Ersatzwerts, den er stillgelegt hat (den
-eines vergessenen Werts oder einen ersetzten), damit kein anderer Wert ihn erhält: Er zeigt, wie
-viele Ersatzwerte stillgelegt wurden, nie welche. Valkey verwendet mit Schlüssel abgeleitete Namen,
-verschlüsselte sensible Nutzdaten und signierte Koordinationsnachrichten.
+Einige Metadaten bleiben in PostgreSQL lesbar: Identitätsnamen und E-Mail-Adressen, externe Kennungen,
+Tokenbezeichnungen, Berechtigungen und Zeitpunkte, Regelnamen im Tresor, Zähler und Zeitpunkte sowie Akteure,
+Aktionen, Ziele, Kennungen, Anzahlen und Clientadressen des Administrationsprotokolls. Projekt- und
+Gesprächskennungen im Verlauf verwenden Hashes mit Schlüssel. Jeder Tresor, der einer Person wie der eines
+API-Schlüssels, speichert außerdem die Wörter seiner Werte und Ersatzwerte als Hashes mit Schlüssel, über die
+ein Text sie findet, und neben jedem Wort seinen Fingerabdruck, einen 64-Bit-Fingerabdruck unter einem vom
+Schlüssel der Identität abgeleiteten Schlüssel, den die Instanzen im Speicher halten, mit der Zählung der
+Änderung, die die Zeile zuletzt geschrieben hat. Ein Hash oder ein Fingerabdruck zeigt kein Wort: Wer die
+Datenbank liest, sieht, welche Zeilen einer Identität ein Wort gemeinsam haben, wie viele es sind, und an den
+Zählungen, welche Zeilen sich in welcher Reihenfolge geändert haben. Die Fingerabdrücke desselben Wortes sind
+bei einer anderen Identität andere. Die Zeilen des Verlaufs eines API-Schlüssels und die gemerkten Antworten
+seines lokalen Prüfers speichern Hashes mit Schlüssel der Einträge und Werte des Tresors, die sie nennen, damit
+ein Vergessen sie findet: Wer die Datenbank liest, kann erkennen, welche Zeilen denselben Eintrag oder denselben
+Wert nennen, nie, welcher Wert es ist. Die Zeilen einer Person speichern keine. Jeder Tresor speichert den Hash
+mit Schlüssel jedes Ersatzwerts, den er stillgelegt hat (den eines vergessenen Werts oder einen ersetzten),
+damit kein anderer Wert ihn erhält: Er zeigt, wie viele Ersatzwerte stillgelegt wurden, nie welche. Valkey
+verwendet mit Schlüssel abgeleitete Namen, verschlüsselte sensible Nutzdaten und signierte
+Koordinationsnachrichten.
 
 Die Verschlüsselung gespeicherter Daten verbirgt Originale nicht vor dem laufenden
 Server oder seinem Betreiber. Berechtigte Dashboardansichten erhalten Originale im
@@ -193,10 +210,12 @@ IPv4 erreichbar ist.
 - **Projekte:** höchstens 200 pro Person.
 - **Werte:** Ein Wert mit mehr als 16.384 Zeichen wird geschwärzt statt durch einen Ersatzwert ersetzt und
   weder aufbewahrt noch wiederhergestellt; ein Begriff hat höchstens 8.192 Zeichen.
-- **Speicher:** Eine Instanz gibt ihren Bereichen feste 2 GiB, und ein Bereich nutzt höchstens die Hälfte
-  davon. Ein Bereich an seinem Anteil lernt keinen neuen Wert: Eine Anfrage, die einen bringt, wird mit einem
-  Hinweis darauf angehalten, bis im Dashboard Werte vergessen werden, Regeln oder Projekte weniger werden oder
-  der Server mehr hat. Kein Bereich einer anderen Person wird geschlossen, um Platz zu schaffen.
+- **Speicher:** Eine Instanz, auch jeder Worker, gibt ihren Bereichen feste 2 GiB, und ein Bereich nutzt
+  höchstens die Hälfte davon, dazu bis zu einem Achtel dieser Hälfte für seine Detektoren (128 MiB). Ein Bereich
+  an seinem Anteil lernt keinen neuen Wert: Eine Anfrage, die einen bringt, wird mit einem Hinweis darauf
+  angehalten, bis im Dashboard Werte vergessen werden, Regeln oder Projekte weniger werden oder der Server mehr
+  hat. Kein Bereich einer anderen Person wird geschlossen, um Platz zu schaffen. Was die Detektoren mehr
+  belegen, hält nie einen Wert an.
 - **Statistiken** zählen die letzten 100.000 Austausche, und eine Person behält ihre zehn neuesten
   Dashboard-Sitzungen.
 

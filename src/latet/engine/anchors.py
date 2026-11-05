@@ -75,6 +75,7 @@ and makes those of an older version again. Any change that gives a value another
 from __future__ import annotations
 
 import functools
+import itertools
 import operator
 import re
 import unicodedata
@@ -105,6 +106,22 @@ _DOTTED = re.compile(r"[A-Za-z0-9._-]+")
 _SEGMENT = re.compile(r"[A-Za-z0-9]+")
 _DOTTED_WHOLE = re.compile(r"[a-z0-9]+(?:[._-]+[a-z0-9]+)*")
 SEGMENTS_AT_MOST = 4
+
+
+def _dotted_parts() -> re.Pattern[str]:
+    """At each start of a run of letters and digits (no letter or digit before it), the parts of two, three... up to
+    ``SEGMENTS_AT_MOST`` runs in a row from it, each with the dots, hyphens and underscores between them, in nested
+    groups (the outermost the longest), read in a lookahead so that every start is tried: the parts ``_dotted_words``
+    takes, in one pass of a compiled pattern. Each run in it is the whole of its run: a greedy run of letters and digits
+    is followed by a separator or by nothing, and a run of separators by a letter or a digit."""
+    run, more = "[A-Za-z0-9]+", "[._-]+[A-Za-z0-9]+"
+    parts = f"({run}{more})"  # two runs
+    for _ in range(SEGMENTS_AT_MOST - 2):
+        parts = f"({parts}(?:{more})?)"
+    return re.compile(f"(?<![A-Za-z0-9])(?={parts})")
+
+
+_DOTTED_PARTS = _dotted_parts()
 # The labels of the public mail domains (`gmail`, `hotmail`, `com`), which thousands of addresses share: never the
 # anchor of a value that has another run, which a text that names them would otherwise find all of (Ruling T8a).
 _MAIL_LABELS = frozenset(label for domain in PUBLIC_MAIL_DOMAINS for label in domain.casefold().split("."))
@@ -262,10 +279,14 @@ def _bare(folded: str) -> str:
     return folded.translate(_unmarked())
 
 
-def _words(text: str) -> set[str]:
+def _words(
+    text: str, interior: Callable[[int], bool | None] | None = None, windows: set[str] | None = None
+) -> set[str]:
     """The runs of plain letters and digits of ``text``, in folded case, and the first and last ``EDGE`` letters of
     those that are longer (``edges``); and, when it holds another script, its runs of letters and digits of two or more
-    without their marks, and every two characters in a row of a run of a script written without spaces."""
+    without their marks, and every two characters in a row of a run of a script written without spaces. With
+    ``interior``, the interior windows of each longer run, in the text's order, into ``windows``: each run's positions
+    admitted before they are made (``interior`` False: that run has none)."""
     folded = _folded(text)
     words = set()
     for match in WORD.finditer(folded):
@@ -274,6 +295,10 @@ def _words(text: str) -> set[str]:
         if len(run) > EDGE:
             words.add(run[:EDGE])
             words.add(run[-EDGE:])
+            # Positions admitted before windows are made, repeated windows counted too. The outer two edges were
+            # added above; these find existing edge rows for values glued on both sides.
+            if interior is not None and windows is not None and interior(len(run) - EDGE - 1) is not False:
+                windows.update(run[at : at + EDGE] for at in range(1, len(run) - EDGE))
     if not folded.isascii():
         for match in _RUN.finditer(_bare(folded)):
             run = match.group(1)
@@ -388,28 +413,44 @@ def _unglued(runs: list[str], apart: str | None, runs_of: Callable[[str], list[s
     return [run for run in runs if run in whole] or free or runs
 
 
-def words_in(text: str, *, dotted: bool = False) -> set[str]:
+def words_in(text: str, *, dotted: bool = False, interior: Callable[[int], bool | None] | None = None) -> set[str]:
     """Every run of plain letters and digits of ``text`` that could be an anchor, in folded case: as the text is
     written, with its escapes read as separators (written once or twice), with the escapes that stand for a letter
     read as the letter, and as the masker reads its escapes (``escapes.decoded``: HTML's references, git's octal bytes,
     Python's long escape too), where a value the vault knows is found written in them (0.9.9). ``dotted``: its dotted
     words too (``dotted``: an address's local part, an IPv4 address, a domain), by which a store finds the values and
-    fakes of those shapes (``stored.word_of``)."""
+    fakes of those shapes (``stored.word_of``). ``interior`` enables interior ASCII edge windows, each run's positions
+    admitted before they are made (``words_and_windows``). It changes query words alone, never the anchors or edges
+    stored for a value."""
+    plain, windows = words_and_windows(text, dotted=dotted, interior=interior)
+    return plain | windows
+
+
+def words_and_windows(
+    text: str, *, dotted: bool = False, interior: Callable[[int], bool | None] | None = None
+) -> tuple[set[str], set[str]]:
+    """``words_in``'s words, apart: those 0.10.x read (the runs, their edges, the dotted words), and the interior
+    windows of the longer runs that are none of those (with ``interior``: each run's positions admitted before its
+    windows are made, ``interior`` answering False for a run that gets none, as ``LookupBudget.admit_windows`` answers
+    past its bound). The readings are read in one fixed order (as written, its escapes blanked once, twice, read as
+    letters, as the masker reads them), so that a bound cuts at the same run in every process: a set of readings is
+    iterated in an order that changes with ``PYTHONHASHSEED``."""
     text = _composed(text)
-    readings = {text}
+    readings = [text]
     if "\\" in text or "%" in text:
         once = _separated(text)
-        readings |= {once, _doubled(once), _doubled(_separated(_composed(decoded(text))))}
+        readings += [once, _doubled(once), _doubled(_separated(_composed(decoded(text))))]
     if "\\" in text or "%" in text or "&" in text:
         reading = as_escapes_read(text)
         if reading is not None:
-            readings.add(_composed(reading.text))
+            readings.append(_composed(reading.text))
     words: set[str] = set()
-    for reading in readings:  # each read once, though two readings are often one text
-        words |= _words(reading)
+    windows: set[str] = set()
+    for reading in dict.fromkeys(readings):  # each read once, in this order, though two readings are often one text
+        words |= _words(reading, interior, windows)
         if dotted:
             words |= _dotted_words(_folded(reading))
-    return words
+    return words, windows - words
 
 
 def dotted(string: str) -> str | None:
@@ -432,19 +473,14 @@ def _dotted_words(folded: str) -> set[str]:
     ``SEGMENTS_AT_MOST`` runs that ends the local part, with the domain's name, so that a fake address with a letter
     glued before it by a hyphen or a dot is found as its local part is. Each `@` is read with the run that ends at it
     and the name after it, whatever the address before took: `ops@gktk.fzy8n@liberty-6a4e.example` gives the second
-    address's word too."""
-    words: set[str] = set()
-    local_at: dict[int, str] = {}  # each run, by where it ends: the local part of an `@` there
-    for match in _DOTTED.finditer(folded):
-        run = match.group()
-        local_at[match.end()] = run
-        segments = [(m.start(), m.end()) for m in _SEGMENT.finditer(run)]
-        for i, (start, _) in enumerate(segments):
-            for j in range(i + 1, min(len(segments), i + SEGMENTS_AT_MOST)):
-                word = run[start : segments[j][1]]
-                if len(word) >= 3:
-                    words.add(word)
+    address's word too. The parts are read in one pass of a compiled pattern (``_DOTTED_PARTS``), as a loop over each
+    run's runs of letters and digits read them before (``tests/unit/test_dotted_words_exact.py`` holds that loop)."""
+    words = {word for word in itertools.chain.from_iterable(_DOTTED_PARTS.findall(folded)) if len(word) >= 3}
     at = folded.find("@")
+    if at == -1:
+        return words
+    # each run, by where it ends: the local part of an `@` there
+    local_at = {match.end(): match.group() for match in _DOTTED.finditer(folded)}
     while at != -1:
         local, name = local_at.get(at), _NAME.match(folded, at + 1)
         domain = name.group().strip("-") if name is not None else ""

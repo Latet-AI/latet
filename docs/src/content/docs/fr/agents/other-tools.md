@@ -27,6 +27,14 @@ Junie CLI, Kilo Code, Continue et Crush lisent aussi des réglages dans le proje
 réglages propres à un projet peuvent les faire pointer vers une autre adresse : vérifiez-les avant de
 travailler dans un dépôt que vous n'avez pas écrit.
 
+Latet lit chaque partie de chaque requête que ces outils envoient
+([Chaque partie d'une requête](../../concepts/protection-scope/#chaque-partie-dune-requête)). Leurs listes de
+modèles passent sur les routes ci-dessus. Un en-tête qu'un outil vous laisse ajouter est refusé,
+nommé, tant qu'une [exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne le
+laisse pas passer, et un appel que Latet ne lit pas (fichiers, audio, génération d'images) est refusé.
+Ces outils sont configurés à la main, donc un dossier qu'ils nomment ne fait qu'ajouter de la
+protection ([Projets](../../concepts/projects/#de-confiance-et-déclarés)).
+
 ## En un coup d'œil
 
 *Testé* signifie que l'outil lui-même a été lancé à travers Latet face à un fournisseur de test, sur
@@ -139,6 +147,13 @@ définissez `COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` et votre cl
 Anthropic, `COPILOT_PROVIDER_TYPE=anthropic` et votre clé Anthropic. Pour lancer `copilot`
 vous-même, définissez plutôt `COPILOT_PROVIDER_BASE_URL` sur l'adresse de Latet :
 `http://127.0.0.1:5283/openai/v1`, `/openrouter/api/v1` ou `/anthropic`.
+
+`latet copilot` donne aussi à Copilot une clé de lancement dans `COPILOT_PROVIDER_HEADERS`, ajoutée
+aux en-têtes que vous y définissez, sur un fournisseur compatible OpenAI par Chat Completions : Latet
+considère alors le projet de la session comme de confiance. Par l'API Responses, l'API d'Anthropic ou un
+WebSocket, il n'en passe aucune et le dit, et le projet est déclaré. Vos propres en-têtes dans
+`COPILOT_PROVIDER_HEADERS` sont refusés, chacun nommé, tant qu'une exception exacte ne le laisse pas
+passer.
 
 `COPILOT_PROVIDER_WIRE_API=responses` utilise plutôt l'API Responses. Le modèle doit prendre en
 charge les appels d'outils et le streaming. Sans `COPILOT_OFFLINE=true`, la CLI envoie quand même de

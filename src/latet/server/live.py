@@ -66,7 +66,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from cryptography.exceptions import InvalidTag
 
@@ -74,6 +74,7 @@ from latet.engine.pipeline import LRU, Session, WeighedLRU
 from latet.engine.types import EntityClass, Policy, Replacement
 from latet.gateway.aws import AwsError
 from latet.gateway.mediate import APPROVED_KEPT
+from latet.gateway.provenance import ECHO_FRONT_LIMIT, LocalEchoes
 from latet.gateway.sigv4 import AwsCredentials
 from latet.logline import Paced, described
 from latet.server.bus import Bus
@@ -83,6 +84,8 @@ from latet.state import Left
 from latet.state.local import CODE_TTL, SESSION_TTL
 
 if TYPE_CHECKING:
+    from redis.commands.core import Script
+
     from latet.server.audit import ChainCheck
 
 log = logging.getLogger(__name__)
@@ -1235,6 +1238,223 @@ class ValkeyGiven:
             self._checked.put(member, now)
 
 
+ECHO_MEMBERS = 20_000
+ECHO_BYTES = 4 * 1024 * 1024
+ECHO_TOTAL_BYTES = 256 * 1024 * 1024
+ECHO_STORED_ENTRY = 512  # member duplicated in hash/index, expiry, hash/zset node and capacity
+ECHO_STORED_IDENTITY = 512  # two keyed count/size fields and hash capacity
+ECHO_STORED_BASE = 2048  # four key names/objects and empty container capacity
+
+# An explicit script flag opts into default OOM denial, even when expiry cleanup is its first write.
+# Every relevant type, argument, touched record and counter is validated before any mutation.
+_ECHOES = """#!lua flags=no-cluster
+local kinds = {'hash', 'zset', 'hash', 'string'}
+for i = 1, 4 do
+  local kind = redis.call('TYPE', KEYS[i]).ok
+  if kind ~= 'none' and kind ~= kinds[i] then return redis.error_reply('opaque type') end
+end
+local mode, owner = ARGV[1], ARGV[2]
+local ttl, cap, bytes, totalcap = tonumber(ARGV[3]), tonumber(ARGV[4]), tonumber(ARGV[5]), tonumber(ARGV[6])
+local entry, identity, base = tonumber(ARGV[7]), tonumber(ARGV[8]), tonumber(ARGV[9])
+local supplied, prune = tonumber(ARGV[10]), tonumber(ARGV[11])
+if (mode ~= 'read' and mode ~= 'keep') or #owner ~= 64 or string.find(owner, '[^0-9a-f]')
+  or not ttl or ttl <= 0 or not cap or cap < 1 or not bytes or bytes < 1
+  or not totalcap or totalcap < 1 or not entry or entry < 1 or not identity or identity < 1
+  or not base or base < 0 or not supplied or not prune or prune < 1 or #ARGV - 11 > cap then
+  return redis.error_reply('opaque arguments')
+end
+local tick = redis.call('TIME')
+local now = supplied >= 0 and supplied or tonumber(tick[1]) + tonumber(tick[2]) / 1000000
+local total = tonumber(redis.call('GET', KEYS[4]) or '0')
+if not total or total < 0 then return redis.error_reply('opaque counter') end
+local physical = redis.call('HLEN', KEYS[1])
+local ownerfields = redis.call('HLEN', KEYS[3])
+if ownerfields % 2 ~= 0 or (physical == 0 and ownerfields ~= 0) or redis.call('ZCARD', KEYS[2]) ~= physical
+  or total ~= (physical == 0 and 0 or physical * entry + ownerfields / 2 * identity + base) then
+  return redis.error_reply('opaque total')
+end
+local owners, records, wanted = {}, {}, {}
+local function counts(who)
+  if owners[who] then return owners[who] end
+  local count = tonumber(redis.call('HGET', KEYS[3], who .. ':c') or '0')
+  local size = tonumber(redis.call('HGET', KEYS[3], who .. ':b') or '0')
+  if not count or count < 0 or count % 1 ~= 0 or not size
+    or size ~= (count == 0 and 0 or count * entry + identity) then return nil end
+  owners[who] = {count, size}
+  return owners[who]
+end
+local function record(member)
+  if #member ~= 129 or string.sub(member,65,65) ~= ':'
+    or string.find(string.sub(member,1,64) .. string.sub(member,66), '[^0-9a-f]') then return false end
+  local who = string.sub(member,1,64)
+  if not counts(who) then return false end
+  local value = redis.call('HGET', KEYS[1], member)
+  local score = redis.call('ZSCORE', KEYS[2], member)
+  if (value and not score) or (score and not value) then return false end
+  if value and owners[who][1] == 0 then return false end
+  if value and (not tonumber(value) or tonumber(value) ~= tonumber(score)) then return false end
+  records[member] = value and tonumber(value) or false
+  return true
+end
+if not counts(owner) then return redis.error_reply('opaque counter') end
+for i = 12, #ARGV do
+  if #ARGV[i] ~= 64 or string.find(ARGV[i], '[^0-9a-f]') then return redis.error_reply('opaque member') end
+  local member = owner .. ':' .. ARGV[i]
+  if not record(member) then return redis.error_reply('opaque record') end
+  wanted[member] = ARGV[i]
+end
+local expired = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', now, 'LIMIT', 0, prune)
+for _, member in ipairs(expired) do
+  if not record(member) then return redis.error_reply('opaque expired record') end
+end
+-- Simulate every removal/addition and validate exact nonnegative counters before publishing any write.
+local removed, removedbytes = {}, 0
+for member, at in pairs(records) do
+  if at and at <= now then
+    removed[member] = true
+    local c = owners[string.sub(member,1,64)]
+    c[1] = c[1] - 1
+    removedbytes = removedbytes + entry
+    if c[1] == 0 then removedbytes = removedbytes + identity end
+    if c[1] < 0 then return redis.error_reply('opaque counter') end
+  end
+end
+local remaining = total - removedbytes
+if remaining < 0 then return redis.error_reply('opaque total') end
+local c = owners[owner]
+local added = 0
+if mode == 'keep' then
+  for member, _ in pairs(wanted) do
+    if not records[member] or removed[member] then added = added + 1 end
+  end
+end
+local growth = added * entry + (added > 0 and c[1] == 0 and identity or 0)
+if total == 0 and added > 0 then growth = growth + base end
+local permit = mode == 'read' or (c[1] + added <= cap
+  and (c[1] + added) * entry + identity <= bytes and remaining + growth <= totalcap)
+if mode == 'keep' and redis.call('ZCOUNT', KEYS[2], '-inf', now) > #expired then permit = false end
+if not permit then return {0} end
+for member, _ in pairs(removed) do
+  redis.call('HDEL', KEYS[1], member)
+  redis.call('ZREM', KEYS[2], member)
+end
+local result = {1, ttl}
+for member, short in pairs(wanted) do
+  if mode == 'keep' or (records[member] and not removed[member]) then
+    redis.call('HSET', KEYS[1], member, now + ttl)
+    redis.call('ZADD', KEYS[2], now + ttl, member)
+    table.insert(result, short)
+  end
+end
+c[1] = c[1] + added
+for who, counter in pairs(owners) do
+  if counter[1] == 0 then
+    redis.call('HDEL', KEYS[3], who .. ':c', who .. ':b')
+  else
+    redis.call('HSET', KEYS[3], who .. ':c', counter[1], who .. ':b', counter[1] * entry + identity)
+  end
+end
+local final = remaining + growth
+if redis.call('HLEN', KEYS[1]) == 0 then
+  redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4])
+else
+  redis.call('SET', KEYS[4], final)
+end
+return result
+"""
+
+
+class ValkeyEchoes:
+    """One authoritative lookup per preparation; the bounded front never grants permission alone."""
+
+    def __init__(
+        self,
+        bus: Bus,
+        identity_id: str,
+        root_key: bytes,
+        *,
+        clock: Callable[[], float] | None = None,
+        members: int = ECHO_MEMBERS,
+        size: int = ECHO_BYTES,
+        total: int = ECHO_TOTAL_BYTES,
+    ) -> None:
+        self._owner = Sealer(root_key, b"opaque-identity").keyed(identity_id).hex()
+        self._script = bus.client.register_script(_ECHOES)
+        self._keys = [bus.key("opaque-" + name) for name in ("members", "expiry", "identities", "size")]
+        self._clock, self._members, self._size, self._total = clock, members, size, total
+        self._front = LocalEchoes(limit=ECHO_FRONT_LIMIT, entries=members, conversation_limit=ECHO_FRONT_LIMIT)
+
+    @property
+    def ceiling(self) -> Callable[[int], str | None] | None:
+        return self._front.ceiling
+
+    @ceiling.setter
+    def ceiling(self, value: Callable[[int], str | None] | None) -> None:
+        self._front.ceiling = value
+
+    @property
+    def retained_bytes(self) -> int:
+        return self._front.retained_bytes
+
+    def reserve(self, size: int) -> bool:
+        return self._front.reserve(size)
+
+    def release(self, size: int) -> None:
+        self._front.release(size)
+
+    def _call(self, mode: str, members: tuple[bytes, ...]):
+        return self._script(
+            keys=self._keys,
+            args=[
+                mode,
+                self._owner,
+                GIVEN_TTL,
+                self._members,
+                self._size,
+                self._total,
+                ECHO_STORED_ENTRY,
+                ECHO_STORED_IDENTITY,
+                ECHO_STORED_BASE,
+                -1 if self._clock is None else self._clock(),
+                1024,
+                *(member.hex() for member in members),
+            ],
+        )
+
+    def read(self, members: tuple[bytes, ...]) -> tuple[frozenset[bytes], float]:
+        if not members:
+            return frozenset(), 0
+        started = time.monotonic()
+        try:
+            result = self._call("read", members)
+            if not result or result[0] != 1:
+                return frozenset(), 0
+            found = frozenset(bytes.fromhex(item.decode()) for item in result[2:])
+            if not found <= set(members):
+                return frozenset(), 0
+            expires = started + float(result[1])
+            self._front.keep(bytes.fromhex(self._owner), tuple(found), expires=expires)
+            return found, expires
+        except Exception:
+            return frozenset(), 0
+
+    def keep(self, conversation: bytes, members: tuple[bytes, ...]) -> bool:
+        if self._front.closed:
+            return False
+        started = time.monotonic()
+        try:
+            result = self._call("keep", members)
+            if not result or result[0] != 1:
+                return False
+        except Exception:
+            return False  # ambiguous writes confer no front permission; a later authoritative read may find them
+        self._front.keep(bytes.fromhex(self._owner), members, expires=started + GIVEN_TTL)
+        return True
+
+    def close(self) -> None:
+        self._front.close()
+
+
 class ValkeyFeed:
     """A dashboard's live feed that every instance hears: published on Valkey, sealed with the identity's key and bound
     to its channel, and handed to this instance's viewers when it comes back from Valkey (``heard``), on this instance
@@ -1804,3 +2024,442 @@ class SpaceJobs:
 
     def hold(self, name: str, seconds: float) -> AbstractContextManager[bool]:
         return self.bus.lock(f"{name}:{self.identity}", seconds)
+
+
+# D2 compact32 ledgers and selected binaryv2 payload. Audit integers remain
+# fixed bytes, NEVER cjson/tonumber; only bounded TIME/deadline metadata is numeric.
+_REQUEST_STATUS = (
+    r"""
+local mode, inst, ident, argument = ARGV[1], ARGV[2], ARGV[3], ARGV[4]
+if #KEYS ~= 4 or #ARGV ~= 4 then return {0} end
+local function instance(s) return type(s) == 'string' and #s == 12 and not string.find(s, '[^0-9a-f]') end
+local function identity(s) return type(s) == 'string' and #s == 10 and not string.find(s, '[^a-z2-7]') end
+if not instance(inst) or not identity(ident) or (mode ~= 'p' and mode ~= 'd' and mode ~= 'r') then return {0} end
+local suffix = 'request-status:size'
+if string.sub(KEYS[1], -#suffix) ~= suffix then return {0} end
+local base = string.sub(KEYS[1], 1, #KEYS[1] - 4)
+local function dirkey(id) return base .. 'identity:u_' .. id end
+local function rowkey(pair) return base .. 'row:' .. string.sub(pair, 1, 12) .. ':u_' .. string.sub(pair, 13, 22) end
+if KEYS[2] ~= base .. 'expiry' or KEYS[3] ~= dirkey(ident) or KEYS[4] ~= rowkey(inst .. ident) then return {0} end
+local alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+local function decode(s)
+    if #s ~= 10 then return nil end
+    local n = 0
+    for j = 1, 10 do
+        local at = string.find(alphabet, string.sub(s, j, j), 1, true)
+        if not at then return nil end
+        n = n * 36 + at - 1
+    end
+    if n > 9999999999999 then return nil end
+    return n
+end
+local function encode(n)
+    local out = ''
+    for j = 1, 10 do
+        local digit = n % 36
+        out = string.sub(alphabet, digit + 1, digit + 1) .. out
+        n = math.floor(n / 36)
+    end
+    return out
+end
+local function payload(s, first)
+    first = first or 1
+    if type(s) ~= 'string' then return false end
+    local length = #s - first + 1
+    if length < 44 or length > 7604 then return false end
+    local version, flags, b, e = string.byte(s, first, first + 3)
+    if version ~= 2 or flags > 3 or b > 8 or e > 128 or length ~= 44 + 33 * b + 57 * e then return false end
+    -- Audit63-bit values stay binary strings: no tonumber/cjson/summing.
+    for n = 0, 2 do if string.byte(s, first + 20 + 8 * n) >= 128 then return false end end
+    local at, builtins, exceptions, seen = first + 44, 0, 0, {}
+    for n = 1, b + e do
+        local tag = string.byte(s, at)
+        if not tag then return false end
+        if tag <= 7 then
+            if at + 32 > #s or seen[tag] then return false end
+            seen[tag] = true
+            builtins = builtins + 1
+            at = at + 1
+        elseif tag >= 129 and tag <= 135 then
+            if at + 56 > #s or string.byte(s, at + 17) >= 128 then return false end
+            local revision = string.sub(s, at + 17, at + 24)
+            if revision == '\0\0\0\0\0\0\0\0' then return false end
+            local key = string.sub(s, at, at + 24) -- exact tag+ID16+revision8
+            if seen[key] then return false end
+            seen[key] = true
+            exceptions = exceptions + 1
+            at = at + 25
+        else return false end
+        for j = 1, 4 do
+            if string.byte(s, at) >= 128 then return false end
+            at = at + 8
+        end
+    end
+    return builtins == b and exceptions == e and at == #s + 1
+end
+if mode == 'p' and not payload(argument) then return {0} end
+if mode == 'r' and (#argument ~= 22 or not instance(string.sub(argument, 1, 12)) or not"""
+    r""" decode(string.sub(argument, 13, 22))) then return {0} end
+if mode == 'd' and argument ~= '' then return {0} end
+local time = redis.call('TIME')
+if not string.match(time[1], '^%d+$') or #time[1] > 10 or not string.match(time[2], '^%d+$') or"""
+    r""" #time[2] > 6 then return {0} end
+local seconds, micros = tonumber(time[1]), tonumber(time[2])
+if seconds > 9999999969 or micros > 999999 then return {0} end
+local now = seconds * 1000 + math.floor(micros / 1000)
+if now > 9999999969999 then return {0} end
+local deadline = now + 30000
+local bad = false
+local function bounded(key, cap, persistent)
+    local kind = redis.call('TYPE', key).ok
+    if kind == 'none' then return '' end
+    if kind ~= 'string' or redis.call('STRLEN', key) > cap then bad = true; return '' end
+    if persistent and redis.call('PTTL', key) ~= -1 then bad = true; return '' end
+    return redis.call('GET', key)
+end
+local sizes_raw = bounded(KEYS[1], 32768, true)
+local expiry_raw = bounded(KEYS[2], 32768, true)
+if bad or #sizes_raw % 32 ~= 0 or #expiry_raw % 32 ~= 0 then return {0} end
+local sizes, expiry, counts, identities = {}, {}, {}, {}
+local previous = ''
+local total = 0
+for at = 1, #sizes_raw, 32 do
+    local record = string.sub(sizes_raw, at, at + 31)
+    local pair, stamp = string.sub(record, 1, 22), decode(string.sub(record, 23, 32))
+    local id = string.sub(pair, 13, 22)
+    if not instance(string.sub(pair, 1, 12)) or not identity(id) or not stamp or stamp >"""
+    r""" deadline or pair <= previous then return {0} end
+    sizes[pair] = stamp
+    counts[id] = (counts[id] or 0) + 1
+    if counts[id] > 64 then return {0} end
+    identities[id] = true
+    total = total + 1
+    previous = pair
+end
+previous = ''
+for at = 1, #expiry_raw, 32 do
+    local record = string.sub(expiry_raw, at, at + 31)
+    local pair, stamp = string.sub(record, 11, 32), decode(string.sub(record, 1, 10))
+    if not stamp or record <= previous or expiry[pair] or not sizes[pair] or stamp > sizes[pair] then return {0} end
+    expiry[pair] = stamp
+    previous = record
+end
+if mode ~= 'p' then identities = {} end
+identities[ident] = true
+local directories, directory_raw, rows = {}, {}, {}
+for id in pairs(identities) do
+    local raw = bounded(dirkey(id), 1408, true)
+    if bad or #raw % 22 ~= 0 then return {0} end
+    local entries, before = {}, ''
+    for at = 1, #raw, 22 do
+        local member = string.sub(raw, at, at + 21)
+        local who, stamp = string.sub(member, 1, 12), decode(string.sub(member, 13, 22))
+        local pair = who .. id
+        if not instance(who) or not stamp or who <= before or not sizes[pair] or stamp > sizes[pair] then return {0} end
+        entries[who] = stamp
+        before = who
+    end
+    directories[id], directory_raw[id] = entries, raw
+end
+local function row_header(pair)
+    local key = rowkey(pair)
+    local kind = redis.call('TYPE', key).ok
+    if kind == 'none' then return false end
+    if kind ~= 'string' then bad = true; return false end
+    local length = redis.call('STRLEN', key)
+    local ttl = redis.call('PTTL', key)
+    if length < 58 or length > 7618 or ttl < 0 or ttl > 30000 then bad = true; return false end
+    -- Fixed18 metadata bytes: deadline14+binary header4, never a bulk row read.
+    local header = redis.call('GETRANGE', key, 0, 17)
+    if #header ~= 18 or string.sub(header, 14, 14) ~= '\n' or not"""
+    r""" string.match(string.sub(header, 1, 13), '^%d+$') then bad = true; return false end
+    local version, flags, b, e = string.byte(header, 15, 18)
+    if version ~= 2 or flags > 3 or b > 8 or e > 128 or length ~= 14 + 44 + 33 * b + 57 * e"""
+    r""" then bad = true; return false end
+    local stamp = tonumber(string.sub(header, 1, 13))
+    if not sizes[pair] or stamp > sizes[pair] then bad = true; return false end
+    return stamp
+end
+if mode == 'r' then
+    local pair = string.sub(argument, 1, 12) .. ident
+    rows[pair] = row_header(pair)
+else
+    for pair in pairs(sizes) do
+        if mode == 'p' or string.sub(pair, 13, 22) == ident then rows[pair] = row_header(pair) end
+    end
+end
+local target = inst .. ident
+if mode ~= 'r' and not sizes[target] then row_header(target) end
+if bad then return {0} end
+if mode ~= 'p' then
+    local complete, registered = 1, 0
+    for pair, stamp in pairs(sizes) do
+        if string.sub(pair, 13, 22) == ident then
+            local who = string.sub(pair, 1, 12)
+            if directories[ident][who] ~= stamp or expiry[pair] ~= stamp or rows[pair] ~= stamp"""
+    r""" or stamp <= now then complete = 0 end
+            registered = registered + 1
+        end
+    end
+    if mode == 'd' then return {1, complete, directory_raw[ident]} end
+    local who, stamp = string.sub(argument, 1, 12), decode(string.sub(argument, 13, 22))
+    local pair = who .. ident
+    if sizes[pair] ~= stamp or expiry[pair] ~= stamp or directories[ident][who] ~= stamp or"""
+    r""" rows[pair] ~= stamp or stamp <= now then return {0} end
+    local raw = bounded(rowkey(pair), 7618, false)
+    if bad or not payload(raw, 15) then return {0} end
+    return {1, raw}
+end
+-- All observations/grammar/type/length/cap checks precede the first mutation.
+if sizes[target] and deadline <= sizes[target] then return {0} end
+local expired = {}
+for pair, stamp in pairs(sizes) do if stamp <= now then expired[#expired + 1] = {pair, stamp} end end
+table.sort(expired, function(a, b) return a[2] < b[2] or (a[2] == b[2] and a[1] < b[1]) end)
+local victims, affected = {}, {}
+for n = 1, math.min(64, #expired) do
+    local pair = expired[n][1]
+    victims[#victims + 1] = pair
+    local id, who = string.sub(pair, 13, 22), string.sub(pair, 1, 12)
+    sizes[pair], expiry[pair], directories[id][who] = nil, nil, nil
+    counts[id] = counts[id] - 1
+    total = total - 1
+    affected[id] = true
+end
+local function size_text()
+    local keys, out = {}, {}
+    for pair in pairs(sizes) do keys[#keys + 1] = pair end
+    table.sort(keys)
+    for _, pair in ipairs(keys) do out[#out + 1] = pair .. encode(sizes[pair]) end
+    return table.concat(out)
+end
+local function expiry_text()
+    local out = {}
+    for pair, stamp in pairs(expiry) do out[#out + 1] = encode(stamp) .. pair end
+    table.sort(out)
+    return table.concat(out)
+end
+local function directory_text(id)
+    local keys, out = {}, {}
+    for who in pairs(directories[id]) do keys[#keys + 1] = who end
+    table.sort(keys)
+    for _, who in ipairs(keys) do out[#out + 1] = who .. encode(directories[id][who]) end
+    return table.concat(out)
+end
+local prune_size, prune_expiry, prune_dirs = size_text(), expiry_text(), {}
+for id in pairs(affected) do prune_dirs[id] = directory_text(id) end
+local admit = #expired <= 64 and (sizes[target] or (total < 1024 and (counts[ident] or 0) < 64))
+local published_size, published_expiry, published_directory
+if admit then
+    sizes[target], expiry[target], directories[ident][inst] = deadline, deadline, deadline
+    published_size, published_expiry, published_directory = size_text(), expiry_text(), directory_text(ident)
+    if #published_size > 32768 or #published_expiry > 32768 or #published_directory > 1408 then return {0} end
+end
+local function replace(key, raw)
+    if #raw == 0 then redis.call('DEL', key) else redis.call('SET', key, raw) end
+end
+if #victims > 0 then
+    for _, pair in ipairs(victims) do redis.call('DEL', rowkey(pair)) end
+    for id, raw in pairs(prune_dirs) do replace(dirkey(id), raw) end
+    replace(KEYS[2], prune_expiry)
+    replace(KEYS[1], prune_size) -- REFUND LAST, including partial/lost earlier writes
+end
+if not admit then return {0} end
+redis.call('SET', KEYS[1], published_size) -- RESERVE FIRST; never compensate a failed/lost reply
+redis.call('SET', KEYS[2], published_expiry)
+redis.call('SET', KEYS[3], published_directory)
+local row = string.format('%013.0f', deadline) .. '\n' .. argument
+redis.call('SET', KEYS[4], row, 'PXAT', string.format('%.0f', deadline)) -- ROW LAST / acknowledgement
+return {1}
+"""
+)
+
+
+class ValkeyRequestStatus:
+    """One snapshot's exact four-family D2 transport, owned by its work lease.
+
+    The bus/client and immutable module script body are borrowed server owners.
+    All per-read bytes/decoded rows/accumulator stay in the precharged work.
+    No method is called on an event loop or with A/V/P/E held.
+    """
+
+    __slots__ = ("_bus", "_closed", "_identity", "_instance", "_keys", "_script")
+
+    def __init__(self, bus: Bus, identity_id: str, instance_id: str) -> None:
+        if (
+            type(identity_id) is not str
+            or re.fullmatch(r"u_[a-z2-7]{10}", identity_id) is None
+            or type(instance_id) is not str
+            or re.fullmatch(r"[0-9a-f]{12}", instance_id) is None
+        ):
+            raise ValueError("invalid request status owner")
+        prefix = bus.prefix
+        if type(prefix) is not str or len(prefix) > 128 or any(ord(c) > 127 for c in prefix):
+            raise ValueError("unavailable request status prefix")
+        self._bus, self._identity, self._instance = bus, identity_id, instance_id
+        self._keys = (
+            prefix + "request-status:size",
+            prefix + "request-status:expiry",
+            prefix + f"request-status:identity:{identity_id}",
+            prefix + f"request-status:row:{instance_id}:{identity_id}",
+        )
+        self._script: Script | None = bus.client.register_script(_REQUEST_STATUS)
+        self._closed = False
+
+    def _bind(self, work) -> bool:
+        from latet.gateway.request_audit import SnapshotWork
+
+        if type(self) is not ValkeyRequestStatus or type(work) is not SnapshotWork or self._closed:
+            return False
+        owner = work._owner
+        if owner is None:
+            return False
+        with owner._lock:
+            if (
+                owner._closed
+                or work._ending
+                or not work._worker
+                or work._projection is None
+                or work._projection["server"] is None
+            ):
+                return False
+            if work._d2_transport is not None and work._d2_transport is not self:
+                return False
+            work._d2_transport = self
+            return True
+
+    def _call(self, mode: str, argument):
+        # All registered-script/client calls happen after _bind released A.
+        return cast("Script", self._script)(keys=self._keys, args=[mode, self._instance, self._identity[2:], argument])
+
+    def publish(self, work) -> bool:
+        from latet.gateway.request_audit import _d2_encode
+
+        if not self._bind(work):
+            return False
+        work._d2_published = False
+        if work._d2_payload is None:
+            work._d2_payload = _d2_encode(work._projection["local"])
+        if work._d2_payload is None:
+            return False
+        acknowledged = False
+        try:
+            reply = self._call("p", work._d2_payload)
+            acknowledged = type(reply) is list and len(reply) == 1 and type(reply[0]) is int and reply[0] == 1
+        except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+            pass  # no exception text/trace/raw client diagnostics retained or logged
+        work._d2_published = acknowledged
+        if not work._server_unavailable(acknowledged):
+            work._encoded = None  # never expose a stale pre-publication flag
+        return acknowledged
+
+    def aggregate(self, work) -> bool:
+        from latet.gateway.request_audit import _d2_decode, _d2_directory, _D2Counts
+
+        if not self._bind(work):
+            return False
+        reply = None
+        try:  # noqa: SIM105 - Avoid a new allocation in ownership cleanup.
+            reply = self._call("d", b"")
+        except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+            pass
+        if (
+            type(reply) is not list
+            or len(reply) != 3
+            or type(reply[0]) is not int
+            or reply[0] != 1
+            or type(reply[1]) is not int
+            or reply[1] not in (0, 1)
+        ):
+            if not work._server_unavailable(work._d2_published):
+                work._encoded = None
+            return False
+        complete = bool(reply[1])
+        work._d2_directory = reply[2]
+        work._d2_entries = _d2_directory(work._d2_directory)
+        reply = None
+        if work._d2_entries is None:
+            if not work._server_unavailable(work._d2_published):
+                work._encoded = None
+            return False
+        work._d2_counts = _D2Counts(self._instance, work._projection["local"])
+        for n, (instance, stamp) in enumerate(work._d2_entries):
+            if instance == self._instance:
+                continue  # current local replaces own remote epoch/counts/D4
+            if len(work._d2_counts._seen) >= 64:
+                omitted = sum(who != self._instance for who, _ in work._d2_entries[n:])
+                work._d2_counts.incomplete(omitted)
+                break
+            reply = decoded = None
+            try:  # noqa: SIM105 - Avoid a new allocation in ownership cleanup.
+                reply = self._call("r", work._d2_directory[n * 22 : (n + 1) * 22])
+            except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+                pass
+            if type(reply) is list and len(reply) == 2 and type(reply[0]) is int and reply[0] == 1:
+                work._d2_raw = reply[1]
+                reply = None
+                work._d2_decoded = _d2_decode(work._d2_raw)
+                decoded = work._d2_decoded
+            if decoded is None or decoded[0] != stamp:
+                work._d2_counts.incomplete()
+            else:
+                work._d2_counts.add(instance, decoded[1])
+            # End EVERY raw/decoded alias before the next row/client call.
+            work._d2_raw = work._d2_decoded = None
+            reply = decoded = None
+        try:
+            reply = self._call("d", b"")
+        except Exception:
+            reply = None
+        if (
+            type(reply) is not list
+            or len(reply) != 3
+            or type(reply[0]) is not int
+            or reply[0] != 1
+            or reply[1] != 1
+            or reply[2] != work._d2_directory
+        ):
+            complete = False
+        reply = None
+        server = work._d2_counts.result(published=work._d2_published, complete=complete)
+        return work._server_projection(server)
+
+    def _end(self) -> None:
+        # Exact native class established by _bind; ONLY field clearing, no I/O,
+        # locks or callbacks. SnapshotWork invokes this before refunding charge.
+        self._closed = True
+        self._keys = ()
+        self._script = self._bus = None
+        self._identity = self._instance = ""
+
+
+def refresh_request_status(work, *, aggregate: bool) -> None:
+    """Existing native worker only; every mutable transport belongs to Work."""
+    from latet.gateway.request_audit import SnapshotWork
+
+    if type(work) is not SnapshotWork or type(aggregate) is not bool:
+        return
+    owner = work._owner
+    if owner is None:
+        return
+    with owner._lock:
+        if (
+            owner._closed
+            or work._ending
+            or not work._worker
+            or owner._status_owner is None
+            or work._projection is None
+            or work._projection["server"] is None
+            or work._d2_transport is not None
+        ):
+            return
+        descriptor = owner._status_owner  # bounded existing tuple, never a factory callback
+    try:
+        transport = ValkeyRequestStatus(cast("Bus", descriptor[0]), descriptor[1], descriptor[2])
+        transport.publish(work)
+        if aggregate:
+            transport.aggregate(work)
+    except Exception:
+        # Unsupported namespace/build/publication/read affects observation only.
+        # No raw prefix/driver diagnostics/exception object escapes this frame.
+        if not work._server_unavailable(work._d2_published):
+            work._encoded = None

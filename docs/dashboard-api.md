@@ -29,33 +29,60 @@ type Agent = "claude-code" | "codex" | "opencode" | "tutorial-agent" | "other"  
 type ExchangeSummary = {
   id: string                 // "ex_..."
   ts: number                 // unix seconds (float)
-  session: string            // "cc:<Claude Code session>", "session-id:<Codex>", "conv:<hash of the opening>"
+  session: string            // the conversation's opaque keyed key ("hg:l1:..."), never an agent's session id
   agent: Agent
   agent_version: string | null
-  upstream: string           // "anthropic" | "openai" | "chatgpt" | "openrouter" | custom name
-  path: string               // "/v1/messages"
+  upstream: string           // "anthropic" | "openai" | "chatgpt" | "openrouter" | ... | "custom" (one of yours)
+  destination?: string       // the list's alone: a destination of yours by its name in your settings
+  host: string | null        // where it went: a provider's public endpoint ("api.anthropic.com",
+                             // "bedrock-runtime.eu-west-1.amazonaws.com"), "custom" for any other address
+  signed: boolean            // Latet signed it for Amazon (never with which profile)
+  path: string               // the route template it was admitted by ("/{destination}/v1/messages",
+                             // "/bedrock/{region}/model/{model}/{operation}"), the plugin's check
+                             // ("/plugin/final-check"), or an older record's area ("/gateway")
   protocol: string | null    // "anthropic" | "chat" | "responses" | "embeddings" | null
   mode: Mode
   transport: "http" | "ws"
-  model: string | null
+  model: string | null       // as its provider's grammar admits it; null for anything else
   status: number | null      // HTTP status (101 for a WebSocket turn; 400 for one Latet stopped, as over HTTP)
   latency_ms: number | null  // whole exchange
-  overhead_ms: number | null // time Latet added before forwarding
+  overhead_ms: number | null // time Latet added before forwarding; null for a request never sent
   tokens: { input: number; output: number; cache_read: number; cache_write: number } | null
   masked: number             // values replaced in this request
   new_masked: number         // of which in blocks never sent before in this session
-  by_type: Record<string, number>   // e.g. {"EMAIL": 1, "PASSWORD": 2}
+  by_type: Record<string, number>   // e.g. {"EMAIL": 1, "GITHUB_PAT": 2}: Latet's detectors' types, OTHER for yours
   new_by_type: Record<string, number> // the same, counting only blocks new to the session
   by_class: Record<EntityClass, number> // values masked in this request, by class
   by_module: Record<Module, number> // the same, by the module that found them (missing in older records)
   restored: number           // values restored in the response
   flags: string[]            // "blocked", "leak", "uninspected:image", "degraded:pii", "unknown-route",
                              // "withheld" (the dump guard kept a tool output from the model)
-                             // "outbound:<tool>" (a tool outside this computer got a stand-in: stopped
+                             // "outbound:<category>" ("web-search", "web-fetch", "remote-tool": a tool
+                             // outside this computer got a stand-in: stopped
                              // by the Claude Code plugin, or run by the provider; its input is an
                              // "outbound_tool" slot)
-  verified: boolean          // the egress check ran and found nothing in clear
-  block_reason: string | null // why a blocked request was stopped, as told to the agent (types and lengths only)
+  verified: boolean          // the egress check ran and found nothing in clear (false for an older Latet's row)
+  block_reason: string | null // why a blocked request was stopped, by its category code ("refused",
+                             // "masking-failed", "too-large", "credentials", "proof-incomplete", "evidence",
+                             // "coverage-limit", "envelope-..."), every refusal flagged "blocked"; the words told
+                             // to the agent are in ExchangeDetail.sensitive (full history only)
+  launch: "launched" | "launched-key-missing" | "trusted" | "claimed" | null
+                             // what its launch was decided as (P2-6a): its launch key verified; a session Latet
+                             // launched without a key it can verify (decided as claimed); the plugin's binding of a
+                             // hand-configured Claude Code; anything else, a claim; null where none was decided
+                             // (the plugin's own checks, an older record). Never a key, a folder or a project
+  coverage: "complete-accounting" | "legacy-uninspected" | "unknown"
+                             // every part read (a Forward, or a Pass under the rules below); parts sent unread before
+                             // 0.11; not recorded (an older record, a refusal, the plugin's own check). A WebSocket
+                             // turn records it from its own decision, as a request over HTTP does
+  passes: ("checked-only" | "image-remainder" | "sent-before" | "model-written" | "provider-echo"
+           | "provider-encrypted" | "exception")[]
+                             // what a Pass rested on besides a complete reading, by category: a value the final check
+                             // read without masking it (D6, RC-REC-4); an image's remainder after its text was read (M3);
+                             // a text sent before or written by the model; a provider's opaque item, observed (an echo)
+                             // or by the built-in rule (M2); a request exception (never its id). Empty for a Forward
+  profile: string | null     // the request profile its envelope was admitted by ("anthropic.messages.1")
+  removed: { headers: number; members: number }  // what its profile removed (D4): a 401/403 that follows says so
   project: { id: string; name: string } | null // the session's project (flag "project-off": Latet is off there)
 }
 
@@ -101,6 +128,8 @@ type ExchangeDetail = {
     tool_calls: { name: string; args_masked: string; args_restored: string; spans: Replacement[] }[]
   } | null
   leaks: Leak[]
+  sensitive: { block_reason: string | null; ... } | null  // the full history's private view: the words
+                             // Latet told the agent (types and lengths only); null in a metadata history
 }
 
 // A sensitive value the final check found in clear in a request that is only checked (every Claude Code
@@ -349,6 +378,8 @@ type SettingsChange = {
   destinations: {name: string; before: string | null; after: string | null}[]
                                               // destinations it moves (after: the new address) or
                                               // removes (after: null): where requests and keys would go
+  exceptions: (RequestException & {how: string})[]  // the request exceptions it adds, widens, renews or makes
+                                              // permanent (below), id null for a new one
 }
 // At most one waits: a newer change replaces it (`change_settled` with state superseded).
 // GET /changes → {changes: SettingsChange[]}
@@ -357,6 +388,32 @@ type SettingsChange = {
 //   409 {error} when it no longer waits, or when your settings changed since (state stale: dropped).
 // On GET /approvals/stream: the snapshot carries `changes` too; events `change` (SettingsChange)
 // and `change_settled` {id, state: approved | rejected | stale | superseded}.
+```
+
+## Request exceptions (P2-7, D3, D4, R-75)
+
+```ts
+type RequestException = {
+  id: string | null            // Latet's, set as you approve it; null while it waits
+  destination: string; profile: string          // where: the route and the request profile it applies to
+  scope: "identity" | "project"; project: string | null  // for whom; a project by its folder's name alone
+  reason: "destination-credential" | "custom-header" | "query-parameter" | "other"
+  components: { kind: "header" | "query" | "body"; name: string; role: "credential" | "checked";
+                type: "string" | "number" | "boolean" | "null" | null }[]  // names, never a value
+  days: number; permanent: boolean; description: string | null  // your own words, for you alone
+  issuer: "owner" | "person" | "administration" | null  // who approved it: you on your computer, you on a server,
+                               // a server's administration (for an API key); null while it waits
+  state: "pending" | "needs approval again (profile revised)" | "expired" | "expiring" | "active" | "permanent"
+         | "forbidden"           // expiring: 7 days or fewer left; forbidden: permanent, and the edition forbids it
+  ends: string | null; days_left: number | null; granted: string | null  // ISO day; null for a permanent one
+}
+// GET /exceptions → {items: RequestException[], permanent_allowed: boolean}, judged by the decision's clock
+//   (PostgreSQL's on a server).
+// DELETE /exceptions/{id} → {ok, rules_version}: taken away at once (it raises protection); 404 when none has that id.
+// An exception is added, widened, renewed or made permanent in config.yaml (or by a command): a loosening, it waits for
+// you as a SettingsChange, whose `exceptions` lists each one with `how` ("added", "widened", "made permanent",
+// "renewed") and the fields above, so that the page says before you approve what it lets through, and that one for the
+// whole identity covers every request of yours (R-75).
 ```
 
 ## Company endpoints (src/latet/integrations/routes.py, gateway/cloud.py)

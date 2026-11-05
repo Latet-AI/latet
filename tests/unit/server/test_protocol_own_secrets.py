@@ -1,6 +1,7 @@
 """Reviewed Latet secret types obey the protocol consumers' masking, collision and refusal contracts."""
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -25,6 +26,9 @@ from .test_protocol_read_or_refuse import (
     _upstream,
 )
 
+ANTHROPIC = replace(ANTHROPIC, envelope_expected=frozenset({("model", "m")}))
+OPENAI = replace(OPENAI, envelope_expected=frozenset({("model", "m")}))
+
 OWN_SECRETS = [*((token, token) for token, _ in TOKENS), (URL, ROUTE)]
 SECRET_IDS = [*(etype.removeprefix("LATET_").lower().replace("_", "-") for _, etype in TOKENS), "route-address"]
 
@@ -44,15 +48,7 @@ def test_own_secrets_in_fallback_schema_keys_and_strings_are_masked_or_refused(s
     raw = json.dumps(body).encode()
     with _client(rt) as client:
         response = client.post("/llm/v1/messages", content=raw, headers=headers)
-    if headers is ANTHROPIC_KEY:
-        assert response.status_code == 200 and len(seen) == 1
-        assert secret.encode() not in seen[0].content
-        sent = json.loads(seen[0].content)
-        assert sent["fallbacks"][0] == {"model": "safe"}
-        assert sent["fallbacks"][1]["model"] == "fallback-model"
-        assert sent["fallbacks"][1]["output_config"]["effort"] == "high"
-    else:
-        assert response.status_code == 400 and seen == [] and "Nothing was sent" in response.text
+    assert response.status_code == 400 and seen == [] and "Nothing was sent" in response.text
     assert secret not in response.text and secret not in caplog.text
 
 
@@ -103,18 +99,18 @@ async def test_own_secret_streamed_json_keys_keep_both_values_and_colliding_hist
             message = {
                 "role": "assistant",
                 "tool_calls": [
-                    {"id": "call-0", "type": "function", "function": {"name": "grant", "arguments": arguments}}
+                    {"id": "call_0", "type": "function", "function": {"name": "grant", "arguments": arguments}}
                 ],
             }
             upstream, path, headers = OPENAI, "/openai/v1/chat/completions", BEARER
-            result = {"role": "tool", "tool_call_id": "call-0", "content": "done"}
+            result = {"role": "tool", "tool_call_id": "call_0", "content": "done"}
         else:
             message = {
                 "role": "assistant",
-                "content": [{"type": "tool_use", "id": "call-0", "name": "grant", "input": read.doc}],
+                "content": [{"type": "tool_use", "id": "call_0", "name": "grant", "input": read.doc}],
             }
             upstream, path, headers = ANTHROPIC, "/anthropic/v1/messages", ANTHROPIC_KEY
-            result = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call-0", "content": "done"}]}
+            result = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_0", "content": "done"}]}
         body = {"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "continue"}, message, result]}
         headers = {**headers, "session-id": "own-secret"}
         for _ in range(2):
@@ -163,10 +159,10 @@ async def test_own_secret_websocket_json_keys_keep_both_values_without_a_history
         turn = {
             "type": "response.create",
             "model": "m",
-            "input": [{"type": "function_call", "call_id": "tool-0", "name": "grant", "arguments": arguments}],
+            "input": [{"type": "function_call", "call_id": "call_0", "name": "grant", "arguments": arguments}],
         }
         for _ in range(2):
-            _, refused = await mediator.run(mediator.mask_ws_frame, json.dumps(turn), session)
+            _, refused = await mediator.run(mediator.mask_ws_frame, json.dumps(turn), session, OPENAI)
             assert refused is not None
             reason = refused.block_reason or ""
             assert reason.startswith("masking failed: two keys of one of its JSON objects")
@@ -175,6 +171,7 @@ async def test_own_secret_websocket_json_keys_keep_both_values_without_a_history
             mediator.mask_ws_frame,
             json.dumps({"type": "response.create", "model": "m", "input": "start again"}),
             mediator.engine.session("new-own-secret-ws"),
+            OPENAI,
         )
         assert clean is not None and clean.block_reason is None
     finally:

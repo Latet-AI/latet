@@ -42,11 +42,10 @@ from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any, Literal, TextIO
-from urllib.parse import quote, unquote_to_bytes
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from latet.logline import Paced, redacted
+from latet.logline import Paced, redacted, safe_method, safe_request_path
 
 log = logging.getLogger("latet.server.requests")
 _log = logging.getLogger(__name__)  # what the hooks say, and a record that could not be written
@@ -98,14 +97,23 @@ _REPEATED = ("Invalid HTTP request received.", "Unsupported upgrade request.", "
 # Latet's own errors whose words are fixed, written by Latet and naming no value: a traceback keeps their words, and so
 # does a line given one (each raise site read for it: a schema's name, an encoding, a setting's name, a count, an HTTP
 # status, an error's type and its number's fixed text, a certificate refused, a space past its share: ``PAST_SHARE``).
+# The same as those whose words a line of Latet's may hold (tests/unit/test_logging_calls.py, ``KEPT``): a server's
+# start errors (``latet.server.start_errors``: a setting's name, a socket's settings, a file's fixed failure), and the
+# error that kept a forget's log entry out (``NotRecorded``: another error by its type, ``described``).
 _WORDS_KEPT = frozenset(
     {
         "latet.engine.detectors.base.DetectorSkipped",
         "latet.engine.reviewer.client.ReviewError",
         "latet.engine.vault.MaskingError",
         "latet.runtime.SpaceFull",
-        "latet.server.db.DatabaseError",
-        "latet.server.db.SchemaMismatch",
+        "latet.server.start_errors.CannotListen",
+        "latet.server.start_errors.CertificateUnusable",
+        "latet.server.start_errors.DatabaseError",
+        "latet.server.start_errors.MasterKeyError",
+        "latet.server.start_errors.SchemaMismatch",
+        "latet.server.start_errors.SettingRefused",
+        "latet.server.start_errors.ValkeyUnavailable",
+        "latet.server.vault.NotRecorded",
         "latet.server.vault.VaultFull",
     }
 )
@@ -289,9 +297,9 @@ def _exception(record: logging.LogRecord) -> list[str]:
 def frames_only() -> None:
     """From now on in this process, a record made with an exception carries that exception's types and frames as its
     text (``exc_text``), as a server's log shows them (``_exception``), never its words nor its notes: a plain
-    formatter, which writes that text in place of the traceback it would make, writes them so (a computer's daemon.log,
-    a console). A server's formatters make the same from the exception itself, and ignore that text. A runtime calls it
-    as it is made; once is enough."""
+    formatter, which writes that text in place of the traceback it would make, writes them so (a console). A server's
+    formatters, a computer's daemon.log's too, make the same from the exception itself, and ignore that text. A
+    runtime calls it as it is made; once is enough."""
     made = logging.getLogRecordFactory()
     if getattr(made, "frames_only", False):
         return
@@ -757,23 +765,8 @@ def _within_limit(path: bytes) -> tuple[bytes, bool]:
 
 
 def _path(scope: Scope) -> str:
-    """A request's path as a log may show it: PATH_LIMIT bytes of it at most as it was sent, read before anything else
-    and said cut when it was longer, without its query, which may hold anything; read as the router reads it (its
-    escapes decoded), so that a route key or a session's id shows as itself however it was written, a secret of Latet's
-    taken out whole (``_SECRET_IN_PATH``) and then a route key wherever it stands (``_KEY_RUN``); written again with
-    only what a line cannot hold escaped; redacted, and a dashboard project's id taken out."""
-    raw = scope.get("raw_path")
-    if isinstance(raw, bytes):
-        sent, cut = _within_limit(raw[: PATH_LIMIT + 1].partition(b"?")[0])
-        read = unquote_to_bytes(sent)
-    else:  # a server that gives no raw path: the path it decoded
-        read, cut = _within_limit(str(scope.get("path", ""))[: PATH_LIMIT + 1].encode("utf-8", "surrogatepass"))
-    secrets_out = _LOCAL_SECRET_IN_PATH.sub(rb"\1***", _SECRET_IN_PATH.sub(rb"\1***", read))
-    path = quote(_KEY_RUN.sub(b"***", secrets_out), safe=_PLAIN_IN_PATH)
-    if len(path) > PATH_LIMIT:  # longer again with its escapes
-        path, cut = path[: path.rfind("/", 0, PATH_LIMIT) + 1], True
-    path = _PROJECT.sub(r"\1***", redacted(path))
-    return path + _CUT if cut else path
+    """A fixed reporting area, determined before routing without copying target text."""
+    return safe_request_path(scope.get("raw_path", scope.get("path")))
 
 
 # The areas of a server's paths, each paced answer counted with its own kind: an identity's address, the
@@ -816,7 +809,8 @@ class RequestLog:
     said once a minute with how many, each status and kind on its own (the path's area, and whether the gate refused it
     itself), so that a flood of one kind never hides the first line of another; what was counted since is said by
     ``flush``. It never writes the client's address, its headers, its query or its body, and reads no more of a path
-    than its line holds (``PATH_LIMIT``)."""
+    than its line holds (``PATH_LIMIT``). The path is the one sent, kept as the request starts: an app that rewrites it
+    in its scope (a computer's launch ingress takes ``/_k/<key>`` out) leaves the line as a server's would be."""
 
     def __init__(self, app: ASGIApp, *, clock: Callable[[], float] = time.monotonic) -> None:
         self.app = app
@@ -829,6 +823,7 @@ class RequestLog:
             await self.app(scope, receive, send)
             return
         started, status, answered = self._clock(), 500, False
+        sent = {name: scope[name] for name in ("path", "raw_path") if name in scope}  # the path as it was sent
 
         async def sending(message: Message) -> None:
             nonlocal status, answered
@@ -855,17 +850,17 @@ class RequestLog:
         try:
             await self.app(scope, receiving if scope["type"] == "websocket" else receive, sending)
         finally:
-            self._say(scope, status, round((self._clock() - started) * 1000))
+            self._say(scope, sent, status, round((self._clock() - started) * 1000))
 
-    def _say(self, scope: Scope, status: int, ms: int) -> None:
+    def _say(self, scope: Scope, sent: Scope, status: int, ms: int) -> None:
         count, refused = 1, bool(scope.get(REFUSED))
         if status in _PACED or refused:  # decided first: a request counted and not said costs no reading of its path
-            kind = (status, _area(scope), refused)
+            kind = (status, _area(sent), refused)
             paced = self._refused.get(kind) or self._refused.setdefault(kind, Paced(clock=self._clock))
             if not (count := paced.due()):
                 return
-        method = "WS" if scope["type"] == "websocket" else redacted(str(scope.get("method", ""))[:_METHOD_LIMIT])
-        path = _path(scope)
+        method = "WS" if scope["type"] == "websocket" else safe_method(scope.get("method"))
+        path = _path(sent)
         fields = {"method": method, "path": path, "status": status, "ms": ms, "latet_request": _MADE}
         if count > 1:
             line = "%s %s %d %d ms (%d %s since the line before)"

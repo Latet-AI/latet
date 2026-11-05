@@ -6,14 +6,16 @@ test_bridge.py; every logging call of Latet's is read for it: tests/unit/test_lo
 import errno
 import io
 import logging
+import logging.handlers
 import os
 import sqlite3
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from starlette.requests import Request
 
 from latet.api.rest import Dashboard
-from latet.config import Config, IdentityConfig, LlmReview
+from latet.config import Config, IdentityConfig, LlmReview, data_dir
 from latet.engine.build import build
 from latet.engine.detectors.ner import NerDetector
 from latet.engine.detectors.recognizers import compile_all
@@ -23,7 +25,7 @@ from latet.engine.reviewer.reviewer import Reviewer, _Batch
 from latet.engine.types import SlotKind
 from latet.engine.vault import Vault
 from latet.gateway.mediate import Masked, Mediator, ReviewItem
-from latet.gateway.recorder import Recorder
+from latet.gateway.recorder import Outcome, Recorder
 from latet.integrations import routes
 from latet.projects import PROJECT_FILE, Projects, project_id
 from latet.protocols.base import ImageRef
@@ -189,22 +191,25 @@ def test_a_review_that_cannot_be_recorded_is_logged_by_the_type_of_its_error(cap
     assert _logged(caplog, "latet.gateway.mediate") == (logging.ERROR, failure)
 
 
-def test_an_exchange_that_cannot_be_queued_is_logged_by_the_type_of_its_error(tmp_path, caplog):
-    class Unreadable:  # what was exchanged, which raises as it is read: the error quotes it
-        ended = None
-
+def test_an_exchange_that_cannot_be_frozen_is_logged_by_the_type_of_its_error(tmp_path, caplog):
+    class Unreadable(Outcome):  # an exchange whose request raises as it is read: the error quotes it
         @property
         def prepared(self):
             raise ValueError(f"cannot read the exchange of {EMAIL}")
 
+        @prepared.setter
+        def prepared(self, value):  # pyright: ignore[reportIncompatibleVariableOverride]  # a field read as it is
+            pass
+
     store = ExchangeStore(tmp_path / "exchanges.db", ROOT_KEY)
     recorder = Recorder(store)
     try:
-        recorder.finish(Unreadable())  # never raised: the dashboard must never break the traffic it observes
+        # never raised: the dashboard must never break the traffic it observes
+        recorder.finish(Unreadable({}, "anthropic", "/v1/messages", "http", 0.0))
     finally:
         recorder.close()
         store.close()
-    failure = "could not queue an exchange for the dashboard: ValueError"
+    failure = "could not freeze an exchange: ValueError"  # its snapshot, taken before anything is queued
     assert _logged(caplog, "latet.gateway.recorder") == (logging.ERROR, failure)
 
 
@@ -231,14 +236,14 @@ async def test_a_dashboard_call_that_fails_is_logged_by_its_handler_and_the_type
 
 
 def test_a_computers_log_shows_an_errors_types_and_frames_and_never_its_words(tmp_path):
-    """daemon.log's formatter is a plain one: once a runtime runs, a record made with an exception carries that
+    """A console's formatter is a plain one: once a runtime runs, a record made with an exception carries that
     exception's types and frames as its text, as a server's log shows them, never its words nor its cause's."""
     rt = make_runtime(Config(identity=IdentityConfig(enabled=False)), data=tmp_path / "data",
                       config_file=tmp_path / "config.yaml", root_key=ROOT_KEY)  # fmt: skip
     rt.close()
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))  # daemon.log's
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))  # a plain one
     log = logging.getLogger("latet.api.rest")
     log.addHandler(handler)
     try:
@@ -255,6 +260,138 @@ def test_a_computers_log_shows_an_errors_types_and_frames_and_never_its_words(tm
     assert "Traceback (most recent call last):" in out and "in test_a_computers_log_shows" in out
     assert "direct cause" in out and "KeyError" in out and out.rstrip().endswith("ValueError")
     assert EMAIL not in out
+
+
+def test_a_computers_daemon_log_is_written_by_a_servers_own_redacting_formatter(computer):
+    """daemon.log's lines are a server's text lines (one code path): a launch key, as a line holds it, as its header
+    and in its path form, a bearer token, and a masked original (a library's argument, an error's words, a traceback's)
+    come out of them as a server's log writes them, each line's fields where they were, the file rotated as before."""
+    from latet.server.logs import TextFormatter, saved
+    from latet.service import daemon
+
+    launch = "latet_lk_" + "Q7-x_" * 8 + "abc"  # 43 characters after its prefix, as a launch key has
+    bearer = "sk-ant-api03-" + "z9Y8" * 10
+    root, server = logging.getLogger(), io.StringIO()
+    beside = logging.StreamHandler(server)
+    beside.setFormatter(TextFormatter())  # a server's text lines, of the same records
+    with saved():  # a server's whole logging, as configure_logging sets it up: undone after
+        path = daemon.configure_file_logging()
+        [handler] = root.handlers  # a server's writer, alone
+        assert (root.level, logging.getLogger("latet").level) == (logging.WARNING, logging.INFO)
+        root.addHandler(beside)
+        own = logging.getLogger("latet.gateway.local_launch")
+        own.warning("refused a launch: %s", launch)
+        own.warning("refused the header x-latet-launch-key: %s", launch)
+        own.warning("refused the path /_k/%s/anthropic/v1/messages", launch)
+        own.warning("upstream answered 401 to authorization: Bearer %s", bearer)
+        logging.getLogger("httpx").warning("could not send %s", EMAIL)  # a library's argument
+        own.error("could not mask: %s", ValueError(f"cannot read {EMAIL}"))  # an error given to a line of Latet's
+        try:
+            raise ValueError(f"could not read the address {EMAIL}")
+        except ValueError:
+            own.exception("could not restore: %s", "ValueError")
+        handler.flush()
+        file = vars(handler)["stream"]._file  # what it writes daemon.log with
+    file.close()
+    written = path.read_text("utf-8")
+    assert written == server.getvalue()  # exactly as on a server
+    assert launch[len("latet_lk_") :] not in written and bearer not in written and EMAIL not in written
+    for said in ("latet_lk_***", "x-latet-launch-key: ***", "/_k/latet_lk_***/", "authorization: ***"):
+        assert said in written
+    assert "could not send <str>" in written and "could not mask: ValueError" in written
+    first = [line for line in written.splitlines() if not line.startswith("  | ")]
+    assert len(first) == 7
+    for line in first:  # date, time, level, logger and message, where daemon.log had them
+        date, hour, severity, name, message = line.split(" ", 4)
+        assert datetime.fromisoformat(f"{date} {hour}").utcoffset() == timedelta(0)
+        assert severity in ("WARNING", "ERROR") and name in ("latet.gateway.local_launch:", "httpx:") and message
+    assert handler.formatter.__class__ is TextFormatter and isinstance(file, logging.handlers.RotatingFileHandler)
+    assert (file.baseFilename, file.maxBytes, file.backupCount, file.encoding) == (
+        str(data_dir() / "logs" / "daemon.log"),
+        5_000_000,
+        3,
+        "utf-8",
+    )
+    assert path == data_dir() / "logs" / "daemon.log"
+
+
+def test_a_computers_access_line_is_a_servers_request_line(computer, monkeypatch):
+    """One code path for access lines too: the daemon, as `latet-daemon` runs it, writes in daemon.log a server's own
+    line for each request (``RequestLog``), uvicorn's access lines off. A request whose path carries a launch key
+    (``/_k/<key>/...``) shows its method and its route's area, never the key nor a field by its type: the same bytes as
+    a server's line for that request (under an identity's route), but for the time."""
+    import asyncio
+    import socket
+    import threading
+    import time
+
+    import httpx
+    from starlette.responses import JSONResponse
+
+    from latet.cli import main as cli_main
+    from latet.config import save_config
+    from latet.server.logs import RequestLog, configure_logging, saved
+    from latet.service import daemon, ports
+
+    launch = "latet_lk_" + "Q7-x_" * 8 + "abc"
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    save_config(Config(port=port))
+    monkeypatch.delenv("LATET_HOST", raising=False)
+    monkeypatch.setattr(ports, "probe", lambda chosen: ports.PortState(chosen, True, "free"))
+    made, real = [], cli_main.uvicorn_server
+
+    def recorded(*args, **kwargs):
+        made.append(real(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(cli_main, "uvicorn_server", recorded)
+    with saved():
+        running = threading.Thread(target=daemon.main, daemon=True)
+        running.start()
+        deadline = time.monotonic() + 60
+        while not (made and made[0].started):
+            assert running.is_alive() and time.monotonic() < deadline, "the daemon did not start"
+            time.sleep(0.05)
+        try:
+            sent = httpx.post(
+                f"http://127.0.0.1:{port}/_k/{launch}/anthropic/v1/messages",
+                headers={"x-latet-launch-key": launch}, json={}, timeout=30,
+            )  # fmt: skip
+        finally:
+            made[0].should_exit = True
+            running.join(30)
+        assert sent.status_code == 400  # the carrier twice: refused before routing
+        [writer] = logging.getLogger().handlers  # a server's writer, alone
+        writer.flush()
+        file = vars(writer)["stream"]._file  # what it writes daemon.log with
+    file.close()
+    written = (data_dir() / "logs" / "daemon.log").read_text("utf-8")
+    assert launch[len("latet_lk_") :] not in written and "uvicorn.access" not in written
+    [line] = [line for line in written.splitlines() if " latet.server.requests: " in line]
+    ms = int(line.rsplit(" ", 2)[-2])
+    ticks, server = iter((0.0, ms / 1000)), io.StringIO()
+
+    async def refused(scope, receive, send):
+        await JSONResponse({"error": "request launch authority refused"}, status_code=400)(scope, receive, send)
+
+    async def nothing():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def dropped(message):
+        pass
+
+    path = "/u/" + "a" * 26 + f"/_k/{launch}/anthropic/v1/messages"
+    scope = {"type": "http", "method": "POST", "path": path, "raw_path": path.encode(), "headers": [],
+             "query_string": b""}  # fmt: skip
+    with saved():  # a server's own logging, as `latet server run` sets it up
+        configure_logging("text", "info", stream=server)
+        asyncio.run(RequestLog(refused, clock=lambda: next(ticks))(scope, nothing, dropped))
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+    assert line.split(" ", 2)[2] == server.getvalue().rstrip("\n").split(" ", 2)[2]
+    assert line.split(" ", 2)[2] == f"INFO latet.server.requests: POST /gateway 400 {ms} ms"
 
 
 def test_a_background_reviews_result_that_cannot_be_applied_is_logged_by_the_type_of_its_error(caplog):

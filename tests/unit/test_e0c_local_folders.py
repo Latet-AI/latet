@@ -20,6 +20,7 @@ from latet.integrations import base
 from latet.server import connection
 from latet.server.certificate import make_certificate
 from latet.server.client import ServerClient, pin_certificate
+from latet.server.logs import saved
 from latet.storage import folders, keys
 
 WINDOWS = pytest.mark.skipif(sys.platform != "win32", reason="Windows' access lists")
@@ -191,13 +192,11 @@ def test_latets_own_creators_make_a_data_folder_its_own_checks_admit(computer, u
     nested = data.parent / "made" / "here"
     keys.load_bridge_token(data)
     assert _mode(data) == 0o700
-    handler_count = len(logging.getLogger().handlers)
-    try:
+    with saved():  # a server's whole logging, which the daemon's is: undone after
         daemon.configure_file_logging()
-    finally:
-        for handler in logging.getLogger().handlers[handler_count:]:
-            logging.getLogger().removeHandler(handler)
-            handler.close()
+        [writer] = logging.getLogger().handlers
+        file = vars(writer)["stream"]._file  # what it writes daemon.log with
+    file.close()
     assert _mode(data / "logs") == 0o700
     crt, _, _ = make_certificate("https://latet.acme.lan", computer / "tls")
     certificates.save(data, crt.read_text())

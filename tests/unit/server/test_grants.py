@@ -166,12 +166,27 @@ def test_every_route_of_the_bridge_is_named():
     there, needs scan, mask and unmask, and this test fails, so that someone decides what it needs."""
     from latet.bridge.api import Bridge
 
-    routes = Bridge(SimpleNamespace(engine=None), "token").routes()  # type: ignore[arg-type]
+    verifier = SimpleNamespace(wrote=lambda *args, **kwargs: None)  # a computer's bridge reports the models written
+    routes = Bridge(SimpleNamespace(engine=None, verifier=verifier), "token").routes()  # type: ignore[arg-type]
     assert routes
     for route in routes:
-        assert route.path.startswith("/_latet/engine/v1/"), route.path
-        assert bridge_needs(route.path) != DEFAULT, route.path
-        assert "forget" not in bridge_needs(route.path), route.path  # no call of the bridge forgets
+        # As the gate reads a call: a route's template with its launch's id in place (32 hex digits)
+        path = route.path.replace("{id}", "0123456789abcdef" * 2)
+        assert path.startswith("/_latet/engine/v1/"), path
+        assert bridge_needs(path) != DEFAULT, path
+        assert "forget" not in bridge_needs(path), path  # no call of the bridge forgets
+
+
+def test_a_launchs_hold_needs_what_its_sibling_launch_routes_need_and_nothing_broader():
+    """The launched process's own controls, its hold among them: mask and unmask (R-112), never scan or forget; a path
+    that names no launch's id is no launch control, and needs everything (``DEFAULT``)."""
+    launch = "0123456789abcdef" * 2
+    siblings = [f"/_latet/engine/v1/launches{rest}" for rest in ("", "/prepare", "/recover")]
+    siblings += [f"/_latet/engine/v1/launches/{launch}/{call}" for call in ("end", "exit")]
+    hold = bridge_needs(f"/_latet/engine/v1/launches/{launch}/hold")
+    assert {bridge_needs(path) for path in siblings} == {hold} == {frozenset({"mask", "unmask"})}
+    assert bridge_needs("/_latet/engine/v1/launches/{id}/hold") == DEFAULT
+    assert bridge_needs(f"/_latet/engine/v1/launches/{launch.upper()}/hold") == DEFAULT
 
 
 def test_a_grant_names_the_first_permission_it_lacks():

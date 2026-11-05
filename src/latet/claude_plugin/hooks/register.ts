@@ -10,7 +10,7 @@ import type { EngineInterface } from 'claude-code'
 
 const DEFAULT_BRIDGE = 'http://127.0.0.1:5283'
 // Kept equal to plugin.json and the Python package by the release check.
-const PLUGIN_VERSION = '0.10.4'
+const PLUGIN_VERSION = '0.11.0'
 const API = '/_latet/engine/v1/'
 // Tools whose arguments leave this machine (web, Anthropic-hosted connectors) or start another
 // model conversation: they keep the surrogates the model wrote.
@@ -30,6 +30,7 @@ const COPIES_LIMIT = 50
 let bridge = DEFAULT_BRIDGE
 let token = ''
 let session = ''
+let launchId: string | null = null // non-secret tightening marker; never launch authority
 let cwd = '' // the folder Claude Code runs in: the daemon applies that project's settings
 const verified = new Map<string, number>() // agent → messages already verified
 const rendered = new Map<string, string>() // surrogate text → restored text, for redraws
@@ -368,11 +369,11 @@ async function bridgeCall($, path: string, body: Record<string, unknown>) {
   // Rendering can precede session.start; never use defaults or a previous session's transport.
   if (!routeKnown) refused()
   if (untrusted) throw new Error(`Latet: ${untrusted}`)
-  if (remote) return helperCall($, path, { session, cwd, ...body })
+  if (remote) return helperCall($, path, { session, cwd, ...body, ...(launchId ? { launch_id: launchId } : {}) })
   const response = await $.http.fetch(bridge + API + path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-latet-token': token },
-    body: JSON.stringify({ session, cwd, ...body }),
+    body: JSON.stringify({ session, cwd, ...body, ...(launchId ? { launch_id: launchId } : {}) }),
   })
   if (!response.ok) throw new BridgeError(response.status, path)
   return JSON.parse(response.text)
@@ -585,6 +586,9 @@ function instructionsWarning(found: Array<{ file: string; line: number; type: st
 export function register(on) {
   on('session.start', async ($, e, next) => {
     routeKnown = false
+    launchId = null
+    const ownedLaunch = await $.env.get('LATET_LAUNCH_ID')
+    if (typeof ownedLaunch === 'string' && /^[0-9a-f]{32}$/.test(ownedLaunch)) launchId = ownedLaunch
     bridge = (await $.env.get('LATET_BRIDGE_URL')) || DEFAULT_BRIDGE
     token = (await $.env.get('LATET_BRIDGE_TOKEN')) || ''
     session = await $.session.id()

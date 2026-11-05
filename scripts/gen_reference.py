@@ -409,6 +409,9 @@ def detectors_page() -> str:
         "Public prefix and length kept; secret tail drawn again. |",
         "| `LATET_BRIDGE_TOKEN` | `latet_brg_` followed by 43 URL-safe characters. | "
         "Public prefix and length kept; secret tail drawn again. |",
+        "| `LATET_LAUNCH_KEY` | `latet_lk_` followed by 43 URL-safe characters: the key a launcher such as "
+        "`latet claude` gives the agent it starts. | Public prefix kept; 32 characters drawn again, so the fake is "
+        "never taken for a live key. |",
         "| `LATET_ONE_TIME_CODE` | `latet_code_` followed by 32 URL-safe characters. | "
         "Public prefix and length kept; secret tail drawn again. |",
         "| `LATET_ROUTE_KEY` | The 16 to 128 URL-safe characters after `/u/` in "

@@ -15,6 +15,25 @@ Indica el servidor e introduce el token en la entrada oculta:
 latet server --server https://latet.acme.lan status
 ```
 
+`status` lista cada instancia viva del servidor, cada worker de cada máquina en una línea propia: su id,
+su número de worker, si está lista, su memoria y los índices de sus cajas fuertes en MiB, sus espacios y
+su versión; lo que una instancia no ha dicho se muestra como desconocido o se omite. Una instancia de
+Latet 0.10 o anterior no dice nada de sí misma: cuando responde una instancia de la 0.11, lista una de
+la 0.10 todavía viva por su id, como Latet 0.10 o anterior; un servidor que sigue en la 0.10 responde
+solo con la instancia que ha respondido. Antes de una actualización, la comprobación es
+`latet server migrate`: no cambia ninguna tabla mientras una instancia de cualquier versión está viva,
+una de la 0.10 durante 30 segundos después de detenerse, y dice cuántas están vivas y de qué versión.
+La lista sale de una lectura acotada de las claves de Valkey: cuando esa lectura se cortó en su límite,
+`status` dice `instances: the list is partial, cut at its bound: an instance may be alive and not
+listed`, y el campo `instances_whole` de su respuesta es false (null cuando Valkey no respondió).
+
+En la máquina del servidor, `latet server run --workers N` arranca N instancias, los workers, en el
+mismo puerto, cada una en un proceso propio; `LATET_SERVER_WORKERS` o `workers` en `server.yaml` dan lo
+mismo, y `--workers` manda sobre ambos, la variable sobre el archivo. De 1 a 64, uno por defecto. Más de
+uno necesita Linux o la imagen del contenedor: en Windows `latet server run` los rechaza, y el servicio
+de Windows arranca uno
+([varias instancias en una máquina](../../concepts/server-operations/#varias-instancias-en-una-máquina)).
+
 O usa `--admin-token-file FILE`: un archivo UTF-8 privado que contenga solo el token, o un
 registro `{"url": "https://latet.acme.lan", "token": "<administration token>"}`.
 Un registro solo se acepta para su servidor. En POSIX usa `chmod 600 FILE` (o `0400` para
@@ -182,11 +201,14 @@ es `reason`, con cinco valores normales:
 | `too_wide` | Una línea de texto superó el límite de anchura del reconocedor. |
 | `unavailable` | El OCR estaba cargándose, no pudo cargarse o encontró otro fallo de ejecución controlado. |
 
-Una aparición posterior de la misma imagen original vuelve a contar si recibe un
-fallo OCR almacenado en caché. El contador mide apariciones de imágenes sin leer,
-no llamadas a los modelos. Los reintentos internos, mosaicos, lotes y reparaciones
-de lectores sin una imagen enviada no añaden nada. Se excluyen el OCR correcto,
-la retención manual, los fallos de decodificación o de política de píxeles, el OCR
-desactivado o no instalado, la repetición exacta de una imagen pintada o un marcador
-de Latet y el OCR local de un ordenador. Las comprobaciones finales del mismo trabajo
-no vuelven a contar. Ninguna etiqueta contiene imágenes, rutas ni identidades.
+Una aparición posterior de la misma imagen original vuelve a contar si recibe un fallo
+OCR almacenado en caché. El contador mide apariciones de imágenes sin leer, no llamadas
+a los modelos, con una excepción: una petición o un turno de WebSocket rechazado antes
+de leer ninguna de sus imágenes, porque el reconocimiento de texto no está disponible,
+cuenta `unavailable` una vez, lleve las imágenes que lleve. Los reintentos internos,
+mosaicos, lotes y reparaciones de lectores sin una imagen enviada no añaden nada. Se
+excluyen el OCR correcto, la retención manual, los fallos de decodificación o de
+política de píxeles, el OCR desactivado o no instalado, la repetición exacta de una
+imagen pintada o un marcador de Latet y el OCR local de un ordenador. Las comprobaciones
+finales del mismo trabajo no vuelven a contar. Ninguna etiqueta contiene imágenes, rutas
+ni identidades.

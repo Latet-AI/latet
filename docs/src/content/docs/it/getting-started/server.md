@@ -17,6 +17,11 @@ stato, gli elenchi di persone e chiavi, il registro) girano per lui.
 Scegli il [servizio di sistema o Compose](../../concepts/server-operations/).
 Il servizio richiede un'installazione attendibile a livello di sistema e una configurazione
 protetta; il profilo server di Compose fornisce PostgreSQL, Valkey, due istanze e Caddy.
+Su Linux un'istanza può girare come più worker, uno per ogni core che la macchina dà al
+server (`latet server run --workers N`, o `LATET_SERVER_WORKERS` nel `.env` di Compose):
+ognuno è un'istanza a sé, con la sua memoria e le sue connessioni a PostgreSQL e
+Valkey ([più istanze su una macchina](../../concepts/server-operations/#più-istanze-su-una-macchina)).
+Un primo server può cominciare con uno.
 Imposta l'indirizzo HTTPS pubblico e prepara prima la chiave principale e i file segreti.
 L'inizializzazione stampa un token amministrativo: conservalo in un terminale privato e
 in un archivio di segreti. Per un container segui l'inizializzazione con i log Docker
@@ -44,7 +49,8 @@ latet server --server https://latet.acme.lan status
 ```
 
 Inserisci il token amministrativo alla richiesta nascosta. La risposta riporta database,
-Valkey, identità e istanza che ha risposto. Non controlla ogni agente e non dimostra che
+Valkey, identità, l'istanza che ha risposto e ogni istanza attiva, ogni worker su una riga sua
+con la sua prontezza, la sua memoria e la sua versione. Non controlla ogni agente e non dimostra che
 tutto il traffico di un computer passi attraverso Latet.
 
 Per amministrare il server più volte, `--admin-token-file FILE` legge un file privato con

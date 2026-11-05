@@ -86,9 +86,21 @@ personal dashboard and gets its settings from the administrator.
 
 An instance is one running Latet server process. Several instances can serve the same
 public HTTPS address behind a load balancer, using the same PostgreSQL database, Valkey
-and master key. PostgreSQL holds durable state; Valkey coordinates short-lived state.
-Requests do not need sticky sessions. Adding instances does not create separate copies
-of a person's space. See [Server operations](../server-operations/) for service requirements.
+and master key, and one machine can run several of them, called workers. PostgreSQL holds
+durable state; Valkey coordinates short-lived state. Requests do not need sticky sessions.
+Adding instances does not create separate copies of a person's space. See
+[Server operations](../server-operations/) for service requirements.
+
+A person's vault is kept in PostgreSQL, as an API key's is. An instance that serves the person
+holds it whole in memory when it has 35,000 values or fewer as the space is built; past that, it
+holds the values the person used last, the prints of the vault's words and every value no word of a
+text finds, and finds the others in PostgreSQL as a text needs them. Before each request it reads
+in PostgreSQL what the other instances changed, so a value kept or forgotten on one instance before a
+request starts is seen by that request on any other. A person whose vault holds values kept before
+Latet 0.10.0 is served as 0.10.0 served her until her space is built again after their words are
+made: her space holds her whole vault in memory, whatever its size, and reads no change counter, so a
+value another instance keeps reaches it by its message, or, when the message is lost, by the beat's
+next check.
 
 ## What the server stores
 
@@ -100,11 +112,15 @@ database backups. Without the matching key, encrypted data cannot be recovered.
 Some metadata remains readable in PostgreSQL: identity names and email addresses,
 external identifiers, token labels, permissions and times, vault rule names, counters and times, and
 administration log actors, actions, targets, identifiers, counts and client addresses.
-History project and conversation identifiers use keyed hashes. An API key's vault also keeps the
-words of its values and fakes as keyed hashes, which find them in a text: a hash shows no word, only
-which entries share one. Its history's rows and its local reviewer's remembered answers keep keyed
-hashes of the vault's entries and values they name, so that a forget finds them: a database reader
-can tell which rows name the same entry or value, never which value it is. A person's rows keep none.
+History project and conversation identifiers use keyed hashes. Every vault, a person's and an API
+key's, also keeps the words of its values and fakes as keyed hashes, which find them in a text, and
+beside each word its print, a 64-bit fingerprint under a key derived from the identity's own, which
+the instances hold in memory, with the count of the change that wrote the row last. A hash or a print
+shows no word: a database reader sees which rows of one identity share a word, how many do, and from
+the counts which rows changed and in what order. Another identity's prints of the same word differ.
+An API key's history rows and its local reviewer's remembered answers keep keyed hashes of the
+vault's entries and values they name, so that a forget finds them: a database reader can tell which
+rows name the same entry or value, never which value it is. A person's rows keep none.
 Every vault keeps the keyed hash of each fake it retired (a forgotten value's, or one given anew), so
 that no other value is given it: it shows how many fakes were retired, never which. Valkey uses keyed names, encrypted sensitive payloads and signed
 coordination messages.
@@ -175,10 +191,11 @@ person's own.
 - **Projects:** at most 200 for each person.
 - **Values:** a value longer than 16,384 characters is redacted rather than replaced with a fake, and is never
   kept nor restored; a term holds 8,192 characters at most.
-- **Memory:** an instance gives its spaces a fixed 2 GiB, and one space uses at most half of it. A space at its
-  share learns no new value: a request that brings one is stopped with words that say so, until values are
-  forgotten in the dashboard, rules or projects are fewer, or the server has more. No other person's space is
-  closed to make room.
+- **Memory:** an instance, and each worker, gives its spaces a fixed 2 GiB, and one space uses at most half of
+  it, with up to an eighth of that half more for its detectors (128 MiB). A space at its share learns no new
+  value: a request that brings one is stopped with words that say so, until values are forgotten in the
+  dashboard, rules or projects are fewer, or the server has more. No other person's space is closed to make
+  room. What the detectors take more never stops a value.
 - **Statistics** count the latest 100,000 exchanges, and a person keeps their ten newest dashboard sessions.
 
 ## The protection boundary

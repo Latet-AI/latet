@@ -28,6 +28,7 @@ import zstandard
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from latet import __version__
 from latet.gateway.security import BodyLimit
 from latet.logline import Paced
 from latet.server import admin as admin_module
@@ -445,8 +446,12 @@ def _provider(monkeypatch):
 def test_a_compressed_body_that_would_decode_past_the_limit_is_refused_and_nothing_is_sent(server, monkeypatch):
     sent = _provider(monkeypatch)
     server.settings = server.settings.model_copy(update={"max_request_mb": 1})
-    big = {"model": "claude", "max_tokens": 8, "messages": [{"role": "user", "content": "x" * (4 * 1024 * 1024)}]}
-    small = {"model": "claude", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
+    big = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 8,
+        "messages": [{"role": "user", "content": "x" * (4 * 1024 * 1024)}],
+    }
+    small = {"model": "claude-sonnet-4-5", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
     raw = json.dumps(big).encode()
     with TestClient(create_server_app(server), base_url=URL) as client:
         _, token = _enrolled(server, client)
@@ -456,12 +461,15 @@ def test_a_compressed_body_that_would_decode_past_the_limit_is_refused_and_nothi
             "deflate": zlib.compress(raw),
             "br": brotli.compress(raw),
             "zstd": zstandard.ZstdCompressor().compress(raw),
-            "gzip, gzip": gzip.compress(gzip.compress(raw)),
         }
         for coding, body in packed.items():
             assert len(body) < 64 * 1024  # a few KiB on the wire, four MiB once decoded
             stopped = client.post(address, content=body, headers={**headers, "content-encoding": coding})
             assert stopped.status_code == 413 and "max_request_mb" in stopped.text, coding
+        # Codings stacked on one another, which no agent sends: the envelope refuses them before anything is decoded.
+        stacked = gzip.compress(gzip.compress(raw))
+        stopped = client.post(address, content=stacked, headers={**headers, "content-encoding": "gzip, gzip"})
+        assert stopped.status_code == 400 and "(envelope-header-value): header content-encoding" in stopped.text
         assert sent == []  # nothing reached the provider
         fine = client.post(
             address, content=gzip.compress(json.dumps(small).encode()), headers={**headers, "content-encoding": "gzip"}
@@ -597,7 +605,9 @@ def test_readiness_asks_the_stores_at_most_once_a_second_whoever_asks(server, cl
         monkeypatch.setattr(store, "ping", lambda real=real, name=name: asked.append(name) or real())
     monkeypatch.setattr(app_module, "READY_SECONDS", 60.0)
     probes = [client.get("/_latet/ready", headers={"host": "10.0.3.7:5283"}).status_code for _ in range(30)]
-    assert set(probes) == {200} and sorted(asked) == ["database", "valkey"]  # a flood costs one look at each
+    # A flood costs one look at each at most: none when the beat's own look (Task 10: it asks readiness too, at the
+    # app's start, before the stores were watched here) is still fresh.
+    assert set(probes) == {200} and sorted(asked) in ([], ["database", "valkey"])
     monkeypatch.setattr(app_module, "READY_SECONDS", 0.0)
     asked.clear()
     assert client.get("/_latet/ready").status_code == 200 and sorted(asked) == ["database", "valkey"]
@@ -1096,7 +1106,7 @@ async def _answering_at_once(scope, receive, send):
     await send({"type": "http.response.body", "body": b"{}"})
 
 
-async def _space_answering_at_once(identity):
+async def _space_answering_at_once(identity, *, launch_carrier=None):  # as Spaces.app is called
     return _answering_at_once
 
 
@@ -1984,7 +1994,7 @@ def test_a_computer_that_forgets_its_token_closes_its_persons_space_here_at_once
 
 # --- the requests one identity has in flight on an instance (Task 11's fix-round concern 1, routed here) -------------
 
-SMALL = {"model": "claude", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
+SMALL = {"model": "claude-sonnet-4-5", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
 
 
 def _held_provider(monkeypatch):
@@ -2063,7 +2073,7 @@ async def test_a_request_gives_its_place_back_however_it_ends(server, monkeypatc
         modes.clear()
         real = server.spaces.app
 
-        async def failing(identity):
+        async def failing(identity, *, launch_carrier=None):  # as Spaces.app is called (P2-6a's launch carrier)
             async def broken(scope, receive, send):
                 raise RuntimeError("the space failed")
 
@@ -2434,14 +2444,23 @@ def test_the_beat_says_the_instance_lives_checks_its_spaces_and_writes_the_logs_
     with TestClient(create_server_app(server), base_url=URL):
         time.sleep(1.3)
         heard = time.monotonic() - server.beat_heard
+        said = json.loads(server.bus.get(f"instance:{server.instance}"))
+        listed = server.instances()
     assert len(checks) >= 8 and 2 <= len(flushes) <= 3  # every beat checks, the log's counts once in FLUSH_SECONDS
     assert len(refusals) == len(flushes) and threading.main_thread().name not in refusals  # alike, off the loop
     assert heard < 0.5  # its own beat, heard on its ear
-    assert server.bus.get(f"instance:{server.instance}") == b"1"
+    # Task 10: what its beat says of it, numbers, booleans and its version alone, listed among the server's instances.
+    assert said["instance"] == server.instance and said["worker"] is None and said["version"] == __version__
+    assert said["ready"] is True and said["spaces"] == 0 and said["index"] == 0
+    assert said["memory"] is None or said["memory"] > 0
+    assert listed == [said]
     # The administration log's chain, checked (hourly, on one instance), its verdict sealed: nothing of it in clear.
     assert ChainVerdicts(server.bus, server.master).read() == "ok"
     assert b"ok" not in (server.bus.get("audit:chain") or b"ok")
     assert server.bus.get("job:audit-prune") == server.instance.encode()
+    # Task 10's M3: stopped, the instance is no longer listed alive (its key and its place in the list gone at once).
+    assert server.bus.get(f"instance:{server.instance}") is None and server.instances() == []
+    assert server.bus.client.zscore(server.bus.key(app_module.INSTANCES), server.instance) is None
 
 
 def test_a_chain_verdict_is_believed_only_sealed_for_its_key_and_fresh(server):

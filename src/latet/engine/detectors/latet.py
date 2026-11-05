@@ -17,11 +17,14 @@ TOKEN_TYPES = {
     "ck": "LATET_COMPUTER_KEY",
     "scim": "LATET_SCIM_TOKEN",  # an Enterprise server's SCIM bearer token; the Community engine masks it all the same
     "brg": "LATET_BRIDGE_TOKEN",  # what the Claude Code plugin presents to the daemon on a computer
+    # What `latet claude`, `latet codex` and the other launchers give the agent they start (P2-6a): it is in the agent's
+    # environment, so a command that prints it (``env``) puts it in a tool's output, where it is masked (R-103).
+    "lk": "LATET_LAUNCH_KEY",
     "code": "LATET_ONE_TIME_CODE",  # what an administrator gives a person to connect a computer
 }
 LATET_TYPES = frozenset({*TOKEN_TYPES.values(), "LATET_ROUTE_KEY"})
 # A secret is 43 URL-safe characters after its prefix (``secrets.token_urlsafe(32)``), a one-time code 32 (24 bytes).
-_TOKEN = re2.compile(r"latet_(?:(pat|key|adm|ck|scim|brg)_[A-Za-z0-9_-]{43}|(code)_[A-Za-z0-9_-]{32})")
+_TOKEN = re2.compile(r"latet_(?:(pat|key|adm|ck|scim|brg|lk)_[A-Za-z0-9_-]{43}|(code)_[A-Za-z0-9_-]{32})")
 _ADDRESS = re2.compile(
     r"(?i:https)://(?:[A-Za-z0-9][A-Za-z0-9.\-]*|\[[0-9A-Fa-f:.]+\])"
     r"(?::[0-9]{1,5})?/u/([A-Za-z0-9_-]{16,128})"
@@ -50,8 +53,8 @@ def holds_a_secret_start(text: str) -> bool:
 
 
 class LatetCredentialDetector:
-    """Latet personal tokens, computer keys, API keys, administration tokens, SCIM tokens, bridge tokens and one-time
-    codes, and route keys in HTTPS identity addresses."""
+    """Latet personal tokens, computer keys, API keys, administration tokens, SCIM tokens, bridge tokens, launch keys
+    and one-time codes, and route keys in HTTPS identity addresses."""
 
     id = "latet-credentials"
     mandatory = True

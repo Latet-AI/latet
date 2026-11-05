@@ -26,9 +26,10 @@ uv run latet claude      # Claude Code with the plugin from src/latet/claude_plu
 uv run latet doctor
 ```
 
-`latet serve --passthrough` reenvía el tráfico sin enmascararlo, y `--capture <folder>` escribe cada
-intercambio en archivos locales (con las cabeceras de credenciales suprimidas), lo que ayuda cuando
-estudias un protocolo. Las capturas contienen el contenido de las conversaciones: no las incluyas
+`latet serve --capture <folder>` escribe cada intercambio en archivos locales (con las cabeceras de
+credenciales suprimidas), lo que ayuda cuando estudias un protocolo. No hay ningún modo que reenvíe
+sin enmascarar: una parte de una petición que Latet no lee se rechaza, y las llamadas de un protocolo
+nuevo necesitan antes un perfil de petición y sus pruebas. Las capturas contienen el contenido de las conversaciones: no las incluyas
 nunca en un commit (por eso git ignora `notes/captures/`).
 
 Para mantener una instancia de prueba aparte de un Latet que uses de verdad, define `LATET_DATA_DIR` y

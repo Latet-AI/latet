@@ -50,7 +50,8 @@ gets a short note in its place, *[image withheld by Latet: ...]*, with the reaso
 an animated image, one larger than 20 MB or 40 megapixels, one that is not a valid image, one so
 long for its width, or so wide for its height, that it would be read in more than 16 parts (the
 screenshot of a page more than about 29,000 pixels long), and any image while the models are still
-loading (a request waits for them up to 20 seconds).
+loading (a request waits for them up to 20 seconds). A request Latet only checks, such as Claude
+Code's, cannot have an image taken out: one with an image Latet cannot read is not sent.
 
 ## Which images
 
@@ -58,7 +59,7 @@ loading (a request waits for them up to 20 seconds).
 | --- | --- |
 | Images in the messages: Claude's base64 images, the `data:` URLs of OpenAI Chat and Responses, Codex over HTTP and over its WebSocket, Gemini's inline images (`inlineData`) | yes |
 | Screenshots returned by tools: Claude Code's Read on an image, MCP servers such as a browser's, OpenAI's computer use | yes |
-| Images by their address (an `https://` URL, a file id), PDFs and other documents, audio | no: sent as they are, flagged *Not inspected*, or not sent (see below) |
+| Images by their address (an `https://` URL, a file id), PDFs and other documents, audio | no: the request is not sent |
 
 ## The settings
 
@@ -67,7 +68,7 @@ loading (a request waits for them up to 20 seconds).
 
 | `images` | With text recognition | Without it |
 | --- | --- | --- |
-| `allow` (default) | images are read and masked | images are sent as they are, flagged *Not inspected* |
+| `allow` (default) | images are read and masked | no request with an image is sent |
 | `mask` | only images read and masked are sent: a request that carries one Latet cannot read (a PDF, an image by its address) is not sent | no request with an image is sent |
 | `block` | no request that carries an image or a document is sent | the same |
 
@@ -76,7 +77,44 @@ loading (a request waits for them up to 20 seconds).
 - A repository's `latet.yaml` can only send fewer images. Sending more, from your settings or a
   project of yours, and `ocr: off`, wait for your approval when an agent asks for them
   ([Agents and your settings](../agents-and-settings/)).
-- An agent that is stopped gets an error saying why and what to do.
+- With `ocr: off`, as without text recognition, no request with an image is sent.
+- An agent that is stopped gets an error saying why and what to do. Without text recognition, it is
+  told to run `latet ocr install` and to start a new conversation, since the image stays in its
+  history:
+
+  ```text
+  Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
+  ```
+
+## Photos and their metadata
+
+A request Latet rewrites (Codex, OpenCode and the other gateway agents) sends each image written
+anew, without its metadata. A request Latet only checks, such as Claude Code's, leaves as the agent
+built it, so Latet accounts there for every byte of each image: the structure of its format, read by
+its grammar; the text of its metadata (a screenshot's *Screenshot* comment, the program that made it,
+the name of its colour profile), read by the final check; and the pixels of the main image, whose
+text recognition read. Whatever is left over is not sent:
+
+- a location (GPS) in a photo's metadata;
+- the notes a camera's maker writes in a form of its own;
+- the thumbnail a camera keeps inside a photo, and any other image inside it, such as the depth and
+  gain maps of a phone's portrait photo;
+- whatever follows the end of the image, such as the video of a motion photo.
+
+The agent is told how to go on:
+
+```text
+Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
+```
+
+Rewind the conversation to before the image, or start a new one, then attach the image again with
+its metadata removed: on iOS, *Share*, *Options*, *Location* off; in macOS Preview, *Tools*,
+*Show Inspector*, *Remove Location Info*; on Windows, the file's *Properties*, *Details*,
+*Remove Properties and Personal Information*. An ordinary screenshot has none of these, and passes.
+
+An original WebP image cannot be accounted for byte by byte there, and is refused too: export it as
+PNG, then rewind or start a new conversation. A request Latet rewrites sends a WebP image written
+anew as PNG.
 
 ## In Claude Code
 
@@ -117,5 +155,8 @@ them:
   is put right by their check digits; another value misread may not be recognised.
 - **The model reads the fake.** If it misreads it, its answer keeps the misread fake, which Latet
   cannot put back.
-- **PDFs and other documents are not read**, nor images by their address: see the table above.
+- **PDFs and other documents are not read**, nor images by their address: a request that carries
+  one is not sent.
+- **QR codes and barcodes are not decoded.** Text recognition reads text: the data a code holds
+  leaves with the image. Do not send a code that holds a value you protect.
 - **Only text.** Faces, signatures, logos and handwriting are not covered.

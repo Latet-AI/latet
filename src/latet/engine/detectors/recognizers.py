@@ -16,7 +16,7 @@ import re2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from latet.engine.detectors import checksums
-from latet.engine.detectors.base import DetectContext, quiet_options
+from latet.engine.detectors.base import DetectContext, line_pattern, quiet_options
 from latet.engine.detectors.context import ContextWords
 from latet.engine.detectors.terms import has_letter_or_digit
 from latet.engine.types import EntityClass, Policy, Span
@@ -143,6 +143,14 @@ class Recognizer:
         self.spec = spec
         self.regex = regex
         self.group = regex.groupindex.get("value", 0)
+        # The pattern as it reads each line of a text joined of lines (``DetectContext.joined``), as it reads each line
+        # alone: `^EMP-\d{6}$` finds a value in a text that is one, not only in the first of a call's texts read joined
+        # (``Masker.joined``). None where the pattern cannot be read so (``line_pattern``): no call is read joined then.
+        line = line_pattern(spec.pattern)
+        try:
+            self.lines = re2.compile(line, quiet_options(never_nl=True)) if line is not None else None
+        except re2.error:
+            self.lines = None
         if isinstance(spec.checksum, WeightedChecksum):
             w = spec.checksum
             self.checksum: Callable[[str], bool] | None = lambda d: checksums.weighted(
@@ -171,20 +179,26 @@ class Recognizer:
     def rule(self) -> str:
         return f"recognizer:{self.spec.name}"
 
-    def find(self, text: str) -> Iterator[Span]:
-        for start, end, reason in self._candidates(text):
+    def find(self, text: str, joined: bool = False) -> Iterator[Span]:
+        """The values in ``text``; ``joined``: a text joined of lines (``DetectContext.joined``), read by line."""
+        for start, end, reason in self._candidates(text, joined):
             if reason is None:
                 yield Span(start, end, self.etype, self.eclass, self.rule)
 
-    def _candidates(self, text: str) -> Iterator[tuple[int, int, str | None]]:
-        """Every match of the pattern, and why it is not a value (None: it is)."""
+    def _candidates(self, text: str, joined: bool = False) -> Iterator[tuple[int, int, str | None]]:
+        """Every match of the pattern, and why it is not a value (None: it is); ``joined``: as ``find``'s."""
+        regex = self.regex
+        if joined:
+            if self.lines is None:  # ``RecognizerDetector.joinable`` says so first: no text is read so with it
+                raise ValueError(f"the recognizer {self.spec.name} cannot be read by line")
+            regex = self.lines
         keywords = self.keywords
         if keywords is not None and not keywords.anywhere(text):
-            for m in self.regex.finditer(text):
+            for m in regex.finditer(text):
                 if m.end(self.group) > m.start(self.group) >= 0:
                     yield m.start(self.group), m.end(self.group), self._no_keyword()
             return
-        for m in self.regex.finditer(text):
+        for m in regex.finditer(text):
             start, end = m.span(self.group)
             if start < 0 or end <= start:
                 continue
@@ -250,9 +264,15 @@ class RecognizerDetector:
     def __init__(self, recognizers: Iterable[Recognizer]) -> None:
         self.recognizers = list(recognizers)
 
+    @property
+    def joinable(self) -> bool:
+        """It reads a text joined of lines (``DetectContext.joined``) as it reads each line alone: each recognizer's
+        pattern reads by line (``Recognizer.lines``)."""
+        return all(recognizer.lines is not None for recognizer in self.recognizers)
+
     def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
         for recognizer in self.recognizers:
-            yield from recognizer.find(text)
+            yield from recognizer.find(text, ctx.joined)
 
 
 def _messages(exc: ValidationError) -> list[str]:

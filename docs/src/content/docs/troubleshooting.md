@@ -31,7 +31,7 @@ latet status
 latet start
 ```
 
-`latet status` prints `running: Latet 0.10.4 on 127.0.0.1:5283 (masking), pid 12345`, or
+`latet status` prints `running: Latet 0.10.3 on 127.0.0.1:5283 (masking), pid 12345`, or
 `not running`. If you want to stop using Latet instead, run `latet global-uninstall` first: it reverts your
 agents. See [Uninstall](../getting-started/uninstall/).
 
@@ -160,6 +160,43 @@ In gateway mode, an error with `Latet: masking failed` or `Latet: unreadable req
 means the daemon could not mask the request, so it refused it.
 The daemon's log says why.
 
+### A part of a request is refused
+
+Latet reads every part of a request, and an error like this one means it refused a part it does not
+read, and sent nothing:
+
+```text
+Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
+```
+
+The part in parentheses says which kind:
+
+- `envelope-header-unknown`: a header no profile names, often one you set for the agent
+  (`ANTHROPIC_CUSTOM_HEADERS`, Codex's `http_headers`, `COPILOT_PROVIDER_HEADERS`). Take it out of
+  the agent's settings, or let it through with an exact exception.
+- `envelope-header-value`: a header Latet knows, with a value outside its form.
+- `envelope-query-unknown`: a query parameter no profile names.
+- `envelope-route`: a call Latet does not read, such as files, batches or audio. The agent is told
+  that this version of Latet does not support the call. No exception names a route: change the
+  agent's settings so that it does not make the call, or make it without Latet.
+- `envelope-resource`: a Bedrock ARN, a Vertex project, or a model name outside the providers'
+  documented forms: list it in `request_resources`.
+- `envelope-exception-expired`: the exception that let it through has ended; the error names it and
+  the day. Renew it.
+- `request body refused (unknown member in top-level)`, `(unknown member in message content
+  block)`, `(unknown member in tool definition)`...: a member of the body no profile names, and where
+  it is. On a request Latet only checks (Claude Code, Bedrock, Vertex), a new member that holds text
+  passes once checked. An exact exception can name another one by its JSON pointer: the dashboard
+  records its refusal as `body-unknown-member`. Inside a provider's own item (`provider item`:
+  thinking, reasoning) or an image's source (`inline image`), and in any WebSocket frame, none can
+  reach it: the refusal is recorded as `body-unknown-member-no-exception`, and the dashboard says that
+  no exception can reach it. Such a member is refused until a Latet release reads it.
+- `Latet cannot read this document, audio or remote media, so it does not send it`: give the agent
+  the text instead.
+
+[Upgrading to 0.11](../getting-started/upgrading-to-0-11/) says what to do in each case, and how to
+approve an exception.
+
 ### Auto mode says its reviewer is temporarily unavailable
 
 In auto mode, Claude Code asks a reviewer model whether each action is safe. When Latet stops
@@ -247,11 +284,12 @@ counts and aggregates; raise `dump_guard`, or set it to `0` to turn the guard of
 - Only the nearest `latet.yaml` applies, from the agent's folder up to the repository's root. See
   [Projects](../concepts/projects/).
 
-### Nothing is masked in one project
+### Every request in one project is refused
 
-Latet may be off there: the dashboard marks those exchanges *Latet off*. `latet project show`
-says so, and `latet project on` turns it on again. A project set to *Secrets only* masks secrets
-and your terms, and lets personal data through.
+Latet is off there: since 0.11 a project where Latet is off sends none of its requests, and the
+agent is told so. The dashboard marks those exchanges *Latet off*, `latet project show` says so, and
+`latet project on` turns it on again. To let personal data through there, set it to *Secrets only*,
+which masks secrets and your terms and lets the requests go.
 
 ### A value is masked that should not be
 
@@ -469,12 +507,18 @@ irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | 
 
 A wheel you downloaded works as well: its path in place of the address.
 
+`LATET_SOURCE` is installed as it is given: a Latet installed with other extras keeps them only when
+it names them too. On a server, that is `server` as well, as in `latet[ner,ocr,server] @ …`;
+`latet upgrade` says which extras to name. A server installed as a host service is upgraded as
+[Server operations](../concepts/server-operations/#upgrading-a-latet-installed-as-a-host-service)
+says.
+
 ## FAQ
 
 ### Does it work with a Claude Pro or Max subscription?
 
 Yes, with no API key: that is what client mode is for. Claude Code runs unmodified, you sign in with
-its own login, the plugin masks inside it, and the daemon forwards each request byte for byte. See
+its own login, the plugin masks inside it, and the daemon forwards each request's body byte for byte. See
 [Claude Code](../agents/claude-code/#pro-and-max-subscriptions).
 
 ### Can Hermes Agent or OpenClaw use my Claude subscription through Latet?
@@ -536,9 +580,22 @@ Download the text recognition models with `latet ocr install` (a Latet installed
 read on your machine and masked, and each value is covered on the image with its fake. See
 [Screenshots and images](../concepts/images/).
 
-PDFs and other documents are not read: they are sent as they are, and the dashboard marks those
-requests as *Not inspected*. Avoid attaching files that contain sensitive data, or set
-`images: block` (the `max` profile does the same) so that a request carrying one is not sent.
+Without them, a request that carries an image is not sent. PDFs and other documents are not read,
+so a request that carries one is not sent either: give the agent the text instead.
+
+### An image was refused
+
+The agent got an error instead of an answer, and nothing was sent:
+
+- *Latet cannot read this image's text: text recognition is not installed...*: text recognition is not
+  installed, or `ocr: off` is set. Install it (`latet ocr install` on a computer; on a Latet server, its administrator installs it), then rewind the conversation to before the image or
+  start a new one, since the image stays in its history.
+- *Latet cannot read all of this image's metadata or embedded images...*: on a request Latet only
+  checks, such as Claude Code's, a photo carried a location, a camera's maker notes, a thumbnail or a
+  second image. Remove them and attach it again, as
+  [Photos and their metadata](../concepts/images/#photos-and-their-metadata) says.
+- *Latet cannot fully inspect original WebP images in verify-only mode...*: export the image as PNG,
+  and attach it again.
 
 ### An image was withheld
 

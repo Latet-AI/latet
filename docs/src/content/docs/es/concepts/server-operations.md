@@ -300,6 +300,24 @@ o una ruta de carpeta larga también puede superar el tamaño supuesto. Conserva
 vigila los tamaños y la ocupación reales y dimensiona para la carga admitida: los recuentos
 por sí solos no garantizan un pequeño techo de memoria por identidad.
 
+Latet 0.11 añade tres tipos de claves, cada uno acotado, ninguno con un texto, un valor o un valor
+ficticio:
+
+- **Lo que el proveedor dio a una conversación** (firmas del razonamiento, razonamiento cifrado,
+  compactaciones), como hashes con clave, para que el turno siguiente pase en cualquier instancia: como
+  máximo 20.000 entradas y 4 MiB por identidad, y 256 MiB para todo el servidor, guardados una semana
+  después de su último uso. Una escritura que Valkey rechaza (un límite, o `noeviction` sin memoria) no
+  registra nada: ese elemento pasa entonces por la regla integrada para los campos cifrados del
+  proveedor donde se aplica, o se rechaza, nunca con una respuesta `503`.
+- **Las claves de lanzamiento** de los agentes que Latet lanzó en equipos conectados: un registro
+  sellado de 16 KiB como máximo por cada lanzamiento abierto en ese momento, como máximo 64 a la vez
+  por identidad.
+- **Las excepciones de petición usadas con el historial desactivado**: una fila por instancia e
+  identidad, solo con ids y números, actualizada cuando la instancia revisa sus espacios y borrada 30
+  segundos después de que la instancia se detiene. Valkey tal como lo entrega el perfil de Compose no
+  guarda nada en disco (`save ""`, `appendonly no`); un operador que active su persistencia escribe
+  estos recuentos en disco.
+
 ## HTTPS, proxies y capacidad
 
 Termina TLS en la instancia o en el equilibrador de carga. Establece `forwarded_allow_ips`
@@ -315,22 +333,79 @@ rechazo por capacidad exige revisar carga y límites, no desactivar la protecci�
 Al apagarse, una instancia tiene 30 segundos para terminar; los flujos largos pueden
 cortarse, así que los clientes deben gestionar la desconexión.
 
+Una instancia hace la mayor parte de su trabajo en un solo núcleo del procesador. Una máquina con más
+núcleos sirve más con varios workers en Linux ([más abajo](#varias-instancias-en-una-máquina)), y un
+servidor sirve más con más instancias detrás del equilibrador de carga.
+[Velocidad](../../applications/#velocidad) da lo que una instancia y varios workers enmascararon a
+través de la API para aplicaciones en el equipo de medida.
+
+Latet 0.11 lee cada parte de cada petición que reenvía
+([Pasar a la 0.11](../../getting-started/upgrading-to-0-11/)), y eso cuesta tiempo en cada una.
+Medido con una instancia en Windows en ese equipo, como mediana, frente a la misma versión sin esa
+lectura: una petición de chat pequeña tardó 6,99 ms en lugar de 5,95, la primera petición de una
+clave nueva 104 ms en lugar de 97, un cuerpo JSON de 1 MiB 391 ms en lugar de 373, una petición de
+4.000 huecos 1.088 ms en lugar de 779, y una petición de 500 textos ya enmascarados y uno nuevo
+183 ms en lugar de 158.
+
 El OCR usa lectores limitados, cada uno con sus modelos en memoria. `ocr_readers` vale
-2 por defecto y no puede superar los procesadores disponibles para la instancia.
+2 por defecto y no puede superar los procesadores disponibles para la instancia (con varios workers, la parte de
+un worker: los procesadores de la máquina divididos entre los workers).
 `ocr_read_seconds` vale 30; `ocr_wait_seconds` vale 35 y no puede ser menor que el tiempo
 de lectura. Aumentar los lectores consume memoria además de CPU. Una imagen no leída
 se retiene o se rechaza su solicitud verificada, según la ruta protegida; aumentar los
 tiempos de espera no mejora la precisión del reconocimiento.
 
 El espacio de una clave de API guarda en memoria los valores que la clave usó por última vez
-(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave) y, para siempre, sus secretos
-cortos más recientes que ninguna palabra de un texto encuentra cuando otras letras están pegadas
-a ellos (`key_held_secrets`, 1.000 por defecto, unos 2,2 KB cada uno en cada instancia). Sube
-`key_held_secrets` para una clave que ve muchos secretos cortos, como un token de sesión en cada
-línea de registro: cada texto que la clave enmascara o restaura se recorre para buscar cada uno
-de los que se guardan, así que sus llamadas también se vuelven un poco más lentas (restaurar
-es alrededor de una décima parte más lento con 1.000 guardados)
+(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave), las huellas de las palabras de
+toda su caja fuerte (unos 15 MB por un millón de valores) y, para siempre, sus secretos cortos más
+recientes que ninguna palabra de un texto encuentra cuando otras letras están pegadas a ellos
+(`key_held_secrets`, 1.000 por defecto, unos 23 KB cada uno, la mayor parte en el detector que los
+encuentra). Cada instancia y cada worker que sirve a la clave guarda todo eso. Mientras construye
+el índice de las huellas de una caja fuerte, una instancia guarda más por un momento: 49 MB más para
+1.000.000 de valores, durante unos 1,4 segundos, dentro de los 64 MB que reserva antes, y dos
+construcciones a la vez como mucho. Sube `key_held_secrets` para una clave que ve muchos secretos
+cortos, como un token de sesión en cada línea de registro: cada texto que la clave enmascara o
+restaura se recorre para buscar cada uno de los que se guardan, así que sus llamadas también se
+vuelven un poco más lentas (restaurar es alrededor de una décima parte más lento con 1.000
+guardados, medido con Latet 0.10.0)
 ([la caja fuerte de una clave](../../applications/#la-caja-fuerte-de-una-clave)).
+
+El espacio de una persona construido cuando su caja fuerte tiene 35.000 valores o menos la
+guarda entera en memoria (unos 1,6 KB por valor en cada instancia que sirve a la persona, contados en
+la memoria del espacio): los textos de la persona se enmascaran sin pedir sus valores a
+PostgreSQL, más o menos el doble de rápido que buscándolos. Cada petición pregunta igualmente
+primero a PostgreSQL qué han cambiado las otras instancias, así que un valor guardado u
+olvidado en una instancia lo ve la siguiente petición en cualquier otra. Por encima de 35.000
+valores, y en un espacio construido por encima hasta que se reconstruye (aunque se olviden
+valores), el espacio de una persona funciona como el de una clave de API: guarda en memoria los
+valores que la persona usó por última vez (`key_working_values`) y, para siempre, cada valor
+que ninguna palabra de un texto encuentra, sea cual sea su antigüedad, y busca cualquier otro
+valor en PostgreSQL cuando un texto lo necesita, así que ninguna instancia guarda entera una
+caja fuerte grande. Una caja fuerte guardada por una versión anterior de Latet se sirve desde
+la memoria, como antes, hasta que sus palabras se crean, una sola vez, en segundo plano en
+una instancia; el espacio construido después trabaja con PostgreSQL.
+
+Medido con Latet 0.11 en el equipo de [velocidad](../../applications/#velocidad), en el motor (el
+enmascaramiento de la pasarela solo, no a través de HTTP), una línea cada vez, en turnos de 500 líneas
+alternados con la caja fuerte de Latet 0.10.0 en el mismo proceso, cinco cada uno (medianas de los turnos): la
+caja fuerte de una persona de 20.000 valores, guardada entera, enmascaró 851 líneas por segundo frente a 558 de
+la 0.10.0, 1,52 veces donde esta versión se proponía llegar al doble; una de 5.000 valores 885 frente a 1.094,
+0,81 veces, porque la lectura del contador de cambios hecha antes de cada línea, de alrededor de medio
+milisegundo allí, es una parte grande del tiempo de una línea; una de 200.000 valores, sobre su almacén, 385
+frente a 59. Con 200.000 valores, el espacio de una persona ocupaba 24 MB más tras sus líneas, donde la caja
+fuerte de la 0.10.0 ocupaba 495 MB.
+
+El espacio de una persona guarda cada valor que ninguna palabra de un texto encuentra cuando
+otras letras están pegadas a él, diga lo que diga `key_held_secrets` (unos 23 KB cada uno en
+cada instancia). Una petición cuyos textos pasan los límites de una búsqueda, como un archivo
+de bloqueo o un registro largo de hashes, nunca se rechaza: el espacio de una persona que
+guarda entera su caja fuerte la lee de la memoria; uno más grande lee una vez su caja fuerte
+entera para ella, comparte esa lectura con las peticiones que la necesitan al mismo tiempo y
+la cuenta en la memoria del espacio mientras dura (con 200.000 valores, medido con Latet 0.11,
+las primeras 500 líneas por encima de un límite tardaron unos 10 segundos, lectura incluida, y la
+lectura ocupaba unos 380 MB en la instancia o el worker que la hizo, más o menos lo que guardaba la
+caja fuerte de la 0.10.0); el espacio de una clave de API busca las palabras de sus textos como lo
+hacía Latet 0.10.2.
 
 ### Conexiones, límites y confianza
 
@@ -354,14 +429,25 @@ es alrededor de una décima parte más lento con 1.000 guardados)
   cerca de ese límite retiene el bloqueo del intérprete de uno a tres segundos dondequiera que se analice, así que
   mantén el límite tan bajo como permitan tus agentes y ejecuta varias instancias.
 - **PostgreSQL:** cada instancia mantiene hasta `database_pool` conexiones (10 por defecto) para el trabajo de
-  todas las identidades; el `max_connections` de PostgreSQL debe cubrir el pool de cada instancia y los comandos
-  de los administradores. Una llamada a la API para aplicaciones que conserva valores nuevos ocupa una hasta que
-  termina, como mucho tres décimas partes del pool (tres de diez); por encima, las llamadas conservan cada valor
-  nuevo enseguida, más despacio. Sube `database_pool`, y con él `max_connections`, para una instancia que
-  enmascara para muchas claves nuevas a la vez.
-- **Valkey:** cada instancia mantiene hasta `valkey_connections` conexiones (100 por defecto), y por encima una
-  llamada espera cinco segundos como máximo. El `maxclients` de Valkey debe cubrir las conexiones de todas las
-  instancias. La conexión a Valkey, su TLS y su primera respuesta comparten un único límite de cinco segundos.
+  todas las identidades, y cada worker es una instancia; el `max_connections` de PostgreSQL debe cubrir el pool
+  de cada instancia y los comandos de los administradores. Mientras construye el índice de una caja fuerte, la
+  de una clave de API o la de una persona, una instancia abre también hasta dos conexiones propias, que se
+  cierran al terminar la construcción: cuéntalas también en `max_connections`. Si no queda ninguna libre, la
+  construcción usa una conexión del pool. Una llamada a la API para aplicaciones que conserva valores nuevos
+  ocupa una hasta que termina, como mucho tres décimas partes del pool (tres de diez); por encima, las llamadas
+  conservan cada valor nuevo enseguida, más despacio. Sube `database_pool`, y con él `max_connections`, para una
+  instancia que enmascara para muchas claves nuevas a la vez.
+- **Valkey:** cada instancia, y también cada worker, mantiene hasta `valkey_connections` conexiones (100 por
+  defecto), y por encima una llamada espera cinco segundos como máximo. El `maxclients` de Valkey debe cubrir las
+  conexiones de todas las instancias. La conexión a Valkey, su TLS y su primera respuesta comparten un único
+  límite de cinco segundos.
+- **Memoria:** cada instancia, y también cada worker, da a los espacios que guarda 2 GiB, pesados según los
+  recuentos que llevan sus partes en lugar de leídos del proceso. Un espacio ocupa como mucho la mitad, y sus
+  detectores hasta una octava parte de esa mitad más (128 MiB), que un espacio ocupado conserva mientras sus
+  peticiones están en curso: varios espacios ocupados pueden superar los 2 GiB en eso cada uno. El propio
+  proceso, los modelos de reconocimiento y los índices en construcción van aparte. Un worker se vuelve a
+  arrancar cuando termina o se queda en silencio, nunca por su memoria: planifica la memoria de la máquina para
+  N workers ([varias instancias en una máquina](#varias-instancias-en-una-máquina)).
 - **Los certificados de los proveedores:** una instancia confía en el almacén de certificados del sistema
   operativo; en Linux, en las rutas predeterminadas de OpenSSL, que `SSL_CERT_FILE` y `SSL_CERT_DIR` cambian para
   todo el proceso. Cámbialas solo para añadir la autoridad de tu empresa.
@@ -370,6 +456,59 @@ es alrededor de una décima parte más lento con 1.000 guardados)
   ella lo indica en su registro.
 
 ## Actualizar y añadir instancias
+
+De la 0.10 a la 0.11, lee primero [Pasar a la 0.11](../../getting-started/upgrading-to-0-11/): la 0.11
+rechaza las partes de las peticiones que no lee, en un servidor igual que en un equipo, y
+`latet doctor` enumera lo que se detendrá.
+
+La 0.11 también cambia las tablas, así que el servidor se detiene para su migración:
+
+1. Haz la copia de la base de datos que se describe más abajo, y ejecuta
+   `latet server migrate --check` con la 0.11: dice que las tablas cambian.
+2. Detén cada instancia, cada worker de cada máquina. Un servidor que sigue en la 0.10 responde a
+   `latet server status` solo con la instancia que ha respondido, porque la 0.10 no informa de sus
+   instancias: la comprobación de que no queda ninguna es la del paso siguiente.
+3. Espera 30 segundos y luego ejecuta `latet server migrate` una vez, con la 0.11: una instancia de
+   la 0.10 deja su clave en Valkey al detenerse, y cuenta como viva hasta que la clave caduca, 30
+   segundos después de su último latido. Mientras una instancia de la 0.10 o de la 0.11 está viva, no
+   migra nada, dice cuántas están vivas y de qué versión (`1 instance of the server is alive (1 of
+   Latet 0.10 or older): nothing was migrated`) y termina con 2: detenlas y vuelve a ejecutarlo. Con
+   una migración pendiente, ni él ni `latet server init` migran nada tampoco mientras Valkey no
+   responde. La migración añade a cada fila de palabra de cada caja fuerte un sitio vacío para su
+   huella y para el número del cambio que la escribió por última vez, con sus índices: en una base de
+   datos con cajas fuertes grandes tarda más que las migraciones anteriores, y las huellas mismas se
+   calculan después, en segundo plano (más abajo). Una vez aplicadas las migraciones, vuelve a
+   preguntar a Valkey, y cuando una instancia se ha puesto viva entretanto lo dice tras lo que ha
+   aplicado y termina con 1 (`The tables are migrated, and 1 instance of the server is alive (1 of
+   Latet 0.10 or older): stop it, then start it with this version of Latet`).
+4. Arranca cada instancia con la 0.11. Entre la parada y este arranque no se responde ninguna
+   llamada.
+
+Después, en segundo plano: las huellas de cada caja fuerte guardada por la 0.10 las calcula la
+primera instancia que construye su espacio, una vez, una instancia cada vez, y cada instancia
+construye su propio índice de esas huellas, para la caja fuerte de una persona como para la de una
+clave de API. Hasta entonces, las peticiones y las llamadas de esa identidad se responden buscando
+sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Una
+instancia cuyo índice no puede construirse (las huellas aún no todas calculadas, PostgreSQL o Valkey
+que no responden, una actualización del índice que falló) deja esa identidad en la búsqueda en
+PostgreSQL y vuelve a construir el índice: enseguida cuando termina el cálculo de las huellas de otra
+instancia, y si no 10, 20 y 30 segundos después de cada intento y luego una vez por minuto, dos
+construcciones a la vez en cada instancia, la siguiente en cuanto termina una. El registro dice una
+vez cuando el índice de un espacio deja de usarse (`the vault index of <id> is not used (<why>): its
+lookups go to PostgreSQL until it is built again`) y una vez cuando vuelve a usarse. Una caja fuerte
+por encima de 16.777.216 huellas, unos ocho millones de valores, no tiene índice mientras dura su
+espacio: sus búsquedas van a PostgreSQL, y un espacio nuevo lo intenta una vez más. La caja fuerte de
+una persona guardada antes de Latet 0.10.0, cuyos valores aún no tienen palabras, se guarda entera en
+memoria, como antes, hasta que sus palabras y sus huellas se crean, una vez, en una instancia; el
+espacio de la persona construido después trabaja con PostgreSQL. La 0.11 no vuelve a hacer las
+palabras de ninguna clave ([actualizar un servidor](../../applications/#actualizar-un-servidor)).
+
+Latet lee cada petición según el perfil de su ruta, que nombra cada campo, cabecera y parámetro de
+consulta que lleva. En cada versión de Latet, y al menos cada dos semanas, las versiones más recientes
+de los agentes que Latet admite pasan por las peticiones que estos perfiles describen. Cuando la
+actualización de un agente envía algo que ningún perfil nombra, la nueva revisión del perfil sale en
+una versión de corrección; hasta que la instales, esa petición se rechaza, nombrando su categoría, y no
+sale nada de ella. Mantén las instancias en la última versión de corrección de su versión.
 
 Las instancias comparten las mismas tablas, y una instancia solo arranca sobre tablas de su versión. La
 base de datos es tuya de guardar: Latet no copia nada de ella. Antes de descargar una imagen nueva y de
@@ -392,27 +531,31 @@ latet server migrate --check
 - **Las tablas no cambian:** sustituye las instancias una a una detrás del equilibrador de carga. Una
   instancia detenida termina sus peticiones en 30 segundos como máximo.
 - **Las tablas cambian:** detén todas las instancias, ejecuta `latet server migrate` una vez con la nueva
-  versión y luego arranca las instancias con ella. Una instancia no arranca sobre tablas de otra versión.
+  versión y luego arranca las instancias con ella. `latet server migrate` se niega mientras una
+  instancia está viva (una de la 0.10 durante 30 segundos después de detenerse), y una instancia no
+  arranca sobre tablas de otra versión.
 - **Hay programas que usan la API para aplicaciones:** detén cada instancia más antigua antes de que
   arranquen las nuevas, aunque las tablas no cambien. Mientras dos versiones se ejecutan a la vez, un
   valor que una instancia más antigua escribe en la caja fuerte de una clave puede no encontrarlo una
   más nueva hasta que el espacio de la clave se vuelva a construir
   ([actualizar un servidor](../../applications/#actualizar-un-servidor)).
-- **Una versión que indexa de nuevo la caja fuerte de una clave** (el changelog lo dice): la primera
-  instancia que construye el espacio de cada clave de API rehace las palabras de su caja fuerte antes de
-  responder a la primera llamada de esa clave, unos 40 segundos para 200.000 valores y cuatro minutos y
-  medio para 1.000.000. Se hace una vez por clave, pero una instancia construye cuatro espacios a la
-  vez, de personas y de claves, así que varias claves grandes construidas a la vez tras un reinicio
-  retienen las primeras llamadas de todos los demás espacios de esa instancia: envía una llamada a cada
-  clave grande, una clave tras otra, antes de que vuelva el tráfico.
+- **Una versión que rehace las palabras de una clave** (el changelog lo dice; la 0.11 no): la primera instancia
+  que construye el espacio de cada clave de API rehace las palabras de su caja fuerte antes de responder a la
+  primera llamada de esa clave, lo que a Latet 0.10.0 le llevaba unos 40 segundos para 200.000 valores y cuatro
+  minutos y medio para 1.000.000. Se hace una vez por clave, pero una instancia construye cuatro espacios a la
+  vez, de personas y de claves, así que varias claves grandes construidas a la vez tras un reinicio retienen las
+  primeras llamadas de todos los demás espacios de esa instancia: envía una llamada a cada clave grande, una
+  clave tras otra, antes de que vuelva el tráfico.
 
 En el ejemplo de Compose, cuando las tablas cambian, los mismos pasos se ejecutan en contenedores de la
-nueva imagen:
+nueva imagen (la pausa deja caducar las claves de las instancias de la 0.10 detenidas; una instancia
+de la 0.11 quita la suya al detenerse):
 
 ```sh
 docker compose -p latet --profile server pull
 docker compose -p latet --profile server run --rm latet-server-1 server migrate --check
 docker compose -p latet --profile server stop latet-server-1 latet-server-2
+sleep 30
 docker compose -p latet --profile server run --rm latet-server-1 server migrate
 docker compose -p latet --profile server up -d latet-server-1 latet-server-2
 ```
@@ -420,6 +563,110 @@ docker compose -p latet --profile server up -d latet-server-1 latet-server-2
 Para añadir una instancia, arranca otra con los mismos ajustes, la misma clave maestra y los mismos
 PostgreSQL y Valkey, y añade su dirección al equilibrador de carga. Las instancias guardan su estado en
 PostgreSQL y Valkey, así que cualquiera puede responder a cualquier petición.
+
+### Varias instancias en una máquina
+
+Una instancia hace la mayor parte de su trabajo en un solo núcleo del procesador. Para usar más núcleos de
+una máquina, `latet server run --workers N` (o el ajuste `workers`, `LATET_SERVER_WORKERS`) arranca N
+instancias, llamadas workers, en el mismo puerto, cada una en un proceso propio: comparten PostgreSQL y
+Valkey como lo harían instancias en N máquinas, y el equilibrador de carga se queda como está. En el
+ejemplo de Compose, define `LATET_SERVER_WORKERS` en el archivo `.env`. Empieza con un worker por cada
+núcleo que la máquina da al servidor.
+
+- **Cuántos:** `--workers` en la línea de comandos, si no `LATET_SERVER_WORKERS`, si no `workers` en
+  `server.yaml`, si no uno; de 1 a 64. Los ajustes rechazan un número cuyos puertos de métricas (más
+  abajo) pasarían de 65535 o tomarían el puerto de la propia instancia. En el ejemplo de Compose cada
+  contenedor del servidor arranca sus propios workers: dos contenedores con `LATET_SERVER_WORKERS=4`
+  son ocho instancias, con ocho pools de conexiones.
+- **Lo que aportan:** medido en Linux a través de la API para aplicaciones, ocho workers enmascararon
+  6,28 veces lo que uno y restauraron 5,21 veces, donde esta versión se proponía llegar a 5 veces
+  ([velocidad](../../applications/#velocidad)). Menos núcleos libres, o unas pocas conexiones de larga
+  duración, dan menos: N workers no son N veces uno.
+- **Cómo les llegan las conexiones:** en Linux cada worker escucha en el puerto con un socket
+  propio, y el sistema reparte las conexiones nuevas entre ellos según un hash de las direcciones y
+  los puertos de cada una. Muchas conexiones se reparten de forma uniforme; unas pocas conexiones de
+  larga duración, como las de un equilibrador de carga, pueden aun así repartirse de forma desigual,
+  y cuantas más conexiones haya, mejor se reparten. En macOS, que daría cada conexión a uno solo de
+  los sockets abiertos en un puerto, los workers comparten en cambio un único socket, y las
+  conexiones les llegan de forma menos uniforme. Para que sea el kernel quien reparta las
+  conexiones, ejecuta el servidor en Linux o en la imagen del contenedor.
+- **El usuario del servidor:** en Linux el proceso que arranca los workers retiene el puerto durante
+  todo el funcionamiento del servidor, así que ningún otro programa lo toma, ni siquiera mientras
+  ningún worker escucha; justo después de que se detenga un servidor de una sola instancia en el
+  mismo puerto, espera hasta un minuto a que desaparezcan las conexiones cerradas de ese servidor.
+  Un programa solo puede escuchar en el puerto junto a los workers si se ejecuta con el mismo
+  usuario que el servidor, y entonces podría quedarse con una parte de las conexiones, o con todas.
+  Ejecuta el servidor con un usuario que no ejecute nada más: el usuario `latet` del servicio del
+  sistema, o el propio del contenedor.
+- **Memoria y conexiones:** cada worker ocupa más o menos tanta memoria como una instancia: en Linux
+  unos 110 MB residentes en reposo, y de 185 a 227 MB con el espacio de una clave de API de 200.000
+  valores tras servir 200.000 líneas de registro distintas, medidos por cada worker sin modelos de
+  reconocimiento; más por otros espacios, sus cachés y los modelos de reconocimiento cuando están
+  instalados. Un worker que sirve a una persona cuya caja fuerte se guarda entera la guarda toda,
+  unos 1,6 KB por valor (unos 58 MB con 35.000 valores). Prevé N veces eso, más hasta unos 70 MB para
+  el proceso que los arranca y los vigila. El reconocimiento de texto da a cada worker su parte de los
+  procesadores de la máquina. Cada worker tiene además sus propias conexiones, `database_pool` hacia
+  PostgreSQL y `valkey_connections` hacia Valkey: haz que `max_connections` de PostgreSQL y
+  `maxclients` de Valkey cubran cada worker de cada máquina.
+- **El proceso que los arranca:** no construye ningún espacio ni abre ninguna base de datos, clave
+  maestra o certificado; cada worker lo hace en su propio proceso. Arranca con los ajustes y el
+  entorno del servidor y se los pasa a los workers, así que protégelo como una instancia.
+- **Métricas:** el worker 0 responde a Prometheus en `metrics_port`, cada otro worker en el puerto
+  siguiente (7283, 7284 y así sucesivamente): consulta cada uno. `latet_process_memory_bytes` es la
+  memoria de un worker (su memoria residente en Linux, sus bytes privados en Windows), y
+  `latet_vault_index_bytes` la parte que ocupan los índices de sus cajas fuertes.
+- **Vigilancia:** un worker que termina, o que no envía ningún latido durante 30 segundos, se cierra
+  y se arranca de nuevo, como mucho una vez cada diez segundos. Un worker que no puede arrancar tres
+  veces seguidas (sus ajustes, su base de datos o su certificado lo rechazan) detiene todos los
+  workers y el servidor, como se detiene una instancia sola, para que decida el gestor de servicios.
+  Un worker que no está listo (PostgreSQL o Valkey no responden) se queda: decide la comprobación de
+  disponibilidad del equilibrador. `latet server status` lista cada instancia viva, cada worker de
+  cada máquina, con su número de worker, si está lista, su memoria y su versión; un worker que murió
+  sigue en la lista hasta 30 segundos después de que arranque el que lo sustituye. Una petición que un
+  worker estaba sirviendo cuando terminó no recibe respuesta: su cliente recibe un error y tiene que
+  volver a enviarla, y ninguna recibe una respuesta sin enmascarar. En Linux, las conexiones que
+  aún esperaban a un worker que terminó se cortan, y sus clientes tienen que volver a conectarse, y
+  un worker que deja de enviar latidos hace esperar su parte de las conexiones nuevas hasta que se
+  cierra.
+- **Pasar las conexiones en espera a otros workers (opcional):** desde Linux 5.14, con
+  `net.ipv4.tcp_migrate_req` a 1, el sistema pasa a los demás workers las conexiones que esperan a
+  un worker que termina, en lugar de cortarlas. En el ejemplo de Compose, quita el comentario de la
+  entrada `sysctls` de los servicios del servidor; para un servicio del sistema, pon
+  `net.ipv4.tcp_migrate_req = 1` en un archivo bajo `/etc/sysctl.d/` y cárgalo con
+  `sysctl --system`. No está activado de forma predeterminada: en un kernel más antiguo, Docker se
+  niega a arrancar un contenedor que lo define.
+- **Parada:** una señal de parada llega a cada worker, y cada uno tiene 30 segundos para terminar el
+  trabajo en curso, como una instancia sola.
+- **Windows:** varios workers necesitan Linux o la imagen del contenedor. En Windows `latet server run`
+  rechaza más de uno: allí un socket sirve a un solo proceso, y el único bucle de eventos que podría
+  compartirlo detiene un worker a partir de 512 conexiones. Arranca una instancia en cada máquina Windows
+  detrás del equilibrador de carga; el servicio de Windows arranca una, diga lo que diga el ajuste.
+
+### Actualizar un Latet instalado como servicio del sistema
+
+Un Latet instalado como servicio del sistema, como arriba, se actualiza con el comando con el que se
+instaló, ejecutado de nuevo con el wheel de la nueva versión, las mismas carpetas `UV_*` y los mismos
+extras (`server`, con `ner` y `ocr` si los tiene):
+
+```sh
+UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
+  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+```
+
+Después pregunta a la nueva versión si cambia las tablas, como arriba (`latet server migrate --check`),
+y reinicia el servicio (`systemctl restart latet-server`). En Windows, que no sustituye ningún archivo
+de un programa en ejecución, detén el servicio antes de la instalación (`Stop-Service LatetServer`) e
+inícialo después (`Start-Service LatetServer`). `latet upgrade` instala en las carpetas de uv: en un
+Latet instalado en carpetas propias, se detiene antes de cambiar nada e imprime este comando, con las
+carpetas que ha encontrado.
+
+Hasta la 0.10.4, `latet upgrade` solo nombraba la detección de nombres y la lectura de texto en
+imágenes, y uv quitaba los demás extras: un servidor actualizado así perdía `server` (psycopg y
+redis), y `latet server run` se negaba después a arrancar. Un servidor con la 0.10.4 o anterior pasa
+por eso una vez a una versión posterior con el comando de arriba, nombrando `server`, o con el
+instalador descargado de nuevo desde GitHub y ejecutado con las mismas variables `UV_*`. Un servidor
+que ya ha perdido `server` lo recupera con el comando de arriba: el instalador no puede saber de un
+extra que ya no está.
 
 ## Modelos de reconocimiento en un servidor
 
@@ -445,7 +692,7 @@ sudo -u latet env LATET_DATA_DIR=/var/lib/latet latet ocr install --yes
 systemctl restart latet-server
 ```
 
-Con el servicio de Windows, el procedimiento para instalar los modelos todavía no está documentado.
+Para el servicio de Windows, esta página no da un procedimiento para instalar los modelos.
 
 ## Programas con una clave de API
 

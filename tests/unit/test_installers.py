@@ -265,6 +265,47 @@ def test_install_sh_with_a_uv_too_old_to_say_keeps_an_latet_as_it_was(sh_stand):
     assert stand.installs() == [f"latet[ner,ocr] @ {WHEEL}"]
 
 
+# uv installs a tool with exactly the extras its requirement names, and uninstalls the others: run again over a server
+# installed with `latet[server]`, an installer that named ner and ocr alone took psycopg and redis away.
+KEPT = [
+    ("server", [f"latet[ner,ocr,server] @ {WHEEL}"]),
+    ("ner, ocr, server", [f"latet[ner,ocr,server] @ {WHEEL}"]),
+    ("dev-tools, server", [f"latet[ner,ocr,dev-tools,server] @ {WHEEL}"]),
+    ("-x, .y, server, z-", [f"latet[ner,ocr,server] @ {WHEEL}"]),  # no names of extras: left out
+]
+# A listing made to run something: the extras of none of them are read, and nothing runs.
+HOSTILE = ["server; touch pwned", "$(touch pwned)", "`touch pwned`", 'server" "pwned', "server' 'pwned"]
+
+
+@pytest.mark.parametrize(("extras", "installs"), KEPT)
+def test_install_sh_keeps_the_other_extras_an_installed_latet_has(sh_stand, extras, installs):
+    stand = sh_stand()
+    stand.installed(extras)
+    done = _run_sh(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == installs
+
+
+@pytest.mark.parametrize("extras", HOSTILE)
+def test_install_sh_reads_no_extra_from_a_listing_made_to_run_something(sh_stand, extras):
+    stand = sh_stand()
+    stand.installed(extras)
+    done = _run_sh(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == [f"latet[ner,ocr] @ {WHEEL}"]
+    assert not list(stand.root.rglob("pwned")) and not (Path.cwd() / "pwned").exists()
+
+
+def test_install_sh_without_names_and_images_keeps_the_other_extras(sh_stand):
+    stand = sh_stand()
+    stand.installed("server")
+    stand.fail(f"latet[ner,ocr,server] @ {WHEEL}")
+    done = _run_sh(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == [f"latet[ner,ocr,server] @ {WHEEL}", f"latet[server] @ {WHEEL}"]
+    assert done.stdout.rstrip().splitlines()[-1] == OFF
+
+
 PAGE = "https://github.com/Latet-AI/latet/releases"
 LIMIT = "GitHub's API answered 403 (it takes 60 requests an hour from one address)"
 
@@ -611,6 +652,37 @@ def test_install_ps1_with_a_uv_too_old_to_say_keeps_an_latet_as_it_was(ps_stand)
     done = _run_ps(stand)
     assert done.returncode != 0 and "left as it was" in done.stdout + done.stderr, done.stdout + done.stderr
     assert stand.installs() == [f"latet[ner,ocr] @ {WHEEL}"]
+
+
+@pytest.mark.parametrize(("extras", "installs"), KEPT)
+@pytest.mark.parametrize("shell", SHELLS or [None], ids=lambda shell: Path(shell).stem if shell else "none")
+def test_install_ps1_keeps_the_other_extras_an_installed_latet_has(ps_stand, shell, extras, installs):
+    stand = ps_stand()
+    stand.installed(extras)
+    done = _run_ps(stand, shell)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == installs
+
+
+@pytest.mark.parametrize("extras", HOSTILE)
+def test_install_ps1_reads_no_extra_from_a_listing_made_to_run_something(ps_stand, extras):
+    stand = ps_stand()
+    stand.installed(extras)
+    done = _run_ps(stand)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == [f"latet[ner,ocr] @ {WHEEL}"]
+    assert not list(stand.root.rglob("pwned")) and not (Path.cwd() / "pwned").exists()
+
+
+@pytest.mark.parametrize("shell", SHELLS or [None], ids=lambda shell: Path(shell).stem if shell else "none")
+def test_install_ps1_without_names_and_images_keeps_the_other_extras(ps_stand, shell):
+    stand = ps_stand()
+    stand.installed("server")
+    stand.fail(f"latet[ner,ocr,server] @ {WHEEL}")
+    done = _run_ps(stand, shell)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert stand.installs() == [f"latet[ner,ocr,server] @ {WHEEL}", f"latet[server] @ {WHEEL}"]
+    assert done.stdout.rstrip().splitlines()[-1] == OFF
 
 
 @pytest.mark.parametrize("said", ["latet stop", "uv tool update-shell"])

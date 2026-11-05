@@ -20,13 +20,14 @@ import re
 import threading
 import time
 import unicodedata
+import weakref
 from collections import Counter, defaultdict
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from statistics import quantiles
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeGuard
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeGuard, cast
 
 from pydantic import ValidationError
 from starlette.requests import Request
@@ -57,10 +58,13 @@ from latet.engine.detectors import checksums, ids
 from latet.engine.detectors.pii import ALL_PII, BASE_PII, effective_pii
 from latet.engine.detectors.terms import has_letter_or_digit
 from latet.engine.rehydrate import restore_text, restores_for
+from latet.engine.response_guard import latet_key
+from latet.engine.stored import StoredVault
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import MaskingError, Vault
 from latet.gateway.approvals import Change, MaskError
 from latet.gateway.recorder import original_range, reconstruct, replacement_dicts, restored_source
+from latet.gateway.request_audit import MAX_SNAPSHOT_BYTES, RequestAudit, SnapshotWork
 from latet.http_inputs import bounded_body, same_etag
 from latet.logline import Paced, described
 from latet.projects import (
@@ -111,6 +115,7 @@ if TYPE_CHECKING:
     from latet.columns import Column
     from latet.engine.masker import Masker
     from latet.runtime import Runtime
+    from latet.server.spaces import _StatusSweep
     from latet.state.protocols import SignIns
     from latet.tutorial.api import TutorialApi
 
@@ -676,6 +681,267 @@ def _stats_of(parts: Iterable[Iterable[dict[str, Any]]], most: int | None = None
 _COUNTRY_OF = {spec.etype: spec.country for spec in ids.SPECS.values()}
 
 
+# Only the additive status contribution can become unavailable: all original
+# /me fields still return exactly as before, even when its body is very large.
+_MAX_ME_BASE_BYTES = 65536
+_MAX_ME_BODY_BYTES = _MAX_ME_BASE_BYTES + MAX_SNAPSHOT_BYTES
+
+
+class _StatusSubmission:
+    __slots__ = ("future",)
+
+    def __init__(self) -> None:
+        self.future: Future[None] | None = None
+
+
+class _StatusTerminal:
+    """Bounded weak handle: never retains an input, Future or live Work."""
+
+    __slots__ = ("_work",)
+
+    def __init__(self, work: SnapshotWork) -> None:
+        self._work = weakref.ref(work)
+
+    def __call__(self, completed: Future[None]) -> None:
+        reference = self._work
+        self._work = None
+        work = reference() if reference is not None else None
+        if work is not None:
+            work.worker_finished()
+
+
+class _StatusInput:
+    """The sole Work-bearing queued input; ordinary-GIL CPython lifetime Q."""
+
+    __slots__ = ("__weakref__", "_aggregate", "_armed", "_context", "_mediator", "_server", "_work")
+
+    def __init__(self, work: SnapshotWork, mediator: Any, server: bool, aggregate: bool) -> None:
+        # Fully construct UNARMED before claiming N/Q; partial construction
+        # ends outside A and before the consumer can refund its reserved Work.
+        self._armed = False
+        self._work = self._context = self._mediator = None
+        self._server = self._aggregate = False
+        self._work = work
+        self._context = contextvars.copy_context()  # copied before input publication/arming
+        self._mediator, self._server, self._aggregate = mediator, server, aggregate
+
+    def arm(self) -> None:
+        self._armed = True  # exact native assignment after positive N/Q claim
+
+    def __call__(self) -> None:
+        work = self._work
+        if not self._armed or type(work) is not SnapshotWork:
+            return None
+        try:
+            cast("contextvars.Context", self._context).run(
+                _read_request_status, work, self._mediator, self._server, self._aggregate
+            )
+        except BaseException:
+            # Status-only sanitation: no Future exception->traceback->input
+            # cycle, no raw diagnostics. Caller/event-loop cancellation is
+            # outside this native body and retains its existing semantics.
+            try:
+                work._clear_projection()
+            except BaseException:
+                work._encoded = None
+        return None  # Future never stores Work, context or raw status bytes
+
+    def __del__(self) -> None:
+        work = getattr(self, "_work", None)
+        armed = getattr(self, "_armed", False)
+        self._armed = False
+        self._work = None
+        # Decrefs may run foreign destructors: ALL inputs end OUTSIDE A.
+        self._context = self._mediator = None
+        self._server = self._aggregate = False
+        if armed and type(work) is SnapshotWork:
+            try:  # noqa: SIM105 - Avoid a new allocation in ownership cleanup.
+                work.queue_finished()
+            except BaseException:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+                pass  # conservative unavailable claim if exact cleanup cannot finish
+
+
+class _PublicationInput:
+    """Sole publication Work input. Its disposal owns C/N/Q and continuation."""
+
+    __slots__ = ("__weakref__", "_armed", "_context", "_mediator", "_sweep", "_work")
+
+    def __init__(self, work: SnapshotWork, mediator: Any, sweep: Any) -> None:
+        self._armed = False
+        self._work = self._context = self._mediator = self._sweep = None
+        self._context = contextvars.Context()  # no traffic/caller context in scheduler work
+        self._work, self._mediator, self._sweep = work, mediator, sweep
+
+    def __call__(self) -> None:
+        work = self._work
+        if not self._armed or type(work) is not SnapshotWork:
+            return None
+        try:
+            cast("contextvars.Context", self._context).run(_read_request_status, work, self._mediator, True, False)
+        except BaseException:
+            try:
+                work._clear_projection()
+            except BaseException:
+                work._encoded = None
+        return None
+
+    def __del__(self) -> None:
+        work, sweep, armed = self._work, self._sweep, self._armed
+        sweep = cast("_StatusSweep", sweep)
+        self._armed = False
+        self._work = self._sweep = self._context = self._mediator = None
+        # ALL foreign inputs/context end outside A, then combined native/input/
+        # consumer accounting, then scheduling OUTSIDE A after Work aliases end.
+        if armed and type(work) is SnapshotWork:
+            sweep._input_ended()
+            work._publication_disposed()
+            work = None
+            sweep._disposed()
+
+
+def _submit_publication(work: SnapshotWork, mediator: Any, pool: Any, sweep: Any) -> bool:
+    carrier = None
+    try:
+        carrier = _PublicationInput(work, mediator, sweep)
+    except BaseException as error:
+        BaseException.__setattr__(error, "__traceback__", None)
+        BaseException.__setattr__(error, "__context__", None)
+        BaseException.__setattr__(error, "__cause__", None)
+    if carrier is None:
+        work.close()
+        return False
+    if not work.claim_worker(queued=True):
+        carrier = None
+        work.close()
+        return False
+    carrier._armed = True
+    try:
+        pool.submit(carrier)  # no saved Future/callback or separate input args
+    except BaseException as error:
+        # submit may already have enqueued. ONLY actual carrier disposal ends
+        # the three positive claims; never infer Q from a raised submit.
+        BaseException.__setattr__(error, "__traceback__", None)
+        BaseException.__setattr__(error, "__context__", None)
+        BaseException.__setattr__(error, "__cause__", None)
+    carrier = None
+    return True
+
+
+def _read_request_status(work: SnapshotWork, mediator: Any, server: bool, aggregate: bool = True) -> None:
+    built = False
+    try:
+        built = work.build(removed_headers=mediator.envelope_removed_headers, server=server)
+        if built and server:
+            from latet.server.live import refresh_request_status
+
+            refresh_request_status(work, aggregate=aggregate)
+    except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+        # An unavailable observation never becomes invented zero totals or a
+        # failure of the existing /me fields. Never retain an exception trace.
+        pass
+    if not built:
+        work._clear_projection()
+    return None  # consumer already owns the same charged Work
+
+
+async def _status_in_pool(
+    work: SnapshotWork, mediator: Any, server: bool, pool: Any, *, aggregate: bool = True
+) -> bool:
+    """Same native Future owner for authenticated reads and beat publication."""
+    submission = carrier = None
+    try:
+        submission = _StatusSubmission()
+        carrier = _StatusInput(work, mediator, server, aggregate)
+    except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+        pass
+    if carrier is None:
+        # Partial constructor/exception frames have ended before this refund.
+        submission = None
+        work.close()
+        return False
+    submission = cast("_StatusSubmission", submission)
+    work._submission = submission
+    if not work.claim_worker(queued=True):
+        carrier = None  # unarmed input/context clears outside A before close
+        work.close()
+        return False
+    carrier.arm()
+    submitted = installed = False
+    try:
+        submission.future = pool.submit(carrier)  # ONLY queued Work-bearing input
+        submitted = True
+    except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+        pass
+    carrier = None  # caller never retains Q across any await/failure/return
+    if not submitted:
+        work.worker_finished()  # no observable native obligation; NEVER releases Q
+        work.close()
+        return False
+    try:
+        cast("Future[None]", submission.future).add_done_callback(_StatusTerminal(work))
+        installed = True
+    except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+        pass
+    cancelled = None
+    failed = False
+    try:
+        await asyncio.shield(asyncio.wrap_future(cast("Future[None]", submission.future)))
+    except asyncio.CancelledError as interruption:
+        cancelled = interruption
+    except Exception:
+        failed = True
+    if cancelled is not None or failed:
+        work.close()  # end the consumer, never a queued/running worker claim
+        if not installed:
+            # Registration failed: this SAME request is the fallback owner.
+            # Only this fault path delays cancellation until the real native
+            # Future is terminal; no detached task or uncharged observer.
+            while not cast("Future[None]", submission.future).done():
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError as interruption:
+                    if cancelled is None:
+                        cancelled = interruption
+            work.worker_finished()
+        if cancelled is not None:
+            raise cancelled
+        return False
+    if not installed:
+        # Await succeeded, so the actual native Future is already terminal.
+        work.worker_finished()
+    return True
+
+
+class _RequestStatusResponse(Response):
+    """The real ASGI send, including exceptional exit, owns the status lease."""
+
+    def __init__(self, baseline: Response, work: SnapshotWork) -> None:
+        # baseline was rendered once using the unchanged /me field contract.
+        # The new final member is always the exact literal request_status:null.
+        if not cast("bytes", baseline.body).endswith(b'"request_status":null}') or work.encoded is None:
+            raise ValueError("unavailable request status")
+        body = cast("bytes", baseline.body)[:-5] + work.encoded + b"}"
+        if len(body) > _MAX_ME_BODY_BYTES:
+            raise ValueError("unavailable request status")
+        super().__init__(body, media_type="application/json")
+        self._work: SnapshotWork | None = work
+        work._response = self
+        work._body = self.body
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        work = self._work
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # All response references end before the same work charge can end.
+            self.body = b""
+            self.raw_headers = []
+            self.__dict__.pop("_headers", None)
+            self._work = None
+            if work is not None:
+                work.close()
+
+
 class Dashboard:
     def __init__(
         self,
@@ -757,6 +1023,8 @@ class Dashboard:
             Route(f"{API}/stats", guarded(self.stats), methods=["GET"]),
             Route(f"{API}/integrations", guarded(self.integrations), methods=["GET"]),
             Route(f"{API}/destinations/{{name}}", guarded(self.remove_destination), methods=["DELETE"]),
+            Route(f"{API}/exceptions", guarded(self.exceptions), methods=["GET"]),
+            Route(f"{API}/exceptions/{{id}}", guarded(self.revoke_exception), methods=["DELETE"]),
             Route(f"{API}/stream", guarded(self.stream), methods=["GET"]),
             Route(f"{API}/approvals", guarded(self.approvals), methods=["GET"]),
             Route(f"{API}/approvals/stream", guarded(self.approvals_stream), methods=["GET"]),
@@ -810,8 +1078,8 @@ class Dashboard:
             except Exception as exc:
                 # By its handler's name, its type and its frames (where it failed), never its words: they can quote
                 # what was sent (a setting refused quotes its value), and the path can hold a project's id, a hash of
-                # its folder. The frames are shown as a server's log shows them, on a computer's daemon.log too
-                # (``logs.frames_only``).
+                # its folder. The frames are shown as a server's log shows them, on a computer's daemon.log too (its
+                # formatter) and on a console (``logs.frames_only``).
                 name = getattr(handler, "__name__", "a handler")
                 log.error("dashboard API error in %s: %s", name, type(exc).__name__, exc_info=exc)
                 return _error("internal error", 500)
@@ -1246,7 +1514,7 @@ class Dashboard:
         return _error(f"not in the tutorial's sandbox: {what}", 409)
 
     async def me(self, request: Request) -> Response:
-        return JSONResponse(
+        baseline = JSONResponse(
             {
                 "version": __version__,
                 "profile": self.rt.config.profile.value,
@@ -1259,8 +1527,32 @@ class Dashboard:
                 # Whether this install serves the documentation of its version at /_latet/docs/: the dashboard's links
                 # open it there, else on docs.latet.ai.
                 "docs": self.has_docs(),
+                "request_status": None,
             }
         )
+        audit = self.rt.request_audit
+        if type(audit) is not RequestAudit or len(baseline.body) > _MAX_ME_BASE_BYTES:
+            return baseline
+        work = audit.reserve_snapshot()
+        if work is None:
+            return baseline
+        if not await _status_in_pool(
+            work, self.rt.mediator, self.rt.gateway.on_server is not None, self.rt.mediator.executor
+        ):
+            return baseline
+        if work.encoded is None:
+            work.close()
+            return baseline
+        response = None
+        try:  # noqa: SIM105 - Avoid a new allocation in ownership cleanup.
+            response = _RequestStatusResponse(baseline, work)
+        except Exception:  # noqa: S110 - Best-effort status never exposes raw diagnostics.
+            pass
+        if response is None:
+            # Rendering exception frames have ended before owned stages refund.
+            work.close()
+            return baseline
+        return response
 
     def has_docs(self) -> bool:
         """Whether this install serves the documentation of its version (built and checked) at /_latet/docs/."""
@@ -1286,6 +1578,15 @@ class Dashboard:
         items, next_id = await self._in_pool(
             store.list, limit, q.get("before"), q.get("session"), q.get("agent"), q.get("flag"), q.get("project")
         )
+        # The summary says `custom` of a destination of the owner's own; the owner's own list names it, by the owner's
+        # current settings matched against the store's keyed index (a destination removed since is named no more).
+        names = tuple(destination.name for destination in self.rt.config.upstreams)
+        custom = [item["id"] for item in items if item.get("upstream") == "custom" and type(item.get("id")) is str]
+        if custom and names:
+            named = await self._in_pool(store.destinations, custom, names)
+            for item in items:
+                if type(item.get("id")) is str and (name := named.get(item["id"])) is not None:
+                    item["destination"] = name
         return JSONResponse({"items": items, "next": next_id})
 
     async def reviews(self, request: Request) -> Response:
@@ -1483,19 +1784,29 @@ class Dashboard:
         """One page of the vault's values, the newest first (by id among values of the same instant, so a value is on
         one page only), with how many match, the page (a page past the last is the last) and every type the vault holds
         (the menu of types does not shrink as you filter)."""
-        types: Counter[str] = Counter()
-        matched = []
-        for e in self.rt.built.vault.entities():
-            types[e.etype] += 1
-            if (etype and e.etype != etype) or (eclass and e.eclass.name != eclass):
-                continue
-            if q and not (q in e.surrogate.lower() or q in e.etype.lower() or q == e.id or q in e.original.lower()):
-                continue
-            matched.append(e)
-        matched.sort(key=lambda e: (-e.created, e.id))
-        pages = max(1, -(-len(matched) // per_page))
-        page = min(page, pages)
-        shown = matched[(page - 1) * per_page : page * per_page]
+        listed = getattr(self.rt.store, "listed", None)
+        if isinstance(self.rt.built.vault, StoredVault) and listed is not None:
+            # A server's space holds its working set alone: its store reads the page, a part of the vault at a time.
+            shown, total, types = listed(q=q, etype=etype, eclass=eclass, page=page, per_page=per_page)
+            pages = max(1, -(-total // per_page))
+            page = min(page, pages)
+        else:
+            counted: Counter[str] = Counter()
+            matched = []
+            for e in self.rt.built.vault.entities():
+                counted[e.etype] += 1
+                if (etype and e.etype != etype) or (eclass and e.eclass.name != eclass):
+                    continue
+                # Latet's own launch key is never found by its words (N-1): its original is not searched.
+                in_original = not latet_key(e.etype, e.original) and q in e.original.lower()
+                if q and not (q in e.surrogate.lower() or q in e.etype.lower() or q == e.id or in_original):
+                    continue
+                matched.append(e)
+            matched.sort(key=lambda e: (-e.created, e.id))
+            total, types = len(matched), dict(counted)
+            pages = max(1, -(-total // per_page))
+            page = min(page, pages)
+            shown = matched[(page - 1) * per_page : page * per_page]
         ids = {e.id for e in shown}
         # Counted for the page's values only. tuple(): a copy taken at once, while a request may be showing the
         # conversation one more entity.
@@ -1511,13 +1822,18 @@ class Dashboard:
             }
             for e in shown
         ]
-        return {"items": items, "total": len(matched), "page": page, "pages": pages, "per_page": per_page,
-                "types": dict(types)}  # fmt: skip
+        return {"items": items, "total": total, "page": page, "pages": pages, "per_page": per_page,
+                "types": types}  # fmt: skip
 
     async def reveal(self, request: Request) -> Response:
-        entity = self.rt.built.vault.get(request.path_params["id"])
+        # In the pool: a server's space holds its working set alone, and a value out of it is read from its store, which
+        # the event loop never waits on (on the loop, ``StoredVault.get`` answers from memory alone).
+        entity = await self._in_pool(self.rt.built.vault.get, request.path_params["id"])
         if entity is None:
             return _error("not found", 404)
+        # Latet's own credential: a plain label in its place on the page, never the key (N-1).
+        if latet_key(entity.etype, entity.original):
+            return JSONResponse({"original": None, "launch_key": True})
         return JSONResponse({"original": entity.original})
 
     async def forget(self, request: Request) -> Response:
@@ -2496,7 +2812,8 @@ class Dashboard:
         # Destinations: where they go, which agent's settings named them, when last used, whether an
         # agent still uses them (an unused one may be removed).
         in_use = self._in_use()
-        used = self.rt.exchanges.last_used() if self.rt.exchanges is not None else {}
+        configured = tuple(self.rt.config.upstreams)
+        used = self.rt.exchanges.last_used(tuple(d.name for d in configured)) if self.rt.exchanges is not None else {}
         destinations = [
             {
                 "name": d.name,
@@ -2505,7 +2822,7 @@ class Dashboard:
                 "last_used": used.get(d.name),
                 "in_use": d.name in in_use,
             }
-            for d in self.rt.config.upstreams
+            for d in configured
         ]
         return {"checks": [vars(c) for c in checks], "agents": self._agents[1], "destinations": destinations}
 
@@ -2513,14 +2830,15 @@ class Dashboard:
         """An identity's space on a Latet server: no program of the server is run or read; its destinations."""
         shared = self._shared()
         names = {(d.name, d.url) for d in shared.upstreams} if shared is not None else set()
-        used = self.rt.exchanges.last_used() if self.rt.exchanges is not None else {}
+        configured = tuple(self.rt.config.upstreams)
+        used = self.rt.exchanges.last_used(tuple(d.name for d in configured)) if self.rt.exchanges is not None else {}
         on = self.rt.gateway.on_server
         who = self.rt.identity.name if self.rt.identity is not None else "you"
         check = {"status": "ok", "title": "Server", "detail": f"masking for {who} at {on.url if on else ''}"}
         destinations = [
             {"name": d.name, "url": d.url, "agent": d.agent, "last_used": used.get(d.name),
              "in_use": d.name in self.rt.wrapped, "shared": (d.name, d.url) in names}
-            for d in self.rt.config.upstreams
+            for d in configured
         ]  # fmt: skip
         return {"checks": [check], "agents": [], "destinations": destinations}
 
@@ -2571,6 +2889,45 @@ class Dashboard:
 
         answer = await self._apply(removal)
         return refused[0] if refused else answer
+
+    async def exceptions(self, request: Request) -> Response:
+        """Your request exceptions (P2-7), each as the dashboard shows it to you (``protection.exception_view``) with
+        its state now (``request_policy.listed``: pending, needs approval again (profile revised), expired, expiring,
+        active, permanent or forbidden; its end and the days left), judged by the decision's clock: PostgreSQL's on a
+        server, read in the work threads. ``permanent_allowed``: whether this edition lets an exception be permanent."""
+        from latet.gateway import request_policy
+        from latet.protection import exception_view
+
+        def listed() -> Response:
+            config = self.rt.config
+            allowed = self.rt.permanent_allowed()
+            states = request_policy.listed(config, self.rt.exception_clock(), permanent_allowed=allowed)
+            items = [
+                exception_view(row)
+                | {key: state[key] for key in ("state", "ends", "days_left")}
+                | {"granted": row.granted.isoformat() if row.granted is not None else None}
+                for row, state in zip(config.request_exceptions, states, strict=True)
+            ]
+            return JSONResponse({"items": items, "permanent_allowed": allowed})
+
+        return await self._in_work(listed)
+
+    async def revoke_exception(self, request: Request) -> Response:
+        """One approved request exception taken away, by its id, from the settings as they are when it goes: it raises
+        protection, so it applies at once (``protection.exception_loosened``), on every instance with the settings'
+        count (RC-REC-3). 404 when none has that id."""
+        exception_id = request.path_params["id"]
+        missing: list[Response] = []
+
+        def revoked(current: Config) -> Config | None:
+            rows = [row for row in current.request_exceptions if row.id != exception_id]
+            if len(rows) == len(current.request_exceptions):
+                missing.append(_error("there is no request exception with that id", 404))
+                return None
+            return current.model_copy(update={"request_exceptions": rows})
+
+        answer = await self._apply(revoked)
+        return missing[0] if missing else answer
 
     async def stream(self, request: Request) -> Response:
         recorder = self.rt.recorder

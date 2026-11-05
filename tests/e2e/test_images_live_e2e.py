@@ -54,7 +54,7 @@ def _daemon(tmp_path, monkeypatch, upstream, reader):
 
 def _send(client, data: str):
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
-    body = {"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": [image]}]}
+    body = {"model": "claude-sonnet-4-5", "max_tokens": 5, "messages": [{"role": "user", "content": [image]}]}
     return client.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "t"})
 
 

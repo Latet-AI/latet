@@ -39,7 +39,7 @@ requête est vérifiée avant de partir, quelle que soit l'origine du texte qu'e
 | Pages web | Une interface d'administration que l'agent ouvre avec un outil de navigation | Les données personnelles du texte de la page sont masquées |
 | Instructions | CLAUDE.md, AGENTS.md, le prompt système | Votre nom, votre nom d'utilisateur, votre nom d'hôte et le domaine de votre entreprise sont masqués |
 | Historique | Une session reprise dix jours plus tard | La même valeur reçoit la même valeur factice, à chaque fois |
-| Captures d'écran | La capture d'écran d'une facture | Avec la [reconnaissance de texte](concepts/images/) facultative, son texte est lu sur votre machine et chaque valeur est recouverte par sa valeur factice ; les PDF sont signalés, ou ne sont pas envoyés (`images: block`) |
+| Captures d'écran | La capture d'écran d'une facture | Avec la [reconnaissance de texte](concepts/images/) facultative, son texte est lu sur votre machine et chaque valeur est recouverte par sa valeur factice ; sans elle, et avec un PDF, la requête n'est pas envoyée |
 | Ce qu'aucun motif ne trouve | *"Mark, du service commercial, passe discrètement des entretiens chez un concurrent"* | Le [relecteur local](concepts/llm-review/) facultatif, un modèle de langage à vous, le trouve avant son départ, en suivant les instructions de Latet et [vos propres consignes](concepts/llm-review/#vos-consignes) : ce qui compte comme sensible dans votre travail, partout ou dans un seul projet |
 
 ## Comment Latet protège
@@ -107,7 +107,7 @@ serveurs de leur éditeur. Voir
 <CardGrid>
 	<LinkCard
 		title="Abonnements Claude Pro et Max"
-		description="Claude Code fonctionne sans modification et utilise sa propre connexion ; chaque requête part telle que Claude Code l'a construite."
+		description="Claude Code fonctionne sans modification et utilise sa propre connexion ; le corps de chaque requête part octet pour octet, et seuls quelques en-têtes sont retirés et comptés."
 		href="agents/claude-code/#abonnements-pro-et-max"
 	/>
 	<LinkCard

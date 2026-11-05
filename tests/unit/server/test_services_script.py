@@ -88,6 +88,17 @@ def test_the_tls_postgresql_is_verified_as_a_server_verifies_one():
     assert start.index("unset LATET_TLS_CERT LATET_TLS_KEY") < start.index("exec docker-entrypoint.sh")
 
 
+def test_the_tls_postgresql_starts_again_after_a_restart():
+    """`docker start` runs the container's start again, where the certificate and the key written before are still
+    there, the postgres user's: in /tmp, sticky, the kernel refuses root a write to another user's file there
+    (protected_regular), and the start stopped at "can't create /tmp/server.crt". Each start removes them first, then
+    writes them anew, for the postgres user alone."""
+    start = services.docker_run("postgres-tls", tls=_tls())[-1]
+    removed = start.index("rm -f /tmp/server.crt /tmp/server.key")
+    assert removed < start.index("> /tmp/server.crt") < start.index("> /tmp/server.key")
+    assert removed < start.index("umask 077") and start.index("chown postgres:postgres") < start.index("exec ")
+
+
 def test_the_root_is_kept_in_a_folder_of_the_users_own_never_the_shared_temp_folder(monkeypatch):
     """Another user of the computer can make a folder of the shared temp folder first, and plant a link in it: the
     root the TLS tests trust is kept under the user's own folders (%LOCALAPPDATA% on Windows, ~/.cache elsewhere)."""

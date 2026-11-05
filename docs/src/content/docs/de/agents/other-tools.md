@@ -27,6 +27,14 @@ Junie CLI, Kilo Code, Continue und Crush lesen außerdem Einstellungen aus dem P
 öffnen, und die eigenen Einstellungen eines Projekts können sie auf eine andere Adresse richten:
 Prüfen Sie sie, bevor Sie in einem Repository arbeiten, das Sie nicht selbst geschrieben haben.
 
+Latet liest jeden Teil jeder Anfrage, die diese Tools senden
+([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)). Ihre Modelllisten gehen
+auf den Routen oben durch. Ein Header, den ein Tool Sie hinzufügen lässt, wird abgelehnt, beim Namen
+genannt, bis eine [genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ihn
+durchlässt, und ein Aufruf, den Latet nicht liest (Dateien, Audio, Bilderzeugung), wird abgelehnt.
+Diese Tools werden von Hand eingerichtet, daher fügt ein Ordner, den sie nennen, nur Schutz hinzu
+([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)).
+
 ## Auf einen Blick
 
 Getestet heißt: Das Tool selbst lief über Latet zu einem Testanbieter, auf jeder API, die es
@@ -137,6 +145,13 @@ einem Ihrer Ziele, und eine auf diesem Computer bleibt, wie sie ist. Mit OpenRou
 Anthropic `COPILOT_PROVIDER_TYPE=anthropic` und Ihren Schlüssel von Anthropic. Um `copilot` selbst zu
 starten, setzen Sie stattdessen `COPILOT_PROVIDER_BASE_URL` auf die Adresse von Latet:
 `http://127.0.0.1:5283/openai/v1`, `/openrouter/api/v1` oder `/anthropic`.
+
+`latet copilot` gibt Copilot außerdem einen Startschlüssel in `COPILOT_PROVIDER_HEADERS`, zusätzlich
+zu den Headern, die Sie dort setzen, bei einem OpenAI-kompatiblen Anbieter über Chat Completions:
+Latet vertraut dann dem Projekt der Sitzung. Über die Responses API, die API von Anthropic oder einen
+WebSocket gibt es keinen mit und sagt das, und das Projekt ist nur behauptet. Eigene Header in
+`COPILOT_PROVIDER_HEADERS` werden abgelehnt, jeder beim Namen genannt, bis eine genaue Ausnahme ihn
+durchlässt.
 
 Mit `COPILOT_PROVIDER_WIRE_API=responses` nutzt sie stattdessen die Responses API. Das Modell muss
 Tool-Aufrufe und Streaming unterstützen. Ohne `COPILOT_OFFLINE=true` sendet die CLI weiterhin

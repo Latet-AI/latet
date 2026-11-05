@@ -49,6 +49,11 @@ def _summary(session: str = "s", **more):
     return {"ts": time.time(), "session": session, "agent": "codex", "flags": [], **more}
 
 
+# Exchanges told apart by what the history shows of them: the built-in destinations, which a summary keeps by name (a
+# destination of one's own is shown as "custom", any other name as "unknown"), as the stores' shared contract does.
+_LABELS = ("anthropic", "openai", "chatgpt", "openrouter", "gemini")
+
+
 def _entity(n: str, value: str, fake: str) -> Entity:
     return Entity("e" + n * 19, "PASSWORD", EntityClass.SECRET, value, fake, 0, time.time(), None)
 
@@ -116,12 +121,12 @@ def test_the_summaries_are_read_a_part_at_a_time_the_latest_first_and_no_more(db
     history, theirs = PgHistoryStore(db, emily, ROOT_KEY), PgHistoryStore(db, daniel, ROOT_KEY)
     now = time.time()
     for n in range(5):
-        history.record(ExchangeRecord(_summary(ts=now - 100 + n, upstream=f"u{n}")))
-    theirs.record(ExchangeRecord(_summary(ts=now, upstream="his")))
+        history.record(ExchangeRecord(_summary(ts=now - 100 + n, upstream=_LABELS[n])))
+    theirs.record(ExchangeRecord(_summary(ts=now, upstream="vertex")))
     parts = list(history.summaries_parts(now - 1000, 4))
-    assert [[s["upstream"] for s in part] for part in parts] == [["u4", "u3"], ["u2", "u1"]]
+    assert [[s["upstream"] for s in part] for part in parts] == [[_LABELS[4], _LABELS[3]], [_LABELS[2], _LABELS[1]]]
     since = [s["upstream"] for part in history.summaries_parts(now - 98, 10) for s in part]
-    assert since == ["u4", "u3", "u2"]
+    assert since == [_LABELS[4], _LABELS[3], _LABELS[2]]
 
 
 def test_the_stats_read_each_part_in_a_checkout_of_its_own(db, monkeypatch):
@@ -132,8 +137,8 @@ def test_the_stats_read_each_part_in_a_checkout_of_its_own(db, monkeypatch):
     monkeypatch.setattr(history_module, "SUMMARIES_AT_ONCE", 2)
     history, now = PgHistoryStore(db, identity_in(db), ROOT_KEY), time.time()
     for n in range(5):
-        history.record(ExchangeRecord(_summary(ts=now - 100 + n, upstream=f"u{n}")))
-    history.record(ExchangeRecord(_summary(ts=now - 98, upstream="tie")))  # the time of u2's, kept after it
+        history.record(ExchangeRecord(_summary(ts=now - 100 + n, upstream=_LABELS[n])))
+    history.record(ExchangeRecord(_summary(ts=now - 98, upstream="bedrock")))  # the third's time, kept after it
     held, connection = [0], db.connection
 
     @contextlib.contextmanager
@@ -150,7 +155,7 @@ def test_the_stats_read_each_part_in_a_checkout_of_its_own(db, monkeypatch):
     for part in history.summaries_parts(now - 1000, 10):
         during.append(held[0])  # what the read holds while the part is opened and aggregated
         seen += [summary["upstream"] for summary in part]
-    assert during == [0, 0, 0] and seen == ["u4", "u3", "tie", "u2", "u1", "u0"]
+    assert during == [0, 0, 0] and seen == [_LABELS[4], _LABELS[3], "bedrock", _LABELS[2], _LABELS[1], _LABELS[0]]
 
 
 def test_an_identitys_change_counts_go_with_it(db):
@@ -197,14 +202,14 @@ _INSERT_099 = (
 )
 
 
-def test_the_migration_adds_how_a_value_was_found_to_a_database_of_0_9_9(settings, schema):
+def test_the_migration_adds_how_a_value_was_found_to_a_database_of_0_9_9(settings, schema, migration_master):
     """A database of 0.9.9's (four migrations, entries without the column) takes the fifth with `latet server
     migrate`; an instance refuses to start on it before (``check_schema``), and an entry kept before has none."""
     from latet.server.db import Database, SchemaMismatch, check_schema, migrate
 
     db = Database(settings.database_url, schema=schema, max_size=2)
     try:
-        migrate(db)
+        migrate(db, master=migration_master)
         identity = identity_in(db)
         store = PgVaultStore(db, identity, ROOT_KEY)
         kept = Vault(ROOT_KEY, on_insert=store.save_entity).intern("PERSON", EntityClass.NER, "Emily Carter")
@@ -213,7 +218,7 @@ def test_the_migration_adds_how_a_value_was_found_to_a_database_of_0_9_9(setting
             conn.execute("DELETE FROM schema_migrations WHERE name = 'latet.server.migrations:005_vault_decoded'")
         with pytest.raises(SchemaMismatch, match="older than this Latet"):
             check_schema(db)
-        assert migrate(db) == ["latet.server.migrations:005_vault_decoded"]
+        assert migrate(db, master=migration_master) == ["latet.server.migrations:005_vault_decoded"]
         check_schema(db)
         assert store.load_entity(kept.id) == replace(kept, decoded=None)
     finally:
@@ -369,7 +374,10 @@ def test_the_name_of_the_field_a_value_sat_in_is_in_the_database_nowhere_in_clea
 def test_the_history_keeps_no_conversations_key_or_projects_id_in_clear_and_its_filters_find_them(db):
     history = PgHistoryStore(db, identity_in(db), ROOT_KEY)
     session, project = "conv-4be1f0c97d2a", "5e2d7c9a1b3f"  # a conversation's key; the id of a project's folder
-    exchange = history.record(ExchangeRecord(_summary(session, project={"id": project, "name": "billing-api"})))
+    # The project as the recorder hands it: its registered id (provenance), never read back from the summary.
+    exchange = history.record(
+        ExchangeRecord(_summary(session, project={"id": project, "name": "billing-api"}), project_id=project)
+    )
     other = history.record(ExchangeRecord(_summary("conv-other")))
     review = history.record_review(
         {"ts": time.time(), "session": session, "project": project, "block": "b" * 32, "kind": "user_text",
@@ -381,11 +389,12 @@ def test_the_history_keeps_no_conversations_key_or_projects_id_in_clear_and_its_
     assert [s["id"] for s in history.list(project=project)[0]] == [exchange]
     assert history.list(project="000000000000") == ([], None) and history.in_order(session) == [exchange]
     assert [r["id"] for r in history.reviews(session=session)] == [review]
-    assert sorted((s["key"], s["exchanges"]) for s in history.sessions()) == [
-        ("conv-4be1f0c97d2a", 1),
-        ("conv-other", 1),
-    ]
-    assert history.in_order("conv-other") == [other]
+    # Each conversation is listed by its grouping handle, never its key, and the handle finds it as its key does.
+    assert sorted((s["key"], s["exchanges"]) for s in history.sessions()) == sorted(
+        [(history.history_group(session), 1), (history.history_group("conv-other"), 1)]
+    )
+    assert all(s["key"].startswith("hg:p1:") for s in history.sessions())
+    assert history.in_order("conv-other") == history.in_order(history.history_group("conv-other")) == [other]
 
 
 def test_the_history_seals_as_every_part_of_a_server_does(db):

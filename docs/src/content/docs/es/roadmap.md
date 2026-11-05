@@ -63,13 +63,9 @@ Los archivos que un agente envía al modelo, como los PDF, los documentos de Wor
 Excel, se enmascararían como el texto, un formato tras otro. En cada archivo de un formato que sepa
 leer, Latet sustituiría los valores sensibles por valores ficticios y enviaría el archivo
 enmascarado, y después restauraría los valores reales en la respuesta, también en los archivos que
-devuelva el modelo. Un archivo en un formato que Latet aún no lee se trata como hoy. En una
-conversación se envía tal cual, con el indicador *No inspeccionado* en el panel, o no se envía con
-`images: mask` o `block` (ver
-[Qué lee la puerta de enlace](../agents/openai-compatible/#qué-lee-la-puerta-de-enlace)). Si se sube
-por separado, a través de la API de archivos de un proveedor, lo rechazan un servidor de Latet y
-Latet en las rutas de Google, mientras que desde un equipo pasa sin cambios a los demás proveedores
-(ver [Qué está protegido y qué no](../concepts/protection-scope/)).
+devuelva el modelo. Un archivo en un formato que Latet no lee se rechaza, en una conversación igual
+que subido por separado a través de la API de archivos de un proveedor, en un equipo igual que en un
+servidor (ver [Qué está protegido y qué no](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 

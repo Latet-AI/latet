@@ -42,7 +42,7 @@ def _client(upstream, server, **review):
 
 def test_what_the_reviewer_finds_never_reaches_the_upstream(upstream):
     with _client(upstream, FakeServer()) as c:
-        body = {"model": "x", "messages": [{"role": "user", "content": PROMPT}]}
+        body = {"model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": PROMPT}]}
         r = c.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "test"})
     assert r.status_code == 200
     sent = upstream.all_received()
@@ -57,7 +57,7 @@ def test_with_the_reviewer_down_nothing_leaves(upstream):
 
     before = len(upstream.all_received())
     with _client(upstream, refuse) as c:
-        body = {"model": "x", "messages": [{"role": "user", "content": PROMPT}]}
+        body = {"model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": PROMPT}]}
         r = c.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "test"})
     assert r.status_code == 400 and "local reviewer" in r.text
     assert len(upstream.all_received()) == before

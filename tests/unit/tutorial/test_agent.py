@@ -7,18 +7,23 @@ import base64
 import json
 import os
 import sys
+from dataclasses import fields, replace
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.responses import JSONResponse
 
+from latet.gateway import request_profiles as rp
+from latet.gateway.coverage import EnvelopeRefused, envelope_of, inventory, preflight_scope
 from latet.gateway.mediate import cwd_from
 from latet.gateway.recorder import agent_of
+from latet.gateway.routes import DEFAULT_UPSTREAMS, Upstream
 from latet.protocols import anthropic
 from latet.tutorial import agent as agent_module
-from latet.tutorial.agent import AGENT, SUBSCRIPTION, UA, PaneLine, Sent, TutorialAgent, parse
-from latet.tutorial.chapters import Step, ToolCall, Turn
-from latet.tutorial.model import MODEL_ID, PretendModel
+from latet.tutorial.agent import AGENT, SUBSCRIPTION, UA, Auth, PaneLine, Sent, TutorialAgent, parse
+from latet.tutorial.chapters import ORDER, Step, ToolCall, Turn
+from latet.tutorial.model import MODEL_ID, PretendModel, PretendUpstream
 
 PORT = 6690
 
@@ -106,6 +111,93 @@ async def test_a_step_signed_in_with_a_subscription_sends_no_api_key(model, agen
     await agent.run_step(_gateway(model, seen), step, model, 0)
     assert seen[0]["authorization"] == SUBSCRIPTION and "x-api-key" not in seen[0]
     assert "sk-ant-oat" in SUBSCRIPTION  # what tells Latet it may only check the request
+
+
+async def _admitted(session: str, auth: Auth, upstream: Upstream | None = None):
+    """A request as the agent's own client builds it, through Latet's envelope admission (``forward.py``'s steps) on
+    the pretend model's route, or on ``upstream``: the Admission, or the EnvelopeRefused."""
+    upstream = upstream or PretendUpstream()
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{PORT}", trust_env=False) as client:
+        messages = [{"role": "user", "content": "make no mistakes"}]
+        request = client.build_request(
+            "POST",
+            "/anthropic/v1/messages",
+            json=agent_module.body(messages),
+            headers=agent_module.headers(session, auth),
+        )
+    body = request.read()
+    scope = {
+        "type": "http",
+        "method": request.method,
+        "path": request.url.path,
+        "raw_path": request.url.raw_path,
+        "query_string": b"",
+        "headers": [(name.lower(), value) for name, value in request.headers.raw],
+    }
+    try:
+        preflight_scope(scope)
+        return rp.admit(inventory(envelope_of(scope, "http", upstream.name, body)), upstream)
+    except EnvelopeRefused as error:
+        return error
+
+
+def _treatment(admission: rp.Admission, name: str) -> str:
+    envelope = admission.inventory.envelope
+    [treatment] = [
+        admission.treatments[at]
+        for at, part in enumerate(admission.inventory.entries)
+        if part.region == "header-value" and envelope.headers[part.index][0].lower() == name.encode()
+    ]
+    return treatment
+
+
+@pytest.mark.parametrize("auth", ["api-key", "subscription"])
+@pytest.mark.parametrize("chapter", ORDER)
+async def test_a_request_passes_the_envelope_of_the_pretend_models_route_as_the_agent_sends_it(
+    workspace, chapter, auth
+):
+    """Latet's tutorial goes through the same envelope admission as an agent: its conversation id passes by the grammar
+    ``new_conversation`` draws it from (a chapter's id and 8 hex digits), declared on the pretend model's route alone,
+    and selects nothing there."""
+    agent = TutorialAgent(workspace, PORT)
+    session = agent.new_conversation(chapter)
+    admission = await _admitted(session, auth)
+    assert isinstance(admission, rp.Admission), admission.agent_message()
+    assert admission.profile.id == "anthropic.messages.1"
+    assert ("x-session-id", session) in admission.headers and _treatment(admission, "x-session-id") == "inspected"
+    assert session not in admission.checked  # a closed grammar: inspected, never free text the final check reads
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        "tutorial-1",  # no chapter, no hex
+        "tutorial-basics-1a2b3c4",  # 7 hex digits
+        "tutorial-basics-1a2b3c4d5",
+        "tutorial-basics-1A2B3C4D",  # token_hex is lowercase
+        "tutorial-nowhere-1a2b3c4d",  # not one of the tutorial's chapters
+        "tutorial-basics-1a2b3c4d mario.rossi@example.com",
+        "mario.rossi@example.com",
+        "C:\\Users\\mario.rossi\\acme-payroll",
+        "",
+    ],
+)
+async def test_a_conversation_id_outside_the_agents_grammar_is_refused_naming_the_header(session):
+    refused = await _admitted(session, "api-key")
+    assert isinstance(refused, EnvelopeRefused) and refused.code == "envelope-header-value"
+    assert refused.agent_message() == "request envelope refused (envelope-header-value): header x-session-id"
+
+
+async def test_the_tutorials_grammar_is_the_pretend_models_route_alone(workspace):
+    """On a provider's own route the same header keeps needing an owner's exact row: the tutorial's grammar is a class
+    declaration of its fixture route, never configuration, and no other route has it."""
+    agent = TutorialAgent(workspace, PORT)
+    session = agent.new_conversation("basics")
+    [anthropic_route] = [upstream for upstream in DEFAULT_UPSTREAMS if upstream.name == "anthropic"]
+    refused = await _admitted(session, "api-key", replace(anthropic_route, envelope_expected=frozenset()))
+    assert isinstance(refused, EnvelopeRefused) and refused.code == "envelope-resource"
+    assert dict(Upstream.fixture_ids) == {} and set(PretendUpstream.fixture_ids) == {"x-session-id"}
+    assert "fixture_ids" not in {field.name for field in fields(PretendUpstream)}
 
 
 async def test_a_new_conversation_has_a_new_session_and_no_history(model, agent):

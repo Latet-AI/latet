@@ -22,7 +22,7 @@ Un profilo decide quali [rilevatori](../detection/) sono attivi. Ce ne sono tre:
 | Nomi e indirizzi, con il [modello locale dei nomi facoltativo](../../getting-started/installation/) | nei tuoi prompt, allegati e nel testo nelle immagini | ovunque | ❌ |
 | Ciò che nessun pattern trova, con il [revisore locale facoltativo](../llm-review/) | quando è attivo | quando è attivo | quando è attivo |
 | Il testo nelle immagini, con il [riconoscimento del testo facoltativo](../images/) | mascherato | non inviato | mascherato |
-| PDF, e immagini senza riconoscimento del testo | inviati, e segnalati | non inviati | inviati, e segnalati |
+| PDF, e immagini senza riconoscimento del testo | non inviati | non inviati | non inviati |
 
 - **`balanced`** va bene per la maggior parte del lavoro sul codice. È il profilo predefinito.
 - **`max`** aggiunge gli indirizzi IP privati e i numeri identificativi di tutti i paesi, attiva la

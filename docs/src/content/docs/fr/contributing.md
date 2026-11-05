@@ -31,9 +31,10 @@ Pour garder une instance de test à l'écart d'un Latet que vous utilisez pour d
 `LATET_DATA_DIR` et `LATET_CONFIG` vers un dossier temporaire et choisissez un autre port dans ce
 `config.yaml`.
 
-`latet serve --passthrough` transmet le trafic sans le masquer, et `--capture <folder>` écrit chaque
-échange dans des fichiers locaux (avec les en-têtes d'authentification caviardés), ce qui est utile
-pour étudier un protocole. Les captures contiennent le contenu des conversations : ne les incluez
+`latet serve --capture <folder>` écrit chaque échange dans des fichiers locaux (avec les en-têtes
+d'authentification caviardés), ce qui est utile pour étudier un protocole. Aucun mode ne transmet
+sans masquer : une partie de requête que Latet ne lit pas est refusée, et les appels d'un nouveau
+protocole demandent d'abord un profil de requête et ses tests. Les captures contiennent le contenu des conversations : ne les incluez
 jamais dans un commit (c'est pour cette raison que git ignore `notes/captures/`).
 
 ## Vérifications

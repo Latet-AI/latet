@@ -6,13 +6,25 @@ import json
 import httpx
 from starlette.testclient import TestClient
 
+from latet.config import Config
+from latet.engine.build import build
+from latet.engine.vault import Vault
 from latet.gateway import app
 from latet.gateway.app import GatewayConfig, create_app
 from latet.gateway.forward import upstream_error
 from latet.gateway.headers import DROP_PREFIXES, REQUEST_DROP, forwardable
+from latet.gateway.mediate import Mediator
 from latet.gateway.routes import DEFAULT_UPSTREAMS, RouteTable, Upstream, readable_path, wire_path
 
+from ..conftest import ROOT_KEY
+
 PRETEND = Upstream("anthropic", "/anthropic", "http://pretend-model.invalid")
+
+
+def _protected() -> Mediator:
+    """Request protection, which every gateway has since 855a0188 (one without it refuses every request)."""
+    built = build(Config.model_validate({"profile": "balanced", "ner": "off"}), Vault(ROOT_KEY))
+    return Mediator(built.engine, built.verifier)
 
 
 def test_the_wire_path_is_the_path_as_sent():
@@ -86,7 +98,8 @@ def test_requests_leave_through_the_client_the_gateway_is_given():
         seen.append(str(request.url))
         return httpx.Response(200, stream=httpx.ByteStream(b"ok"))  # a stream: the gateway relays it as it comes
 
-    config = GatewayConfig(upstreams=[PRETEND], client=lambda: httpx.AsyncClient(transport=httpx.MockTransport(model)))
+    client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(model))  # noqa: E731
+    config = GatewayConfig(upstreams=[PRETEND], client=client, mediator=_protected())
     with TestClient(create_app(config), base_url="http://127.0.0.1:5283") as client:
         assert client.get("/anthropic/v1/models").text == "ok"
     assert seen == ["http://pretend-model.invalid/v1/models"]
@@ -101,6 +114,7 @@ def test_without_a_client_given_the_gateway_makes_its_own(monkeypatch):
         return httpx.AsyncClient(transport=empty)
 
     monkeypatch.setattr(app, "make_client", make_client)
-    with TestClient(create_app(GatewayConfig(upstreams=[PRETEND])), base_url="http://127.0.0.1:5283") as client:
+    config = GatewayConfig(upstreams=[PRETEND], mediator=_protected())
+    with TestClient(create_app(config), base_url="http://127.0.0.1:5283") as client:
         assert client.get("/anthropic/v1/models").status_code == 204
     assert made == [True]

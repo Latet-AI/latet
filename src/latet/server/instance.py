@@ -23,11 +23,14 @@ default disposition would end the process before the server is closed and the lo
 
 from __future__ import annotations
 
+import asyncio
+import ctypes
 import errno
 import gc
 import hashlib
 import http.client
 import logging
+import mmap
 import os
 import signal
 import socket
@@ -38,12 +41,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, LiteralString, TextIO
+from typing import TYPE_CHECKING, Any, LiteralString, TextIO, cast
 from urllib.parse import urlsplit
 
 from latet import __version__
 from latet.config import write_atomic
 from latet.logline import described
+from latet.server.start_errors import CannotListen, CertificateUnusable, ValkeyUnavailable
 from latet.storage import folders
 
 if TYPE_CHECKING:
@@ -55,7 +59,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-EXTRA = 'the `server` extra: uv tool install --force "latet[server] @ <the release\'s wheel>"'
+# What to run, said where it is missing: the install command again, naming `server` beside the extras the Latet has, in
+# the folders it was installed in (Server operations), so that no other extra goes.
+EXTRA = (
+    "the `server` extra: install Latet again as it was installed, with the same UV_* folders (Server operations), "
+    "naming `server` beside the extras it has, such as "
+    'uv tool install --upgrade --python ">=3.12,<3.14" "latet[ner,ocr,server] @ <the release\'s wheel>"'
+)
 # How long a stop waits for what is under way (a rolling restart): a stream that lasts longer is cut.
 GRACEFUL_SECONDS = 30
 _MIB = 1024 * 1024
@@ -100,11 +110,6 @@ _FORBIDDEN = frozenset({errno.EACCES, getattr(errno, "WSAEACCES", errno.EACCES)}
 
 class NeedsExtra(RuntimeError):
     """This Latet was installed without the `server` extra."""
-
-
-class CannotListen(RuntimeError):
-    """A socket of the instance, its own or the metrics', cannot be bound: the instance does not start. Its words name
-    the settings and why, never the address."""
 
 
 def require_extra() -> None:
@@ -206,26 +211,139 @@ def _sealed(db: Database) -> bool:
     return _keeps_a_check(db) and _asked(db, "SELECT 1 FROM master_check WHERE id = 1", lambda row: row is not None)
 
 
-def migrate_schema(settings: ServerSettings, database: Database | None = None) -> list[str]:
+class InstancesAlive(RuntimeError):
+    """A migration refused while an instance of the server is alive (``migrate_schema``): its words say how many, and
+    of which version, as their beats say it, nothing else of them."""
+
+
+class AliveAfterMigration(RuntimeError):
+    """The migrations applied (``applied``), and an instance of the server alive once they were, or Valkey not asked
+    whether one is (``migrate_schema``): an instance of 0.10 started while they ran passed its own check of the
+    tables, still the older version's, and serves on on the new ones. Its words say the tables are migrated, how many
+    instances are alive and of which version, and that they are to be stopped and started with this version."""
+
+    def __init__(self, words: str, applied: list[str]) -> None:
+        super().__init__(words)
+        self.applied = applied
+
+
+# What a migration says of an instance alive by what its beat says (``app.alive_instances``).
+_OLDER = "Latet 0.10 or older"
+_UNKNOWN = "a version it does not say"
+
+
+def _versions(rows: list[dict[str, Any]]) -> str:
+    """How many of ``rows`` run each version, as their beats say it: ``2 of Latet 0.10 or older, 1 of Latet 0.11.0``."""
+    counted: dict[str, int] = {}
+    for row in rows:
+        version = row.get("version")
+        said = _OLDER if row.get("older") else f"Latet {version}" if isinstance(version, str) else _UNKNOWN
+        counted[said] = counted.get(said, 0) + 1
+    return ", ".join(f"{count} of {said}" for said, count in sorted(counted.items()))
+
+
+def _alive_now(settings: ServerSettings, key: bytes, prefix: str) -> tuple[list[dict[str, Any]], bool, str]:
+    """The server's instances alive now (``app.alive_instances``, under the bus's ``prefix``, with the bus's ``key``),
+    whether every key was read to find them, and the type of the error that kept Valkey from answering ("" when it
+    answered)."""
+    from latet.server.app import alive_instances
+    from latet.server.bus import Bus
+
+    bus = Bus(settings.valkey_url, prefix=prefix, key=key, connections=1)
+    try:
+        rows, whole = alive_instances(bus)
+        return rows, whole, ""
+    except Exception as exc:  # by its type alone: the driver's words can name the address
+        return [], False, type(exc).__name__
+    finally:
+        bus.close()
+
+
+def _alive_said(rows: list[dict[str, Any]]) -> str:
+    """``rows`` said: ``2 instances of the server are alive (1 of Latet 0.10 or older, 1 of Latet 0.11.0)``."""
+    count = len(rows)
+    alive = f"{count} instance of the server is alive" if count == 1 else f"{count} instances of the server are alive"
+    return f"{alive} ({_versions(rows)})"
+
+
+def _none_alive(settings: ServerSettings, key: bytes, prefix: str) -> None:
+    """Nothing, when no instance of the server is alive (``_alive_now``): an instance of 0.10 checks the tables at its
+    start alone, and one left running on newer tables would serve on with them. Raises InstancesAlive while one is, and
+    ValkeyUnavailable when Valkey cannot be asked or its keys were not all read: either way nothing is migrated."""
+    from latet.server.app import ALIVE_MS
+
+    rows, whole, kind = _alive_now(settings, key, prefix)
+    if kind:
+        raise ValkeyUnavailable(
+            f"Valkey (valkey_url) could not be asked whether an instance of the server is alive ({kind}): nothing was "
+            "migrated; run it again once Valkey answers"
+        )
+    if rows:
+        raise InstancesAlive(
+            f"{_alive_said(rows)}: nothing was migrated. Stop every instance, every worker of every machine, then run "
+            f"it again; an instance stopped without a word is counted alive for {ALIVE_MS // 1000} seconds more"
+        )
+    if not whole:
+        raise ValkeyUnavailable(
+            "Valkey (valkey_url) holds more keys than are read to find the instances alive: nothing was migrated"
+        )
+
+
+def _none_alive_after(settings: ServerSettings, key: bytes, prefix: str, applied: list[str]) -> None:
+    """Nothing, when no instance of the server is alive once ``applied`` are (``_alive_now``): none is expected, and one
+    of 0.10 started while they ran passed its own check of the tables and serves on on the new ones. Raises
+    AliveAfterMigration when one is, or when Valkey cannot be asked or its keys were not all read."""
+    rows, whole, kind = _alive_now(settings, key, prefix)
+    if rows:
+        them = "it" if len(rows) == 1 else "them"
+        raise AliveAfterMigration(
+            f"The tables are migrated, and {_alive_said(rows)}: stop {them}, then start {them} with this version of "
+            "Latet",
+            applied,
+        )
+    if kind:
+        raise AliveAfterMigration(
+            f"The tables are migrated, and Valkey (valkey_url) could not be asked whether an instance of the server "
+            f"is alive ({kind}): see that every instance is stopped, then start them with this version of Latet",
+            applied,
+        )
+    if not whole:
+        raise AliveAfterMigration(
+            "The tables are migrated, and Valkey (valkey_url) holds more keys than are read to find the instances "
+            "alive: see that every instance is stopped, then start them with this version of Latet",
+            applied,
+        )
+
+
+def migrate_schema(settings: ServerSettings, database: Database | None = None, *, prefix: str = "latet:") -> list[str]:
     """The database's tables brought to the code's version, one machine at a time (E0b's lock): the migrations applied
     now. The master key is loaded before anything is changed, and checked against the database's check value before the
     migrations when the database has the table that keeps it, right after them otherwise (a database's first start,
     which seals the value with this key): a key that does not open the database changes nothing, since an entry written
-    with it would break the administration log's chain. What was applied is recorded there, under the key the instances
-    derive. Raises MasterKeyError, DatabaseError (the driver's error by its type) or ValueError, in fixed words."""
+    with it would break the administration log's chain. When there is a migration to apply, no instance of the server
+    may be alive (``_none_alive``, Valkey asked under ``prefix``, the bus's: a test or a benchmark names its own, never
+    the settings): the tables are changed with every instance stopped. What was applied is recorded there, under the
+    key the instances derive; then Valkey is asked again (``_none_alive_after``), since an instance started while the
+    migrations ran would serve on on the new tables. Raises MasterKeyError, DatabaseError (the driver's error by its
+    type), InstancesAlive, ValkeyUnavailable, AliveAfterMigration (the migrations applied) or ValueError, in fixed
+    words."""
     import psycopg
 
     from latet.server.audit import AuditLog
-    from latet.server.db import DatabaseError, migrate
+    from latet.server.db import DatabaseError, migrate, pending
+    from latet.server.launch_records import check_applied_launch_registry
     from latet.server.master import MasterKey, check_master_key
 
     master = MasterKey.load(settings)
     db, mine = _database(settings, database)
     try:
+        check_applied_launch_registry(db, master)
         checked = _keeps_a_check(db)
         if checked:
             check_master_key(db, master)
-        applied = migrate(db)
+        if pending(db):  # read alone: the migrations below take the lock and read it again
+            _none_alive(settings, master.derive(b"bus"), prefix)
+        applied = migrate(db, master=master)
         if not checked:
             check_master_key(db, master)
         kind = ""
@@ -237,6 +355,8 @@ def migrate_schema(settings: ServerSettings, database: Database | None = None) -
                 kind = type(exc).__name__
         if kind:
             raise DatabaseError(f"the migrations were applied, and their entry could not be written ({kind})")
+        if applied:
+            _none_alive_after(settings, master.derive(b"bus"), prefix, applied)
         return applied
     finally:
         if mine:
@@ -340,6 +460,7 @@ class Instance:
     uvicorn: Uvicorn
     own: list[socket.socket] | None = None
     metrics: list[socket.socket] = field(default_factory=list)
+    worker: int | None = None  # its number among the workers of `latet server run --workers`; None: it runs alone
 
     def run(self) -> None:
         """Serve until stopped, then close the server whatever ended the run, and write out what the log holds. A stop
@@ -350,16 +471,17 @@ class Instance:
         not)."""
         settings = self.server.settings
         over = "over https (TLS at the instance)" if settings.certificate is not None else "over http (TLS before it)"
+        named = "" if self.worker is None else f" (worker {self.worker})"
         if self.metrics:
             log.info(
-                "instance %s of Latet %s starts on %s port %d, %s; its metrics on %s port %d",
-                self.server.instance, __version__, settings.host, settings.port, over, settings.metrics_host,
+                "instance %s%s of Latet %s starts on %s port %d, %s; its metrics on %s port %d",
+                self.server.instance, named, __version__, settings.host, settings.port, over, settings.metrics_host,
                 settings.metrics_port,
             )  # fmt: skip
         else:
             log.info(
-                "instance %s of Latet %s starts on %s port %d, %s; no metrics socket (metrics_token_file is not set)",
-                self.server.instance, __version__, settings.host, settings.port, over,
+                "instance %s%s of Latet %s starts on %s port %d, %s; no metrics socket (metrics_token_file is not set)",
+                self.server.instance, named, __version__, settings.host, settings.port, over,
             )  # fmt: skip
         sockets = None if self.own is None else [*self.own, *self.metrics]
         # What the instance opened and its app, kept for good: no full collection walks them again while it runs, which
@@ -385,14 +507,14 @@ class Instance:
 def _loaded(made: Uvicorn) -> None:
     """uvicorn's configuration loaded now, the instance's certificate and key with it, rather than once its run has
     begun: a file that is not there, cannot be read, is no certificate or is not its key stops the start in fixed words
-    (a ValueError naming the settings and the error's type, never what the file holds)."""
+    (CertificateUnusable, a ValueError naming the settings and the error's type, never what the file holds)."""
     kind = ""
     try:
         made.config.load()
     except OSError as exc:  # ssl.SSLError is one
         kind = type(exc).__name__
     if kind:
-        raise ValueError(
+        raise CertificateUnusable(
             f"the instance's certificate and key (certificate, key) cannot be used ({kind}): each is a PEM file this "
             "account can read, the key the certificate's own"
         )
@@ -410,15 +532,39 @@ def _why_not(error: OSError | UnicodeError) -> str:
     return described(error)
 
 
-def _listening(host: str, port: int, which: tuple[str, str]) -> list[socket.socket]:
+def _listening(host: str, port: int, which: tuple[str, str], *, reuse_port: bool = False) -> list[socket.socket]:
+    """Sockets bound on ``host`` and ``port`` as asyncio binds a server's (``_bound``); uvicorn's server makes them
+    listen when it starts. Raises CannotListen, in fixed words naming ``which`` (what, and its settings), every socket
+    made closed first."""
+    try:
+        return _bound(host, port, reuse_port=reuse_port)
+    except (OSError, UnicodeError) as exc:  # its words name the address: said in words of the instance's own, below
+        problem = _why_not(exc)
+    what, settings = which
+    raise CannotListen(f"{what} cannot be bound on {settings}: {problem}")
+
+
+def _in_use(error: OSError | UnicodeError) -> bool:
+    """Whether a bind failed because its address and port are in use (another socket holds them, or the connections a
+    listener closed in the last minute, TIME_WAIT, for a socket without ``SO_REUSEADDR``)."""
+    if not isinstance(error, OSError) or isinstance(error, socket.gaierror):
+        return False
+    return error.errno in _IN_USE or getattr(error, "winerror", None) in _IN_USE
+
+
+def _bound(host: str, port: int, *, reuse_port: bool = False, hold: bool = False) -> list[socket.socket]:
     """Sockets bound on ``host`` and ``port`` as asyncio binds a server's: one for each address the host is resolved to
     (``AI_PASSIVE``; an empty host, every address of this machine), an IPv6 one on IPv6 alone, an address whose family
     this machine has not enabled skipped, ``SO_REUSEADDR`` on POSIX alone, and ``SO_EXCLUSIVEADDRUSE`` on Windows, where
-    another socket could otherwise bind the same address and port with ``SO_REUSEADDR``. uvicorn's server makes them
-    listen when it starts. Raises CannotListen, in fixed words naming ``which`` (what, and its settings), every socket
-    made closed first."""
+    another socket could otherwise bind the same address and port with ``SO_REUSEADDR``. On Linux alone
+    (``latet.server.workers.reuse_port_here``): ``reuse_port``, a worker's, ``SO_REUSEPORT`` too, so that each worker
+    binds the port beside the others and the kernel deals new connections among their listening sockets (sockets of
+    the same effective user alone may join them); ``hold``, the supervisor's, ``SO_REUSEPORT`` alone, without
+    ``SO_REUSEADDR``, so that the port stays held while no worker listens: a bound socket with ``SO_REUSEADDR`` that
+    does not listen keeps off no other socket that sets it too, whatever its user, and one without keeps off every
+    socket but the workers' (this user's, with ``SO_REUSEPORT``). Raises OSError or UnicodeError, whose words name the
+    address (never said: ``_why_not``), every socket made closed first."""
     found: list[socket.socket] = []
-    error: OSError | UnicodeError | None = None
     try:
         infos = socket.getaddrinfo(host or None, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
         for family, kind, proto, _, address in dict.fromkeys(infos):  # each once, in their order
@@ -430,7 +576,10 @@ def _listening(host: str, port: int, which: tuple[str, str]) -> list[socket.sock
             if sys.platform == "win32":
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             elif sys.platform != "cygwin":
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if not hold:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if reuse_port or hold:  # asked on Linux alone (``workers.reuse_port_here``)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             if family == socket.AF_INET6 and hasattr(socket, "IPPROTO_IPV6"):
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
             try:
@@ -442,26 +591,43 @@ def _listening(host: str, port: int, which: tuple[str, str]) -> list[socket.sock
                 sock.close()
         if not found:
             raise OSError(errno.EADDRNOTAVAIL, "no address")
-    except (OSError, UnicodeError) as exc:  # its words name the address: said in words of the instance's own, below
-        error = exc
-    if error is not None:
+    except BaseException:
         for sock in found:
             sock.close()
-        what, settings = which
-        raise CannotListen(f"{what} cannot be bound on {settings}: {_why_not(error)}")
+        raise
     return found
 
 
-def make_instance(settings: ServerSettings, *, stream: TextIO | None = None) -> Instance:
+def make_instance(
+    settings: ServerSettings,
+    *,
+    stream: TextIO | None = None,
+    own: list[socket.socket] | None = None,
+    worker: int | None = None,
+    reuse_port: bool = False,
+    schema: str = "latet",
+    prefix: str = "latet:",
+    data: Path | None = None,
+) -> Instance:
     """This machine's instance, ready to run: logging set up (to the standard output, or ``stream``: the Windows
     service's file) and the settings that trust a network or a Valkey said, the server opened (it refuses a schema that
     is not the code's, or a master key that is not the database's), E0c's operations in front of its app, HTTPS when the
     settings name a certificate (for both sockets), the proxies' addresses the only ones believed, a WebSocket message
     no larger than a body, uvicorn's own logging left to the server's, and its sockets bound last (``_listening``): its
-    own, and the metrics' only with metrics on. The server it opened, and any socket bound, are closed when a later step
-    fails: CannotListen for a socket that cannot be bound. Raises RuntimeError (``DEBUG_MODE``) before anything in
+    own, and the metrics' only with metrics on. The server it opened, and any socket it bound, are closed when a later
+    step fails: CannotListen for a socket that cannot be bound. Raises RuntimeError (``DEBUG_MODE``) before anything in
     asyncio's debug mode, whoever makes it: `latet server run` says so first, and the Windows service's host calls this
-    itself (Task 14)."""
+    itself (Task 14).
+
+    A worker of `latet server run --workers` (Task 10, ``latet.server.workers``) is given ``worker``, its number, which
+    its beat says (its settings are the worker's own already: its metrics port), and either ``reuse_port``, on Linux:
+    it binds its own socket on the port itself, last, with ``SO_REUSEPORT``, beside the other workers', and uvicorn
+    makes it listen once the application has started, so that Linux deals it connections from then on; or, elsewhere,
+    ``own``, the instance's own sockets its supervisor bound once for every worker (this process's duplicates of them,
+    which its run closes; the instance binds them itself when it is None, and only those it bound are closed when a
+    step fails). Its certificate and key are loaded here either way, in the worker's process: the supervisor never
+    reads them. ``schema``, ``prefix`` and ``data`` are ``open_server``'s, which a test or a benchmark names, never the
+    environment."""
     from latet.cli.main import uvicorn_server
     from latet.server.app import open_server
     from latet.server.logs import configure_logging
@@ -473,8 +639,15 @@ def make_instance(settings: ServerSettings, *, stream: TextIO | None = None) -> 
     for name, trusts in _TRUSTED:
         if getattr(settings, name):
             log.warning("%s is on: %s", name, trusts)
-    server = open_server(settings)
-    own: list[socket.socket] = []
+    if worker is None and settings.workers > 1:  # the Windows service's host: one instance, whatever the settings say
+        log.warning(
+            "workers is %d, and this instance runs alone: the Windows service runs one instance, and `latet server "
+            "run` starts the workers",
+            settings.workers,
+        )
+    server = open_server(settings, schema=schema, prefix=prefix, data=data)
+    server.worker = worker
+    bound: list[socket.socket] = []
     metrics: list[socket.socket] = []
     try:
         tls = (
@@ -487,19 +660,87 @@ def make_instance(settings: ServerSettings, *, stream: TextIO | None = None) -> 
             forwarded_allow_ips=settings.forwarded_allow_ips,  # the proxy's word, from its address alone
             ws_max_size=settings.max_request_mb * _MIB, timeout_graceful_shutdown=GRACEFUL_SECONDS, access_log=False,
         )  # fmt: skip
+        if own is not None and sys.platform == "win32":
+            # Windows ties a socket to one I/O completion port, and workers share one: there each serves it through
+            # select(), as uvicorn's own workers do, which ends a worker past 512 sockets. `latet server run` refuses
+            # several workers on Windows (``workers.refused_here``); only the tests and the measurements of the
+            # supervisor, which drive it directly, come here, and never past a few sockets.
+            made.config.loop = cast("Any", asyncio.SelectorEventLoop)  # a loop factory: uvicorn takes one there
         _loaded(made)
         # Bound last, by the instance itself (T10.12): its own socket on the settings' port alone, and the metrics' on
         # theirs only with metrics on, so that the metrics, which the operations answer on that port alone, are never
         # where a load balancer sends the instance's traffic.
-        own = _listening(settings.host, settings.port, _OWN)
+        if own is None:
+            bound = _listening(settings.host, settings.port, _OWN, reuse_port=reuse_port)
         if settings.metrics_token_file is not None:
             metrics = _listening(settings.metrics_host, settings.metrics_port, _METRICS)
     except BaseException:
-        for sock in [*own, *metrics]:
+        for sock in [*bound, *metrics]:
             sock.close()
         server.close()
         raise
-    return Instance(server, made, own, metrics)
+    return Instance(server, made, bound if own is None else own, metrics, worker)
+
+
+class _Counters(ctypes.Structure):
+    """``PROCESS_MEMORY_COUNTERS_EX``, as Windows fills it for ``GetProcessMemoryInfo``."""
+
+    _fields_ = [
+        ("cb", ctypes.c_uint32),
+        ("PageFaultCount", ctypes.c_uint32),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+        ("PrivateUsage", ctypes.c_size_t),
+    ]
+
+
+def _windows_memory() -> int | None:
+    """This process's private bytes (``PrivateUsage``), from a kernel32 of this function's own: its prototypes are set
+    here, never on the ``ctypes.windll`` every module shares. None when Windows does not answer."""
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]  # Windows alone
+    current = kernel32.GetCurrentProcess
+    current.argtypes, current.restype = [], wintypes.HANDLE
+    info = kernel32.K32GetProcessMemoryInfo
+    info.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD]
+    info.restype = wintypes.BOOL
+    counters = _Counters()
+    counters.cb = ctypes.sizeof(_Counters)
+    if not info(current(), ctypes.byref(counters), counters.cb):
+        return None
+    return int(counters.PrivateUsage)
+
+
+def _linux_memory() -> int | None:
+    """This process's resident set: ``/proc/self/statm``'s second number, in pages. None when it cannot be read."""
+    try:
+        fields = Path("/proc/self/statm").read_text("ascii").split()
+        return int(fields[1]) * mmap.PAGESIZE
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def process_memory() -> int | None:
+    """This process's memory, in bytes, as its beat and its metrics say it: on Linux its resident set
+    (``/proc/self/statm``), on Windows its private bytes (``GetProcessMemoryInfo``); None elsewhere, or when it cannot
+    be read (a metric is then left out, and a beat says ``null``)."""
+    try:
+        if sys.platform == "win32":
+            found = _windows_memory()
+        elif sys.platform.startswith("linux"):
+            found = _linux_memory()
+        else:
+            return None
+    except (OSError, AttributeError, ValueError):  # a library or a function this system has not
+        return None
+    return found if found is not None and found > 0 else None
 
 
 def _own(pem: str) -> tuple[str, bytes]:

@@ -27,6 +27,14 @@ Junie CLI, Kilo Code, Continue y Crush también leen ajustes del proyecto que ab
 propios de un proyecto pueden apuntarlos a otra dirección: revísalos antes de trabajar en un
 repositorio que no escribiste tú.
 
+Latet lee cada parte de cada petición que envían estas herramientas
+([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)). Sus listas de modelos
+pasan por las rutas de arriba. Una cabecera que una herramienta te deja añadir se rechaza, nombrándola,
+hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la deje pasar, y
+una llamada que Latet no lee (archivos, audio, generación de imágenes) se rechaza. Estas herramientas
+se configuran a mano, así que una carpeta que nombran solo añade protección
+([Proyectos](../../concepts/projects/#de-confianza-y-declarados)).
+
 ## De un vistazo
 
 Probado significa que la propia herramienta se ejecutó a través de Latet contra un proveedor de
@@ -138,6 +146,13 @@ destinos, y una en este ordenador se queda como está. Con OpenRouter, define
 `COPILOT_PROVIDER_TYPE=anthropic` y tu clave de Anthropic. Para iniciar `copilot` tú mismo, define en
 su lugar `COPILOT_PROVIDER_BASE_URL` con la dirección de Latet: `http://127.0.0.1:5283/openai/v1`,
 `/openrouter/api/v1` o `/anthropic`.
+
+`latet copilot` también da a Copilot una clave de lanzamiento en `COPILOT_PROVIDER_HEADERS`, añadida a
+las cabeceras que defines ahí, en un proveedor compatible con OpenAI por Chat Completions: Latet
+considera entonces de confianza el proyecto de la sesión. Por la Responses API, la API de Anthropic o
+un WebSocket no pasa ninguna y lo dice, y el proyecto queda declarado. Las cabeceras tuyas en
+`COPILOT_PROVIDER_HEADERS` se rechazan, nombrando cada una, hasta que una excepción exacta la deje
+pasar.
 
 `COPILOT_PROVIDER_WIRE_API=responses` usa la Responses API en su lugar. El modelo tiene que admitir
 la llamada a herramientas y el streaming. Sin `COPILOT_OFFLINE=true`, la CLI sigue enviando

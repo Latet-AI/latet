@@ -61,7 +61,7 @@ uv run python scripts/gen_docs_anchors.py --check --root src/latet/docs
 uv run python scripts/check_docs_anchors.py --root src/latet/docs     # every dashboard link lands
 ```
 
-The check refuses a bundle above 15 MB zipped (it is about 14.2 MB): the wheel carries it to every install. When new
+The check refuses a bundle above 18 MB zipped (it is about 16.3 MB): the wheel carries it to every install. When new
 pages or pictures cross the limit, make the bundle lighter (pictures it can do without, as it does without the video)
 or raise `MAX_MB` in `scripts/check_docs_bundle.py` on purpose, saying why in the commit.
 
@@ -84,7 +84,8 @@ uv run python scripts/server-services.py down   # stops the services and removes
 The services listen on `127.0.0.1` only, with a password made for tests. The first `up` downloads
 their images; name the services you want (`up postgres valkey`) to start fewer. CI runs the same
 tests in a job of its own with `LATET_TEST_REQUIRE_SERVICES=1`, which makes a server test that cannot
-run fail instead of being skipped; set it to get the same on your computer.
+run for want of its services fail instead of being skipped (a test for another platform stays skipped);
+set it to get the same on your computer.
 
 ## Generated files
 

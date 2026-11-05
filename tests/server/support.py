@@ -58,7 +58,7 @@ def open_test_server(
     settings = ServerSettings(url=url, database_url=DATABASE, valkey_url=VALKEY, master_key_file=master_key_file())
     db = Database(DATABASE, schema=schema, max_size=1)
     try:
-        migrate(db)
+        migrate(db, master=MasterKey.load(settings))
     finally:
         db.close()
     return open_server(settings, clock=clock, schema=schema, prefix=prefix, data=data)

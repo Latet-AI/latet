@@ -112,7 +112,8 @@ Voici ce qui arrive à une clé tirée d'un fichier `.env` :
    avant que la requête ne parte, le plugin effectue sur elle une vérification finale. Comme
    `ANTHROPIC_BASE_URL` pointe vers le daemon de Latet (`127.0.0.1:5283`), la requête passe ensuite
    par le daemon, qui fonctionne **en vérification seule** : il cherche des valeurs sensibles en
-   clair, transmet les octets sans les modifier et enregistre l'échange pour le
+   clair, vérifie chaque autre partie de la requête (son adresse, ses en-têtes, chaque membre de son
+   corps), transmet le corps sans le modifier et enregistre l'échange pour le
    [tableau de bord](../../dashboard/).
 
 4. Anthropic reçoit <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> et rien d'autre. Le modèle ne
@@ -131,8 +132,11 @@ Voici ce qui arrive à une clé tirée d'un fichier `.env` :
 
 </Steps>
 
-En mode client, le daemon ne peut que bloquer : il ne change jamais un octet, et chaque requête
-arrive donc chez Anthropic exactement telle que Claude Code l'a construite.
+En mode client, le daemon ne peut que bloquer : il ne change jamais le corps d'une requête, qui
+arrive chez Anthropic octet pour octet. De ses en-têtes, Latet ne retire que ceux de télémétrie et de
+traçage qu'ajoute le SDK de Claude Code (`x-stainless-*`, `traceparent`...) et ceux de Claude Code
+lui-même qui peuvent contenir du texte libre, comme les identifiants d'un sous-agent, et il les
+compte dans le tableau de bord ([Les en-têtes que Latet retire](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire)).
 
 **Si le daemon ne tourne pas**, le plugin essaie de le démarrer. S'il n'y parvient pas, le plugin
 retient le contenu au lieu de l'envoyer sans le masquer : votre prompt n'est pas envoyé, un résultat
@@ -168,7 +172,13 @@ changer. Ici, c'est le daemon local qui masque. La même clé du `.env`, cette f
 </Steps>
 
 Le fournisseur ne voit jamais que des valeurs factices ; l'agent ne voit jamais que des originaux. Les
-blocs de réflexion et le raisonnement chiffré passent sans modification.
+blocs de réflexion, leurs signatures et le raisonnement chiffré sont renvoyés tels que le fournisseur
+les a produits : Latet les a vus arriver du fournisseur dans cette conversation ou, après un
+redémarrage, laisse passer les champs chiffrés du fournisseur lui-même par une règle intégrée,
+seulement dans les tours du modèle et seulement vers l'adresse du fournisseur. Chaque autre partie de
+la requête, adresse, paramètres et en-têtes compris, est lue avant de partir, et une partie que Latet
+ne connaît pas arrête la requête
+([Chaque partie d'une requête](../protection-scope/#chaque-partie-dune-requête)).
 
 Une vérification finale lit ensuite les textes de chaque requête avant son départ, ceux que Latet
 masque, comme en mode client, et arrête celle qui laisserait sortir une valeur en clair, en disant

@@ -72,7 +72,7 @@ def test_folders_compare_without_slashes_and_on_windows_without_case():
     assert within("c:/users/me/dev/acme/src", "C:\\Users\\Me\\dev\\Acme")
     assert not within("c:/users/me/dev/acme2", "C:/Users/Me/dev/Acme")
     entries = [ProjectEntry(path="C:/dev"), ProjectEntry(path="C:/dev/acme", allow_values=["x"])]
-    assert personal_for(entries, "c:\\dev\\acme\\api").path == "C:/dev/acme"  # the nearest folder wins
+    assert personal_for(entries, "c:\\dev\\acme\\api").path == r"C:\dev\acme"  # the nearest wins, as read (I-7)
 
 
 def test_a_repository_file_only_adds_protection(tmp_path):

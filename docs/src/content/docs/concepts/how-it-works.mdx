@@ -96,8 +96,9 @@ Here is what happens to a key from a `.env` file:
 3. Claude Code builds the request as usual. It contains only the surrogate. Just before
    the request leaves, the plugin runs a final check on it. Because `ANTHROPIC_BASE_URL` points at
    the Latet daemon (`127.0.0.1:5283`), the request then passes through the daemon, which runs
-   **verify-only**: it looks for sensitive values in clear, forwards the bytes unchanged, and
-   records the exchange for the [dashboard](../../dashboard/).
+   **verify-only**: it looks for sensitive values in clear, checks every other part of the request
+   (its address, its headers, every member of its body), forwards the body unchanged, and records
+   the exchange for the [dashboard](../../dashboard/).
 
 4. Anthropic receives <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> and nothing else. The
    model never sees the real key.
@@ -115,8 +116,11 @@ Here is what happens to a key from a `.env` file:
 
 </Steps>
 
-Blocking is the only thing the daemon can do in client mode: it never changes a byte, so each
-request reaches Anthropic exactly as Claude Code built it.
+Blocking is the only thing the daemon can do in client mode: it never changes a request's body,
+which reaches Anthropic byte for byte. Of its headers, Latet takes off only the telemetry and tracing
+ones Claude Code's SDK adds (`x-stainless-*`, `traceparent`...) and Claude Code's own that can carry
+free text, such as a subagent's ids, and counts them in the dashboard
+([Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off)).
 
 **If the daemon is not running**, the plugin tries to start it. If that fails, the plugin holds
 content back instead of sending it unmasked: your prompt is not sent, a tool result it cannot mask
@@ -149,8 +153,13 @@ the masking point. The same `.env` key, this time with Codex:
 
 </Steps>
 
-The provider only ever sees surrogates; the agent only ever sees originals. Thinking blocks and
-encrypted reasoning pass through untouched.
+The provider only ever sees surrogates; the agent only ever sees originals. Thinking blocks,
+their signatures and encrypted reasoning are sent back as the provider made them: Latet saw them
+come from the provider in that conversation, or, after a restart, lets the provider's own encrypted
+fields through by a built-in rule, only in the model's turns and only to the provider's own address.
+Every other part of the request, its address, query and headers included, is read before it leaves,
+and a part Latet does not know stops the request
+([Every part of a request](../protection-scope/#every-part-of-a-request)).
 
 A final check then reads the texts of every request before it leaves, those Latet masks, as in
 client mode, and stops one that would let a value out in clear, saying why. When the daemon cannot

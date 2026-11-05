@@ -86,6 +86,24 @@ läuft auf dieselbe Weise über Latet. Siehe [Unternehmens-Endpunkte](../company
 - Codex liest Dateien mit Shell-Befehlen, daher deckt der
   [strikte Datenmodus](../../concepts/production-data/#welche-tools) auch die Dateien ab, die es
   liest. Nennen Sie sein Datenbank-Tool in `data_tools`, um nur dieses abzudecken.
+- Pfad, Remotes und Commit des Repositorys, die Codex jeder Anfrage hinzufügt, im Header
+  `x-codex-turn-metadata` und in `client_metadata` des Inhalts, werden vor dem Senden entfernt,
+  ebenso der Header `x-openai-subagent`, die Art oder freie Bezeichnung, die Codex einem Subagenten
+  gibt; das Dashboard zählt sie. Seine Modellliste geht durch; ein Aufruf, den Latet nicht liest, etwa das Abrufen einer gespeicherten
+  Antwort, wird abgelehnt.
+- Eigene Header in `http_headers` oder `env_http_headers` eines Anbieters werden abgelehnt, jeder beim
+  Namen genannt, bis eine [genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ihn
+  durchlässt (`openai.responses.1`). Über den WebSocket einer ChatGPT-Anmeldung gilt in 0.11.0 keine
+  Ausnahme: Ein Header oder ein Query-Parameter, den Latet nicht liest, schließt die Verbindung, bevor
+  sie sich öffnet, und das Schließen sagt, warum, und nennt den Header oder den Parameter, nie seinen
+  Wert. Der Verlauf hält die Ablehnung fest.
+- **Sein Projekt.** `latet codex` gibt Codex einen Startschlüssel über einen Anbieter aus
+  `model_providers` (`env_http_headers`), ab Codex 0.115: Die Einstellungen seines Projekts gelten
+  dann vollständig. Bei den eingebauten Anbietern von Codex (mit ChatGPT-Anmeldung oder dem eigenen
+  Anbieter von OpenAI) und vor 0.115 kann kein Schlüssel mitreisen: `latet codex` sagt das beim
+  Start, und das Projekt, das Codex in seinen Anfragen nennt, ist nur behauptet, daher gelten seine
+  Regeln, die Schutz hinzufügen, seine Lockerungen aber nicht
+  ([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)).
 
 Live getestet: die Codex CLI mit Anmeldung über ChatGPT. Codex Desktop liest dieselbe
 `config.toml`; wenn dort etwas nicht funktioniert,

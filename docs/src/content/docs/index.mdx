@@ -39,7 +39,7 @@ leaves, whatever put the text in it:
 | Web pages | An admin panel the agent opens with a browser tool | The personal data in the page's text is masked |
 | Instructions | CLAUDE.md, AGENTS.md, the system prompt | Your name, user name, host name and company domain are masked |
 | History | A session resumed ten days later | The same value gets the same fake, every time |
-| Screenshots | A screenshot of an invoice | With the optional [text recognition](concepts/images/), the text in it is read on your machine and each value is covered with its fake; PDFs are flagged, or not sent (`images: block`) |
+| Screenshots | A screenshot of an invoice | With the optional [text recognition](concepts/images/), the text in it is read on your machine and each value is covered with its fake; without it, and with a PDF, the request is not sent |
 | What no pattern finds | *"Mark from sales is quietly interviewing at a competitor"* | The optional [local reviewer](concepts/llm-review/), a language model of yours, finds it before it leaves, following Latet's instructions and [your own guidance](concepts/llm-review/#your-guidance): what counts as sensitive in your work, everywhere or in one project |
 
 ## How it protects
@@ -103,7 +103,7 @@ and the other tools whose requests leave from the vendor's servers: see
 <CardGrid>
 	<LinkCard
 		title="Claude Pro and Max subscriptions"
-		description="Claude Code runs unmodified and signs in with its own login; each request leaves as Claude Code built it."
+		description="Claude Code runs unmodified and signs in with its own login; each request's body leaves byte for byte, and only a few headers are taken off and counted."
 		href="agents/claude-code/#pro-and-max-subscriptions"
 	/>
 	<LinkCard

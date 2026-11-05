@@ -201,6 +201,7 @@ class TutorialAgent:
     def new_conversation(self, chapter_id: str) -> str:
         """A new conversation: a new id, no history, nothing left to run."""
         self.chapter = chapter_id
+        # The pretend model's route admits it by this form alone (model.SESSION_ID).
         self.session = f"tutorial-{chapter_id}-{secrets.token_hex(4)}"
         self.history, self.pending = [], []
         return self.session

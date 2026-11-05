@@ -56,8 +56,9 @@ verwalten](../getting-started/server/) ist die Anleitung für die Administratore
 
 Jeder Austausch in Echtzeit: Agent, Anbieter, Modell, wie lange er gedauert hat und wie
 viel davon auf Latet entfiel, Token-Verbrauch (einschließlich der aus dem Prompt-Cache gelesenen
-Tokens), wie viele Werte maskiert wurden, und Markierungen wie *Blockiert*, *Nicht gelesen* (PDFs,
-nicht gelesene Bilder), *Bild: maskiert*, *Zurückgehalten* (der
+Tokens), wie viele Werte maskiert wurden, und Markierungen wie *Blockiert*, *Nicht gelesen* (eine
+Anfrage, die eine frühere Version mit ungelesenen Teilen gesendet hat), *Projekt nur behauptet*,
+*Bild: maskiert*, *Zurückgehalten* (der
 [Dump-Schutz](../concepts/production-data/#der-dump-schutz)), *Aus dem Verlauf* (eine Unterhaltung,
 die begann, bevor Latet aktiv war: siehe [Fehlerbehebung](../troubleshooting/#jede-anfrage-einer-unterhaltung-wird-blockiert)),
 *Auto-Modus-Prüfung* oder *Unbekannte Route*.
@@ -113,6 +114,62 @@ wählen Sie *Nicht sensibel*, wenn er es nicht ist; dann geht die nächste ident
 Mit `history: metadata`, das keine Texte aufbewahrt, sind sie nur nach Typ und Länge aufgeführt.
 Die Begründung, die Latet dem Agenten gegeben hat, steht ebenfalls dort. Auch Anfragen, die in
 Claude Code von der abschließenden Prüfung des Plugins selbst gestoppt wurden, erscheinen hier.
+
+### Wie eine Anfrage abgedeckt wurde
+
+Jeder Austausch hat einen Abschnitt *Abdeckung*, der zeigt, wie Latet über jeden Teil seiner Anfrage
+Rechenschaft abgelegt hat ([Jeder Teil einer Anfrage](../concepts/protection-scope/#jeder-teil-einer-anfrage)):
+
+- **Vor dem Senden gestoppt,** mit dem Grund in einfachen Worten und dem, was zu tun ist. Eine Anfrage,
+  die nach einem Versuch gestoppt wurde (eine Bedrock-Anfrage, deren AWS-Anmeldung zwischen zwei
+  Versuchen erneuert werden musste), sagt, dass ein früherer Versuch den Anbieter schon erreicht haben
+  kann. Eine genaue Anfrageausnahme wird für einen Header oder einen Abfrageparameter angeboten, den
+  kein Profil nennt; für ein Element des Inhalts, das kein Profil nennt, sagt der Austausch, wie Sie
+  eine genehmigen, außer das Element steht *an einer Stelle, die keine Ausnahme erreicht (in einem
+  Element des Anbieters, der Quelle eines Bildes oder einem WebSocket-Turn)*. Keine wird angeboten für
+  Zugangsdaten, ein Ziel, einen Teil, den Latet nicht lesen konnte, oder eine Arbeitsgrenze, und keine
+  bei einem WebSocket: *Ein WebSocket nimmt in dieser Version von Latet keine Anfrage-Ausnahme an.*
+- **Jeder Teil gelesen** oder **gelesen und durchgelassen durch** das Genannte: *nur geprüft* (Werte,
+  die die abschließende Prüfung gelesen hat und nicht maskieren musste), *durch eine Regel erlaubt*
+  (der Rest eines Bildes, dessen Text gelesen wurde, oder ein verschlüsseltes Feld eines Anbieters),
+  ein undurchsichtiges Element, das der Anbieter früher in dieser Unterhaltung gesendet hat, Text, der
+  in dieser Unterhaltung schon gesendet wurde, Text, den das Modell geschrieben hat, oder eine
+  Anfrageausnahme, die Sie genehmigt haben. Was ungelesen hinausging, wird nie als geprüft gezeigt.
+- **Was Latet entfernt hat:** wie viele Header und Elemente des Inhalts sein Profil als entfernbar
+  ausweist (`client_metadata` von Codex zum Beispiel); hat der Anbieter mit `401` oder `403`
+  geantwortet, nachdem Latet einen Header entfernt hat, sagt der Austausch das.
+- **Sein Anfrageprofil** (`anthropic.messages.1`), das eine Ausnahme für diese Art von Aufruf nennt.
+- **Sein Projekt, vertrauenswürdig oder nur behauptet,** und **sein Start:** *Von Latet gestartet,
+  Schlüssel geprüft*, *Von Latet gestartet, Schlüssel fehlt*, *Vom Claude-Code-Plugin gebunden* oder
+  *Nicht von Latet gestartet* ([Projekte](../concepts/projects/#startschlüssel)). Auch die Sitzungen
+  zeigen den Start.
+
+Ein Austausch, den eine ältere Version von Latet aufgezeichnet hat, wird nie als geprüft gezeigt: Er
+sagt *Von einer älteren Version von Latet aufgezeichnet. Wie viel sie von dieser Anfrage gelesen hat,
+wurde nicht aufgezeichnet, daher wird sie nicht als geprüft angezeigt.* Eine Prüfung, die das
+Claude-Code-Plugin in Claude Code ausgeführt hat, wird als *Eine Prüfung des Claude-Code-Plugins.*
+gezeigt, nie als geprüft: Sie hat selbst nichts gesendet, und die Anfrage, die sie gelesen hat, ist
+ein eigener Austausch.
+
+<Screenshot name="coverage" alt="Die Abdeckung eines Austauschs: was Teile davon ungelesen durchgelassen hat, wie seine Sitzung gebunden wurde, sein vertrauenswürdiges Projekt, der Header, den Latet entfernt hat, und sein Anfrageprofil" caption="Abdeckung: wie Latet über jeden Teil einer Anfrage Rechenschaft ablegt." />
+
+### Anfrageausnahmen
+
+**Geschützte Agenten** listet Ihre
+[Anfrageausnahmen](../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) auf: was
+jede durchlässt (einen Header, einen Abfrageparameter oder ein Element des Inhalts, und ob es die
+eigenen Zugangsdaten des Ziels sind), wo (ihr Ziel und ihr Anfrageprofil), für wen (jede Ihrer
+Anfragen oder die Anfragen eines Projekts, wenn Latet ihrem Projekt vertraut) und ihren Zustand:
+*Wartet auf Ihre Genehmigung*, *Aktiv*, *Läuft bald ab* (mit den verbleibenden Tagen), *Abgelaufen*,
+*Dauerhaft* oder *Muss neu genehmigt werden: Ihr Profil wurde überarbeitet*. Eine Warnung sagt, wenn
+eine innerhalb von sieben Tagen endet. *Widerrufen* nimmt eine sofort weg. Darunter die Verwendungen
+von Ausnahmen, im Speicher gezählt, seit der Daemon gestartet ist, und beim Neustart gelöscht: Bei
+ausgeschaltetem Verlauf sind sie alles, was davon bleibt, und ein Server addiert die Zählungen seiner
+Instanzen. Eine neue Ausnahme, oder eine erweiterte, verlängerte oder dauerhaft gemachte, wartet auf
+**Freigaben** unter *Einstellungen*, das zeigt, was sie durchlässt, wie lange sie gilt und bei einer
+ohne Projekt, dass sie Ihre ganze Identität abdeckt.
+
+<Screenshot name="exceptions" alt="Die Anfrageausnahmen unter Geschützte Agenten: was jede durchlässt, ihr Ziel und ihr Anfrageprofil, für wen sie gilt und ihr Zustand, mit Widerrufen" caption="Anfrageausnahmen: was jede durchlässt, wo, für wen und ihr Zustand." />
 
 ### Freigaben
 
@@ -322,7 +379,8 @@ Das Folgende betrifft das Dashboard auf Ihrem eigenen Rechner. Zum Dashboard ein
 - Was der Verlauf aufbewahrt, wählen Sie unter Verlauf in **Regeln**, im Tab *Erweitert*: *Alles*
   (die Textblöcke, die Antworten und die Zeiten, damit Sie genau sehen, was gesendet wurde), *Nur
   Metadaten* (Zähler, Zeiten und Markierungen, kein Text) oder *Nichts* (Austausche werden nicht
-  aufgezeichnet, und **Live** bleibt leer).
+  aufgezeichnet, und **Live** bleibt leer; die Zählungen der verwendeten Anfrageausnahmen bleiben
+  im Speicher, bis Latet neu startet).
 - Der Verlauf wird standardmäßig 14 Tage lang aufbewahrt; *Aufbewahren für* unter Verlauf in
   **Regeln** stellt 1 bis 365 Tage ein. Blöcke, die mit jeder Anfrage erneut gesendet werden, werden
   nur einmal gespeichert.

@@ -22,7 +22,7 @@ Un perfil decide qué [detectores](../detection/) están activos. Hay tres:
 | Nombres y direcciones postales, con el [modelo de nombres local opcional](../../getting-started/installation/) | en tus prompts, adjuntos y el texto de las imágenes | en todas partes | ❌ |
 | Lo que ningún patrón encuentra, con el [revisor local opcional](../llm-review/) | cuando está activado | cuando está activado | cuando está activado |
 | El texto de las imágenes, con el [reconocimiento de texto opcional](../images/) | enmascarado | no se envía | enmascarado |
-| Los PDF, y las imágenes sin reconocimiento de texto | se envían, con un indicador | no se envían | se envían, con un indicador |
+| Los PDF, y las imágenes sin reconocimiento de texto | no se envían | no se envían | no se envían |
 
 - **`balanced`** sirve para la mayor parte del trabajo con código. Es el predeterminado.
 - **`max`** añade las direcciones IP privadas y los números de identificación de todos los países,

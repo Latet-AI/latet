@@ -34,6 +34,10 @@ gesetzt, `ANTHROPIC_BASE_URL` auf `http://127.0.0.1:5283/anthropic`, und `GOOGLE
 offiziellen SDKs von OpenAI, Anthropic und Google GenAI lesen diese Variablen: zu denen von Google
 siehe [Gemini CLI und Google GenAI](../gemini/).
 
+Ein Programm, das `latet run` startet, führt keinen Startschlüssel mit, daher ist ein Ordner, den es
+nennt (`x-latet-project`), nur behauptet: Die Regeln seines Projekts, die Schutz hinzufügen, gelten,
+seine Lockerungen aber nicht ([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)).
+
 ## Für eine ganze Shell: `latet env`
 
 `latet env` gibt dieselben Variablen in der Syntax Ihrer Shell aus. Um sie auf die aktuelle Sitzung
@@ -119,11 +123,16 @@ Klartext gesendet.
   Antworten werden die Originale wieder eingesetzt, gestreamt oder nicht.
 - **Embeddings** (`/embeddings`): Die Eingabe wird maskiert.
 - **Bilder**, die als `data:`-URLs gesendet werden, werden gelesen und maskiert, mit der optionalen
-  [Texterkennung](../../concepts/images/). Bilder, die über ihre Adresse angegeben sind, Audio und
-  Dateien werden so gesendet, wie sie sind, und im Dashboard als *Nicht gelesen* markiert.
-- **Jede andere Anfrage** an OpenAI, Anthropic oder OpenRouter, etwa das Auflisten der Modelle, geht
-  unverändert durch. Auf den Routen von Google wird eine Anfrage mit einem Body, den Latet nicht
-  liest, stattdessen abgelehnt: Was Latet dort liest, steht unter
+  [Texterkennung](../../concepts/images/); ohne sie wird eine Anfrage mit einem Bild nicht gesendet.
+  Bilder, die über ihre Adresse angegeben sind, Audio und Dateien werden abgelehnt.
+- **Das Auflisten der Modelle und das Lesen eines Modells** gehen bei OpenAI, Anthropic und
+  OpenRouter durch. **Jede andere Anfrage** (Dateien, Batches, Audio, Bilderzeugung, Moderation, das
+  Abrufen einer gespeicherten Antwort) wird abgelehnt, ebenso ein Header, ein Abfrageparameter oder
+  ein Element des Inhalts, das kein Profil nennt: Ihre eigenen `default_headers` oder `extra_body` in
+  einem SDK zum Beispiel, bis eine [genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen)
+  sie durchlässt. Die eigenen Telemetrie- und Tracing-Header der SDKs
+  (`x-stainless-*`, `traceparent`...) werden entfernt und gezählt. Was
+  Latet auf den Routen von Google liest, steht unter
   [Gemini CLI und Google GenAI](../gemini/#was-das-gateway-liest).
 
 Eine Anfrage an Anthropic, die von Claude Code kommt oder das Token eines Claude-Abonnements
@@ -133,7 +142,9 @@ steht. Siehe [Claude Code](../claude-code/).
 ## Gut zu wissen
 
 - Das Gateway lauscht nur auf `127.0.0.1` und lehnt Anfragen ab, die von einer Webseite kommen.
-- Ein Pfad außerhalb der Routen oben erhält einen Fehler `404`: `no upstream for this path`.
+- Ein Pfad außerhalb der Routen oben erhält einen Fehler `404`: `no upstream for this path`. Ein
+  Aufruf unter einer davon, den Latet nicht liest, erhält einen Fehler `400`, der sagt, dass nichts
+  gesendet wurde: `request envelope refused (envelope-route)`.
 - **Ein anderer OpenAI-kompatibler Anbieter** (DeepSeek, Mistral, ein Modellserver in Ihrem
   Netzwerk): Fügen Sie ihn als Ziel hinzu, und verwenden Sie dann seine Route als Base-URL des
   Agenten, hier `http://127.0.0.1:5283/deepseek/v1`:

@@ -54,7 +54,8 @@ Latet](../getting-started/server/) è la guida per gli amministratori.
 Ogni scambio mentre avviene: agente, provider, modello, quanto tempo ha richiesto e
 quanto di quel tempo si deve a Latet, l'uso dei token (comprese le letture dalla cache del
 prompt), quanti valori sono stati mascherati, e segnalazioni come *Bloccata*, *Non ispezionato*
-(PDF, immagini non lette), *Immagine: mascherata*, *Trattenuto* (la
+(una richiesta che una versione precedente ha inviato con parti non lette), *Progetto dichiarato*,
+*Immagine: mascherata*, *Trattenuto* (la
 [protezione dai dump](../concepts/production-data/#la-protezione-dai-dump)), *Dalla cronologia* (una
 conversazione iniziata prima che Latet fosse attivo: vedi
 [Risoluzione dei problemi](../troubleshooting/#ogni-richiesta-di-una-conversazione-viene-bloccata)),
@@ -110,6 +111,61 @@ fai clic su uno per vedere cos'è, e scegli *Non sensibile* se non lo è, e la r
 successiva passa. Con `history: metadata`, che non conserva i testi, sono elencati solo per tipo e
 lunghezza. C'è anche il motivo che Latet ha dato all'agente. Anche le richieste fermate dentro
 Claude Code dal controllo finale del plugin compaiono qui.
+
+### Come è stata coperta una richiesta
+
+Ogni scambio ha una sezione *Copertura* che dice come Latet ha reso conto di ogni parte della sua
+richiesta ([Ogni parte di una richiesta](../concepts/protection-scope/#ogni-parte-di-una-richiesta)):
+
+- **Fermata prima dell'invio,** con il perché, in parole semplici, e cosa fare. Una richiesta fermata
+  dopo un tentativo (una richiesta a Bedrock il cui accesso AWS è stato rinnovato tra due tentativi)
+  dice che un tentativo precedente potrebbe aver già raggiunto il provider. Un'eccezione di richiesta
+  esatta viene proposta per un'intestazione o un parametro di query che nessun profilo nomina; per un
+  membro del corpo che nessun profilo nomina, lo scambio dice come approvarne una, a meno che il
+  membro non sia *dove nessuna eccezione può arrivare (dentro un elemento del fornitore, la sorgente
+  di un'immagine o un turno WebSocket)*. Non ne viene proposta nessuna per una credenziale, una
+  destinazione, una parte che Latet non ha potuto leggere o un limite di lavoro, né su un WebSocket:
+  *In questa versione di Latet un WebSocket non accetta eccezioni alle richieste.*
+- **Ogni parte letta,** oppure **letta, e lasciata passare da** ciò che viene indicato: *solo
+  controllato* (valori che il controllo finale ha letto senza doverli mascherare), *consentito da una
+  regola* (il resto di un'immagine di cui è stato letto il testo, o un campo cifrato di un provider),
+  un elemento opaco che il provider ha inviato prima in questa conversazione, testo già inviato in
+  questa conversazione, testo scritto dal modello, o un'eccezione che hai approvato. Ciò che è uscito
+  senza essere letto non viene mai mostrato come verificato.
+- **Cosa ha tolto Latet:** quante intestazioni e quanti membri del corpo il suo profilo dichiara
+  rimovibili (`client_metadata` di Codex, per esempio); quando il provider ha risposto `401` o `403`
+  dopo che Latet ha tolto un'intestazione, lo scambio lo dice.
+- **Il suo profilo di richiesta** (`anthropic.messages.1`), quello che nomina un'eccezione per quel
+  tipo di chiamata.
+- **Il suo progetto, attendibile o dichiarato,** e **il suo avvio:** *Avviato da Latet, chiave
+  verificata*, *Avviato da Latet, chiave mancante*, *Collegato dal plugin di Claude Code* o *Non
+  avviato da Latet* ([Progetti](../concepts/projects/#le-chiavi-di-avvio)). Anche le sessioni mostrano
+  l'avvio.
+
+Uno scambio registrato da una versione precedente di Latet non viene mai mostrato come verificato:
+dice *Registrata da una versione precedente di Latet. Non è registrato quanto di questa richiesta
+abbia letto, quindi non risulta verificata.* Un controllo che il plugin di Claude Code ha fatto
+dentro Claude Code viene mostrato come *Un controllo del plugin di Claude Code.*, mai come
+verificato: non ha inviato niente da sé, e la richiesta che ha letto è uno scambio a parte.
+
+<Screenshot name="coverage" alt="La copertura di uno scambio: cosa ne ha lasciato passare delle parti senza leggerle, come è stata collegata la sua sessione, il suo progetto attendibile, l'intestazione che Latet ha rimosso e il suo profilo di richiesta" caption="Copertura: come Latet ha reso conto di ogni parte di una richiesta." />
+
+### Eccezioni di richiesta
+
+**Agenti protetti** elenca le tue
+[eccezioni di richiesta](../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta): cosa
+lascia passare ciascuna (un'intestazione, un parametro di query o un membro del corpo, e se è la
+credenziale della destinazione), dove (la sua destinazione e il suo profilo di richiesta), per chi
+(ogni tua richiesta, o le richieste di un progetto quando Latet considera attendibile il loro
+progetto), e il suo stato: *In attesa della tua approvazione*, *Attiva*, *In scadenza* (con i giorni
+che restano), *Scaduta*, *Permanente*, o *Da approvare di nuovo: il suo profilo è stato rivisto*. Un
+avviso dice quando una finisce entro sette giorni. *Revoca* ne toglie una subito. Sotto, gli usi delle
+eccezioni contati in memoria dall'avvio del daemon, azzerati al riavvio: con la cronologia
+disattivata sono tutto ciò che ne resta, e un server somma i conteggi delle sue istanze. Un'eccezione
+nuova, o allargata, rinnovata o resa permanente, attende in **Approvazioni**, in *Impostazioni*, che
+mostra cosa lascia passare, quanto dura e, per una senza progetto, che copre tutta la tua identità.
+
+<Screenshot name="exceptions" alt="Le eccezioni di richiesta in Agenti protetti: cosa lascia passare ciascuna, la sua destinazione e il suo profilo di richiesta, chi copre e il suo stato, con Revoca" caption="Eccezioni di richiesta: cosa lascia passare ciascuna, dove, per chi e il suo stato." />
 
 ### Approvazioni
 
@@ -310,7 +366,8 @@ Quanto segue riguarda la dashboard sul tuo computer. Per la dashboard di un serv
 - Cosa conserva la cronologia si sceglie sotto Cronologia in **Regole**, nella scheda *Avanzate*:
   *Tutto* (i blocchi di testo, le risposte e i tempi, così puoi vedere esattamente cosa è stato
   inviato), *Solo metadati* (conteggi, tempi e segnalazioni, nessun testo) o *Niente* (gli scambi
-  non vengono registrati, e **Live** resta vuota).
+  non vengono registrati, e **Live** resta vuota; i conteggi delle eccezioni di richiesta usate
+  restano in memoria fino al riavvio di Latet).
 - La cronologia viene conservata per 14 giorni per impostazione predefinita; *Conserva per*, sotto
   Cronologia in **Regole**, la porta da 1 a 365 giorni. I blocchi reinviati a ogni turno vengono
   salvati una volta sola.

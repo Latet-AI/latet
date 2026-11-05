@@ -93,10 +93,23 @@ un programma, non ha una dashboard personale e riceve le impostazioni dall'ammin
 
 Un'istanza è un processo server di Latet in esecuzione. Più istanze possono servire lo
 stesso indirizzo HTTPS pubblico dietro un bilanciatore di carico, usando lo stesso database
-PostgreSQL, Valkey e la stessa chiave principale. PostgreSQL conserva lo stato durevole;
-Valkey coordina quello temporaneo. Le richieste non richiedono affinità di sessione.
-Aggiungere istanze non crea copie separate dello spazio di una persona. I requisiti dei
-servizi sono in [Gestione del server](../server-operations/).
+PostgreSQL, Valkey e la stessa chiave principale, e una macchina può eseguirne diverse, dette
+worker. PostgreSQL conserva lo stato durevole; Valkey coordina quello temporaneo. Le richieste non
+richiedono affinità di sessione. Aggiungere istanze non crea copie separate dello spazio di una
+persona. I requisiti dei servizi sono in [Gestione del server](../server-operations/).
+
+La cassaforte di una persona è conservata in PostgreSQL, come quella di una chiave API. Un'istanza
+che serve la persona la tiene intera in memoria quando ha 35.000 valori o meno al momento in cui lo
+spazio viene costruito; oltre, tiene i valori usati più di recente dalla persona, le impronte delle
+parole della cassaforte e ogni valore che nessuna parola di un testo trova, e cerca gli altri in
+PostgreSQL quando un testo ne ha bisogno. Prima di ogni richiesta legge in PostgreSQL che cosa hanno
+cambiato le altre istanze, così un valore conservato o dimenticato su un'istanza prima che una
+richiesta cominci è visto da quella richiesta su qualsiasi altra. Una persona la cui cassaforte
+contiene valori conservati prima di Latet 0.10.0 viene servita come la serviva la 0.10.0 finché il suo
+spazio non viene ricostruito dopo che le loro parole sono state create: il suo spazio tiene in memoria
+tutta la sua cassaforte, qualunque sia la sua dimensione, e non legge nessun contatore delle modifiche,
+così un valore che un'altra istanza conserva vi arriva con il suo messaggio o, quando il messaggio va
+perso, con il controllo successivo del battito.
 
 ## Cosa conserva il server
 
@@ -106,20 +119,22 @@ del server; le impostazioni condivise sono cifrate con la chiave principale. Con
 la chiave principale separatamente dai backup del database. Senza la chiave corrispondente
 non è possibile recuperare i dati cifrati.
 
-Alcuni metadati restano leggibili in PostgreSQL: nomi e indirizzi email delle identità,
-identificatori esterni, etichette, permessi e date dei token, nomi delle regole della cassaforte, contatori
-e date, oltre ad attori, azioni, destinatari, identificatori, conteggi e indirizzi client
-del registro amministrativo. Gli identificatori di progetto e conversazione nella
-cronologia usano hash con chiave. La cassaforte di una chiave API conserva anche le parole dei suoi
-valori e dei suoi valori fittizi come hash con chiave, che servono a trovarli in un testo: un hash
-non mostra alcuna parola, solo quali voci ne condividono una. Le righe della sua cronologia e le
-risposte ricordate dal suo revisore locale conservano hash con chiave delle voci e dei valori della
-cassaforte che nominano, così che un oblio li trovi: chi legge il database può capire quali righe
-nominano la stessa voce o lo stesso valore, mai quale valore sia. Le righe di una persona non ne
-conservano. Ogni cassaforte conserva l'hash con chiave di ogni valore fittizio che ha ritirato
-(quello di un valore dimenticato, o uno sostituito), così che nessun altro valore lo riceva: mostra
-quanti valori fittizi sono stati ritirati, mai quali. Valkey usa nomi derivati con chiave,
-payload sensibili cifrati e messaggi di coordinamento firmati.
+Alcuni metadati restano leggibili in PostgreSQL: nomi e indirizzi email delle identità, identificatori esterni,
+etichette, permessi e date dei token, nomi delle regole della cassaforte, contatori e date, oltre ad attori,
+azioni, destinatari, identificatori, conteggi e indirizzi client del registro amministrativo. Gli identificatori
+di progetto e conversazione nella cronologia usano hash con chiave. Ogni cassaforte, di una persona come di una
+chiave API, conserva anche le parole dei suoi valori e dei suoi valori fittizi come hash con chiave, che servono
+a trovarli in un testo, e accanto a ogni parola la sua impronta, un'impronta di 64 bit con una chiave derivata
+da quella dell'identità, che le istanze tengono in memoria, con il conteggio della modifica che ha scritto la
+riga per ultima. Un hash o un'impronta non mostra alcuna parola: chi legge il database vede quali righe di
+un'identità condividono una parola, quante sono, e dai conteggi quali righe sono cambiate e in che ordine. Le
+impronte della stessa parola di un'altra identità sono diverse. Le righe della cronologia di una chiave API e le
+risposte ricordate dal suo revisore locale conservano hash con chiave delle voci e dei valori della cassaforte
+che nominano, così che un oblio li trovi: chi legge il database può capire quali righe nominano la stessa voce o
+lo stesso valore, mai quale valore sia. Le righe di una persona non ne conservano. Ogni cassaforte conserva
+l'hash con chiave di ogni valore fittizio che ha ritirato (quello di un valore dimenticato, o uno sostituito),
+così che nessun altro valore lo riceva: mostra quanti valori fittizi sono stati ritirati, mai quali. Valkey usa
+nomi derivati con chiave, payload sensibili cifrati e messaggi di coordinamento firmati.
 
 La cifratura dei dati archiviati non nasconde gli originali al server in esecuzione né
 al suo operatore. Le viste autorizzate della dashboard ricevono gli originali nel browser.
@@ -192,10 +207,12 @@ raggiungibile solo in IPv4.
 - **Progetti:** al massimo 200 per ogni persona.
 - **Valori:** un valore più lungo di 16.384 caratteri viene oscurato invece che sostituito con un valore
   fittizio, e non viene mai conservato né ripristinato; un termine contiene al massimo 8.192 caratteri.
-- **Memoria:** un'istanza dà ai suoi spazi 2 GiB fissi, e uno spazio ne usa al massimo la metà. Uno spazio
-  arrivato alla sua quota non impara nuovi valori: una richiesta che ne porta uno viene fermata con un messaggio
-  che lo dice, finché non si dimenticano valori nella dashboard, non si riducono regole o progetti, o il server
-  ne ha di più. Nessuno spazio di un'altra persona viene chiuso per fare posto.
+- **Memoria:** un'istanza, e ogni worker, dà ai suoi spazi 2 GiB fissi, e uno spazio ne usa al massimo la
+  metà, con fino a un ottavo di quella metà in più per i suoi rilevatori (128 MiB). Uno spazio arrivato alla sua
+  quota non impara nuovi valori: una richiesta che ne porta uno viene fermata con un messaggio che lo dice,
+  finché non si dimenticano valori nella dashboard, non si riducono regole o progetti, o il server ne ha di più.
+  Nessuno spazio di un'altra persona viene chiuso per fare posto. Ciò che i rilevatori occupano in più non ferma
+  mai un valore.
 - **Le statistiche** contano gli ultimi 100.000 scambi, e una persona tiene le sue dieci sessioni della
   dashboard più recenti.
 

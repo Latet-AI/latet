@@ -24,6 +24,7 @@ from latet.engine.detectors.ids import ID_TYPES
 from latet.engine.escapes import TAIL, ends_with_escape, plus_as_space, readings, written_like
 from latet.engine.known import Matchers, ValueMatchers, value_chars
 from latet.engine.modules import AGAIN, kept
+from latet.engine.response_guard import safe_text
 from latet.engine.surrogates.data.names import NAME_EDGES, PUBLIC_MAIL_DOMAINS
 from latet.engine.surrogates.generators import (
     GENERATORS,
@@ -209,6 +210,10 @@ def normalize(etype: str, value: str) -> str:
 
 
 class Vault:
+    # Whether its prefetch reads a store (``engine.stored.StoredVault``'s does): one that reads none looks nothing up,
+    # so ``prefetch`` hands it nothing and spends nothing on screening its texts (root's ruling on R-2's cost).
+    reads_store = False
+
     def __init__(
         self,
         root_key: bytes,
@@ -307,9 +312,16 @@ class Vault:
 
     def prefetch(self, texts: Sequence[str]) -> None:
         """Bring into memory the values ``texts`` may hold, before they are masked, so that its detectors
-        (``matchers``) find them as they find every value in memory: here nothing, as every value is in memory. A vault
-        that keeps most of its values elsewhere (``engine.stored.StoredVault``) asks for them there, once for all the
-        texts."""
+        (``matchers``) find them as they find every value in memory (``_prefetch``). The one point every path that masks
+        asks through (the gateway's slots, the engine's texts, the plugin's and the applications' calls): a text that
+        holds a live launch key is never handed on, masked as its turn comes (P2-6a's re-review, R-2)."""
+        if not self.reads_store:
+            return  # no store is read: nothing to hand over, nothing to screen
+        self._prefetch([text for text in texts if safe_text(text)])
+
+    def _prefetch(self, texts: Sequence[str]) -> None:
+        """What ``prefetch`` asks for: here nothing, as every value is in memory. A vault that keeps most of its values
+        elsewhere (``engine.stored.StoredVault``) asks for them there, once for all the texts."""
 
     def weigh(self, texts: Sequence[str]) -> None:
         """Bring into memory the values ``texts`` hold among those this thread's call found already (``prefetch``),
@@ -333,14 +345,24 @@ class Vault:
 
     def prefetch_fakes(self, texts: Sequence[str]) -> None:
         """Ask once, for all of ``texts``, for the fakes they may hold, which ``candidates_in`` then gives for each of
-        them while this thread's call lasts (``holding``): here nothing, as every fake is in memory."""
+        them while this thread's call lasts (``holding``; ``_prefetch_fakes``), never for a text that holds a live
+        launch key (R-2)."""
+        if not self.reads_store:
+            return
+        self._prefetch_fakes([text for text in texts if safe_text(text)])
+
+    def _prefetch_fakes(self, texts: Sequence[str]) -> None:
+        """What ``prefetch_fakes`` asks for: here nothing, as every fake is in memory."""
 
     @contextlib.contextmanager
-    def holding(self, *, scoped: bool = False) -> Iterator[None]:
+    def holding(self, *, scoped: bool = False, memory_only: bool = False) -> Iterator[None]:
         """While it is open, what this thread brings into memory (``prefetch``) or keeps stays there: a call holds the
         values it found until it is done with them. Here nothing is ever let go. ``scoped``: a call that brings every
         value its texts hold into memory first (an applications call), which a vault that keeps most of its values
-        elsewhere masks with the detectors of those alone (``engine.stored``); here every value is read, as always."""
+        elsewhere reads each of its texts for by its words (``engine.stored``); here every value is read, as always.
+        ``memory_only``: a call whose texts a vault that keeps most of its values elsewhere reads for what its memory
+        holds alone, asking its store nothing (the final check of texts a call masked, which asked for their words);
+        here every value is in memory."""
         yield
 
     def whole_vault_call(self) -> bool:
@@ -469,28 +491,32 @@ class Vault:
                     self.lacking = str(refused)
                     self._moved()
                     raise
-            # The lookups take no lock (a response restored, a text masked in another thread): each index goes from the
-            # old entity to the new one in one step, so the value is never unknown in between. What only the old one
-            # still holds (its fake, when the new one has another) goes last.
-            self._touch((entity.etype, entity.original))
-            if known is not None:
-                self._touch((known.etype, known.original))
-            self._keyed((entity.etype, entity.original), entity)
-            self._by_surrogate[entity.surrogate] = entity
-            self._read_as(entity, True)
-            first = self._by_original.get(entity.original)
-            if first is None or first is known:  # another type's entity of the same value stays: its sighting was first
-                self._by_original[entity.original] = entity
-            self._by_id[entity.id] = entity
-            if known is not None:
-                if self._by_key.get((known.etype, known.original)) is known:
-                    self._keyed((known.etype, known.original), None)
-                if self._by_surrogate.get(known.surrogate) is known:
-                    del self._by_surrogate[known.surrogate]
-                self._read_as(known, False)
-                if self._by_original.get(known.original) is known:
-                    del self._by_original[known.original]
+            self._swapped(known, entity)
             self._moved()
+
+    def _swapped(self, known: Entity | None, entity: Entity) -> None:
+        """``entity`` in every index in place of ``known``, the entity memory holds under its id (None: none), under the
+        lock, the version left as it is. The lookups take no lock (a response restored, a text masked in another
+        thread): each index goes from the old entity to the new one in one step, so the value is never unknown in
+        between. What only the old one still holds (its fake, when the new one has another) goes last."""
+        self._touch((entity.etype, entity.original))
+        if known is not None:
+            self._touch((known.etype, known.original))
+        self._keyed((entity.etype, entity.original), entity)
+        self._by_surrogate[entity.surrogate] = entity
+        self._read_as(entity, True)
+        first = self._by_original.get(entity.original)
+        if first is None or first is known:  # another type's entity of the same value stays: its sighting was first
+            self._by_original[entity.original] = entity
+        self._by_id[entity.id] = entity
+        if known is not None:
+            if self._by_key.get((known.etype, known.original)) is known:
+                self._keyed((known.etype, known.original), None)
+            if self._by_surrogate.get(known.surrogate) is known:
+                del self._by_surrogate[known.surrogate]
+            self._read_as(known, False)
+            if self._by_original.get(known.original) is known:
+                del self._by_original[known.original]
 
     # --- interning -------------------------------------------------------------------------------
 

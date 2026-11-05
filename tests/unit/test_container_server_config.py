@@ -224,6 +224,17 @@ def test_metrics_remain_on_the_dedicated_loopback_socket(services):
         assert not services[name].get("ports")
 
 
+def test_each_instance_runs_the_workers_one_setting_says_and_says_what_it_means(services):
+    """Task 10: how many workers each container's instance runs, one by default, named once for both and explained
+    where it is set."""
+    for name in INSTANCES:
+        assert str(services[name]["environment"]["LATET_SERVER_WORKERS"]) in ("${LATET_SERVER_WORKERS:-1}", "1")
+    lines = (ROOT / "compose.yaml").read_text("utf-8").splitlines()
+    where = next(n for n, line in enumerate(lines) if line.strip().startswith("LATET_SERVER_WORKERS:"))
+    comment = lines[where - 1].strip()
+    assert comment.startswith("#") and "worker" in comment and "port" in comment
+
+
 def test_caddy_has_tls_streaming_ready_host_and_binary_body_bound():
     text = _active_text(ROOT / "deploy" / "Caddyfile")
     assert "tls /certs/server.crt /certs/server.key" in text

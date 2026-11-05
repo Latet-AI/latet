@@ -31,6 +31,19 @@ latet gemini
 latet gemini -p "write the release notes for the payments module"
 ```
 
+`latet gemini` donne aussi à Gemini CLI une clé de lancement dans `GEMINI_CLI_CUSTOM_HEADERS`,
+ajoutée aux en-têtes que vous y définissez, pour que Latet considère le projet de la session comme de confiance ;
+là où il ne peut pas vérifier que Gemini CLI l'enverra, il n'en passe aucune, le dit, et le projet que
+Gemini CLI nomme est déclaré ([Projets](../../concepts/projects/#de-confiance-et-déclarés)). Vos propres en-têtes
+dans `GEMINI_CLI_CUSTOM_HEADERS` sont refusés, chacun nommé, tant qu'une
+[exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne le laisse pas passer.
+
+Gemini CLI lit `GEMINI_CLI_CUSTOM_HEADERS` à partir de la version 0.19.0, et Latet a vérifié comment il
+les envoie de la 0.19.0 à la 0.66.0. Un Gemini CLI plus ancien ignore la variable : sa session est
+déclarée, et `latet doctor` nomme sa version. En mode ACP (`--acp` ou `--experimental-acp`, quand un
+éditeur démarre Gemini CLI), l'éditeur peut donner à Gemini CLI une adresse et des en-têtes à lui, donc
+`latet gemini` n'y passe aucune clé de lancement et le dit au démarrage.
+
 `latet run gemini` fait de même. Gemini CLI ne prend son adresse que dans l'environnement, il n'est
 donc pas disponible en mode global : `latet global-install` ne le configure pas, et il n'y a pas de
 `latet agents apply gemini`. Un changement durable n'atteindrait pas un projet qui a son propre
@@ -100,16 +113,22 @@ l'URL de base `http://127.0.0.1:5283/gemini/v1beta/openai`.
   leurs résultats, les déclarations des fonctions et le schéma de la réponse sont masqués, et les
   réponses restaurées.
 - Les **images** envoyées dans la requête sont lues et masquées avec la
-  [reconnaissance de texte](../../concepts/images/) facultative. Les autres fichiers, et les fichiers
-  donnés par leur adresse, sont envoyés tels quels, avec l'indicateur *Non inspecté* dans le tableau
-  de bord.
-- La **réflexion** du modèle, et le code que Google exécute pour lui, restent tels que le modèle les
-  a écrits.
+  [reconnaissance de texte](../../concepts/images/) facultative ; sans elle, une requête avec une
+  image n'est pas envoyée. Les autres fichiers, et les fichiers donnés par leur adresse, sont
+  refusés.
+- La **réflexion** du modèle reste telle que le modèle l'a écrite. Le code que Google exécute pour
+  lui et ce que ce code a affiché, ainsi que les entrées et les sorties des outils de Google
+  lui-même (Google Search, contexte d'URL, Maps, File Search), sont masqués, comme l'appel d'une
+  fonction et son résultat.
 - **Toute autre requête avec un corps** sur ces routes est refusée, avec une erreur qui le dit, et
   un WebSocket de la Live API est fermé avant que rien ne passe : l'Interactions API, la Live API,
   la Batch API, l'envoi de fichiers et le `:predict` de Vertex (ses propres embeddings et modèles
-  d'images) portent une conversation sous des formes que Latet ne lit pas encore (elles sont dans la
-  [feuille de route](../../roadmap/)). Une requête sans corps, comme la liste des modèles, passe.
+  d'images) portent une conversation sous des formes que Latet ne lit pas (elles sont dans la
+  [feuille de route](../../roadmap/)). La liste des modèles et la lecture d'un modèle passent ; tout
+  autre appel sans corps est refusé aussi.
+- L'en-tête de la bibliothèque cliente de Google `x-goog-api-client` est retiré ; votre clé d'API,
+  dans le paramètre `key` ou dans `x-goog-api-key`, est envoyée telle qu'elle est arrivée et jamais
+  journalisée.
 
 ## Limites
 

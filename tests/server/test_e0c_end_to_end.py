@@ -20,6 +20,7 @@ from latet.server import client as client_module
 from latet.server.app import open_server
 from latet.server.connection import load_connection, load_server_key, load_server_token
 from latet.server.db import Database, migrate
+from latet.server.master import MasterKey
 from latet.server.operations import server_app
 from latet.server.tokens import route_key
 
@@ -54,7 +55,7 @@ def run_cli(*args, input=None):
 
 
 def _ask(text):
-    return {"model": "m", "messages": [{"role": "user", "content": text}]}
+    return {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": text}]}
 
 
 def _send(client, secret, text):
@@ -129,7 +130,7 @@ def cluster(settings, schema, prefix, computer, quiet, monkeypatch):
     master_key = configured.master_key_file.read_text("utf-8").strip()
     db = Database(configured.database_url, schema=schema, max_size=1)
     try:
-        migrate(db)
+        migrate(db, master=MasterKey.load(configured))
     finally:
         db.close()
     with captured_logs() as logs, ExitStack() as owned:

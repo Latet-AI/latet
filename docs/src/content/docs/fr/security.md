@@ -70,6 +70,29 @@ conversation. Des dossiers de données et des coffres configurés séparément o
 séparés ; travailler dans des dépôts différents ne suffit pas. Voir [Projets](../concepts/projects/)
 et [Latet sur un serveur](../concepts/server/).
 
+**Quelles règles de projet s'appliquent.** Un dossier qu'une requête nomme (l'en-tête
+`x-latet-project`, ou le dossier de travail qu'un agent écrit dans ses requêtes) n'est que *déclaré* :
+les règles de son projet qui ajoutent de la protection s'appliquent, ses assouplissements et ses
+exceptions de requête non, et un projet déclaré où Latet est désactivé est refusé. Un projet n'est
+*de confiance* que lorsque Latet le connaît par lui-même, de deux sources :
+
+- **Le lien du plugin de Claude Code.** Le plugin lie une session au projet d'un dossier que Latet
+  connaît ; chacun de ses appels maintient le lien, qui prend fin après 30 minutes sans appel. Cela a
+  une limite acceptée : une requête Anthropic Messages qui porte l'identifiant d'une de vos sessions
+  actives liée par le plugin est jugée avec ce projet, assouplissements et exceptions compris, quel que
+  soit votre client qui l'envoie. Elle est quand même lue par la vérification finale et jamais
+  réécrite, et les requêtes d'aucune autre personne n'atteignent le lien. Les appels que Claude Code
+  fait avant le premier appel du plugin qui lie la session (ses appels de démarrage) sont jugés avec
+  vos seules règles, ni les règles ajoutées par le projet ni ses assouplissements.
+- **Une clé de lancement.** Un agent que Latet lance porte une clé secrète de ce lancement, liée au
+  projet du dossier et à vous ; Latet la vérifie, la retire avant de transmettre quoi que ce soit, et
+  n'en garde qu'un hachage à clé. Tout programme qui détient la clé compte comme ce lancement : il
+  tourne sous le même utilisateur, et Latet ne prétend pas lier une clé à un processus. Une session
+  lancée par `latet claude` demande sa clé, donc son identifiant de session seul n'atteint aucun
+  assouplissement du projet.
+
+Voir [Projets](../concepts/projects/#de-confiance-et-déclarés).
+
 ## Dans le périmètre
 
 - La divulgation accidentelle de valeurs reconnaissables au fournisseur, par les prompts, les fichiers,
@@ -77,6 +100,10 @@ et [Latet sur un serveur](../concepts/server/).
 - Les requêtes qui partiraient avec une valeur sensible en clair en mode client, par exemple par un chemin
   que le plugin ne couvre pas : la vérification finale du plugin et le daemon les bloquent.
 - Les pages web qui tentent d'utiliser le daemon local (DNS rebinding, requêtes intersites).
+- Une partie d'une requête que Latet ne lit pas : le chemin, les paramètres, les en-têtes et le corps
+  sont chacun lus, retirés par une règle déclarée ou admis par une exception que vous avez approuvée,
+  sinon la requête n'est pas envoyée, sur un ordinateur comme sur un serveur
+  ([Chaque partie d'une requête](../concepts/protection-scope/#chaque-partie-dune-requête)).
 
 ## Hors du périmètre
 
@@ -247,14 +274,26 @@ dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
 - Ce que vous décidez sur une image dans le Relecteur en direct, et une image que le relecteur local a
   retenue, sont mémorisés, scellés, dans la base de données du coffre-fort, par un hachage à clé de
   l'image.
-- Une image qui ne peut pas être lue est retenue, jamais envoyée telle quelle.
+- Une image qui ne peut pas être lue est retenue, jamais envoyée telle quelle ; sur une requête que
+  Latet ne fait que vérifier, c'est la requête qui est refusée.
 
 **Trafic**
 
 - Les en-têtes d'identification (`Authorization`, clés d'API, cookies et autres) sont transmis inchangés,
   mais jamais écrits dans les journaux ni dans le tableau de bord : seule leur longueur est enregistrée.
-  Les en-têtes propres à Latet (`x-latet-*`, dont l'un nomme un de vos dossiers) ne quittent jamais votre
-  machine.
+  Les en-têtes propres à Latet (`x-latet-*`, dont l'un nomme un de vos dossiers) ne sont jamais
+  transmis à un fournisseur.
+- La clé de lancement que Latet donne à un agent qu'il lance, dans `x-latet-launch-key`, est un secret
+  comme le jeton de Latet : vérifiée, retirée, jamais journalisée ni enregistrée. Trouvée dans la
+  sortie d'un outil ou dans un message, elle est masquée ; là où elle ne peut pas l'être, la requête
+  est refusée.
+- Un en-tête qu'aucun profil ne nomme est refusé : son nom n'est donné qu'à l'agent, et les journaux
+  et l'historique n'en gardent que le type. Les en-têtes qu'un profil déclare amovibles sont retirés
+  et comptés dans le tableau de bord : la télémétrie et le traçage des SDK (`x-stainless-*`,
+  `traceparent`...), et ceux des agents eux-mêmes qui peuvent contenir du texte libre, comme les
+  identifiants d'un sous-agent de Claude Code ou les métadonnées de tour de Codex, qui contiennent le
+  chemin et les remotes de votre dépôt ([Les en-têtes que Latet retire](../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire)). Sur une requête que
+  Latet ne fait que vérifier, ils sont le seul changement : son corps part octet pour octet.
 - Une exception, quand vous utilisez Amazon Bedrock avec votre connexion AWS : Claude Code n'envoie pas
   d'identifiants, et Latet signe chaque requête pour Amazon (SigV4) avec votre profil AWS. Il lit le
   profil comme le fait l'AWS CLI, garde les identifiants en mémoire seulement, ne les écrit jamais nulle
@@ -282,7 +321,11 @@ dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
   un proxy d'entreprise dont le certificat racine y est installé continue donc de fonctionner.
 - La capture brute des échanges pour le débogage est désactivée par défaut. Quand vous l'activez
   (`latet serve --capture <folder>`), les en-têtes d'identification sont caviardés, mais les captures
-  contiennent toujours le contenu des conversations : gardez-les sur votre machine.
+  contiennent toujours le contenu des conversations : gardez-les sur votre machine. Les journaux de
+  Latet, les métadonnées de l'historique et les enregistrements des décisions d'un serveur gardent des
+  catégories fixes et des modèles de route, jamais une valeur, le nom d'un en-tête ou d'un outil, ni le
+  chemin auquel une requête a été envoyée : la capture et l'historique complet sont les enregistrements
+  qui contiennent le contenu.
 
 Le daemon n'établit aucune connexion réseau, si ce n'est pour transmettre les requêtes de votre agent au
 fournisseur (ou au point de terminaison d'entreprise) que votre agent utilise déjà et, quand vous
@@ -307,6 +350,40 @@ documentation.
   `latet server log verify` vérifie la chaîne.
 - Le jeton que détiennent les agents d'une machine ouvre le pont du plugin et le proxy de l'espace,
   jamais le tableau de bord : celui-ci demande aussi la clé de la machine, qu'aucun agent ne reçoit.
+- Une exception de requête fait partie des réglages propres à une personne et s'applique dès que cette
+  personne l'approuve. En approuver une permanente écrit une entrée dans le journal d'administration,
+  avec son identifiant et le type de sa portée seulement, jamais sa description ;
+  `latet server status` liste les permanentes de la même façon. Il les lit dans un index que
+  PostgreSQL tient à côté des réglages scellés : pour chaque exception approuvée, son identifiant, le
+  type de sa portée, si elle est permanente, sa fin, et si elle est en vigueur, attend une nouvelle
+  approbation après une révision de son profil ou n'est pas autorisée par l'édition ; jamais sa
+  description, sa destination, le dossier d'un projet ni ce qu'elle nomme.
+- Avec l'historique désactivé, les exceptions utilisées sont comptées en mémoire, et partagées par
+  Valkey par instance et par identité, identifiants et nombres seulement, pour le tableau de bord.
+  Valkey tel que Latet le fournit ne garde rien sur disque ; un opérateur qui active sa persistance
+  écrit ces comptes sur disque.
+- Avec plusieurs workers sous Linux, le port reste gardé pour le serveur tout le temps, même quand
+  aucun worker n'écoute, et seul un programme qui tourne sous l'utilisateur même du serveur peut y
+  écouter à côté des workers ; un tel programme pourrait prendre ses connexions : faites tourner le
+  serveur sous un utilisateur qui n'exécute rien d'autre ([Exploitation du
+  serveur](../concepts/server-operations/)).
+- PostgreSQL garde les valeurs et les valeurs factices de chaque coffre-fort scellées avec la clé de
+  l'identité, et à côté de chacun de leurs mots un hachage à clé et une empreinte : une empreinte de
+  64 bits sous une clé dérivée de celle de l'identité, que les instances gardent en mémoire pour
+  trouver les valeurs d'un texte. Quelqu'un qui lit la base de données n'en tire aucun mot, mais voit
+  quelles lignes d'une identité partagent un mot, combien elles sont et, d'après les numéros de
+  modification des lignes, quelles lignes ont changé et dans quel ordre : une empreinte n'est pas un
+  chiffrement. Deux mots peuvent avoir la même empreinte : chaque valeur ou valeur factice vers
+  laquelle mène une empreinte est donc déchiffrée et comparée au texte avant de masquer ou de
+  restaurer quoi que ce soit.
+- Ce que Valkey garde et transporte pour un coffre-fort, ce sont des identifiants, des sortes, des
+  comptes et des données scellées : aucune valeur, valeur factice, aucun mot ni aucune empreinte en
+  clair, et aucun hachage à clé du coffre-fort. Des tests le vérifient sur tout ce que les instances
+  envoient à Valkey pendant qu'elles masquent, restaurent et oublient des valeurs pour une clé d'API
+  et pour une personne, refont les empreintes d'un coffre-fort et envoient leurs battements, et sur
+  les journaux. Ses messages sont signés, ce qui dit qui les a envoyés et ne garde rien secret ; ce
+  qui doit rester secret est scellé. Les battements des instances portent des nombres, des booléens
+  et la version, jamais une identité.
 
 ## Signaler une vulnérabilité
 

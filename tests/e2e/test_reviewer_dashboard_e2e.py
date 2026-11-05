@@ -92,7 +92,7 @@ def client(runtime):
 
 
 def test_what_the_reviewer_said_of_a_block_is_in_the_history(client, runtime):
-    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": PROMPT}]}
+    body = {"model": "gpt-4.1-mini", "stream": True, "messages": [{"role": "user", "content": PROMPT}]}
     assert (
         client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk"}).status_code == 200
     )
@@ -188,7 +188,7 @@ def test_latet_llm_status_says_when_the_server_does_not_answer(tmp_path, monkeyp
 
 def test_a_value_marked_not_sensitive_is_said_so(client, runtime):
     runtime.apply_config(runtime.config.model_copy(update={"allow_values": ["Maria"]}), save=False)
-    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": PROMPT}]}
+    body = {"model": "gpt-4.1-mini", "stream": True, "messages": [{"role": "user", "content": PROMPT}]}
     client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk"})
     runtime.recorder.drain()
     [exchange] = client.get(f"{API}/exchanges").json()["items"]

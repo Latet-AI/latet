@@ -40,11 +40,17 @@ export interface ExchangeSummary {
   session: string
   agent: Agent
   agent_version: string | null
+  /** A built-in destination's name, or `custom` for one of your own (see `destination`). */
   upstream: string
-  /** Where it went (llm.acme.com, bedrock-runtime.eu-west-1.amazonaws.com); absent in older records. */
+  /** The list's alone: a destination of your own by its name in your settings, which the summary keeps as `custom`. */
+  destination?: string
+  /**
+   * Where it went: a provider's public endpoint (bedrock-runtime.eu-west-1.amazonaws.com), or `custom` for any other
+   * address; absent in older records.
+   */
   host?: string | null
-  /** Latet signed it for Amazon: `aws-profile:<name>` or `aws-session`. */
-  signed?: string | null
+  /** Latet signed it for Amazon (`true`); older records: `aws-profile:<name>` or `aws-session`. */
+  signed?: boolean | string | null
   path: string
   protocol: string | null
   mode: Mode
@@ -67,10 +73,114 @@ export interface ExchangeSummary {
   restored: number
   flags: string[]
   verified: boolean
-  /** Why Latet stopped the request (blocked ones), as it told the agent. Not in the contract yet. */
+  /**
+   * Why Latet stopped the request (blocked ones), by its category code (`refused`, `masking-failed`, `too-large`,
+   * `credentials`, `envelope-…`). The words it told the agent are in the full history's private view
+   * (ExchangeDetail.sensitive); an older record may hold them here.
+   */
   block_reason?: string | null
-  /** The project of the session, when known (flag "project-off": Latet is off there). */
+  /** The project of the session, when known (flag "project-off": Latet is off there; "project-claimed": a header or
+   * a folder in its text named it, so that its rules that add protection alone applied). */
   project?: { id: string; name: string } | null
+  /**
+   * How much of it Latet read: every part (`complete-accounting`), parts sent unread by an older Latet
+   * (`legacy-uninspected`), or not recorded (`unknown`: an older record, a WebSocket turn, a refusal). Missing in older
+   * daemons.
+   */
+  coverage?: 'complete-accounting' | 'legacy-uninspected' | 'unknown'
+  /** What its launch was decided as (P2-6a); null where none was. Missing in older daemons. */
+  launch?: LaunchCategory | null
+  /** What a request let through rested on besides a complete reading, by category; empty when every part was read. */
+  passes?: PassCategory[]
+  /** The request profile its envelope was admitted by (`anthropic.messages.1`). */
+  profile?: string | null
+  /** What its profile removed of it as removable (D4), counted. */
+  removed?: { headers: number; members: number }
+}
+
+/** What a request's launch was decided as: its launch key verified; a session Latet launched whose key it could not
+ * verify (decided as claimed); the Claude Code plugin's binding of a hand-configured Claude Code; anything else. */
+export type LaunchCategory = 'launched' | 'launched-key-missing' | 'trusted' | 'claimed'
+
+/** What a request let through rested on besides a complete reading (the history's `passes`). */
+export type PassCategory =
+  | 'checked-only'
+  | 'image-remainder'
+  | 'sent-before'
+  | 'model-written'
+  | 'provider-echo'
+  | 'provider-encrypted'
+  | 'exception'
+
+/** One component a request exception names: a header, a query parameter or a body member, by its exact name alone. */
+export interface ExceptionComponent {
+  kind: 'header' | 'query' | 'body'
+  name: string
+  /** `credential`: the destination's own credential, sent as it came and never read; `checked`: its value is checked. */
+  role: 'credential' | 'checked'
+  type: 'string' | 'number' | 'boolean' | 'null' | null
+}
+
+export type ExceptionState =
+  | 'pending'
+  | 'needs approval again (profile revised)'
+  | 'expired'
+  | 'expiring'
+  | 'active'
+  | 'permanent'
+  | 'forbidden'
+
+/** An exact, visible exception to the refusal of what no request profile names (D3, D4): `GET /exceptions`. */
+export interface RequestException {
+  /** Latet's, set as you approve it; null while it waits. */
+  id: string | null
+  destination: string
+  profile: string
+  /** For every request of yours (`identity`), or one project's, by its folder's name. */
+  scope: 'identity' | 'project'
+  project: string | null
+  reason: 'destination-credential' | 'custom-header' | 'query-parameter' | 'other'
+  components: ExceptionComponent[]
+  days: number
+  permanent: boolean
+  /** Your own words on it. */
+  description: string | null
+  /** Who approved it: you on this computer, you on a server, or a server's administration (for an API key); null
+   * while it waits. Missing from an older daemon. */
+  issuer?: 'owner' | 'person' | 'administration' | null
+  state: ExceptionState
+  /** The day it ends (ISO), and the days left; null for a permanent one or one not approved. */
+  ends: string | null
+  days_left: number | null
+  granted: string | null
+}
+
+/** An exception a waiting change adds, widens, renews or makes permanent: what an approval would let through. */
+export type ExceptionChange = Omit<RequestException, 'state' | 'ends' | 'days_left' | 'granted'> & {
+  how: 'added' | 'widened' | 'made permanent' | 'renewed'
+}
+
+/**
+ * What the exceptions let through since this daemon started, kept in memory alone (M1; on a server, summed across
+ * its instances, D2): each count row is `[key, revision, scope, uses, attempts, answers, active]`, `key` a number for
+ * the built-in buckets or an opaque reference for an exception (never its id). `overflow`: uses not counted.
+ */
+export interface RequestStatus {
+  schema: 1
+  local: {
+    counts: [number | string, number, number, number, number, number, number][]
+    overflow: number
+    partial: boolean
+    removed_headers: number
+    saturated: boolean
+  }
+  server: {
+    available: boolean
+    complete: boolean
+    counts?: [number | string, number, number, number, number, number, number][] | null
+    overflow: number | null
+    saturated: boolean
+  } | null
 }
 
 export interface Replacement {
@@ -185,6 +295,8 @@ export interface ExchangeDetail {
   leaks: Leak[]
   /** See ExchangeSummary.block_reason. */
   block_reason?: string | null
+  /** The full history's private view, the owner's alone; null when the history keeps no texts. */
+  sensitive?: { block_reason?: string | null } | null
 }
 
 export interface Session {
@@ -645,6 +757,8 @@ export interface Me {
   server?: ServerMe | null
   /** This install serves the documentation of its own version at /_latet/docs/ (else the links go to docs.latet.ai). */
   docs: boolean
+  /** What request exceptions let through since the daemon started, counted in memory alone; null when unreadable. */
+  request_status?: RequestStatus | null
 }
 
 export interface Page<T> {
@@ -921,6 +1035,8 @@ export interface SettingsChange {
   guidance?: GuidanceChange[]
   /** The destinations it moves or removes, with their addresses before and after (null: removed). */
   destinations?: DestinationChange[]
+  /** The request exceptions it adds, widens, renews or makes permanent: what approving it lets through. */
+  exceptions?: ExceptionChange[]
 }
 
 export interface DestinationChange {

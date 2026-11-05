@@ -1053,13 +1053,14 @@ def test_with_its_lock_held_for_ever_a_history_is_pruned_of_what_is_a_day_past_i
     for days in (16, 14.5, 3):
         store.record(ExchangeRecord({"ts": now - days * 86400, "session": f"{days}d", "agent": "codex", "flags": []}))
     recorder = Recorder(store, jobs=SpaceJobs(bus, EMILY))
+    kept = [store.history_group(session) for session in ("3d", "14.5d")]  # a history names its sessions by handle
     try:
         recorder.prune_now()
-        assert recorder.drain() and [s["session"] for s in store.list()[0]] == ["3d", "14.5d"]
+        assert recorder.drain() and [s["session"] for s in store.list()[0]] == kept
         assert "pruned without it" in caplog.text
         bus.client.delete(lock)
         recorder.prune_now()
-        assert recorder.drain() and [s["session"] for s in store.list()[0]] == ["3d"]
+        assert recorder.drain() and [s["session"] for s in store.list()[0]] == kept[:1]
     finally:
         recorder.close()
         store.close()

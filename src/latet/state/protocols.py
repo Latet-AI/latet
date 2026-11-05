@@ -13,7 +13,7 @@ The worker threads (the engine's, the plugin's, the recorder's, the dashboard's)
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, MutableMapping
+from collections.abc import Callable, Iterable, Iterator, MutableMapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
@@ -162,6 +162,18 @@ class KeyVaultStore(VaultStore, Protocol):
         newest first: those a space holds in memory for good (``key_held_secrets``, Ruling 10b-R3)."""
         ...
 
+    def load_glued(self) -> list[Entity]:
+        """The values whose value or fake no text's words find glued to letters or digits on both sides
+        (``stored.glued_both``: one run longer than an edge, kept with a head and a tail row of one role), the oldest
+        first: those a person's space holds in memory for good, whatever their age (``StoredVault(glued_all=True)``)."""
+        ...
+
+    def current(self) -> bool:
+        """Whether values kept elsewhere (another instance's) were taken in since the last call, which a call asks
+        first (``StoredVault.holding``): a store whose lookups read PostgreSQL itself answers no, as each finds them
+        there."""
+        ...
+
     def by_original(self, value: str) -> Entity | None:
         """The entity of ``value``, written as it was kept; None when there is none."""
         ...
@@ -246,8 +258,17 @@ class HistoryStore(Protocol):
         """Those of ``ids`` whose block is stored already."""
         ...
 
-    def last_used(self) -> dict[str, float]:
-        """When each route (a summary's ``upstream``) last carried an exchange."""
+    def history_group(self, source: str) -> str:
+        """A private authenticated history handle derived from exact raw source, never an engine or policy key."""
+        ...
+
+    def last_used(self, current_names: Sequence[str] | None = None) -> dict[str, float]:
+        """Last use of supplied current configured names; None asks only the seven fixed builtin routes."""
+        ...
+
+    def destinations(self, ids: Iterable[str], current_names: Sequence[str]) -> dict[str, str]:
+        """Which of these exchanges went to which of the supplied current configured destinations, by the keyed index
+        the store keeps (the summary shows ``custom``): exchange id → name, for the history owner's dashboard alone."""
         ...
 
     def block_types(self, ids: Iterable[str]) -> dict[str, list[tuple[str, str, str, int]]]:
@@ -260,9 +281,16 @@ class HistoryStore(Protocol):
         carries counts as seen now."""
         ...
 
-    def record_review(self, summary: dict[str, Any]) -> str:
+    def record_review(
+        self,
+        summary: dict[str, Any],
+        *,
+        session_source: str | None = None,
+        project_id: str | None = None,
+    ) -> str:
         """Keep what the local reviewer said of one block (categories and places, never a value), and answer its id
-        (``rv_`` and hexadecimal digits)."""
+        (``rv_`` and hexadecimal digits). Explicit session_source is raw; absent uses the old raw summary input. Project
+        association requires an explicit registered project_id, never summary inference."""
         ...
 
     def reviews(self, limit: int = 100, session: str | None = None) -> list[dict[str, Any]]:
@@ -727,3 +755,22 @@ class StateBackends:
     settings: SettingsStore
     jobs: JobLock
     aws: AwsSessions
+    echoes: Echoes | None = None
+
+
+class Echoes(Protocol):
+    """Opaque observation metadata; network operations run only on the engine worker."""
+
+    @property
+    def ceiling(self) -> Callable[[int], str | None] | None: ...
+
+    @ceiling.setter
+    def ceiling(self, value: Callable[[int], str | None] | None) -> None: ...
+
+    @property
+    def retained_bytes(self) -> int: ...
+    def reserve(self, size: int) -> bool: ...
+    def release(self, size: int) -> None: ...
+    def read(self, members: tuple[bytes, ...]) -> tuple[frozenset[bytes], float]: ...
+    def keep(self, conversation: bytes, members: tuple[bytes, ...]) -> bool: ...
+    def close(self) -> None: ...

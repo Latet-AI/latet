@@ -64,12 +64,9 @@ I file che un agente invia al modello, come PDF, documenti Word e fogli Excel, v
 come il testo, un formato alla volta. In ogni file di un formato che sa leggere, Latet sostituirebbe
 i valori sensibili con valori fittizi e invierebbe il file mascherato, poi rimetterebbe i valori
 reali nella risposta, anche nei file che il modello restituisce. Un file in un formato che Latet non
-legge ancora viene trattato come oggi. In una conversazione viene inviato così com'è, con la
-segnalazione *Non ispezionato* nella dashboard, oppure non viene inviato con `images: mask` o
-`block` (vedi [Cosa legge il gateway](../agents/openai-compatible/#cosa-legge-il-gateway)). Se
-invece viene caricato a parte, tramite l'API dei file di un provider, lo rifiutano un server Latet e
-Latet sui percorsi di Google, mentre da un computer passa senza modifiche verso gli altri provider
-(vedi [Cosa è protetto e cosa no](../concepts/protection-scope/)).
+legge viene rifiutato, in una conversazione come caricato a parte tramite l'API dei file di un
+provider, su un computer come su un server (vedi
+[Cosa è protetto e cosa no](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 

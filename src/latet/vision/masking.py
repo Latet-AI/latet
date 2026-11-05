@@ -9,6 +9,8 @@ was, once Latet reads images at all.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import hashlib
 import logging
@@ -173,6 +175,7 @@ class ImageWork:
         result: OcrResult | None = None,
         state: str = CLEAN,
         reason: str | None = None,
+        strip_metadata: bool = False,
     ) -> None:
         self.service = service
         self.ref = ref
@@ -181,13 +184,32 @@ class ImageWork:
         self.result = result
         self.state = state
         self.reason = reason
+        self.strip_metadata = strip_metadata
         self.original = (ref.data(), ref.media_type)
+        # Provenance for the already owned canonical original; state alone cannot bless a replaced carrier.
+        self._original_carrier: object | None = ref.holder.get(ref.key)
+        self._original_form: str | None = ref.form
         self.text = result.text if result is not None else ""
         self.replacements: list[Replacement] = []
         self.rects: list[tuple[int, int, int, int]] = []  # drawn by you: covered with a bar
         self.slot: SlotRef | None = None
         if result is not None and result.text and state == CLEAN:
             self.slot = SlotRef(self, "text", SlotKind.IMAGE_TEXT, tool=ref.tool)
+
+    @property
+    def output_media(self) -> str:
+        assert self.decoded is not None
+        if self.strip_metadata and self.decoded.media_type == "image/webp":
+            return "image/png"
+        return self.decoded.media_type
+
+    @property
+    def current_original(self) -> str | None:
+        """The owned canonical original only while its exact raw carrier and encoding are still current."""
+        if self.ref.holder.get(self.ref.key) is self._original_carrier and self.ref.form == self._original_form:
+            return self.original[0]
+        self._original_carrier = self._original_form = None  # do not retain an obsolete raw payload
+        return None
 
     @property
     def path_key(self) -> tuple[int, str]:
@@ -219,7 +241,22 @@ class ImageWork:
         self.text = text
         self.replacements = list(replacements)
         if (not self.replacements and not self.rects) or self.result is None or self.decoded is None:
-            self.ref.set(*self.original)
+            if self.strip_metadata and self.decoded is not None:
+                try:
+                    if self.decoded.media_type == "image/webp":
+                        encoded = sized(
+                            self.decoded.image, self.output_media, max(MAX_SENT, len(self.original[0]) * 3 // 4)
+                        )
+                    else:
+                        encoded = encode(self.decoded.image, self.output_media)
+                except ImageError as exc:
+                    self.withhold(str(exc))
+                    return
+                self.ref.set(*encoded)
+                self._original_carrier = self._original_form = None
+            else:
+                self.ref.set(*self.original)
+                self._original_carrier, self._original_form = self.ref.holder.get(self.ref.key), self.ref.form
             self.state = CLEAN
             return
         try:
@@ -232,6 +269,7 @@ class ImageWork:
             self.withhold("Latet could not mask it")
             return
         self.ref.set(data, media)
+        self._original_carrier = self._original_form = None
         self.state = MASKED
 
     def decide(self, rects: list[tuple[int, int, int, int]], withhold: bool, reason: str = YOU_WITHHELD) -> None:
@@ -270,6 +308,7 @@ class ImageWork:
     def withhold(self, reason: str) -> None:
         """Put a notice in place of the image, or, where an image must stay, a grey one saying so."""
         self.state, self.reason = WITHHELD, reason
+        self._original_carrier = self._original_form = None
         if not self.ref.withhold(f"[image withheld by Latet: {reason}]"):
             width, height = self.decoded.image.size if self.decoded is not None else (640, 360)
             data, media = placeholder(width, height)
@@ -309,7 +348,7 @@ class ImageMasking:
         self._decided: LRU[str, dict[str, Any]] = LRU(1024)
         # An image's text, or why it could not be read, and until when it holds (None: whatever the moment).
         self._results: LRU[str, tuple[OcrResult | _UnreadOcr, float | None]] = LRU(128)
-        self._painted: LRU[tuple[str, str], tuple[str, str]] = LRU(64)
+        self._painted: LRU[tuple[str, str, str], tuple[str, str]] = LRU(64)
         # Images Latet wrote (masked, or the placeholder) or found clean: sent again, they are not read again.
         self.known: LRU[str, str] = LRU(4096)
         self._lock = threading.Lock()
@@ -323,14 +362,24 @@ class ImageMasking:
     def available(self) -> bool:
         return self.ocr.error is None
 
-    def works(self, images: Sequence[ImageRef], modify: bool = True) -> list[ImageWork]:
-        return [self.work(ref, modify) for ref in images]
+    def works(
+        self, images: Sequence[ImageRef], modify: bool = True, *, strip_metadata: bool = False
+    ) -> list[ImageWork]:
+        return [self.work(ref, modify, strip_metadata=strip_metadata) for ref in images]
 
-    def work(self, ref: ImageRef, modify: bool = True) -> ImageWork:
+    def work(self, ref: ImageRef, modify: bool = True, *, strip_metadata: bool = False) -> ImageWork:
         """An image read; one that cannot be read is withheld (``modify``), or left unread."""
         data = ref.data()
         key = image_key(data)
-        if self.known.get(key) in (MASKED, WITHHELD):  # Latet's own image, sent again
+        known = self.known.get(key) in (MASKED, WITHHELD)
+        normalize = modify and strip_metadata
+        # Inspect only the fixed signature, independent of the declared MIME. A known
+        # WebP still needs one decode for conversion; its OCR result stays trusted.
+        try:
+            head = base64.b64decode(data[:16], validate=True) if normalize and known else b""
+        except (ValueError, binascii.Error):
+            head = b""
+        if known and not (head.startswith(b"RIFF") and head[8:12] == b"WEBP"):
             return ImageWork(self, ref, key, state=MASKED)
         decoded: Decoded | None = None
         ocr_reason: OcrUnreadReason | None = None
@@ -342,13 +391,15 @@ class ImageMasking:
             self._say(logging.ERROR, "could not decode an image: %s", MemoryError.__name__)
             why = "it could not be read (MemoryError)"
         else:
+            if known:
+                return ImageWork(self, ref, key, decoded, state=MASKED, strip_metadata=normalize)
             found = self._kept(key)
             if found is None:
                 found, lasting = self._read(decoded)
                 if not isinstance(found, _UnreadOcr) or not found.retry:
                     self._results.put(key, (found, None if lasting else self._clock() + KEPT_SECONDS))
             if not isinstance(found, _UnreadOcr):
-                return self._as_decided(ImageWork(self, ref, key, decoded, found), modify)
+                return self._as_decided(ImageWork(self, ref, key, decoded, found, strip_metadata=normalize), modify)
             why, ocr_reason = found.why, found.reason
         return self._unread(ref, key, decoded, why, modify, ocr_reason)
 
@@ -363,19 +414,31 @@ class ImageMasking:
     ) -> ImageWork:
         """One terminal outcome per occurrence, before checked/rewritten presentation; never at final check/withhold."""
         work = ImageWork(self, ref, key, decoded, state=UNREAD, reason=why)
-        if self.space and reason is not None and self._ocr_unread is not None:
-            try:
-                self._ocr_unread(reason)
-            except Exception as exc:  # reporting cannot change traffic; process interruption still propagates
-                if count := self._report_failed.due():
-                    log.warning(
-                        "could not report an unread OCR occurrence: %s%s",
-                        described(exc),
-                        f" ({count} times since the line before)" if count > 1 else "",
-                    )
+        if reason is not None:
+            self._report(reason)
         if modify:
             work.withhold(why)
         return work
+
+    def _report(self, reason: OcrUnreadReason) -> None:
+        """One unread occurrence of ``reason`` to its runtime's counter, on a server alone."""
+        if not self.space or self._ocr_unread is None:
+            return
+        try:
+            self._ocr_unread(reason)
+        except Exception as exc:  # reporting cannot change traffic; process interruption still propagates
+            if count := self._report_failed.due():
+                log.warning(
+                    "could not report an unread OCR occurrence: %s%s",
+                    described(exc),
+                    f" ({count} times since the line before)" if count > 1 else "",
+                )
+
+    def refused_unavailable(self) -> None:
+        """A request, or a WebSocket turn, refused before any of its images was read because the text recognition is
+        not available (``NO_OCR``): one ``unavailable`` occurrence, whatever images it carries, so that operators see
+        the text recognition down."""
+        self._report("unavailable")
 
     def unread(self, ref: ImageRef, why: str, modify: bool = True) -> ImageWork:
         """An image whose text could not be read for ``why``, nothing asked of the text recognition (a server's, not
@@ -512,7 +575,7 @@ class ImageMasking:
     def paint(self, work: ImageWork, replacements: Sequence[Replacement]) -> tuple[str, str]:
         assert work.result is not None
         assert work.decoded is not None
-        cache = (work.key, work.text + "\0" + repr(work.rects))
+        cache = (work.key, work.text + "\0" + repr(work.rects), work.output_media)
         found = self._painted.get(cache)
         if found is None:
             from latet.vision.paint import paint  # NumPy: the ocr extra
@@ -520,7 +583,7 @@ class ImageMasking:
             bars = [Cover(tuple(float(v) for v in rect), tuple(float(v) for v in rect)) for rect in work.rects]  # type: ignore[arg-type]
             image = paint(work.decoded.image, [*covers(work.result, replacements), *bars])
             # Never larger than providers take, unless the image came larger (a provider that takes it).
-            found = sized(image, work.decoded.media_type, max(MAX_SENT, len(work.original[0]) * 3 // 4))
+            found = sized(image, work.output_media, max(MAX_SENT, len(work.original[0]) * 3 // 4))
             self._painted.put(cache, found)
         self.known.put(image_key(found[0]), MASKED)
         return found

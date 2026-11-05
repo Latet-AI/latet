@@ -19,6 +19,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from latet.server import db as db_module
 from latet.server.db import Database, DatabaseError, SchemaMismatch, _lock_key, check_schema, migrate
+from latet.server.start_errors import SettingRefused
 
 from .conftest import DATABASE, PINS
 from .libpq_environment import hostile
@@ -53,13 +54,13 @@ def _raised(call) -> Exception:
     pytest.fail("nothing was raised")
 
 
-def test_a_migration_waits_for_the_instance_that_holds_the_lock(settings, schema):
+def test_a_migration_waits_for_the_instance_that_holds_the_lock(settings, schema, migration_master):
     db = Database(settings.database_url, schema=schema)
     holder = psycopg.connect(DATABASE, autocommit=True)
     try:
         holder.execute("SELECT pg_advisory_lock(%s)", (_lock_key(schema),))
         with ThreadPoolExecutor(1) as pool:
-            running = pool.submit(migrate, db)
+            running = pool.submit(migrate, db, master=migration_master)
             time.sleep(1)
             assert not running.done()  # another instance is migrating: it waits
             holder.execute("SELECT pg_advisory_unlock(%s)", (_lock_key(schema),))
@@ -69,7 +70,12 @@ def test_a_migration_waits_for_the_instance_that_holds_the_lock(settings, schema
         db.close()
 
 
-def test_a_migration_waits_for_the_lock_a_bounded_time_and_says_why_it_stopped(settings, schema, monkeypatch):
+def test_a_migration_waits_for_the_lock_a_bounded_time_and_says_why_it_stopped(
+    settings,
+    schema,
+    monkeypatch,
+    migration_master,
+):
     """An instance that stopped while it held the lock leaves it to its connection, which may linger: the next waits
     ``MIGRATION_WAIT`` at most, and says what holds it up."""
     monkeypatch.setattr(db_module, "MIGRATION_WAIT", 1)
@@ -79,7 +85,7 @@ def test_a_migration_waits_for_the_lock_a_bounded_time_and_says_why_it_stopped(s
         holder.execute("SELECT pg_advisory_lock(%s)", (_lock_key(schema),))
         with ThreadPoolExecutor(1) as pool:
             started = time.monotonic()
-            running = pool.submit(lambda: _raised(lambda: migrate(db)))
+            running = pool.submit(lambda: _raised(lambda: migrate(db, master=migration_master)))
             try:
                 refused = running.result(timeout=15)
             finally:
@@ -90,18 +96,26 @@ def test_a_migration_waits_for_the_lock_a_bounded_time_and_says_why_it_stopped(s
         )
         assert PASSWORD not in _shown(refused)
         assert _tables_of(schema) == 0  # nothing was made meanwhile
-        assert migrate(db)[0] == "latet.server.migrations:001_core"  # nothing of the wait is left: it is free
+        assert (
+            migrate(db, master=migration_master)[0] == "latet.server.migrations:001_core"
+        )  # nothing of the wait is left: it is free
     finally:
         holder.close()
         db.close()
 
 
-def test_a_statement_runs_a_bounded_time_and_a_migration_as_long_as_it_takes(settings, schema, monkeypatch, tmp_path):
+def test_a_statement_runs_a_bounded_time_and_a_migration_as_long_as_it_takes(
+    settings,
+    schema,
+    monkeypatch,
+    tmp_path,
+    migration_master,
+):
     """A statement a live PostgreSQL holds (a lock that is not let go, a query that does not end) gives its connection
     back after ``STATEMENT_SECONDS``; a migration's own statements have no bound, neither PostgreSQL's nor that of the
     wait for its answer (``ANSWER_SECONDS``)."""
     with closing(Database(settings.database_url, schema=schema)) as db:
-        migrate(db)
+        migrate(db, master=migration_master)
         check_schema(db)
         with db.connection() as conn:
             assert conn.execute("SHOW statement_timeout").fetchone() == ("1min",)
@@ -206,7 +220,7 @@ def test_a_postgresql_that_answers_nothing_gives_the_connection_back_after_a_bou
         relay.close()
 
 
-def test_a_role_without_create_on_the_database_migrates_the_schema_made_for_it(schema):
+def test_a_role_without_create_on_the_database_migrates_the_schema_made_for_it(schema, migration_master):
     """An operator who gives the server's role its schema and nothing more on the database (least privilege): CREATE
     SCHEMA, even IF NOT EXISTS, would ask for CREATE on the database before it looks."""
     role, password = "latet_r_" + secrets.token_hex(4), "r0le-" + secrets.token_hex(4)
@@ -218,7 +232,7 @@ def test_a_role_without_create_on_the_database_migrates_the_schema_made_for_it(s
         with psycopg.connect(address, autocommit=True) as plain, pytest.raises(psycopg.errors.InsufficientPrivilege):
             plain.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))  # why
         with closing(Database(address, schema=schema)) as db:
-            assert migrate(db)[0] == "latet.server.migrations:001_core"
+            assert migrate(db, master=migration_master)[0] == "latet.server.migrations:001_core"
             check_schema(db)
     finally:
         with role_catalog() as admin:
@@ -227,13 +241,13 @@ def test_a_role_without_create_on_the_database_migrates_the_schema_made_for_it(s
             admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
 
 
-def test_the_lock_of_one_schema_does_not_hold_the_migrations_of_another(settings, schema):
+def test_the_lock_of_one_schema_does_not_hold_the_migrations_of_another(settings, schema, migration_master):
     db = Database(settings.database_url, schema=schema)
     holder = psycopg.connect(DATABASE, autocommit=True)
     try:
         holder.execute("SELECT pg_advisory_lock(%s)", (_lock_key(schema + "_other"),))
         assert _lock_key(schema + "_other") != _lock_key(schema)
-        assert migrate(db)[0] == "latet.server.migrations:001_core"
+        assert migrate(db, master=migration_master)[0] == "latet.server.migrations:001_core"
     finally:
         holder.close()
         db.close()
@@ -267,7 +281,13 @@ def test_a_connection_of_the_pool_works_in_the_schema_alone(db):
         assert conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone() == (None,)
 
 
-def test_a_complete_address_is_used_whatever_the_environment_holds(settings, schema, tmp_path, monkeypatch):
+def test_a_complete_address_is_used_whatever_the_environment_holds(
+    settings,
+    schema,
+    tmp_path,
+    monkeypatch,
+    migration_master,
+):
     """Every variable libpq reads for an option is set wrong (the two that are refused apart), and the server connects
     as its address says."""
     for variable, value in hostile(tmp_path).items():
@@ -275,7 +295,7 @@ def test_a_complete_address_is_used_whatever_the_environment_holds(settings, sch
             monkeypatch.setenv(variable, value)
     db = Database(settings.database_url, schema=schema)
     try:
-        assert migrate(db)[0] == "latet.server.migrations:001_core"
+        assert migrate(db, master=migration_master)[0] == "latet.server.migrations:001_core"
         with db.connection() as conn:
             assert (conn.info.host, str(conn.info.port), conn.info.user, conn.info.dbname) == (HOST, PORT, USER, DBNAME)
             assert conn.execute("SHOW search_path").fetchone() == (schema,)  # not PGOPTIONS'
@@ -309,11 +329,17 @@ def _tables_of(schema: str) -> int:
         return found.fetchone()[0]
 
 
-def test_the_migrations_are_refused_through_connections_that_lost_the_search_path(settings, schema, decoy, monkeypatch):
+def test_the_migrations_are_refused_through_connections_that_lost_the_search_path(
+    settings,
+    schema,
+    decoy,
+    monkeypatch,
+    migration_master,
+):
     _lost_search_path(monkeypatch, f"-c search_path={decoy}")
     db = Database(settings.database_url, schema=schema)
     try:
-        failed = _raised(lambda: migrate(db))
+        failed = _raised(lambda: migrate(db, master=migration_master))
     finally:
         db.close()
     assert type(failed) is DatabaseError and "search path" in str(failed) and schema in str(failed)
@@ -351,7 +377,7 @@ def test_a_table_of_another_schema_at_the_head_of_the_search_path_is_not_the_ser
 @pytest.mark.parametrize("migrated", [True, False])
 @pytest.mark.parametrize("behind", ["decoy", "public"])
 def test_a_search_path_that_starts_in_the_schema_and_goes_on_is_not_the_schema_alone(
-    settings, schema, decoy, monkeypatch, behind, migrated
+    settings, schema, decoy, monkeypatch, behind, migrated, migration_master
 ):
     """The schema is the first of the path and another stands behind it: whatever the schema does not hold is looked
     for there (on PostgreSQL 14 and older an operator or a function of another role's, in public, with a closer match
@@ -359,14 +385,14 @@ def test_a_search_path_that_starts_in_the_schema_and_goes_on_is_not_the_schema_a
     if migrated:
         db = Database(settings.database_url, schema=schema)
         try:
-            migrate(db)
+            migrate(db, master=migration_master)
             check_schema(db)  # the schema alone: nothing to say
         finally:
             db.close()
     _lost_search_path(monkeypatch, f"-c search_path={schema},{decoy if behind == 'decoy' else 'public'}")
     db = Database(settings.database_url, schema=schema)
     try:
-        for call in (lambda: check_schema(db), lambda: migrate(db)):
+        for call in (lambda: check_schema(db), lambda: migrate(db, master=migration_master)):
             refused = _raised(call)
             assert type(refused) is DatabaseError and "search path" in str(refused) and schema in str(refused)
             assert decoy not in _shown(refused)
@@ -394,7 +420,11 @@ def test_the_names_are_not_read_through_a_search_path_that_goes_on_after_the_sch
     assert "UndefinedColumn" not in str(refused) and decoy not in _shown(refused)
 
 
-def test_a_pooler_that_drops_the_options_of_a_role_named_like_its_schema_is_refused(schema, monkeypatch):
+def test_a_pooler_that_drops_the_options_of_a_role_named_like_its_schema_is_refused(
+    schema,
+    monkeypatch,
+    migration_master,
+):
     """The search path of a role is ``"$user", public``: with the role named like the schema, the schema is the first of
     it and public stands behind. A pooler that drops the start-up options leaves it so."""
     role, password = schema, "r0le-" + secrets.token_hex(4)
@@ -409,7 +439,7 @@ def test_a_pooler_that_drops_the_options_of_a_role_named_like_its_schema_is_refu
         _lost_search_path(monkeypatch, "")
         db = Database(f"postgresql://{role}:{password}@{HOST}:{PORT}/{DBNAME}", schema=schema)
         try:
-            for call in (lambda: check_schema(db), lambda: migrate(db)):
+            for call in (lambda: check_schema(db), lambda: migrate(db, master=migration_master)):
                 refused = _raised(call)
                 assert type(refused) is DatabaseError and "search path" in str(refused) and schema in str(refused)
                 assert password not in _shown(refused)
@@ -449,7 +479,11 @@ def test_a_password_with_every_mark_of_an_address_is_the_password_all_the_same(s
             admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
 
 
-def test_the_user_password_and_database_of_the_environment_do_not_complete_an_address(schema, monkeypatch):
+def test_the_user_password_and_database_of_the_environment_do_not_complete_an_address(
+    schema,
+    monkeypatch,
+    migration_master,
+):
     monkeypatch.setenv("PGUSER", USER)
     monkeypatch.setenv("PGPASSWORD", PASSWORD)
     monkeypatch.setenv("PGDATABASE", DBNAME)
@@ -458,13 +492,20 @@ def test_the_user_password_and_database_of_the_environment_do_not_complete_an_ad
         assert conn.info.user == USER
     db = Database(bare, schema=schema, connect_timeout=2)
     try:
-        refused = _raised(lambda: migrate(db))  # as the system's user, with no password, the server refuses
+        refused = _raised(
+            lambda: migrate(db, master=migration_master)
+        )  # as the system's user, with no password, the server refuses
     finally:
         db.close()
     assert type(refused) is DatabaseError and "OperationalError" in str(refused)
 
 
-def test_a_password_file_does_not_give_the_password_an_address_leaves_out(tmp_path, schema, monkeypatch):
+def test_a_password_file_does_not_give_the_password_an_address_leaves_out(
+    tmp_path,
+    schema,
+    monkeypatch,
+    migration_master,
+):
     passfile = tmp_path / "pgpass"
     passfile.write_bytes(f"{HOST}:{PORT}:{DBNAME}:{USER}:{PASSWORD}\n".encode())
     passfile.chmod(0o600)  # libpq ignores a password file others can read
@@ -474,7 +515,7 @@ def test_a_password_file_does_not_give_the_password_an_address_leaves_out(tmp_pa
         pass
     db = Database(address, schema=schema, connect_timeout=2)
     try:
-        refused = _raised(lambda: migrate(db))
+        refused = _raised(lambda: migrate(db, master=migration_master))
     finally:
         db.close()
     assert type(refused) is DatabaseError and "OperationalError" in str(refused)
@@ -490,16 +531,16 @@ def test_a_service_file_does_not_complete_an_address(tmp_path, schema, monkeypat
     with psycopg.connect("", connect_timeout=5):  # libpq alone: the service is all it needs
         pass
     refused = _raised(lambda: Database(DATABASE, schema=schema))
-    assert type(refused) is ValueError and "PGSERVICE" in str(refused) and PASSWORD not in _shown(refused)
+    assert type(refused) is SettingRefused and "PGSERVICE" in str(refused) and PASSWORD not in _shown(refused)
 
 
-def test_a_refusal_by_the_server_is_neither_shown_nor_logged_in_its_words(settings, schema, caplog):
+def test_a_refusal_by_the_server_is_neither_shown_nor_logged_in_its_words(settings, schema, caplog, migration_master):
     wrong = DATABASE.replace(PASSWORD, "wrong-pw-5f3a")
     assert wrong != DATABASE
     caplog.set_level(logging.DEBUG)
     db = Database(wrong, schema=schema, connect_timeout=2)
     try:
-        refused = _raised(lambda: migrate(db))
+        refused = _raised(lambda: migrate(db, master=migration_master))
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline and not any("error connecting" in r.getMessage() for r in caplog.records):
             time.sleep(0.05)
@@ -518,7 +559,11 @@ def test_a_refusal_by_the_server_is_neither_shown_nor_logged_in_its_words(settin
 A_TIME = 1_760_431_234.123456  # a time with microseconds: 16 digits, 15 is what a short float gives back
 
 
-def test_every_connection_has_the_servers_session_settings_whatever_its_role_defaults_to(role_url, schema):
+def test_every_connection_has_the_servers_session_settings_whatever_its_role_defaults_to(
+    role_url,
+    schema,
+    migration_master,
+):
     """A role may default to a short float and to REPEATABLE READ; a pooled connection of the server does not."""
     url = role_url(extra_float_digits="0", default_transaction_isolation="repeatable read")
     with psycopg.connect(url) as plain:  # the role as it is: what a connection would have without the pins
@@ -526,7 +571,7 @@ def test_every_connection_has_the_servers_session_settings_whatever_its_role_def
         assert plain.execute("SHOW default_transaction_isolation").fetchone() == ("repeatable read",)
         assert plain.execute("SELECT %s::float8", (A_TIME,)).fetchone() != (A_TIME,)
     with closing(Database(url, schema=schema, max_size=3)) as db:
-        migrate(db)
+        migrate(db, master=migration_master)
         check_schema(db)  # the start accepts connections that have them
         with db.connection() as a, db.connection() as b, db.connection() as c:  # three connections of the pool
             for conn in (a, b, c):
@@ -539,7 +584,7 @@ def test_every_connection_has_the_servers_session_settings_whatever_its_role_def
 TEXT_OF_EVERY_SCRIPT = "Zo" + chr(0xEB) + " " + chr(0x5C71) + chr(0x7530) + " " + chr(0x1F469)  # what LATIN1 lacks
 
 
-def test_every_connection_speaks_utf8_whatever_its_role_or_its_address_says(role_url, schema):
+def test_every_connection_speaks_utf8_whatever_its_role_or_its_address_says(role_url, schema, migration_master):
     """A role may default to another client encoding, and an address may name one: a name, a label or an entry's text of
     another script would be refused on its way to PostgreSQL, or read back otherwise. The server's connections are
     UTF8 whatever either says."""
@@ -548,19 +593,24 @@ def test_every_connection_speaks_utf8_whatever_its_role_or_its_address_says(role
         assert plain.execute("SHOW client_encoding").fetchone() == ("LATIN1",)
     for address in (url, url + "?client_encoding=LATIN1"):
         with closing(Database(address, schema=schema, max_size=2)) as db:
-            migrate(db)
+            migrate(db, master=migration_master)
             check_schema(db)  # the start accepts connections that have it
             with db.connection() as conn:
                 assert conn.execute("SHOW client_encoding").fetchone() == ("UTF8",)
                 assert conn.execute("SELECT %s::text", (TEXT_OF_EVERY_SCRIPT,)).fetchone() == (TEXT_OF_EVERY_SCRIPT,)
 
 
-def test_the_start_refuses_connections_whose_client_encoding_is_not_utf8(settings, schema, monkeypatch):
+def test_the_start_refuses_connections_whose_client_encoding_is_not_utf8(
+    settings,
+    schema,
+    monkeypatch,
+    migration_master,
+):
     """As a pooler or a proxy that sets another encoding leaves them: the words name the setting."""
     real = db_module._parameters
     monkeypatch.setattr(db_module, "_parameters", lambda *args: {**real(*args), "client_encoding": "LATIN1"})
     with closing(Database(settings.database_url, schema=schema)) as db:
-        for call in (lambda: check_schema(db), lambda: migrate(db)):
+        for call in (lambda: check_schema(db), lambda: migrate(db, master=migration_master)):
             refused = _raised(call)
             assert type(refused) is DatabaseError and "client_encoding UTF8" in str(refused)
             assert PASSWORD not in _shown(refused)
@@ -581,7 +631,7 @@ FLOAT, ISOLATION = "extra_float_digits", "default_transaction_isolation"
     ids=["no float pin", "no isolation pin", "neither", "other values"],
 )
 def test_the_start_refuses_connections_that_lost_a_setting_the_server_rests_on(
-    role_url, schema, monkeypatch, options, named
+    role_url, schema, monkeypatch, options, named, migration_master
 ):
     """As a pooler that drops the start-up options (or a proxy that sets others) leaves them: the words name the setting
     that is not what the server sets and not the search path, which is."""
@@ -590,7 +640,7 @@ def test_the_start_refuses_connections_that_lost_a_setting_the_server_rests_on(
     real = db_module._parameters
     monkeypatch.setattr(db_module, "_parameters", lambda *args: {**real(*args), "options": options})
     with closing(Database(url, schema=schema)) as db:
-        for call in (lambda: check_schema(db), lambda: migrate(db)):
+        for call in (lambda: check_schema(db), lambda: migrate(db, master=migration_master)):
             refused = _raised(call)
             assert type(refused) is DatabaseError and "search path" not in str(refused)
             for name in (FLOAT, ISOLATION):
@@ -625,12 +675,12 @@ def in_encoding():
 
 
 @pytest.mark.parametrize("encoding", ["LATIN1", "SQL_ASCII"])
-def test_the_start_refuses_a_database_that_is_not_utf8(in_encoding, schema, encoding):
+def test_the_start_refuses_a_database_that_is_not_utf8(in_encoding, schema, encoding, migration_master):
     """A name, a label or an entry's text from any script is kept only by a UTF8 database: in another, PostgreSQL
     refuses the characters its encoding lacks and the action that holds one would fail to be kept."""
     url = in_encoding(encoding)
     with closing(Database(url, schema=schema)) as db:
-        for call in (lambda: check_schema(db), lambda: migrate(db)):
+        for call in (lambda: check_schema(db), lambda: migrate(db, master=migration_master)):
             refused = _raised(call)
             assert type(refused) is DatabaseError and "server_encoding" in str(refused)
             assert "UTF8" in str(refused) and encoding in str(refused) and PASSWORD not in _shown(refused)

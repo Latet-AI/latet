@@ -49,6 +49,10 @@ def test_every_fallback_schema_string_leaves_masked_without_changing_settings(fm
     fallbacks[position] = _fallback(fmt)
     body = _anthropic(fallbacks=fallbacks, output_config={"format": SAFE_FORMAT})
     prepared, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    if fmt == SENSITIVE_FORMATS[2]:
+        assert prepared.block_reason is not None and prepared.pending
+        assert EMAIL.encode() not in prepared.body
+        return
     assert prepared.block_reason is None and EMAIL.encode() not in prepared.body
     sent = json.loads(prepared.body)
     assert sent["fallbacks"][1 - position] == fallbacks[1 - position]
@@ -110,8 +114,8 @@ def test_malformed_fallback_schema_shapes_are_refused_with_content_free_reasons(
     reason = refused.block_reason or ""
     assert reason.startswith(FIELDS_REFUSED)
     assert EMAIL not in reason and "not-a-list" not in reason
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, headers)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, headers)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize(
@@ -135,7 +139,7 @@ def test_space_gateway_passes_safe_fallbacks_and_masks_rewrite_schemas(space, he
     rt, _ = space
     seen = _upstream(rt)
     checked = headers is not ANTHROPIC_KEY
-    body = _anthropic(fallbacks=[{"model": "safe"}, _fallback(SAFE_FORMAT if checked else SENSITIVE_FORMATS[2])])
+    body = _anthropic(fallbacks=[{"model": "safe"}, _fallback(SAFE_FORMAT if checked else SENSITIVE_FORMATS[1])])
     raw = json.dumps(body, indent=2).encode()
     with _client(rt) as client:
         response = client.post("/llm/v1/messages", content=raw, headers=headers)
@@ -170,8 +174,8 @@ def test_named_anthropic_forms_are_refused_even_when_images_allow_them(headers, 
     reason = refused.block_reason or ""
     assert reason.startswith(FIELDS_REFUSED)
     assert EMAIL not in reason and "ordinary text" not in reason
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, headers)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, headers)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize("role", ["user", "assistant", "function"])
@@ -182,16 +186,17 @@ def test_any_chat_message_name_is_refused_including_legacy_function_names(role, 
     reason = refused.block_reason or ""
     assert reason.startswith(FIELDS_REFUSED)
     assert EMAIL not in reason and "query" not in reason
-    computer, raw = _prepare(False, "/openai/v1/chat/completions", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/chat/completions", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize("headers", HEADERS, ids=CLIENTS)
 @pytest.mark.parametrize("nested", [False, True])
 def test_an_untitled_document_keeps_the_existing_server_policy(headers, nested):
     body = _anthropic(messages=[{"role": "user", "content": _content(_document(), nested)}])
-    prepared, raw = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, headers)
-    assert prepared.block_reason is None and prepared.body == raw and prepared.uninspected == ["document"]
+    prepared, _raw = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, headers)
+    assert prepared.block_reason is not None and prepared.body == b""  # a refusal keeps its category alone (3646b6e0)
+    assert "message content block" in prepared.block_reason
 
 
 @pytest.mark.parametrize("kind", ["name", "search_result", "title", "context"])

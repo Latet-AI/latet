@@ -4,6 +4,7 @@ PostgreSQL), and its two legs ending with it, whatever ends it: a turn that can 
 nothing of that turn sent."""
 
 import asyncio
+import contextlib
 import json
 import threading
 
@@ -14,6 +15,7 @@ from websockets.frames import CloseCode
 from websockets.sync.server import serve
 
 from latet.config import Config
+from latet.engine import wellformed
 from latet.engine.build import build
 from latet.engine.vault import Vault
 from latet.gateway import ws
@@ -23,7 +25,9 @@ from latet.gateway.routes import RouteTable, Upstream
 
 from ...conftest import ROOT_KEY
 
-TURN = json.dumps({"type": "response.create", "model": "m", "input": "the status page is up"})
+# Codex's model and its session id, its thread's UUIDv7, as it sends them over a WebSocket.
+TURN = json.dumps({"type": "response.create", "model": "gpt-5.1-codex", "input": "the status page is up"})
+SESSION = b"019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2e01"
 _LEGS = ("client_to_upstream", "upstream_to_client")
 
 
@@ -62,7 +66,7 @@ class _Client:
             "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws", "http_version": "1.1",
             "server": ("127.0.0.1", 5283), "client": ("127.0.0.1", 50000), "root_path": "",
             "path": "/relay/v1/responses", "raw_path": b"/relay/v1/responses", "query_string": b"",
-            "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", b"s-1")], "subprotocols": [],
+            "headers": [(b"host", b"127.0.0.1:5283"), (b"session-id", SESSION)], "subprotocols": [],
         }  # fmt: skip
         self.socket = WebSocket(scope, self._receive, self._send)
 
@@ -116,6 +120,25 @@ def _on_a_loop() -> bool:
 def _legs() -> list[asyncio.Task]:
     """The relay's legs still running on this loop."""
     return [task for task in asyncio.all_tasks() if task.get_coro().__qualname__.endswith(_LEGS) and not task.done()]
+
+
+async def test_a_handshake_the_envelope_refuses_logs_its_category_as_a_request_over_http_does(caplog):
+    """One code path: a WebSocket's handshake refused by its envelope says the same line as an HTTP request's
+    (``blocked ... envelope: <its fixed code>``), never the value it refused; nothing connected."""
+    import logging
+
+    upstream, client, mediator = _Answering(), _Client(), _mediator()
+    value = "s-1-not-a-session-id-of-its-grammar"
+    client.socket.scope["headers"] = [(b"host", b"127.0.0.1:5283"), (b"session-id", value.encode())]
+    try:
+        with caplog.at_level(logging.WARNING, logger="latet.gateway.ws"):
+            await asyncio.wait_for(ws.relay(client.socket, _routes(upstream), Capture(None), mediator), 5)
+    finally:
+        upstream.close()
+    [closed] = client.closed()
+    said = [record.getMessage() for record in caplog.records if record.name == "latet.gateway.ws"]
+    assert closed["code"] == CloseCode.POLICY_VIOLATION and upstream.connections == 0
+    assert said == ["blocked WebSocket envelope: envelope-header-value"] and value not in caplog.text
 
 
 async def test_a_websockets_conversation_is_read_off_the_event_loop(monkeypatch):
@@ -193,3 +216,28 @@ async def test_a_turn_on_a_closed_mediator_ends_with_a_clean_close_and_sends_not
         upstream.close()
     [closed] = client.closed()
     assert closed["code"] == CloseCode.INTERNAL_ERROR and upstream.got == [TURN]
+
+
+async def test_a_turn_that_gives_a_key_twice_reaches_the_provider_written_anew_with_the_copy_latet_read():
+    """One code path with HTTP: a ``response.create`` that gives a key twice is read with its last copy, masked, and
+    leaves written anew from what was read. The provider never gets the copy Latet did not read, so no parser of its
+    own can read the frame otherwise (its first copy held an address in clear)."""
+    email = "emily.carter@acme.com"
+    frame = (
+        '{"type": "response.create", "model": "gpt-5.1-codex", "input": "mail ' + email + '", '
+        '"input": "the status page is up"}'
+    )
+    upstream, client, mediator = _Answering(), _Client(), _mediator()
+    task = asyncio.create_task(ws.relay(client.socket, _routes(upstream), Capture(None), mediator))
+    try:
+        await client.turn(frame)
+        await _until(lambda: len(upstream.got) == 1)
+    finally:
+        client.incoming.put_nowait({"type": "websocket.disconnect", "code": 1000})
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, 10)
+        upstream.close()
+    [sent] = upstream.got
+    read = wellformed.read(sent)
+    assert not read.repeated and email not in sent
+    assert read.doc == {"type": "response.create", "model": "gpt-5.1-codex", "input": "the status page is up"}

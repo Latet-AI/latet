@@ -286,6 +286,21 @@ key or folder can also exceed the assumed entry size. Keep `noeviction`, monitor
 record sizes and occupancy, and plan for the admitted workload; do not promise a compact
 per-identity memory ceiling from the entry counts alone.
 
+Latet 0.11 adds three kinds of keys, each bounded, none holding a text, a value or a fake:
+
+- **What the provider gave a conversation** (thinking signatures, encrypted reasoning,
+  compactions), as keyed hashes, so that the next turn passes on any instance: at most 20,000
+  entries and 4 MiB per identity, and 256 MiB for the whole server, kept a week after their last use.
+  A write Valkey refuses (a cap, or `noeviction` out of memory) records nothing: such an item is then
+  let through by the built-in rule for the provider's encrypted fields where it applies, or refused,
+  never answered `503`.
+- **Launch keys** of agents started by Latet on connected computers: one sealed record of at most
+  16 KiB per launch open at the moment, at most 64 at once per identity.
+- **Request exceptions used while the history is off**: one row per instance and identity, holding
+  ids and numbers alone, refreshed as the instance checks its spaces and gone 30 seconds after the
+  instance stops. Valkey as the Compose profile ships it keeps nothing on disk (`save ""`,
+  `appendonly no`); an operator who turns on its persistence writes these counts to disk.
+
 ## HTTPS, proxies and capacity
 
 Terminate TLS at the instance or the load balancer. Set `forwarded_allow_ips` to the
@@ -300,21 +315,71 @@ Long polls and streams have their own bounds. A capacity refusal is a reason to 
 load and limits, not to disable protection. Shutdown gives an instance 30 seconds to
 finish; long-running streams may be cut, so clients must handle disconnection.
 
+An instance does most of its work on one processor core. A machine with more cores serves more
+through several workers on Linux ([below](#several-instances-on-one-machine)), and a server serves
+more through more instances behind the load balancer.
+[How fast it is](../../applications/#how-fast-it-is) gives what one instance and several workers
+masked through the applications API on the measuring computer.
+
+Latet 0.11 reads every part of each request it forwards
+([Upgrading to 0.11](../../getting-started/upgrading-to-0-11/)), which costs time on each. Measured
+with one instance on Windows on that computer, at the median, against the same release without that
+reading: a small chat request took 6.99 ms instead of 5.95, the first request of a new key 104 ms
+instead of 97, a JSON body of 1 MiB 391 ms instead of 373, a request of 4,000 slots 1,088 ms instead
+of 779, and a request of 500 texts masked before and one new 183 ms instead of 158.
+
 OCR uses bounded readers, each holding model memory. `ocr_readers` defaults to 2 and
-cannot exceed the processors available to the instance. `ocr_read_seconds` defaults to
+cannot exceed the processors available to the instance (with several workers, a worker's share of
+them: the machine's processors divided by the workers). `ocr_read_seconds` defaults to
 30; `ocr_wait_seconds` defaults to 35 and cannot be shorter than the read budget. Raising
 reader counts costs memory as well as CPU. An unread image is withheld or its checked
 request refused according to the protected path; increasing timeouts does not improve
 recognition accuracy.
 
 An API key's space holds in memory the values the key used last (`key_working_values`,
-5,000 by default, about 10 MiB a key) and, for good, its newest short secrets that no word
-of a text finds when other letters are glued to them (`key_held_secrets`, 1,000 by default,
-about 2.2 KB each on every instance). Raise `key_held_secrets` for a key that sees many
-short secrets, such as a session token in each log line: every text the key masks or
-unmasks is read for each one held, so its calls slow a little as well (unmask about a
-tenth slower with 1,000 held)
+5,000 by default, about 10 MiB a key), the prints of its whole vault's words (about 15 MB
+for a million values), and, for good, its newest short secrets that no word of a text finds
+when other letters are glued to them (`key_held_secrets`, 1,000 by default, about 23 KB
+each, most of it in the detector that finds them). Each instance and each worker that serves
+the key holds all of it. While it builds the index of a vault's prints, an instance holds
+more for a moment: 49 MB more for 1,000,000 values, for about 1.4 seconds, within the 64 MB
+it sets aside first, and two builds at once at most. Raise `key_held_secrets` for a key that
+sees many short secrets, such as a session token in each log line: every text the key masks
+or unmasks is read for each one held, so its calls slow a little as well (unmask about a
+tenth slower with 1,000 held, measured with Latet 0.10.0)
 ([a key's vault](../../applications/#a-keys-vault)).
+
+A person's space built while the vault has 35,000 values or fewer holds it whole in memory
+(about 1.6 KB a value on each instance that serves the person, counted in the space's
+memory): the person's texts are masked without asking PostgreSQL for their values, about
+twice as fast as looking them up. Each request still asks PostgreSQL first what the other
+instances changed, so a value kept or forgotten on one instance is seen by the next request
+on any other. Past 35,000 values, and in a space built past them until it is made again (even after values
+are forgotten), a person's space works as an API key's: it holds in memory
+the values the person used last (`key_working_values`) and, for good, every value that no
+word of a text finds, whatever its age, and finds every other value in PostgreSQL as a text
+needs it, so no instance holds a large vault whole. A vault kept by an earlier Latet is
+served from memory, as before, until its words are made, once, in the background on one
+instance; the space built after that works from PostgreSQL.
+
+Measured with Latet 0.11 on the computer of [how fast it is](../../applications/#how-fast-it-is), on the engine
+(the gateway's masking alone, not through HTTP), one line at a time, in turns of 500 lines with Latet 0.10.0's
+vault in the same process, five each (medians of the turns): a person's vault of 20,000 values, held whole,
+masked 851 lines a second against 558 for 0.10.0, 1.52 times where this release set out to reach twice; one of
+5,000 values 885 against 1,094, 0.81 times, since the read of the change counter made before each line, about
+half a millisecond there, is a large part of the time of one line; one of 200,000 values, on its store, 385
+against 59. At 200,000 values a person's space took 24 MB more after its lines, where 0.10.0's vault took 495
+MB.
+
+A person's space holds every value that no word of a text finds when other letters are glued
+to it, whatever `key_held_secrets` says (about 23 KB each on every instance). A request
+whose texts go past the bounds of one lookup, such as a lockfile or a long log of hashes, is
+never refused: a person's space that holds its vault whole reads it from memory; a larger
+one reads its whole vault once for it, shares that reading with the requests that need it at
+the same time, and counts it in the space's memory while it lasts (at 200,000 values, measured
+with Latet 0.11, the first 500 lines past a bound took about 10 seconds with the reading among
+them, and the reading held about 380 MB on the instance or worker that made it, about what
+0.10.0's vault held); an API key's space looks its texts' words up as Latet 0.10.2 did.
 
 ### Connections, budgets and trust
 
@@ -336,13 +401,22 @@ tenth slower with 1,000 held)
   holds the interpreter's lock for one to three seconds wherever it is parsed, so keep the limit as low as your
   agents allow and run several instances.
 - **PostgreSQL:** each instance keeps up to `database_pool` connections (10 by default), for every identity's
-  work; PostgreSQL's `max_connections` must cover every instance's pool and the administrators' commands. An
-  applications API call that keeps new values holds one of them until it ends, three tenths of the pool at most
-  (three of ten); past them, calls keep each new value at once, which is slower. Raise `database_pool`, and
-  `max_connections` with it, for an instance that masks for many new keys at once.
-- **Valkey:** each instance keeps up to `valkey_connections` connections (100 by default), and past them a call
-  waits five seconds at most. Valkey's `maxclients` must cover every instance's connections. Connecting to
-  Valkey, its TLS and its first answer share one budget of five seconds.
+  work, and each worker is an instance; PostgreSQL's `max_connections` must cover every instance's pool and the
+  administrators' commands. While it builds the index of a vault, an API key's or a person's, an instance also
+  opens up to two connections of its own, closed when the build ends: count them in `max_connections` too. With
+  none to spare, the build uses one of the pool's. An applications API call that keeps new values holds one of
+  them until it ends, three tenths of the pool at most (three of ten); past them, calls keep each new value at
+  once, which is slower. Raise `database_pool`, and `max_connections` with it, for an instance that masks for
+  many new keys at once.
+- **Valkey:** each instance, each worker too, keeps up to `valkey_connections` connections (100 by default), and
+  past them a call waits five seconds at most. Valkey's `maxclients` must cover every instance's connections.
+  Connecting to Valkey, its TLS and its first answer share one budget of five seconds.
+- **Memory:** each instance, each worker too, gives the spaces it holds 2 GiB, weighed from the counts their parts
+  keep rather than read from the process. One space takes at most half of it, and its detectors up to an eighth of
+  that half more (128 MiB), which a busy space keeps while its requests run: several busy spaces can pass the 2 GiB
+  by that much each. The process itself, the recognition models and the indexes being built come on top. A worker
+  is started again when it ends or goes silent, never for its memory: plan the machine's memory for N workers
+  ([several instances on one machine](#several-instances-on-one-machine)).
 - **The providers' certificates:** an instance trusts the operating system's certificate store; on Linux,
   OpenSSL's default paths, which `SSL_CERT_FILE` and `SSL_CERT_DIR` change for the whole process. Change them
   only to add your company's authority.
@@ -351,6 +425,53 @@ tenth slower with 1,000 held)
   says so in its log.
 
 ## Upgrading and adding instances
+
+From 0.10 to 0.11, read [Upgrading to 0.11](../../getting-started/upgrading-to-0-11/) first: 0.11
+refuses the parts of requests it does not read, on a server as on a computer, and `latet doctor`
+lists what will stop.
+
+0.11 also changes the tables, so the server stops for its migration:
+
+1. Take the copy of the database described below, and run `latet server migrate --check` with 0.11:
+   it says that the tables change.
+2. Stop every instance, every worker of every machine. A server still on 0.10 answers
+   `latet server status` with the instance that answered alone, since 0.10 does not report its
+   instances: the check that none is left is the next step's.
+3. Wait 30 seconds, then run `latet server migrate` once, with 0.11: an instance of 0.10 leaves its
+   key in Valkey as it stops, and counts as alive until the key ends, 30 seconds after its last beat.
+   While an instance of 0.10 or 0.11 is alive, it migrates nothing, says how many are alive and of
+   which version (`1 instance of the server is alive (1 of Latet 0.10 or older): nothing was
+   migrated`) and exits 2: stop them and run it again. With a migration to apply, it and
+   `latet server init` migrate nothing either while Valkey does not answer. The migration adds to each
+   word row of every vault an empty place for its print and for the count of the change that wrote it
+   last, with their indexes: on a database of large vaults it takes longer than earlier migrations
+   did, and the prints themselves are made later, in the background (below). Once the migrations are
+   applied, it asks Valkey again, and when an instance came alive meanwhile it says so after what it
+   applied and exits 1 (`The tables are migrated, and 1 instance of the server is alive (1 of Latet
+   0.10 or older): stop it, then start it with this version of Latet`).
+4. Start every instance with 0.11. No call is answered between the stop and this start.
+
+Then, in the background: the prints of each vault kept by 0.10 are made by the first instance that builds its
+space, once, one instance at a time, and each instance builds its own index of them, for a person's vault as for
+an API key's. Until then that identity's requests and calls are answered by looking their words up in
+PostgreSQL, as 0.10 did, more slowly, and none is refused for it. An instance whose index cannot be built (the
+prints not all made yet, PostgreSQL or Valkey not answering, a catch-up that failed) keeps that identity on
+PostgreSQL's lookup and builds the index again: at once when another instance's fill of the prints ends,
+otherwise 10, 20 and 30 seconds after each try and then once a minute, two builds at a time on each instance,
+the next starting as one ends. The log says once when a space's index stops being used (`the vault index of <id>
+is not used (<why>): its lookups go to PostgreSQL until it is built again`) and once when it is used again. A
+vault past 16,777,216 prints, about eight million values, gets no index while its space lasts: its lookups go to
+PostgreSQL, and a new space of it tries once again. A person's vault kept before Latet 0.10.0, whose values have
+no words yet, is held whole in memory, as before, until its words and prints are made, once, on one instance;
+the person's space built after that works from PostgreSQL. 0.11 does not make any key's words again ([upgrading
+a server](../../applications/#upgrading-a-server)).
+
+Latet reads each request by the profile of its route, which names every field, header and query
+parameter it carries. At each Latet release, and at least every two weeks, the newest versions of the
+agents Latet supports run through the requests these profiles describe. When an agent's update sends
+something no profile names, the profile's new revision ships in a patch release; until you install it,
+that request is refused, naming its category, and nothing of it is sent. Keep the instances on the
+newest patch release of their version.
 
 The instances share one set of tables, and an instance starts only on tables of its own version. The
 database is yours to keep: Latet copies nothing of it. Before you pull a new image and run
@@ -373,24 +494,29 @@ latet server migrate --check
 - **The tables stay the same:** replace the instances one at a time behind the load balancer. A
   stopped instance finishes its requests within 30 seconds.
 - **The tables change:** stop every instance, run `latet server migrate` once with the new version,
-  then start the instances with it. An instance does not start on tables of another version.
+  then start the instances with it. `latet server migrate` refuses while an instance is alive (one of
+  0.10 for 30 seconds after it stops), and an instance does not start on tables of another version.
 - **Programs use the applications API:** stop every older instance before the new ones start, even
   when the tables stay the same. While two versions run side by side, a value an older instance
   writes to a key's vault may not be found by a newer one until the key's space is built again
   ([upgrading a server](../../applications/#upgrading-a-server)).
-- **A release that indexes a key's vault anew** (the changelog says so): the first instance that
-  builds each API key's space makes the words of its vault again before it answers that key's first
-  call, about 40 seconds for 200,000 values and four and a half minutes for 1,000,000. It is done once
-  for each key, but an instance builds four spaces at once, people's and keys' alike, so several large
-  keys built together after a restart hold back the first calls of every other space on that
-  instance: send each large key one call, one key after the other, before the traffic comes back.
+- **A release that makes a key's words anew** (the changelog says so; 0.11 does not): the first
+  instance that builds each API key's space makes the words of its vault again before it answers that
+  key's first call, which took Latet 0.10.0 about 40 seconds for 200,000 values and four and a half
+  minutes for 1,000,000. It is done once for each key, but an instance builds four spaces at once,
+  people's and keys' alike, so several large keys built together after a restart hold back the first
+  calls of every other space on that instance: send each large key one call, one key after the other,
+  before the traffic comes back.
 
-In the Compose example, the same steps run in containers of the new image, when the tables change:
+In the Compose example, the same steps run in containers of the new image, when the tables change
+(the pause lets the keys of stopped instances of 0.10 end; an instance of 0.11 removes its own as it
+stops):
 
 ```sh
 docker compose -p latet --profile server pull
 docker compose -p latet --profile server run --rm latet-server-1 server migrate --check
 docker compose -p latet --profile server stop latet-server-1 latet-server-2
+sleep 30
 docker compose -p latet --profile server run --rm latet-server-1 server migrate
 docker compose -p latet --profile server up -d latet-server-1 latet-server-2
 ```
@@ -398,6 +524,101 @@ docker compose -p latet --profile server up -d latet-server-1 latet-server-2
 To add an instance, start another one with the same settings, the same master key and the same
 PostgreSQL and Valkey, then add its address to the load balancer. Instances keep their state in
 PostgreSQL and Valkey, so any of them can answer any request.
+
+### Several instances on one machine
+
+An instance does most of its work on one processor core. To use more cores of a machine,
+`latet server run --workers N` (or the `workers` setting, `LATET_SERVER_WORKERS`) starts N instances,
+called workers, on the one port, each a process of its own: they share PostgreSQL and Valkey as
+instances on N machines would, and the load balancer stays as it is. In the Compose example, set
+`LATET_SERVER_WORKERS` in `.env`. Start with one worker for each core the machine gives the server.
+
+- **How many:** `--workers` on the command line, else `LATET_SERVER_WORKERS`, else `workers` in
+  `server.yaml`, else one; from 1 to 64. The settings refuse a count whose metrics ports (below) would
+  go past 65535 or take the instance's own port. In the Compose example each server container starts
+  its own workers: two containers with `LATET_SERVER_WORKERS=4` are eight instances, with eight pools
+  of connections.
+- **What they give:** measured on Linux through the applications API, eight workers masked 6.28 times
+  what one masked and unmasked 5.21 times, where this release set out to reach 5 times
+  ([how fast it is](../../applications/#how-fast-it-is)). Fewer free cores, or a few long-lived
+  connections, give less: N workers are not N times one.
+- **How connections reach them:** on Linux each worker listens on the port with a socket of its own,
+  and the system spreads new connections across them by a hash of each connection's addresses and
+  ports. Many connections spread evenly; a few long-lived ones, such as a load balancer's, can still
+  land unevenly, and more connections spread better. On macOS, which would give every connection to
+  just one of several sockets on a port, the workers share one socket instead, and connections reach
+  them less evenly. For connections spread by the kernel, run the server on Linux or in the
+  container image.
+- **The server's user:** on Linux, the process that starts the workers holds the port for the whole
+  run, so no other program takes it, even while no worker listens; right after a server with one
+  instance stopped on the same port, it waits up to a minute for that server's closed connections to
+  clear. A program can listen on the port beside the workers only when it runs as the same user as
+  the server, and it could then take a share of the connections, or all of them. Run the server as a
+  user that runs nothing else: the `latet` user of the host service, or the container's own.
+- **Memory and connections:** each worker holds about as much memory as one instance: on Linux about
+  110 MB resident at rest, and 185 to 227 MB with an API key's space of 200,000 values after it
+  served 200,000 distinct log lines, as measured for each worker with no recognition models; more for
+  further spaces, its caches and the recognition models when they are installed. A worker that serves
+  a person whose vault is held whole holds all of it, about 1.6 KB a value (about 58 MB at 35,000
+  values). Plan N times that, and up to about 70 MB more for the process that starts and watches
+  them. Text recognition gives each worker its share of the machine's processors. Each worker also
+  has its own connections, `database_pool` to PostgreSQL and `valkey_connections` to Valkey: make
+  PostgreSQL's `max_connections` and Valkey's `maxclients` cover every worker of every machine.
+- **The process that starts them:** it builds no space and opens no database, master key or
+  certificate; each worker does that in its own process. It starts with the server's settings and
+  environment, and hands them to the workers, so protect it as an instance.
+- **Metrics:** worker 0 answers Prometheus on `metrics_port`, each other worker on the next port
+  (7283, 7284 and so on): scrape each one. `latet_process_memory_bytes` is a worker's memory (its
+  resident set on Linux, its private bytes on Windows), and `latet_vault_index_bytes` the part of it
+  its vaults' indexes take.
+- **Watching:** a worker that ends, or sends no beat for 30 seconds, is ended and started again, at
+  most once every ten seconds. A worker that cannot start three times in a row (its settings, its
+  database or its certificate refuse it) stops every worker and the server, as a single instance
+  stops, so that the service manager decides. A worker that is not ready (PostgreSQL or Valkey away)
+  stays: the load balancer's readiness check decides. `latet server status` lists every instance
+  alive, each worker of each machine, with its worker number, whether it is ready, its memory and its
+  version; a worker that died stays listed for up to 30 seconds after the one that replaces it
+  starts. A request a worker was serving when it ended is not answered: its client gets an error and
+  must send it again, and none is answered unmasked. On Linux, the connections still waiting for a worker
+  that ended are cut, and their clients must connect again, and a worker that goes silent keeps its
+  share of new connections waiting until it is ended.
+- **Handing waiting connections over (optional):** on Linux 5.14 and later, with
+  `net.ipv4.tcp_migrate_req` set to 1, the system hands the connections waiting for a worker that
+  ends to the other workers instead of cutting them. In the Compose example, uncomment the `sysctls`
+  entry of the server's services; for a host service, put `net.ipv4.tcp_migrate_req = 1` in a file
+  under `/etc/sysctl.d/` and load it with `sysctl --system`. It is not set by default: on an older
+  kernel, Docker refuses to start a container that sets it.
+- **Stopping:** a stop signal reaches every worker, and each has 30 seconds to finish what is under
+  way, as a single instance has.
+- **Windows:** several workers need Linux or the container image. On Windows `latet server run`
+  refuses more than one: a socket there serves one process, and the only event loop that could share
+  it ends a worker past 512 connections. Run one instance on each Windows machine behind the load
+  balancer; the Windows service runs one, whatever the setting says.
+
+### Upgrading a Latet installed as a host service
+
+A Latet installed as a host service, as above, is upgraded with the command it was installed with,
+run again with the new release's wheel, the same `UV_*` folders and the same extras (`server`, with
+`ner` and `ocr` if it has them):
+
+```sh
+UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
+  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+```
+
+Then ask the new version whether it changes the tables, as above (`latet server migrate --check`),
+and restart the service (`systemctl restart latet-server`). On Windows, which replaces no file of a
+program that runs, stop the service before the install (`Stop-Service LatetServer`) and start it
+after (`Start-Service LatetServer`). `latet upgrade` installs in uv's own folders: on a Latet
+installed in folders of its own, it stops before anything changes and prints this command, with the
+folders it found.
+
+Up to 0.10.4, `latet upgrade` named only name detection and the text in images, and uv took the
+other extras away: a server it upgraded lost `server` (psycopg and redis), and `latet server run`
+then refused to start. A server on 0.10.4 or earlier therefore moves to a later release once with
+the command above, naming `server`, or with the installer fetched again from GitHub and run with the
+same `UV_*` variables. A server that has already lost `server` gets it back with the command above:
+the installer cannot know of an extra that is gone.
 
 ## Recognition models on a server
 
@@ -423,7 +644,7 @@ sudo -u latet env LATET_DATA_DIR=/var/lib/latet latet ocr install --yes
 systemctl restart latet-server
 ```
 
-With the Windows service, the procedure for installing the models is not documented yet.
+For the Windows service, this page gives no procedure for installing the models.
 
 ## Programs with an API key
 

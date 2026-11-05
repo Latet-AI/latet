@@ -18,6 +18,16 @@ OLD = LlmReview(enabled=True, url="https://gpu-old.acme.lan/v1", remote=True, mo
 NEW = LlmReview(enabled=True, url="https://gpu-new.acme.lan/v1", remote=True, model="qwen")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_pacing(monkeypatch):
+    """The fallback's log line is paced once a minute by a module-level state (C-21): each test starts with it fresh,
+    so that what it logs never depends on a test of another module, run before it in the same process, using it up."""
+    from latet.logline import Paced
+    from latet.server import shared as shared_module
+
+    monkeypatch.setattr(shared_module, "_UNCOMPOSED", Paced())
+
+
 def _terms(config):
     return sorted(t.value for t in config.terms)
 
@@ -144,10 +154,8 @@ def test_a_composition_that_would_lower_protection_falls_back_to_the_snapshot(mo
 
 def test_a_composition_that_falls_back_is_said_once_a_minute(monkeypatch, caplog):
     """C-21: every re-application of every space holding such settings falls back: the log says it once a minute."""
-    from latet.logline import Paced
     from latet.server import shared as shared_module
 
-    monkeypatch.setattr(shared_module, "_UNCOMPOSED", Paced())
     monkeypatch.setattr(shared_module, "_composed_key", lambda key, found, base, now, then: now)  # one composed wrongly
     approved = Config(allow_values=["support@acme.com"])
     found = Config(allow_values=["support@acme.com", "emily.carter@acme.com"], include_private_ips=True)

@@ -39,7 +39,7 @@ antes de salir, venga de donde venga su texto:
 | Páginas web | Un panel de administración que el agente abre con una herramienta de navegador | Se enmascaran los datos personales del texto de la página |
 | Instrucciones | CLAUDE.md, AGENTS.md, el prompt de sistema | Se enmascaran tu nombre, tu nombre de usuario, tu nombre de host y el dominio de tu empresa |
 | Historial | Una sesión retomada diez días después | El mismo valor recibe el mismo valor ficticio, siempre |
-| Capturas de pantalla | La captura de pantalla de una factura | Con el [reconocimiento de texto](concepts/images/) opcional, su texto se lee en tu equipo y cada valor se cubre con su valor ficticio; los PDF se marcan con un indicador, o no se envían (`images: block`) |
+| Capturas de pantalla | La captura de pantalla de una factura | Con el [reconocimiento de texto](concepts/images/) opcional, su texto se lee en tu equipo y cada valor se cubre con su valor ficticio; sin él, y con un PDF, la petición no se envía |
 | Lo que ningún patrón detecta | *"Mark, de ventas, se está entrevistando a escondidas con la competencia"* | El [revisor local](concepts/llm-review/) opcional, un modelo de lenguaje tuyo, lo encuentra antes de que salga, siguiendo las instrucciones de Latet y [tus propias indicaciones](concepts/llm-review/#tus-indicaciones): lo que se considera sensible en tu trabajo, en todas partes o en un proyecto |
 
 ## Cómo protege
@@ -106,7 +106,7 @@ fabricante: consulta
 <CardGrid>
 	<LinkCard
 		title="Suscripciones Claude Pro y Max"
-		description="Claude Code se ejecuta sin modificaciones y usa su propio inicio de sesión; cada petición sale tal como la construyó Claude Code."
+		description="Claude Code se ejecuta sin modificaciones y usa su propio inicio de sesión; el cuerpo de cada petición sale byte a byte, y solo se quitan y se cuentan unas pocas cabeceras."
 		href="agents/claude-code/#suscripciones-pro-y-max"
 	/>
 	<LinkCard

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "latet"
-version = "0.10.4"
+version = "0.11.0"
 description = "A local privacy firewall for AI agents: masks secrets and personal data before they reach the model and restores them locally."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -59,9 +59,10 @@ ocr = [
 ]
 # Latet on a server: PostgreSQL and Valkey (or Redis). psycopg is LGPL-3.0, used as a separate, unmodified package.
 # The floors are the versions the server was written against and is tested with: it leans on how psycopg and libpq take
-# an address (`latet.server.db`), and on how redis-py bounds a handshake and reads a blocking subscription
-# (`latet.server.bus`).
+# an address (`latet.server.db`), on how redis-py bounds a handshake and reads a blocking subscription
+# (`latet.server.bus`), and on numpy 2's arrays for the prints of a vault each instance holds (`latet.server.index`).
 server = [
+    "numpy>=2.0",
     "psycopg[binary,pool]>=3.3",
     "redis>=8.1",
 ]

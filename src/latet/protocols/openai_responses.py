@@ -26,8 +26,8 @@ _ROLE_KIND = {
 _TEXT_PARTS = {"input_text", "output_text", "text", "summary_text"}
 _MEDIA_PARTS = {"input_file", "input_audio"}
 _IMAGE_PARTS = {"input_image", "computer_screenshot"}
-# Audio, and what was heard in it (a Realtime part's transcript): neither is read. A computer sends it as it came; a
-# server, which reads what it sends, refuses it.
+# Audio, and what was heard in it (a Realtime part's transcript): neither is read, so Latet refuses it, on a computer
+# as on a server.
 _AUDIO_PARTS = {"audio", "output_audio"}
 # Items the provider made, given back as it made them and never restored (reasoning, encrypted; a compaction; its own
 # tools' calls; a call of a tool the model made and Latet does not restore), and items that hold no content (a reference
@@ -47,7 +47,7 @@ _PROVIDERS_ITEMS = {
     "tool_search_call",
     "tool_search_output",
 }
-# Items Latet reads. Any other kind is named unreadable: a server refuses it, a computer sends it as it came.
+# Items Latet reads. Any other kind is named unreadable: Latet refuses it, on a computer as on a server.
 _READ_ITEMS = {
     "message",
     "function_call",
@@ -264,6 +264,7 @@ def scan_turn(frame: dict[str, Any]) -> BodyScan:
         scan.uninspected += inner.uninspected
         scan.images += inner.images
         scan.keyed += inner.keyed
+        scan.confidential_keys += inner.confidential_keys
         scan.unreadable += inner.unreadable
     elif response is not None:
         scan.unreadable.append("a turn's response that is not an object")

@@ -33,6 +33,10 @@ from latet.tutorial.sandbox import BASE, ROOT_KEY
 pytestmark = pytest.mark.e2e
 
 PORT = 6690  # in-process, nothing listens on it: it only names the host the gateway accepts
+# Conversations as TutorialAgent.new_conversation draws them (a chapter's id and 8 hex digits): the pretend model's
+# route admits the agent's x-session-id by that form alone.
+ROUNDTRIP, SERVED = "tutorial-basics-4c1f0e9b", "tutorial-basics-a1b2c3d4"
+STOPPED, FRESH = "tutorial-stopped-8a7d6c5b", "tutorial-stopped-3e2d1c0b"
 
 # The demo values, all invented, and what the sandbox makes of each: the rule that finds it, its type and
 # class, and its fake. The chapters and the screenshots rely on these: a change here changes the tutorial.
@@ -119,14 +123,14 @@ async def test_a_round_trip_masks_what_leaves_and_restores_what_comes_back(rt, m
         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_read", "content": ENV}]},
     ]
     async with _agent(rt) as agent:
-        first = await send(agent, "tutorial-1", history)
+        first = await send(agent, ROUNDTRIP, history)
         assert first.status_code == 200
         text, write = parse(first.text).blocks
         # The second turn resends it all, the model's answer as the agent got it.
         done = {"type": "tool_result", "tool_use_id": "toolu_write", "content": "Wrote config.local.json"}
         written = {key: write[key] for key in ("type", "id", "name", "input")}
         history += [{"role": "assistant", "content": [text, written]}, {"role": "user", "content": [done]}]
-        second = await send(agent, "tutorial-1", history)
+        second = await send(agent, ROUNDTRIP, history)
         assert second.status_code == 200
 
     # The model got fakes only, the sandbox's own; the agent got the real values back, in the text and in
@@ -149,7 +153,7 @@ async def test_a_round_trip_masks_what_leaves_and_restores_what_comes_back(rt, m
 
     # The dashboard's record: the exchange of this conversation, the values it masked and restored.
     assert await asyncio.to_thread(rt.recorder.drain, 10)
-    first, _ = rt.exchanges.in_order("x-session-id:tutorial-1")  # as they were sent (their start times can be equal)
+    first, _ = rt.exchanges.in_order(f"x-session-id:{ROUNDTRIP}")  # as they were sent (their start times can be equal)
     detail = rt.exchanges.detail(first)
     assert detail is not None
     summary = detail["summary"]
@@ -171,11 +175,11 @@ async def test_a_request_latet_may_only_check_is_stopped_until_the_secret_is_lef
     model.expect([Turn(id="deploy", text="Deploying with the key in DEMO_API_KEY. No mistakes made.")], {})
     pasted = [{"role": "user", "content": PASTED}]
     async with _agent(rt) as agent:
-        stopped = await send(agent, "tutorial-stopped", pasted, auth="subscription")
+        stopped = await send(agent, STOPPED, pasted, auth="subscription")
         again = [*pasted, {"role": "user", "content": "try again. make no mistakes"}]
-        retried = await send(agent, "tutorial-stopped", again, auth="subscription")
+        retried = await send(agent, STOPPED, again, auth="subscription")
         fresh = [{"role": "user", "content": "deploy with the key in DEMO_API_KEY; never paste it"}]
-        passed = await send(agent, "tutorial-fresh", fresh, auth="subscription")
+        passed = await send(agent, FRESH, fresh, auth="subscription")
 
     # Anthropic's error shape, as Claude Code reads it; never the value.
     for response in (stopped, retried):
@@ -193,15 +197,17 @@ async def test_a_request_latet_may_only_check_is_stopped_until_the_secret_is_lef
     assert len(model.received) == 1 and KEY not in model.received[0].text
 
     assert await asyncio.to_thread(rt.recorder.drain, 10)
-    stops, _ = rt.exchanges.list(session="x-session-id:tutorial-stopped")
+    stops, _ = rt.exchanges.list(session=f"x-session-id:{STOPPED}")
     assert len(stops) == 2
     for summary in stops:
         assert (summary["mode"], summary["status"], summary["verified"]) == ("verify", 400, False)
         assert {"blocked", "leak"} <= set(summary["flags"])
-        assert "would leave in clear" in summary["block_reason"] and KEY not in summary["block_reason"]
+        assert summary["block_reason"] == "refused"  # its category; the words told the agent are private
+        private = rt.exchanges.detail(summary["id"])["sensitive"]["block_reason"]
+        assert "would leave in clear" in private and KEY not in private
     [leak] = rt.exchanges.detail(stops[-1]["id"])["leaks"]  # its type and length, never the value
     assert (leak["type"], leak["kind"], leak["preview"]) == ("GENERIC_API_KEY", "user_text", "GENERIC_API_KEY[40]")
-    [fine], _ = rt.exchanges.list(session="x-session-id:tutorial-fresh")
+    [fine], _ = rt.exchanges.list(session=f"x-session-id:{FRESH}")
     assert (fine["mode"], fine["status"], fine["verified"]) == ("verify", 200, True)
     assert not {"blocked", "leak"} & set(fine["flags"])
 
@@ -256,7 +262,7 @@ def test_a_server_on_this_computer_ends_and_its_folder_can_be_deleted(tmp_path):
         transport = httpx.ASGITransport(app=gateway)
         base = f"http://127.0.0.1:{port}"
         async with httpx.AsyncClient(transport=transport, base_url=base, trust_env=False) as agent:
-            response = await send(agent, "tutorial-server", [{"role": "user", "content": PROMPT}])
+            response = await send(agent, SERVED, [{"role": "user", "content": PROMPT}])
         answer = {"status": response.status_code, "answer": parse(response.text).blocks}
         await JSONResponse(answer)(scope, receive, send_)
 

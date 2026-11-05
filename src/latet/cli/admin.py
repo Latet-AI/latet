@@ -19,7 +19,7 @@ from latet.cli.main import app
 
 if TYPE_CHECKING:
     from latet.config import AutoModeReview, Config
-    from latet.releases import Release
+    from latet.releases import Folders, Release
     from latet.server.connection import _PreparedConnection
     from latet.storage.upgrade_copies import Copy
 
@@ -585,7 +585,10 @@ def upgrade(
     made stops the upgrade with nothing changed. Then it stops the daemon and starts it again after. On Windows,
     which replaces no file of a program that runs, it installs the release in a window of its own once the
     command has ended. Where name detection and the text in images cannot be installed, a Latet that has
-    neither is installed without them; one that has them is left as it was.
+    neither is installed without them; one that has them is left as it was. The other extras this Latet was
+    installed with stay (a server's `server`), as uv's record of that install names them. A Latet uv installed
+    in folders other than the ones it installs in now (a server's, with UV_TOOL_DIR) is left as it is: the
+    command stops before anything changes and says the command to run instead.
 
     With --to it installs that release instead; an older one only when you run it yourself, never an agent.
     Going back to a version a copy was taken under, it offers to put that copy back, and says how many values
@@ -605,6 +608,11 @@ def upgrade(
     if uv is None:
         typer.secho("uv not found: upgrade with your installer, then run `latet agents apply`.", fg="yellow")
         raise typer.Exit(1)
+    # uv takes away every extra the new requirement does not name: it names those this Latet was installed with (a
+    # server's `server`), and, installed without name detection and the text in images, Latet would lose what it has.
+    keep = releases.installed_extras()
+    had = not keep.isdisjoint(releases.EXTRAS) or ner.runtime_available() or models.runtime_available()
+    there = _installed_elsewhere(uv)  # uv would install a second Latet in its own folder, and leave this one
     try:
         release = releases.latest() if to is None else releases.tagged(to)
     except ValueError as exc:
@@ -612,13 +620,17 @@ def upgrade(
     except releases.ReleaseError as exc:
         what = "the latest release" if to is None else f"the release {to}"
         typer.secho(f"Could not look up {what}: {exc}.", fg="red")
+        if there is not None:
+            typer.echo(f"The releases and their wheels are at {releases.PAGE}.")
+            _upgrade_there(*there, releases.named(keep, "<the release's wheel>"))
+        source = releases.named(keep | set(releases.EXTRAS), "<its wheel>")
         typer.echo(
             f"Nothing changed. The releases are at {releases.PAGE}: to install one by hand, run the installer with "
-            "LATET_SOURCE set to its wheel (see Troubleshooting, The latest release cannot be looked up)."
+            f'LATET_SOURCE set to "{source}" (see Troubleshooting, The latest release cannot be looked up).'
         )
         raise typer.Exit(1) from None
-    # Installed without them, Latet would lose what it has: uv takes away what the new requirement does not name.
-    had = ner.runtime_available() or models.runtime_available()
+    if there is not None:
+        _upgrade_there(*there, releases.named(keep, release.wheel))
     typer.echo(f"Latet {release.version}, from {release.wheel}")
     back = _copy_to_put_back(release.version) if to is not None else None
     aside = None  # the files as they were, where a copy was put back in their place
@@ -631,17 +643,17 @@ def upgrade(
             _copy_before(release.version)
         daemon.stop()
     if _running_files_stay():
-        _upgrade_in_a_window(uv, release, had)
+        _upgrade_in_a_window(uv, release, had, keep)
         return
     install = [uv, "tool", "install", "--upgrade", "--python", releases.PYTHONS]
-    done = subprocess.run([*install, release.requirement()], check=False)  # noqa: S603
+    done = subprocess.run([*install, release.requirement(keep=keep)], check=False)  # noqa: S603
     off = False  # installed without name detection and the text in images
     if done.returncode != 0 and not had:
         typer.secho(
             "Name detection and the text in images cannot be installed here: installing Latet without them.",
             fg="yellow",
         )
-        done = subprocess.run([*install, release.requirement(extras=False)], check=False)  # noqa: S603
+        done = subprocess.run([*install, release.requirement(extras=False, keep=keep)], check=False)  # noqa: S603
         off = True
     if done.returncode != 0:
         daemon.start()
@@ -792,16 +804,109 @@ def _put_back(copy: Copy, installing: str) -> Copy | None:
     return aside
 
 
+def _installed_elsewhere(uv: str) -> tuple[Folders, Path] | None:
+    """The folders uv installed the Latet that runs in, and the tool folder uv installs in now, where the two differ
+    (a server installed with UV_TOOL_DIR=/opt/latet/tools, as Server operations says): `latet upgrade` would install a
+    second Latet in uv's folder and leave this one as it is. None where they are the same, where uv cannot say, or where
+    uv did not install this Latet (pip's: uv installs a copy of its own, as Troubleshooting says)."""
+    from latet import releases
+
+    folders = releases.tool_folders()
+    if folders is None:
+        return None
+    try:
+        said = subprocess.run(  # noqa: S603
+            [uv, "tool", "dir"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = said.stdout.strip().splitlines() if said.returncode == 0 and said.stdout else []
+    if not lines:
+        return None
+    tools = Path(lines[-1].strip())
+    return None if _same_folder(folders.tools, tools) else (folders, tools)
+
+
+def _same_folder(one: Path, other: Path) -> bool:
+    try:
+        return os.path.samefile(one, other)
+    except OSError:  # one of them is not there
+        return os.path.normcase(os.path.realpath(one)) == os.path.normcase(os.path.realpath(other))
+
+
+def _install_command(folders: Folders, requirement: str, windows: bool | None = None) -> str:
+    """The uv command that installs ``requirement`` in ``folders``, as the shell of this system takes it (PowerShell on
+    Windows)."""
+    import shlex
+
+    from latet import releases
+
+    windows = sys.platform == "win32" if windows is None else windows
+    quote = _powershell_quoted if windows else shlex.quote
+    named = [
+        (variable, quote(str(folder)))
+        for variable, folder in (
+            ("UV_TOOL_DIR", folders.tools),
+            ("UV_TOOL_BIN_DIR", folders.commands),
+            ("UV_PYTHON_INSTALL_DIR", folders.pythons),
+        )
+        if folder is not None
+    ]
+    variables = "".join(f"$env:{name} = {value}; " if windows else f"{name}={value} " for name, value in named)
+    return f"{variables}uv tool install --upgrade --python {quote(releases.PYTHONS)} {quote(requirement)}"
+
+
+# What ends a single-quoted string in PowerShell: the apostrophe and the typographic single quotes, each doubled to
+# stay in it (as PowerShell's own EscapeSingleQuotedStringContent does).
+_POWERSHELL_QUOTES = re.compile(
+    "['\N{LEFT SINGLE QUOTATION MARK}\N{RIGHT SINGLE QUOTATION MARK}"
+    "\N{SINGLE LOW-9 QUOTATION MARK}\N{SINGLE HIGH-REVERSED-9 QUOTATION MARK}]"
+)
+
+
+def _powershell_quoted(text: str) -> str:
+    """``text`` in PowerShell's single quotes, which expand nothing."""
+    return "'" + _POWERSHELL_QUOTES.sub(lambda quote: quote.group(0) * 2, text) + "'"
+
+
+def _upgrade_there(folders: Folders, tools: Path, requirement: str) -> None:
+    """`latet upgrade` stopped, nothing changed, for a Latet installed in folders uv does not install in now: the
+    command to upgrade it in them instead."""
+    typer.secho(
+        f"This Latet is installed in {folders.tools}, and uv installs its tools in {tools}: `latet upgrade` would "
+        "install a second Latet there and leave this one as it is. Nothing changed.",
+        fg="red",
+    )
+    stop = (
+        ", once Latet is stopped (Windows replaces no file of a program that runs)" if sys.platform == "win32" else ""
+    )
+    typer.echo(f"Upgrade this one with the command it was installed with, in its own folders{stop}:")
+    typer.echo("")
+    typer.echo(f"    {_install_command(folders, requirement)}")
+    typer.echo("")
+    typer.echo(
+        "On a server, then run `latet server migrate --check` and restart its service (Server operations, "
+        "Upgrading a Latet installed as a host service)."
+    )
+    raise typer.Exit(1)
+
+
 def _running_files_stay() -> bool:
     """Whether this system replaces no file of a program that runs (Windows): `latet upgrade` runs from the Latet it
     replaces, so there it hands the upgrade to a window of its own."""
     return sys.platform == "win32"
 
 
-def _upgrade_in_a_window(uv: str, release: Release, had: bool) -> None:
+def _upgrade_in_a_window(uv: str, release: Release, had: bool, keep: frozenset[str]) -> None:
     """The upgrade, on Windows: ``upgrade.ps1``, copied out of the folder it replaces, in a new window, which waits for
     this command and its launcher to end before uv replaces their files (run from here, uv could not remove that
-    folder and left it half gone)."""
+    folder and left it half gone). It is given the requirements whole, with the extras ``keep``."""
     from latet import releases
 
     script = Path(tempfile.gettempdir()) / f"latet-upgrade-{os.getpid()}.ps1"
@@ -809,8 +914,8 @@ def _upgrade_in_a_window(uv: str, release: Release, had: bool) -> None:
     command = [
         "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
         "-WaitFor", f"{os.getpid()},{os.getppid()}", "-Uv", uv, "-Pythons", releases.PYTHONS,
-        "-Full", release.requirement(), "-Plain", release.requirement(extras=False), "-Had", "1" if had else "0",
-        "-Latet", shutil.which("latet") or "latet", "-Version", release.version,
+        "-Full", release.requirement(keep=keep), "-Plain", release.requirement(extras=False, keep=keep),
+        "-Had", "1" if had else "0", "-Latet", shutil.which("latet") or "latet", "-Version", release.version,
     ]  # fmt: skip
     subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))  # noqa: S603
     typer.echo(
@@ -1044,7 +1149,10 @@ def global_install(
             rows.append(("Text in images", f"read and masked by local models, downloaded now ({ocr_size})"))
         else:
             rows.append(
-                ("Text in images", f"not read: images are sent as they are (--ocr downloads the models, {ocr_size})")
+                (
+                    "Text in images",
+                    f"not read: a request that carries an image is refused (--ocr downloads the models, {ocr_size})",
+                )
             )
     rows.append(("Port", moved or str(new_port)))
 

@@ -16,14 +16,16 @@ TABLES = {
 }  # fmt: skip
 
 
-def test_migrating_makes_the_schema_once_and_says_what_it_applied(settings, schema):
+def test_migrating_makes_the_schema_once_and_says_what_it_applied(settings, schema, migration_master):
     db = Database(settings.database_url, schema=schema)
     try:
         with pytest.raises(SchemaMismatch, match="latet server migrate"):
             check_schema(db)
-        applied = migrate(db)  # the core's first; a later part's after it (E1 appends "latet.ee.migrations")
+        applied = migrate(
+            db, master=migration_master
+        )  # the core's first; a later part's after it (E1 appends "latet.ee.migrations")
         assert applied[0] == "latet.server.migrations:001_core" and len(applied) == len(set(applied))
-        assert migrate(db) == []
+        assert migrate(db, master=migration_master) == []
         check_schema(db)
         with db.connection() as conn:
             found = {r[0] for r in conn.execute(
@@ -34,11 +36,11 @@ def test_migrating_makes_the_schema_once_and_says_what_it_applied(settings, sche
         db.close()
 
 
-def test_two_instances_migrating_at_once_apply_each_migration_once(settings, schema):
+def test_two_instances_migrating_at_once_apply_each_migration_once(settings, schema, migration_master):
     dbs = [Database(settings.database_url, schema=schema) for _ in range(2)]
     try:
         with ThreadPoolExecutor(2) as pool:
-            applied = list(pool.map(migrate, dbs))
+            applied = list(pool.map(lambda db: migrate(db, master=migration_master), dbs))
         none, every = sorted(applied, key=len)
         assert none == [] and every[0] == "latet.server.migrations:001_core"  # each migration applied once
     finally:

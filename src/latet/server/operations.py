@@ -43,6 +43,7 @@ from latet.fileio import FileReadError, read_regular_bytes
 from latet.logline import Paced, described
 from latet.server.metrics import code_label
 from latet.server.settings import APPS_API, SERVER_API
+from latet.server.start_errors import SettingRefused
 from latet.server.tokens import bearer_token
 
 if TYPE_CHECKING:
@@ -147,13 +148,13 @@ def _other_secrets(server: Server) -> list[tuple[str, str]]:
 
 def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
     """The metrics token of ``metrics_token_file``, read once, as a key made for this process and the token's keyed hash
-    under it: never the token itself. None when the setting is not set: metrics off. Raises ValueError, in words that
-    name the setting and never what the file holds, for a file that cannot be read, is more than ``TOKEN_FILE_BYTES``,
-    not UTF-8 text, empty, more than one line, other than ``TOKEN_SHORTEST`` to ``TOKEN_LONGEST`` printable ASCII
-    characters with no space, or another secret: the file of another secret setting, a token, an API key or an
-    administration token of the server's, a version of its master key, PostgreSQL's or Valkey's password, or the shared
-    reviewer's key (``_other_secrets``, each compared in constant time). Nothing is raised while the error of a read or
-    of a decoding is handled: they hold the file's name or its bytes."""
+    under it: never the token itself. None when the setting is not set: metrics off. Raises SettingRefused (a
+    ValueError), in words that name the setting and never what the file holds, for a file that cannot be read, is more
+    than ``TOKEN_FILE_BYTES``, not UTF-8 text, empty, more than one line, other than ``TOKEN_SHORTEST`` to
+    ``TOKEN_LONGEST`` printable ASCII characters with no space, or another secret: the file of another secret setting,
+    a token, an API key or an administration token of the server's, a version of its master key, PostgreSQL's or
+    Valkey's password, or the shared reviewer's key (``_other_secrets``, each compared in constant time). Nothing is
+    raised while the error of a read or of a decoding is handled: they hold the file's name or its bytes."""
     settings = server.settings
     path = settings.metrics_token_file
     if path is None:
@@ -161,7 +162,7 @@ def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
     path = Path(path)
     for name in _OTHER_SECRETS:
         if _same_file(path, getattr(settings, name, None)):
-            raise ValueError(
+            raise SettingRefused(
                 f"metrics_token_file names the file of {name}: the metrics token is a secret of its own, which a "
                 "scrape over http carries in clear (make one with `openssl rand -hex 32`)"
             )
@@ -172,36 +173,36 @@ def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
         too_large = exc.reason == "too_large"
         problem = f"is more than {TOKEN_FILE_BYTES} bytes: a token is one line" if too_large else str(exc)
     if problem:
-        raise ValueError(f"metrics_token_file names a file that {problem}")
+        raise SettingRefused(f"metrics_token_file names a file that {problem}")
     text: str | None = None
     try:
         text = raw.decode("utf-8-sig").strip()  # without the mark that some editors and shells put first
     except UnicodeDecodeError:
         text = None
     if text is None:
-        raise ValueError("metrics_token_file names a file that is not UTF-8 text")
+        raise SettingRefused("metrics_token_file names a file that is not UTF-8 text")
     if not text:
-        raise ValueError("metrics_token_file names a file that holds no token")
+        raise SettingRefused("metrics_token_file names a file that holds no token")
     if "\n" in text or "\r" in text:
-        raise ValueError("metrics_token_file names a file that holds more than one line: a token is one line")
+        raise SettingRefused("metrics_token_file names a file that holds more than one line: a token is one line")
     if any(not "!" <= char <= "~" for char in text):
-        raise ValueError(
+        raise SettingRefused(
             "metrics_token_file names a file whose token holds a space, a control character or a character that is "
             "not ASCII: a token is printable ASCII, such as `openssl rand -hex 32` makes"
         )
     if not TOKEN_SHORTEST <= len(text) <= TOKEN_LONGEST:
-        raise ValueError(
+        raise SettingRefused(
             f"metrics_token_file names a file whose token is not {TOKEN_SHORTEST} to {TOKEN_LONGEST} characters long "
             "(make one with `openssl rand -hex 32`)"
         )
     if holds_a_secret_start(text):
-        raise ValueError(
+        raise SettingRefused(
             "metrics_token_file names a file that holds a token, an API key, an administration or SCIM token or a "
             "one-time code of the server's: a scrape over http would carry it in clear (make a token of its own with "
             "`openssl rand -hex 32`)"
         )
     if server.master.is_version(text):
-        raise ValueError(
+        raise SettingRefused(
             "metrics_token_file names a file that holds the master key: a scrape over http would carry it in clear "
             "(make a token of its own with `openssl rand -hex 32`)"
         )
@@ -215,7 +216,7 @@ def _metrics_token(server: Server) -> tuple[bytes, bytes] | None:
         None,
     )
     if named is not None:
-        raise ValueError(
+        raise SettingRefused(
             f"metrics_token_file names a file that holds {named}: a scrape over http would carry it in clear (make a "
             "token of its own with `openssl rand -hex 32`)"
         )

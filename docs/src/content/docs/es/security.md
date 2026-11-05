@@ -68,6 +68,29 @@ datos y bóvedas configuradas por separado proporcionan almacenes separados; tra
 distintos no basta. Consulta [Proyectos](../concepts/projects/) y
 [Latet en un servidor](../concepts/server/).
 
+**Qué reglas de proyecto se aplican.** Una carpeta que nombra una petición (la cabecera
+`x-latet-project`, o la carpeta de trabajo que un agente escribe en sus peticiones) solo está
+*declarada*: las reglas de su proyecto que añaden protección se aplican, sus relajaciones y sus
+excepciones de petición no, y un proyecto declarado en el que Latet está desactivado se rechaza. Un
+proyecto es *de confianza* solo cuando Latet lo conoce por sí mismo, de dos fuentes:
+
+- **El vínculo del plugin de Claude Code.** El plugin vincula una sesión al proyecto de una carpeta que
+  Latet conoce; cada una de sus llamadas mantiene el vínculo, que termina tras 30 minutos sin ninguna.
+  Tiene un límite aceptado: una petición de Anthropic Messages que lleva el id de una sesión tuya
+  activa vinculada por el plugin se decide con ese proyecto, relajaciones y excepciones incluidas, sea
+  cual sea el cliente tuyo que la envíe. La sigue leyendo la comprobación final y nunca se reescribe, y
+  las peticiones de ninguna otra persona alcanzan el vínculo. Las llamadas que Claude Code hace antes
+  de la primera llamada del plugin que vincula la sesión (sus llamadas de arranque) se deciden solo con
+  tus propias reglas, ni con las reglas añadidas del proyecto ni con sus relajaciones.
+- **Una clave de lanzamiento.** Un agente que lanza Latet lleva una clave secreta de ese lanzamiento,
+  ligada al proyecto de la carpeta y a ti; Latet la comprueba, la quita antes de reenviar nada, y solo
+  guarda un hash con clave de ella. Cualquier programa que tenga la clave cuenta como ese lanzamiento:
+  funciona con el mismo usuario, y Latet no pretende ligar una clave a un proceso. Una sesión que
+  arrancó `latet claude` necesita su clave, así que su id de sesión por sí solo no alcanza ninguna
+  relajación del proyecto.
+
+Consulta [Proyectos](../concepts/projects/#de-confianza-y-declarados).
+
 ## Dentro del alcance
 
 - La revelación accidental de valores reconocibles al proveedor a través de los prompts, los archivos,
@@ -75,6 +98,10 @@ distintos no basta. Consulta [Proyectos](../concepts/projects/) y
 - Las peticiones que saldrían con un valor sensible en claro en el modo cliente, por ejemplo por una
   vía que el plugin no cubre: la comprobación final del plugin y el daemon las bloquean.
 - Las páginas web que intentan usar el daemon local (DNS rebinding, peticiones entre sitios).
+- Una parte de una petición que Latet no lee: la ruta, la consulta, las cabeceras y el cuerpo se leen
+  cada uno, se quitan por una regla declarada o pasan por una excepción que aprobaste; si no, la
+  petición no se envía, en un equipo igual que en un servidor
+  ([Cada parte de una petición](../concepts/protection-scope/#cada-parte-de-una-petición)).
 
 ## Fuera del alcance
 
@@ -236,14 +263,26 @@ en un único archivo:
   `history: full` (10 MB como máximo cada una), y se van con su intercambio.
 - Lo que decides sobre una imagen en el Revisor en directo, y una imagen que el revisor local retuvo,
   se recuerdan sellados en la base de datos de la caja fuerte, mediante un hash con clave de la imagen.
-- Una imagen que no se puede leer se retiene, nunca se envía tal como estaba.
+- Una imagen que no se puede leer se retiene, nunca se envía tal como estaba; en una petición que
+  Latet solo comprueba, lo que se rechaza es la petición.
 
 **Tráfico**
 
 - Las cabeceras de credenciales (`Authorization`, claves de API, cookies y similares) se reenvían sin
   cambios, pero nunca se escriben en los registros ni en el panel: solo se registra su longitud. Las
-  cabeceras propias de Latet (`x-latet-*`, una de las cuales nombra una carpeta tuya) nunca salen de tu
-  equipo.
+  cabeceras propias de Latet (`x-latet-*`, una de las cuales nombra una carpeta tuya) nunca se
+  reenvían a un proveedor.
+- La clave de lanzamiento que Latet da a un agente que lanza, en `x-latet-launch-key`, es un secreto
+  como el token de Latet: se comprueba, se quita, nunca se registra ni se guarda. Si aparece en la
+  salida de una herramienta o en un mensaje, se enmascara; donde no se puede enmascarar, la petición se
+  rechaza.
+- Una cabecera que ningún perfil nombra se rechaza: su nombre solo se le dice al agente, y los
+  registros y el historial solo guardan su tipo. Las cabeceras que un perfil declara eliminables se
+  quitan y se cuentan en el panel: la telemetría y el trazado de los SDK (`x-stainless-*`,
+  `traceparent`...), y las propias de los agentes que pueden contener texto libre, como los id de un
+  subagente de Claude Code o los metadatos del turno de Codex, que contienen la ruta y los remotos de
+  tu repositorio ([Las cabeceras que quita Latet](../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet)). En una petición que Latet solo comprueba,
+  son el único cambio: su cuerpo sale byte a byte.
 - Una excepción, cuando usas Amazon Bedrock con tu inicio de sesión de AWS: Claude Code no envía
   credenciales, y Latet firma cada petición para Amazon (SigV4) con tu perfil de AWS. Lee el perfil como
   lo hace la AWS CLI, guarda las credenciales solo en memoria, nunca las escribe en ningún sitio y solo
@@ -270,7 +309,11 @@ en un único archivo:
   un proxy de empresa cuyo certificado raíz esté instalado ahí sigue funcionando.
 - La captura en bruto de los intercambios para depuración está desactivada por defecto. Cuando la
   activas (`latet serve --capture <folder>`), las cabeceras de credenciales se suprimen, pero las
-  capturas siguen conteniendo el contenido de las conversaciones: guárdalas en tu equipo.
+  capturas siguen conteniendo el contenido de las conversaciones: guárdalas en tu equipo. Los
+  registros de Latet, los metadatos del historial y los registros de las decisiones de un servidor
+  guardan categorías fijas y plantillas de ruta, nunca un valor, el nombre de una cabecera o de una
+  herramienta, ni la ruta a la que se envió una petición: la captura y el historial completo son los
+  registros que contienen el contenido.
 
 El daemon no abre ninguna conexión de red, salvo para reenviar las peticiones de tu agente al proveedor
 (o al punto de conexión de empresa) que tu agente ya usa y, cuando lo activas, para consultar al
@@ -293,6 +336,37 @@ sitio de documentación.
   rechazos; `latet server log verify` comprueba la cadena.
 - El token que tienen los agentes de un equipo abre el bridge del plugin y el proxy del espacio, nunca
   el panel: este necesita además la clave del equipo, que no se da a ningún agente.
+- Una excepción de petición forma parte de los ajustes propios de una persona y se aplica cuando esa
+  persona la aprueba. Aprobar una permanente escribe una entrada en el registro de administración,
+  solo con su id y el tipo de su alcance, nunca su descripción; `latet server status` enumera las
+  permanentes del mismo modo. Las lee de un índice que PostgreSQL guarda junto a los ajustes sellados:
+  por cada excepción aprobada, su id, el tipo de su alcance, si es permanente, su fin, y si está en
+  vigor, espera una nueva aprobación tras una revisión de su perfil o no la permite la edición; nunca
+  su descripción, su destino, la carpeta de un proyecto ni lo que nombra.
+- Con el historial desactivado, las excepciones usadas se cuentan en memoria, y se comparten a través
+  de Valkey por instancia e identidad, solo ids y números, para el panel. Valkey tal como lo entrega
+  Latet no guarda nada en disco; un operador que active su persistencia escribe estos recuentos en
+  disco.
+- Con varios workers en Linux, el puerto queda retenido para el servidor todo el tiempo, incluso
+  mientras ningún worker escucha, y solo un programa que se ejecuta con el propio usuario del
+  servidor puede escuchar en él junto a los workers; un programa así podría quedarse con sus
+  conexiones: ejecuta el servidor con un usuario que no ejecute nada más ([Operación del
+  servidor](../concepts/server-operations/)).
+- PostgreSQL guarda los valores y los valores ficticios de cada caja fuerte sellados con la clave de
+  la identidad, y junto a cada una de sus palabras un hash con clave y una huella: una huella de 64
+  bits con una clave derivada de la de la identidad, que las instancias guardan en memoria para
+  encontrar los valores de un texto. Quien lee la base de datos no saca de ellas ninguna palabra,
+  pero ve qué filas de una identidad comparten una palabra, cuántas son y, por los números de cambio
+  de las filas, qué filas cambiaron y en qué orden: una huella no es un cifrado. Dos palabras pueden
+  tener la misma huella, así que cada valor o valor ficticio al que lleva una huella se descifra y se
+  compara con el texto antes de enmascarar o restaurar nada.
+- Lo que Valkey guarda y transporta para una caja fuerte son ids, tipos, recuentos y datos sellados:
+  ningún valor, valor ficticio, palabra ni huella en claro, y ningún hash con clave de la caja fuerte.
+  Hay pruebas que lo comprueban en todo lo que las instancias envían a Valkey mientras enmascaran,
+  restauran y olvidan valores para una clave de API y para una persona, rehacen las huellas de una
+  caja fuerte y envían sus latidos, y en los registros. Sus mensajes van firmados, lo que dice quién
+  los envió y no mantiene nada en secreto; lo que debe seguir en secreto va sellado. Los latidos de
+  las instancias llevan números, valores booleanos y la versión, nunca una identidad.
 
 ## Informar de una vulnerabilidad
 

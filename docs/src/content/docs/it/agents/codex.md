@@ -83,6 +83,23 @@ un'azienda al posto di quello di OpenAI). Vedi [Endpoint aziendali](../company-e
 - Codex legge i file con comandi della shell, quindi la
   [modalità dati rigorosa](../../concepts/production-data/#quali-strumenti) copre anche i file che legge.
   Indica il suo strumento per il database in `data_tools` per coprire solo quello.
+- Il percorso, i remote e il commit del repository che Codex aggiunge a ogni richiesta, nell'header
+  `x-codex-turn-metadata` e in `client_metadata` del corpo, vengono tolti prima dell'invio, e così
+  l'header `x-openai-subagent`, il tipo o l'etichetta libera che Codex dà a un subagente; la
+  dashboard li conta. Il suo elenco dei modelli passa; una chiamata che Latet non legge, come recuperare una risposta salvata,
+  viene rifiutata.
+- Gli header tuoi in `http_headers` o `env_http_headers` di un provider vengono rifiutati, nominandoli
+  uno per uno, finché un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non li
+  lascia passare (`openai.responses.1`). Sul WebSocket dell'accesso con ChatGPT nessuna eccezione si
+  applica nella 0.11.0: un header o un parametro di query che Latet non legge chiude la connessione
+  prima che si apra, e la chiusura dice perché e nomina l'header o il parametro, mai il suo valore. La
+  cronologia registra il rifiuto.
+- **Il suo progetto.** `latet codex` dà a Codex una chiave di avvio tramite un provider di
+  `model_providers` (`env_http_headers`), da Codex 0.115: le impostazioni del suo progetto si applicano
+  allora per intero. Sui provider integrati di Codex (con l'accesso ChatGPT, o il provider di OpenAI),
+  e prima della 0.115, nessuna chiave può viaggiare: `latet codex` lo dice all'avvio, e il progetto che
+  Codex nomina nelle sue richieste è dichiarato, quindi le sue regole che aggiungono protezione si
+  applicano e i suoi allentamenti no ([Progetti](../../concepts/projects/#attendibili-e-dichiarati)).
 
 Provato dal vivo: la CLI di Codex con l'accesso tramite ChatGPT. Codex Desktop legge lo stesso
 `config.toml`; se lì qualcosa non funziona, [apri una issue](https://github.com/Latet-AI/latet/issues),

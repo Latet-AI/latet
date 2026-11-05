@@ -14,6 +14,8 @@ describe('destinations', () => {
   it('tells who signed a request for Amazon', () => {
     expect(signedBy('aws-profile:work')).toEqual({ by: 'profile', profile: 'work' })
     expect(signedBy('aws-session')).toEqual({ by: 'session' })
+    expect(signedBy(true)).toEqual({ by: 'latet' }) // the summary says so, never with which profile
+    expect(signedBy(false)).toBeNull()
     expect(signedBy(null)).toBeNull()
   })
 

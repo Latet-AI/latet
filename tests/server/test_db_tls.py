@@ -59,7 +59,7 @@ def _another_authority(folder) -> str:
 
 
 def test_a_verified_tls_connection_is_made_as_the_address_says_whatever_the_environment_holds(
-    tls_database, tmp_path, monkeypatch
+    tls_database, tmp_path, monkeypatch, migration_master
 ):
     """Every variable libpq reads for an option is set wrong (PGSSLMODE=disable, another PGSSLROOTCERT, PGSSLCERT and
     PGSSLKEY...; the two that are refused apart), and the server's connection verifies the certificate in full."""
@@ -69,7 +69,7 @@ def test_a_verified_tls_connection_is_made_as_the_address_says_whatever_the_envi
             monkeypatch.setenv(variable, value)
     db = Database(address, schema=schema)
     try:
-        assert migrate(db)[0] == "latet.server.migrations:001_core"
+        assert migrate(db, master=migration_master)[0] == "latet.server.migrations:001_core"
         with db.connection() as conn:
             assert conn.pgconn.ssl_in_use
             assert conn.execute("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()").fetchone() == (True,)
@@ -85,7 +85,7 @@ def _where(address: str, **query: str) -> str:
     return parts._replace(query=urlencode({**given, **query}, quote_via=quote)).geturl()
 
 
-def test_a_certificate_for_another_name_is_refused_as_verify_full_checks_the_name(tls_database):
+def test_a_certificate_for_another_name_is_refused_as_verify_full_checks_the_name(tls_database, migration_master):
     """verify-full checks the certificate's name, which stops whoever holds a certificate from the same authority for
     another name: the same PostgreSQL, reached at its address under a name its certificate does not carry, is refused,
     said by its type; asked with verify-ca, which checks the authority alone, it answers, so that the refusal was the
@@ -95,7 +95,7 @@ def test_a_certificate_for_another_name_is_refused_as_verify_full_checks_the_nam
     elsewhere = Database(_where(address, host="db.invalid", hostaddr="127.0.0.1"), schema=schema, connect_timeout=5)
     try:
         with pytest.raises(DatabaseError) as refused:
-            migrate(elsewhere)
+            migrate(elsewhere, master=migration_master)
         assert password and password not in str(refused.value)
     finally:
         elsewhere.close()
@@ -103,19 +103,23 @@ def test_a_certificate_for_another_name_is_refused_as_verify_full_checks_the_nam
         _where(address, host="db.invalid", hostaddr="127.0.0.1", sslmode="verify-ca"), schema=schema, connect_timeout=5
     )
     try:
-        assert migrate(authority_alone)[0] == "latet.server.migrations:001_core"
+        assert migrate(authority_alone, master=migration_master)[0] == "latet.server.migrations:001_core"
     finally:
         authority_alone.close()
 
 
-def test_a_certificate_signed_by_another_authority_is_refused_and_said_by_its_type(tls_database, tmp_path):
+def test_a_certificate_signed_by_another_authority_is_refused_and_said_by_its_type(
+    tls_database,
+    tmp_path,
+    migration_master,
+):
     address, schema = tls_database
     parts = urlsplit(address)
     another = parts._replace(query=f"sslmode=verify-full&sslrootcert={quote(_another_authority(tmp_path), safe='/')}")
     db = Database(another.geturl(), schema=schema, connect_timeout=5)
     try:
         with pytest.raises(DatabaseError) as refused:
-            migrate(db)
+            migrate(db, master=migration_master)
         assert parts.password and parts.password not in str(refused.value)
     finally:
         db.close()

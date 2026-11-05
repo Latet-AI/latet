@@ -132,7 +132,7 @@ def test_real_websocket_releases_pending_json_or_finalizes_it_on_the_engine(monk
             TestClient(app, base_url="http://127.0.0.1:5283") as client,
             client.websocket_connect("/relay/v1/responses", headers={"host": "127.0.0.1:5283"}) as socket,
         ):
-            socket.send_json({"type": "response.create", "model": "m", "input": ORIGINAL})
+            socket.send_json({"type": "response.create", "model": "gpt-4o", "input": ORIGINAL})
             events = []
             for _ in range(100):
                 event = socket.receive_json()
