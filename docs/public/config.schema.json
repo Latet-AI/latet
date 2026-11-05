@@ -82,6 +82,17 @@
           "default": null,
           "description": "The agent whose settings Latet read it from; not set: written by you.",
           "title": "Agent"
+        },
+        "request_profile": {
+          "default": "standard",
+          "description": "The requests Latet lets through to it: `standard` (the Anthropic and OpenAI APIs' own routes), `azure-openai-1` (Azure OpenAI, with its `api-version`) or `foundry-1` (Microsoft Foundry).",
+          "enum": [
+            "standard",
+            "azure-openai-1",
+            "foundry-1"
+          ],
+          "title": "Request Profile",
+          "type": "string"
         }
       },
       "required": [
@@ -89,6 +100,62 @@
         "url"
       ],
       "title": "Destination",
+      "type": "object"
+    },
+    "ExceptionComponent": {
+      "additionalProperties": false,
+      "description": "One component of a request that an exception lets through, named exactly: a header, a query parameter or a\nmember of the JSON body that no profile names. ``credential``: its value is the destination's own credential, sent\nas it came and never read (D4); ``checked``: its value passes Latet's final check, as a free-text header's does. A\nbody member is named by an exact JSON pointer and the ``type`` of its value (``selector_grammar.py``), and is\nalways checked.",
+      "properties": {
+        "kind": {
+          "description": "`header`, `query` (a query parameter) or `body` (a member of the request's JSON body).",
+          "enum": [
+            "header",
+            "query",
+            "body"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its exact name: a header's in lower case, a query parameter's as sent, a body member's JSON pointer (`/metadata_x/team`, `*` alone for any index of an array).",
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "default": "checked",
+          "description": "`credential` (the destination's own credential, never read) or `checked` (its value is checked for sensitive values before it leaves).",
+          "enum": [
+            "credential",
+            "checked"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A body member's alone: the type of the value it names, `string`, `number`, `boolean` or `null` (never an object or an array: what one holds is named member by member).",
+          "title": "Type"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "ExceptionComponent",
       "type": "object"
     },
     "FieldRule": {
@@ -746,7 +813,7 @@
         },
         "enabled": {
           "default": true,
-          "description": "`false` turns Latet off in this project: nothing is masked or blocked, and surrogates already in a conversation are still restored.",
+          "description": "`false` turns Latet off in this project: Latet sends none of its agents' requests (they are refused, saying so), so an agent there reaches its provider directly, without Latet's address.",
           "title": "Enabled",
           "type": "boolean"
         }
@@ -755,6 +822,213 @@
         "path"
       ],
       "title": "ProjectEntry",
+      "type": "object"
+    },
+    "RequestException": {
+      "additionalProperties": false,
+      "description": "An exact, visible exception to the refusal of what no profile names (D1, D4): the components it names, on one\ndestination's one profile, for the identity or, through a trusted binding alone, one project. It is a loosening:\nit applies once you approve it, and lasts ``days`` (30 by default, 90 at most) from then, unless you make it\n``permanent`` on purpose (D3). ``id``, ``granted``, ``revision`` and ``issuer`` are Latet's: it sets them as you\napprove it.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^x[0-9a-f]{10}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set by Latet as you approve it.",
+          "title": "Id"
+        },
+        "destination": {
+          "description": "The route it applies to: a provider's or one of `upstreams`.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "profile": {
+          "description": "The request profile it applies to, as a refusal names it (`anthropic.messages.1`): one method, route and transport.",
+          "title": "Profile",
+          "type": "string"
+        },
+        "components": {
+          "description": "What it lets through, each named exactly.",
+          "items": {
+            "$ref": "#/$defs/ExceptionComponent"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Components",
+          "type": "array"
+        },
+        "reason": {
+          "description": "Why, by category: `destination-credential`, `custom-header`, `query-parameter` or `other`.",
+          "enum": [
+            "destination-credential",
+            "custom-header",
+            "query-parameter",
+            "other"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Your own words on it, for you alone: never in a log or a server's audit.",
+          "title": "Description"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A project's folder: it applies there alone, to requests whose project Latet trusts (a launch's key, the Claude Code plugin). Not set: to every request of yours.",
+          "title": "Project"
+        },
+        "days": {
+          "default": 30,
+          "description": "How long it lasts once approved: 30 days by default, 90 at most.",
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer"
+        },
+        "permanent": {
+          "default": false,
+          "description": "`true`: it never expires. Chosen on purpose, and approved as any loosening is; always shown as permanent.",
+          "title": "Permanent",
+          "type": "boolean"
+        },
+        "granted": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When you approved it: set by Latet.",
+          "title": "Granted"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The revision of the request profiles it was approved under: set by Latet.",
+          "title": "Revision"
+        },
+        "body_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With body components, the revision of the body declaration it was approved under: set by Latet.",
+          "title": "Body Revision"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "enum": [
+                "owner",
+                "person",
+                "administration"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who approved it: `owner` (you, on your computer), `person` (you, on a server) or `administration` (a server's administration, for an API key). Set by Latet.",
+          "title": "Issuer"
+        }
+      },
+      "required": [
+        "destination",
+        "profile",
+        "components",
+        "reason"
+      ],
+      "title": "RequestException",
+      "type": "object"
+    },
+    "RequestResource": {
+      "additionalProperties": false,
+      "description": "An exact identity-owned expected resource, never a selector, header-family grant or project setting.",
+      "properties": {
+        "destination": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "model",
+            "project",
+            "cache",
+            "inference-profile",
+            "api-version",
+            "after_id",
+            "before_id",
+            "pageToken",
+            "nextToken",
+            "updateMask",
+            "openai-organization",
+            "openai-project",
+            "x-session-id"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "destination",
+        "url",
+        "role",
+        "value"
+      ],
+      "title": "RequestResource",
       "type": "object"
     },
     "TermConfig": {
@@ -1210,7 +1484,7 @@
     },
     "ocr": {
       "default": "auto",
-      "description": "The text in images: `auto` reads it once the models are installed (`latet ocr install`) and masks what it finds, `off` never does (images are then sent as they are, and flagged).",
+      "description": "The text in images: `auto` reads it once the models are installed (`latet ocr install`) and masks what it finds; `off` never does, and a request that carries an image is then refused, as it is while the models are not installed.",
       "enum": [
         "auto",
         "off"
@@ -1283,7 +1557,7 @@
     },
     "images": {
       "default": "allow",
-      "description": "`allow` sends images, with their text masked once the text recognition models are installed (`latet ocr install`); `mask` sends only images whose text was read and masked, and no documents; `block` sends no images or documents. The max profile sends none either, unless this says `mask`.",
+      "description": "`allow` sends images with their text read and masked by the text recognition models (`latet ocr install`): without them, or with `ocr: off`, a request that carries an image is refused. `mask` sends only images whose text was read and masked; `block` sends no images. Documents, audio and remote media are refused under each. The max profile sends no images either, unless this says `mask`.",
       "enum": [
         "allow",
         "mask",
@@ -1314,6 +1588,24 @@
         "$ref": "#/$defs/Destination"
       },
       "title": "Upstreams",
+      "type": "array"
+    },
+    "request_resources": {
+      "description": "Exact values a request may name at a destination besides what Latet knows by its form: a model id outside the providers' documented ones, a Bedrock ARN, a Vertex project, an `api-version`. Each names its destination, its address, its role and its value; at most 128.",
+      "items": {
+        "$ref": "#/$defs/RequestResource"
+      },
+      "maxItems": 128,
+      "title": "Request Resources",
+      "type": "array"
+    },
+    "request_exceptions": {
+      "description": "Exact exceptions to the refusal of what no request profile names: a destination's own credential header, a header you set for an agent, a query parameter. Each is a loosening that applies once approved, and lasts 30 days (90 at most) unless made permanent on purpose; at most 128, 32 for one project. Never in a project's `latet.yaml`.",
+      "items": {
+        "$ref": "#/$defs/RequestException"
+      },
+      "maxItems": 128,
+      "title": "Request Exceptions",
       "type": "array"
     }
   },

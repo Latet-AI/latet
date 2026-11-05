@@ -172,9 +172,8 @@ impostazioni riduce la protezione rispetto alle tue, e ti chiede se procedere. P
   cartella `before-restore-` datata accanto alla cassaforte.
 
 Poi: `latet llm key` per la chiave API del revisore, `latet ner install` per il rilevamento locale
-dei nomi, `latet ocr install` per il testo nelle immagini (fino ad allora le immagini vengono inviate
-così come sono, con la segnalazione *Non ispezionato*, o non vengono inviate affatto con
-`images: mask`), e `latet global-install` (o `latet claude`) per i tuoi agenti.
+dei nomi, `latet ocr install` per il testo nelle immagini (fino ad allora una richiesta che contiene
+un'immagine non viene inviata), e `latet global-install` (o `latet claude`) per i tuoi agenti.
 
 **Solo nel tuo terminale.** Entrambi i comandi si rifiutano di funzionare dentro un agente: gestiscono
 la tua cassaforte e la sua chiave. `latet restore` ha anche bisogno di un terminale per farti le

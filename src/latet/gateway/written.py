@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from latet.engine import wellformed
+from latet.gateway.provenance import OpaqueCapture
 from latet.protocols.codec import UnsupportedEncodingError
 from latet.protocols.eventstream import EventStreamDecoder
 from latet.protocols.sse import SSEParser, StreamDecoder
@@ -64,10 +65,19 @@ class _Block:
 class Written:
     """The texts one answer's model wrote, read as the answer passes (``pieces``, ``read``, ``end``; or ``steps``)."""
 
-    def __init__(self, content_type: str, content_encoding: str | None) -> None:
+    def __init__(
+        self,
+        content_type: str,
+        content_encoding: str | None,
+        *,
+        opaque: OpaqueCapture | None = None,
+        record_text: bool = True,
+    ) -> None:
+        self.opaque, self.record_text = opaque, record_text
         self._sse = "text/event-stream" in content_type
         self._frames = EventStreamDecoder() if "vnd.amazon.eventstream" in content_type else None
         self._whole = not self._sse and self._frames is None and "json" in content_type
+        self.holds_answer = self._whole
         self._events = SSEParser(limit=WRITTEN_BYTES, events=WRITTEN_EVENTS)
         self._body = bytearray()
         self._size = 0  # bytes read, decoded
@@ -132,6 +142,8 @@ class Written:
             return []
 
     def _break(self) -> None:
+        if self.opaque is not None:
+            self.opaque.close()
         self.broken = True
         self._blocks.clear()
         self._open = 0
@@ -165,6 +177,10 @@ class Written:
             answer = wellformed.loads(bytes(self._body))
         except ValueError:
             return []
+        if self.opaque is not None:
+            self.opaque.body(answer)
+        if not self.record_text:
+            return []
         content = answer.get("content") if isinstance(answer, dict) else None
         out: list[str] = []
         for block in content if isinstance(content, list) else []:
@@ -181,6 +197,10 @@ class Written:
         try:
             event = wellformed.loads(data)
         except ValueError:
+            return []
+        if self.opaque is not None:
+            self.opaque.event(event)
+        if not self.record_text:
             return []
         if not isinstance(event, dict) or not isinstance(index := event.get("index"), int):
             return []

@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 from collections.abc import Collection, Iterable, Sequence
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -41,6 +42,7 @@ from latet.engine.detectors.terms import TERM_LONGEST, VALUE_LONGEST
 from latet.engine.types import Policy
 from latet.logline import described
 from latet.schema import SCHEMA_URL
+from latet.selector_grammar import BodySelector, SelectorRefused
 
 log = logging.getLogger(__name__)
 
@@ -695,9 +697,43 @@ class ProjectEntry(ProjectSettings):
     path: str = Field(description="The project's folder; its subfolders are part of it.")
     enabled: bool = Field(
         default=True,
-        description="`false` turns Latet off in this project: nothing is masked or blocked, and surrogates already "
-        "in a conversation are still restored.",
+        description="`false` turns Latet off in this project: Latet sends none of its agents' requests (they are "
+        "refused, saying so), so an agent there reaches its provider directly, without Latet's address.",
     )
+
+    @field_validator("path")
+    @classmethod
+    def _canonical(cls, path: str) -> str:
+        return canonical_folder(path)
+
+
+_DRIVE_FOLDER = re.compile(r"[A-Za-z]:(?:[\\/]|$)")
+
+
+def canonical_folder(path: str) -> str:
+    """A folder as settings keep it, in the form its machine compares (a launch's OPEN, ``launch_binding``): a Windows
+    folder with backslashes, an upper-case drive letter, no trailing separator past its anchor (``C:\\``, or a share's
+    ``\\\\server\\share\\``); a POSIX folder with no trailing slash past ``/``. Anything else is kept as written: what
+    cannot be compared is left out where it would be (never refusing the other folders, I-7)."""
+    text = path.strip()
+    if _DRIVE_FOLDER.match(text) or text.startswith(("\\\\", "//")):
+        text = text.replace("/", "\\")
+        if text[1:2] == ":":
+            text = text[0].upper() + text[1:]
+            anchor = 3
+        else:
+            server = text.find("\\", 2)
+            share = text.find("\\", server + 1) if server > 2 else -1
+            if server > 2 and share == -1 and server + 1 < len(text):
+                return text + "\\"  # a share's anchor ends with its separator
+            anchor = share + 1 if share != -1 else len(text)
+        while len(text) > anchor and text.endswith("\\"):
+            text = text[:-1]
+        return text
+    if text.startswith("/") and not text.startswith("//"):
+        while len(text) > 1 and text.endswith("/"):
+            text = text[:-1]
+    return text
 
 
 # Routes Latet keeps for itself: the providers it knows, the clouds' fixed routes, its own paths.
@@ -724,6 +760,11 @@ class Destination(BaseModel):
     agent: Literal["claude", "codex"] | None = Field(
         default=None, description="The agent whose settings Latet read it from; not set: written by you."
     )
+    request_profile: Literal["standard", "azure-openai-1", "foundry-1"] = Field(
+        default="standard",
+        description="The requests Latet lets through to it: `standard` (the Anthropic and OpenAI APIs' own routes), "
+        "`azure-openai-1` (Azure OpenAI, with its `api-version`) or `foundry-1` (Microsoft Foundry).",
+    )
 
     @field_validator("name")
     @classmethod
@@ -748,6 +789,214 @@ class Destination(BaseModel):
         if parsed.scheme != "https" and host not in _LOOPBACK and not _local_network(host):
             raise ValueError("a server outside your local network must be reached over https")
         return url.rstrip("/")
+
+
+class RequestResource(BaseModel):
+    """An exact identity-owned expected resource, never a selector, header-family grant or project setting."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    destination: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$", repr=False)
+    url: str = Field(repr=False)
+    role: Literal[
+        "model",
+        "project",
+        "cache",
+        "inference-profile",
+        "api-version",
+        "after_id",
+        "before_id",
+        "pageToken",
+        "nextToken",
+        "updateMask",
+        "openai-organization",
+        "openai-project",
+        "x-session-id",
+    ]
+    value: str = Field(min_length=1, max_length=2048, repr=False)
+
+    @field_validator("url")
+    @classmethod
+    def _address(cls, url: str) -> str:
+        return Destination(name="resource", url=url).url
+
+    @model_validator(mode="after")
+    def _bounded(self) -> RequestResource:
+        try:
+            size = len(self.value.encode("utf-8"))
+        except UnicodeError:
+            raise ValueError("resource value must be valid UTF-8") from None
+        cap = (
+            32 if self.role == "api-version" else 2048 if self.role in {"pageToken", "nextToken", "updateMask"} else 256
+        )
+        if size > cap or any(ord(c) < 32 or ord(c) == 127 for c in self.value):
+            raise ValueError("resource value exceeds its role's bound or contains a control character")
+        return self
+
+
+# An exception's bounds (the plan's finite budgets, D3): its lifetime in days, how many each identity and each project
+# hold, how many components each names, and its owner's own words on it.
+EXCEPTION_DAYS, EXCEPTION_DAYS_MOST = 30, 90
+EXCEPTIONS_MOST, PROJECT_EXCEPTIONS_MOST, EXCEPTION_COMPONENTS_MOST = 128, 32, 64
+EXCEPTION_DESCRIPTION_MOST = 200
+_HEADER_NAME = re.compile(r"[a-z0-9!#$%&'+.^_`|~-]{1,64}")  # a header's token, but no ``*``: never a wildcard
+_QUERY_NAME = re.compile(r"[A-Za-z0-9._~-]{1,64}")
+# What no exception can name: what Latet adds or takes away itself (framing, hop-by-hop, its own ``x-latet-`` headers).
+_NEVER_NAMED = frozenset(
+    {"host", "content-length", "transfer-encoding", "connection", "keep-alive", "upgrade", "te", "trailer"}
+)
+
+
+class ExceptionComponent(BaseModel):
+    """One component of a request that an exception lets through, named exactly: a header, a query parameter or a
+    member of the JSON body that no profile names. ``credential``: its value is the destination's own credential, sent
+    as it came and never read (D4); ``checked``: its value passes Latet's final check, as a free-text header's does. A
+    body member is named by an exact JSON pointer and the ``type`` of its value (``selector_grammar.py``), and is
+    always checked."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    kind: Literal["header", "query", "body"] = Field(
+        description="`header`, `query` (a query parameter) or `body` (a member of the request's JSON body)."
+    )
+    name: str = Field(
+        description="Its exact name: a header's in lower case, a query parameter's as sent, a body member's JSON "
+        "pointer (`/metadata_x/team`, `*` alone for any index of an array)."
+    )
+    role: Literal["credential", "checked"] = Field(
+        default="checked",
+        description="`credential` (the destination's own credential, never read) or `checked` (its value is checked "
+        "for sensitive values before it leaves).",
+    )
+    type: Literal["string", "number", "boolean", "null"] | None = Field(
+        default=None,
+        description="A body member's alone: the type of the value it names, `string`, `number`, `boolean` or `null` "
+        "(never an object or an array: what one holds is named member by member).",
+    )
+
+    @model_validator(mode="after")
+    def _exact(self) -> ExceptionComponent:
+        if self.kind == "body":
+            if self.type is None or self.role != "checked":
+                raise ValueError("a body member's exception names the type of its value, and its value is checked")
+            try:
+                BodySelector(self.name, self.type)
+            except SelectorRefused as error:
+                raise ValueError(str(error)) from None  # the rule it breaks, never the pointer
+            return self
+        if self.type is not None:
+            raise ValueError("only a body member's exception names a type")
+        grammar = _HEADER_NAME if self.kind == "header" else _QUERY_NAME
+        if not grammar.fullmatch(self.name):
+            raise ValueError(f"a {self.kind}'s exact name: at most 64 characters, no space or wildcard")
+        if self.kind == "header" and (
+            self.name in _NEVER_NAMED or self.name.startswith(("x-latet-", "proxy-", "sec-websocket-"))
+        ):
+            raise ValueError("a header Latet sets or removes itself cannot be named by an exception")
+        return self
+
+
+class RequestException(BaseModel):
+    """An exact, visible exception to the refusal of what no profile names (D1, D4): the components it names, on one
+    destination's one profile, for the identity or, through a trusted binding alone, one project. It is a loosening:
+    it applies once you approve it, and lasts ``days`` (30 by default, 90 at most) from then, unless you make it
+    ``permanent`` on purpose (D3). ``id``, ``granted``, ``revision`` and ``issuer`` are Latet's: it sets them as you
+    approve it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    id: str | None = Field(default=None, pattern=r"^x[0-9a-f]{10}$", description="Set by Latet as you approve it.")
+    destination: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9-]{0,62}$", description="The route it applies to: a provider's or one of `upstreams`."
+    )
+    profile: str = Field(
+        description="The request profile it applies to, as a refusal names it (`anthropic.messages.1`): one method, "
+        "route and transport."
+    )
+    components: list[ExceptionComponent] = Field(
+        min_length=1, max_length=EXCEPTION_COMPONENTS_MOST, description="What it lets through, each named exactly."
+    )
+    reason: Literal["destination-credential", "custom-header", "query-parameter", "other"] = Field(
+        description="Why, by category: `destination-credential`, `custom-header`, `query-parameter` or `other`."
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=EXCEPTION_DESCRIPTION_MOST,
+        repr=False,
+        description="Your own words on it, for you alone: never in a log or a server's audit.",
+    )
+    project: str | None = Field(
+        default=None,
+        description="A project's folder: it applies there alone, to requests whose project Latet trusts (a launch's "
+        "key, the Claude Code plugin). Not set: to every request of yours.",
+    )
+    days: int = Field(
+        default=EXCEPTION_DAYS,
+        ge=1,
+        le=EXCEPTION_DAYS_MOST,
+        description=f"How long it lasts once approved: {EXCEPTION_DAYS} days by default, "
+        f"{EXCEPTION_DAYS_MOST} at most.",
+    )
+    permanent: bool = Field(
+        default=False,
+        description="`true`: it never expires. Chosen on purpose, and approved as any loosening is; always shown as "
+        "permanent.",
+    )
+    granted: datetime | None = Field(default=None, description="When you approved it: set by Latet.")
+    revision: str | None = Field(
+        default=None, description="The revision of the request profiles it was approved under: set by Latet."
+    )
+    body_revision: str | None = Field(
+        default=None,
+        description="With body components, the revision of the body declaration it was approved under: set by Latet.",
+    )
+    issuer: Literal["owner", "person", "administration"] | None = Field(
+        default=None,
+        description="Who approved it: `owner` (you, on your computer), `person` (you, on a server) or "
+        "`administration` (a server's administration, for an API key). Set by Latet.",
+    )
+
+    @field_validator("profile")
+    @classmethod
+    def _profile(cls, profile: str) -> str:
+        from latet.gateway.profile_ids import admitted
+
+        if not admitted(profile):  # one of the ids the built-in profiles produce, never a WebSocket's (F-2)
+            raise ValueError("a request profile's id, as a refusal names it (anthropic.messages.1)")
+        return profile
+
+    @field_validator("project")
+    @classmethod
+    def _project(cls, folder: str | None) -> str | None:
+        return canonical_folder(folder) if folder is not None else None
+
+    @field_validator("description")
+    @classmethod
+    def _words(cls, text: str | None) -> str | None:
+        if text is not None and any(ord(c) < 32 or ord(c) == 127 for c in text):
+            raise ValueError("no control character in an exception's description")
+        return text
+
+    @model_validator(mode="after")
+    def _whole(self) -> RequestException:
+        if len({(c.kind, c.name) for c in self.components}) != len(self.components):
+            raise ValueError("an exception names each component once")
+        stamps = (self.id is None, self.granted is None, self.revision is None)
+        if len(set(stamps)) != 1:
+            raise ValueError("an exception's id, approval time and revision are Latet's, set as you approve it")
+        if self.granted is not None and self.granted.tzinfo is None:
+            raise ValueError("an exception's approval time is a time with its zone")
+        return self
+
+    @property
+    def approved(self) -> bool:
+        """Approved: stamped by Latet as you approved it (a pending or hand-written one grants nothing)."""
+        return self.id is not None and self.granted is not None and self.revision is not None
+
+    def expires(self) -> datetime | None:
+        """When it stops: ``days`` after its approval; None for a permanent one, or one not approved."""
+        if self.permanent or self.granted is None:
+            return None
+        return self.granted + timedelta(days=self.days)
 
 
 class Config(BaseModel):
@@ -819,7 +1068,8 @@ class Config(BaseModel):
     ocr: Literal["auto", "off"] = Field(
         default="auto",
         description="The text in images: `auto` reads it once the models are installed (`latet ocr install`) "
-        "and masks what it finds, `off` never does (images are then sent as they are, and flagged).",
+        "and masks what it finds; `off` never does, and a request that carries an image is then refused, as it is "
+        "while the models are not installed.",
     )
     data: Literal["normal", "strict"] | None = Field(
         default=None,
@@ -859,9 +1109,10 @@ class Config(BaseModel):
     )
     images: ImagesSetting = Field(
         default="allow",
-        description="`allow` sends images, with their text masked once the text recognition models are installed "
-        "(`latet ocr install`); `mask` sends only images whose text was read and masked, and no documents; "
-        "`block` sends no images or documents. The max profile sends none either, unless this says `mask`.",
+        description="`allow` sends images with their text read and masked by the text recognition models "
+        "(`latet ocr install`): without them, or with `ocr: off`, a request that carries an image is refused. `mask` "
+        "sends only images whose text was read and masked; `block` sends no images. Documents, audio and remote "
+        "media are refused under each. The max profile sends no images either, unless this says `mask`.",
     )
     llm_review: LlmReview = Field(
         default_factory=LlmReview,
@@ -883,6 +1134,47 @@ class Config(BaseModel):
         "company's gateway, Azure OpenAI, Microsoft Foundry. `latet claude`, `latet codex` and `global-install` "
         "add the ones they read from your agents' settings (see below).",
     )
+    request_resources: list[RequestResource] = Field(
+        default_factory=list,
+        max_length=128,
+        repr=False,
+        description="Exact values a request may name at a destination besides what Latet knows by its form: a model "
+        "id outside the providers' documented ones, a Bedrock ARN, a Vertex project, an `api-version`. Each names "
+        "its destination, its address, its role and its value; at most 128.",
+    )
+
+    request_exceptions: list[RequestException] = Field(
+        default_factory=list,
+        max_length=EXCEPTIONS_MOST,
+        repr=False,
+        description="Exact exceptions to the refusal of what no request profile names: a destination's own "
+        "credential header, a header you set for an agent, a query parameter. Each is a loosening that applies once "
+        f"approved, and lasts {EXCEPTION_DAYS} days ({EXCEPTION_DAYS_MOST} at most) unless made permanent on purpose; "
+        f"at most {EXCEPTIONS_MOST}, {PROJECT_EXCEPTIONS_MOST} for one project. Never in a project's `latet.yaml`.",
+    )
+
+    @field_validator("request_exceptions")
+    @classmethod
+    def _exceptions_bounded(cls, rows: list[RequestException]) -> list[RequestException]:
+        ids = [row.id for row in rows if row.id is not None]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two exceptions have the same id")
+        projects: dict[str, int] = {}
+        for row in rows:
+            if row.project is not None:
+                key = row.project.replace("\\", "/").casefold()
+                projects[key] = projects.get(key, 0) + 1
+        if any(count > PROJECT_EXCEPTIONS_MOST for count in projects.values()):
+            raise ValueError(f"at most {PROJECT_EXCEPTIONS_MOST} exceptions for one project")
+        return rows
+
+    @field_validator("request_resources")
+    @classmethod
+    def _resource_duplicates(cls, rows: list[RequestResource]) -> list[RequestResource]:
+        keys = {(row.destination, row.url, row.role, row.value) for row in rows}
+        if len(keys) != len(rows):
+            raise ValueError("duplicate resource expectations")
+        return rows
 
     @field_validator("id_regions")
     @classmethod
@@ -1058,10 +1350,24 @@ def load_config(path: Path | None = None, notices: list[str] | None = None) -> C
     return config
 
 
+def upstreams_document(config: Config) -> list[dict[str, Any]]:
+    """Your destinations as a file keeps them: a destination's ``request_profile`` only when one was chosen, never the
+    default ``standard``, which Latet 0.10, whose destinations take no field it does not know, would refuse: settings
+    0.11 saved still load after a rollback to 0.10 in the common case."""
+    return [
+        d.model_dump(
+            mode="json", exclude_none=True, exclude={"request_profile"} if d.request_profile == "standard" else None
+        )
+        for d in config.upstreams
+    ]
+
+
 def save_config(config: Config, path: Path | None = None) -> Path:
     path = path or config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = config.model_dump(mode="json", exclude_none=True)
+    if config.upstreams:  # a destination's request profile only when one was chosen: 0.10 refuses the field (I-4)
+        data["upstreams"] = upstreams_document(config)
     # Your settings for each project: only what they set, so the file reads like what you wrote.
     data["projects"] = [
         {"path": e.path, **e.model_dump(mode="json", exclude_defaults=True, exclude={"path"})} for e in config.projects

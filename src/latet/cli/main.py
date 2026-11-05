@@ -61,6 +61,7 @@ def uvicorn_server(
     import uvicorn
 
     from latet.gateway.cloud import redact_access_log
+    from latet.gateway.http_protocol import BoundedH11Protocol
 
     config_kwargs: dict[str, Any] = {} if log_config == "default" else {"log_config": log_config}
     if tls is not None:
@@ -74,6 +75,7 @@ def uvicorn_server(
             port=port,
             log_level=log_level,
             access_log=access_log,
+            http=BoundedH11Protocol,
             ws="websockets-sansio",
             ws_max_size=ws_max_size,
             ws_per_message_deflate=True,
@@ -96,6 +98,18 @@ def run_server(
     host: str | None = None,
     background: bool = False,
 ) -> None:
+    """The gateway on this computer, logged as a server's instance is (one code path, ``latet.server.logs``): one line
+    per request (``RequestLog``, in front of the app), uvicorn's access lines off. ``log_config`` "default" is `latet
+    serve`'s, a server's own lines on the console at ``log_level``; anything else (None: the daemon) leaves the logging
+    to the caller, which set a server's up already (``daemon.configure_file_logging``)."""
+    if passthrough:
+        typer.secho("--passthrough was removed. Run latet serve with masking and request protection enabled.", err=True)
+        raise SystemExit(2)
+    from latet.server.logs import LEVELS, RequestLog, configure_logging
+
+    if log_config == "default" and (not isinstance(log_level, str) or log_level.lower() not in LEVELS):
+        typer.secho(f"The log level is {', '.join(LEVELS[:-1])} or {LEVELS[-1]}.", fg="red", err=True)
+        raise SystemExit(2)
     from latet.config import data_dir, in_container, load_config
 
     host = host or os.environ.get("LATET_HOST") or "127.0.0.1"
@@ -106,7 +120,7 @@ def run_server(
             raise SystemExit(2)
         # In the container the published port decides who can connect: 127.0.0.1 only, on the host.
         typer.secho(f"Listening on {host} inside the container: publish the port on 127.0.0.1 only.", err=True)
-    from latet.gateway.app import GatewayConfig, create_app
+    from latet.gateway.app import create_app
     from latet.runtime import make_runtime
     from latet.service import ports
     from latet.service.daemon import PID_FILE
@@ -124,25 +138,24 @@ def run_server(
         # systemd would start again for good. Windows starts it once, at login, and restarts nothing: as it was there.
         running = background and state.reason == "latet" and os.name != "nt"
         raise SystemExit(0 if running else 1)  # also the windowless daemon's entry point: no typer context there
-    runtime = None
-    if passthrough:
-        gateway = GatewayConfig(port=port or 5283, capture_dir=capture)
-    else:
-        try:
-            runtime = make_runtime(capture=capture)
-        except (ValueError, RuntimeError, OSError) as exc:
-            # What stops the start, in one line and never a traceback (R24 M2): Latet's own words for settings that
-            # cannot be read (they name places, never values), else the error's type alone.
-            from latet.config import ConfigError
-            from latet.logline import described
+    try:
+        runtime = make_runtime(capture=capture)
+    except (ValueError, RuntimeError, OSError) as exc:
+        from latet.config import ConfigError
+        from latet.logline import described
 
-            words = str(exc) if isinstance(exc, ConfigError) else described(exc)
-            typer.secho(f"Not started: {words}", fg="red", err=True)
-            raise SystemExit(1) from None
-        gateway = runtime.gateway
-        if port:
-            gateway.port = port
-    server = uvicorn_server(create_app(gateway), host, gateway.port, log_level, log_config)
+        words = str(exc) if isinstance(exc, ConfigError) else described(exc)
+        typer.secho(f"Not started: {words}", fg="red", err=True)
+        raise SystemExit(1) from None
+    gateway = runtime.gateway
+    if port:
+        gateway.port = port
+    application = create_app(gateway)
+    application.add_middleware(RequestLog)  # outermost, as on a server: the line of every request, refusals included
+    if log_config == "default":
+        configure_logging("text", log_level)
+    _first_start(runtime.config)  # once its log is set up: what it says goes there
+    server = uvicorn_server(application, host, gateway.port, None, log_config=None, access_log=False)
     from latet.storage.folders import make_private_folder
 
     pid_path = make_private_folder(data_dir()) / PID_FILE
@@ -154,6 +167,29 @@ def run_server(
             pid_path.unlink()
         if runtime is not None:
             runtime.close()
+
+
+def _first_start(config: object) -> None:
+    """At the first 0.11 start of this computer's gateway, what 0.11 stops that 0.10 sent said once in its log
+    (``doctor.upgrade.first_start``), in a thread of its own: the start waits for nothing, and a failure is said by its
+    type alone."""
+    import logging
+    import threading
+
+    from latet.config import data_dir
+    from latet.doctor import upgrade
+
+    folder = data_dir()
+
+    def said() -> None:
+        try:
+            upgrade.first_start(config, folder)  # type: ignore[arg-type]
+        except Exception as exc:
+            logging.getLogger("latet.doctor.upgrade").warning(
+                "the upgrade's checks did not run: %s", type(exc).__name__
+            )
+
+    threading.Thread(target=said, name="latet-upgrade-checks", daemon=True).start()
 
 
 @app.command()
@@ -168,8 +204,8 @@ def serve(
     capture: Annotated[
         Path | None, typer.Option(help="Write raw exchanges (credentials redacted) to this local directory.")
     ] = None,
-    log_level: Annotated[str, typer.Option(help="uvicorn log level.")] = "info",
-    passthrough: Annotated[bool, typer.Option(help="Forward without masking (debugging only).")] = False,
+    log_level: Annotated[str, typer.Option(help="The log's level: debug, info, warning or error.")] = "info",
+    passthrough: Annotated[bool, typer.Option(hidden=True)] = False,
     host: Annotated[
         str | None, typer.Option(help="The address to listen on: 127.0.0.1, or 0.0.0.0 in the container image.")
     ] = None,
@@ -519,11 +555,23 @@ def _require(command: str) -> None:
         raise typer.Exit(127)
 
 
-def _launch(argv: list[str], env: dict[str, str]) -> int:
+def _say_keyless(agent: str, reason: str | None) -> None:
+    """Why the agent starts without a launch key, in a sentence (``launch_session.keyless_words``)."""
+    from latet.launch_session import keyless_words
+
+    said = keyless_words(agent, reason)
+    if said is not None:
+        words, warn = said
+        typer.secho(words, fg="yellow" if warn else None, dim=not warn, err=True)
+
+
+def _launch(argv: list[str], env: dict[str, str], *, launch=None, _carrier_names: tuple[str, str] | None = None) -> int:
     from latet import wrappers
 
     try:
-        return wrappers.run(argv, env)
+        if _carrier_names is not None:
+            return wrappers.run(argv, env, launch=launch, _carrier_names=_carrier_names)
+        return wrappers.run(argv, env) if launch is None else wrappers.run(argv, env, launch=launch)
     except FileNotFoundError:
         typer.secho(f"Cannot find `{argv[0]}`: install it, or run Latet where `{argv[0]}` runs.", fg="red", err=True)
         return 127
@@ -603,53 +651,99 @@ def _claude(args: list[str], exe: str = "claude") -> int:
     )
     if binding is not None:
         env[claude_bridge.HELPER_KEY] = binding.setting
+    launch = None
+
+    def launch_settings(mine, headers, reason):
+        nonlocal launch
+        from latet.launch_session import claude_headers
+
+        if route.kind == "local":
+            reason = "local-route"  # Latet is not in front of this route: there is nothing to carry
+        if reason is None:
+            launch, reason = wrappers.launch_session(config, prepared)
+        mine["env"].pop("LATET_LAUNCH_ID", None)
+        env.pop("LATET_LAUNCH_ID", None)
+        if headers is not None:
+            merged = claude_headers(headers, launch.key if launch is not None else None)
+            mine["env"]["ANTHROPIC_CUSTOM_HEADERS"] = env["ANTHROPIC_CUSTOM_HEADERS"] = merged
+        if launch is None:
+            # An unverified source can bypass effective-header discovery. Still
+            # scrub every header value in settings/environment that we control.
+            for controlled in (mine["env"], env):
+                for name in ("ANTHROPIC_CUSTOM_HEADERS", "COPILOT_PROVIDER_HEADERS"):
+                    value = controlled.get(name)
+                    if isinstance(value, str):
+                        controlled[name] = claude_headers(value, None)
+        if launch is not None:
+            mine["env"]["LATET_LAUNCH_ID"] = env["LATET_LAUNCH_ID"] = launch.launch_id
+        else:
+            _say_keyless("claude", reason)
+
     try:
-        settings, rest = wrappers.claude_settings_file(env, args, _prepared=prepared)
+        settings, rest = wrappers.claude_settings_file(env, args, _prepared=prepared, _launch_setup=launch_settings)
     except (OSError, ValueError) as exc:
+        if launch is not None:
+            launch.close()
         typer.secho(f"Cannot read your --settings: {exc}", fg="red", err=True)
         return 2
+    except BaseException:
+        if launch is not None:
+            launch.close()
+        raise
     try:
         if binding is not None:
             claude_bridge._publish_binding(binding)
         _require_selection(prepared)
-        return _launch(wrappers.claude_argv(rest, exe, settings), env)
+        return _launch(wrappers.claude_argv(rest, exe, settings), env, launch=launch)
     finally:
         try:
-            if binding is not None:
-                claude_bridge._remove_binding(binding.path)
+            if launch is not None:
+                launch.close()
         finally:
-            settings.unlink(missing_ok=True)
-            for one in sessions:
-                wrappers.drop_aws_session(one, config)
+            try:
+                if binding is not None:
+                    claude_bridge._remove_binding(binding.path)
+            finally:
+                settings.unlink(missing_ok=True)
+                for one in sessions:
+                    wrappers.drop_aws_session(one, config)
 
 
 def _codex(args: list[str], exe: str = "codex") -> int:
+    import secrets
+
     from latet import wrappers
     from latet.config import load_config
     from latet.integrations.agents import Codex
+    from latet.integrations.merge import codex_merge
     from latet.integrations.routes import codex_texts, detect_codex
+    from latet.server.connection import _agent_base, _prepare_connection, _prepare_token, _require_selection
 
     _require(exe)
-    try:  # the profile Codex will read, in each form it takes: its addresses are judged as config.toml's are
+    prepared = _prepare_token(_prepare_connection())
+    _require_selection(prepared)
+    try:
         profile = wrappers.codex_profile(args)[0]
-        if wrappers.connected() is not None:
+        if prepared.connection is not None:
             wrappers.check_codex_session(args)
     except wrappers.CodexArgs as exc:
         typer.secho(f"Latet cannot start Codex: {exc}.", fg="red", err=True)
         return 2
-    _ensure_daemon()
+    _ensure_daemon(_prepared=prepared)
     config = load_config()
     chatgpt = wrappers.codex_uses_chatgpt(exe)
     home = Codex().config_path().parent
+    texts = codex_texts(home)
+    base = _agent_base(prepared, config)
     try:
         route = detect_codex(
-            codex_texts(home),
+            texts,
             config,
             chatgpt,
-            lambda url: wrappers.destination_for(url, "codex", config),
+            lambda url: wrappers.destination_for(url, "codex", config, _prepared=prepared),
             profile,
             session=True,
-            address=wrappers.base_url(config),
+            address=base,
         )
     except wrappers.DaemonError as exc:
         typer.secho(f"Latet could not set Codex's route: {exc}", fg="red", err=True)
@@ -658,47 +752,111 @@ def _codex(args: list[str], exe: str = "codex") -> int:
         typer.secho(f"Latet cannot go in front of Codex: {route.problem}.", fg="red", err=True)
         return 2
     for note in route.notes:
-        typer.secho(f"Latet: {note}", fg="yellow", err=True)
-    profile_file = None  # on a connected computer the space's address is in a profile file, never on a command line
-    if wrappers.connected() is not None:
-        try:
-            profile_file = wrappers.codex_session_profile(route.overrides, profile, home)
-        except (OSError, ValueError, wrappers.CodexArgs) as exc:
-            typer.secho(f"Latet cannot write Codex's profile file in {home}: {exc}.", fg="red", err=True)
-            return 2
+        typer.secho(f"Latet: {note}.", fg="yellow", err=True)
+    live, keyless, reason, carrier_names = wrappers.codex_carrier_profiles(
+        texts, profile, args, route.overrides, config, base, chatgpt
+    )
+    private = prepared.connection is not None or live is not None or keyless is not None
+    profile_file = home / f"latet-{secrets.token_hex(8)}.config.toml" if private else None
+    # Validate the ordinary argument/version rules before OPEN; the path is not
+    # published yet, and contains no key. This calls the existing version probe once.
     try:
-        try:
-            argv, extra = wrappers.codex_argv(
-                args, route.overrides, exe=exe, openai=route.openai, profile_file=profile_file
-            )
-        except (wrappers.CodexTooOld, wrappers.CodexArgs) as exc:
-            typer.secho(f"Latet cannot go in front of Codex: {exc}.", fg="red", err=True)
-            return 2
-        said: list[str] = []
-        extra.update(wrappers.extra_ca_env("codex", said))
-        typer.secho(f"Codex: {route.summary}.", dim=True, err=True)
-        for line in said:
-            typer.secho(f"Latet: {line}.", fg="yellow", err=True)
-        if (why := wrappers.untrusting("codex")) is not None:
-            typer.secho(f"Latet: {why}.", fg="yellow", err=True)
-        return _launch(argv, extra)
-    finally:
+        argv, extra = wrappers.codex_argv(
+            args, route.overrides, exe=exe, openai=route.openai, profile_file=profile_file
+        )
+        if profile_file is not None and wrappers.codex_profile(argv[1:])[0] != profile_file.name.removesuffix(
+            ".config.toml"
+        ):
+            # Older Codex may succeed using only OPENAI_BASE_URL. Its actual
+            # argv did not select this carrier; do not OPEN or publish it.
+            live = keyless = None
+            profile_file = None
+            carrier_names = None
+            reason = "older-codex"
+    except (wrappers.CodexTooOld, wrappers.CodexArgs) as exc:
+        typer.secho(f"Latet cannot go in front of Codex: {exc}.", fg="red", err=True)
+        return 2
+    said: list[str] = []
+    extra.update(wrappers._extra_ca_env(prepared, "codex", said))
+    typer.secho(f"Codex: {route.summary}.", dim=True, err=True)
+    for line in said:
+        typer.secho(f"Latet: {line}.", fg="yellow", err=True)
+    if (why := wrappers.untrusting("codex", _prepared=prepared)) is not None:
+        typer.secho(f"Latet: {why}.", fg="yellow", err=True)
+    launch = None
+    try:
+        if live is not None:
+            launch, reason = wrappers.launch_session(config, prepared)
+        if launch is None:
+            _say_keyless("codex", reason)
+        else:
+            assert carrier_names is not None
+            extra[carrier_names[0]] = launch.key
         if profile_file is not None:
-            profile_file.unlink(missing_ok=True)
+            text = live if launch is not None else keyless
+            if text is None:
+                original = texts.get(f"{profile}.config.toml", "") if profile else ""
+                text = codex_merge(original, route.overrides)
+            _require_selection(prepared)
+            try:
+                wrappers.codex_session_profile({}, profile, home, _text=text, _path=profile_file)
+            except (OSError, ValueError, wrappers.CodexArgs):
+                typer.secho("Latet cannot prepare Codex's private profile.", fg="red", err=True)
+                return 2
+        _require_selection(prepared)
+        return _launch(argv, extra, launch=launch, _carrier_names=carrier_names if profile_file is not None else None)
+    finally:
+        try:
+            if launch is not None:
+                launch.close()
+        finally:
+            if profile_file is not None:
+                profile_file.unlink(missing_ok=True)
 
 
 def _opencode(args: list[str], exe: str = "opencode") -> int:
     from latet import wrappers
+    from latet.config import load_config
+    from latet.server.connection import _agent_base, _prepare_connection, _prepare_token, _require_selection
 
     _require(exe)
-    _ensure_daemon()
+    prepared = _prepare_token(_prepare_connection())
+    _require_selection(prepared)
+    _ensure_daemon(_prepared=prepared)
+    config = load_config()
+    base = _agent_base(prepared, config)
+    original = os.environ.get("OPENCODE_CONFIG_CONTENT", "{}")
+    # OpenCode substitutes the {env:...} the key is named by from its verified version alone (latet.launch_carriers):
+    # an older one would send the reference itself, so an older or unreadable version is given no key (P2-8a).
+    version = wrappers.opencode_version(exe)
+    floor = wrappers.OPENCODE_CARRIER
+    reason = "carrier-unverified"
+    if version is None or (floor is not None and version < floor):
+        live, keyless, carrier_names = None, wrappers.opencode_routed_content(original, base), None
+        reason = "unknown-opencode" if version is None else "older-opencode"
+    else:
+        live, keyless, carrier_names = wrappers.opencode_carrier_content(original, args, base)
     said: list[str] = []
-    env = wrappers.opencode_env(said=said)
+    env = wrappers._extra_ca_env(prepared, "opencode", said)
     for line in said:
         typer.secho(f"Latet: {line}.", fg="yellow", err=True)
-    if (why := wrappers.untrusting("opencode")) is not None:
+    if (why := wrappers.untrusting("opencode", _prepared=prepared)) is not None:
         typer.secho(f"Latet: {why}.", fg="yellow", err=True)
-    return _launch([exe, *args], env)
+    launch = None
+    try:
+        if live is not None:
+            launch, reason = wrappers.launch_session(config, prepared)
+        if launch is None:
+            _say_keyless("opencode", reason)
+        else:
+            assert carrier_names is not None
+            env[carrier_names[0]] = launch.key
+        env["OPENCODE_CONFIG_CONTENT"] = live if launch is not None and live is not None else keyless
+        _require_selection(prepared)
+        return _launch([exe, *args], env, launch=launch, _carrier_names=carrier_names)
+    finally:
+        if launch is not None:
+            launch.close()
 
 
 # What `latet gemini` tells you when Gemini CLI reaches its model in a way Latet cannot go in front of.
@@ -714,9 +872,9 @@ _GEMINI_UNCHOSEN = (
 
 
 def _gemini(args: list[str], exe: str = "gemini") -> int:
-    import os
-
     from latet import wrappers
+    from latet.config import load_config
+    from latet.server.connection import _agent_base, _prepare_connection, _prepare_token, _require_selection
 
     _require(exe)
     settings = wrappers.gemini_settings_path()
@@ -726,18 +884,40 @@ def _gemini(args: list[str], exe: str = "gemini") -> int:
         said_by = f" ({chosen}, chosen in {where})" if chosen is not None else " (GOOGLE_GENAI_USE_GCA)"
         typer.secho(_GEMINI_SIGNED_IN.format(settings=settings) + said_by + ".", fg="red", err=True)
         return 2
-    _ensure_daemon()
+    prepared = _prepare_token(_prepare_connection())
+    _require_selection(prepared)
+    _ensure_daemon(_prepared=prepared)
+    config = load_config()
+    base = _agent_base(prepared, config)
+    # No version is read: a Gemini CLI older than the carrier (latet.launch_carriers) drops the key, its session stays
+    # claimed and `latet doctor` names its version.
+    acp = wrappers.gemini_acp(args)
+    verified = not acp and wrappers.gemini_carrier_verified(chosen, args, base)
+    original = os.environ.get("GEMINI_CLI_CUSTOM_HEADERS", "")
     said: list[str] = []
-    env = wrappers.gemini_env(said=said)
-    if chosen is None:  # what its dialog offers first; with a base URL set it would otherwise pick a gateway
+    env = {**wrappers.generic_env(config, base), **wrappers._extra_ca_env(prepared, "gemini", said)}
+    if chosen is None:  # Preserve the existing auth dialog/default behavior.
         offered = "vertex-ai" if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI") == "true" else "gemini-api-key"
         env["GEMINI_DEFAULT_AUTH_TYPE"] = offered
         typer.secho(f"Latet: {_GEMINI_UNCHOSEN.format(offered=offered, settings=settings)}.", fg="yellow", err=True)
     for line in said:
         typer.secho(f"Latet: {line}.", fg="yellow", err=True)
-    if (why := wrappers.untrusting("gemini")) is not None:
+    if (why := wrappers.untrusting("gemini", _prepared=prepared)) is not None:
         typer.secho(f"Latet: {why}.", fg="yellow", err=True)
-    return _launch([exe, *args], env)
+    launch = None
+    reason = "gemini-acp" if acp else "carrier-unverified"
+    try:
+        if verified:
+            launch, reason = wrappers.launch_session(config, prepared)
+        if launch is None:
+            _say_keyless("gemini", reason)
+        if launch is not None or "GEMINI_CLI_CUSTOM_HEADERS" in os.environ:  # an absent variable stays absent (M4)
+            env["GEMINI_CLI_CUSTOM_HEADERS"] = wrappers.gemini_headers(original, None if launch is None else launch.key)
+        _require_selection(prepared)
+        return _launch([exe, *args], env, launch=launch)
+    finally:
+        if launch is not None:
+            launch.close()
 
 
 def _copilot(args: list[str], exe: str = "copilot") -> int:
@@ -745,20 +925,26 @@ def _copilot(args: list[str], exe: str = "copilot") -> int:
 
     from latet import wrappers
     from latet.config import load_config
-    from latet.integrations.routes import COPILOT_SIGNED_IN, copilot_given, detect_copilot
+    from latet.integrations.routes import COPILOT_SIGNED_IN, copilot_given, detect_copilot, is_latet
+    from latet.launch_session import claude_headers
+    from latet.server.connection import _agent_base, _prepare_connection, _prepare_token, _require_selection
 
     _require(exe)
-    if not copilot_given(os.environ):  # signed in with GitHub: said before a daemon is started for nothing
+    inherited = dict(os.environ)
+    if not copilot_given(inherited):
         typer.secho(f"{COPILOT_SIGNED_IN}.", fg="red", err=True)
         return 2
-    _ensure_daemon()
+    prepared = _prepare_token(_prepare_connection())
+    _require_selection(prepared)
+    _ensure_daemon(_prepared=prepared)
     config = load_config()
+    base = _agent_base(prepared, config)
     try:
         route = detect_copilot(
-            os.environ,
+            inherited,
             config,
-            lambda url: wrappers.destination_for(url, None, config),
-            address=wrappers.base_url(config),
+            lambda url: wrappers.destination_for(url, None, config, _prepared=prepared),
+            address=base,
         )
     except wrappers.DaemonError as exc:
         typer.secho(f"Latet could not set Copilot CLI's route: {exc}", fg="red", err=True)
@@ -767,16 +953,33 @@ def _copilot(args: list[str], exe: str = "copilot") -> int:
         typer.secho(f"Latet cannot go in front of Copilot CLI: {route.problem}.", fg="red", err=True)
         return 2
     for note in route.notes:
-        typer.secho(f"Latet: {note}", fg="yellow", err=True)
+        typer.secho(f"Latet: {note}.", fg="yellow", err=True)
     env = {"COPILOT_PROVIDER_BASE_URL": route.base} if route.base is not None else {}
     said: list[str] = []
-    env.update(wrappers.extra_ca_env("copilot", said))
+    env.update(wrappers._extra_ca_env(prepared, "copilot", said))
     typer.secho(f"Copilot CLI: {route.summary}.", dim=True, err=True)
     for line in said:
         typer.secho(f"Latet: {line}.", fg="yellow", err=True)
-    if (why := wrappers.untrusting("copilot")) is not None:
+    if (why := wrappers.untrusting("copilot", _prepared=prepared)) is not None:
         typer.secho(f"Latet: {why}.", fg="yellow", err=True)
-    return _launch([exe, *args], env)
+    address = route.base or inherited.get("COPILOT_PROVIDER_BASE_URL", "")
+    verified = wrappers.copilot_carrier_verified(inherited, is_latet(address, config.port, base))
+    launch = None
+    reason = "carrier-unverified"
+    try:
+        if verified:
+            launch, reason = wrappers.launch_session(config, prepared)
+        if launch is None:
+            _say_keyless("copilot", reason)
+        if launch is not None or "COPILOT_PROVIDER_HEADERS" in inherited:  # an absent variable stays absent (M4)
+            env["COPILOT_PROVIDER_HEADERS"] = claude_headers(
+                inherited.get("COPILOT_PROVIDER_HEADERS", ""), launch.key if launch is not None else None
+            )
+        _require_selection(prepared)
+        return _launch([exe, *args], env, launch=launch)
+    finally:
+        if launch is not None:
+            launch.close()
 
 
 @app.command(context_settings=_PASS)
@@ -832,6 +1035,7 @@ def run(ctx: typer.Context) -> None:
         raise typer.Exit(_AGENTS[agent](args, command))
     _require(command)
     _ensure_daemon()
+    _say_keyless("run", "carrier-unverified")
     raise typer.Exit(_launch([command, *args], wrappers.generic_env()))
 
 

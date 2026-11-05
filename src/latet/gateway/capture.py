@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from latet.engine.response_guard import safe_text
 from latet.gateway.headers import redacted
 from latet.logline import redacted as redacted_line
 from latet.protocols import codec
@@ -51,8 +52,6 @@ class Exchange:
         self._path = path
         self._lock = threading.Lock()
         self._t0 = time.perf_counter()
-        self._response = bytearray()
-        self._response_encoding: str | None = None
         # Its address without the credentials a query can carry (Google's API key in ``key=``).
         self._write({"t": "open", "kind": kind, "upstream": upstream, "method": method, "url": redacted_line(url)})
 
@@ -79,23 +78,33 @@ class Exchange:
         )
 
     def response_start(self, status: int, headers: list[tuple[str, str]]) -> None:
-        self._response_encoding = next((v for k, v in headers if k.lower() == "content-encoding"), None)
-        self._write({"t": "response", "status": status, "headers": redacted(headers)})
+        # Handshake/unread callers also pass through this bounded metadata guard.
+        kept: list[tuple[str, str]] = []
+        charge = 0
+        for name, value in headers:
+            charge += 256 + 4 * (len(name) + len(value))
+            if charge > 65536:
+                break
+            if safe_text(name) and safe_text(value):
+                kept.append((name, value))
+        self._write({"t": "response", "status": status, "headers": redacted(kept)})
 
     def response_chunk(self, chunk: bytes) -> None:
-        if self._response_encoding:
-            self._response.extend(chunk)  # compressed: decode once at the end
-        else:
-            self._write({"t": "chunk", "data": _text(chunk)})
+        """Called only by the screened owner's publication worker."""
+        self._write({"t": "chunk", "data": _text(chunk)})
+
+    def response_text(self, text: str) -> None:
+        self._write({"t": "chunk", "data": text})
+
+    def response_body(self, body: bytes) -> None:
+        self._write({"t": "body", "data": _text(body)})
+
+    def response_omitted(self, category: str) -> None:
+        self._write({"t": "omitted", "reason": category})
 
     def response_end(self, error: str | None = None) -> None:
-        if self._response_encoding and self._response:
-            try:
-                body = codec.decode(bytes(self._response), self._response_encoding)
-                self._write({"t": "body", "data": _text(body)})
-            except Exception as exc:
-                self._write({"t": "body-decode-error", "error": repr(exc), "bytes": len(self._response)})
-        self._write({"t": "end", "error": error})
+        # Failure strings from transports are never copied into raw capture.
+        self._write({"t": "end", "error": "response-error" if error else None})
 
     def ws(self, direction: str, data: str | bytes) -> None:
         payload: str | dict[str, Any] = data if isinstance(data, str) else _text(data)

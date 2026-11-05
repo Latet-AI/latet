@@ -103,7 +103,8 @@ the requests go. Bedrock's FIPS address and a VPC endpoint are other cases: see
 Requests to Bedrock are checked, never rewritten: they come from Claude Code, whose plugin has already
 masked them. Bedrock's answers reach Claude Code exactly as Amazon sent them; Latet reads them only to
 show them in the dashboard. Model ids and inference profile ARNs reach Amazon exactly as Claude Code
-wrote them.
+wrote them; an ARN must be listed in `request_resources` first
+([below](#what-a-destination-lets-through)).
 
 ## Google Vertex
 
@@ -118,6 +119,28 @@ Claude Code on Microsoft Foundry (`CLAUDE_CODE_USE_FOUNDRY=1`, with `ANTHROPIC_F
 `ANTHROPIC_FOUNDRY_BASE_URL`) and Codex on Azure OpenAI (a provider whose `base_url` is
 `https://<resource>.openai.azure.com/openai/v1`) are destinations like a gateway: the resource's
 address is saved (`foundry-acme`, `azure-acme`) and the key passes as it is.
+
+## What a destination lets through
+
+Latet reads every part of a request to a destination, as it does to a provider
+([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)). A destination's
+`request_profile`, set on the destination in [`upstreams`](../../reference/configuration/#upstreams-items),
+says which calls it takes: `standard` (the Anthropic and OpenAI APIs' own routes, the default),
+`azure-openai-1` (Azure OpenAI, with its `api-version`) or `foundry-1` (Microsoft Foundry). Any other
+call is refused.
+
+- **Its own credential.** A gateway that takes its key in `authorization` or `x-api-key` needs
+  nothing more. One that wants it in a header of its own (`x-acme-key`) refuses until an exception
+  names that header as the destination's credential, which Latet sends as it came and never reads:
+  see [Approving an exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception).
+- **Its model names and versions.** A model id in a provider's documented form passes. A gateway's
+  own names (`acme-large`), the `api-version` an Azure OpenAI or Foundry destination takes, any
+  Bedrock ARN, an application inference profile's included, and a Vertex project are listed in
+  `request_resources` first:
+  [Bedrock and Vertex: what to list](../../getting-started/upgrading-to-0-11/#bedrock-and-vertex-what-to-list).
+- **Thinking signatures through a gateway.** A conversation through LiteLLM or another gateway that
+  relays Claude's thinking signatures passes while Latet remembers seeing them come back. After the
+  daemon restarts, its next turn is refused: start a new conversation.
 
 ## A model on this computer
 
@@ -141,16 +164,16 @@ and on the internet always go through Latet.
 - **Managed settings that force an address.** When your organization's managed settings set
   `ANTHROPIC_BASE_URL` (or a cloud's address) to something else, nothing overrides them. Latet says
   so and does not start Claude Code. Your IT can set that address to Latet, as below.
-- **Amazon Bedrock's Mantle API** (`CLAUDE_CODE_USE_MANTLE`): not one Latet reads yet. Use Bedrock's
+- **Amazon Bedrock's Mantle API** (`CLAUDE_CODE_USE_MANTLE`): not one Latet reads. Use Bedrock's
   Invoke API (`CLAUDE_CODE_USE_BEDROCK`) or your company's gateway.
 - **Amazon Bedrock through a VPC endpoint** (an `ANTHROPIC_BEDROCK_BASE_URL` on
-  `vpce-….vpce.amazonaws.com`): not supported yet. Latet would have to sign for that endpoint, and
+  `vpce-….vpce.amazonaws.com`): not supported. Latet would have to sign for that endpoint, and
   Amazon refuses a signature made for Latet's address. Latet says so and does not start Claude Code:
   use Bedrock's public address, or your company's gateway. With a Bedrock API key
   (`AWS_BEARER_TOKEN_BEDROCK`) nothing has to be signed, and the endpoint is a destination like any
   company address.
 - **Amazon Bedrock's FIPS address** (an `ANTHROPIC_BEDROCK_BASE_URL` on
-  `bedrock-runtime-fips.us-east-1.amazonaws.com`): not supported yet. Latet can only send to the
+  `bedrock-runtime-fips.us-east-1.amazonaws.com`): not supported. Latet can only send to the
   standard address, which is not a FIPS endpoint, so it says so and does not start Claude Code, rather
   than drop your FIPS requirement. Use your company's gateway, or the standard address if you do not
   need FIPS. With a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`) nothing has to be signed, and the FIPS

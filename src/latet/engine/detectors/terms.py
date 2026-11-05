@@ -71,6 +71,40 @@ RE2_MEMORY = 64 << 20
 # compile within it is given twice as much, up to RE2_MEMORY.
 BOUNDED_PER_BYTE = 64
 BOUNDED_SMALLEST = 1 << 20
+# The values matched whatever the text by a vault on a server's store, an API key's or, since Task 9, a person's
+# (``engine.stored``: its secrets of one run held glued, those glued on both sides while in memory): one alternation of
+# many terms that start every way, whose automaton needs about 520 to 730 bytes for each byte of its pattern (16 hex
+# digits, 20- to 40-character tokens, addresses; 60 to 2,000 of them, over log lines and over lines of their
+# prefixes). Within BOUNDED_PER_BYTE, a part of some 120 secrets
+# of 16 hex digits outgrew it: RE2 said "DFA out of memory" and read each 200-character line in 45 to 60 µs instead of
+# 2 to 8 (Task 8's fix round 8). Such a part may use this much for each byte of its pattern, at most RE2_MEMORY, and
+# what that adds to BOUNDED_PER_BYTE's is weighed with its space (``StoredVault.detectors_bytes``), within what the
+# vault may take more (``Room``, fix round 9). 1 KiB is 1.4 times the most measured (730 bytes), a margin for texts
+# that need more than the probe's: RE2 takes its automaton's memory as it needs it, so what is weighed, the budget, is
+# up to twice what the measured texts used.
+SCALED_PER_BYTE = 1024
+
+
+class Room:
+    """What the alternations given ``SCALED_PER_BYTE`` may still take past the ordinary budget, in bytes (``left``): an
+    API key's vault's or a person's on a server's store, within its ceiling (``StoredVault.detectors_extra_most``, Task
+    8's fix round 9). Each takes
+    what it wants whole, or nothing and keeps the ordinary budget: a scan within that is slower, never with a term
+    less, and never refused."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, left: int) -> None:
+        self.left = max(0, left)
+
+    def take(self, wanted: int) -> bool:
+        """Whether ``wanted`` more bytes are granted (taken from what is left)."""
+        if wanted > self.left:
+            return False
+        self.left -= wanted
+        return True
+
+
 # A list of terms larger than this, in bytes of its pattern, is matched in parts of at most as much, each an alternation
 # compiled on its own under a budget sized to it (as a vault's values are, ``latet.engine.known``): RE2 holds the GIL
 # for the whole of a compile, and one alternation of 30,000 terms of 60 characters held it 1.3 s, on a server every
@@ -137,6 +171,26 @@ _WORD_OVERLAP_SHARE = 5
 
 _Found = tuple[int, int, _Plain]  # a term found: where it starts and ends, and the term
 
+# The blank line between two lines of a text joined of lines (``DetectContext.joined``: an applications call's texts,
+# ``Masker.joined``): each line is read within bounds of its own on the overlaps looked for, as each text alone is.
+_BLANK = "\n\n"
+
+
+def _line_starts(text: str | bytes) -> list[int]:
+    """Where each line of a text joined of lines starts (``_BLANK``): at 0, and after each blank line."""
+    blank = _BLANK.encode() if isinstance(text, bytes) else _BLANK
+    starts = [0]
+    at = text.find(blank)  # type: ignore[arg-type]  # bytes in bytes, str in str
+    while at >= 0:
+        starts.append(at + len(blank))
+        at = text.find(blank, at + len(blank))  # type: ignore[arg-type]
+    return starts
+
+
+def _overlap_bound(size: int) -> tuple[int, int]:
+    """What the searches for overlaps may cost in ``size`` bytes of text: how many, and how many bytes they read."""
+    return size // _OVERLAP_SEARCHES + 64, _OVERLAP_READ * size + 4096
+
 
 def _with_overlaps(text: str, chain: list[_Found], others: list[_Found]) -> list[_Found]:
     """The terms found one after the other (``chain``: 0.9.8's, apart and in order), and of the terms that overlap them
@@ -167,6 +221,25 @@ def _with_overlaps(text: str, chain: list[_Found], others: list[_Found]) -> list
     return sorted(dict.fromkeys(out), key=lambda found: (found[0], -found[1]))
 
 
+def _overlaid(text: str, chain: list[_Found], others: list[_Found], lines: bool) -> list[_Found]:
+    """``_with_overlaps``; with ``lines`` (a text joined of lines), each line's terms on their own, within the bound of
+    that line alone, as each text alone: a line dense with overlaps never spends the next line's."""
+    if not others:
+        return chain
+    if not lines or _BLANK not in text:
+        return _with_overlaps(text, chain, others)
+    starts = _line_starts(text)
+    groups: dict[int, tuple[list[_Found], list[_Found]]] = {}
+    for kind, founds in enumerate((chain, others)):
+        for found in founds:
+            groups.setdefault(bisect_right(starts, found[0]) - 1, ([], []))[kind].append(found)
+    out: list[_Found] = []
+    for line in sorted(groups):
+        in_line, over = groups[line]
+        out += _with_overlaps(text, in_line, over) if over else in_line
+    return out
+
+
 class _Alternation:
     """Up to WORD_INDEX_FROM terms in one RE2 alternation: at each place, the longest term that stands as a whole word,
     those that overlap included (``finditer``). No \\b in the pattern (RE2's knows ASCII letters only): word edges are
@@ -176,9 +249,11 @@ class _Alternation:
     The pattern runs over the text's UTF-8, encoded once: RE2's binding encodes a text again at every call, which a text
     full of terms (a git log naming its author in every commit) would pay for each term found.
 
-    ``bounded``: RE2 may use memory in proportion to the pattern (``BOUNDED_PER_BYTE``), not ``RE2_MEMORY``; ``memory``
-    is what it may use, program and automaton, which C++ holds where Python's own count does not see it. ``escaped``:
-    each value as the pattern writes it, when the caller has it already."""
+    ``bounded``: RE2 may use memory in proportion to the pattern (``per_byte``, ``BOUNDED_PER_BYTE`` when None, at
+    least ``BOUNDED_SMALLEST``), not ``RE2_MEMORY``; ``memory`` is what it may use, program and automaton,
+    which C++ holds where Python's own count does not see it, and ``extra`` what was granted past
+    ``BOUNDED_PER_BYTE``'s budget (``SCALED_PER_BYTE``'s parts), from ``room`` when one is given (``Room``: all of it
+    or none). ``escaped``: each value as the pattern writes it, when the caller has it already."""
 
     def __init__(
         self,
@@ -188,6 +263,8 @@ class _Alternation:
         *,
         bounded: bool = False,
         escaped: Mapping[str, str] | None = None,
+        per_byte: int | None = None,
+        room: Room | None = None,
     ) -> None:
         self._case = case_sensitive
         self._whole_word = whole_word
@@ -195,9 +272,16 @@ class _Alternation:
         values = sorted({t.value for t in terms})
         parts = [escaped[value] for value in values] if escaped is not None else [re2.escape(v) for v in values]
         pattern = "|".join(parts).encode()
+        self.pattern_bytes = len(pattern)
         self.memory = RE2_MEMORY
+        self.extra = 0
         if bounded:
-            self.memory = min(RE2_MEMORY, max(BOUNDED_SMALLEST, BOUNDED_PER_BYTE * len(pattern)))
+            ordinary = min(RE2_MEMORY, max(BOUNDED_SMALLEST, BOUNDED_PER_BYTE * len(pattern)))
+            self.memory = ordinary
+            if per_byte is not None:
+                wanted = min(RE2_MEMORY, max(BOUNDED_SMALLEST, per_byte * len(pattern))) - ordinary
+                if wanted > 0 and (room is None or room.take(wanted)):
+                    self.memory, self.extra = ordinary + wanted, wanted
         while True:
             # Quiet: an alternation too large for RE2 would be written to the standard error, its first values with it.
             options = quiet_options(case_sensitive=case_sensitive, longest_match=True, max_mem=self.memory)
@@ -214,21 +298,28 @@ class _Alternation:
     def _key(self, value: str) -> str:
         return value if self._case else value.casefold()
 
-    def finditer(self, text: str, data: bytes | None = None) -> Iterator[tuple[int, int, _Plain]]:
+    def finditer(self, text: str, data: bytes | None = None, lines: bool = False) -> Iterator[tuple[int, int, _Plain]]:
         """Where its terms are in ``text``: from the left, the longest term at a place (that stands as a whole word,
         when terms must), one after the other, and what the terms that overlap them add (``_with_overlaps``).
         ``data``: the text's UTF-8, when the caller has it already (the vault's values are matched by many
-        alternations, each over the same text)."""
+        alternations, each over the same text). ``lines``: a text joined of lines (``DetectContext.joined``), each
+        line's overlaps looked for within the bound of that line alone, as each text alone."""
         data = text.encode() if data is None else data
         offset = _Offsets(text, data)
-        searches = len(data) // _OVERLAP_SEARCHES + 64  # what the searches for overlaps may cost (the bound above)
-        read = _OVERLAP_READ * len(data) + 4096
+        bounds = _line_starts(data) if lines else [0]
+        line_end = bounds[1] if len(bounds) > 1 else len(data)
+        searches, read = _overlap_bound(line_end)  # what the searches for overlaps may cost (the bound above)
         overlaps = True
         chain: list[_Found] = []  # the terms one after the other, 0.9.8's, and those that overlap them, in bytes
         others: list[_Found] = []
         pos = reach = 0  # reach: where the terms one after the other end
         while (m := self._pattern.search(data, pos)) is not None:
             start, end = m.span()
+            if start >= line_end:  # a later line of a text joined of lines: a bound of its own
+                line = bisect_right(bounds, start) - 1
+                line_end = bounds[line + 1] if line + 1 < len(bounds) else len(data)
+                searches, read = _overlap_bound(line_end - bounds[line])
+                overlaps = True
             if start < reach:  # inside a term found already: an overlap is looked for
                 searches -= 1
                 read -= end - pos
@@ -252,7 +343,7 @@ class _Alternation:
         places = {place: offset(place) for found in terms for place in found[:2]}  # in order: each piece decoded once
         in_text = [(places[start], places[end], term) for start, end, term in chain]
         overlapping = [(places[start], places[end], term) for start, end, term in others]
-        yield from _with_overlaps(text, in_text, overlapping)
+        yield from _overlaid(text, in_text, overlapping, lines)
 
     def _longest_at(self, data: bytes, start: int, end: int) -> tuple[int, _Plain] | None:
         """The longest term at ``start`` that stands as a whole word when terms must (``end``: where the longest one
@@ -303,17 +394,27 @@ class _WordIndex:
     def _key(self, value: str) -> str:
         return value if self._case else value.casefold()
 
-    def finditer(self, text: str, data: bytes | None = None) -> Iterator[tuple[int, int, _Plain]]:
+    def finditer(self, text: str, data: bytes | None = None, lines: bool = False) -> Iterator[tuple[int, int, _Plain]]:
+        """Where its terms are in ``text``, as the alternation finds them. ``lines``: a text joined of lines
+        (``DetectContext.joined``), each line's overlaps looked for within the share of that line alone, as each text
+        alone."""
         words = _WORDS.findall(text)
         if self._first.isdisjoint(words if self._case else map(str.casefold, words)):
             return  # most texts hold none of the terms: one look at their words says so
         tokens = [(m.start(), m.end(), self._key(m.group())) for m in _WORDS.finditer(text)]
+        bounds = _line_starts(text) if lines else [0]
+        line_end = bounds[1] if len(bounds) > 1 else len(text)
         chain: list[_Found] = []  # the terms one after the other, 0.9.8's
         others: list[_Found] = []  # the terms that overlap them
         inside: list[int] = []  # the words inside a term of the chain that begin a term: one may run on past it
         cost = spent = 0  # what the terms one after the other cost (``_Entry``'s units), and what the overlaps did
         done = i = 0  # done: where the last term found ends; the next one starts there or after
         while i < len(tokens):
+            if tokens[i][0] >= line_end:  # a later line of a text joined of lines: a share of its own
+                others += self._overlapping(text, tokens, inside, cost // _WORD_OVERLAP_SHARE + 256 - spent)
+                inside, cost, spent = [], 0, 0
+                line = bisect_right(bounds, tokens[i][0]) - 1
+                line_end = bounds[line + 1] if line + 1 < len(bounds) else len(text)
             found, looked, extra = self._at(text, tokens, i, done, others, cost, spent)
             cost += looked
             spent += extra
@@ -328,7 +429,7 @@ class _WordIndex:
                     inside.append(i)
                 i += 1
         others += self._overlapping(text, tokens, inside, cost // _WORD_OVERLAP_SHARE + 256 - spent)
-        yield from _with_overlaps(text, chain, others) if others else chain
+        yield from _overlaid(text, chain, others, lines)
 
     def _overlapping(
         self, text: str, tokens: list[tuple[int, int, str]], inside: list[int], budget: int
@@ -476,7 +577,15 @@ class _TermSet:
     ``parted``: an alternation larger than ``PART_CHARS`` is matched in parts, each compiled on its own under a budget
     sized to it (the user's terms; a vault's values come in parts of their own, ``latet.engine.known``)."""
 
-    def __init__(self, terms: Iterable[Term], *, bounded: bool = False, parted: bool = False) -> None:
+    def __init__(
+        self,
+        terms: Iterable[Term],
+        *,
+        bounded: bool = False,
+        parted: bool = False,
+        per_byte: int | None = None,
+        room: Room | None = None,
+    ) -> None:
         groups: dict[tuple[bool, bool], list[Term]] = {}
         self._given: dict[_Plain, _Plain] = {}  # a term written in another form → the term as given
         for t in terms:
@@ -508,7 +617,9 @@ class _TermSet:
                         _Alternation(part, case_sensitive, whole_word, bounded=sized, escaped=escaped)
                     )
             elif rest:
-                self._matchers.append(_Alternation(rest, case_sensitive, whole_word, bounded=bounded))
+                self._matchers.append(
+                    _Alternation(rest, case_sensitive, whole_word, bounded=bounded, per_byte=per_byte, room=room)
+                )
 
     def __bool__(self) -> bool:
         return bool(self._matchers)
@@ -518,12 +629,18 @@ class _TermSet:
         """What RE2 may use for its alternations, in bytes (the word indexes are Python's, counted with their terms)."""
         return sum(m.memory for m in self._matchers if isinstance(m, _Alternation))
 
-    def finditer(self, text: str, data: bytes | None = None) -> Iterator[tuple[int, int, _Plain]]:
+    @property
+    def extra(self) -> int:
+        """What its alternations were granted past ``BOUNDED_PER_BYTE``'s budget, in bytes (``_Alternation.extra``)."""
+        return sum(m.extra for m in self._matchers if isinstance(m, _Alternation))
+
+    def finditer(self, text: str, data: bytes | None = None, lines: bool = False) -> Iterator[tuple[int, int, _Plain]]:
+        """Where its terms are in ``text``; ``lines``: a text joined of lines (``DetectContext.joined``)."""
         for matcher in self._matchers:
             if not self._given:
-                yield from matcher.finditer(text, data)
+                yield from matcher.finditer(text, data, lines)
                 continue
-            for start, end, term in matcher.finditer(text, data):
+            for start, end, term in matcher.finditer(text, data, lines):
                 yield start, end, self._given.get(term, term)
 
 
@@ -556,7 +673,7 @@ class TermsDetector:
     def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
         if not self._set:
             return
-        for start, end, term in self._set.finditer(text):
+        for start, end, term in self._set.finditer(text, lines=ctx.joined):
             etype = term[_ETYPE]
             yield Span(start, end, etype, self._eclass, f"{self._rule}:{etype.lower()}")
 
@@ -643,7 +760,11 @@ class KnownValuesDetector:
     # (``latet.engine.known``): one of many, and compiled faster so. ``whole``: strings found only where they stand as
     # whole words, a secret's too, which is otherwise found inside a word: a vault's short fakes (``vault.short_fake``,
     # 0.10.0's of a short secret), which an id or a number can hold by chance, decided for each entity
-    # (``known._Part``). (Kept out of the class's docstring: the detectors' reference page is made from it.)
+    # (``known._Part``). ``per_byte``: the bounded memory for each byte of a pattern (``SCALED_PER_BYTE`` for the parts
+    # of a vault on a server's store, an API key's or a person's, which read every text; None, ``BOUNDED_PER_BYTE``, for
+    # every other), ``room`` what such
+    # budgets may still take (``Room``). (Kept out of the class's docstring: the detectors' reference page is made from
+    # it.)
 
     id = "known-values"
     mandatory = True
@@ -656,6 +777,8 @@ class KnownValuesDetector:
         *,
         bounded: bool = False,
         whole: Collection[str] = (),
+        per_byte: int | None = None,
+        room: Room | None = None,
     ) -> None:
         self._rule = rule
         self._classes: dict[str, tuple[str, EntityClass]] = {}
@@ -665,20 +788,146 @@ class KnownValuesDetector:
                 self._classes[original] = (etype, eclass)
                 inside = eclass == EntityClass.SECRET and original not in whole
                 terms.append(Term(original, etype, case_sensitive=True, whole_word=not inside))
-        self._set = _TermSet(terms, bounded=bounded)
+        self._set = _TermSet(terms, bounded=bounded, per_byte=per_byte, room=room)
 
     @property
     def empty(self) -> bool:
         """It matches nothing (no value long enough to be matched again)."""
         return not self._set
 
-    def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
-        yield from self.spans(text)
+    @property
+    def extra(self) -> int:
+        """What its RE2 alternations were granted past ``BOUNDED_PER_BYTE``'s budget, in bytes: what a ``per_byte``
+        of ``SCALED_PER_BYTE`` adds (``known._Part``, an API key's or a person's on a server's store), within its
+        ``room``."""
+        return self._set.extra
 
-    def spans(self, text: str, data: bytes | None = None) -> Iterator[Span]:
-        """``detect``'s, ``data`` the text's UTF-8 when the caller has it already."""
+    def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
+        yield from self.spans(text, lines=ctx.joined)
+
+    def spans(self, text: str, data: bytes | None = None, lines: bool = False) -> Iterator[Span]:
+        """``detect``'s, ``data`` the text's UTF-8 when the caller has it already; ``lines``: a text joined of lines
+        (``DetectContext.joined``)."""
         if not self._set:
             return
-        for start, end, term in self._set.finditer(text, data):
+        for start, end, term in self._set.finditer(text, data, lines):
             etype, eclass = self._classes[term[_VALUE]]
             yield Span(start, end, etype, eclass, self._rule)
+
+
+class NotPlain(Exception):
+    """A text ``PlainTerms.strict_spans`` does not answer for: there ``KnownValuesDetector`` may find otherwise (a value
+    not ASCII found, two values found that overlap), or costs less (``_PLAIN_READ``)."""
+
+
+# What ``PlainTerms.strict_spans`` reads at most, in characters: the text once for each term. ``str.find`` reads a text
+# once for each term where RE2 reads it once for all of them, after a compile: 200 names of five letters in a text of
+# 100,000 characters took str.find 10 ms and a detector compiled for them 6 ms, 50 in 20,000 characters 0.7 and 1.5 ms.
+# Past this many (a few milliseconds), the caller's detector costs less.
+_PLAIN_READ = 1 << 23
+
+
+class PlainTerms:
+    """The terms ``KnownValuesDetector`` keeps of ``values`` (the same arguments), found with ``str.find``: no RE2
+    pattern is compiled, which for the few values found in one text (the masker's repeats, a stored vault's candidates
+    for a text) costs more than reading the text with each.
+
+    Kept as the detector keeps them: from ``min_length`` characters (a person's name from three, ``long_enough``), with
+    a letter or a digit (``has_letter_or_digit``), case kept, whole words but for secrets (a string of ``whole`` a
+    whole word, a secret's too), each form of a value that is not ASCII (``forms``), and a later value of the same
+    string naming it (its type). Found as one alternation finds them (``_Alternation``): at each place the longest term
+    that stands as required, the terms one after the other, and those that overlap them cut by ``_with_overlaps``.
+
+    ``spans``: at least what the detector finds (past the alternation's bound on overlaps, more); ``strict_spans``:
+    exactly what it finds, the same spans in the same order, or ``NotPlain`` where that is not certain."""
+
+    def __init__(
+        self,
+        values: Iterable[tuple[str, str, EntityClass]],
+        min_length: int = 4,
+        rule: str = "known-values",
+        *,
+        whole: Collection[str] = (),
+    ) -> None:
+        self._rule = rule
+        classes: dict[str, tuple[str, EntityClass]] = {}  # a value → its type and class, the last given
+        given: dict[_Plain, str] = {}  # a term written in another form → the value it was written from (``_TermSet``)
+        groups: dict[bool, list[_Plain]] = {}  # whole words or not (a secret) → its terms, every form, in order
+        for original, etype, eclass in values:
+            if not long_enough(original, etype, min_length):
+                continue
+            classes[original] = (etype, eclass)
+            if etype != "LATET_ROUTE_KEY" and not has_letter_or_digit(original):
+                continue
+            as_word = eclass != EntityClass.SECRET or original in whole  # as ``KnownValuesDetector`` decides it
+            for form in forms(original):
+                term = (form, etype, True, as_word)
+                if form != original:
+                    given[term] = original
+                groups.setdefault(as_word, []).append(term)
+        # Each group as an alternation reads it: a string names the last term written so (its lookup), and that term
+        # the value it was written from; that value's type and class are the span's.
+        self._groups: list[tuple[bool, int, dict[str, tuple[_Plain, tuple[str, EntityClass]]]]] = []
+        for as_word, written in groups.items():
+            last = {term[_VALUE]: term for term in written}
+            named = {form: (term, classes[given.get(term, form)]) for form, term in last.items()}
+            self._groups.append((as_word, len(written), named))
+        self._terms = sum(len(named) for _, _, named in self._groups)
+
+    @property
+    def empty(self) -> bool:
+        """It finds nothing (no term long enough and with a letter or a digit), as ``KnownValuesDetector.empty``."""
+        return not self._groups
+
+    def spans(self, text: str, lines: bool = False) -> list[Span]:
+        """Where the terms are in ``text``: what ``KnownValuesDetector`` finds there, never less. ``lines``: a text
+        joined of lines (``DetectContext.joined``), each line's overlaps cut within the bound of that line alone, as the
+        detector cuts them (``_overlaid``), so that a line dense with overlaps never spends the next line's."""
+        return self._find(text, strict=False, lines=lines)
+
+    def strict_spans(self, text: str, most: int = _PLAIN_READ) -> list[Span]:
+        """What ``KnownValuesDetector`` finds in ``text``, the same spans in the same order; ``NotPlain`` where a value
+        that is not ASCII is found (a form of it may name another's type), where two values found overlap, the later
+        ending past the one it starts in (cut by ``_with_overlaps``, which the alternation's bound on overlaps may
+        stop), where a group of terms is one the detector looks up by words (``WORD_INDEX_FROM``), and where reading
+        the text with each term would read more than ``most`` characters (``_PLAIN_READ``: past it, a detector the
+        caller holds costs less; one the caller would compile for these terms costs less from further on)."""
+        if self._terms * len(text) > most:
+            raise NotPlain
+        return self._find(text, strict=True)
+
+    def _find(self, text: str, strict: bool, lines: bool = False) -> list[Span]:
+        out: list[Span] = []
+        for whole, size, named in self._groups:
+            if strict and size > WORD_INDEX_FROM:
+                raise NotPlain
+            longest: dict[int, tuple[int, _Plain]] = {}  # where a term stands → where the longest one there ends
+            for form, (term, _) in named.items():
+                at = text.find(form)
+                while at >= 0:
+                    end = at + len(form)
+                    if not whole or _whole(text, at, end):
+                        if strict and not form.isascii():
+                            raise NotPlain
+                        if end > longest.get(at, (at,))[0]:
+                            longest[at] = (end, term)
+                    at = text.find(form, at + 1)
+            if not longest:
+                continue
+            chain: list[_Found] = []  # the terms one after the other, as the alternation finds them
+            others: list[_Found] = []  # those that start inside one of them
+            reach = 0
+            for start in sorted(longest):
+                end, term = longest[start]
+                if start >= reach:
+                    chain.append((start, end, term))
+                    reach = end
+                elif not strict:
+                    others.append((start, end, term))
+                elif end > reach:
+                    raise NotPlain
+                # Strict, a term that ends inside the one it starts in is left out, as `_with_overlaps` leaves it out:
+                # an address's domain inside the address.
+            found = _overlaid(text, chain, others, lines)
+            out += [Span(start, end, *named[term[_VALUE]][1], self._rule) for start, end, term in found]
+        return out

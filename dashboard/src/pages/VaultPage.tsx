@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams, type To } from 'react-router'
 import { api } from '../api/client'
+import { revealedText } from '../lib/vault'
 import type { VaultEntity } from '../api/types'
 import { ClassLabel } from '../components/badges'
 import { Icon } from '../components/Icon'
@@ -234,6 +235,8 @@ export function VaultPage() {
 function Reveal({ entity }: { entity: VaultEntity }) {
   const { t } = useTranslation()
   const [original, setOriginal] = useState<string | null>(null)
+  // Latet's own launch key: a plain label shown in its place, never the key.
+  const [label, setLabel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -249,7 +252,8 @@ function Reveal({ entity }: { entity: VaultEntity }) {
     setError(null)
     try {
       const result = await api.reveal(entity.id)
-      setOriginal(result.original)
+      setLabel(result.launch_key === true)
+      setOriginal(revealedText(result, t))
       clearTimeout(timer.current)
       timer.current = setTimeout(() => setOriginal(null), REVEAL_SECONDS * 1000)
     } catch (err) {
@@ -263,7 +267,11 @@ function Reveal({ entity }: { entity: VaultEntity }) {
     return (
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <code className="mono block break-all text-ink">{original}</code>
+          {label ? (
+            <span className="block text-ink">{original}</span>
+          ) : (
+            <code className="mono block break-all text-ink">{original}</code>
+          )}
           <span className="mt-1 block h-0.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
             <span className="countdown block h-full bg-brand" style={{ animationDuration: `${REVEAL_SECONDS}s` }} />
           </span>

@@ -8,6 +8,9 @@ import { SlotView } from '../components/exchange/SlotView'
 import { Icon } from '../components/Icon'
 import { blockMarks } from '../components/masked/marks'
 import { EmptyState, ErrorState, errorText, Loading, PageHeader, Segmented } from '../components/ui'
+import { LaunchBadge } from '../components/exchange/CoverageList'
+import { inWords } from '../lib/blocks'
+import { launchOf, sessionLaunch, showsVerified } from '../lib/coverage'
 import { AGENTS, typeClassesFor } from '../lib/labels'
 import { useDeploymentKey, useTypeClass } from '../lib/me'
 import { usePref } from '../lib/prefs'
@@ -174,6 +177,11 @@ function SessionTimeline({ sessionKey, session }: { sessionKey: string; session:
         </div>
       </div>
       <p className="mb-4 max-w-[90ch] text-ui text-ink-2">{payload === 'new' ? t(key('sessions.newNote')) : t('sessions.allNote')}</p>
+      {sessionLaunch(chronological) !== null && (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-ui text-ink-2" data-session-launch>
+          {t('sessions.launch')} <LaunchBadge launch={sessionLaunch(chronological)!} focusable />
+        </p>
+      )}
 
       {cursor && (
         <div className="mb-3">
@@ -239,7 +247,8 @@ function TimelineItem({ exchange, payload }: { exchange: ExchangeSummary; payloa
         {exchange.new_masked > 0 && (
           <TypeChips byType={exchange.new_by_type ?? exchange.by_type} classOf={typeClassesFor(exchange, classOf)} max={4} />
         )}
-        <FlagList flags={exchange.flags} verified={exchange.verified} reason={exchange.block_reason} />
+        {launchOf(exchange) !== null && <LaunchBadge launch={launchOf(exchange)!} />}
+        <FlagList flags={exchange.flags} verified={showsVerified(exchange)} reason={inWords(exchange.block_reason)} />
       </div>
       <div className="mt-2 space-y-2">
         {!visible || detail.loading ? (

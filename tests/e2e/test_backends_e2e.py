@@ -86,7 +86,7 @@ async def test_a_conversation_masked_by_one_is_restored_by_the_other_and_no_othe
 
 
 async def test_a_decision_in_one_dashboard_lets_a_request_waiting_in_the_other_leave(tmp_path, upstream):
-    body = {"model": "m", "messages": [{"role": "user", "content": f"write to {EMAIL} about Orion"}]}
+    body = {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": f"write to {EMAIL} about Orion"}]}
     async with _two(tmp_path, upstream, live_review=LiveReview(enabled=True)) as ((_, two), (a, b)):
         await _signed_in(b, two)
         sent = asyncio.ensure_future(

@@ -30,6 +30,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import importlib.resources
+import logging
 import os
 import re
 import threading
@@ -37,7 +38,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, suppress
 from itertools import zip_longest
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 from urllib.parse import unquote
 
 import psycopg
@@ -45,6 +46,13 @@ from psycopg import pq, sql
 from psycopg.abc import PQGen
 from psycopg.conninfo import conninfo_to_dict
 from psycopg_pool import ConnectionPool
+
+from latet.server.start_errors import DatabaseError, SchemaMismatch, SettingRefused
+
+if TYPE_CHECKING:
+    from latet.server.master import MasterKey
+
+log = logging.getLogger(__name__)
 
 # The packages of the migrations, in order: each holds NNN_name.sql files. E1 appends "latet.ee.migrations" when the
 # Enterprise package can be imported.
@@ -111,15 +119,6 @@ _BOUNDS = {
     "tcp_user_timeout": "20000",
 }
 _BACKSLASH = chr(0x5C)  # in the options of a connection a space inside a value is written with a backslash before it
-
-
-class SchemaMismatch(RuntimeError):
-    """The database's schema is not this Latet's: an instance refuses to start, and says what to run."""
-
-
-class DatabaseError(RuntimeError):
-    """PostgreSQL could not be reached, or refused or failed what a start asked of it. Its words name the driver's error
-    by its type and never quote it: libpq's words hold hosts and users, and an address it cannot read."""
 
 
 def _places(found: dict[str, Any]) -> list[tuple[str, str]]:
@@ -295,30 +294,31 @@ def _parameters(url: str, schema: str, connect_timeout: int) -> dict[str, str]:
     it (``_pins``), so that libpq asks no variable, no password file or client certificate of the home folder; the
     connection's start-up options (``_options``): its search path, which is the schema alone, and the settings it rests
     on (``_PINNED``), the client's encoding given as libpq's own option too; and what gives up a connection that went
-    silent (``_BOUNDS``), whatever the address says of these. Raises ValueError, in words that quote nothing of the
-    address, for a schema or a time that is not allowed, a control character, an address the driver cannot read, one
-    with ``ssl`` or ``requiressl`` among its parameters (libpq writes them into sslmode), one that names no host (PGHOST
-    would) or a service file (it would fill in the rest), a PGSERVICE in the environment (an empty service is an error
-    to libpq, so it cannot be set aside for one connection) and a variable of ``require_auth`` (the same), for
+    silent (``_BOUNDS``), whatever the address says of these. Raises SettingRefused (a ValueError), in words that quote
+    nothing of the address, for a schema or a time that is not allowed, a control character, an address the driver
+    cannot read, one with ``ssl`` or ``requiressl`` among its parameters (libpq writes them into sslmode), one that
+    names no host (PGHOST would) or a service file (it would fill in the rest), a PGSERVICE in the environment (an
+    empty service is an error to libpq, so it cannot be set aside for one connection) and a variable of
+    ``require_auth`` (the same), for
     ``sslrootcert=system`` beside an sslmode other than ``verify-full`` (libpq refuses it, saying only "weak sslmode"),
     for a verified connection with no root certificate named (the home folder's is not read), and for ``verify-full``
     with a place that gives a ``hostaddr`` and no ``host`` (there is no name to check the certificate against). Two
     values that libpq derives from another option stay derived: sslmode from ``sslrootcert=system``, and the highest
     protocol version from the lowest one."""
     if _SCHEMA.fullmatch(schema) is None or schema in _SHARED or schema.startswith("pg_"):
-        raise ValueError(
+        raise SettingRefused(
             "a schema's name is lowercase letters, digits and underscores, from a letter, up to 63 characters; "
             "public, information_schema and pg_* are not a server's own"
         )
     if connect_timeout not in _TIMEOUTS:
-        raise ValueError("connect_timeout is 2 to 120 seconds")
+        raise SettingRefused("connect_timeout is 2 to 120 seconds")
     if any(char < " " or char == "\x7f" for char in url):  # libpq ends an address at a zero byte: what follows is lost
-        raise ValueError(
+        raise SettingRefused(
             "the database address holds a control character (a zero byte, a line break...): it is refused before it "
             "is read"
         )
     if "PGSERVICE" in os.environ:  # even an empty one: libpq takes it for a service named "", which it cannot find
-        raise ValueError(
+        raise SettingRefused(
             "PGSERVICE is set: a service file would fill in what the database address leaves out, and the address is "
             "all a server connects with. Unset PGSERVICE"
         )
@@ -329,27 +329,27 @@ def _parameters(url: str, schema: str, connect_timeout: int) -> dict[str, str]:
     except Exception as exc:  # the words of some quote the address, the arguments of others hold it: only the type goes
         kind = type(exc).__name__
     if kind:
-        raise ValueError(f"the database address cannot be read by PostgreSQL's driver ({kind})")
+        raise SettingRefused(f"the database address cannot be read by PostgreSQL's driver ({kind})")
     if _has_sslmode_alias(url):  # libpq has read it into sslmode: what the address says of sslmode is not what is used
-        raise ValueError(
+        raise SettingRefused(
             "the database address has ssl or requiressl among its parameters, which libpq writes into sslmode, the "
             "last parameter written winning, so that the sslmode that is used is not the one that is written: write "
             "sslmode itself, sslmode=verify-full&sslrootcert=system"
         )
     if not _hosts_named(found):
-        raise ValueError(
+        raise SettingRefused(
             "the database address names no host, or leaves one of its hosts empty, and the server does not take one "
             "from PGHOST: write it in the address, postgresql://latet@db.acme.lan/latet (a socket's folder is "
             "?host=/var/run/postgresql)"
         )
     if "service" in found:
-        raise ValueError(
+        raise SettingRefused(
             "the database address names a service file (service=): the host, the port and the user are written in "
             "the address itself"
         )
     required = _variables().get("require_auth", "")
     if required in os.environ and "require_auth" not in found:  # no value of its own sets it aside (see _NO_VALUE)
-        raise ValueError(
+        raise SettingRefused(
             f"{required} is set: it would decide which authentication methods the server accepts from PostgreSQL, and "
             f"the address is all a server connects with. Unset {required}, or write require_auth in the address"
         )
@@ -370,19 +370,19 @@ def _parameters(url: str, schema: str, connect_timeout: int) -> dict[str, str]:
     if minimum and minimum != "3.0" and "max_protocol_version" not in found:
         parameters["max_protocol_version"] = minimum
     if parameters.get("sslrootcert") == "system" and parameters.get("sslmode") != "verify-full":
-        raise ValueError(
+        raise SettingRefused(
             "the database address names sslrootcert=system with an sslmode other than verify-full: libpq takes the "
             "system's certificate authorities with verify-full alone, which checks the host's name too: write "
             "sslmode=verify-full, or leave sslmode out"
         )
     if parameters.get("sslmode") in ("verify-ca", "verify-full") and parameters.get("sslrootcert") == _NO_FILE:
-        raise ValueError(
+        raise SettingRefused(
             "the database address asks for a verified connection (sslmode) and names no sslrootcert, and the root "
             "certificates of this computer's home folder are not read: write sslrootcert=system for the system's "
             "certificate authorities, or the path of a file"
         )
     if parameters.get("sslmode") == "verify-full" and any(address and not host for host, address in _places(found)):
-        raise ValueError(
+        raise SettingRefused(
             "the database address asks for sslmode=verify-full and gives a place by its hostaddr alone: the "
             "certificate is checked against the name of a host, so write the host's name beside the address (host)"
         )
@@ -496,6 +496,29 @@ class Database:
         with self.pool.connection() as conn, conn.transaction():
             yield conn
 
+    @contextmanager
+    def apart(self) -> Iterator[psycopg.Connection[Any]]:
+        """A connection of its own, made as the pool's are and closed once its block ends, committed on success and
+        rolled back on failure: for a read of one large answer (``index.PrintIndex.build``), since libpq keeps its input
+        buffer as large as the largest answer a connection read for as long as the connection lives, and the pool's
+        live on. When PostgreSQL makes none (no connection to spare: ``max_connections`` reached, or a pooler's limit),
+        one of the pool's: the read is done all the same, and that connection keeps the larger buffer until the pool
+        replaces it (``max_lifetime``, an hour)."""
+        own: psycopg.Connection[Any] | None = None
+        with suppress(DatabaseError):  # the fallback below is no handler of it: nothing read is chained to it
+            own = self._own()
+        if own is None:
+            log.info("no connection to spare for a read apart on PostgreSQL: one of the pool's reads it")
+            with self.connection() as conn:
+                yield conn
+            return
+        with own as conn:
+            yield conn
+
+    def _own(self) -> psycopg.Connection[Any]:
+        """A connection made as the pool's are, outside it. Raises DatabaseError when PostgreSQL makes none."""
+        return _Connection.connect("", **self._parameters)
+
     def ping(self) -> bool:
         try:
             with self.connection() as conn:
@@ -540,7 +563,7 @@ def _waited_for_the_lock() -> str:
     )
 
 
-def migrate(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> list[str]:
+def migrate(db: Database, *, packages: Sequence[str] = MIGRATIONS, master: MasterKey | None = None) -> list[str]:
     """Bring the schema to this Latet's version, one instance at a time: the names of the migrations applied now, each
     in a transaction of its own, with no statement bound. The lock of the migrations is waited for ``MIGRATION_WAIT``
     at most. The schema is made only when it is not there, so that a role without CREATE on the database migrates a
@@ -548,7 +571,12 @@ def migrate(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> list[str]:
     be reached or refuses a statement, when the lock was not free in time, or when the connection's search path is not
     the schema alone (a pooler that drops the start-up options would have the tables made in another one), or does not
     have the settings the server rests on (``_PINNED``), or when the database's encoding is not UTF8."""
+    from latet.server.launch_records import BOOTSTRAP_MIGRATION, MASTER_REQUIRED, bootstrap, open_registry
+
     files = _migrations(packages)
+    protected = any(name == BOOTSTRAP_MIGRATION for name, _ in files)
+    if protected and master is None:
+        raise DatabaseError(MASTER_REQUIRED)
     applied: list[str] = []
     step, kind, waited = "the connection's settings could not be read", "", False
     try:
@@ -585,12 +613,19 @@ def migrate(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> list[str]:
                     "(name TEXT PRIMARY KEY, applied DOUBLE PRECISION NOT NULL)"
                 )
                 done = {row[0] for row in conn.execute("SELECT name FROM schema_migrations")}
+                if protected and BOOTSTRAP_MIGRATION in done:
+                    assert master is not None
+                    step = "the protected launch registry could not be checked"
+                    open_registry(conn, db.schema, master)
                 for name, text in files:
                     if name in done:
                         continue
                     step = f"the migration {name} failed"
                     with conn.transaction():
                         conn.execute(text.encode())  # no parameters: the statements of the file go as they are
+                        if name == BOOTSTRAP_MIGRATION:
+                            assert master is not None
+                            bootstrap(conn, db.schema, master)
                         conn.execute(
                             "INSERT INTO schema_migrations (name, applied) VALUES (%s, %s)", (name, time.time())
                         )
@@ -603,6 +638,25 @@ def migrate(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> list[str]:
     if kind:
         raise DatabaseError(f"{step} ({kind})")
     return applied
+
+
+def pending(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> list[str]:
+    """The names of this Latet's migrations the schema has not had yet, in order (all of them where it is not there):
+    what ``migrate`` would apply, read and never changed. Raises DatabaseError, with the type of the driver's error,
+    when PostgreSQL cannot be asked."""
+    wanted = [name for name, _ in _migrations(packages)]
+    have: set[str] = set()
+    kind = ""
+    try:
+        with db.connection() as conn:
+            have = {row[0] for row in conn.execute("SELECT name FROM schema_migrations")}
+    except psycopg.errors.UndefinedTable:
+        have = set()
+    except psycopg.Error as exc:
+        kind = type(exc).__name__
+    if kind:
+        raise DatabaseError(f"the schema's migrations could not be read ({kind})")
+    return [name for name in wanted if name not in have]
 
 
 def check_schema(db: Database, *, packages: Sequence[str] = MIGRATIONS) -> None:

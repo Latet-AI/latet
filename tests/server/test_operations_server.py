@@ -39,7 +39,7 @@ UI = {"x-latet-ui": "1"}
 OUTSIDE = ipaddress.ip_address("1.2.3.4")  # an address on the internet (the documentation ranges are refused)
 INSIDE = ipaddress.ip_address("10.0.3.9")
 W = "billing@acme.com"  # a value the administrator lets through for everyone: it waits for each person
-SMALL = {"model": "claude", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
+SMALL = {"model": "claude-sonnet-4-5", "max_tokens": 8, "messages": [{"role": "user", "content": "hello"}]}
 
 
 @pytest.fixture(autouse=True)
@@ -103,6 +103,20 @@ def test_the_metrics_count_a_persons_masked_values_and_see_the_database_and_valk
     assert 'latet_http_requests_total{kind="plugin",code="200"} 1' in text
     assert route_key(secret) not in text and secret not in text and "R7tK2pQ9" not in text
     assert "latet_build_info" in server.metrics.render()  # the server's own registry, served or not
+
+
+def test_the_metrics_say_this_instances_memory_and_its_vaults_indexes(server, tmp_path):
+    """Task 10: this instance's process memory (on Linux its resident set, on Windows its private bytes) and what its
+    spaces' vault indexes and their caches hold, from the counts they keep: no space open here, none."""
+    server.settings = server.settings.model_copy(update={"metrics_token_file": _metrics_token(tmp_path)})
+    with TestClient(server_app(server), base_url=server.settings.url) as client:
+        text = _scraped(client, "latet_vault_index_bytes")
+    found = dict(
+        line.split(" ", 1)
+        for line in text.splitlines()
+        if line.startswith(("latet_process_memory_bytes ", "latet_vault_index_bytes "))
+    )
+    assert float(found["latet_process_memory_bytes"]) > 1_000_000 and float(found["latet_vault_index_bytes"]) == 0
 
 
 def test_the_instances_own_port_answers_the_metrics_path_as_any_path_it_does_not_have(server, tmp_path):

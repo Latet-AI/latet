@@ -105,6 +105,34 @@ async def test_a_value_a_later_text_teaches_is_masked_in_the_earlier_ones(server
     assert first["text"].split()[1] == second["text"].split("@")[1]  # the domain's fake, in both
 
 
+async def test_a_calls_lines_are_read_as_one_text(server, monkeypatch):
+    """A call's lines are read as one text (``Masker.joined``), each answered with what was found in it: the detector
+    of personal data reads a mask's thirty lines once, and a scan's once, where it read each; each line masked and
+    found as it is alone."""
+    key, secret = server.identities.add_key("Billing CI")
+    texts = [f"line {k}: write to {CANARY}, call {PHONE}, IBAN {IBAN}" for k in range(30)]
+    async with _calling(server) as client:
+        runtime = await server.spaces.runtime(key)
+        [pii] = [d for d in runtime.mediator._masker(Session("apps", kept=False)).detectors if d.id == "pii"]
+        real, read = pii.detect, []
+
+        def reading(text, ctx):
+            read.append(text)
+            return real(text, ctx)
+
+        monkeypatch.setattr(pii, "detect", reading)
+        masked = (await _post(client, secret, "mask", {"texts": texts})).json()
+        by_mask = len(read)
+        scanned = (await _post(client, secret, "scan", {"texts": texts})).json()
+    assert by_mask == 1 and len(read) == 2
+    for result in masked["results"]:
+        assert CANARY not in result["text"] and PHONE not in result["text"] and IBAN not in result["text"]
+        assert result["counts"] == {"EMAIL": 1, "PHONE": 1, "IBAN": 1}
+    assert len({r["text"].split(", ")[0].split()[-1] for r in masked["results"]}) == 1  # one fake for one address
+    for text, result in zip(texts, scanned["results"], strict=True):
+        assert _values_of(text, result["findings"]) == [CANARY, PHONE, IBAN]
+
+
 async def test_scan_says_where_and_keeps_nothing(server):
     key, secret = server.identities.add_key("Billing CI")
     text = f"write to {CANARY}, IBAN {IBAN}, again {CANARY}"
@@ -952,7 +980,8 @@ async def test_no_value_in_the_servers_log(server, monkeypatch):
             monkeypatch.setattr(server.audit, "record", unwritable)
             assert (await _post(client, secret, "unmask", {"texts": [fake]})).status_code == 503
     told = logs.getvalue()
-    assert f"{APPS_API}/unmask" in told and "507" in told  # the calls are logged...
+    # the calls are logged, by their area since P2-5 (``safe_request_path``: a fixed category, never the path)...
+    assert "POST /applications 200" in told and "/applications 507" in told and f"{APPS_API}/unmask" not in told
     for value in (CANARY, "acme.it", IBAN, PHONE, fake, secret):
         assert value not in told, value  # ...and nothing of what they carried
 

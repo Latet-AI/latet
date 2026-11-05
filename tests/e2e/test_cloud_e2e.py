@@ -19,9 +19,16 @@ from .fake_upstream import BEDROCK_STREAM, FakeUpstream
 pytestmark = pytest.mark.e2e
 
 GH_PAT = "ghp_" + "R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
-CLAUDE_CODE = {"user-agent": "claude-cli/2.1.294 (external, sdk-cli)", "x-claude-code-session-id": "cc-cloud"}
+# Claude Code's session id is a UUID (crypto.randomUUID()); the Vertex project is the owner's, listed (a row).
+CLAUDE_CODE = {
+    "user-agent": "claude-cli/2.1.294 (external, sdk-cli)",
+    "x-claude-code-session-id": "2b8f6d1c-4e7a-4c39-9f05-a6d3e1b72c48",
+}
+PROJECT = "acme-vertex-prod"
 TURN = "/bedrock/us-east-1/model/us.anthropic.claude-opus-5-5/invoke-with-response-stream"
-VERTEX = "/vertex/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-opus-5-5:streamRawPredict"
+VERTEX = (
+    f"/vertex/v1/projects/{PROJECT}/locations/us-east5/publishers/anthropic/models/claude-opus-5-5:streamRawPredict"
+)
 
 
 def _body(text: str) -> bytes:
@@ -48,7 +55,7 @@ def runtime(tmp_path, monkeypatch, upstream):
     )
     rt.gateway.upstreams = [
         BedrockUpstream(runtime=upstream.url, control=upstream.url),
-        VertexUpstream(base=upstream.url),
+        VertexUpstream(base=upstream.url, envelope_expected=frozenset({("project", PROJECT)})),
         Upstream("llm-acme-com", "/llm-acme-com", upstream.url),
     ]
     yield rt
@@ -115,10 +122,16 @@ def test_a_token_count_is_read_before_it_leaves(client, upstream):
 
 
 def test_what_latet_cannot_read_is_refused(client, upstream):
+    """Bedrock's Converse API, which Latet does not read: no profile names its route, so the envelope refuses it before
+    anything of it is read, naming the route's template alone (P2-1, D1)."""
     before = len(upstream.received)
-    r = _post(client, "/bedrock/us-east-1/model/x/converse", _body("hello"))
-    assert r.status_code == 404
-    assert r.json()["message"] == "Latet does not read this kind of request, so it does not send it"  # once
+    r = _post(client, "/bedrock/us-east-1/model/us.anthropic.claude-opus-5-5/converse", _body("hello"))
+    assert r.status_code == 400
+    assert r.json()["message"] == (  # Latet named once
+        "Latet: request envelope refused (envelope-route): route /{destination}/{unsupported-route}; this version of "
+        "Latet does not support this call, so change the agent or its settings so that it does not make it. Nothing "
+        "was sent; run `latet dashboard` to see where it was"
+    )
     assert len(upstream.received) == before
 
 
@@ -160,6 +173,6 @@ def test_the_record_says_where_a_request_went(client, runtime, upstream):
     _post(client, TURN, _body("hello record"))
     runtime.recorder.drain()
     [last] = runtime.exchanges.list(limit=1)[0]
-    assert last["host"] == upstream.url.removeprefix("http://")
+    assert last["host"] == "custom"  # the pretend cloud's address is no provider's public endpoint
     assert last["mode"] == "verify" and last["model"] == "us.anthropic.claude-opus-5-5"
     assert last["agent"] == "claude-code"

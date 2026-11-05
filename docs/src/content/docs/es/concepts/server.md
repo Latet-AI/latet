@@ -93,10 +93,23 @@ un programa, no tiene panel personal y recibe sus ajustes del administrador.
 
 Una instancia es un proceso del servidor de Latet en ejecución. Varias instancias pueden
 servir la misma dirección HTTPS pública detrás de un equilibrador de carga, usando la
-misma base de datos PostgreSQL, Valkey y clave maestra. PostgreSQL guarda el estado
-duradero; Valkey coordina el estado temporal. Las solicitudes no necesitan afinidad de
-sesión. Añadir instancias no crea copias separadas del espacio de una persona. Consulta
-los requisitos de los servicios en [Operación del servidor](../server-operations/).
+misma base de datos PostgreSQL, Valkey y clave maestra, y una máquina puede ejecutar varias,
+llamadas workers. PostgreSQL guarda el estado duradero; Valkey coordina el estado temporal. Las
+solicitudes no necesitan afinidad de sesión. Añadir instancias no crea copias separadas del espacio
+de una persona. Consulta los requisitos de los servicios en
+[Operación del servidor](../server-operations/).
+
+La caja fuerte de una persona se guarda en PostgreSQL, como la de una clave de API. Una instancia
+que sirve a la persona la guarda entera en memoria cuando tiene 35.000 valores o menos al construirse
+el espacio; por encima, guarda los valores que la persona usó por última vez, las huellas de las
+palabras de la caja fuerte y cada valor que ninguna palabra de un texto encuentra, y busca los demás
+en PostgreSQL cuando un texto los necesita. Antes de cada petición lee en PostgreSQL qué han cambiado
+las otras instancias, así que un valor guardado u olvidado en una instancia antes de que empiece una
+petición lo ve esa petición en cualquier otra. Una persona cuya caja fuerte contiene valores
+guardados antes de Latet 0.10.0 se sirve como la servía la 0.10.0 hasta que su espacio se vuelve a
+construir después de que se crean sus palabras: su espacio guarda en memoria toda su caja fuerte, sea
+cual sea su tamaño, y no lee ningún contador de cambios, así que un valor que otra instancia guarda le
+llega por su mensaje o, cuando el mensaje se pierde, por la siguiente comprobación del latido.
 
 ## Qué guarda el servidor
 
@@ -110,10 +123,15 @@ Algunos metadatos siguen siendo legibles en PostgreSQL: nombres y direcciones de
 de las identidades, identificadores externos, etiquetas, permisos y fechas de los tokens, nombres
 de reglas de la caja fuerte, contadores y fechas, y actores, acciones, destinos, identificadores,
 recuentos y direcciones de clientes del registro de administración. Los identificadores
-de proyecto y conversación del historial usan hashes con clave. La caja fuerte de una clave de API
-guarda además las palabras de sus valores y de sus valores ficticios como hashes con clave, con los
-que se encuentran en un texto: un hash no muestra ninguna palabra, solo qué entradas comparten una.
-Las filas de su historial y las respuestas que recuerda su revisor local guardan hashes con clave de
+de proyecto y conversación del historial usan hashes con clave. Cada caja fuerte, la de una persona
+como la de una clave de API, guarda además las palabras de sus valores y de sus valores ficticios
+como hashes con clave, con los que se encuentran en un texto, y junto a cada palabra su huella, una
+huella de 64 bits con una clave derivada de la de la identidad, que las instancias guardan en
+memoria, con el número del cambio que escribió la fila por última vez. Un hash o una huella no
+muestra ninguna palabra: quien lee la base de datos ve qué filas de una identidad comparten una
+palabra, cuántas son, y por los números qué filas cambiaron y en qué orden. Las huellas de la misma
+palabra son distintas en otra identidad. Las filas del historial de una clave de API y las respuestas
+que recuerda su revisor local guardan hashes con clave de
 las entradas y los valores de la caja fuerte que nombran, para que un olvido las encuentre: quien lee
 la base de datos puede saber qué filas nombran la misma entrada o el mismo valor, nunca qué valor es.
 Las filas de una persona no guardan ninguno. Cada caja fuerte guarda el hash con clave de cada valor
@@ -193,10 +211,11 @@ accesible solo por IPv4.
 - **Proyectos:** como máximo 200 por persona.
 - **Valores:** un valor de más de 16.384 caracteres se suprime en lugar de sustituirse por un valor ficticio,
   y nunca se guarda ni se restaura; un término tiene como máximo 8.192 caracteres.
-- **Memoria:** una instancia da a sus espacios 2 GiB fijos, y un espacio usa como máximo la mitad. Un espacio
-  que llega a su parte no aprende valores nuevos: una petición que trae uno se detiene con un mensaje que lo
-  dice, hasta que se olvidan valores en el panel, hay menos reglas o proyectos, o el servidor tiene más. No se
-  cierra el espacio de ninguna otra persona para hacer sitio.
+- **Memoria:** una instancia, y cada worker, da a sus espacios 2 GiB fijos, y un espacio usa como máximo la
+  mitad, con hasta una octava parte de esa mitad más para sus detectores (128 MiB). Un espacio que llega a su
+  parte no aprende valores nuevos: una petición que trae uno se detiene con un mensaje que lo dice, hasta que se
+  olvidan valores en el panel, hay menos reglas o proyectos, o el servidor tiene más. No se cierra el espacio de
+  ninguna otra persona para hacer sitio. Lo que los detectores ocupan de más nunca detiene un valor.
 - **Las estadísticas** cuentan los últimos 100.000 intercambios, y una persona conserva sus diez sesiones del
   panel más recientes.
 

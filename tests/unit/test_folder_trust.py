@@ -104,8 +104,8 @@ def _refused_words() -> str:
 
 def _local_groups_quiet(monkeypatch) -> None:
     """`latet doctor`'s other local checks, none of which is this file's concern, say nothing."""
-    for name in ("daemon", "port", "engine", "recognizers", "ocr", "reviewer", "live_review", "agents", "instructions"):
-        monkeypatch.setattr(checks, f"check_{name}", lambda: [])
+    for name in checks.COMPUTER_GROUPS:
+        monkeypatch.setattr(checks, name, lambda: [])
 
 
 def _titled(title: str) -> list[checks.Check]:

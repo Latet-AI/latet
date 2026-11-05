@@ -64,6 +64,8 @@ class VerifyResult:
     leaks: list[Leak] = field(default_factory=list)
     checked: int = 0
     skipped: int = 0  # blocks verified clean earlier, at the current vault version
+    rules: set[str] = field(default_factory=set)
+    authority: set[str] = field(default_factory=set)
     withheld: int = 0  # tool outputs the dump guard withheld, sent for the first time
 
     @property
@@ -102,7 +104,8 @@ class Verifier:
     ) -> None:
         self.masker = masker
         self.block_classes = block_classes
-        # (project scope, a rewritten request's or not, block) → vault version it was verified clean at
+        # (scope, rewritten, block) → (vault version << 1) | configured-policy evidence bit.
+        # The existing bounded integer entry retains evidence on a clean-cache hit; no second cache.
         self._clean: LRU[tuple[str, bool, bytes], int] = LRU(100_000)
         # What left, by conversation: this process's memory on a computer, Valkey on a Latet server (a block that left
         # through one instance never blocks the conversation on another).
@@ -139,42 +142,50 @@ class Verifier:
         (``sent``)."""
         self.given.keep_checked(session_key, [self._key(text) for text in texts if text])
 
-    def _written_key(self, session_key: str, text: str) -> bytes:
+    def _written_key(self, session_key: str, text: str, source: str = "") -> bytes:
         named = session_key.encode()
-        message = b"W" + len(named).to_bytes(4, "big") + named + text.encode()
+        message = b"W" + source.encode() + len(named).to_bytes(4, "big") + named + text.encode()
         return hmac.new(self.masker.vault.cache_key, message, hashlib.sha256).digest()
 
-    def wrote(self, session_key: str, texts: Iterable[str]) -> None:
-        """The model wrote ``texts`` in the conversation ``session_key``, each as it is: a text of an answer Latet
-        passed on as it came, or the input of a tool call the plugin had restored before the tool ran. Sent back there
-        in the model's place, each leaves (``written``). Never waits on a network: a server's store writes off this
-        thread, and this process knows them at once."""
+    def wrote(self, session_key: str, texts: Iterable[str], *, reported: bool = False) -> None:
+        """Retain source-scoped evidence in the existing bounded conversation adapter.
+
+        A bridge report cannot overwrite provider-observed authority, in either event
+        order or from another worker. Old unscoped records remain ambiguous.
+        """
         now = self.clock()
         for text in texts:
             if not text:
                 continue
-            key = self._written_key(session_key, text)
+            key = self._written_key(session_key, text, "r" if reported else "o")
             self._written.put(key, now)
             if self.shared is not None:
                 self.shared.remember(key, _WRITTEN)
 
-    def written(self, session_key: str, text: str) -> bool:
-        """Whether the model wrote ``text``, exactly so, in the conversation ``session_key`` (``wrote``). Found in this
-        process's memory, its record in the store shared by processes is written again all the same, at most once in
-        ``WRITTEN_KEPT_EVERY`` seconds and never waited for: a conversation that this instance alone relayed for an hour
-        would otherwise find it gone on another (its time to live is counted again; the record is made again if it
-        went). Found in that store, its time to live was counted again as it was read."""
-        key = self._written_key(session_key, text)
+    def _written_at(self, key: bytes) -> bool:
         told, now = self._written.get(key), self.clock()
         if told is not None:
             if self.shared is not None and now - told >= WRITTEN_KEPT_EVERY:
                 self.shared.remember(key, _WRITTEN)
                 self._written.put(key, now)
             return True
-        if self.shared is None or self.shared.recall(key) is None:
+        if self.shared is None or self.shared.recall(key) != _WRITTEN:
             return False
         self._written.put(key, now)
         return True
+
+    def written_source(self, session_key: str, text: str) -> str | None:
+        """Check observed first, including shared evidence newer than a local report."""
+        if self._written_at(self._written_key(session_key, text, "o")):
+            return "observed"
+        if self._written_at(self._written_key(session_key, text, "r")) or self._written_at(
+            self._written_key(session_key, text)
+        ):
+            return "reported"
+        return None
+
+    def written(self, session_key: str, text: str) -> bool:
+        return self.written_source(session_key, text) is not None
 
     def _leaks(
         self,
@@ -185,6 +196,7 @@ class Verifier:
         new: bool,
         review: ReviewPolicy | None = None,
         slot: int = -1,
+        authority: set[str] | None = None,
     ) -> list[Leak]:
         """The leaks among ``spans`` found in ``text``. What leaves in clear by the person's choice or by Latet's own
         hand is none: a type your policy lets through (``allow``), whatever path its request takes; a word inside a fake
@@ -197,10 +209,18 @@ class Verifier:
         for span, detail, allowed in zip(spans, details, through, strict=True):
             value = span.of(text)
             if span.eclass not in self.block_classes:
+                if authority is not None:
+                    authority.add("configured policy")
                 continue
             if masker.fake_or_let_through(text, span):  # as written, or as it reads where written in escapes
+                if authority is not None and any(
+                    masker.allow.allows(form) for form in (text[span.start : span.end], span.of(text))
+                ):
+                    authority.add("configured policy")
                 continue
             if masker.policies.get(span.etype) == Policy.ALLOW:
+                if authority is not None:
+                    authority.add("configured policy")
                 continue  # your settings let this type through: the masking left it so
             fakes = masker.surrogates_in(text) if fakes is None else fakes
             if any(f.start <= span.start and span.end <= f.end for f in fakes):
@@ -221,7 +241,8 @@ class Verifier:
         *,
         record: bool = True,
         rewritten: bool = False,
-        written: Callable[[str], bool] | None = None,
+        written: Callable[[str], bool | str | None] | None = None,
+        checked_only: Iterable[str] = (),
     ) -> VerifyResult:
         """``slots`` are (text, kind, from_model) of the request about to leave. ``review`` is given for
         Claude Code's auto mode reviewer: the identity details it allows are reported, never block.
@@ -245,13 +266,26 @@ class Verifier:
 
         A request the gateway only checks has the values its texts may hold brought into memory first, in one call to
         the vault's store for all of them, and held while they are checked (an API key's vault: ``Vault.prefetch``): a
-        value found once stops it, whatever its age. One the gateway masked had them brought in as it was masked."""
+        value found once stops it, whatever its age. One the gateway masked had them brought in as it was masked, and
+        is checked against memory alone (``Vault.holding(memory_only=True)``), except a shared store: its final
+        check observes commits and queries the text's words again under the same outer call's budget."""
         masker = scope.masker if scope is not None else self.masker
         slots = list(slots)
-        with masker.vault.holding():
-            if not rewritten:
+        record_count = len(slots)
+        slots.extend((text, SlotKind.OTHER, False) for text in checked_only)
+        with masker.vault.holding(memory_only=rewritten):
+            if not rewritten or getattr(masker.vault, "rechecks_store", False):
                 masker.vault.prefetch([text for text, _, _ in slots if text])
-            return self._checked(slots, session_key, review, scope, record=record, rewritten=rewritten, written=written)
+            return self._checked(
+                slots,
+                session_key,
+                review,
+                scope,
+                record=record,
+                rewritten=rewritten,
+                written=written,
+                record_count=record_count,
+            )
 
     def _checked(
         self,
@@ -262,7 +296,8 @@ class Verifier:
         *,
         record: bool,
         rewritten: bool,
-        written: Callable[[str], bool] | None,
+        written: Callable[[str], bool | str | None] | None,
+        record_count: int,
     ) -> VerifyResult:
         """``verify``'s check of ``slots``, the values they may hold in memory."""
         result = VerifyResult()
@@ -274,32 +309,43 @@ class Verifier:
             if not text or (rewritten and from_model):
                 continue
             key = self._key(text)
-            new = not self.given.checked(session_key, key)
-            if new:
+            new = slot >= record_count or not self.given.checked(session_key, key)
+            if new and slot < record_count:
                 unsent.append(key)
                 if kind == SlotKind.TOOL_RESULT and text.startswith((WITHHELD_DUMP, WITHHELD_UNREAD)):
                     result.withheld += 1
             if scope is not None and not scope.enabled:
                 continue  # it leaves as it is: sent all the same
             clean_at = self._clean.get((scope_key, rewritten, key))
-            if clean_at == version:
+            authority = {"configured policy"} if clean_at is not None and clean_at & 1 else set()
+            result.authority.update(authority)
+            if clean_at is not None and clean_at >> 1 == version:
                 result.skipped += 1
                 continue
             result.checked += 1
             if clean_at is not None:
                 # Clean before: only values learnt since then can make it dirty.
-                known, ctx = masker._known_values(), DetectContext(kind)
+                known, ctx = masker._known_values(text), DetectContext(kind)
                 spans = read_escaped(text, lambda t, k=known, c=ctx: list(k.detect(t, c)))
             else:
                 # Names found by the local model never block (NER is best effort): no need to run it here.
                 spans = masker.detect(text, DetectContext(kind), skip=("ner",))
-            leaks = self._leaks(masker, text, spans, kind, new, review, slot)
-            if leaks and from_model and written is not None and written(text):
+            leaks = self._leaks(masker, text, spans, kind, new, review, slot, authority)
+            result.authority.update(authority)
+            if leaks and from_model and written is not None and (source := written(text)):
+                if source != "observed":
+                    result.rules.add("reported as written by the model")
+                else:
+                    result.authority.add("provider-observed text")
                 continue  # the model's own words, as it wrote them; not kept as clean: in a client's text it is not
             if leaks:
+                if any(leak.allowed for leak in leaks):
+                    result.authority.add("auto-mode identity detail")
+                if any(not leak.new and not leak.allowed for leak in leaks):
+                    result.rules.add("sent before in this conversation")
                 result.leaks.extend(leaks)
             else:
-                self._clean.put((scope_key, rewritten, key), version)
+                self._clean.put((scope_key, rewritten, key), (version << 1) | bool(authority))
         if record and not result.blocking:
             # Only a request that leaves exposes its blocks: a blocked one keeps blocking when resent.
             self.given.keep_checked(session_key, unsent)

@@ -124,6 +124,17 @@ def no_trusted_accounts_from_the_registry():
 
 
 @pytest.fixture(autouse=True)
+def stored_vault_texts_prefetched_first():
+    """An API key's vault reads a text in a call leaving unasked the words of the fakes it holds, safe only where the
+    call asked for its texts' words first (``StoredVault.prefetched_first``): in the tests, a call that did not fails."""
+    from latet.engine.stored import StoredVault
+
+    with pytest.MonkeyPatch.context() as checked:
+        checked.setattr(StoredVault, "prefetched_first", True)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def repositories_read_in_this_process():
     """The repositories a computer remembers read by a helper in a thread of the test's process
     (``tests/repository_children.py``), where a test's monkeypatches reach it, in a place of the test's own: the

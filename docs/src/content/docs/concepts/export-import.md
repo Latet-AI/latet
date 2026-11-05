@@ -161,8 +161,8 @@ settings lowers protection compared with yours, and asks you. Then:
   `before-restore-` folder next to the vault.
 
 Then: `latet llm key` for the reviewer's API key, `latet ner install` for local name detection,
-`latet ocr install` for the text in images (until then images are sent as they are, flagged *Not
-inspected*, or not sent at all with `images: mask`), and `latet global-install` (or `latet claude`)
+`latet ocr install` for the text in images (until then a request that carries an image is not
+sent), and `latet global-install` (or `latet claude`)
 for your agents.
 
 **At your terminal only.** Both commands refuse to run inside an agent: they handle your vault and

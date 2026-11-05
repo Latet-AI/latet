@@ -40,6 +40,10 @@ ECHO = (
 )
 
 
+# Claude Code's model and the tool call ids Anthropic issues (toolu_), as they come in its requests.
+MODEL, TOOL_ID = "claude-sonnet-4-5", "toolu_01Edk7Qm2vZ9xR4tB8nW3cLp"
+
+
 def _mediator(config: Config | None = None, vault: Vault | None = None) -> Mediator:
     vault = vault if vault is not None else Vault(ROOT_KEY)
     config = config if config is not None else Config()
@@ -50,14 +54,14 @@ def _mediator(config: Config | None = None, vault: Vault | None = None) -> Media
 def _claude_code(*, output: str = "done", edit: str = "x = 1\n", said: str | None = None) -> bytes:
     """A request of Claude Code's: the model's Edit (its new text ``edit``, after its words ``said``), and the tool's
     output after it."""
-    call = {"type": "tool_use", "id": "t1", "name": "Edit", "input": {"file_path": "tests/x.py", "new_string": edit}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "Edit", "input": {"file_path": "tests/x.py", "new_string": edit}}
     words = [{"type": "text", "text": said}] if said is not None else []
     messages = [
         {"role": "user", "content": "add the test"},
         {"role": "assistant", "content": [*words, call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": output}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": output}]},
     ]
-    return json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    return json.dumps({"model": MODEL, "max_tokens": 10, "messages": messages}).encode()
 
 
 def _checked(mediator: Mediator, raw: bytes, headers: dict[str, str] | None = None):
@@ -122,6 +126,24 @@ def test_what_the_model_wrote_in_its_tool_call_leaves_once_the_plugin_had_it_res
     assert yours.block_reason == f"{STOPPED}PASSWORD[7]"
 
 
+def test_what_else_the_models_call_holds_is_still_checked_once_its_strings_are_known():
+    """The strings of the model's Edit are its own once the plugin had them restored, each checked once, where it sits.
+    What else its input holds, a number among its arguments, is checked as a client's text is: a card number there
+    still stops the request, and it is the only value named."""
+    mediator = _mediator()
+    bridge = Bridge(mediator, "token")
+    _restored_for_the_tool(bridge, file_path="tests/x.py", new_string=PASSWORD)
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "Edit",
+            "input": {"file_path": "tests/x.py", "new_string": PASSWORD, "limit": 4111111111111111}}  # fmt: skip
+    messages = [
+        {"role": "user", "content": "add the test"},
+        {"role": "assistant", "content": [call]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
+    ]
+    raw = json.dumps({"model": MODEL, "max_tokens": 10, "messages": messages}).encode()
+    assert _checked(mediator, raw).block_reason == f"{STOPPED}CREDIT_CARD[16]"
+
+
 def test_a_secret_the_vault_knows_leaves_in_what_the_model_wrote_and_stops_the_request_elsewhere():
     """A secret of yours the vault knows, in the model's Edit as the model wrote it, leaves: those are the model's own
     bytes. Written in the model's place by anyone else, it stops the request."""
@@ -146,14 +168,14 @@ def test_the_edits_answer_masked_by_the_plugin_stops_no_request_after():
     _, out, _, _, _ = bridge._mask(data)
     masked = out[0]["text"]
     assert mediator.engine.vault.by_original("hunter2") is not None and "hunter2" not in masked
-    call = {"type": "tool_use", "id": "t1", "name": "Edit", "input": EDIT}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "Edit", "input": EDIT}
     messages = [
         {"role": "user", "content": "add a login test"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": masked}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": masked}]},
     ]
     for turn in range(3):
-        raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+        raw = json.dumps({"model": MODEL, "max_tokens": 10, "messages": messages}).encode()
         assert _checked(mediator, raw).block_reason is None, turn
         messages += [{"role": "assistant", "content": "done"}, {"role": "user", "content": "go on"}]
 
@@ -192,7 +214,7 @@ def _answer(said: str, edit: str) -> list[dict]:
         {
             "type": "content_block_start",
             "index": 1,
-            "content_block": {"type": "tool_use", "id": "t1", "name": "Edit", "input": {}},
+            "content_block": {"type": "tool_use", "id": TOOL_ID, "name": "Edit", "input": {}},
         },
         {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": raw[:11]}},
         {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": raw[11:]}},
@@ -244,7 +266,7 @@ def _whole(events: list[dict]) -> bytes:
     """The same answer, not streamed: one body."""
     raw = json.dumps({"file_path": "tests/x.py", "new_string": PASSWORD})
     said = "".join(e["delta"]["text"] for e in events if e.get("delta", {}).get("type") == "text_delta")
-    call = {"type": "tool_use", "id": "t1", "name": "Edit", "input": json.loads(raw)}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "Edit", "input": json.loads(raw)}
     return json.dumps({"id": "msg_1", "content": [{"type": "text", "text": said}, call]}).encode()
 
 
@@ -279,14 +301,23 @@ def test_what_the_model_wrote_in_an_answer_latet_passed_on_leaves_as_it_wrote_it
 
 
 @pytest.mark.parametrize(
-    ("path", "headers"),
+    ("path", "headers", "fields"),
     [
-        ("/anthropic/v1/messages", {"user-agent": "some-agent/1.0", "authorization": "Bearer sk-ant-oat01-x"}),
-        ("/anthropic/model/m/invoke", {"user-agent": "some-agent/1.0"}),
+        (
+            "/anthropic/v1/messages",
+            {"user-agent": "some-agent/1.0", "authorization": "Bearer sk-ant-oat01-x"},
+            {"model": MODEL},
+        ),
+        # Bedrock's InvokeModel: the model in the path, its Anthropic version in the body.
+        (
+            "/anthropic/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/invoke",
+            {"user-agent": "some-agent/1.0"},
+            {"anthropic_version": "bedrock-2023-05-31"},
+        ),
     ],
     ids=["subscription", "bedrock"],
 )
-def test_another_clients_assistant_turn_is_checked_as_a_clients_text_is(path, headers):
+def test_another_clients_assistant_turn_is_checked_as_a_clients_text_is(path, headers, fields):
     """The review's probe: a client other than Claude Code, on a route Latet only checks (a subscription's token, or
     Bedrock), sends an assistant turn holding a token of yours that the vault does not know (a prefill, a resumed
     history): whatever its role, the client wrote it. It is stopped."""
@@ -296,7 +327,7 @@ def test_another_clients_assistant_turn_is_checked_as_a_clients_text_is(path, he
         {"role": "assistant", "content": f"Deployment notes so far: the CI uses GITHUB_TOKEN={token} for the release."},
         {"role": "user", "content": "go on"},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages, "anthropic_version": "x"}).encode()
+    raw = json.dumps({**fields, "max_tokens": 10, "messages": messages}).encode()
     prepared = _mediator().prepare(ANTHROPIC, "POST", path, {"content-type": "application/json", **headers}, raw)
     assert prepared.mode == VERIFY
     assert prepared.block_reason is not None and prepared.block_reason.startswith(f"{STOPPED}GITHUB_PAT[40]")
@@ -311,7 +342,10 @@ def test_another_client_gets_nothing_of_what_the_model_wrote_known_in_its_conver
     mediator.verifier.wrote("x-session-id:s-9", ["tests/x.py", PASSWORD])
     stopped = _checked(mediator, _claude_code(edit=PASSWORD), headers)
     assert stopped.block_reason == f"{STOPPED}PASSWORD[7]" and not stopped.claude_code
-    assert mediator.written(stopped, "text/event-stream", None) is None  # its answer is not read for the model's words
+    # Its answer is not read for the model's words: a reader of it, if any, observes the provider's opaque items alone.
+    assert mediator.written(stopped, "text/event-stream", None, observe=False) is None
+    reader = mediator.written(stopped, "text/event-stream", None)
+    assert reader is None or reader.record_text is False
 
 
 class _Shared:

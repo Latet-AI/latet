@@ -26,8 +26,8 @@ def _content(
     message: dict[str, Any], kind: SlotKind, from_model: bool, scan: BodyScan, tool: str | None = None
 ) -> None:
     """A message's content, a text or parts, each part read by its kind (a model's refusal is its text); a part of any
-    other kind, one that is not an object, and content in another form are named in ``scan.unreadable``: a server
-    refuses them, a computer sends them as they came."""
+    other kind, one that is not an object, and content in another form are named in ``scan.unreadable``: Latet
+    refuses them, on a computer as on a server."""
     content = message.get("content")
     if isinstance(content, str):
         scan.slots.append(SlotRef(message, "content", kind, from_model, tool=tool))

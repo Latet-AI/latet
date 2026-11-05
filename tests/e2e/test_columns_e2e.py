@@ -3,6 +3,7 @@ their proposals read from the exchange the dashboard keeps, and the local review
 
 import base64
 import json
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -73,11 +74,29 @@ def _login(client, rt):
     client.get(f"/_latet/ui/login?code={code.json()['code']}", follow_redirects=False)
 
 
+@contextmanager
+def _launched(client, rt, folder):
+    """A launch Latet opened for ``folder`` (as `latet codex` opens one), held: the header carrying its key. A project
+    is trusted only through such a binding (RC-REC-7): a folder named in a prompt's text only tightens (D7)."""
+    opened = client.post(
+        "/_latet/engine/v1/launches", headers={"x-latet-token": rt.gateway.bridge_token}, json={"folder": str(folder)}
+    )
+    assert opened.status_code == 200
+    fields = opened.json()
+    hold = rt.launch_keys.reserve_hold(fields["launch_id"], "computer", 0)
+    assert hold.acknowledge() == 1
+    try:
+        yield {"x-latet-launch-key": fields["key"]}
+    finally:
+        hold.stop()
+        hold.close()
+
+
 def _orders_exchange(
-    client, rt, tool: str = "run_sql", output: str = ORDERS, folder: str | None = None
+    client, rt, tool: str = "run_sql", output: str = ORDERS, folder: str | None = None, headers: dict | None = None
 ) -> tuple[str, int]:
-    """A chat whose tool ran a query (``folder``: its working directory): the exchange's id, and the index of the
-    tool's output in it."""
+    """A chat whose tool ran a query (``folder``: the working directory its text names; ``headers``: a launch's key):
+    the exchange's id, and the index of the tool's output in it."""
     call = {"id": "call_1", "type": "function", "function": {"name": tool, "arguments": "{}"}}
     messages = [
         *([{"role": "system", "content": f"Working directory: {folder}"}] if folder else []),
@@ -86,8 +105,10 @@ def _orders_exchange(
         {"role": "tool", "tool_call_id": "call_1", "content": output},
         {"role": "user", "content": "which ones shipped?"},
     ]
-    body = {"model": "m", "stream": True, "messages": messages}
-    sent = client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer k"})
+    body = {"model": "gpt-4.1-mini", "stream": True, "messages": messages}
+    sent = client.post(
+        "/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer k", **(headers or {})}
+    )
     assert sent.status_code == 200
     rt.recorder.drain()
     [summary] = client.get(f"{API}/exchanges").json()["items"]
@@ -126,7 +147,8 @@ def test_a_column_a_repository_file_masks_is_said_held_by_the_file_whatever_you_
     rt = _daemon(tmp_path, monkeypatch, upstream, policies={"URL": "allow"})
     with TestClient(create_app(rt.gateway), base_url="http://127.0.0.1:5283") as client:
         _login(client, rt)
-        exchange, slot = _orders_exchange(client, rt, folder=str(root))
+        with _launched(client, rt, root) as key:
+            exchange, slot = _orders_exchange(client, rt, headers=key)
         answer = client.get(f"{API}/exchanges/{exchange}/columns", params={"slot": slot}).json()
         found = {c["name"]: c for c in answer["columns"]}
         assert answer["project"] is not None and answer["project"]["loaded"] is True
@@ -323,14 +345,14 @@ def test_without_the_texts_there_is_nothing_to_read(tmp_path, monkeypatch, upstr
     rt = _daemon(tmp_path, monkeypatch, upstream, history="metadata")
     with TestClient(create_app(rt.gateway), base_url="http://127.0.0.1:5283") as client:
         _login(client, rt)
-        call = {"id": "c", "type": "function", "function": {"name": "run_sql", "arguments": "{}"}}
+        call = {"id": "call_2", "type": "function", "function": {"name": "run_sql", "arguments": "{}"}}
         messages = [
             {"role": "assistant", "content": None, "tool_calls": [call]},
-            {"role": "tool", "tool_call_id": "c", "content": ORDERS},
+            {"role": "tool", "tool_call_id": "call_2", "content": ORDERS},
         ]
         client.post(
             "/openai/v1/chat/completions",
-            json={"model": "m", "stream": True, "messages": messages},
+            json={"model": "gpt-4.1-mini", "stream": True, "messages": messages},
             headers={"authorization": "Bearer k"},
         )
         rt.recorder.drain()

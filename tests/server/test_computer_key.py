@@ -185,12 +185,12 @@ def test_an_api_key_has_no_computer_key_and_no_dashboard(server, client):
     assert answer.status_code == 403 and answer.json() == {"error": "an API key has no dashboard"}
 
 
-def test_the_migration_adds_the_key_to_an_e0b_shaped_database(settings, schema):
+def test_the_migration_adds_the_key_to_an_e0b_shaped_database(settings, schema, migration_master):
     """A database of E0b's (three migrations, tokens without a key) takes the fourth: its tokens there keep working
     for their agents, and are told to connect again for the dashboard; ``check_schema`` passes once it is applied."""
     db = Database(settings.database_url, schema=schema, max_size=2)
     try:
-        migrate(db)
+        migrate(db, master=migration_master)
         with db.connection() as conn:
             conn.execute("ALTER TABLE tokens DROP COLUMN computer_key")
             conn.execute("DELETE FROM schema_migrations WHERE name = 'latet.server.migrations:004_computer_key'")
@@ -203,7 +203,7 @@ def test_the_migration_adds_the_key_to_an_e0b_shaped_database(settings, schema):
             )
         with pytest.raises(SchemaMismatch, match="older than this Latet"):
             check_schema(db)
-        assert migrate(db) == ["latet.server.migrations:004_computer_key"]
+        assert migrate(db, master=migration_master) == ["latet.server.migrations:004_computer_key"]
         check_schema(db)
         with db.connection() as conn:
             assert conn.execute("SELECT computer_key FROM tokens").fetchall() == [(None,)]

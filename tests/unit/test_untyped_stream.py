@@ -21,12 +21,18 @@ from latet.storage.exchanges import ExchangeStore
 from ..conftest import ROOT_KEY
 
 EMAIL = "emily.carter@acme.com"
-HEADERS = {"host": "127.0.0.1:5283", "accept": "application/json", "session_id": "s-hermes"}
+# Hermes Agent's own session id (hermes_state_ids.new_session_id: YYYYMMDD_HHMMSS_ and 6 hex digits), which it sends as
+# ChatGPT's session_id header (agent/transports/codex.py at 25ce7ccf); its model a Codex one.
+HEADERS = {"host": "127.0.0.1:5283", "accept": "application/json", "session_id": "20261103_143000_a1b2c3"}
 
 
 def _request(stream: bool) -> dict:
     text = {"type": "input_text", "text": f"write to {EMAIL}"}
-    return {"model": "m", "stream": stream, "input": [{"type": "message", "role": "user", "content": [text]}]}
+    return {
+        "model": "gpt-5.1-codex",
+        "stream": stream,
+        "input": [{"type": "message", "role": "user", "content": [text]}],
+    }
 
 
 def _sse(event: dict) -> bytes:

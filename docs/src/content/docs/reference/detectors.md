@@ -11,7 +11,7 @@ marked *fail-closed* stops the request if it fails, rather than letting text thr
 
 | Detector | Finds | Kind | Profiles | If it fails |
 | --- | --- | --- | --- | --- |
-| `latet-credentials` | Latet personal tokens, computer keys, API keys, administration tokens, SCIM tokens, bridge tokens and one-time codes, and route keys in HTTPS identity addresses. | secret | all | fail-closed |
+| `latet-credentials` | Latet personal tokens, computer keys, API keys, administration tokens, SCIM tokens, bridge tokens, launch keys and one-time codes, and route keys in HTTPS identity addresses. | secret | all | fail-closed |
 | `gitleaks` | API keys and tokens of known services, with the gitleaks ruleset: patterns, keywords, entropy thresholds and allowlists as gitleaks applies them. | secret | all | fail-closed |
 | `assignment` | Values assigned to sensitive names (``DB_PASSWORD=…``, ``"api_key": "…"``, ``$env:TOKEN = …``), and ``name=…`` pairs wherever they stand in a line. | secret | all | fail-closed |
 | `private-key` | The whole body of a PEM/OpenSSH/PGP private key block (header and footer stay visible). | secret | all | fail-closed |
@@ -35,6 +35,7 @@ They use the same policies, allow lists, conversation restoration and outbound-t
 | `LATET_ADMIN_TOKEN` | `latet_adm_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_SCIM_TOKEN` | `latet_scim_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_BRIDGE_TOKEN` | `latet_brg_` followed by 43 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
+| `LATET_LAUNCH_KEY` | `latet_lk_` followed by 43 URL-safe characters: the key a launcher such as `latet claude` gives the agent it starts. | Public prefix kept; 32 characters drawn again, so the fake is never taken for a live key. |
 | `LATET_ONE_TIME_CODE` | `latet_code_` followed by 32 URL-safe characters. | Public prefix and length kept; secret tail drawn again. |
 | `LATET_ROUTE_KEY` | The 16 to 128 URL-safe characters after `/u/` in `https://<host>/u/<route-key>`. | Entire route key drawn again; host and other path segments kept. |
 

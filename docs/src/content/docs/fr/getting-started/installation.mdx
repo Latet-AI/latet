@@ -36,7 +36,8 @@ Le script fait deux choses, dans cet ordre :
    GitHub comme outil en ligne de commande isolé, avec uv. La détection locale des noms et la
    lecture du texte des images sont incluses ; leurs modèles ne sont téléchargés que lorsque vous le
    demandez. Là où elles ne peuvent pas être installées, Latet est installé sans elles, et le script
-   le signale à la fin ; un Latet déjà installé avec elles reste en revanche tel quel. Si une
+   le signale à la fin ; un Latet déjà installé avec elles reste en revanche tel quel. Les autres
+   extras d'un Latet déjà installé (`server`, sur un serveur) restent. Si une
    version plus ancienne de Latet tourne, le script l'arrête, et ne la relance pas. Pour mettre à
    niveau, `latet upgrade` est la meilleure voie. Après que le script a mis à niveau un Latet,
    lancez `latet start`, et `latet agents apply claude` si Claude Code passe par Latet pour de bon,
@@ -67,8 +68,8 @@ pas, et demandent un modèle qui tourne sur votre machine :
 - **Les noms et les adresses postales** dans du texte libre, comme
   *Emily Carter habite au 42 Mill Lane* : le modèle local de noms les trouve.
 - **Le texte des captures d'écran**, comme un IBAN sur une facture : la reconnaissance de texte le
-  lit, et Latet recouvre chaque valeur sur l'image par sa valeur factice. Sans elle, les images
-  partent telles quelles.
+  lit, et Latet recouvre chaque valeur sur l'image par sa valeur factice. Sans elle, une requête qui
+  porte une image n'est pas envoyée.
 
 Le script d'installation installe ce dont tous deux ont besoin pour tourner. Téléchargez leurs
 modèles une seule fois :
@@ -95,11 +96,19 @@ détection locale des noms et lecture du texte des images comprises. Elle arrêt
 peut pas remplacer des fichiers en cours d'utilisation), installe le nouveau plugin Claude Code si
 vous utilisez Claude Code, puis redémarre le daemon. Un Latet installé sans la détection des noms ni
 la lecture du texte des images les obtient ainsi. Là où la nouvelle version ne peut pas les avoir,
-un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles. Sous
+un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles. Les autres
+extras avec lesquels il a été installé restent (`server`, sur un serveur) ; un serveur installé comme
+service système se met à jour comme l'explique
+[Exploitation du serveur](../../concepts/server-operations/#mettre-à-jour-un-latet-installé-comme-service-système).
+Sous
 Windows, qui ne remplace aucun fichier d'un programme en cours d'exécution, la mise à jour se poursuit
 dans une fenêtre à part une fois la commande terminée, et cette fenêtre dit comment elle s'est passée.
 Un Latet 0.9.0 ou 0.9.1 sous Windows se met à jour en relançant le script d'installation : son propre
 `latet upgrade` pourrait le laisser incapable de démarrer.
+
+**De la 0.10 à la 0.11**, lisez d'abord [Passer à la 0.11](../upgrading-to-0-11/) : Latet 0.11 lit
+chaque partie d'une requête, et refuse des appels que la 0.10 envoyait sans les lire. `latet doctor`
+liste ce qui s'arrêtera avant que vous mettiez à jour.
 
 Avant d'arrêter le daemon, `latet upgrade` copie ce que la nouvelle version peut modifier en l'ouvrant :
 le coffre-fort, l'historique et vos réglages (`config.yaml`, et les réglages que vous avez approuvés en

@@ -44,11 +44,24 @@ function liveEnd(reason: string): LiveEnd | null {
   return null
 }
 
+/**
+ * Latet's words for why it stopped a request, or null: never a summary's category code (`refused`, `too-large`),
+ * which has no space. The summary says why by its code; the words are in the full history's private view.
+ */
+export function inWords(reason: string | null | undefined): string | null {
+  return reason && /\s/.test(reason) ? reason : null
+}
+
+/** The words the agent was given, from the full history's private view (or a record that kept them in its summary). */
+export function givenReason(detail: ExchangeDetail): string | null {
+  return inWords(detail.sensitive?.block_reason) ?? inWords(detail.block_reason) ?? inWords(detail.summary.block_reason)
+}
+
 /** Why the request of this exchange was stopped; null when it was not. */
 export function explainBlock(detail: ExchangeDetail): BlockExplanation | null {
   const { summary, leaks } = detail
   if (!isBlocked(summary.flags)) return null
-  const given = detail.block_reason ?? summary.block_reason ?? null
+  const given = givenReason(detail)
   const reason = given ?? ''
   const uninspected = parseFlags(summary.flags)
     .filter((f) => f.key === 'uninspected')

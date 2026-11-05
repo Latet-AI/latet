@@ -29,18 +29,23 @@ def _crc(data: bytes | bytearray) -> int:
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-def _headers(raw: bytes) -> dict[str, str]:
+def _headers(raw: bytes, *, strict_text: bool = False) -> dict[str, str]:
     out: dict[str, str] = {}
+    errors = "strict" if strict_text else "replace"
     at = 0
     while at < len(raw):
         size = raw[at]
-        name = raw[at + 1 : at + 1 + size].decode("utf-8", "replace")
+        name = raw[at + 1 : at + 1 + size].decode("utf-8", errors)
         kind = raw[at + 1 + size]
         at += 2 + size
+        if strict_text and (kind != _STRING or name in out):
+            raise EventStreamError("unscreenable frame header")
         if kind in (_BYTES, _STRING):
             (length,) = struct.unpack(">H", raw[at : at + 2])
+            if strict_text and at + 2 + length > len(raw):
+                raise EventStreamError("a header length does not hold")
             if kind == _STRING:
-                out[name] = raw[at + 2 : at + 2 + length].decode("utf-8", "replace")
+                out[name] = raw[at + 2 : at + 2 + length].decode("utf-8", errors)
             at += 2 + length
         elif kind in _FIXED:
             at += _FIXED[kind]
@@ -52,8 +57,9 @@ def _headers(raw: bytes) -> dict[str, str]:
 class EventStreamDecoder:
     """Frames out of a stream fed in pieces of any size."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, strict_text_headers: bool = False) -> None:
         self._buf = bytearray()
+        self._strict_text_headers = strict_text_headers
 
     @property
     def held(self) -> int:
@@ -76,7 +82,7 @@ class EventStreamDecoder:
             if _crc(frame[:-_TRAILER]) != struct.unpack(">I", frame[-_TRAILER:])[0]:
                 raise EventStreamError("a message's checksum does not match")
             body = frame[_PRELUDE:-_TRAILER]
-            out.append(Message(_headers(body[:header_size]), body[header_size:]))
+            out.append(Message(_headers(body[:header_size], strict_text=self._strict_text_headers), body[header_size:]))
         return out
 
 

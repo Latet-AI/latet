@@ -90,6 +90,7 @@ export default defineConfig({
 					translations: { it: 'Per iniziare', de: 'Erste Schritte', fr: 'Premiers pas', es: 'Primeros pasos' },
 					items: [
 						{ slug: 'getting-started/installation' },
+						{ slug: 'getting-started/upgrading-to-0-11' },
 						{ slug: 'getting-started/tutorial' },
 						{ slug: 'getting-started/quickstart' },
 						{ slug: 'getting-started/docker' },

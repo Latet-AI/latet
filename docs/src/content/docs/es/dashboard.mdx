@@ -56,7 +56,8 @@ administradores.
 Cada intercambio en el momento en que ocurre: agente, proveedor, modelo, cuánto
 tardó y cuánto de ese tiempo se debió a Latet, el uso de tokens (incluidas las lecturas de la caché
 de prompts), cuántos valores se enmascararon, e indicadores como *Bloqueada*, *No inspeccionado*
-(PDF, imágenes no leídas), *Imagen: enmascarada*, *Retenido* (la
+(una petición que una versión anterior envió con partes sin leer), *Proyecto declarado*,
+*Imagen: enmascarada*, *Retenido* (la
 [protección contra volcados](../concepts/production-data/#la-protección-contra-volcados)), *Del historial* (una
 conversación que empezó antes de que Latet estuviera activo: consulta
 [Solución de problemas](../troubleshooting/#se-bloquean-todas-las-peticiones-de-una-conversación)),
@@ -112,6 +113,61 @@ para ver qué es, y elige *No sensible* si no lo es, y la siguiente petición id
 `history: metadata`, que no conserva textos, solo se enumeran por tipo y longitud. Ahí está
 también el motivo que Latet dio al agente. Las peticiones que la propia comprobación final del
 plugin detiene dentro de Claude Code también aparecen aquí.
+
+### Cómo se cubrió una petición
+
+Cada intercambio tiene una sección *Cobertura* que dice cómo dio cuenta Latet de cada parte de su
+petición ([Cada parte de una petición](../concepts/protection-scope/#cada-parte-de-una-petición)):
+
+- **Detenida antes de enviarse,** con el porqué, en palabras sencillas, y qué hacer. Una petición
+  detenida después de un intento (una petición a Bedrock cuya sesión de AWS hubo que renovar entre dos
+  intentos) dice que un intento anterior pudo llegar ya al proveedor. Se ofrece una excepción de
+  petición exacta para una cabecera o un parámetro de consulta que ningún perfil nombra; para un
+  miembro del cuerpo que ningún perfil nombra, el intercambio dice cómo aprobar una, salvo que el
+  miembro esté *donde ninguna excepción puede llegar (dentro de un elemento del proveedor, la fuente
+  de una imagen o un turno WebSocket)*. No se ofrece ninguna para una credencial, un destino, una
+  parte que Latet no pudo leer o un límite de trabajo, ni en un WebSocket: *En esta versión de Latet,
+  un WebSocket no admite excepciones de solicitudes.*
+- **Cada parte leída,** o **leída, y dejada pasar por** lo que se nombra: *solo comprobada* (valores
+  que la comprobación final leyó sin tener que enmascararlos), *permitida por una regla* (el resto de
+  una imagen cuyo texto se leyó, o un campo cifrado de un proveedor), un elemento opaco que el
+  proveedor envió antes en esta conversación, texto ya enviado en esta conversación, texto que
+  escribió el modelo, o una excepción que aprobaste. Lo que salió sin leerse nunca se muestra como
+  verificado.
+- **Lo que quitó Latet:** cuántas cabeceras y cuántos miembros del cuerpo declara su perfil como
+  eliminables (`client_metadata` de Codex, por ejemplo); cuando el proveedor respondió `401` o `403`
+  después de que Latet quitara una cabecera, el intercambio lo dice.
+- **Su perfil de petición** (`anthropic.messages.1`), el que nombra una excepción para ese tipo de
+  llamada.
+- **Su proyecto, de confianza o declarado,** y **su lanzamiento:** *Iniciado por Latet, clave
+  verificada*, *Iniciado por Latet, falta la clave*, *Vinculado por el plugin de Claude Code* o *No
+  iniciado por Latet* ([Proyectos](../concepts/projects/#las-claves-de-lanzamiento)). Las sesiones
+  también muestran el lanzamiento.
+
+Un intercambio registrado por una versión anterior de Latet nunca se muestra como verificado: dice
+*Registrada por una versión anterior de Latet. No consta cuánto de esta solicitud leyó, así que no
+figura como verificada.* Una comprobación que el plugin de Claude Code hizo dentro de Claude Code se
+muestra como *Una comprobación del plugin de Claude Code.*, nunca como verificada: no envió nada por
+sí misma, y la solicitud que leyó es un intercambio aparte.
+
+<Screenshot name="coverage" alt="La cobertura de un intercambio: qué dejó pasar partes de él sin leerlas, cómo se vinculó su sesión, su proyecto de confianza, la cabecera que quitó Latet y su perfil de petición" caption="Cobertura: cómo dio cuenta Latet de cada parte de una petición." />
+
+### Excepciones de petición
+
+**Agentes protegidos** enumera tus
+[excepciones de petición](../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta): lo que
+deja pasar cada una (una cabecera, un parámetro de consulta o un miembro del cuerpo, y si es la
+credencial propia del destino), dónde (su destino y su perfil de petición), para quién (todas tus
+peticiones, o las peticiones de un proyecto cuando Latet considera de confianza su proyecto), y su
+estado: *Esperando tu aprobación*, *Activa*, *Caduca pronto* (con los días que quedan), *Caducada*,
+*Permanente*, o *Hay que aprobarla de nuevo: su perfil se revisó*. Un aviso dice cuándo una termina en
+los próximos siete días. *Revocar* quita una en el acto. Debajo, los usos de excepciones contados en
+memoria desde que arrancó el daemon, que se borran al reiniciarse: con el historial desactivado son
+todo lo que queda de ellos, y un servidor suma los recuentos de sus instancias. Una excepción nueva, o
+ampliada, renovada o hecha permanente, espera en **Aprobaciones**, en *Ajustes*, que muestra lo que deja
+pasar, cuánto dura y, para una sin proyecto, que cubre toda tu identidad.
+
+<Screenshot name="exceptions" alt="Las excepciones de petición en Agentes protegidos: lo que deja pasar cada una, su destino y su perfil de petición, a quién cubre y su estado, con Revocar" caption="Excepciones de petición: lo que deja pasar cada una, dónde, para quién y su estado." />
 
 ### Aprobaciones
 
@@ -312,7 +368,8 @@ Lo que sigue se refiere al panel en tu propio equipo. Para el panel de un servid
 - Lo que conserva el historial se elige en Historial dentro de **Reglas**, en la pestaña *Avanzado*:
   *Todo* (los bloques de texto, las respuestas y los tiempos, para que veas exactamente qué se
   envió), *Solo metadatos* (recuentos, tiempos e indicadores, ningún texto) o *Nada* (los
-  intercambios no se registran, y **En directo** queda vacía).
+  intercambios no se registran, y **En directo** queda vacía; los recuentos de las excepciones de
+  petición usadas se quedan en memoria hasta que Latet se reinicia).
 - El historial se conserva durante 14 días de forma predeterminada; *Conservar durante*, en Historial
   dentro de **Reglas**, fija de 1 a 365 días. Los bloques que se reenvían en cada turno se guardan una
   sola vez.

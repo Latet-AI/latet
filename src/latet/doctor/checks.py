@@ -534,6 +534,71 @@ def user_name_checks(agent: ClaudeCode) -> list[Check]:
     return [Check(WARN, agent.name, f"{detail}: `latet agents apply claude`, then restart Claude Code")]
 
 
+def _approved_settings() -> Any:
+    """The settings you approved last (config.reviewed.json): those the daemon runs while a change waits. None when
+    there are none yet, or they cannot be read."""
+    from latet.state.local import LocalSettings
+
+    data = data_dir() if data_dir().is_absolute() else Path.cwd() / data_dir()
+    return LocalSettings(None, data).reviewed()
+
+
+def check_exceptions() -> list[Check]:
+    """Your request exceptions (D3, R-100), as the daemon runs them (Minor 3): those you approved last, which run while
+    a change waits, each permanent one listed by its id and its scope's category (never its description or what it
+    names), one suspended by a profile revision, expired or expiring said so; and each one config.yaml holds that you
+    have not approved, said to wait for you (Latet's stamps are taken as approved only with your approval behind
+    them, so one written with them is waiting too, never permanent)."""
+    from latet.gateway import request_policy
+
+    written = load_config()
+    approved = _approved_settings()
+    running = approved.request_exceptions if approved is not None else []
+    kept = {row.id: row for row in running if row.id is not None}
+    waiting = [row for row in written.request_exceptions if row.id is None or kept.get(row.id) != row]
+    if not running and not waiting:
+        return []
+    unstamped = {"id": None, "granted": None, "revision": None, "body_revision": None, "issuer": None}
+    config = written.model_copy(
+        update={"request_exceptions": [*running, *(row.model_copy(update=unstamped) for row in waiting)]}
+    )
+    out: list[Check] = []
+    rows = request_policy.listed(config, request_policy._now())
+    for row in rows:
+        name = row["id"] or "(not approved yet)"
+        where = f"{row['destination']}, {row['scope']}"
+        if row["state"] == "permanent":
+            out.append(Check(WARN, f"Permanent request exception {name}", f"{where}: never expires"))
+        elif row["state"] in ("needs approval again (profile revised)", "pending", "forbidden"):
+            out.append(Check(WARN, f"Request exception {name}", row["state"]))
+        elif row["state"] in ("expired", "expiring"):
+            out.append(Check(WARN, f"Request exception {name}", f"{where}: {row['state']} {row['ends']}"))
+    active = sum(row["state"] in ("active", "expiring", "permanent") for row in rows)
+    out.append(Check(OK, "Request exceptions", f"{active} in force"))
+    return out
+
+
+def check_upgrade() -> list[Check]:
+    """What 0.11 stops that 0.10 sent, seen here (``doctor.upgrade``): projects with Latet off, images no one reads,
+    ``--passthrough`` in a start entry and calls no built-in profile covers, by category and count, and the launchers
+    Latet started without their key, by agent and version. Never a value, a folder or a command line."""
+    from latet.doctor import upgrade
+
+    found = [*upgrade.findings(load_config()), *upgrade.launches()]
+    if not found:
+        return [Check(OK, "Upgrade to 0.11", "nothing seen here that 0.11 stops")]
+    return [
+        Check(
+            WARN,
+            finding.title[0].upper() + finding.title[1:]
+            if finding.category in ("launched-key-missing", "carrier-unverified")
+            else f"Stops in 0.11: {finding.title}",
+            finding.detail + (f": {'; '.join(finding.lines)}" if finding.lines else ""),
+        )
+        for finding in found
+    ]
+
+
 def check_recognizers() -> list[Check]:
     """Your own recognizers: each one loads, and its examples pass (`latet rules test` for details)."""
     from latet.engine.build import recognizers_for
@@ -685,10 +750,12 @@ def check_ocr() -> list[Check]:
         why = "the max profile" if policy.because == "profile" else "`images: block`"
         return [Check(OK, "Text in images", f"requests that carry images are not sent ({why})")]
     if config.ocr == "off":
-        return [Check(OK, "Text in images", "not read (`ocr: off`): images are sent as they are, and flagged")]
+        return [Check(WARN, "Text in images", "not read (`ocr: off`): a request that carries an image is refused")]
     if not models.runtime_available() or not models.installed(data_dir()):
         need = "`latet ocr install`" if models.runtime_available() else "the ocr extra, then `latet ocr install`"
-        return [Check(OK, "Text in images", f"not read: images are sent as they are, and flagged ({need} reads them)")]
+        return [
+            Check(WARN, "Text in images", f"not read: a request that carries an image is refused ({need} reads it)")
+        ]
     from PIL import Image, ImageDraw, ImageFont
 
     from latet.vision.ocr import OnnxOcr
@@ -838,6 +905,24 @@ def check_server_machine(*, _selection: _ServerMachine | None = None) -> list[Ch
     return out
 
 
+# What `latet doctor` checks on a computer that runs its own daemon, in this order, by name: each is this module's
+# function of that name when the doctor runs (``run_all``), never one bound when it was imported.
+COMPUTER_GROUPS = (
+    "check_daemon",
+    "check_port",
+    "check_engine",
+    "check_recognizers",
+    "check_exceptions",
+    "check_upgrade",
+    "check_ner",
+    "check_ocr",
+    "check_reviewer",
+    "check_live_review",
+    "check_agents",
+    "check_instructions",
+)
+
+
 def run_all() -> list[Check]:
     from latet.integrations.base import RecordsUnavailable, records_preflight
     from latet.server.connection import NotConnected, _require_selection
@@ -863,18 +948,7 @@ def run_all() -> list[Check]:
     elif (machine := _server_machine_selected()) is not None:
         groups = (check_server_machine,)
     else:
-        groups = (
-            check_daemon,
-            check_port,
-            check_engine,
-            check_recognizers,
-            check_ner,
-            check_ocr,
-            check_reviewer,
-            check_live_review,
-            check_agents,
-            check_instructions,
-        )
+        groups = tuple(globals()[name] for name in COMPUTER_GROUPS)
     for group in groups:
         try:
             _require_selection(prepared)

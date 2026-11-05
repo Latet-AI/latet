@@ -226,30 +226,43 @@ client qu'une règle de la clé a trouvée une fois, puis qui a été retirée, 
 
 Un espace de journaux peut contenir des millions de valeurs : une instance ne garde donc pas le
 coffre-fort d'une clé en mémoire. Elle garde les valeurs que la clé a utilisées en dernier
-(`key_working_values`, 5 000 par défaut, environ 10 Mio par clé) et trouve toute autre valeur dans
-PostgreSQL quand les textes d'un appel en ont besoin, avec une seule recherche pour tous, grâce à un
-index des mots des valeurs et des valeurs factices. Cet index contient des empreintes calculées avec
-une clé secrète, jamais un mot en clair.
+(`key_working_values`, 5 000 par défaut, environ 10 Mio par clé) et les empreintes de tout le
+coffre-fort : une empreinte de 64 bits de chaque mot de ses valeurs et de ses valeurs factices,
+calculée avec une clé secrète, environ 15 Mo pour un million de valeurs. Les mots d'un appel sont
+d'abord cherchés parmi les empreintes : un mot sans empreinte n'est le mot d'aucune valeur ni d'aucune
+valeur factice, et PostgreSQL n'est pas interrogé pour lui. Les valeurs et les valeurs factices dont
+les mots en ont une sont lues dans PostgreSQL, toutes celles de l'appel en une fois, et chacune est
+déchiffrée et comparée au texte avant de masquer ou de restaurer quoi que ce soit, car deux mots
+peuvent avoir la même empreinte. Ni les empreintes ni l'index des mots dans PostgreSQL, fait de
+hachages à clé, ne contiennent un mot en clair. Avant chaque appel, l'instance lit dans PostgreSQL le
+compteur de modifications de la clé et reprend ce que les autres instances ont gardé ou oublié
+depuis : une valeur gardée sur une instance avant le début d'un appel est donc trouvée par cet appel
+sur n'importe quelle autre, même quand le message qui l'annonçait s'est perdu. Une clé qui a peu de
+valeurs fonctionne de la même façon : seul le coffre-fort d'une personne de 35 000 valeurs ou moins
+est gardé entier en mémoire ([exploitation du serveur](../concepts/server-operations/)).
 
-**Secrets collés à d'autres lettres.** Dans PostgreSQL, un secret écrit comme une seule suite de
-lettres et de chiffres, sans espace ni ponctuation, est trouvé par son mot, et par ses six premiers
-et six derniers caractères quand d'autres lettres ou chiffres sont collés à l'un de ses côtés. Collé
-des deux côtés (`xhunter2y`), ou collé de quelque façon que ce soit quand le mot à son bord a six
-caractères ou moins, aucun mot du texte ne le trouve. Une instance garde donc en mémoire pour de bon
-les secrets courts d'une clé, ceux d'une seule suite de 16 caractères ou moins ou avec un mot aussi
-court à un bord : les `key_held_secrets` plus récents (1 000 si les réglages du serveur ne disent
-pas autre chose), trouvés quelle que soit la façon dont ils sont collés. Un plus ancien est trouvé
-là où rien ne lui est collé, ou là où un côté est libre et qu'il a sept caractères ou plus ; un plus
-long, partout où un côté est libre. Augmentez `key_held_secrets` pour une clé qui voit beaucoup de
-secrets courts, comme un jeton de session dans chaque ligne de journal : chacun occupe environ 2,2
-Ko sur chaque instance, et chaque texte que la clé masque ou restaure est parcouru pour le chercher,
-ce qui ralentit un peu ses appels. Mesurée comme ci-dessous avec un jeton de session propre à chaque
-ligne (une valeur de plus à garder dans chacune), une nouvelle clé qui en gardait 1 000 a masqué 73
-lignes par seconde et en a restauré 1 935, contre 75 et 2 103 sans aucun secret gardé. Une valeur
-factice est trouvée collée comme son secret : elle en garde les signes à leur place, si bien qu'une
-valeur factice collée de sorte qu'aucun de ses mots ne soit isolé est celle d'un secret gardé en
-mémoire, et est trouvée tant que le secret est gardé. Comme partout dans Latet, une valeur est
-reconnue à nouveau à partir de quatre caractères, le nom d'une personne à partir de trois ([valeurs
+**Secrets collés à d'autres lettres.** Dans PostgreSQL, un secret écrit comme une seule suite de lettres et de
+chiffres, sans espace ni ponctuation, est trouvé par son mot, et par ses six premiers et six derniers caractères
+quand d'autres lettres ou chiffres y sont collés : d'un côté, au bord de la suite du texte qui le contient, et
+des deux côtés (`xhunter2y`), à l'intérieur de cette suite, qu'un appel lit six caractères à la fois. Un appel
+lit au plus un million de ces positions : au-delà, ses suites suivantes sont lues par leurs mots et leurs bords
+seuls. Un secret de six caractères ou moins, ou dont le mot à un bord collé a six caractères ou moins, n'est
+trouvé par aucun mot du texte quand il est collé. Une instance garde donc en mémoire pour de bon les secrets
+courts d'une clé, ceux d'une seule suite de 16 caractères ou moins ou avec un mot aussi court à un bord : les
+`key_held_secrets` plus récents (1 000 si les réglages du serveur ne disent pas autre chose), trouvés quelle que
+soit la façon dont ils sont collés, au-delà du million de positions d'un appel aussi. Un plus ancien, ou un plus
+long, est trouvé là où rien ne lui est collé, collé d'un côté quand le mot à ce bord a sept caractères ou plus,
+et collé des deux côtés quand il est une seule suite de sept caractères ou plus, dans le million de positions de
+l'appel. Augmentez `key_held_secrets` pour une clé qui voit beaucoup de secrets courts, comme un jeton de
+session dans chaque ligne de journal : chacun occupe environ 23 Ko sur chaque instance qui sert la clé, surtout
+dans le détecteur qui le trouve, et chaque texte que la clé masque ou restaure est parcouru pour le chercher, ce
+qui ralentit un peu ses appels. Mesurée avec Latet 0.10.0 sur la machine d'[à quelle
+vitesse](#à-quelle-vitesse), avec un jeton de session propre à chaque ligne (une valeur de plus à garder dans
+chacune), une nouvelle clé qui en gardait 1 000 a masqué 73 lignes par seconde et en a restauré 1 935, contre 75
+et 2 103 sans aucun secret gardé. Une valeur factice est trouvée collée comme son secret : elle en garde les
+signes à leur place, si bien qu'une valeur factice collée de sorte qu'aucun de ses mots ne soit isolé est celle
+d'un secret gardé en mémoire, et est trouvée tant que le secret est gardé. Comme partout dans Latet, une valeur
+est reconnue à nouveau à partir de quatre caractères, le nom d'une personne à partir de trois ([valeurs
 connues](../concepts/detection/#valeurs-connues)).
 
 **Secrets courts.** Un secret de moins de douze caractères (`password=1234`, un jeton court) reçoit
@@ -291,11 +304,17 @@ restauration ultérieure ne remplacera.
   limite, et la métrique `latet_vault_near_limit` les compte : relevez donc une limite avant qu'elle
   soit atteinte. Chaque instance compte les nouvelles valeurs d'un appel avant de les valider : deux
   instances, ou un appel et un agent de la même clé, peuvent dépasser la limite des nouvelles valeurs
-  d'un appel chacun avant que la valeur suivante soit refusée.
+  d'un appel chacun avant que la valeur suivante soit refusée. Un index des empreintes d'un
+  coffre-fort est construit jusqu'à 16 777 216 empreintes, environ huit millions de valeurs du type
+  que mesure [à quelle vitesse](#à-quelle-vitesse) : au-delà, aucun index n'est construit tant que
+  l'espace de la clé dure, et ses appels cherchent leurs mots dans PostgreSQL seul, plus lentement.
 - **Un appel** prend au plus 1 000 textes et l'`apps_request_mb` du serveur (8 Mio si ses réglages ne
   disent pas autre chose, jamais plus que son `max_request_mb`) : un appel attend en mémoire le thread
   de la clé, et `latet-client` découpe une liste plus longue en appels de 8 Mio au plus. Les textes dont les mots nomment plus de 100 000 valeurs ou valeurs factices
-  du coffre-fort sont refusés avec 422, sans rien masquer : envoyez moins de textes par appel.
+  du coffre-fort sont refusés en entier avec 422, en mots fixes qui ne nomment aucune valeur : rien
+  de l'appel n'est masqué ni restauré, envoyez donc moins de textes par appel. Un 503 est autre
+  chose : un stockage du serveur (PostgreSQL, Valkey) n'a pas répondu, et le même appel peut être
+  renvoyé plus tard ([référence HTTP](../reference/apps-api/)).
 - **Appels simultanés.** Une clé a au plus `requests_in_flight` requêtes d'applications sur une
   instance (16 si les réglages ne disent pas autre chose) ; au-delà, 429 avec `Retry-After`.
 
@@ -304,43 +323,117 @@ restauration ultérieure ne remplacera.
 Les appels d'une clé s'exécutent l'un après l'autre sur une instance, dans le fil de son espace ; les
 appels de clés différentes, et ceux qui arrivent sur des instances différentes, s'exécutent côte à
 côte. Pour aller plus vite avec une clé, faites tourner plus d'instances derrière le répartiteur de
-charge.
+charge, ou plusieurs workers sur une machine Linux
+([plusieurs instances sur une machine](../concepts/server-operations/#plusieurs-instances-sur-une-machine)).
 
-Mesuré sur une instance (Intel i9-10850K, 64 Go, Windows 10, PostgreSQL dans Docker Desktop sur la
-même machine), avec des lignes de journal d'environ 200 caractères, chacune avec une adresse e-mail et
-une adresse IPv4 publique, dont la moitié nomme un client déjà vu, 500 lignes par appel en `data` ; et
-avec des documents d'environ 20 Ko de prose contenant dix valeurs chacun, un par appel :
+Mesuré avec Latet 0.11 sur une instance (Intel i9-10850K, 64 Go, Windows 10, PostgreSQL 18 dans Docker
+Desktop sur la même machine, les réglages par défaut du serveur) : 40 000 lignes de journal d'environ
+200 caractères, chacune avec une adresse e-mail et une adresse IPv4 publique, dont la moitié nomme un
+client déjà vu, en appels de 500 en `data` ; puis 50 documents d'environ 20 Ko de prose contenant
+dix valeurs chacun, un par appel. Les lignes par seconde sont les lignes divisées par le temps qu'ont
+pris leurs appels ; le temps d'un document est la médiane de ses 50 appels :
 
 | Le coffre-fort de la clé | Masquage, lignes par seconde | Restauration, lignes par seconde | Un document, masquage / restauration |
 | --- | ---: | ---: | ---: |
-| Nouveau, apprend ses valeurs au fil de l'eau | 189 | 2 691 | 77 / 28 ms |
-| 200 000 valeurs | 440 | 1 691 | 87 / 30 ms |
-| 1 000 000 de valeurs | 410 | 1 498 | 95 / 32 ms |
+| Nouveau, apprend ses valeurs au fil de l'eau | 191 | 2 894 | 126 / 31 ms |
+| 200 000 valeurs | 871 | 2 960 | 117 / 32 ms |
+| 1 000 000 de valeurs | 773 | 2 967 | 124 / 32 ms |
 
-Le masquage est limité par les détecteurs : sur un fil, avec toutes les valeurs en mémoire et sans
-base de données, le moteur masque environ 900 lignes de ce type par seconde. Une clé nouvelle écrit
-aussi chaque nouvelle valeur dans PostgreSQL. Une instance garde au plus `database_pool` connexions à
-PostgreSQL (10 si les réglages du serveur ne disent pas autre chose) pour le travail de toutes les
-identités, et laisse trois dixièmes d'entre elles (trois sur dix) être tenues par des appels qui
-conservent leurs nouvelles valeurs dans une transaction chacun ; les autres conservent chaque valeur au
-fur et à mesure, plus lentement. Augmentez `database_pool` pour une instance qui masque pour beaucoup
-de nouvelles clés à la fois, et avec lui le `max_connections` de PostgreSQL
-([exploitation du serveur](../concepts/server-operations/#connexions-limites-et-confiance)).
-`scripts/bench_apps.py` dans le dépôt mesure l'un de vos serveurs de la même façon.
+Chaque document apporte des valeurs nouvelles pour la clé, qu'elle écrit dans PostgreSQL en les masquant : les
+mêmes 50 documents masqués à nouveau, leurs valeurs connues, ont pris 16,6 ms à 200 000 valeurs et 16,4 ms à
+1 000 000 (restauration 23 ms dans les deux cas). Une nouvelle clé écrit aussi la plupart des valeurs de ses
+lignes, c'est pourquoi elle en masque moins.
+
+Latet 0.10.0, mesuré de la même façon sur la même machine, masquait 350 et 304 lignes par seconde à
+200 000 et 1 000 000 de valeurs et 153 pour une nouvelle clé, en restaurait 2 114 et 2 014, et
+masquait un document en 163 à 182 ms. Latet 0.11 visait à masquer au moins 1 000 de ces lignes par
+seconde sur une instance à 200 000 et à 1 000 000 de valeurs, et un document en 30 ms ou moins : il en
+masque 871 et 773, et un document en 30 ms seulement quand la clé connaît déjà ses valeurs. L'essentiel
+du temps d'un appel de masquage va aux détecteurs, et une part à l'attente de PostgreSQL.
+
+Une instance trouve les valeurs d'une clé grâce aux empreintes des mots de son coffre-fort ([le coffre-fort
+d'une clé](#le-coffre-fort-dune-clé)), qui occupent environ 15 Mo pour un million de valeurs (14,77 Mo à
+1 000 000) et sont construites en arrière-plan pendant que l'espace de la clé s'ouvre : en 1,5 seconde à
+1 000 000 de valeurs (la médiane de trois ouvertures, de 1,42 à 1,62 s). Tant qu'elles ne sont pas prêtes, les
+appels de la clé cherchent leurs mots dans PostgreSQL seul : lors d'une mesure antérieure avec Latet 0.11,
+empreintes désactivées, la clé de 200 000 valeurs a masqué 494 lignes par seconde et en a restauré 1 382. Chaque
+appel lit d'abord le compteur de modifications de la clé, 0,51 ms en médiane, et reprend ce qui a changé depuis
+: 1,87 ms pour une nouvelle valeur et 2,11 ms pour 100, en médiane aussi.
+
+Dans un appel de textes déjà masqués, seuls les nouveaux sont relus, mais chacun des autres est
+encore cherché et comparé à ce que la clé a masqué : 500 textes déjà masqués et un nouveau ont pris
+168 ms, le nouveau seul 6,1 ms (médianes de trois exécutions).
+
+Sur une machine Linux, les workers s'additionnent. Mesuré dans Docker sur la même machine (une
+machine virtuelle Linux de 20 processeurs et 16 Go, PostgreSQL 18.6 et Valkey 9.1.2 dans des
+conteneurs à côté), avec `latet server run --workers` et une clé d'API de 200 000 valeurs :
+200 000 lignes distinctes du type décrit plus haut en appels de 62, quatre connexions par worker,
+chaque nombre de workers pendant 20 secondes, la médiane de trois tours ; la mémoire est la mémoire
+résidente de chaque worker après les tours :
+
+| Workers | Masquage, lignes par seconde | Restauration, lignes par seconde | Mémoire par worker |
+| ---: | ---: | ---: | ---: |
+| 1 | 1 190 | 1 947 | 227 Mo |
+| 2 | 2 260 | 3 711 | 227 Mo |
+| 4 | 4 253 | 6 594 | 216 Mo |
+| 8 | 7 477 | 10 147 | 185 Mo |
+
+Huit workers ont masqué 6,28 fois ce qu'en masquait un seul et restauré 5,21 fois, là où Latet 0.11
+visait au moins 5 fois pour les deux ; aucun tour à huit workers n'a restauré à moins de 5,07 fois. Le
+noyau répartit les connexions entre les workers selon un hachage, non à tour de rôle, si bien que
+certains workers en reçoivent plus que d'autres : de 1 à 10 des 32 dans un tour à huit workers. Le
+processus qui démarre les workers occupait de 47 à 48 Mo à côté d'eux. Ces appels viennent de
+plusieurs connexions à la fois : comparez donc les lignes de ce tableau entre elles, pas avec le
+premier tableau.
+
+Écrire de nouvelles valeurs demande des connexions à PostgreSQL : une instance, et chaque worker, en
+garde au plus `database_pool` (10 si les réglages du serveur ne disent pas autre chose) pour le
+travail de toutes les identités, et laisse trois dixièmes d'entre elles (trois sur dix) être tenues
+par des appels qui conservent leurs nouvelles valeurs dans une transaction chacun ; les autres
+conservent chaque valeur au fur et à mesure, plus lentement. Augmentez `database_pool` pour une
+instance qui masque pour beaucoup de nouvelles clés à la fois, et avec lui le `max_connections` de
+PostgreSQL ([exploitation du serveur](../concepts/server-operations/#connexions-limites-et-confiance)).
+`scripts/bench_apps.py` dans le dépôt mesure l'un de vos serveurs comme le premier tableau a été
+mesuré.
 
 ## Mettre à jour un serveur
 
-Après une mise à jour qui change la façon dont les mots d'un coffre-fort sont indexés, la première
-instance qui construit l'espace d'une clé les refait avant de répondre au premier appel de la clé :
-environ 40 secondes pour 200 000 valeurs et quatre minutes et demie pour 1 000 000 sur la machine
-ci-dessus. Un appel qui arrive entre-temps attend, et une instance construit quatre espaces à la fois :
-quelques grosses clés retardent donc les premiers appels des autres clés sur cette instance. Le journal
-des modifications dit quand une version le fait ; envoyez alors à chaque grosse clé un appel, avec un
-délai d'attente assez long, avant que ses programmes ne redémarrent.
+Latet 0.11 change les tables. Arrêtez chaque instance et chaque worker, sur chaque machine, lancez
+`latet server migrate` une fois avec la 0.11, puis démarrez-les tous avec elle
+([mettre à jour](../concepts/server-operations/#mettre-à-jour-et-ajouter-des-instances)). Une
+instance ne démarre pas sur des tables d'une autre version : aucun appel n'est donc servi entre
+l'arrêt et le démarrage, et `latet server migrate` ne change rien tant qu'une instance est en vie,
+une de la 0.10 pendant 30 secondes après son arrêt. La migration ajoute à chaque ligne de mot de
+chaque coffre-fort une place vide pour son empreinte et pour le numéro de la modification qui l'a
+écrite en dernier, avec leurs index : sur une base de données aux gros coffres-forts, elle prend plus
+de temps que les migrations précédentes, et les empreintes elles-mêmes sont calculées plus tard, en
+arrière-plan.
 
-Tant que des instances de deux versions tournent côte à côte, une valeur qu'écrit une instance plus
-ancienne est trouvée par les plus récentes tant qu'elles la gardent en mémoire, mais pas dans
-PostgreSQL avant que l'espace de la clé soit reconstruit. Quand l'API pour les applications est
-utilisée, arrêtez chaque instance plus ancienne avant que les nouvelles démarrent, même quand les
-tables ne changent pas
-([mettre à jour](../concepts/server-operations/#mettre-à-jour-et-ajouter-des-instances)).
+Un coffre-fort gardé par Latet 0.10 n'a pas encore d'empreintes. Après le redémarrage, la première instance qui
+construit l'espace d'une clé répond tout de suite aux appels de la clé, en cherchant leurs mots dans PostgreSQL
+comme le faisait la 0.10, et calcule les empreintes du coffre-fort en arrière-plan, une fois, une instance à la
+fois ; chaque instance construit ensuite son propre index de ces empreintes et s'en sert. Jusque-là, les appels
+de la clé masquent les mêmes valeurs, plus lentement ([à quelle vitesse](#à-quelle-vitesse) : 494 lignes par
+seconde à 200 000 valeurs empreintes désactivées, lors d'une mesure antérieure), et aucun n'est refusé pour
+autant. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
+(PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué), les appels restent sur la
+recherche dans PostgreSQL jusqu'à ce que l'index soit construit de nouveau : aussitôt quand une autre instance a
+calculé les empreintes, sinon 10, 20 et 30 secondes après chaque essai puis une fois par minute. Le journal dit
+une fois quand un index cesse d'être utilisé et une fois quand il l'est de nouveau. Un coffre-fort au-delà de la
+taille pour laquelle un index est construit ([limites](#limites)) reste sur la recherche dans PostgreSQL tant
+que son espace dure. Les mots eux-mêmes restent tels que la 0.10 les a faits : la 0.11 ne les refait pas.
+
+Une version qui change la façon dont les mots d'un coffre-fort sont faits (le journal des
+modifications le dit) refait les mots d'une clé dans la première instance qui construit son espace,
+avant que cet espace ne réponde au premier appel de la clé : Latet 0.10.0 y mettait environ 40
+secondes pour 200 000 valeurs et quatre minutes et demie pour 1 000 000 sur la machine ci-dessus. Un
+appel qui arrive entre-temps attend, et une instance construit quatre espaces à la fois : quelques
+grosses clés retardent donc les premiers appels des autres clés sur cette instance. Après une telle
+version, envoyez à chaque grosse clé un appel, avec un délai d'attente assez long, avant que ses
+programmes ne redémarrent.
+
+Tant que des instances de deux versions tournent côte à côte, ce que permet une version qui garde les
+tables, une valeur qu'écrit une instance plus ancienne est trouvée par les plus récentes tant
+qu'elles la gardent en mémoire, mais pas dans PostgreSQL avant que l'espace de la clé soit
+reconstruit. Quand l'API pour les applications est utilisée, arrêtez chaque instance plus ancienne
+avant que les nouvelles démarrent, même quand les tables ne changent pas.

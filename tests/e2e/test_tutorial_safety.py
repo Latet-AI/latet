@@ -16,7 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from latet import runtime as runtime_module
 from latet.config import Config, Destination, IdentityConfig
 from latet.engine.vault import derive_keys
-from latet.gateway import ws
+from latet.gateway import request_transport
 from latet.gateway.app import create_app
 from latet.integrations import agents
 from latet.runtime import make_runtime
@@ -300,7 +300,7 @@ def tripwire(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", http)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", http_sync)
-    monkeypatch.setattr(ws, "connect", websocket)
+    monkeypatch.setattr(request_transport, "_NoRedirect", websocket)  # the relay's one way to open a WebSocket (S3)
     return reached
 
 
@@ -311,7 +311,7 @@ async def test_the_tripwire_catches_a_request_to_the_network(tripwire):
     with httpx.Client() as client, pytest.raises(httpx.ConnectError):
         client.get("https://api.openai.com/v1/models")
     with pytest.raises(OSError, match="not from the tutorial"):
-        await ws.connect("wss://chatgpt.com/backend-api/codex/responses")
+        await request_transport._NoRedirect("wss://chatgpt.com/backend-api/codex/responses")
     assert tripwire == [
         "https://api.anthropic.com/v1/models",
         "https://api.openai.com/v1/models",

@@ -78,7 +78,7 @@ def _blocks(
 ) -> None:
     """The blocks of one message's content (or of a tool's result), each read by its kind, or passed as the provider
     made it (``_PROVIDERS_BLOCKS``); a block of any other kind, one that is not an object, and a read block's field in
-    another form are named in ``scan.unreadable``: a server refuses them, a computer sends them as they came."""
+    another form are named in ``scan.unreadable``: Latet refuses them, on a computer as on a server."""
     if not isinstance(content, list):
         if content is not None and not isinstance(content, str):
             scan.unreadable.append("content that is neither text nor blocks")

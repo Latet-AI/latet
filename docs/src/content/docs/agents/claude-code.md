@@ -96,8 +96,12 @@ requests through the local daemon, as it does through any gateway: Anthropic doc
 [gateway](https://code.claude.com/docs/en/llm-gateway) with a subscription login, and its
 [gateway guide](https://code.claude.com/docs/en/llm-gateway-protocol) asks a gateway to forward
 requests unchanged and to inspect them without modifying them. That is what the daemon does:
-each request reaches Anthropic byte for byte, headers included, with your token in them as Claude
-Code put it there. The token is never saved, logged or shown in the dashboard.
+each request's body reaches Anthropic byte for byte, and its headers as Claude Code wrote them, with
+your token in them, less two kinds that Latet takes off and counts in the dashboard: the telemetry
+and tracing headers its SDK adds (`x-stainless-*`, `traceparent`...), and Claude Code's own headers
+that can carry free text (a subagent's ids, which can hold its name, and values Claude Code copies
+from its environment). [Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off) lists them all. The token is never saved,
+logged or shown in the dashboard.
 
 **Why nothing needs rewriting.** Claude Code adds to each request's system prompt an attribution
 block with a fingerprint derived from the conversation. A proxy that rewrote requests would change
@@ -152,7 +156,11 @@ With `ANTHROPIC_BASE_URL` pointing at it, every request passes through the daemo
 
 - checks the outgoing request for sensitive values in clear, and blocks it if it finds one: Claude
   Code then shows an API error with the message `Latet: sensitive values would leave in clear`;
-- otherwise forwards the bytes unchanged, headers included;
+- reads every other part of it: a header, a query parameter or a member of the body that no profile
+  names is refused ([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)),
+  except a new body member that holds text, which passes once the final check has read it;
+- otherwise forwards the body byte for byte, and the headers less those it takes off and counts
+  ([Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off));
 - records the exchange for the [dashboard](../../dashboard/), without its credentials.
 
 It never rewrites a request from Claude Code, or one that carries a Claude subscription token,
@@ -183,6 +191,24 @@ latet claude --continue
 checked. `latet run claude` is the
 same as `latet claude`: Claude Code needs the plugin as well as the address, and `latet run`
 alone would give it only the address.
+
+### Its project, and headers of your own
+
+Latet applies a project's settings in full only to a session whose project it trusts
+([Projects](../../concepts/projects/#trusted-and-claimed)):
+
+- **Started with `latet claude`,** the session carries a launch key, which `latet claude` adds to
+  `ANTHROPIC_CUSTOM_HEADERS` in the private settings file it gives that session. Where your managed
+  or project settings, or the settings sources you choose on the command line, would make it unclear
+  which settings win, it adds none, says so, and the session's project is claimed.
+- **Set up with `latet global-install`,** the plugin binds each session to its project; the binding
+  ends after 30 minutes without a call from the plugin. The calls Claude Code makes as it starts,
+  before the plugin's first call, are decided with your own rules alone.
+
+Headers you set in `ANTHROPIC_CUSTOM_HEADERS` are refused, naming each one, until an exact exception
+lets it through, one for each kind of call that sends it (`anthropic.messages.1`,
+`anthropic.count_tokens.1`, `anthropic.models.1`): see
+[Upgrading to 0.11](../../getting-started/upgrading-to-0-11/#headers-you-set-for-your-agents).
 
 ## What global-install changes
 
@@ -295,5 +321,8 @@ anyway.
   [What is and isn't protected](../../concepts/protection-scope/).
 - **Images**, with the optional [text recognition](../../concepts/images/): those that tools return
   are replaced by their masked copy; a screenshot you paste with values in it is taken out of the
-  prompt, and Claude gets the path of a masked copy to open with Read. **PDFs** are not read and are
-  sent as they are.
+  prompt, and Claude gets the path of a masked copy to open with Read. Without text recognition, a
+  request with an image is not sent. Since Latet only checks Claude Code's requests, a photo with a
+  location, a camera's maker notes or an image inside it, and an original WebP image, are refused
+  ([Photos and their metadata](../../concepts/images/#photos-and-their-metadata)). **PDFs** are not
+  read: a request that carries one is not sent.

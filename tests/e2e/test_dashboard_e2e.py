@@ -24,7 +24,10 @@ UI_HEADERS = {"x-latet-ui": "1"}
 GH_PAT = "ghp_" + "R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
 EMAIL = "mario.rossi@acme.it"
 PROMPT = f"deploy with key {GH_PAT} and notify {EMAIL}"
-CLAUDE = {"user-agent": "claude-cli/2.1.291 (external, cli)", "x-claude-code-session-id": "cc-dash"}
+# Claude Code's session id is a UUID (crypto.randomUUID()), the plugin's session the same; model ids as agents send them.
+CC_SESSION = "9a4c2e7f-1b3d-4e58-b6a0-3f7d5c8e2b91"
+CLAUDE = {"user-agent": "claude-cli/2.1.291 (external, cli)", "x-claude-code-session-id": CC_SESSION}
+GPT, CLAUDE_MODEL = "gpt-4.1-mini", "claude-sonnet-4-5"
 SUBSCRIPTION = {"authorization": "Bearer sk-ant-oat01-test"}  # Claude Code signed in with Pro or Max: only checked
 
 
@@ -65,7 +68,7 @@ def _login(client, runtime):
 
 
 def _chat(client, content=PROMPT, history=()):
-    body = {"model": "m", "stream": True, "messages": [*history, {"role": "user", "content": content}]}
+    body = {"model": GPT, "stream": True, "messages": [*history, {"role": "user", "content": content}]}
     r = client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-test"})
     assert r.status_code == 200
     return r
@@ -84,7 +87,7 @@ def test_rewrite_exchange_shows_masked_original_and_response(client, runtime):
     [summary] = _exchanges(client, runtime)
     assert summary["protocol"] == "chat"
     assert summary["mode"] == "rewrite"
-    assert summary["model"] == "m"
+    assert summary["model"] == GPT  # admitted by its provider's grammar
     assert summary["masked"] == summary["new_masked"] >= 2
     assert {"EMAIL"} <= set(summary["by_type"])
     assert summary["by_class"]["PII"] >= 1 and summary["by_class"]["SECRET"] >= 1
@@ -129,6 +132,26 @@ def test_history_is_stored_once_and_marked_not_new(client, runtime):
     slots = client.get(f"{API}/exchanges/{second['id']}").json()["request"]["slots"]
     assert [s["new"] for s in slots] == [False, True, True]
     assert slots[0]["original"] == PROMPT
+
+
+def test_the_vault_page_never_reveals_a_stored_launch_key(client, runtime):
+    """N-1 (P2-6a's re-review, root's ruling): a live launch key a masked tool output put in the vault is Latet's own
+    credential: the Vault page reveals a plain label in its place, never the key, and its search never matches it."""
+    from latet.engine.types import EntityClass
+
+    key = "latet_" + "lk_" + "Qm9_" * 10 + "z1A"  # a key's shape: latet_lk_ and 43 URL-safe characters
+    stored = runtime.built.vault.intern("LATET_LAUNCH_KEY", EntityClass.SECRET, key)
+    email = runtime.built.vault.intern("EMAIL", EntityClass.PII, "lk-owner@example.com")
+    _login(client, runtime)
+    revealed = client.post(f"{API}/vault/{stored.id}/reveal", headers=UI_HEADERS)
+    assert revealed.status_code == 200 and revealed.json() == {"original": None, "launch_key": True}
+    assert key not in revealed.text
+    assert client.post(f"{API}/vault/{email.id}/reveal", headers=UI_HEADERS).json() == {"original": email.original}
+    for q in ("qm9_qm9", key.lower()):  # a part of the key, or the whole: never found by it
+        found = client.get(f"{API}/vault", params={"q": q}).json()["items"]
+        assert all(item["id"] != stored.id for item in found)
+    listed = client.get(f"{API}/vault", params={"type": "LATET_LAUNCH_KEY"}).json()["items"]
+    assert [item["id"] for item in listed] == [stored.id] and key not in json.dumps(listed)
 
 
 def test_forgetting_a_value_removes_it_from_history(client, runtime):
@@ -251,14 +274,15 @@ def test_a_term_of_signs_alone_already_in_config_yaml_stops_no_request(tmp_path,
 def test_claude_code_exchange_rebuilt_from_the_plugin_session(client, runtime, upstream):
     token = {"x-latet-token": runtime.gateway.bridge_token}
     masked = client.post(
-        "/_latet/engine/v1/mask", json={"session": "cc-dash", "items": [{"text": PROMPT}]}, headers=token
+        "/_latet/engine/v1/mask", json={"session": CC_SESSION, "items": [{"text": PROMPT}]}, headers=token
     ).json()["items"][0]["text"]
     assert EMAIL not in masked
-    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": masked}]}
+    body = {"model": CLAUDE_MODEL, "stream": True, "messages": [{"role": "user", "content": masked}]}
     assert client.post("/anthropic/v1/messages", json=body, headers=CLAUDE).status_code == 200
     _login(client, runtime)
     [summary] = _exchanges(client, runtime)
-    assert (summary["mode"], summary["agent"], summary["session"]) == ("verify", "claude-code", "cc:cc-dash")
+    conversation = runtime.exchanges.history_group(f"cc:{CC_SESSION}")  # its opaque key, never the session's id
+    assert (summary["mode"], summary["agent"], summary["session"]) == ("verify", "claude-code", conversation)
     assert summary["masked"] >= 2
     slot = client.get(f"{API}/exchanges/{summary['id']}").json()["request"]["slots"][0]
     assert slot["masked"] == masked
@@ -270,20 +294,23 @@ def test_claude_code_exchange_rebuilt_from_the_plugin_session(client, runtime, u
 
 
 def test_blocked_request_is_recorded_with_its_leak(client, runtime):
-    body = {"model": "m", "messages": [{"role": "user", "content": PROMPT}]}
+    body = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": PROMPT}]}
     assert client.post("/anthropic/v1/messages", json=body, headers=CLAUDE).status_code == 400
     _login(client, runtime)
     [summary] = _exchanges(client, runtime, flag="blocked")
     assert summary["status"] == 400 and summary["verified"] is False
-    assert "would leave in clear" in summary["block_reason"] and GH_PAT not in summary["block_reason"]
+    assert summary["block_reason"] == "refused"  # its category: the words told the agent are in the private view
     assert "leak" in summary["flags"]
-    leaks = client.get(f"{API}/exchanges/{summary['id']}").json()["leaks"]
+    detail = client.get(f"{API}/exchanges/{summary['id']}").json()
+    words = detail["sensitive"]["block_reason"]
+    assert "would leave in clear" in words and GH_PAT not in words
+    leaks = detail["leaks"]
     assert leaks and all(GH_PAT not in json.dumps(leak) for leak in leaks)
     assert _exchanges(client, runtime, flag="uninspected") == []
 
 
 def _stop(client, content, headers=SUBSCRIPTION):
-    body = {"model": "m", "messages": [{"role": "user", "content": content}]}
+    body = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": content}]}
     return client.post("/anthropic/v1/messages", json=body, headers=headers)
 
 
@@ -337,7 +364,7 @@ def test_a_stopped_value_is_not_pointed_at_once_its_block_is_pruned(client, runt
 def test_a_stopped_value_beside_masked_ones_is_found_on_both_sides(client, runtime):
     token = {"x-latet-token": runtime.gateway.bridge_token}
     items = [{"text": f"mail {EMAIL}"}]
-    mail = client.post("/_latet/engine/v1/mask", json={"session": "cc-dash", "items": items}, headers=token)
+    mail = client.post("/_latet/engine/v1/mask", json={"session": CC_SESSION, "items": items}, headers=token)
     masked = mail.json()["items"][0]["text"]
     assert EMAIL not in masked
     assert _stop(client, f"{masked}, key {GH_PAT}", {**CLAUDE, **SUBSCRIPTION}).status_code == 400
@@ -357,7 +384,8 @@ def test_a_stopped_value_is_not_pointed_at_when_the_history_keeps_no_text(client
     assert "leak" in summary["flags"] and summary["verified"] is False
     detail = client.get(f"{API}/exchanges/{summary['id']}").json()
     assert detail["request"]["slots"] == []
-    assert detail["leaks"] == [{"type": "GITHUB_PAT", "kind": "user_text", "preview": "GITHUB_PAT[40]", "new": True}]
+    # Its type, a category; its preview is in the full history's private view alone, which a metadata history keeps not.
+    assert detail["leaks"] == [{"type": "GITHUB_PAT", "kind": "user_text", "new": True, "allowed": False}]
 
 
 def test_a_value_the_plugin_stopped_is_pointed_at_too(client, runtime):
@@ -420,16 +448,20 @@ def test_a_key_read_twice_passes_with_the_texts_the_page_marks_as_one_value(clie
 def test_codex_websocket_turn_is_one_exchange(client, runtime):
     frame = {
         "type": "response.create",
-        "model": "m",
+        "model": CODEX_MODEL,
         "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": PROMPT}]}],
     }
     with client.websocket_connect(
         "/backend-api/codex/responses",
-        headers={"host": "127.0.0.1:5283", "session-id": "s-ws", "originator": "codex_cli_rs"},
+        headers={
+            "host": "127.0.0.1:5283",
+            "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2c01",
+            "originator": "codex_cli_rs",
+        },
     ) as ws:
         ws.send_text(json.dumps(frame))
-        while json.loads(ws.receive_text())["type"] != "response.completed":
-            pass
+        while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+            assert event["type"] != "error", event  # an error ends the turn: never wait past it
     _login(client, runtime)
     [summary] = _exchanges(client, runtime)
     assert (summary["transport"], summary["status"], summary["agent"]) == ("ws", 101, "codex")
@@ -437,6 +469,40 @@ def test_codex_websocket_turn_is_one_exchange(client, runtime):
     detail = client.get(f"{API}/exchanges/{summary['id']}").json()
     assert detail["request"]["slots"][0]["original"] == PROMPT
     assert detail["response"]["text_restored"] == "You said: " + PROMPT
+
+
+def test_a_websockets_header_sent_unread_is_never_recorded_in_clear(runtime, upstream, tmp_path):
+    """I-3 on a WebSocket (P2-6 fix round 1): a header the handshake lets through unread by its role (``authorized``:
+    here a resource your settings expect, under a name with no secret marker) is never kept or shown in clear, in the
+    history, in the dashboard's data or in a capture, whatever its name: its length alone, as over HTTP."""
+    value = "sess-canary-7Q2W9E4R1T"
+    runtime.gateway.upstreams = [
+        Upstream(
+            "chatgpt",
+            "/backend-api/codex",
+            upstream.url,
+            keep_prefix=True,
+            envelope_expected=frozenset({("x-session-id", value)}),
+        )
+    ]
+    runtime.gateway.capture_dir = tmp_path / "capture"
+    with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+        with _codex(client, "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2c03", **{"x-session-id": value}) as ws:
+            ws.send_text(json.dumps(_codex_turn("hello there")))
+            while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+                assert event["type"] != "error", event
+        _login(client, runtime)
+        [summary] = _exchanges(client, runtime)
+        assert summary["transport"] == "ws"
+        detail = client.get(f"{API}/exchanges/{summary['id']}")
+        assert detail.status_code == 200 and "x-session-id" in detail.text and value not in detail.text
+    captured = "".join(path.read_text("utf-8") for path in (tmp_path / "capture").glob("*.jsonl"))
+    assert "x-session-id" in captured and value not in captured
+
+
+# Codex's session ids are its thread's UUIDv7, its model a documented id.
+CODEX_MODEL = "gpt-5.1-codex"
+WS_STOPPED = "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2c02"
 
 
 def _codex(client, session, **headers):
@@ -451,7 +517,11 @@ def _codex_turn(text, image=False):
     content = [{"type": "input_text", "text": text}]
     if image:
         content.append({"type": "input_image", "image_url": "data:image/png;base64,iVBORw0KGgo="})
-    return {"type": "response.create", "model": "m", "input": [{"type": "message", "role": "user", "content": content}]}
+    return {
+        "type": "response.create",
+        "model": CODEX_MODEL,
+        "input": [{"type": "message", "role": "user", "content": content}],
+    }
 
 
 def test_a_websocket_turn_that_is_stopped_is_on_the_dashboard_as_a_request_over_http_is(client, runtime, upstream):
@@ -459,42 +529,47 @@ def test_a_websocket_turn_that_is_stopped_is_on_the_dashboard_as_a_request_over_
     assert client.put(f"{API}/config", json={"images": "block"}, headers=UI_HEADERS).json()["ok"]
     text = "what is in this screenshot?"
     turn = _codex_turn(text, image=True)
-    body = {"model": "m", "input": turn["input"]}
+    body = {"model": CODEX_MODEL, "input": turn["input"]}
     assert (
         client.post("/openai/v1/responses", json=body, headers={"authorization": "Bearer sk-test"}).status_code == 400
     )
     sent = len(upstream.ws_received)
-    with _codex(client, "s-ws-stopped") as ws:
+    with _codex(client, WS_STOPPED) as ws:
         ws.send_text(json.dumps(turn))
         error = json.loads(ws.receive_text())
     assert error["error"]["type"] == "latet_blocked" and len(upstream.ws_received) == sent  # nothing left
     stopped = _exchanges(client, runtime, flag="blocked")
     assert [s["transport"] for s in stopped] == ["ws", "http"]  # the newest first
     over_ws, over_http = stopped
-    assert (over_ws["status"], over_ws["agent"], over_ws["session"]) == (400, "codex", "session-id:s-ws-stopped")
-    assert over_ws["block_reason"] == over_http["block_reason"] and "images: block" in over_ws["block_reason"]
+    conversation = runtime.exchanges.history_group(f"session-id:{WS_STOPPED}")
+    assert (over_ws["status"], over_ws["agent"], over_ws["session"]) == (400, "codex", conversation)
+    assert over_ws["block_reason"] == over_http["block_reason"] == "refused"
     assert over_ws["overhead_ms"] is None and over_ws["verified"] is False  # never forwarded
     assert {"blocked", "uninspected:image"} <= set(over_ws["flags"])
     detail = client.get(f"{API}/exchanges/{over_ws['id']}").json()
+    words = detail["sensitive"]["block_reason"]  # as told over HTTP
+    assert words == client.get(f"{API}/exchanges/{over_http['id']}").json()["sensitive"]["block_reason"]
+    assert "images: block" in words
     assert detail["response"] is None and [s["original"] for s in detail["request"]["slots"]] == [text]
     assert detail["request"]["body_bytes"] > 0 and dict(detail["request"]["headers"])["originator"] == "codex_cli_rs"
 
 
-def test_a_websocket_turn_that_is_stopped_leaves_the_turn_still_answering_alone(client, runtime):
+def test_a_websocket_turn_that_is_stopped_leaves_the_turn_still_answering_alone(client, runtime, upstream, monkeypatch):
     _login(client, runtime)
     assert client.put(f"{API}/config", json={"images": "block"}, headers=UI_HEADERS).json()["ok"]
-    with _codex(client, "s-ws-held", **{"x-fake-hold": "1"}) as ws:  # its answer ends when the test says so
+    monkeypatch.setattr(upstream, "ws_hold", True)  # its answer ends when the test says so
+    with _codex(client, "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2c03") as ws:
         ws.send_text(json.dumps(_codex_turn("a question")))
         assert json.loads(ws.receive_text())["type"] == "response.created"  # answering
         ws.send_text(json.dumps(_codex_turn("a screenshot", image=True)))
         while (event := json.loads(ws.receive_text()))["type"] != "error":
-            pass
+            assert event["type"] != "response.completed", event  # the stopped turn never answers: never wait past it
         assert event["error"]["type"] == "latet_blocked"
         [stop] = _exchanges(client, runtime)  # the first turn goes on: the stopped frame never reached the upstream
         assert (stop["transport"], stop["status"]) == ("ws", 400)
-        ws.send_text(json.dumps({"type": "fake.release"}))
-        while json.loads(ws.receive_text())["type"] != "response.completed":
-            pass
+        upstream.ws_release.set()
+        while (event := json.loads(ws.receive_text()))["type"] != "response.completed":
+            assert event["type"] != "error", event  # an error ends the turn: never wait past it
     stop, first = _exchanges(client, runtime)
     assert (stop["status"], first["status"]) == (400, 101)
     assert "error" not in first["flags"]  # it ended on its own: the stop did not end it, as a new turn would
@@ -566,7 +641,9 @@ def test_request_stopped_by_the_plugin_is_recorded(client, runtime):
     assert verdict.json()["blocking"]
     _login(client, runtime)
     [summary] = _exchanges(client, runtime)
-    assert (summary["transport"], summary["agent"], summary["session"]) == ("plugin", "claude-code", "cc:cc-final")
+    conversation = runtime.exchanges.history_group("cc:cc-final")
+    assert (summary["transport"], summary["agent"], summary["session"]) == ("plugin", "claude-code", conversation)
+    assert (summary["path"], summary["block_reason"]) == ("/plugin/final-check", "refused")
     assert "blocked" in summary["flags"] and summary["verified"] is False
     assert client.get(f"{API}/exchanges/{summary['id']}").json()["leaks"]
 
@@ -583,9 +660,10 @@ def test_a_conversation_older_than_latet_is_told_to_start_again(client, runtime)
     assert client.post("/_latet/engine/v1/verify", json=fresh, headers=token).json()["inherited"] is False
     _login(client, runtime)
     summaries = {s["session"]: s for s in _exchanges(client, runtime)}
-    assert "history" in summaries["cc:cc-old"]["flags"] and "history" not in summaries["cc:cc-new"]["flags"]
-    detail = client.get(f"{API}/exchanges/{summaries['cc:cc-old']['id']}").json()
-    assert "/clear" in (detail.get("block_reason") or detail["summary"]["block_reason"])
+    old_one, new_one = (summaries[runtime.exchanges.history_group(key)] for key in ("cc:cc-old", "cc:cc-new"))
+    assert "history" in old_one["flags"] and "history" not in new_one["flags"]
+    detail = client.get(f"{API}/exchanges/{old_one['id']}").json()
+    assert "/clear" in detail["sensitive"]["block_reason"]  # what to do, in the words the plugin was given
 
 
 def test_the_plugin_hears_what_claude_md_holds_for_the_reviewer(client, runtime, tmp_path, monkeypatch):
@@ -602,10 +680,17 @@ def test_the_plugin_hears_what_claude_md_holds_for_the_reviewer(client, runtime,
 
 
 def test_max_profile_does_not_send_images(client, runtime, upstream):
+    from latet.vision.masking import ImageMasking
+
+    from ..fake_ocr import FakeOcr
+
+    reader = FakeOcr()  # its text read: the balanced profile sends an image only once it is (P2-2's image coverage)
+    runtime.mediator.vision = ImageMasking(reader)
     _login(client, runtime)
     assert client.put(f"{API}/config", json={"profile": "max"}, headers=UI_HEADERS).json()["ok"]
-    image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
-    body = {"model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "look"}, image]}]}
+    data = reader.screenshot(["Order 4417 shipped"])
+    image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+    body = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": [{"type": "text", "text": "look"}, image]}]}
     before = len(upstream.received)
     r = client.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "test"})
     assert r.status_code == 400 and "max profile" in r.json()["error"]["message"]
@@ -644,7 +729,7 @@ def test_auto_mode_review_lets_through_only_the_allowed_details(tmp_path, upstre
 
     def body(action):
         system = [{"type": "text", "text": "x-anthropic-billing-header: cch=0;"}, {"type": "text", "text": review}]
-        return {"model": "m", "system": system, "messages": [{"role": "user", "content": f"Action: {action}"}]}
+        return {"model": CLAUDE_MODEL, "system": system, "messages": [{"role": "user", "content": f"Action: {action}"}]}
 
     def allow(**choices):
         rt.apply_config(rt.config.model_copy(update={"auto_mode_review": AutoModeReview(**choices)}), save=False)
@@ -738,7 +823,7 @@ def test_custom_recognizers_from_the_dashboard(client, runtime):
     played = client.post(f"{API}/playground", json={"text": "pay ref CR12345674"}, headers=UI_HEADERS).json()
     assert [r["rule"] for r in played["replacements"]] == ["recognizer:card-ref"]
     # A custom secret in a Claude Code request that the plugin did not mask: the daemon stops it.
-    body = {"model": "m", "messages": [{"role": "user", "content": "pay ref CR12345674"}]}
+    body = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": "pay ref CR12345674"}]}
     blocked = client.post("/anthropic/v1/messages", json=body, headers=CLAUDE)
     assert blocked.status_code == 400 and "CARD_REF" in blocked.json()["error"]["message"]
 
@@ -779,16 +864,27 @@ def _project(tmp_path, text):
     return root
 
 
+def _bound(client, runtime, root) -> dict[str, str]:
+    """Claude Code's session bound to its folder by the plugin's bridge, as its hooks bind it before a turn: the
+    headers of its requests. Only such a binding (or a launch's key) trusts a project; a folder a request names in its
+    text only tightens (RC-REC-7, D7)."""
+    token = {"x-latet-token": runtime.gateway.bridge_token}
+    bound = client.post(
+        "/_latet/engine/v1/mask", json={"session": CC_SESSION, "cwd": str(root), "items": []}, headers=token
+    )
+    assert bound.status_code == 200
+    return {**SUBSCRIPTION, **CLAUDE}
+
+
 def test_not_sensitive_in_a_project_lets_through_that_project_only(client, runtime, upstream, tmp_path):
     root = _project(tmp_path, "")
-    here = {"model": "m", "system": f"Working directory: {root}"}
-    here["messages"] = [{"role": "user", "content": f"deploy with key {GH_PAT}"}]
-    elsewhere = {"model": "m", "messages": here["messages"]}
+    here = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": f"deploy with key {GH_PAT}"}]}
     _login(client, runtime)
     pid = client.post(f"{API}/projects", json={"path": str(root)}, headers=UI_HEADERS).json()["id"]
+    trusted = _bound(client, runtime, root)
 
-    def stop(body):
-        return client.post("/anthropic/v1/messages", json=body, headers=SUBSCRIPTION)
+    def stop(body, headers=trusted):
+        return client.post("/anthropic/v1/messages", json=body, headers=headers)
 
     assert stop(here).status_code == 400
     detail, leak, slot = _stopped(client, runtime)
@@ -797,7 +893,9 @@ def test_not_sensitive_in_a_project_lets_through_that_project_only(client, runti
     saved = client.put(f"{API}/projects/{pid}/personal", json={"allow_values": [value]}, headers=UI_HEADERS)
     assert saved.json()["ok"] is True
     assert stop(here).status_code == 200 and GH_PAT.encode() in upstream.received[-1]
-    assert stop(elsewhere).status_code == 400  # in no project it is still a secret
+    assert stop(here, SUBSCRIPTION).status_code == 400  # in no project it is still a secret
+    claimed = {**here, "system": f"Working directory: {root}"}
+    assert stop(claimed, SUBSCRIPTION).status_code == 400  # a folder its text names never loosens (D7)
 
 
 def test_a_project_file_masks_in_that_project_only(client, runtime, upstream, tmp_path):
@@ -811,8 +909,9 @@ def test_a_project_file_masks_in_that_project_only(client, runtime, upstream, tm
     projects = client.get(f"{API}/projects").json()["items"]
     [acme] = [p for p in projects if p["name"] == "acme"]
     assert acme["repo_file"].endswith("latet.yaml") and acme["enabled"] is True
-    [mine] = _exchanges(client, runtime, project=acme["id"])
-    assert mine["project"] == {"id": acme["id"], "name": "acme"} and mine["by_module"]["terms"] == 1
+    [mine] = _exchanges(client, runtime, project=acme["id"])  # the project whose added term applied, claimed (D7)
+    assert mine["project"]["id"] == acme["id"] and "project-claimed" in mine["flags"]
+    assert mine["by_module"]["terms"] == 1
     # The Claude Code plugin names the folder itself.
     token = {"x-latet-token": runtime.gateway.bridge_token}
     item = {"text": "and Project Heron?"}
@@ -892,18 +991,21 @@ def test_projects_api_keeps_what_the_file_holds_already_and_refuses_only_what_a_
     assert [d["loc"] for d in refused.json()["details"]] == [["settings", "terms", "3"]]
 
 
-def test_latet_off_in_a_project_sends_it_as_it_is(client, runtime, upstream, tmp_path):
+def test_latet_off_in_a_project_refuses_its_requests(client, runtime, upstream, tmp_path):
+    """D5: 0.11 sends no request of a project where Latet is off, trusted or claimed; it says how to go on."""
     root = _project(tmp_path, "")
     _login(client, runtime)
     pid = client.post(f"{API}/projects", json={"path": str(root)}, headers=UI_HEADERS).json()["id"]
     r = client.put(f"{API}/projects/{pid}/personal", json={"enabled": False}, headers=UI_HEADERS)
     assert r.json()["ok"] is True
     assert load_config(runtime.config_file).projects[0].enabled is False  # saved in your config.yaml
-    system = {"role": "system", "content": f"Working directory: {root}"}
-    _chat(client, f"mail {EMAIL}", history=[system])
-    assert EMAIL in upstream.all_received()
+    before = len(upstream.received)
+    body = {"model": CLAUDE_MODEL, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+    refused = client.post("/anthropic/v1/messages", json=body, headers=_bound(client, runtime, root))
+    assert refused.status_code == 400 and "Latet is off in this project" in refused.text
+    assert len(upstream.received) == before and EMAIL not in upstream.all_received()
     [summary] = _exchanges(client, runtime, project=pid)
-    assert "project-off" in summary["flags"] and summary["verified"] is False
+    assert "project-off" in summary["flags"] and "blocked" in summary["flags"] and summary["verified"] is False
     assert client.delete(f"{API}/projects/{pid}/personal", headers=UI_HEADERS).json()["ok"] is True
     assert load_config(runtime.config_file).projects == []
 

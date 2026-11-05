@@ -42,14 +42,24 @@ _DATA = (
     "toolCall",
     "toolResponse",
 )
-# Code and tools the provider ran, given back as it made them.
+# Code and tools the provider ran (its built-in tools: Google Search, URL context, Maps, File Search; its code
+# execution), given back in the conversation: read as a function's call and response are, their input and output, the
+# code and what it printed masked.
 _PROVIDERS = ("executableCode", "codeExecutionResult", "toolCall", "toolResponse")
-# What a part may carry beside its content that holds no text Latet reads.
-_METADATA = ("thought", "thoughtSignature", "mediaResolution", "mediaProcessing", "videoMetadata", "speechMetadata")
+# The kinds those parts name (ToolType, ExecutableCode.Language, CodeExecutionResult.Outcome): tokens the provider
+# issues, of this bounded form, with no digit since none of the documented values has one (an IBAN or an account
+# number cannot be written there); one Google adds later passes, checked as text by the final check.
+KIND = re.compile(r"[A-Z][A-Z_]{0,63}")
 _AUDIO = ("audioTranscription", "audio_transcription")  # what was heard in audio, which Latet does not read
 # The fields of a function call and of its response: any other is in a form Latet does not read.
 _CALLED = ("id", "name", "args", "partialArgs", "willContinue")
 _ANSWERED_BY = ("id", "name", "response", "parts", "willContinue", "scheduling")
+# The fields of the parts the provider ran: a tool's call (``toolName`` in the REST reference alone) and its response,
+# the code it ran and the code's result.
+_TOOL_CALLED = ("id", "toolType", "toolName", "args")
+_TOOL_ANSWERED = ("id", "toolType", "response")
+_CODE = ("id", "language", "code")
+_CODE_RESULT = ("id", "outcome", "output")
 _ROLE_KIND = {"model": SlotKind.ASSISTANT_TEXT, "function": SlotKind.TOOL_RESULT}
 # Where a function declaration and a request's answer carry a schema: JSON documents, read as a tool's parameters are.
 _DECLARED = ("parameters", "parametersJsonSchema", "response", "responseJsonSchema")
@@ -59,10 +69,6 @@ _ANSWERED = ("responseSchema", "responseJsonSchema", "_responseJsonSchema")
 def snake(name: str) -> str:
     """A field's snake_case name (``inlineData``: ``inline_data``)."""
     return re.sub(r"([A-Z])", r"_\1", name).lower()
-
-
-# Every field a part may hold, under both its names: any other is a kind of content Latet does not read.
-_KNOWN = frozenset(name for field in (*_DATA, *_METADATA, "partMetadata") for name in (field, snake(field)))
 
 
 def method_of(path: str) -> str | None:
@@ -171,8 +177,8 @@ class _Reader:
     ) -> None:
         if any(key in part for key in _AUDIO):
             self.scan.unreadable.append("audio, which Latet does not read")
-        elif any(key not in _KNOWN for key in part):
-            self.scan.unreadable.append("a part of content of a kind Latet does not read")
+        # A member no field names is left to the body's declaration, which refuses it as an unknown member
+        # (body-unknown-member), as on every other protocol (P2-8a, root's ruling 6).
         data = [field for field in _DATA if _each(part, field)]
         if len(data) > 1:
             self.scan.unreadable.append("a part of content of a kind Latet does not read")
@@ -205,7 +211,15 @@ class _Reader:
             self.call(value)
         elif field == "functionResponse":
             self.response(value)
-        elif field not in _PROVIDERS:  # pragma: no cover - every field of _DATA is handled
+        elif field == "toolCall":
+            self.provider_call(value)
+        elif field == "toolResponse":
+            self.provider_response(value)
+        elif field == "executableCode":
+            self.code(value, _CODE, "code", SlotKind.TOOL_INPUT, True)
+        elif field == "codeExecutionResult":
+            self.code(value, _CODE_RESULT, "output", SlotKind.TOOL_RESULT, False)
+        else:  # pragma: no cover - every field of _DATA is handled
             self.scan.unreadable.append("a part of content of a kind Latet does not read")
 
     def media(
@@ -308,6 +322,65 @@ class _Reader:
         for _, parts in _each(value, "parts", self.scan):
             self.parts(parts, SlotKind.TOOL_RESULT, False, tool or "function")
         came_from(self.scan.slots[first:], self.sources.get(by) if isinstance(by, str) else None)
+
+    def provider_call(self, value: Any) -> None:
+        """A tool the provider ran (``toolCall``): the string leaves of its arguments and its keys, as a function
+        call's; named by its tool, so that its response is known as that tool's output."""
+        if not isinstance(value, dict):
+            self.scan.unreadable.append("a tool call in a form Latet does not read")
+            return
+        if any(key not in {n for field in _TOOL_CALLED for n in (field, snake(field))} for key in value):
+            self.scan.unreadable.append("a tool call in a form Latet does not read")
+        ident = _one(value, "id")
+        tool = next((n for n in (_one(value, "toolName"), _one(value, "toolType")) if isinstance(n, str)), None)
+        if isinstance(ident, str) and tool is not None:
+            self.names[ident] = tool
+        for key, args in _each(value, "args", self.scan):
+            if not isinstance(args, dict):
+                if args is not None:
+                    self.scan.unreadable.append("a tool call's input that is not an object")
+                continue
+            if isinstance(ident, str):
+                self.sources[ident] = (value, key)
+            self.scan.slots.extend(string_leaves(args, SlotKind.TOOL_INPUT, True))
+            self.scan.keyed.append((args, SlotKind.TOOL_INPUT, True))
+
+    def provider_response(self, value: Any) -> None:
+        """The response of a tool the provider ran (``toolResponse``): the string leaves of its ``response`` and its
+        keys, that tool's output, as a function's response."""
+        if not isinstance(value, dict):
+            self.scan.unreadable.append("a tool's output in a form Latet does not read")
+            return
+        if any(key not in {n for field in _TOOL_ANSWERED for n in (field, snake(field))} for key in value):
+            self.scan.unreadable.append("a tool's output in a form Latet does not read")
+        ident, kind = _one(value, "id"), _one(value, "toolType")
+        tool = self.names.get(ident) if isinstance(ident, str) else None
+        tool = tool or (kind if isinstance(kind, str) else None)
+        first = len(self.scan.slots)
+        for _, response in _each(value, "response", self.scan):
+            if not isinstance(response, dict):
+                if response is not None:
+                    self.scan.unreadable.append("a tool's output that is not an object")
+                continue
+            for slot in string_leaves(response, SlotKind.TOOL_RESULT, False):
+                slot.tool = tool
+                self.scan.slots.append(slot)
+            self.scan.keyed.append((response, SlotKind.TOOL_RESULT, False))
+        came_from(self.scan.slots[first:], self.sources.get(ident) if isinstance(ident, str) else None)
+
+    def code(self, value: Any, fields: tuple[str, ...], text: str, kind: SlotKind, from_model: bool) -> None:
+        """The code the provider ran (``executableCode``, which the model wrote) or what it printed
+        (``codeExecutionResult``): its text, a tool's input or output."""
+        if not isinstance(value, dict):
+            self.scan.unreadable.append("code in a form Latet does not read")
+            return
+        if any(key not in {n for field in fields for n in (field, snake(field))} for key in value):
+            self.scan.unreadable.append("code in a form Latet does not read")
+        for key, written in _each(value, text, self.scan):
+            if isinstance(written, str):
+                self.scan.slots.append(SlotRef(value, key, kind, from_model))
+            elif written is not None:
+                self.scan.unreadable.append("code that is not text")
 
 
 def _request(body: dict[str, Any], reader: _Reader) -> None:

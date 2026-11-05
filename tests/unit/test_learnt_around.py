@@ -19,6 +19,7 @@ from latet.config import Config
 from latet.engine.build import build
 from latet.engine.masker import AllowList, Masker, MaskReport
 from latet.engine.pipeline import Session
+from latet.engine.stored import StoredVault
 from latet.engine.surrogates.generators import Drbg, shape
 from latet.engine.types import EntityClass, Policy, Replacement, SlotKind
 from latet.engine.vault import Entity, Vault, derive_keys
@@ -26,6 +27,7 @@ from latet.gateway.app import OnServer
 from latet.gateway.mediate import Mediator
 
 from ..conftest import ROOT_KEY
+from .test_stored_vault import _Store
 
 DATA = SlotKind.TOOL_RESULT
 IBAN = "IT60X0542811101000000123456"
@@ -143,6 +145,28 @@ def test_a_name_learnt_whole_around_a_surname_masked_before_is_masked_whole_in_a
     """`Rossi` known, the text masked with it alone; then `Mario Rossi` learnt whole (another text's name): the text,
     masked again from the cache, has the whole name masked, `Mario` no longer in clear."""
     vault = Vault(ROOT_KEY)
+    vault.intern("PERSON", EntityClass.NER, "Rossi")
+    mediator = _mediator(vault)
+
+    def masking(n: int) -> str:
+        if path == "applications":
+            return _apps(mediator, [NAMED, f"x{n}"])[0]
+        return _request(mediator, Session(f"conversation-{n}"), [NAMED])[0]
+
+    first = masking(1)
+    assert "Mario" in first and "Rossi" not in first
+    vault.intern("PERSON", EntityClass.NER, "Mario Rossi")
+    masked = masking(2)
+    assert "Mario" not in masked and "Rossi" not in masked, masked
+
+
+@pytest.mark.parametrize("path", ["conversation", "applications"])
+@pytest.mark.parametrize("working", [0, 100])
+def test_a_stored_name_learnt_around_a_cached_surname_masks_the_whole_name(path, working):
+    """A stored name is found by its text's words, outside the always-matched parts: a stale cache must not expose
+    its first name once the whole name is learnt around the surname already masked."""
+    store = _Store()
+    vault = StoredVault(ROOT_KEY, store, working=working, on_insert=store.save_entity)
     vault.intern("PERSON", EntityClass.NER, "Rossi")
     mediator = _mediator(vault)
 

@@ -5,6 +5,7 @@ answer masks nothing."""
 
 import asyncio
 import contextlib
+import dataclasses
 import itertools
 import json
 import threading
@@ -17,16 +18,17 @@ import httpx
 import pytest
 
 from latet.config import Config
+from latet.engine import known as known_module
 from latet.engine import stored
 from latet.engine.anchors import anchor
 from latet.engine.build import build, build_masker
-from latet.engine.known import ValueMatchers
 from latet.engine.pipeline import Engine, Session
 from latet.engine.rehydrate import restore_text
 from latet.engine.stored import EVICT_SHARE, WORKING_VALUES, StoredVault
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import Entity, FakeTaken, MaskingError, Vault, fake_reading
 from latet.gateway.app import GatewayConfig, create_app
+from latet.gateway.lease import ExchangeLease
 from latet.gateway.mediate import Mediator
 from latet.gateway.routes import Upstream
 from latet.server.settings import KEY_WORKING_VALUES, ServerSettings
@@ -184,6 +186,14 @@ class _Store:
         """The ``n`` newest values held glued (``stored.held_glued``), the newest first."""
         return [e for e in self._all() if stored.held_glued(e)][::-1][:n]
 
+    def load_glued(self) -> list[Entity]:
+        """The values or fakes no word finds glued on both sides (``stored.glued_both``), the oldest first."""
+        return [e for e in self._all() if stored.glued_both(e, "original") or stored.glued_both(e, "surrogate")]
+
+    def current(self) -> bool:
+        """Values kept elsewhere taken in since the last call: none (one store, every lookup reads it)."""
+        return False
+
     def by_original(self, value: str) -> Entity | None:
         self._asked("by_original")
         return next((e for e in self._all() if e.original == value), None)
@@ -275,13 +285,18 @@ def test_a_name_found_long_ago_is_still_masked():
     assert [r.entity_id for r in done.replacements] == [person.id]
 
 
-def test_one_store_call_for_a_whole_batch():
+def test_bounded_store_batches_are_shared_by_every_text_of_the_call():
     store = _Store()
     vault = _vault(store)
     _many(vault)
     store.calls.clear()
-    vault.prefetch([f"line {n}: {_email(n)} logged in" for n in range(1000)])
-    assert store.calls == ["with_words:original"]
+    texts = [f"line {n}: {_email(n)} logged in" for n in range(1000)]
+    with vault.holding():
+        vault.prefetch(texts)
+        calls = list(store.calls)
+        assert calls == ["with_words:original", "with_words:original"]
+        vault.prefetch(texts)
+        assert store.calls == calls  # bounded batches once, never another lookup for each text
 
 
 def test_a_value_prefetched_is_held_while_its_call_lasts():
@@ -453,13 +468,17 @@ def _tool_output_sent_twice(document: str, value: str, etype: str, eclass: Entit
     vault = _vault(store)
     built = build(Config(profile="balanced", ner="off"), vault)
     mediator = Mediator(built.engine, built.verifier)
-    call = {"id": "c1", "type": "function", "function": {"name": "ticket", "arguments": "{}"}}
+    call = {
+        "id": "call_Tk4vQ9mZ2rB7xW1nCd5eF8hJ",
+        "type": "function",
+        "function": {"name": "ticket", "arguments": "{}"},
+    }
     messages = [
         {"role": "user", "content": "look up the ticket"},
         {"role": "assistant", "content": None, "tool_calls": [call]},
-        {"role": "tool", "tool_call_id": "c1", "content": document},
+        {"role": "tool", "tool_call_id": "call_Tk4vQ9mZ2rB7xW1nCd5eF8hJ", "content": document},
     ]
-    raw = json.dumps({"model": "m", "messages": messages}).encode()
+    raw = json.dumps({"model": "gpt-4.1-mini", "messages": messages}).encode()
     upstream = Upstream("openai", "/openai", "http://127.0.0.1:1")
 
     def sent() -> str:
@@ -522,7 +541,7 @@ def test_a_gateway_request_asks_the_store_once():
     messages = [{"role": "user", "content": f"note {n}"} for n in range(5)] + [
         {"role": "user", "content": f"to {NAME}"}
     ]
-    raw = json.dumps({"model": "m", "messages": messages}).encode()
+    raw = json.dumps({"model": "gpt-4.1-mini", "messages": messages}).encode()
     store.calls.clear()
     upstream = Upstream("openai", "/openai", "http://127.0.0.1:1")
     prepared = mediator.prepare(upstream, "POST", "/openai/v1/chat/completions", {"authorization": "Bearer t"}, raw)
@@ -694,7 +713,8 @@ def test_values_are_let_go_a_share_at_a_time():
     version = vault.version
     vault.intern("EMAIL", EntityClass.PII, _email(100))  # the 101st: a tenth of the working set goes
     assert vault.count == 100 - int(100 * EVICT_SHARE)
-    assert vault.version > version and not vault.holds_since(version)
+    # The plan's S4: memory never vouches for a text alone, values let go or not (each check reads its words).
+    assert vault.version > version and vault.holds_since(version)
     after = vault.version
     vault.intern("EMAIL", EntityClass.PII, _email(101))
     assert vault.holds_since(after)  # nothing let go since
@@ -839,7 +859,7 @@ def _answered(request: httpx.Request) -> httpx.Response:
 
 
 async def _chat(client: httpx.AsyncClient, messages: list[dict]) -> httpx.Response:
-    chat = {"model": "m", "messages": messages}
+    chat = {"model": "gpt-4.1-mini", "messages": messages}
     return await client.post("/openai/v1/chat/completions", json=chat, headers={"authorization": "Bearer t"})
 
 
@@ -866,10 +886,18 @@ async def test_a_conversation_is_let_go_however_its_request_ends(ends):
 
     messages = [{"role": "user", "content": f"write to {_email(1)}"}]
     if ends == "blocked":
-        call = {"id": "c1", "type": "function", "function": {"name": "query", "arguments": "{}"}}
+        call = {
+            "id": "call_Tk4vQ9mZ2rB7xW1nCd5eF8hJ",
+            "type": "function",
+            "function": {"name": "query", "arguments": "{}"},
+        }
         messages += [
             {"role": "assistant", "content": None, "tool_calls": [call]},
-            {"role": "tool", "tool_call_id": "c1", "content": '{"customer": "c-101", "card": 4111111111111111}'},
+            {
+                "role": "tool",
+                "tool_call_id": "call_Tk4vQ9mZ2rB7xW1nCd5eF8hJ",
+                "content": '{"customer": "c-101", "card": 4111111111111111}',
+            },
         ]
     async with _gateway(vault, provider) as client:
         answer = await _chat(client, messages)
@@ -1320,40 +1348,47 @@ def test_an_unmask_in_a_call_finds_memorys_fakes_by_their_words_as_the_stores():
     assert all(count == 1 for _, count in restored) and read == []
 
 
-def test_an_applications_call_masks_with_the_detectors_of_the_whole_working_set():
-    """Ruling 10b-R1 (it replaced the call's own detectors of 783ea89b): a call that brought its texts' values into
-    memory at once (``holding(scoped=True)``, then ``prefetch``) reads each text with the detectors of the whole working
-    set, as every text is read, so that it never masks less than the gateway. The texts are masked as a vault holding
-    every value masks them: a name and a secret memory holds, which no detector finds anew; a value kept by an earlier
-    text of the call; a value without anchor."""
+def test_a_text_is_read_for_its_words_values_and_for_those_no_word_finds(monkeypatch):
+    """The plan's S4 (it replaced Ruling 10b-R1, which read the detectors of the whole working set for every text): an
+    applications call reads each text for the values and fakes its own words find (``Matchers.for_text``), and for those
+    the vault's detectors hold because no word of a text finds them glued: held for good, and glued on both sides. The
+    texts are masked as a vault holding every value masks them: a name and a secret memory holds, a value kept by an
+    earlier text of the call, a value without anchor, and review I1's secrets glued to letters (`xhunter2y`, `ab12y`, a
+    token of one run glued on both sides). A value of the working set whose words a text lacks is not read for it."""
     store = _Store()
     vault = _vault(store, working=1_000)
     others = [vault.intern("EMAIL", EntityClass.PII, _email(n)) for n in range(500)]  # in memory, in no text
     name = vault.intern("PERSON", EntityClass.NER, NAME, rule="ner")
     secret = vault.intern("API_KEY", EntityClass.SECRET, "tok_9fQ2xL7pZ4")
     badge = vault.intern("BADGE", EntityClass.CUSTOM, "x9-k2")  # no anchor: held for good
+    glued = [vault.intern("API_KEY", EntityClass.SECRET, value) for value, _ in GLUED[:3]]
     texts = [
         f"{NAME} logged in with tok_9fQ2xL7pZ4",
         "new user ugo.neri84@gmail.com created",
         "ugo.neri84@gmail.com wrote to Ferruccio, badge x9-k2",
         f"{NAME} wrote to ugo.neri84@gmail.com",
+        *(text for _, text in GLUED[:3]),
     ]
     engine = _engine(vault)
     read: list[str] = []
-    whole = ValueMatchers.current
+    real = known_module.TextValues.__init__
+
+    def recorded(self, values, text, **kwargs):
+        read.extend(value for value, _, _ in values)
+        real(self, values, text, **kwargs)
+
+    monkeypatch.setattr(known_module.TextValues, "__init__", recorded)
     with vault.holding(scoped=True):
         vault.prefetch(texts)
-        ValueMatchers.current = lambda self: read.append("whole") or whole(self)  # type: ignore[method-assign]
-        try:
-            masked = [engine.mask_text(t, SlotKind.TOOL_RESULT, Session("t", kept=False)).text for t in texts]
-        finally:
-            ValueMatchers.current = whole  # type: ignore[method-assign]
-    plain = Vault(ROOT_KEY, [*others, name, secret, badge])
+        masked = [engine.mask_text(t, SlotKind.TOOL_RESULT, Session("t", kept=False)).text for t in texts]
+    plain = Vault(ROOT_KEY, [*others, name, secret, badge, *glued])
     masker, _ = build_masker(Config(profile="balanced", ner="off"), plain)
     plainly = Engine(plain, masker)
     assert masked == [plainly.mask_text(t, SlotKind.TOOL_RESULT, Session("t", kept=False)).text for t in texts]
     assert NAME not in masked[0] and "tok_9fQ2xL7pZ4" not in masked[0] and "x9-k2" not in masked[2]
-    assert read  # the whole working set's detectors
+    assert all(value not in done for (value, _), done in zip(GLUED[:3], masked[4:], strict=True))
+    assert NAME in read and "tok_9fQ2xL7pZ4" in read  # by the words of the texts that hold them
+    assert not {e.original for e in others} & set(read)  # in memory, in no text: read for none of them
 
 
 @pytest.mark.parametrize("in_memory", [True, False], ids=["in-memory", "out-of-memory"])
@@ -1492,6 +1527,246 @@ def test_a_secret_no_word_finds_glued_is_held_for_good_and_masked_glued_on_every
     assert _held(vault, kept)
     call, gateway, plain = _masked_three_ways(vault, [kept], text)
     assert secret not in call and call == gateway == plain
+
+
+# --- what no word of a text finds glued on both sides (the plan's S4, Review Focus 3) -------------------------------
+
+LONG = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b"  # a secret of forty letters and digits, one run
+
+
+def _keeper_and_vault(store: _Store, *, working: int, glued_all: bool = False) -> tuple[StoredVault, StoredVault]:
+    return _vault(store, working=1_000), StoredVault(
+        ROOT_KEY, store, working=working, glued_all=glued_all, on_insert=store.save_entity, on_rule=store.save_rule
+    )
+
+
+def _call_masked(vault: StoredVault, texts: list[str], joined: bool = False) -> list[str]:
+    """``texts`` masked by an applications call of ``vault`` (``joined``: its lines read as one text,
+    ``Masker.joined``)."""
+    engine = _engine(vault)
+    with vault.holding(scoped=True):
+        vault.prefetch(texts)
+        with engine.masker.joined(texts, SlotKind.TOOL_RESULT) if joined else contextlib.nullcontext():
+            return [engine.mask_text(t, SlotKind.TOOL_RESULT, Session("t", kept=False)).text for t in texts]
+
+
+@pytest.mark.parametrize("joined", [False, True], ids=["alone", "joined"])
+def test_a_long_secret_glued_on_both_sides_is_masked_before_and_after_eviction(joined):
+    """A forty-character secret is masked while recent and after eviction, through existing interior edge rows.
+    The call that learns it and later calls agree, joined or alone, with its original fake."""
+    store = _Store()
+    vault = _vault(store, working=100)
+    first = _call_masked(vault, [f"password={LONG} set", f"retry with x{LONG}y now"], joined)
+    kept = vault.by_original(LONG)
+    assert kept is not None and kept.eclass == EntityClass.SECRET and stored.glued_both(kept, "original")
+    assert all(LONG not in text for text in first) and f"x{kept.surrogate}y" in first[1]
+    text = f"ref x{LONG}y end"
+    assert _call_masked(vault, [text]) == [f"ref x{kept.surrogate}y end"]  # in memory: its detectors find it
+    later = _vault(store, working=100)  # another instance: among its recent values
+    assert _held(later, kept) and later.matched(kept)
+    assert _call_masked(later, [text], joined) == [f"ref x{kept.surrogate}y end"]
+    _many(later, 600)  # let go
+    assert not _held(later, kept)
+    assert _call_masked(later, [text]) == [f"ref x{kept.surrogate}y end"]
+
+
+def test_a_dense_text_read_joined_leaves_the_next_text_its_own_overlap_budget():
+    """The review of Task 7: an applications call of two texts read joined, 120 `Mario Rossi` (a name of twenty words,
+    `Rossi Mario ...`, overlapping each), then `Mario Rossi Bianchi` with `Rossi Bianchi` known. The key's vault reads
+    the part's values with ``str.find`` (``TextValues``), each line within its own bound on overlaps as the detector of
+    known values reads it: `Bianchi` is masked, as a plain vault masks it joined and the key's vault alone."""
+    names = ("Mario Rossi", " ".join(["Rossi", "Mario"] * 10), "Rossi Bianchi")
+    texts = [" ".join(["Mario Rossi"] * 120), "ticket closed by Mario Rossi Bianchi today"]
+    store = _Store()
+    keeper = _vault(store, working=1_000)
+    people = [keeper.intern("PERSON", EntityClass.NER, name, rule="ner") for name in names]
+    key = _call_masked(_vault(store, working=1_000), texts, joined=True)
+    alone = _call_masked(_vault(store, working=1_000), texts)
+    plain = Vault(ROOT_KEY, people)
+    masker, _ = build_masker(Config(profile="balanced", ner="off"), plain)
+    engine = Engine(plain, masker)
+    with masker.joined(texts, SlotKind.TOOL_RESULT):
+        plainly = [engine.mask_text(t, SlotKind.TOOL_RESULT, Session("t", kept=False)).text for t in texts]
+    assert "Bianchi" not in key[1] and key == alone == plainly
+
+
+@pytest.mark.parametrize("call", [False, True], ids=["alone", "in-a-call"])
+def test_a_one_run_fake_glued_on_both_sides_is_restored_while_in_memory(call):
+    """Review Focus 3: an IBAN's fake is one run of letters and digits, which an unmask restores inside a word; glued on
+    both sides (`x<fake>y`), no word of the text finds it, and an applications call does not read memory's fakes (Task
+    10b): a key's vault restores it while it is among its recent values (``glued_both``, its form held as those held for
+    good are, ``_HeldForms``)."""
+    store = _Store()
+    keeper, vault = _keeper_and_vault(store, working=1_000)
+    iban = keeper.intern("IBAN", EntityClass.PII, IBAN, rule="pii:iban")
+    assert stored.glued_both(iban, "surrogate") and not stored.glued_both(iban, "original")
+    vault = _vault(store, working=1_000)  # built after: it holds the IBAN among its recent values
+    # Its fake's forms held for its restores; the detectors do not hold it (review M3): no detector finds a fake of
+    # personal data inside a word, and where nothing is glued to it, its word does.
+    assert _held(vault, iban) and not vault.matched(iban) and iban.id in vault._held_forms._forms
+    text = f"pay x{iban.surrogate}y now"
+    assert _unmasked(vault, _engine(vault), text, call) == (f"pay x{IBAN}y now", 1)
+
+
+def test_a_vault_that_keeps_every_glued_value_masks_them_whatever_their_age():
+    """A vault that keeps every value no word finds glued on both sides (``glued_all``, a person's space, the plan's
+    S4): those of its store loaded as it is made (``load_glued``) and held for good, past 5,000 later values: a secret of
+    forty letters glued on both sides is masked, an IBAN's fake glued on both sides restored. A key's vault finds
+    their existing edges without retaining those older values."""
+    store = _Store()
+    keeper = _vault(store)
+    secret = keeper.intern("API_KEY", EntityClass.SECRET, LONG)
+    iban = keeper.intern("IBAN", EntityClass.PII, IBAN, rule="pii:iban")
+    plain = Vault(ROOT_KEY)
+    for n in range(5_000):  # later values, made apart: a store of tens of thousands of comparisons each is slow
+        entity = plain.intern("EMAIL", EntityClass.PII, _email(n))
+        store.rows[entity.id] = entity
+    assert [e.id for e in store.load_glued()] == [secret.id, iban.id]
+    text, fake = f"ref x{LONG}y end", f"pay x{iban.surrogate}y now"
+    person = StoredVault(ROOT_KEY, store, working=100, glued_all=True, on_insert=store.save_entity)
+    assert {secret.id, iban.id} <= person._for_good and person.count <= 100 + 2
+    assert _call_masked(person, [text]) == [f"ref x{secret.surrogate}y end"]
+    assert _unmasked(person, _engine(person), fake, True) == (f"pay x{IBAN}y now", 1)
+    _many(person, 300)  # never let go
+    assert _held(person, secret) and _held(person, iban)
+    key = StoredVault(ROOT_KEY, store, working=100, on_insert=store.save_entity)
+    assert not _held(key, secret) and not _held(key, iban)
+    assert _call_masked(key, [text]) == [f"ref x{secret.surrogate}y end"]
+    assert _unmasked(key, _engine(key), fake, True) == (f"pay x{IBAN}y now", 1)
+
+
+def test_a_value_kept_elsewhere_and_never_heard_here_is_masked_in_a_text_masked_here_before():
+    """Review Focus 1 on the store's SQL path: a text masked here, then a value in it kept by another instance whose
+    message this one never heard. The next call's words find it in the store, and it moves the vault's version as a
+    value learnt does (it was kept after this vault was made, and never placed here): the text kept masked here is read
+    again, never sent with the value in clear. A value this vault kept itself, let go and found again, moves nothing
+    (``test_a_lookup_does_not_move_the_version``)."""
+    store = _Store()
+    vault = _vault(store, working=1_000)
+    engine = _engine(vault)
+    text = f"ticket 4411 closed by {NAME} at 10:02"
+    with vault.holding(scoped=True):
+        vault.prefetch([text])
+        first = engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert first.text == text
+    elsewhere = _vault(store)
+    person = elsewhere.intern("PERSON", EntityClass.NER, NAME, rule="ner")  # its message lost
+    with vault.holding(scoped=True):
+        vault.prefetch([text])
+        again = engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert again.text == f"ticket 4411 closed by {person.surrogate} at 10:02" and not again.cached
+
+
+@pytest.mark.parametrize("behind", [0.0, 2 * 3600.0, 20 * 3600.0], ids=["in step", "2 h behind", "20 h behind"])
+def test_a_value_kept_elsewhere_by_an_instance_whose_clock_is_behind_is_masked_in_a_text_masked_here_before(behind):
+    """The review of Task 7 (``rv7/probe_skew.py``): the other instance's clock behind this one's, its value's
+    ``created`` hours before it was kept. Its message lost, it is still a value this vault never heard of: found by the
+    next call's words, it moves the version, and the text kept masked here is read again."""
+    store = _Store()
+    vault = _vault(store, working=1_000)
+    engine = _engine(vault)
+    for n in range(20):  # some other values, as a busy vault's
+        vault.intern("EMAIL", EntityClass.PII, f"user{n}@acme.it")
+    text = f"ticket 4411 closed by {NAME} at 10:02"
+    with vault.holding():
+        vault.prefetch([text])
+        assert engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False)).text == text
+    person = _vault(store).intern("PERSON", EntityClass.NER, NAME, rule="ner")  # its message lost
+    store.rows[person.id] = dataclasses.replace(person, created=time.time() - behind)
+    with vault.holding():
+        vault.prefetch([text])
+        again = engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert again.text == f"ticket 4411 closed by {person.surrogate} at 10:02" and not again.cached
+
+
+def test_a_value_kept_days_before_the_vault_was_made_moves_no_version_as_it_joins_memory():
+    """What heard of costs: a value kept more than a day (``stored._CLOCKS_APART``) before the vault was made was in the
+    store as the vault began, and any text the vault masked since was read for it: found by a call's words, it joins
+    memory and moves no version."""
+    assert stored._CLOCKS_APART >= 86_400  # a day at least: instances' clocks a day apart are none a server keeps
+    store = _Store()
+    keeper = _vault(store)
+    old = keeper.intern("PERSON", EntityClass.NER, NAME, rule="ner")
+    store.rows[old.id] = dataclasses.replace(old, created=time.time() - 2 * stored._CLOCKS_APART)
+    _many(keeper, 50)
+    vault = StoredVault(ROOT_KEY, store, working=10, on_insert=store.save_entity)
+    assert not _held(vault, old)
+    version = vault.version
+    with vault.holding():
+        vault.prefetch([f"seen {NAME}"])
+    assert _held(vault, old) and vault.version == version
+
+
+def test_a_value_kept_on_another_thread_during_a_call_stays_in_memory_until_the_call_ends():
+    """Task 4's carry, with a working set of none: a value the gateway's thread keeps while an applications call is
+    under way, after the call asked the store for its words, stays in memory until the call ends, so that the call's
+    later text that holds it finds it there (before, it left memory once the gateway's request ended, and the call,
+    whose words were asked already, never asked for it again)."""
+    store = _Store()
+    vault = StoredVault(ROOT_KEY, store, working=0, on_insert=store.save_entity, on_rule=store.save_rule)
+    engine = _engine(vault)
+    texts = ["warm up", f"ticket closed by {NAME}"]
+
+    def the_gateways_request() -> None:
+        with vault.holding():  # a request of its own, which keeps the name (its name model found it)
+            vault.intern("PERSON", EntityClass.NER, NAME, rule="ner")
+
+    with vault.holding(scoped=True):
+        vault.prefetch(texts)
+        engine.mask_text(texts[0], SlotKind.TOOL_RESULT, Session("t", kept=False))
+        gateway = threading.Thread(target=the_gateways_request)
+        gateway.start()
+        gateway.join()
+        done = engine.mask_text(texts[1], SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert NAME not in done.text
+    assert vault.count == 0  # the call over: none held
+
+
+def test_a_value_the_gateway_uses_again_during_a_call_is_not_held_for_it():
+    """The review of Task 7 (M5): what another thread keeps while a call is open stays in memory until the call ends
+    only where it is new to the store (or learnt), which the call could not have asked for; a value it uses again,
+    kept before, leaves memory as any other."""
+    store = _Store()
+    vault = StoredVault(ROOT_KEY, store, working=0, on_insert=store.save_entity, on_rule=store.save_rule)
+    old = vault.intern("PERSON", EntityClass.NER, NAME, rule="ner")
+    assert not _held(vault, old)  # a working set of none
+
+    def the_gateways_request() -> None:
+        with vault.holding():
+            vault.intern("PERSON", EntityClass.NER, NAME, rule="ner")  # in the store already
+            vault.intern("EMAIL", EntityClass.PII, "ugo.neri84@gmail.com")  # new to it
+
+    with vault.holding(scoped=True):
+        vault.prefetch(["warm up"])
+        gateway = threading.Thread(target=the_gateways_request)
+        gateway.start()
+        gateway.join()
+        new = vault.in_memory(vault.entity_id("EMAIL", "ugo.neri84@gmail.com"))
+        assert new is not None and not _held(vault, old)
+    assert vault.count == 0
+
+
+def test_a_texts_check_asks_for_its_words_first_where_a_value_shares_a_word_with_a_fake_memory_holds():
+    """The review of Task 7 (M4): a reading leaves unasked the words of the fakes memory holds, safe only where the
+    text's words were asked for first. A text kept masked (a name masked in it) and checked again once the vault moved,
+    in a call of its own: a value kept since, let go, whose word is the masked name's fake's, is found, as the engine
+    asks for the text's words before it checks it, where the check alone would ask for neither."""
+    store = _Store()
+    vault = _vault(store, working=100)
+    engine = _engine(vault)
+    person = vault.intern("PERSON", EntityClass.NER, NAME, rule="ner")
+    word = stored.fake_word(person)
+    assert word is not None and len(word) > 2
+    namesake = f"{word.capitalize()} Ab"  # its word is the fake's: a namesake of the fake, a real person
+    assert stored.value_word(Entity("x", "PERSON", EntityClass.NER, namesake, "y", 0, 0.0)) == word
+    text = f"ticket closed by {NAME} and {namesake}"
+    first = engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert namesake in first.text and person.surrogate in first.text
+    kept = vault.intern("PERSON", EntityClass.NER, namesake, rule="ner")
+    _many(vault, 150)
+    assert vault.by_original(NAME) is not None and not _held(vault, kept)  # the fake in memory, the namesake not
+    again = engine.mask_text(text, SlotKind.TOOL_RESULT, Session("t", kept=False))
+    assert namesake not in again.text and kept.surrogate in again.text
 
 
 def _token(n: int) -> str:
@@ -1759,7 +2034,7 @@ def test_an_applications_call_that_fails_keeps_none_of_its_new_values_and_forget
         old.surrogate,
         store.rows[old.id].rule,
     )
-    assert not vault.holds_since(version) and not vault.kept_since(version)
+    assert not vault.kept_since(version)
     # Masked again, not as it was masked in the call that failed (its fake kept nowhere): its value kept now, with the
     # fake it would have had.
     with vault.holding(scoped=True):
@@ -2049,3 +2324,239 @@ def test_a_keys_short_secret_glued_to_letters_or_digits_gets_a_long_fake_and_com
     assert not _held(later, kept) or stored.held_glued(kept)
     for call in (False, True):
         assert _unmasked(later, _engine(later), masked, call) == (text, 1)
+
+
+# --- a person's space on its store (Task 9) ---------------------------------------------------------------------------
+
+
+def test_a_persons_stored_vault_holds_every_secret_held_glued():
+    """Ruling T9-S3: the short secrets no word of a text finds glued (``held_glued``) are held for good in a person's
+    space (``glued_all``) whatever their number, as its whole vault held them; an API key's holds its newest
+    ``held_at_most`` alone, an older one found in the store where nothing is glued to it."""
+    store = _Store()
+    keeper = StoredVault(ROOT_KEY, store, working=0, held_at_most=1)
+    secrets = [keeper.intern("API_KEY", EntityClass.SECRET, value) for value in ("Xq9z5-ab", "Rk4m8-cd", "Tb7w2-ef")]
+    assert all(stored.held_glued(e) and not stored.glued_both(e, "surrogate") for e in secrets)
+    key = StoredVault(ROOT_KEY, store, working=0, held_at_most=1)
+    person = StoredVault(ROOT_KEY, store, working=0, held_at_most=1, glued_all=True)
+    assert [key.in_memory(e.id) is not None for e in secrets] == [False, False, True]
+    assert all(person.in_memory(e.id) is not None for e in secrets)
+    with person.holding():  # a resync reads every one again too
+        person.resync()
+    assert all(person.in_memory(e.id) is not None for e in secrets)
+
+
+@pytest.mark.parametrize(("forgets_values", "forgot"), [(True, True), (False, False)])
+def test_a_persons_forget_leaves_the_texts_as_they_left(forgets_values, forgot):
+    """Review 11b's N2, on a person's store (``forgets_values`` False, Task 9): a text kept as it left that names a
+    value forgotten since leaves as it left, as with 0.10.0's whole vault; an API key's is masked anew. Either way the
+    values it names out of memory are brought back first."""
+    store = _Store()
+    store.forgets_values = forgets_values  # type: ignore[attr-defined]
+    keeper = StoredVault(ROOT_KEY, store, working=0)
+    gone = keeper.intern("EMAIL", EntityClass.PII, "laura.bianchi@gmail.com")
+    kept = keeper.intern("EMAIL", EntityClass.PII, "mario.rossi@gmail.com")
+    store.forget_entity(gone.id)
+    vault = StoredVault(ROOT_KEY, store, working=0, glued_all=not forgets_values)
+    assert vault.in_memory(kept.id) is None
+    with vault.holding():  # a request's call, which holds what it brought back
+        assert vault.forgot_any([gone.id, kept.id]) is forgot
+        assert vault.in_memory(kept.id) is not None
+
+
+def _people(count: int = 30) -> tuple[_Store, list[Entity]]:
+    """A person's store of ``count`` addresses, none of them in a vault's memory yet."""
+    store = _Store()
+    keeper = StoredVault(ROOT_KEY, store, working=0)
+    return store, [keeper.intern("EMAIL", EntityClass.PII, f"client{n:03d}@gmail.com") for n in range(count)]
+
+
+def _all_held(vault: StoredVault, entities: list[Entity]) -> bool:
+    return all(vault.in_memory(e.id) is not None for e in entities)
+
+
+def test_a_persons_awaited_answer_keeps_its_values_whatever_another_conversation_brings():
+    """Task 9's I1 (T9-S4): two conversations past the working set, the first one's answer still awaited: what the
+    second holds and what other calls bring never put the first one's values out of memory, where its answer, restored
+    on the event loop, reads them (0.10.0's whole vault never lost one)."""
+    store, values = _people()
+    vault = StoredVault(ROOT_KEY, store, working=10, glued_all=True)
+    first, second, others = values[:8], values[8:16], values[16:]
+    held = vault.hold([e.id for e in first], "A")
+    vault.hold([e.id for e in second], "B")
+    vault.hold([e.id for e in others])  # another call brings fourteen more values in
+    assert _all_held(vault, first)
+    vault.release("A", held)
+
+
+def test_a_persons_answer_longer_than_the_hold_keeps_its_values_while_it_is_restored(monkeypatch):
+    """Task 9's I1: an answer restored for twenty minutes, past ``HOLD_SECONDS``, keeps its values: each part restored
+    renews its conversation's hold (``Engine.restores``)."""
+    store, values = _people()
+    vault = StoredVault(ROOT_KEY, store, working=10, glued_all=True)
+    engine = _engine(vault)
+    clock = [1_000.0]
+    monkeypatch.setattr(stored, "time", type("Clock", (), {"monotonic": lambda: clock[0], "time": time.time}))
+    session = engine.session("A")
+    session.entity_ids.update(e.id for e in values[:8])
+    engine.hold(session)
+    for _ in range(4):  # a part restored every five minutes
+        clock[0] += 300
+        engine.restores(session, False)
+    vault.hold([e.id for e in values[8:]])  # other values brought in meanwhile
+    assert _all_held(vault, values[:8])
+
+
+def test_a_persons_answer_after_a_long_live_review_holds_its_values_again(monkeypatch):
+    """Task 9's I1: a Live Reviewer's decision taken after the conversation's hold lapsed and its values left memory
+    holds them again before the answer (``Engine.reacquire``, in the thread that applies the decision): brought back in
+    one read, and kept while other calls churn the working set; the request's release pairs the new hold."""
+    store, values = _people()
+    vault = StoredVault(ROOT_KEY, store, working=10, glued_all=True)
+    engine = _engine(vault)
+    clock = [1_000.0]
+    monkeypatch.setattr(stored, "time", type("Clock", (), {"monotonic": lambda: clock[0], "time": time.time}))
+    session = engine.session("A")
+    session.entity_ids.update(e.id for e in values[:8])
+    held = engine.hold(session)
+    clock[0] += 3_600  # the person decides an hour later
+    vault.hold([e.id for e in values[8:]])  # meanwhile other calls put the conversation's values out
+    assert not _all_held(vault, values[:8])
+    again = engine.reacquire(session, held)
+    vault.hold([e.id for e in values[16:]])
+    assert _all_held(vault, values[:8])
+    engine.release(session, again)
+    assert "A" not in vault._sessions
+
+
+async def test_a_persons_hold_is_renewed_while_its_answer_is_awaited_with_no_restore(monkeypatch):
+    """The re-review's R-I2: a model silent for twelve minutes before its first token, no part restored meanwhile, and
+    another conversation churning memory: the waiting conversation's hold, renewed on a timer while its answer is
+    awaited (``forward.renewing``), keeps its values; the timer ends once the answer is let go."""
+    from types import SimpleNamespace
+
+    from latet.gateway import forward
+
+    store, values = _people()
+    vault = StoredVault(ROOT_KEY, store, working=10, glued_all=True)
+    engine = _engine(vault)
+    clock = [1_000.0]
+    monkeypatch.setattr(stored, "time", type("Clock", (), {"monotonic": lambda: clock[0], "time": time.time}))
+    monkeypatch.setattr(forward, "RENEW_SECONDS", 0.01)
+    session = engine.session("A")
+    session.entity_ids.update(e.id for e in values[:8])
+    lease = ExchangeLease(engine, session)
+    await asyncio.to_thread(lease.acquire)  # in the thread that masks, never the event loop
+    prepared = SimpleNamespace(lease=lease)
+    timer = asyncio.create_task(forward.renewing(engine, SimpleNamespace(prepared=prepared)))
+    for _ in range(12):  # twelve minutes, a minute at a time, no restore
+        clock[0] += 60
+        await asyncio.sleep(0.03)
+    await asyncio.to_thread(vault.hold, [e.id for e in values[8:]])  # another conversation's values brought in
+    assert _all_held(vault, values[:8])
+    lease.release()
+    await asyncio.wait_for(timer, 5)
+
+
+def test_a_whole_reads_base_is_made_again_apart_once_its_changes_pass_the_delta():
+    """Fix round 3 (r3, r5): past ``EVICT_SHARE`` of a whole read's base, the next snapshot keeps the base and serves
+    with the delta (no whole-vault detector made in the call); the base made apart is given to a later snapshot; two
+    generations sharing a base weigh what each holds of its own."""
+    built: list[int] = []
+    real = stored._Weighing
+
+    class Counted(real):  # type: ignore[misc, valid-type]
+        def __init__(self, entities, **kwargs):
+            entities = list(entities)
+            built.append(len(entities))
+            super().__init__(entities, **kwargs)
+
+    keeper = Vault(ROOT_KEY)
+    entities = [keeper.intern("EMAIL", EntityClass.PII, f"client{n:03d}@gmail.com") for n in range(20)]
+    changes = [keeper.intern("EMAIL", EntityClass.PII, f"new{n:03d}@gmail.com") for n in range(3)]
+    old = stored._Whole(0, 0, entities)
+    stored._Weighing = Counted
+    try:
+        old.held_in(["client001@gmail.com"])
+        new = old.updated(0, 1, changes)
+        assert new.wants_base and new.base is old.base
+        assert {e.id for e in new.held_in(["new001@gmail.com and client002@gmail.com"])} == {
+            changes[1].id,
+            entities[2].id,
+        }
+        assert built == [20, 3]  # the delta's detector alone, never the base again in the call
+        assert old.own(new) == 0 and new.own(new) == 23
+        again = new.rebased(stored._Base(list(new.by_id.values())))
+        assert not again.delta and len(again.held_in(["new002@gmail.com"])) == 1 and built == [20, 3, 23]
+    finally:
+        stored._Weighing = real
+
+
+async def test_the_hold_renewal_renews_a_keys_too_and_stops_when_its_space_closes(monkeypatch):
+    """Fix round 3: the gateway's renewal of a conversation's hold while its answer is awaited covers an API key's
+    conversations too, and ends on its own once the space's store is closed (r6): a stream whose relay never ends keeps
+    no closed space alive."""
+    from types import SimpleNamespace
+
+    from latet.gateway import forward
+
+    store, values = _people()
+    vault = StoredVault(ROOT_KEY, store, working=10)  # an API key's
+    engine = _engine(vault)
+    clock = [1_000.0]
+    monkeypatch.setattr(stored, "time", type("Clock", (), {"monotonic": lambda: clock[0], "time": time.time}))
+    monkeypatch.setattr(forward, "RENEW_SECONDS", 0.01)
+    session = engine.session("A")
+    session.entity_ids.update(e.id for e in values[:8])
+    lease = ExchangeLease(engine, session)
+    await asyncio.to_thread(lease.acquire)
+    prepared = SimpleNamespace(lease=lease)
+    timer = asyncio.create_task(forward.renewing(engine, SimpleNamespace(prepared=prepared)))
+    clock[0] += 300
+    await asyncio.sleep(0.05)
+    assert vault._sessions["A"].until >= clock[0] + 590  # renewed: an API key's hold as a person's
+    store.closed = True  # type: ignore[attr-defined]  # its space closed
+    await asyncio.wait_for(timer, 5)
+
+
+@pytest.mark.parametrize("read_again", [False, True])
+def test_a_base_made_apart_is_weighed_while_made_and_handed_over_only_to_its_own_line(monkeypatch, read_again):
+    """Round 4 (q1-q3), through ``_rebase_later`` itself: the base made in its thread is weighed while it is made, and
+    given to the snapshot shared once it is ready, unless that snapshot no longer stands on the base it was made beside
+    (read whole again meanwhile): then it is let go."""
+    store, values = _people(20)
+    vault = StoredVault(ROOT_KEY, store, working=0, glued_all=True)
+    keeper = Vault(ROOT_KEY)
+    changes = [keeper.intern("EMAIL", EntityClass.PII, f"new{n:03d}@gmail.com") for n in range(3)]
+    old = stored._Whole(0, 0, values)
+    new = old.updated(0, 1, changes)
+    assert new.wants_base
+    vault._shared_whole = new
+    entered, go = threading.Event(), threading.Event()
+    real = stored._Base.weighing
+
+    def slow(self):
+        if len(self.entities) == 23 and not entered.is_set():  # the base made apart
+            entered.set()
+            assert go.wait(10)
+        return real(self)
+
+    monkeypatch.setattr(stored._Base, "weighing", slow)
+    vault._rebase_later(new)
+    assert entered.wait(10)
+    assert vault.whole_count == 23 + 23  # the snapshot, and the base being made beside it
+    other = stored._Whole(0, 2, [*values, *changes]) if read_again else None
+    if other is not None:
+        vault._shared_whole = other  # read whole again meanwhile, on a base of its own
+    go.set()
+    deadline = time.monotonic() + 10
+    while vault._rebasing and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not vault._rebasing and vault._building is None
+    shared = vault._shared_whole
+    assert shared is not None
+    if read_again:
+        assert shared is other  # the base made apart let go
+    else:
+        assert shared.base is not old.base and not shared.delta and len(shared) == 23
+    assert vault.whole_count == 23

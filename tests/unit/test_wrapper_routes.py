@@ -2,6 +2,7 @@
 Claude Code through a private settings file that beats its own settings, Codex through `-c`."""
 
 import json
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,15 +34,45 @@ def launched(tmp_path, monkeypatch):
     monkeypatch.setattr("latet.cli.main._ensure_daemon", lambda **_kwargs: None)
     monkeypatch.setattr(wrappers, "codex_version", lambda exe="codex": (0, 161, 0))
     monkeypatch.setattr(wrappers, "codex_uses_chatgpt", lambda exe="codex": False)
+    # OpenCode at its verified carrier (P2-8a, `latet.launch_carriers`): never this computer's `opencode --version`.
+    monkeypatch.setattr(wrappers, "opencode_version", lambda exe="opencode": (1, 19, 5), raising=False)
+    monkeypatch.setattr(wrappers, "_codex_policy_paths", lambda: (tmp_path / "absent-policy.toml",))
     runs: list[dict] = []
 
-    def run(argv, env):
+    def run(argv, env, **_kwargs):
         settings = argv[argv.index("--settings") + 1] if "--settings" in argv else None
         content = json.loads(Path(settings).read_text("utf-8")) if settings else None
-        runs.append({"argv": argv, "env": env, "settings": settings, "content": content})
+        profile_path = profile_text = None
+        if argv[0] == "codex" and "--profile" in argv:
+            name = argv[argv.index("--profile") + 1]
+            if name.startswith("latet-"):
+                profile_path = tmp_path / "codex" / f"{name}.config.toml"
+                profile_text = profile_path.read_text("utf-8")
+        runs.append(
+            {
+                "argv": argv,
+                "env": env,
+                "settings": settings,
+                "content": content,
+                "profile_path": profile_path,
+                "profile_text": profile_text,
+            }
+        )
         return 0
 
     monkeypatch.setattr(wrappers, "run", run)
+
+    def no_launch(*_args, **_kwargs):
+        from latet.launch_session import LaunchControlUnavailable
+
+        raise LaunchControlUnavailable()
+
+    # Existing wrapper controls never dial a daemon after lifecycle wiring.
+    # The two causal/green carrier rows override these exact thin adapters.
+    monkeypatch.setattr(wrappers, "_launch_call", no_launch, raising=False)
+    monkeypatch.setattr(
+        wrappers, "_launch_hold", lambda *_args, **_kwargs: pytest.fail("nothing to hold"), raising=False
+    )
     # No test dials a daemon: the one that hands AWS credentials over replaces this below.
     monkeypatch.setattr(wrappers, "hold_aws_session", lambda session, config=None: pytest.fail("nothing to hold"))
     added: list[tuple[str, str]] = []
@@ -131,17 +162,27 @@ def test_an_address_on_this_computer_is_left_alone_and_said(launched, monkeypatc
 
 def test_codex_providers_move_to_latet_for_the_session(launched):
     runs, added, tmp_path = launched
-    (tmp_path / "codex" / "config.toml").write_text(
-        'model_provider = "azure"\n[model_providers.azure]\nname = "Azure"\n'
-        'base_url = "https://acme.openai.azure.com/openai/v1"\nenv_key = "AZURE_OPENAI_API_KEY"\n',
-        "utf-8",
+    config = tmp_path / "codex" / "config.toml"
+    original = (
+        b'model_provider = "azure"\n[model_providers.azure]\nname = "Azure"\n'
+        b'base_url = "https://acme.openai.azure.com/openai/v1"\nenv_key = "AZURE_OPENAI_API_KEY"\n'
     )
+    config.write_bytes(original)
     result = CliRunner().invoke(app, ["codex", "exec", "hi"])
     assert result.exit_code == 0, result.output
     [run] = runs
-    assert run["argv"][:3] == ["codex", "-c", f'openai_base_url="{LATET}/openai/v1"']
-    assert ["-c", f'model_providers.azure.base_url="{LATET}/acme"'] == run["argv"][3:5]
-    assert run["argv"][-2:] == ["exec", "hi"] and added == [("https://acme.openai.azure.com/openai/v1", "codex")]
+    private_path, private_text = run["profile_path"], run["profile_text"]
+    assert private_path is not None and private_text is not None
+    argv = run["argv"]
+    profile, remaining, position = wrappers.codex_profile(argv[1:])
+    assert profile == private_path.name.removesuffix(".config.toml")
+    assert position is not None and argv[position + 1 : position + 3] == ["--profile", profile]
+    assert [argv[0], *remaining] == ["codex", "exec", "hi"]
+    private = tomllib.loads(private_text)
+    assert private["openai_base_url"] == f"{LATET}/openai/v1"
+    assert private["model_providers"]["azure"]["base_url"] == f"{LATET}/acme"
+    assert config.read_bytes() == original and not private_path.exists()
+    assert added == [("https://acme.openai.azure.com/openai/v1", "codex")]
     assert "acme.openai.azure.com" in result.output
 
 
@@ -228,3 +269,97 @@ def test_a_codex_too_old_for_config_toml_gets_an_address_on_this_computer_where_
     assert "latet config add upstreams" in result.output
     with pytest.raises(wrappers.CodexTooOld, match="OPENAI_BASE_URL"):
         wrappers.codex_argv(["exec"], {})  # no address to give it: it would go to OpenAI
+
+
+@pytest.mark.parametrize("capacity", [False, True])
+def test_claude_launch_controls_precede_private_carrier_publication(launched, monkeypatch, capacity):
+    runs, _, _ = launched
+    original_run = wrappers.run
+    calls = []
+    held = []
+    key = "latet_lk_" + "A" * 43
+    launch_id = "1" * 32
+    base = "/_latet/engine/v1/launches"
+
+    class Hold:
+        generation = 1
+
+        def wait(self):
+            pass
+
+        def close(self):
+            pass
+
+    def call(method, path, body, **_kwargs):
+        assert path.startswith(base)
+        calls.append((method, path))
+        if path == base:
+            if capacity:
+                return {"key": None, "launch_id": None, "reason": "launch-capacity"}
+            return {"key": key, "launch_id": launch_id}
+        if path.endswith("/prepare"):
+            return {"epoch": "2" * 32, "retirement": 0}
+        if path.endswith("/end"):
+            return {"ended": True}
+        if path.endswith("/exit"):
+            return {"retired": True, "epoch": "2" * 32, "retirement": 1}
+        pytest.fail("no recovery is needed for this bounded wrapper case")
+
+    def hold(identifier, generation, **_kwargs):
+        assert identifier == launch_id and generation == 0
+        held.append(identifier)
+        return Hold()
+
+    # These are the selected future thin adapters, not authority mocks inside
+    # the registry. raising=False allows the current wrapper to reach its real
+    # child-launch seam and demonstrate the missing integration causally.
+    monkeypatch.setattr(wrappers, "_launch_call", call, raising=False)
+    monkeypatch.setattr(wrappers, "_launch_hold", hold, raising=False)
+
+    def record(argv, env, **_kwargs):
+        result = original_run(argv, env)
+        run = runs[-1]
+        run["control_before_spawn"] = tuple(calls)
+        run["held_before_spawn"] = tuple(held)
+        return result
+
+    monkeypatch.setattr(wrappers, "run", record)
+    mine = json.dumps(
+        {"model": "opus", "env": {"MY_VAR": "1", "ANTHROPIC_CUSTOM_HEADERS": "X-Company: keep\nX-Trace: user"}}
+    )
+    result = CliRunner().invoke(app, ["claude", "--settings", mine, "--resume"])
+    assert result.exit_code == 0
+    [run] = runs
+    assert run["control_before_spawn"] == (("POST", base),)
+    assert run["content"]["model"] == "opus" and run["content"]["env"]["MY_VAR"] == "1"
+    value = run["content"]["env"]["ANTHROPIC_CUSTOM_HEADERS"]
+    assert "X-Company: keep" in value and "X-Trace: user" in value
+    assert key not in json.dumps(run["argv"]) and key not in result.output
+    assert not Path(run["settings"]).exists()
+    if capacity:
+        assert run["held_before_spawn"] == ()
+        assert "x-latet-launch-key:" not in value
+        assert "LATET_LAUNCH_ID" not in run["content"]["env"]
+    else:
+        assert run["held_before_spawn"] == (launch_id,)
+        assert value.count("x-latet-launch-key:") == 1 and key in value
+        assert run["content"]["env"]["LATET_LAUNCH_ID"] == launch_id
+
+
+def test_keyless_unverified_settings_scrub_only_reserved_headers(launched, monkeypatch):
+    runs, _, _ = launched
+    old_key = "latet_lk_" + "A" * 43
+    headers = f"X-Company: kept\nX-Latet-Launch-Key: {old_key}\nX-Company: second"
+    mine = json.dumps({"env": {"ANTHROPIC_CUSTOM_HEADERS": headers, "MY_VAR": "1"}})
+    monkeypatch.setattr(
+        wrappers, "_launch_call", lambda *_args, **_kwargs: pytest.fail("unverified carrier must stay keyless")
+    )
+    result = CliRunner().invoke(app, ["claude", "--settings", mine, "--worktree", "-p", "hi"])
+    assert result.exit_code == 0
+    [run] = runs
+    assert run["content"]["env"]["ANTHROPIC_CUSTOM_HEADERS"] == "X-Company: kept\nX-Company: second"
+    assert run["content"]["env"]["MY_VAR"] == "1"
+    assert "LATET_LAUNCH_ID" not in run["content"]["env"]
+    assert old_key not in json.dumps(run["content"]) and old_key not in result.output
+    assert "--worktree" in run["argv"]
+    assert not Path(run["settings"]).exists()

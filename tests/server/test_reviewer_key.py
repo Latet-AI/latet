@@ -15,13 +15,19 @@ KEY = "sk-server-" + "k" * 40
 
 
 async def test_the_key_is_read_at_start_given_to_spaces_and_kept_out_of_stores(
-    settings, schema, prefix, tmp_path, caplog, monkeypatch
+    settings,
+    schema,
+    prefix,
+    tmp_path,
+    caplog,
+    monkeypatch,
+    migration_master,
 ):
     path = tmp_path / "reviewer.key"
     path.write_text(KEY + "\n", "utf-8")
     db = Database(DATABASE, schema=schema, max_size=1)
     try:
-        migrate(db)
+        migrate(db, master=migration_master)
     finally:
         db.close()
     monkeypatch.setenv("LATET_LLM_API_KEY", "ignored-environment-secret")

@@ -36,6 +36,9 @@ REPLACEMENT = "\N{REPLACEMENT CHARACTER}"
 OPENAI = Upstream("openai", "/openai", "http://127.0.0.1:1")
 ANTHROPIC = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
 BEARER = {"authorization": "Bearer sk-test"}
+# Model ids and tool call ids as providers issue them (an OpenAI and an Anthropic model, call_ and toolu_ ids).
+GPT, CLAUDE = "gpt-4.1-mini", "claude-sonnet-4-5"
+CALL_ID, TOOL_ID = "call_Q7mZ2rT9xK4vB1nWcD8eF3hJ", "toolu_01QmZ2rT9xK4vB1nWcD8eF3h"
 CLAUDE_CODE = {
     "content-type": "application/json",
     "user-agent": "claude-cli/2.1.291 (external, cli)",
@@ -64,13 +67,13 @@ def _mediator(profile: str = "balanced", **settings) -> Mediator:
 
 def _chat(output: str) -> bytes:
     """A chat completions request, its tool's output ``output``."""
-    call = {"id": "c1", "type": "function", "function": {"name": "query", "arguments": "{}"}}
+    call = {"id": CALL_ID, "type": "function", "function": {"name": "query", "arguments": "{}"}}
     messages = [
         {"role": "user", "content": "list the users"},
         {"role": "assistant", "content": None, "tool_calls": [call]},
-        {"role": "tool", "tool_call_id": "c1", "content": output},
+        {"role": "tool", "tool_call_id": CALL_ID, "content": output},
     ]
-    return json.dumps({"model": "m", "messages": messages}).encode()
+    return json.dumps({"model": GPT, "messages": messages}).encode()
 
 
 def _sent_chat(prepared) -> str:
@@ -124,23 +127,23 @@ def test_a_tool_output_that_gives_a_key_twice_leaves_with_the_copy_latet_read_al
 
 
 def test_a_request_body_that_gives_a_key_twice_is_written_anew_with_the_copy_latet_read():
-    raw = _object(("model", "m"), *MESSAGES_TWICE).encode()
+    raw = _object(("model", GPT), *MESSAGES_TWICE).encode()
     prepared = _mediator().prepare(OPENAI, "POST", "/openai/v1/chat/completions", BEARER, raw)
     assert prepared.block_reason is None and EMAIL.encode() not in prepared.body
-    assert json.loads(prepared.body) == {"model": "m", "messages": [{"role": "user", "content": "hello"}]}
+    assert json.loads(prepared.body) == {"model": GPT, "messages": [{"role": "user", "content": "hello"}]}
 
 
 def test_a_websocket_turn_that_gives_a_key_twice_is_written_anew_with_the_copy_latet_read():
     mediator = _mediator()
-    frame = _object(("type", "response.create"), ("model", "m"), ("input", f"mail {EMAIL}"), ("input", "hello"))
+    frame = _object(("type", "response.create"), ("model", GPT), ("input", f"mail {EMAIL}"), ("input", "hello"))
     text, prepared = mediator.mask_ws_frame(frame, mediator.engine.session("session-id:s-1"))
     assert prepared is not None and prepared.block_reason is None
-    assert json.loads(text) == {"type": "response.create", "model": "m", "input": "hello"} and EMAIL not in text
+    assert json.loads(text) == {"type": "response.create", "model": GPT, "input": "hello"} and EMAIL not in text
 
 
 def test_a_claude_code_request_that_gives_a_key_twice_is_stopped():
     """A request Latet only checks leaves as it came: the copy it did not read would leave with it."""
-    raw = _object(("model", "m"), ("max_tokens", 5), *MESSAGES_TWICE).encode()
+    raw = _object(("model", CLAUDE), ("max_tokens", 5), *MESSAGES_TWICE).encode()
     prepared = _mediator().prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", CLAUDE_CODE, raw)
     assert prepared.mode == VERIFY and "twice" in (prepared.block_reason or "")
 
@@ -164,24 +167,24 @@ STOPPED = "sensitive values would leave in clear: "
 def _responses_input(output: str) -> list[dict]:
     return [
         {"role": "user", "content": "list the users"},
-        {"type": "function_call", "call_id": "c1", "name": "query", "arguments": "{}"},
-        {"type": "function_call_output", "call_id": "c1", "output": output},
+        {"type": "function_call", "call_id": CALL_ID, "name": "query", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": CALL_ID, "output": output},
     ]
 
 
 def _responses(output: str) -> bytes:
-    return json.dumps({"model": "m", "input": _responses_input(output)}).encode()
+    return json.dumps({"model": GPT, "input": _responses_input(output)}).encode()
 
 
 def _anthropic(output: str) -> bytes:
     """An Anthropic request with an API key, not Claude Code's: the gateway rewrites it."""
-    call = {"type": "tool_use", "id": "t1", "name": "query", "input": {}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "query", "input": {}}
     messages = [
         {"role": "user", "content": "list the users"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": output}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": output}]},
     ]
-    return json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    return json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": messages}).encode()
 
 
 ROUTES = {
@@ -208,7 +211,7 @@ def test_a_card_number_written_as_a_json_number_stops_the_request(route):
 
 def test_a_card_number_written_as_a_json_number_stops_a_websocket_turn():
     mediator = _mediator()
-    frame = json.dumps({"type": "response.create", "model": "m", "input": _responses_input(CARD)})
+    frame = json.dumps({"type": "response.create", "model": GPT, "input": _responses_input(CARD)})
     _, prepared = mediator.mask_ws_frame(frame, mediator.engine.session("session-id:s-1"))
     assert prepared is not None and prepared.block_reason == f"{STOPPED}CREDIT_CARD[16]"
 
@@ -363,13 +366,13 @@ def test_what_the_model_wrote_is_not_stopped_when_its_conversation_sends_it_back
     again): a password it made up for an example is not a value of yours, and its conversation goes on."""
     mediator = _mediator()
     headers = {**BEARER, "session-id": "s-1"}
-    asked = {"model": "m", "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
+    asked = {"model": GPT, "messages": [{"role": "user", "content": f"write to {EMAIL}"}]}
     first = mediator.prepare(OPENAI, "POST", "/openai/v1/chat/completions", headers, json.dumps(asked).encode())
     fake = json.loads(first.body)["messages"][0]["content"].removeprefix("write to ")
     wrote = f'I wrote to {fake}, and the test reads:\npassword = "hunter2"\n'
     mediator.engine.remember_model_output(wrote, wrote.replace(fake, EMAIL))  # as the answer's restore does
     history = [*asked["messages"], {"role": "assistant", "content": wrote.replace(fake, EMAIL)}]
-    body = {"model": "m", "messages": [*history, {"role": "user", "content": "thanks"}]}
+    body = {"model": GPT, "messages": [*history, {"role": "user", "content": "thanks"}]}
     again = mediator.prepare(OPENAI, "POST", "/openai/v1/chat/completions", headers, json.dumps(body).encode())
     assert again.block_reason is None and json.loads(again.body)["messages"][1]["content"] == wrote
 
@@ -459,7 +462,7 @@ async def test_a_secret_the_local_reviewer_finds_is_checked_gone_from_the_rest_o
     """With a time limit, this turn is reviewed before it leaves and the history after: a secret found in this turn,
     in clear in a text of the history that never left, stops the request."""
     body = {
-        "model": "m",
+        "model": CLAUDE,
         "messages": [
             {"role": "user", "content": "the code word is tiramisu42"},
             {"role": "assistant", "content": "noted"},
@@ -477,7 +480,7 @@ async def test_a_value_you_mask_in_the_live_reviewer_is_checked_gone_from_the_re
     mediator = _mediator()
     mediator.live_review = LiveReview(enabled=True)
     body = {
-        "model": "m",
+        "model": GPT,
         "messages": [
             {"role": "system", "content": "the code word is tiramisu42"},
             {"role": "assistant", "content": "noted"},

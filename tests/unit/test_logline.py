@@ -23,6 +23,7 @@ _BELOW_THE_GATEWAY = (
 # Each part named, then the modules of the gateway it imported that none before it had.
 _PULLED = """
 import importlib, json, sys
+sys.path.insert(0, sys.argv.pop(1))
 seen, pulled = set(), {}
 for name in sys.argv[1:]:
     importlib.import_module(name)
@@ -34,7 +35,11 @@ print(json.dumps(pulled))
 
 def test_the_parts_below_the_gateway_import_none_of_it():
     done = subprocess.run(
-        [sys.executable, "-c", _PULLED, *_BELOW_THE_GATEWAY], capture_output=True, text=True, timeout=120, check=True
+        [sys.executable, "-I", "-B", "-c", _PULLED, str(Path(latet.__file__).parent.parent), *_BELOW_THE_GATEWAY],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
     )
     assert {name: found for name, found in json.loads(done.stdout).items() if found} == {}
 

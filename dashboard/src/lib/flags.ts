@@ -9,6 +9,7 @@ export type FlagKey =
   | 'unknown-route'
   | 'auto-mode-review'
   | 'project-off'
+  | 'project-claimed'
   | 'withheld'
   | 'history'
   | 'outbound'
@@ -34,6 +35,7 @@ const SEVERITY: Record<FlagKey, Severity> = {
   'unknown-route': 'neutral',
   'auto-mode-review': 'neutral',
   'project-off': 'warning',
+  'project-claimed': 'neutral',
   withheld: 'warning',
   history: 'warning',
   outbound: 'warning',
@@ -51,6 +53,7 @@ const KNOWN = new Set<FlagKey>([
   'unknown-route',
   'auto-mode-review',
   'project-off',
+  'project-claimed',
   'withheld',
   'history',
   'outbound',

@@ -223,19 +223,40 @@ def _kill(pid: int) -> None:
             os.kill(pid, 15)
 
 
+class _DaemonLog:
+    """daemon.log as the output a server's log writes its lines to (``configure_logging``): each line appended by a
+    rotating file handler, rotated as before (5 MB, three copies, UTF-8)."""
+
+    def __init__(self, path: Path) -> None:
+        self._file = logging.handlers.RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+        self._file.terminator = ""  # each line comes with its own end
+
+    def write(self, text: str) -> int:
+        self._file.emit(logging.makeLogRecord({"msg": text}))  # the line as it is: no arguments to format
+        return len(text)
+
+    def flush(self) -> None:
+        self._file.flush()
+
+
 def configure_file_logging() -> Path:
-    """Under pythonw there is no console (sys.stdout is None): log to a rotating file instead."""
+    """Under pythonw there is no console (sys.stdout is None): log to a rotating file instead, with a server's own
+    logging (one code path, ``latet.server.logs.configure_logging``): its text lines, their fields where daemon.log had
+    them and the same redaction of what a line must never hold (a launch key, a token, a library's arguments, an
+    error's words) as a second layer; Latet's records from INFO, uvicorn's from INFO, every other library's from
+    WARNING; one line per request (``RequestLog``, which ``run_server`` puts in front of the app), uvicorn's access
+    lines off."""
+    from typing import TextIO, cast
+
+    from latet.server.logs import configure_logging
+
     log_dir = make_private_folder(data_dir() / "logs")
     path = log_dir / "daemon.log"
-    handler = logging.handlers.RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root = logging.getLogger()
-    root.addHandler(handler)
-    root.setLevel(logging.INFO)
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w")  # noqa: SIM115 - process-lifetime sink
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")  # noqa: SIM115
+    configure_logging("text", "info", stream=cast(TextIO, _DaemonLog(path)))
     return path
 
 

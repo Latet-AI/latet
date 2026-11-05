@@ -28,6 +28,8 @@ dashboard, on **Rules** with **Import rules**. See
 
 The folder the agent works in decides.
 - **Claude Code:** the plugin tells Latet.
+- **An agent Latet starts** (`latet claude`, `latet codex`, `latet opencode`, `latet gemini`,
+  `latet copilot`): its [launch key](#launch-keys) tells Latet, where the agent carries one.
 - **Codex, OpenCode and Gemini CLI:** they name the folder in their requests.
 - **Any other client:** it can send the header `x-latet-project: <folder>`.
 
@@ -37,6 +39,74 @@ The project of a folder is the folder of the nearest `latet.yaml`, from the fold
 its git repository. Without one, it is the repository; outside a repository, the folder itself. Only
 the nearest file applies: a subfolder with its own file is a project of its own, and the two are not
 combined.
+
+### Trusted and claimed
+
+Latet trusts a session's project only when it knows it for itself:
+
+- **From the Claude Code plugin,** for a folder Latet knows as a project (one with a `latet.yaml`, or
+  with your own settings for it). The plugin binds the session to that project; each of its calls to
+  Latet keeps the binding, which ends after 30 minutes without one.
+- **From a launch key,** for an agent Latet started in that folder.
+
+A folder that only the request names (the header `x-latet-project`, or the working folder Codex,
+OpenCode and Gemini CLI write into their requests) is *claimed*. A claimed project's rules that add
+protection apply: its terms, its recognizers, a stricter profile. Its loosenings do not: values and
+patterns never to mask, secret rules turned off, a weaker profile or policy, `data_tools`, the local
+reviewer's guidance and images. A claimed project where Latet is off is refused all the same, and a
+[request exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) for one
+project applies only where its project is trusted. The dashboard shows each request's project as
+trusted or claimed (*Project claimed*), and how its launch was decided.
+
+- **Before the plugin binds a session.** Claude Code makes a few calls as it starts, before the
+  plugin's first call to Latet: its model list, and on Bedrock its first requests. They are decided
+  with your own rules alone, neither the project's added rules nor its loosenings.
+- **What the binding lets in.** A binding is to a session's id: an Anthropic Messages request that
+  carries the id of a live session of yours that the plugin bound is decided with that project, its
+  loosenings and exceptions included, whichever program of yours sends it. It is still read by the
+  final check and never rewritten, and another person's requests never reach it. A session that
+  `latet claude` started needs its launch key instead: its id alone gets nothing of the project's
+  loosenings.
+
+### Launch keys
+
+When Latet starts an agent, it opens a launch for the folder: a secret key drawn for that launch
+alone, bound to the folder's project and to you. The agent sends it with its requests in a header,
+`x-latet-launch-key`, which Latet checks and takes off before anything is sent on, recorded or logged;
+Latet keeps only a keyed hash of it. The key ends with the launch: when the agent exits, or when the
+command that started it is stopped.
+
+| Command | How the key travels |
+| --- | --- |
+| `latet claude` | `ANTHROPIC_CUSTOM_HEADERS`, in the private settings file of that session |
+| `latet codex` | `env_http_headers` of a provider of `model_providers`, from Codex 0.115; none on Codex's built-in providers (signed in with ChatGPT, or OpenAI's own provider) |
+| `latet opencode` | `options.headers` of each provider it routes |
+| `latet gemini` | `GEMINI_CLI_CUSTOM_HEADERS` |
+| `latet copilot` | `COPILOT_PROVIDER_HEADERS`, to an OpenAI-compatible provider over Chat Completions; none over Responses, Anthropic's API or a WebSocket |
+| `latet run` | none: a program it starts has no way to carry one |
+
+The key is added to the headers the agent already sends: yours stay as you wrote them, and still need
+an exception of their own. An agent that starts without a key is told why, in a sentence such as
+`Latet: Codex older than 0.115 has no way to carry a launch key, so this session's project settings
+only add protection: their loosenings do not apply.`, and its project is claimed. A folder that is
+not one of your projects needs no key.
+
+- **A secret to Latet.** In a tool's output or a message, a live key is masked like Latet's own
+  token; where Latet cannot mask it (a request it only checks), the request is refused, with words
+  that say to rewind or start a new conversation.
+- **Held, not bound to a process.** Any program that holds the key counts as that launch. It runs as
+  the same user, and Latet does not claim to tell programs apart.
+- **Unknown, ended or someone else's.** A request with a key Latet does not know (its daemon
+  restarted, say) is decided as claimed, never refused for that. A key whose launch ended, or one
+  sent for another project or by another person, is refused.
+- **In the address.** On a computer, Latet also accepts the key at the start of the address's path, a
+  form no launcher uses; a Latet server refuses it.
+
+The dashboard shows how each request's launch was decided: *Launched by Latet, key verified*,
+*Launched by Latet, key missing* (an agent Latet started whose request came without a key Latet can
+check: decided as claimed), *Bound by the Claude Code plugin* (a Claude Code configured for good) or
+*Not launched by Latet* (claimed). `latet doctor` names each agent Latet started that was seen without its key, with its
+version.
 
 ## The project file
 
@@ -123,12 +193,19 @@ projects:
     allow_values: [acme-dev]
 ```
 
-They apply after the project file, and may also loosen it:
+Latet keeps the folder in canonical form: on Windows with backslashes and an upper-case drive
+letter, and with no trailing separator (`C:/work/shop/` is kept as `C:\work\shop`). The project's id
+does not change.
+
+They apply after the project file, and may also loosen it, in a session whose project Latet
+[trusts](#trusted-and-claimed):
 - values and patterns never to mask;
 - secret rules turned off;
 - a profile or a policy weaker than the global one;
 - fields kept in clear in strict data mode, strict data mode off (`data: normal`), images sent,
-  the text in images not read (`ocr: off`), the dump guard raised or off.
+  the dump guard raised or off.
+
+The text in images not read there (`ocr: off`) stops every request with an image in the project.
 
 Only your own settings turn the [Live Reviewer](../live-review/) on or off in a project
 (`live_review`), and give the local reviewer guidance there (`review_guidance`, see
@@ -151,10 +228,15 @@ On the project's **Rules** page in the dashboard, in the *Protection* tab, *Prot
 the `secrets` profile, in your own settings for the project.
 
 `latet project off` turns Latet off in the project of the current folder (or of the folder
-given). So does *Protection: Off*:
-- nothing is masked or blocked there;
-- surrogates already in a conversation are still restored;
+given). So does *Protection: Off*. Latet then sends none of the project's requests:
+- each one is refused, over HTTP and over a WebSocket, whether the project is trusted or claimed,
+  with words that say how to turn Latet on there or reach the provider directly
+  ([Upgrading to 0.11](../../getting-started/upgrading-to-0-11/#a-project-where-latet-is-off));
+- `latet project off` and the switch in the dashboard say so before they turn it off;
 - the dashboard marks those exchanges *Latet off*.
+
+To let personal data through in a project, choose *Secrets only*: its requests keep going, with
+their secrets masked.
 
 `latet project on` turns it on again. Only your own settings can turn it off, never a project
 file. Turned off by an agent, or in `config.yaml` by hand, it waits for your approval in the
@@ -203,7 +285,7 @@ own terminal: Latet then remembers repositories again as conversations reach the
 | `latet project init [FOLDER] [--suggest]` | Writes a `latet.yaml` to start from; `--suggest` adds draft recognizers for the formats no rule covers there |
 | `latet project show [FOLDER] [--json]` | What applies in a project, and what is ignored |
 | `latet project check [FOLDER]` | Checks the project file, recognizers included |
-| `latet project off` / `on [FOLDER]` | Turns Latet off, or on again, in a project |
+| `latet project off` / `on [FOLDER]` | Turns Latet off in a project, where its requests are then refused, or on again |
 | `latet repositories` | The repositories Latet remembers, each with its state |
 | `latet repositories forget FOLDER` | Takes one out of the list (yours alone: it refuses an agent) |
 | `latet rules add FILE --repo FOLDER` | Adds recognizers to the project file instead of `config.yaml` (`--project`: to your settings for the project) |

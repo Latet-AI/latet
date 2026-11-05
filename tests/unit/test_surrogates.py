@@ -233,6 +233,7 @@ def test_each_generator_of_the_module_is_weighed_here():
         "LATET_COMPUTER_KEY",
         "LATET_SCIM_TOKEN",
         "LATET_BRIDGE_TOKEN",
+        "LATET_LAUNCH_KEY",
         "LATET_ONE_TIME_CODE",
         "LATET_ROUTE_KEY",
     }

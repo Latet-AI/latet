@@ -56,8 +56,9 @@ Latet](../getting-started/server/) est le guide des administrateurs.
 
 Chaque échange en temps réel : agent, fournisseur, modèle, sa durée et la part de
 Latet dans cette durée, la consommation de jetons (lectures du cache de prompts comprises), le
-nombre de valeurs masquées, et des indicateurs comme *Bloquée*, *Non inspecté* (PDF, images non
-lues), *Image : masquée*, *Sortie retenue* (le
+nombre de valeurs masquées, et des indicateurs comme *Bloquée*, *Non inspecté* (une requête qu'une
+version précédente a envoyée avec des parties non lues), *Projet déclaré*, *Image : masquée*,
+*Sortie retenue* (le
 [garde-fou anti-extraction](../concepts/production-data/#le-garde-fou-anti-extraction)), *Dans l'historique*
 (une conversation commencée avant que Latet soit activé : voir
 [Dépannage](../troubleshooting/#chaque-requête-dune-conversation-est-bloquée)),
@@ -113,6 +114,62 @@ encadrées en rouge : cliquez sur l'une d'elles pour voir ce qu'elle est, et cho
 `history: metadata`, qui ne conserve aucun texte, elles ne sont listées que par type et longueur.
 Le motif que Latet a donné à l'agent y figure aussi. Les requêtes arrêtées dans Claude Code par la
 vérification finale du plugin lui-même apparaissent ici aussi.
+
+### Comment une requête a été couverte
+
+Chaque échange a une section *Couverture* qui dit comment Latet a rendu compte de chaque partie de sa
+requête ([Chaque partie d'une requête](../concepts/protection-scope/#chaque-partie-dune-requête)) :
+
+- **Arrêtée avant l'envoi,** avec la raison, en mots simples, et ce qu'il faut faire. Une requête
+  arrêtée après une tentative (une requête à Bedrock dont la connexion AWS a dû être renouvelée entre
+  deux tentatives) dit qu'une tentative précédente a pu atteindre le fournisseur. Une exception de
+  requête exacte est proposée pour un en-tête ou un paramètre de requête qu'aucun profil ne nomme ;
+  pour un membre du corps qu'aucun profil ne nomme, l'échange dit comment en approuver une, sauf si le
+  membre se trouve *là où aucune exception ne peut l'atteindre (dans un élément du fournisseur, la
+  source d'une image ou un tour WebSocket)*. Aucune n'est proposée pour un identifiant, une
+  destination, une partie que Latet n'a pas pu lire ou une limite de travail, ni sur un WebSocket :
+  *Dans cette version de Latet, un WebSocket ne prend aucune exception aux requêtes.*
+- **Chaque partie lue,** ou **lue, et laissée passer par** ce qui est nommé : *seulement vérifiée* (des
+  valeurs que la vérification finale a lues sans devoir les masquer), *autorisée par une règle* (le
+  reste d'une image dont le texte a été lu, ou un champ chiffré d'un fournisseur), un élément opaque
+  que le fournisseur a envoyé plus tôt dans cette conversation, du texte déjà envoyé dans cette
+  conversation, du texte écrit par le modèle, ou une exception que vous avez approuvée. Ce qui est
+  parti sans être lu n'est jamais affiché comme vérifié.
+- **Ce que Latet a retiré :** combien d'en-têtes et de membres du corps son profil déclare
+  amovibles (`client_metadata` de Codex, par exemple) ; quand le fournisseur a répondu `401` ou `403`
+  après que Latet a retiré un en-tête, l'échange le dit.
+- **Son profil de requête** (`anthropic.messages.1`), celui que nomme une exception pour ce type
+  d'appel.
+- **Son projet, de confiance ou déclaré,** et **son lancement :** *Lancé par Latet, clé vérifiée*,
+  *Lancé par Latet, clé manquante*, *Lié par le plugin Claude Code* ou *Non lancé par Latet*
+  ([Projets](../concepts/projects/#les-clés-de-lancement)). Les sessions montrent aussi le lancement.
+
+Un échange enregistré par une version antérieure de Latet n'est jamais affiché comme vérifié : il dit
+*Enregistrée par une version antérieure de Latet. La part de cette requête qu'elle a lue n'a pas été
+enregistrée : elle n'est donc pas indiquée comme vérifiée.* Une vérification que le plugin Claude Code
+a faite dans Claude Code est affichée comme *Une vérification du plugin Claude Code.*, jamais comme
+vérifiée : elle n'a rien envoyé elle-même, et la requête qu'elle a lue est un échange à part.
+
+<Screenshot name="coverage" alt="La couverture d'un échange : ce qui en a laissé passer des parties sans les lire, comment sa session a été liée, son projet de confiance, l'en-tête que Latet a retiré et son profil de requête" caption="Couverture : comment Latet a rendu compte de chaque partie d'une requête." />
+
+### Exceptions de requête
+
+**Agents protégés** liste vos
+[exceptions de requête](../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) : ce que
+chacune laisse passer (un en-tête, un paramètre de requête ou un membre du corps, et s'il s'agit de
+l'identifiant propre à la destination), où (sa destination et son profil de requête), pour qui
+(chacune de vos requêtes, ou les requêtes d'un projet quand Latet considère leur projet comme de
+confiance), et son état : *En attente de votre approbation*, *Active*, *Expire bientôt* (avec les jours
+restants), *Expirée*, *Permanente*, ou *À approuver de nouveau : son profil a été révisé*. Un
+avertissement dit quand l'une prend fin dans les sept jours. *Révoquer* en retire une aussitôt.
+Dessous, les utilisations d'exceptions comptées en mémoire depuis le démarrage du daemon, remises à
+zéro à son redémarrage : avec l'historique désactivé, c'est tout ce qui en est gardé, et un serveur
+additionne les comptes de ses instances. Une nouvelle exception, ou une exception élargie,
+renouvelée ou rendue permanente, attend sur **Approbations** dans *Réglages*, qui montre ce qu'elle
+laisse passer, combien de temps elle dure et, pour une exception sans projet, qu'elle couvre toute
+votre identité.
+
+<Screenshot name="exceptions" alt="Les exceptions de requête dans Agents protégés : ce que chacune laisse passer, sa destination et son profil de requête, qui elle couvre et son état, avec Révoquer" caption="Exceptions de requête : ce que chacune laisse passer, où, pour qui, et son état." />
 
 ### Approbations
 
@@ -320,7 +377,8 @@ Latet, voir [Latet sur un serveur](../concepts/server/).
 - Ce que conserve l'historique se choisit sous Historique dans **Règles**, dans l'onglet *Avancé* :
   *Tout* (les blocs de texte, les réponses et les durées, pour voir exactement ce qui a été envoyé),
   *Métadonnées uniquement* (décomptes, durées et indicateurs, aucun texte) ou *Rien* (les échanges ne
-  sont pas enregistrés, et **En direct** reste vide).
+  sont pas enregistrés, et **En direct** reste vide ; les comptes des exceptions de requête utilisées
+  restent en mémoire jusqu'au redémarrage de Latet).
 - L'historique est conservé 14 jours par défaut ; *Conserver pendant*, sous Historique dans
   **Règles**, le règle de 1 à 365 jours. Les blocs renvoyés à chaque tour sont stockés une seule fois.
 - Vous pouvez effacer l'historique à tout moment depuis le tableau de bord ; le coffre-fort est

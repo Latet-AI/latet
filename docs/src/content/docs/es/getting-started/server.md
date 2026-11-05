@@ -17,6 +17,12 @@ las listas de personas y de claves, el registro) se ejecutan para él.
 Elige el [servicio del sistema o Compose](../../concepts/server-operations/).
 El servicio necesita una instalación de confianza para todo el sistema y una configuración
 protegida; el perfil servidor de Compose incluye PostgreSQL, Valkey, dos instancias y Caddy.
+En Linux una instancia puede ejecutarse como varios workers, uno por cada núcleo que la
+máquina da al servidor (`latet server run --workers N`, o `LATET_SERVER_WORKERS` en el `.env`
+de Compose): cada uno es una instancia propia, con su propia memoria y sus propias conexiones
+a PostgreSQL y Valkey
+([varias instancias en una máquina](../../concepts/server-operations/#varias-instancias-en-una-máquina)).
+Un primer servidor puede empezar con uno.
 Configura la dirección HTTPS pública y prepara primero la clave maestra y los archivos secretos.
 La inicialización imprime un token de administración: guárdalo en un terminal privado y en
 un almacén de secretos. Para un contenedor, sigue la inicialización con los registros Docker
@@ -44,7 +50,8 @@ latet server --server https://latet.acme.lan status
 ```
 
 Introduce el token de administración en la entrada oculta. La respuesta informa sobre
-la base de datos, Valkey, las identidades y la instancia que ha respondido. No comprueba
+la base de datos, Valkey, las identidades, la instancia que ha respondido y cada instancia
+viva, cada worker en una línea propia con su disponibilidad, su memoria y su versión. No comprueba
 cada agente ni demuestra que todo el tráfico de un equipo pase por Latet.
 
 Para administrar el servidor repetidamente, `--admin-token-file FILE` lee un archivo

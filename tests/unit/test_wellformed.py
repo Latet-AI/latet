@@ -20,7 +20,7 @@ from latet.gateway.recorder import ResponseCapture
 from latet.gateway.routes import Upstream
 
 from ..conftest import ROOT_KEY
-from .test_reviewer import FakeServer, send
+from .test_reviewer import FakeServer
 from .test_reviewer import mediator as reviewing
 from .test_reviewer import request as reviewed_request
 
@@ -28,7 +28,12 @@ HALF = "\ud83d"  # the first half of U+1F600, an emoji that UTF-16 writes in two
 SMILE = "\N{GRINNING FACE}"  # U+1F600 whole, which JSON writes as its two halves' escapes
 REPLACEMENT = "\N{REPLACEMENT CHARACTER}"
 GH_PAT = "ghp_" + "R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
-UPSTREAM = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
+UPSTREAM = Upstream(
+    "anthropic",
+    "/anthropic",
+    "http://127.0.0.1:1",
+    envelope_expected=frozenset({("model", "x"), ("model", "claude-opus-5-5")}),
+)
 GATEWAY = {"content-type": "application/json"}  # an agent with its own key: what it sends, Latet may rewrite
 CLAUDE_CODE = {
     "content-type": "application/json",
@@ -95,17 +100,19 @@ def _claude_code(output: str) -> bytes:
     return json.dumps(body).encode()
 
 
-def test_a_claude_code_request_with_half_a_character_is_checked_and_sent_as_it_came():
+def test_a_claude_code_request_with_half_a_character_refuses_original_bytes():
     raw = _claude_code(f"build log: done {HALF}")
     assert b"done \\ud83d" in raw
     mediator = _mediator()
     prepared = mediator.prepare(UPSTREAM, "POST", "/anthropic/v1/messages", CLAUDE_CODE, raw)
     assert prepared.mode == VERIFY
-    assert prepared.block_reason is None
-    assert prepared.body == raw  # Claude Code's requests are checked, never rewritten
-    # The next turn sends the same history again: it goes too.
+    assert prepared.block_reason and "character" in prepared.block_reason
+    assert prepared.body is raw  # verify-only never repairs the outgoing carrier
+    # Repeating unread history cannot make the original bytes safe.
     again = mediator.prepare(UPSTREAM, "POST", "/anthropic/v1/messages", CLAUDE_CODE, raw)
-    assert again.block_reason is None
+    assert again.block_reason == prepared.block_reason
+    good = _claude_code(f"build log: done {SMILE}")
+    assert mediator.prepare(UPSTREAM, "POST", "/anthropic/v1/messages", CLAUDE_CODE, good).block_reason is None
 
 
 def _tool_output(output: str) -> bytes:
@@ -113,13 +120,19 @@ def _tool_output(output: str) -> bytes:
     body = {
         "model": "x",
         "max_tokens": 5,
-        "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": output}]}],
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "toolu_t1", "name": "Bash", "input": {"command": "ls"}}],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_t1", "content": output}]},
+        ],
     }
     return json.dumps(body).encode()
 
 
 def _sent_output(prepared) -> str:
-    return json.loads(prepared.body)["messages"][0]["content"][0]["content"]
+    return json.loads(prepared.body)["messages"][-1]["content"][0]["content"]
 
 
 def test_an_agent_with_its_own_key_sends_the_half_as_the_replacement_character():
@@ -178,28 +191,32 @@ def test_a_turn_over_a_websocket_is_sent_with_the_replacement_character():
     content = [{"type": "input_text", "text": f"build log: done {HALF}"}]
     message = {"type": "message", "role": "user", "content": content}
     frame = {"type": "response.create", "model": "x", "input": [message]}
-    text, prepared = mediator.mask_ws_frame(json.dumps(frame), mediator.engine.session("session-id:s-1"))
+    session = mediator.engine.session("session-id:s-1")
+    text, prepared = mediator.mask_ws_frame(json.dumps(frame), session, UPSTREAM)
     assert prepared is not None
     assert prepared.block_reason is None
     assert json.loads(text)["input"][0]["content"][0]["text"] == f"build log: done {REPLACEMENT}"
 
 
-def test_a_bedrock_token_count_with_half_a_character_is_checked_and_sent_as_it_came():
+def test_a_bedrock_token_count_with_half_a_character_refuses_original_bytes():
     """Bedrock counts the tokens of a whole request, which it is sent in base64: read as a request is."""
     inner = base64.b64encode(_claude_code(f"build log: done {HALF}")).decode()
     raw = json.dumps({"input": {"invokeModel": {"body": inner}}}).encode()
     path = "/bedrock/us-east-1/model/us.anthropic.claude-opus-5-5/count-tokens"
     prepared = _mediator().prepare(UPSTREAM, "POST", path, GATEWAY, raw)
     assert prepared.mode == VERIFY
-    assert prepared.block_reason is None
-    assert prepared.body == raw
+    assert prepared.block_reason is not None
+    assert prepared.body == b""  # a refusal keeps its category alone (3646b6e0)
 
 
 async def test_the_local_reviewer_reads_the_half_in_a_tool_output_written_as_json():
     """The local reviewer reads a tool output written as JSON as its strings, one per line: the half among them."""
     server = FakeServer()
     output = json.dumps({"output": f"the customer Ferri called: done {HALF}", "metadata": {"exit_code": 0}})
-    prepared = await send(reviewing(server), reviewed_request(output))
+    made = reviewing(server)
+    raw = reviewed_request(output).replace(b'"t0"', b'"toolu_t0"')
+    prepared = await made.run_held(made.prepare, UPSTREAM, "POST", "/anthropic/v1/messages", GATEWAY, raw)
+    prepared = await made.review_prepared(prepared)
     assert prepared.block_reason is None
     assert any(f"the customer Ferri called: done {REPLACEMENT}" in text for text in server.texts)
     sent = json.loads(json.loads(prepared.body)["messages"][2]["content"][0]["content"])
@@ -272,7 +289,9 @@ def test_tool_call_arguments_with_half_a_character_are_restored():
     """A tool call's arguments are JSON text, restored as text: the half stays there as the provider wrote it."""
     mediator = _mediator()
     upstream = Upstream("openai", "/openai", "http://127.0.0.1:1")
-    raw = json.dumps({"model": "x", "messages": [{"role": "user", "content": "mail mario.rossi@acme.it"}]}).encode()
+    raw = json.dumps(
+        {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "mail mario.rossi@acme.it"}]}
+    ).encode()
     prepared = mediator.prepare(upstream, "POST", "/openai/v1/chat/completions", {"authorization": "Bearer t"}, raw)
     fake = json.loads(prepared.body)["messages"][0]["content"].removeprefix("mail ")
     transform = mediator.response_transform(prepared, "application/json", None)
@@ -285,10 +304,20 @@ def test_tool_call_arguments_with_half_a_character_are_restored():
     assert sent == {"to": "mario.rossi@acme.it", "note": f"wrote to mario.rossi@acme.it: done {HALF}"}
 
 
+def test_the_dashboards_copy_of_an_answer_that_gives_a_key_twice_is_still_kept_out():
+    """What may read otherwise than the agent read it stays out of the copy: a key given twice (the agent's own parser
+    may read the first copy, Latet the last). A half of a character is no such case (the next test)."""
+    whole = ResponseCapture("anthropic", "application/json")
+    whole.feed(b'{"content": [{"type": "text", "text": "the first"}], "content": [{"type": "text", "text": "last"}]}')
+    whole.end()
+    whole.settle()
+    assert whole.omission == "response-malformed" and whole.text == []
+
+
 def test_the_dashboard_keeps_an_answer_with_half_a_character():
     """What the dashboard keeps of an answer is stored in UTF-8: it keeps U+FFFD in place of the half."""
     streamed = ResponseCapture("anthropic", "text/event-stream")
-    streamed.feed(_sse(*_text_block(f"done {HALF}")))
+    streamed.feed(_sse(*_text_block(f"done {HALF}"), {"type": "message_stop"}))  # a whole answer: the copy keeps one
     streamed.end()
     streamed.settle()
     whole = ResponseCapture("anthropic", "application/json")

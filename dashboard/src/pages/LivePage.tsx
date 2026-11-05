@@ -9,6 +9,9 @@ import { Icon } from '../components/Icon'
 import { ClearHistoryButton } from '../components/ClearHistory'
 import { LiveReviewSwitch } from '../components/LiveReviewEditor'
 import { CommandLine, EmptyState, ErrorState, errorText, Loading, PageHeader } from '../components/ui'
+import { LaunchBadge } from '../components/exchange/CoverageList'
+import { inWords } from '../lib/blocks'
+import { launchOf, showsVerified } from '../lib/coverage'
 import { CMD_CLAUDE, CMD_CODEX } from '../lib/commands'
 import { hasFlag } from '../lib/flags'
 import { foundAfterSending, lateTarget } from '../lib/reviewer'
@@ -430,8 +433,8 @@ export function ExchangeTable({ rows, fresh, showSession = false }: { rows: Exch
                   <AgentLabel agent={x.agent} />
                 </span>
                 {x.project && <span className="ml-1.5 text-meta text-ink-3">{x.project.name}</span>}
-                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-meta" title={`${x.upstream} ${x.path}`}>
-                  <span className="flex-none text-ink-3">{x.upstream}</span>
+                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-meta" title={`${x.destination ?? x.upstream} ${x.path}`}>
+                  <span className="flex-none text-ink-3">{x.destination ?? x.upstream}</span>
                   <span className="mono min-w-0 truncate text-ink-2">{x.model ?? x.path}</span>
                 </div>
               </td>
@@ -482,7 +485,19 @@ export function ExchangeTable({ rows, fresh, showSession = false }: { rows: Exch
                 )}
               </td>
               <td className="w-[150px] min-w-[130px]">
-                <FlagList flags={x.flags} verified={x.verified} reason={x.block_reason} />
+                <FlagList flags={x.flags} verified={showsVerified(x)} reason={inWords(x.block_reason)} />
+                {launchOf(x) === 'launched-key-missing' && (
+                  <span className="mt-1 flex">
+                    <LaunchBadge launch={launchOf(x)!} />
+                  </span>
+                )}
+                {(x.passes ?? []).some((pass) => pass === 'image-remainder' || pass === 'provider-encrypted') && (
+                  <span className="mt-1 flex">
+                    <span className="tag h-auto min-h-5 py-0.5 leading-tight whitespace-normal border-line-2 text-ink-2" data-allowed-by-rule>
+                      {t('coverage.allowedByRule')}
+                    </span>
+                  </span>
+                )}
               </td>
             </tr>
           )

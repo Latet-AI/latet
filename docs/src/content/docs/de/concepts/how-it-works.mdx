@@ -109,8 +109,9 @@ Folgendes geschieht mit einem Schlüssel aus einer `.env`-Datei:
 3. Claude Code erstellt die Anfrage wie gewohnt. Sie enthält nur den Ersatzwert. Kurz bevor die
    Anfrage hinausgeht, unterzieht das Plugin sie einer abschließenden Prüfung. Da
    `ANTHROPIC_BASE_URL` auf den Latet-Daemon (`127.0.0.1:5283`) zeigt, läuft die Anfrage danach
-   durch den Daemon, der **nur prüft**: Er sucht nach sensiblen Werten im Klartext, leitet die Bytes
-   unverändert weiter und zeichnet den Austausch für das [Dashboard](../../dashboard/) auf.
+   durch den Daemon, der **nur prüft**: Er sucht nach sensiblen Werten im Klartext, prüft jeden
+   anderen Teil der Anfrage (ihre Adresse, ihre Header, jedes Element ihres Inhalts), leitet den
+   Inhalt unverändert weiter und zeichnet den Austausch für das [Dashboard](../../dashboard/) auf.
 
 4. Anthropic erhält <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> und sonst nichts. Das
    Modell sieht den echten Schlüssel nie.
@@ -128,8 +129,11 @@ Folgendes geschieht mit einem Schlüssel aus einer `.env`-Datei:
 
 </Steps>
 
-Blockieren ist das Einzige, was der Daemon im Client-Modus tun kann: Er ändert nie ein Byte, daher
-erreicht jede Anfrage Anthropic genau so, wie Claude Code sie erstellt hat.
+Blockieren ist das Einzige, was der Daemon im Client-Modus tun kann: Er ändert nie den Inhalt einer
+Anfrage, der Anthropic Byte für Byte erreicht. Von ihren Headern entfernt Latet nur die Telemetrie-
+und Tracing-Header, die das SDK von Claude Code hinzufügt (`x-stainless-*`, `traceparent`...), und
+die eigenen Header von Claude Code, die freien Text enthalten können, etwa die IDs eines Subagenten,
+und zählt sie im Dashboard ([Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt)).
 
 **Wenn der Daemon nicht läuft**, versucht das Plugin, ihn zu starten. Gelingt das nicht, hält das
 Plugin Inhalte zurück, statt sie unmaskiert zu senden: Ihr Prompt wird nicht gesendet, ein
@@ -163,8 +167,13 @@ der lokale Daemon die Stelle, an der maskiert wird. Derselbe Schlüssel aus `.en
 
 </Steps>
 
-Der Anbieter sieht immer nur Ersatzwerte, der Agent immer nur Originale. Thinking-Blöcke und
-verschlüsseltes Reasoning werden unverändert durchgereicht.
+Der Anbieter sieht immer nur Ersatzwerte, der Agent immer nur Originale. Thinking-Blöcke, ihre
+Signaturen und verschlüsseltes Reasoning werden so zurückgesendet, wie der Anbieter sie erzeugt hat:
+Latet sah sie in dieser Unterhaltung vom Anbieter kommen oder lässt nach einem Neustart die
+verschlüsselten Felder des Anbieters selbst durch eine eingebaute Regel durch, nur in den Zügen des
+Modells und nur an die Adresse des Anbieters. Jeder andere Teil der Anfrage, auch Adresse, Abfrage und
+Header, wird gelesen, bevor er hinausgeht, und ein Teil, den Latet nicht kennt, stoppt die Anfrage
+([Jeder Teil einer Anfrage](../protection-scope/#jeder-teil-einer-anfrage)).
 
 Eine abschließende Prüfung liest dann die Texte jeder Anfrage, bevor sie hinausgeht, die Texte,
 die Latet maskiert, wie im Client-Modus, und stoppt eine, die einen Wert im Klartext hinauslassen

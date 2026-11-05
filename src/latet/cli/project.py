@@ -191,7 +191,11 @@ def project_show(
     typer.echo(f"  latet.yaml:  {repo_file or 'none (`latet project init` writes one)'}")
     typer.echo(f"  your settings: {'yes, in config.yaml' if personal is not None else 'none'}")
     if not enabled:
-        typer.secho("  Latet is OFF in this project: nothing is masked or blocked (`latet project on`).", fg="yellow")
+        typer.secho(
+            "  Latet is OFF in this project: its agents' requests are refused, never sent unmasked "
+            "(`latet project on`).",
+            fg="yellow",
+        )
     typer.echo(
         f"  in effect:     profile {effective.profile.value}, {len(pii)} personal-data types, ID numbers of "
         f"{', '.join(effective.id_regions) or 'no country'}, {_n(len(effective.terms), 'term')}, "
@@ -264,17 +268,27 @@ def _set_enabled(folder: Path | None, enabled: bool) -> None:
     config = load_config()
     entry = personal_entry(config, root).model_copy(update={"enabled": enabled})
     empty = not entry.model_dump(exclude_defaults=True, exclude={"path"})
+    if not enabled:  # said before anything changes (D5): what turning it off does now
+        typer.secho(
+            f"With Latet off in {root}, the requests of agents working there are refused: Latet never sends them "
+            "unmasked.",
+            fg="yellow",
+        )
+        typer.echo(
+            "To reach a provider directly from this folder, start the agent without Latet: its own command rather "
+            "than `latet <agent>`, with its settings pointing at the provider instead of Latet."
+        )
     _save_and_reload(with_personal(config, root, None if empty else entry))
     if enabled:
         typer.echo(f"Latet is on in {root}.")
     else:
-        typer.secho(f"Latet is off in {root}: nothing is masked or blocked there.", fg="yellow")
-        typer.echo("Surrogates already in a conversation are still restored. `latet project on` undoes it.")
+        typer.echo(f"Latet is off in {root}. `latet project on` undoes it.")
 
 
 @project_app.command("off")
 def project_off(folder: FolderArg = None) -> None:
-    """Turn Latet off in a project: nothing is masked or blocked there (in your own settings only)."""
+    """Turn Latet off in a project: its agents' requests are refused there, never sent unmasked; start an agent
+    without Latet to reach its provider directly (in your own settings only)."""
     _set_enabled(folder, False)
 
 

@@ -90,6 +90,19 @@ def _json_size(value: Any) -> int:
     return len(json.dumps(value).encode("utf-8"))
 
 
+def _json_bound(value: Any) -> int:
+    """At least ``_json_size(value)``, found by walking its nodes and none of its characters: a string of n code points
+    is at most 2 + 6n bytes of compact JSON, a control's six-byte escape being the most one code point takes. Within a
+    limit, so is the exact size; past it, only the exact count says (``Mediator._serialize_body``)."""
+    if isinstance(value, str):
+        return 2 + 6 * len(value)
+    if isinstance(value, dict):
+        return 2 + max(0, len(value) - 1) + sum(3 + 6 * len(key) + _json_bound(part) for key, part in value.items())
+    if isinstance(value, list):
+        return 2 + max(0, len(value) - 1) + sum(_json_bound(part) for part in value)
+    return len(json.dumps(value).encode("utf-8"))
+
+
 @dataclass(slots=True)
 class RestoreContext:
     text_restores: list[Restore]

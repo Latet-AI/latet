@@ -25,6 +25,7 @@ import type {
   RecognizerDraft,
   RecognizerEntry,
   RecognizerReport,
+  RequestException,
   ReviewerKey,
   ReviewerPrompt,
   RulesExport,
@@ -44,6 +45,7 @@ import type {
   VaultPage,
   VaultQuery,
 } from './types'
+import type { Revealed } from '../lib/vault'
 
 export const API_BASE = '/_latet/api/v1'
 
@@ -352,7 +354,7 @@ export const api = {
     if (query.perPage) params.set('per_page', String(query.perPage))
     return get<VaultPage>(`/vault?${params}`, signal)
   },
-  reveal: (id: string) => send<{ original: string }>('POST', `/vault/${encodeURIComponent(id)}/reveal`),
+  reveal: (id: string) => send<Revealed>('POST', `/vault/${encodeURIComponent(id)}/reveal`),
   forget: (id: string) => send<{ ok: true }>('DELETE', `/vault/${encodeURIComponent(id)}`),
   config: (signal?: AbortSignal) => get<ConfigView>('/config', signal),
   /** Saves `config` over the settings read with `etag` (`ConfigView.etag`). */
@@ -424,6 +426,12 @@ export const api = {
   /** Takes away that destination alone: 404 when there is none of that name, 409 (with the reason) while an agent still uses it. */
   removeDestination: (name: string) =>
     send<{ ok: true; rules_version: number | string }>('DELETE', `/destinations/${encodeURIComponent(name)}`),
+  /** Your request exceptions, each with its state now (D3). */
+  exceptions: (signal?: AbortSignal) =>
+    get<{ items: RequestException[]; permanent_allowed: boolean }>('/exceptions', signal),
+  /** Take an approved exception away: it raises protection, so it applies at once. 404 when none has that id. */
+  revokeException: (id: string) =>
+    send<{ ok: true; rules_version: number | string }>('DELETE', `/exceptions/${encodeURIComponent(id)}`),
   /** The batches waiting for your approval (works with the history off). */
   approvals: (signal?: AbortSignal) => get<{ batches: Batch[]; viewers: number }>('/approvals', signal),
   /** Approve a batch (with the values you masked in it) or stop it: 409 when it no longer waits, 422 for a mask refused. */

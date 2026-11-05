@@ -637,6 +637,22 @@ def test_the_shared_settings_take_no_rules_for_everyone_and_keep_those_an_earlie
     assert client.get(f"{ADMIN}/status", headers=admin).json()["edition"] == []
 
 
+def test_the_status_says_when_its_list_of_instances_is_cut_at_its_bound(server, client, admin, monkeypatch):
+    """The final re-review's R-4: the list of instances the status reads is bounded (``app.INSTANCE_KEYS``): one cut
+    at its bound says it is partial (``instances_whole`` false), so that a missing instance is never taken for a
+    stopped one; one read whole says so too."""
+    from latet.server import app as app_module
+
+    bus = server.bus
+    for one in ("0a1b2c3d4e5f", "0a1b2c3d4e60", "0a1b2c3d4e61"):
+        bus.client.set(bus.key(f"instance:{one}"), b"1", px=30_000)
+    status = client.get(f"{ADMIN}/status", headers=admin).json()
+    assert status["instances_whole"] is True and len(status["instances"]) >= 3
+    monkeypatch.setattr(app_module, "INSTANCE_KEYS", 1)
+    status = client.get(f"{ADMIN}/status", headers=admin).json()
+    assert status["instances_whole"] is False
+
+
 def test_a_shared_change_that_changes_nothing_is_recorded_as_such(server, client, admin):
     read = client.get(f"{ADMIN}/shared", headers=admin).json()
     assert client.put(f"{ADMIN}/shared", json={**read["settings"], "etag": read["etag"]}, headers=admin).json() == read

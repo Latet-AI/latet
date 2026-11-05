@@ -76,7 +76,7 @@ def test_the_plugin_is_told_to_stop_a_web_search_with_a_stand_in(client, runtime
         "reason": None,
     }
     [stopped] = [e for e in _exchanges(client, runtime) if e["path"] == "/plugin/tool-call"]
-    assert stopped["flags"] == ["blocked", "outbound:WebSearch"] and stopped["transport"] == "plugin"
+    assert stopped["flags"] == ["blocked", "outbound:web-search"] and stopped["transport"] == "plugin"  # its category
     [slot] = client.get(f"{API}/exchanges/{stopped['id']}").json()["request"]["slots"]
     assert slot["kind"] == "outbound_tool" and slot["original"] == f"who is {EMAIL}"  # rebuilt here, for Not sensitive
 
@@ -90,7 +90,7 @@ def test_a_search_the_provider_ran_is_said_once(client, runtime, upstream):
         "input": {"query": f"{fake} profile"},
     }
     body = {
-        "model": "m",
+        "model": "claude-sonnet-4-5",
         "max_tokens": 10,
         "messages": [
             {"role": "user", "content": f"find {EMAIL}"},  # the conversation knows the real one
@@ -98,14 +98,14 @@ def test_a_search_the_provider_ran_is_said_once(client, runtime, upstream):
             {"role": "user", "content": "thanks"},
         ],
     }
-    headers = {"x-api-key": "sk-test", "session-id": "out-2"}
+    headers = {"x-api-key": "sk-test", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a31"}  # a UUIDv7, Codex's form
     for _ in range(2):  # the history is sent again with the next turn
         assert client.post("/anthropic/v1/messages", json=body, headers=headers).status_code == 200
     first, second = sorted(
-        (e for e in _exchanges(client, runtime) if e["path"] == "/anthropic/v1/messages"), key=lambda e: e["ts"]
+        (e for e in _exchanges(client, runtime) if e["path"] == "/{destination}/v1/messages"), key=lambda e: e["ts"]
     )
-    assert "outbound:web_search" in first["flags"] and "blocked" not in first["flags"]
-    assert "outbound:web_search" not in second["flags"]
+    assert "outbound:web-search" in first["flags"] and "blocked" not in first["flags"]  # its category
+    assert "outbound:web-search" not in second["flags"]
     slots = client.get(f"{API}/exchanges/{first['id']}").json()["request"]["slots"]
     [tool_input] = [s for s in slots if s["kind"] == "outbound_tool"]
     assert tool_input["original"] == f"{EMAIL} profile"
@@ -144,9 +144,11 @@ def test_latet_configuration_reaches_the_provider_masked_and_local_tools_restore
             f'IDP_NOTES = "paste {tokens["scim"]} into the provider"\n'
             f'HANDOVER = "the daemon token is {tokens["brg"]}; give them {tokens["code"]} once"\n'
         )
-    body = {"model": "m", "max_tokens": 1000, "messages": [{"role": "user", "content": text}]}
+    body = {"model": "claude-sonnet-4-5", "max_tokens": 1000, "messages": [{"role": "user", "content": text}]}
     answer = client.post(
-        "/anthropic/v1/messages", json=body, headers={"x-api-key": "sk-test", "session-id": "latet-config"}
+        "/anthropic/v1/messages",
+        json=body,
+        headers={"x-api-key": "sk-test", "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a32"},
     )
     assert answer.status_code == 200
     sent = upstream.received[-1].decode()

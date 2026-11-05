@@ -18,6 +18,7 @@ import type {
 import { isCategory } from '../lib/approvals'
 import { MAX_RECTS, MIN_RECT, textRects } from '../lib/images'
 import { CC_SESSION, CODEX_SESSION, drawing, drawnLines, MOCK_ASSETS, MOCK_GUIDANCE, OC_SESSION } from './fixtures'
+import { MOCK_ASKED } from './exceptions'
 import { mockMask } from './playground'
 import { projectOfAgent } from './projects'
 import { seeded, token, URLSAFE } from './rng'
@@ -355,8 +356,14 @@ export function startApprovals(config: () => ConfigView, apply: (change: Setting
       created: now - 130,
       source: 'command',
       agent: 'hermes',
-      loosened: ['values never to mask: 1 added', 'the Live Reviewer: turned off', 'the local reviewer: its guidance changed'],
-      keys: ['allow_values', 'live_review', 'llm_review'],
+      loosened: [
+        'values never to mask: 1 added',
+        'the Live Reviewer: turned off',
+        'the local reviewer: its guidance changed',
+        'a request exception for anthropic: added for 30 days',
+      ],
+      keys: ['allow_values', 'live_review', 'llm_review', 'request_exceptions'],
+      exceptions: [MOCK_ASKED],
       guidance: [{ where: null, before: MOCK_GUIDANCE, after: `${MOCK_GUIDANCE}\nDo not report the names of our suppliers.` }],
     },
   ]

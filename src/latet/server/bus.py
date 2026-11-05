@@ -86,6 +86,7 @@ _WHY = {
     "repeated": "it was heard already",
 }
 _BATCH = 500  # keys deleted in one command by ``purge``
+SCAN_COUNT = 1000  # the keys one page of a scan reads (``names``)
 _LABEL = b"latet-bus\x00"  # what the signed bytes start with: the format they are in, and that they are the bus's
 _NAMES_LABEL = b"latet-bus-names\x00"  # what the key that names a limit's count is derived from the bus's key with
 _ID = re.compile(r"[0-9a-f]{32}")
@@ -486,6 +487,26 @@ class Bus:
                 removed += int(self.client.delete(*batch))
                 batch.clear()
         return removed + (int(self.client.delete(*batch)) if batch else 0)
+
+    def names(self, prefix: str, *, pages: int, most: int) -> tuple[list[str], bool]:
+        """The names, without the bus's prefix, of the keys under ``prefix``, read and never changed: Valkey's SCAN,
+        ``SCAN_COUNT`` keys a page, ``pages`` pages and ``most`` names at most; and whether every key was read (False:
+        the scan stopped at a bound, and a name may be missing). The bus's prefix and ``prefix`` are taken as they are
+        written, as ``purge`` takes them. An empty ``prefix`` is refused (ValueError): it would be every key of the
+        bus."""
+        if not prefix:
+            raise ValueError("names needs a prefix: an empty one is every key of the bus")
+        pattern, cursor = _literal(self.key(prefix)) + "*", 0
+        found: dict[str, None] = {}  # in the order met
+        for _ in range(pages):
+            cursor, keys = self.client.scan(cursor, match=pattern, count=SCAN_COUNT)
+            for key in keys:  # a key may come twice in one scan
+                found[key.decode(errors="replace").removeprefix(self.prefix)] = None
+            if len(found) > most:
+                return list(found)[:most], False
+            if int(cursor) == 0:
+                return list(found), True
+        return list(found), False
 
     def purge_families(self, owner: str, families: Iterable[str]) -> int:
         """Delete every key named ``<family>:<owner>`` or begun ``<family>:<owner>:``, for each of ``families`` (what an

@@ -46,6 +46,15 @@ jobs:
         env:
           HYPOTHESIS_PROFILE: ci
       - run: uv run pytest -q sdk/python/tests
+      # The one test that needs root: the supervisor of `latet server run --workers` keeps another user's sockets off
+      # its port whatever they set (Linux compares each socket's owner, so the test makes them as another user). Last,
+      # so that nothing it writes as root is in a later step's way; it must pass, never be skipped.
+      - name: The workers' port against another user (as root)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo -E env "PATH=$PATH" PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -rA -p no:cacheprovider \
+            tests/unit/test_workers.py -k another_users | tee root-test.txt
+          grep -q "^PASSED .*another_users" root-test.txt
 
   sdk-python:
     # The Python client of the applications API (sdk/python) on its own, without Latet beside it, on the oldest Python
@@ -75,7 +84,8 @@ jobs:
   server:
     # The tests of a Latet server's backends, against PostgreSQL and Valkey as service containers, Valkey asking for a
     # password as a server's does, and a PostgreSQL that speaks TLS, which the services script starts with a
-    # certificate it makes. A server's test that would be skipped here fails the job (LATET_TEST_REQUIRE_SERVICES).
+    # certificate it makes. A server's test skipped here for want of its services fails the job
+    # (LATET_TEST_REQUIRE_SERVICES); one skipped by a platform's mark stays a skip.
     runs-on: ubuntu-latest
     services:
       postgres:

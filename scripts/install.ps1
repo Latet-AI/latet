@@ -12,7 +12,8 @@
 
     It installs the latest release from GitHub, with local name detection and the text in images
     (without them where they cannot be installed, unless the Latet installed here has them: it is
-    then left as it was); their models are downloaded only when you ask.
+    then left as it was); their models are downloaded only when you ask. The other extras of a Latet
+    installed here stay.
 
 .PARAMETER Source
     What to install instead: a wheel file, or a requirement such as "latet @ <url>".
@@ -45,6 +46,22 @@ function Test-Extras {
     $listed = & $uv tool list --show-extras 2>$null
     if ($LASTEXITCODE -ne 0) { return [bool]$existing }
     return [bool]($listed | Where-Object { "$_" -match '^latet .*\[extras: .*(ner|ocr)' })
+}
+
+# The extras of the Latet installed here besides name detection and the text in images (a server's "server"): uv
+# uninstalls those a requirement leaves out, so they are named again. None from a uv too old to say.
+function Get-OtherExtras {
+    $ErrorActionPreference = "Continue"  # uv's warnings on stderr are no error here
+    $listed = & $uv tool list --show-extras 2>$null
+    if ($LASTEXITCODE -ne 0) { return @() }
+    foreach ($line in $listed) {
+        if ("$line" -match '^latet .*\[extras: ([A-Za-z0-9._, -]*)\]') {
+            # An extra's name, as uv takes it: never '-x' or '.y'.
+            $name = '^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$'
+            return @($Matches[1] -split '[, ]+' | Where-Object { $_ -match $name -and $_ -ne 'ner' -and $_ -ne 'ocr' })
+        }
+    }
+    return @()
 }
 
 # Runs a command for what it does: what it says is not needed, on stderr either. Windows PowerShell 5.1, where
@@ -120,6 +137,10 @@ if (-not $uv) {
 $existing = Get-Command latet -ErrorAction SilentlyContinue
 # True: the Latet installed here has name detection or the text in images.
 $had = $sources.Count -gt 1 -and (Test-Extras)
+if ($sources.Count -gt 1) {
+    $others = @(Get-OtherExtras) -join ','
+    if ($others) { $sources = @("latet[ner,ocr,$others] @ $wheel", "latet[$others] @ $wheel") }
+}
 
 # If Latet is already running, stop it first: Windows cannot replace files that are in use.
 if ($existing) {

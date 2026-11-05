@@ -102,15 +102,25 @@ async def test_response_names_are_local_to_the_server_space_that_received_them(s
 
         def probe():
             with ExitStack() as cleanup:
-                pa = prepare(a.mediator, request(FIRST, responses=True, prompt_cache_key="a"), responses=True)
+                pa = prepare(
+                    a.mediator,
+                    request(FIRST, responses=True, prompt_cache_key="019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a41"),
+                    responses=True,
+                )
                 cleanup.callback(release, a.mediator, pa)
-                pb = prepare(b.mediator, request(SECOND, responses=True, prompt_cache_key="b"), responses=True)
+                pb = prepare(
+                    b.mediator,
+                    request(SECOND, responses=True, prompt_cache_key="019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a42"),
+                    responses=True,
+                )
                 cleanup.callback(release, b.mediator, pb)
                 fa, fb = fake(a.mediator, FIRST, pa), fake(b.mediator, SECOND, pb)
                 in_b, in_a = (SECOND, FIRST) if fa == fb else (fa, fb)
-                name_response(a.mediator, pa, "resp_same_name")
+                name_response(a.mediator, pa, "resp_68d3a1f0c4b88190a2b5c7d9e1f3a5b7")
                 assert a.built.engine.conversations.flush(5)
-                continuation = request("Continue.", responses=True, previous_response_id="resp_same_name")
+                continuation = request(
+                    "Continue.", responses=True, previous_response_id="resp_68d3a1f0c4b88190a2b5c7d9e1f3a5b7"
+                )
                 own = prepare(a.mediator, continuation, responses=True)
                 cleanup.callback(release, a.mediator, own)
                 foreign = prepare(b.mediator, continuation, responses=True)
@@ -119,7 +129,7 @@ async def test_response_names_are_local_to_the_server_space_that_received_them(s
                 assert answer(b.mediator, foreign, f"{fa} | {fb}") == f"{fa} | {fb}"
                 # B can receive exactly the same provider ID for its own response. Its association is B's;
                 # A's already named response keeps its own meaning.
-                name_response(b.mediator, pb, "resp_same_name")
+                name_response(b.mediator, pb, "resp_68d3a1f0c4b88190a2b5c7d9e1f3a5b7")
                 assert b.built.engine.conversations.flush(5)
                 own_b = prepare(b.mediator, continuation, responses=True)
                 cleanup.callback(release, b.mediator, own_b)
@@ -163,8 +173,9 @@ def _stream_text(chunks) -> str:
 async def test_fallback_streams_release_only_their_own_hold_generation(server, monkeypatch, end_old):
     owner, _ = server.identities.add_key("Stream lifetime")
     now = [100.0]
-    # Replace only StoredVault's clock reference; server timeouts, Valkey TTLs and asyncio retain real clocks.
-    monkeypatch.setattr(stored, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    # Replace only StoredVault's monotonic clock; its wall clock (when it was built), server timeouts, Valkey TTLs and
+    # asyncio retain real clocks.
+    monkeypatch.setattr(stored, "time", SimpleNamespace(monotonic=lambda: now[0], time=stored.time.time))
     async with listening(server), asyncio.timeout(30):
         runtime = await server.spaces.runtime(owner)
         mediator, vault = runtime.mediator, runtime.built.vault

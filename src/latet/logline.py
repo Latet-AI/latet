@@ -35,12 +35,15 @@ _CREDENTIAL_NAMES = (
 _QUERY = re.compile(rf"(?i)((?:[?&;'\"]|%3F|%26)(?:{_CREDENTIAL_NAMES})(?:=|%3D))[^&#\s\"']+")
 _SECRET = re.compile(r"(latet_(?:pat|key|adm|ck|scim)_)[A-Za-z0-9_-]+")
 _HEADER = re.compile(
-    r"(?i)(x-latet-(?:token|admin|computer-key)\\?['\"]?\s*(?:[:=]|,)\s*(?:b?\\?['\"])?)[^\s\"',;})\]\\]+"
+    r"(?i)(x-latet-(?:token|admin|computer-key|launch-key)\\?['\"]?\s*(?:[:=]|,)\s*"
+    r"(?:b?\\?['\"])?)[^\s\"',;})\]\\]+"
 )
-# The bridge token (43 characters after its prefix) and the one-time code (32), which a computer has as well as a
-# server: to their length, so that a word that only begins like one (`latet_code_review`) is left as it is.
+# The bridge token and launch key (43 characters after their prefixes) and the one-time code (32), on a computer
+# as well as a server: to their exact length, in a line or a path, so that a word that only begins like one
+# (`latet_code_review` or `latet_lk_notes`) is left as it is.
 _LOCAL_SECRET = re.compile(
-    r"(latet_(?:brg|code)_)(?:(?<=brg_)[A-Za-z0-9_-]{43}|(?<=code_)[A-Za-z0-9_-]{32})(?![A-Za-z0-9_-])"
+    r"(latet_(?:brg|lk|code)_)(?:(?<=brg_)[A-Za-z0-9_-]{43}|(?<=lk_)[A-Za-z0-9_-]{43}|"
+    r"(?<=code_)[A-Za-z0-9_-]{32})(?![A-Za-z0-9_-])"
 )
 _CREDENTIAL = re.compile(
     r"(?i)\b((?:proxy-)?authorization|x-api-key|api-key|x-amz-security-token|cookie|set-cookie)"
@@ -120,3 +123,46 @@ class Paced:
             if count:
                 self._said = now
         return count
+
+
+# Fixed reporting categories, never routing or provider authority.
+_SAFE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "WS"})
+_REQUEST_AREAS = (
+    (b"/_latet/server/v1/admin", "/admin"),
+    (b"/_latet/admin", "/admin"),
+    (b"/_latet/api", "/dashboard"),
+    (b"/_latet/ui", "/dashboard"),
+    (b"/_latet/apps", "/applications"),
+    (b"/_latet/engine", "/bridge"),
+    (b"/_latet/docs", "/docs"),
+    (b"/u", "/gateway"),
+    (b"/_k", "/gateway"),  # a computer's launch key in its path form, before the gateway's own route
+    (b"/openai", "/gateway"),
+    (b"/anthropic", "/gateway"),
+    (b"/gemini", "/gateway"),
+    (b"/chatgpt", "/gateway"),
+    (b"/bedrock", "/gateway"),
+    (b"/vertex", "/gateway"),
+)
+
+
+def safe_method(value: object) -> str:
+    """A fixed method category, without invoking an arbitrary object's formatting."""
+    return value if type(value) is str and len(value) <= 7 and value in _SAFE_METHODS else "OTHER"
+
+
+def safe_request_path(value: object) -> str:
+    """A fixed area from at most96ASCII bytes; no suffix/query/name is returned."""
+    if type(value) is bytes:
+        prefix = value[:96]
+    elif type(value) is str:
+        prefix = value[:96].encode("ascii", "replace")
+    else:
+        return "/other"
+    prefix = prefix.partition(b"?")[0]
+    if prefix in {b"/", b"/health", b"/healthz"}:
+        return "/health"
+    return next(
+        (area for start, area in _REQUEST_AREAS if prefix == start or prefix.startswith(start + b"/")),
+        "/other",
+    )

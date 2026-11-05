@@ -413,7 +413,7 @@ def test_each_request_is_one_line_with_no_secret(logs):
     with TestClient(app) as client:
         client.post(f"/u/{ROUTE}/anthropic/v1/messages?code=Xy7-code_42", headers={"x-latet-token": TOKEN})
     [line] = [json.loads(x) for x in logs.getvalue().splitlines() if '"method"' in x]
-    assert (line["method"], line["path"], line["status"]) == ("POST", "/u/***/anthropic/v1/messages", 200)
+    assert (line["method"], line["path"], line["status"]) == ("POST", "/gateway", 200)
     assert isinstance(line["ms"], int) and not any(secret in logs.getvalue() for secret in SECRETS)
 
 
@@ -429,7 +429,7 @@ async def test_no_part_of_a_latet_secret_is_left_in_a_paths_line(logs, before, w
     secret = "latet_pat_Q0-abcdefghijklmnopqrstuvwxyzABC9_Zq0x-Ty"
     await _call(RequestLog(_answering(200)), _scope(f"{before}{secret}/anthropic", "POST"))
     [line] = _lines(logs)
-    assert line["path"] == written and "Zq0x" not in logs.getvalue() and "Q0-" not in logs.getvalue()
+    assert line["path"] == "/other" and "Zq0x" not in logs.getvalue() and "Q0-" not in logs.getvalue()
 
 
 async def test_no_part_of_a_computer_key_is_left_in_a_paths_line(logs):
@@ -437,7 +437,7 @@ async def test_no_part_of_a_computer_key_is_left_in_a_paths_line(logs):
     secret = "latet_ck_Q0-abcdefghijklmnopqrstuvwxyzABC9_Zq0x-Ty1"
     await _call(RequestLog(_answering(200)), _scope(f"/x/{secret}/anthropic", "POST"))
     [line] = _lines(logs)
-    assert line["path"] == "/x/latet_ck_***/anthropic" and "Zq0x" not in logs.getvalue()
+    assert line["path"] == "/other" and "Zq0x" not in logs.getvalue()
 
 
 # The body of a secret of Latet's as it is made (the SCIM token's, as the older four's, is read to its end whatever its
@@ -461,7 +461,7 @@ async def test_no_part_of_the_other_latet_secrets_is_left_in_a_paths_line(logs, 
     secret = f"latet_{prefix}_{BODIES[prefix]}"
     await _call(RequestLog(_answering(200)), _scope(f"/x/{secret}/anthropic", "POST"))
     [line] = _lines(logs)
-    assert line["path"] == f"/x/latet_{prefix}_***/anthropic" and "Zq0x" not in logs.getvalue()
+    assert line["path"] == "/other" and "Zq0x" not in logs.getvalue()
 
 
 @pytest.mark.parametrize("prefix", ["pat", "key", "adm", "ck", "scim", "brg", "code"])
@@ -498,7 +498,9 @@ async def test_a_word_that_only_begins_like_a_code_stays_in_a_paths_line(logs, w
     configure_logging("json", "info", stream=logs)
     await _call(RequestLog(_answering(200)), _scope(f"/src/{word}/main.py", "GET"))
     [line] = _lines(logs)
-    assert line["path"] == f"/src/{word}/main.py"
+    assert line["path"] == "/other"
+    assert redacted(f"/src/{word}/main.py") == f"/src/{word}/main.py"
+    assert word not in logs.getvalue() and f"/src/{word}/main.py" not in logs.getvalue()
 
 
 def test_a_dashboard_projects_id_is_not_written(logs):
@@ -507,7 +509,7 @@ def test_a_dashboard_projects_id_is_not_written(logs):
     with TestClient(_app()) as client:
         client.put(f"/_latet/api/v1/projects/{project}/personal")
     [line] = _lines(logs)
-    assert line["path"] == "/_latet/api/v1/projects/***/personal" and project not in logs.getvalue()
+    assert line["path"] == "/dashboard" and project not in logs.getvalue()
 
 
 SESSION = "ab" * 16  # a Bedrock session's id, which a signing route carries
@@ -607,29 +609,74 @@ async def _requests(app, path, count):
     ],
 )
 async def test_past_a_kilobyte_a_paths_length_costs_its_line_nothing(format, piece, monkeypatch):
-    """What a request's line reads of its path is bounded whatever the path's length: the bytes handed to the path's
-    decoding and to its escaping again, each counted (PATH_LIMIT at most a request), and the time as a coarse bound."""
-    handed: list[int] = []
-    for name in ("unquote_to_bytes", "quote"):
-        real = getattr(logs_module, name)
+    """Actual classifier matching reads at most96ASCII bytes, independently of the timing guard."""
+    from latet import logline
 
-        def counted(text, *args, _real=real, **kwargs):
-            handed.append(len(text))
-            return _real(text, *args, **kwargs)
+    handed = []
 
-        monkeypatch.setattr(logs_module, name, counted)
+    class Start:
+        def __init__(self, original):
+            self.original = original
+
+        def __eq__(self, prefix):
+            assert type(prefix) is bytes
+            handed.append(len(prefix))  # observe the actual comparison; never slice in the spy
+            return prefix == self.original
+
+        def __add__(self, suffix):
+            return self.original + suffix  # production startswith receives the original real bytes
+
+    monkeypatch.setattr(
+        logline, "_REQUEST_AREAS", tuple((Start(start), area) for start, area in logline._REQUEST_AREAS)
+    )
+    for path, category in (
+        ("/u/name", "/gateway"),
+        ("/uX/name", "/other"),
+        ("/_latet/api/name", "/dashboard"),
+        ("/%75/name", "/other"),
+    ):
+        assert logline.safe_request_path(path) == category
+        assert logline.safe_request_path(path.encode("ascii")) == category
+    assert logline.safe_request_path("/a" * (30 * PATH_LIMIT)) == "/other"
+    areas = len(logline._REQUEST_AREAS)  # one comparison each for a path that is none of them
+    assert handed[-areas:] == [96] * areas  # string input is sliced BEFORE ASCII encoding
+    assert handed and max(handed) <= 96
+    invoked = 0
+    answering = _answering(400)
+
+    async def counted(scope, receive, send):
+        nonlocal invoked
+        invoked += 1
+        await answering(scope, receive, send)
+
     with saved():
         configure_logging(format, "info", stream=_Null())
-        app = RequestLog(_answering(400))  # a status that is never paced: a line each
-        kilobyte = await _requests(app, piece * (PATH_LIMIT // len(piece)), 200)
+        app = RequestLog(counted)  # unpaced: all600 invocations per best-of-three phase
         handed.clear()
+        kilobyte = await _requests(app, piece * (PATH_LIMIT // len(piece)), 200)
+        assert invoked == 600 and len(handed) == areas * 600
+        assert set(handed) == {96}
+        handed.clear()
+        invoked = 0
         sixty = await _requests(app, piece * (60 * PATH_LIMIT // len(piece)), 200)
-    assert len(handed) == 2 * 3 * 200 and max(handed) <= PATH_LIMIT  # never the 60 KiB sent
+    assert invoked == 600 and len(handed) == areas * 600 and set(handed) == {96}
     assert sixty < 3 * kilobyte
 
 
 async def test_no_text_handed_to_the_redaction_is_over_its_bound(monkeypatch):
-    sizes = []
+    sizes, classified, methods = [], [], []
+    actual_path, actual_method = logs_module.safe_request_path, logs_module.safe_method
+
+    def classifying(value):
+        classified.append(type(value))
+        return actual_path(value)
+
+    def method(value):
+        methods.append(type(value))
+        return actual_method(value)
+
+    monkeypatch.setattr(logs_module, "safe_request_path", classifying)
+    monkeypatch.setattr(logs_module, "safe_method", method)
     real = logs_module.redacted
 
     def counted(text):
@@ -639,18 +686,26 @@ async def test_no_text_handed_to_the_redaction_is_over_its_bound(monkeypatch):
     monkeypatch.setattr(logs_module, "redacted", counted)
     for format in ("text", "json"):
         sizes.clear()
+        classified.clear()
+        methods.clear()
         with saved():
             configure_logging(format, "info", stream=io.StringIO())
             await _call(RequestLog(_answering(404)), _scope("/a" * (30 * PATH_LIMIT), "POST"))  # 60 KiB of path
-            assert len(sizes) == 3  # its method, its path and its line, each once
+            assert len(sizes) == 1  # only the fixed categorical message is redacted
+            assert len(classified) == len(methods) == 1
             assert max(sizes) <= PATH_LIMIT + 128  # the path, once cut, and the line made of it
             sizes.clear()
+            classified.clear()
+            methods.clear()
             refused = RequestLog(_answering(429))
             await _call(refused, _scope("/a" * (30 * PATH_LIMIT), "POST"))  # the first: its line
+            assert len(sizes) == len(classified) == len(methods) == 1
             sizes.clear()
-            for _ in range(100):  # the others, counted: their path is not even read
+            classified.clear()
+            methods.clear()
+            for _ in range(100):  # counted before categorical method/path/redaction work
                 await _call(refused, _scope("/a" * (30 * PATH_LIMIT), "POST"))
-            assert sizes == []
+            assert sizes == classified == methods == []
             logging.getLogger("latet.server").info("%s", "b " * (512 * 1024))  # a record of 1 MiB
             try:
                 raise ValueError("c " * (512 * 1024))
@@ -674,8 +729,12 @@ async def test_a_long_method_is_cut_and_redacted_too(logs):
     await _call(RequestLog(_answering(405)), _scope("/x", "G" * 60_000))
     await _call(RequestLog(_answering(405)), _scope("/x", TOKEN))  # a method is any token: one of Latet's, say
     first, second = _lines(logs)
-    assert first["method"] == "G" * 32 and first["message"] == "G" * 32 + " /x 405 0 ms"
-    assert TOKEN[10:20] not in logs.getvalue() and second["message"] == "latet_pat_*** /x 405 0 ms"
+    assert first["method"] == "OTHER" and first["message"] == "OTHER /other 405 0 ms"
+    assert (
+        TOKEN[10:20] not in logs.getvalue()
+        and second["method"] == "OTHER"
+        and second["message"] == "OTHER /other 405 0 ms"
+    )
 
 
 @pytest.mark.parametrize("form", ["/u/{}/anthropic/v1/messages", "//u//{}/x", "/u;x/{}/x", "/u%2F{}/x"])
@@ -701,7 +760,7 @@ def test_a_websocket_is_one_line_of_its_own(logs):
         with pytest.raises(WebSocketDisconnect), client.websocket_connect(f"/u/{ROUTE}/refused?api-key=k"):
             pass
     said = [(line["method"], line["path"], line["status"]) for line in _lines(logs)]
-    assert said == [("WS", "/u/***/openai/v1/realtime", 101), ("WS", "/u/***/refused", 403)]
+    assert said == [("WS", "/gateway", 101), ("WS", "/gateway", 403)]
     assert "azure-key-in-the-query" not in logs.getvalue() and ROUTE not in logs.getvalue()
 
 
@@ -734,7 +793,7 @@ def test_through_uvicorn_a_websocket_leaves_neither_the_address_nor_the_query(lo
             assert websocket.recv() == "hello"
     out = logs.getvalue()
     [line] = [line for line in _lines(logs) if line.get("method") == "WS"]
-    assert (line["path"], line["status"]) == ("/u/***/openai/v1/realtime", 101)
+    assert (line["path"], line["status"]) == ("/gateway", 101)
     assert "127.0.0.1" not in out and "azure-key-in-the-query" not in out and ROUTE not in out
     assert "WebSocket" not in out  # uvicorn's own line for it is dropped
 
@@ -999,7 +1058,7 @@ def test_an_error_given_to_a_line_of_latets_is_written_by_its_type(logs):
         "failed: ValueError",
         "KeyError",
         "failed: OSError",
-        "failed: latet.server.db.DatabaseError: the connection to PostgreSQL failed (OperationalError)",
+        "failed: latet.server.start_errors.DatabaseError: the connection to PostgreSQL failed (OperationalError)",
         "the local reviewer did not answer: latet.engine.reviewer.client.ReviewError: the server answered HTTP 500",
         "failed: a store (3 times)",
     ]
@@ -1127,8 +1186,8 @@ async def test_requests_answered_429_are_said_once_a_minute_with_how_many(logs):
     await _call(app, _scope(f"/u/{ROUTE}/anthropic/v1/messages", "POST"))
     await _call(RequestLog(_answering(200)), _scope("/_latet/health"))  # every other answer has its line
     first, last, other = _lines(logs)
-    assert first["message"] == "POST /u/***/anthropic/v1/messages 429 0 ms" and first["status"] == 429
-    assert last["message"] == "POST /u/***/anthropic/v1/messages 429 0 ms (999 answered 429 since the line before)"
+    assert first["message"] == "POST /gateway 429 0 ms" and first["status"] == 429
+    assert last["message"] == "POST /gateway 429 0 ms (999 answered 429 since the line before)"
     assert other["status"] == 200
 
 
@@ -1149,11 +1208,11 @@ async def test_a_flood_of_one_kind_of_429_leaves_the_first_line_of_another(logs)
     await _call(app, _scope("/_latet/api/v1/config", "PUT"))  # the dashboard's
     await _call(app, _refused_by_the_gate("/_latet/server/v1/machines/enrol"))  # the server's own, by the gate
     assert [line["message"] for line in _lines(logs)] == [
-        "POST /u/***/anthropic/v1/messages 429 0 ms",
-        "POST /u/***/anthropic/v1/messages 429 0 ms",
-        "POST /_latet/server/v1/admin/identities 429 0 ms",
-        "PUT /_latet/api/v1/config 429 0 ms",
-        "POST /_latet/server/v1/machines/enrol 429 0 ms",
+        "POST /gateway 429 0 ms",
+        "POST /gateway 429 0 ms",
+        "POST /admin 429 0 ms",
+        "PUT /dashboard 429 0 ms",
+        "POST /other 429 0 ms",
     ]
 
 
@@ -1172,8 +1231,8 @@ async def test_what_was_counted_and_not_said_is_said_by_the_flush(logs):
     flush()  # and nothing is said twice
     said = [line["message"] for line in _lines(logs)]
     assert said[:3] == [
-        "POST /u/***/anthropic/v1/messages 429 0 ms",
-        "POST /u/***/anthropic/v1/messages 429 0 ms",
+        "POST /gateway 429 0 ms",
+        "POST /gateway 429 0 ms",
         "Invalid HTTP request received.",
     ]
     assert sorted(said[3:]) == [
@@ -1211,10 +1270,10 @@ async def test_an_outsiders_403s_and_404s_are_said_once_a_minute_each_status_and
     await _call(app, {**_scope("/404/unknown"), REFUSED: True})
     flush()  # the beat: the 403s counted and not said
     assert [line["message"] for line in _lines(logs)] == [
-        "GET /404/unknown 404 0 ms",
-        "GET /403/host 403 0 ms",
-        "GET /404/models/x 404 0 ms",
-        "GET /404/unknown 404 0 ms (300 refused 404 by the gate since the line before)",
+        "GET /other 404 0 ms",
+        "GET /other 403 0 ms",
+        "GET /other 404 0 ms",
+        "GET /other 404 0 ms (300 refused 404 by the gate since the line before)",
         "5 more requests to the server's own refused 403 by the gate since the line before",
     ]
 
@@ -1229,7 +1288,7 @@ async def test_requests_answered_401_405_and_413_are_said_once_a_minute_too(logs
     for status in (401, 405, 413):
         for _ in range(50):
             await _call(app, {**_scope(f"/{status}/x"), REFUSED: True})
-    assert [line["message"] for line in _lines(logs)] == [f"GET /{s}/x {s} 0 ms" for s in (401, 405, 413)]
+    assert [line["message"] for line in _lines(logs)] == [f"GET /other {s} 0 ms" for s in (401, 405, 413)]
     flush()
     assert [line["message"] for line in _lines(logs)][3:] == [
         f"49 more requests to the server's own refused {s} by the gate since the line before" for s in (401, 405, 413)
@@ -1247,7 +1306,7 @@ async def test_a_refusal_of_the_servers_own_is_said_once_a_minute_whatever_its_s
         await _call(app, {**_scope("/303/x"), REFUSED: True})
     for _ in range(2):
         await _call(app, _scope("/303/y"))  # a redirect of what is behind the gate: said each time
-    assert [line["message"] for line in _lines(logs)] == ["GET /303/x 303 0 ms", *["GET /303/y 303 0 ms"] * 2]
+    assert [line["message"] for line in _lines(logs)] == ["GET /other 303 0 ms", *["GET /other 303 0 ms"] * 2]
     flush()
     assert [line["message"] for line in _lines(logs)][3:] == [
         "49 more requests to the server's own refused 303 by the gate since the line before"
@@ -1294,7 +1353,8 @@ async def test_a_long_line_is_cut_after_the_redaction(logs, format):
         logging.getLogger("latet.server").info("%s", "c" * before + f" postgresql://latet:{password}@db.acme.lan/latet")
     lines = logs.getvalue().splitlines()
     assert len(lines) == 101 and all(len(line.encode()) <= LINE_LIMIT for line in lines)
-    assert "[cut]" in lines[0] and ROUTE not in logs.getvalue() and password[:4] not in logs.getvalue()
+    assert "/other" in lines[0] and "[cut]" in lines[-1]
+    assert ROUTE not in logs.getvalue() and password[:4] not in logs.getvalue()
 
 
 @pytest.mark.parametrize("format", ["text", "json"])
@@ -1345,7 +1405,13 @@ async def test_a_stalled_output_never_holds_the_loop_and_what_it_cannot_take_is_
     output = _Stalled()
     with saved():
         configure_logging("json", "info", stream=output)
-        app = RequestLog(_answering(200))
+
+        async def discriminated(scope, receive, send):
+            status = 200 if scope["path"] == "/first" else 201 + int(scope["path"].rsplit("/", 1)[1])
+            await send({"type": "http.response.start", "status": status, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        app = RequestLog(discriminated)
         await _call(app, _scope("/first"))
         assert output.entered.wait(5)  # the output took that one, and stalls
         slowest = 0.0
@@ -1360,7 +1426,8 @@ async def test_a_stalled_output_never_holds_the_loop_and_what_it_cannot_take_is_
         logging.getLogger().handlers[0].flush()
     assert slowest < 0.25  # never the output's 10 s
     said = [json.loads(line) for line in "".join(output.written).splitlines()]
-    assert [line["path"] for line in said[:21]] == ["/first", *(f"/x/{n}" for n in range(20))]
+    assert [line["path"] for line in said[:21]] == ["/other"] * 21
+    assert [line["status"] for line in said[:21]] == [200, *range(201, 221)]
     assert (
         said[21]["message"]
         == "179 log records were dropped since the line before: the output did not take them in time"
@@ -1431,3 +1498,34 @@ def test_after_saved_the_logging_is_as_it_was():
     after = (list(root.handlers), root.level, logging.getLogger("httpx").level, logging.getLogger("latet").level,
              warnings.showwarning, sys.excepthook, threading.excepthook, sys.unraisablehook)  # fmt: skip
     assert after == before
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "category", "first_area", "second_area"),
+    [
+        ("/u/a", "/openai/x", "/gateway", "an identity's address", "the server's own"),
+        ("/_latet/server/v1/admin/a", "/_latet/admin/a", "/admin", "the administration", "the dashboard"),
+    ],
+)
+async def test_equal_log_categories_keep_distinct_original_pacing_areas(
+    logs, first, second, category, first_area, second_area
+):
+    flush()
+    configure_logging("json", "info", stream=logs)
+    app = RequestLog(_answering(429), clock=lambda: 1000.0)
+    for path, count in ((first, 3), (second, 5)):
+        for _ in range(count):
+            await _call(app, _refused_by_the_gate(path))
+    before = _lines(logs)
+    assert len(before) == 2
+    assert [(line["path"], line["status"]) for line in before] == [(category, 429), (category, 429)]
+    assert [line["message"] for line in before] == [f"POST {category} 429 0 ms"] * 2
+    flush()
+    flush()  # neither area's distinct count is repeated
+    assert sorted(line["message"] for line in _lines(logs)[2:]) == sorted(
+        (
+            f"2 more requests to {first_area} refused 429 by the gate since the line before",
+            f"4 more requests to {second_area} refused 429 by the gate since the line before",
+        )
+    )
+    assert first not in logs.getvalue() and second not in logs.getvalue()

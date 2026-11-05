@@ -109,8 +109,9 @@ Ecco cosa succede a una chiave presa da un file `.env`:
 3. Claude Code costruisce la richiesta come al solito. La richiesta contiene solo il valore fittizio.
    Subito prima che esca, il plugin esegue su di essa un controllo finale. Poiché
    `ANTHROPIC_BASE_URL` punta al daemon di Latet (`127.0.0.1:5283`), la richiesta passa poi dal
-   daemon, che lavora **in sola verifica**: cerca valori sensibili in chiaro, inoltra i byte senza
-   modificarli e registra lo scambio per la [dashboard](../../dashboard/).
+   daemon, che lavora **in sola verifica**: cerca valori sensibili in chiaro, controlla ogni altra
+   parte della richiesta (il suo indirizzo, le sue intestazioni, ogni membro del suo corpo), inoltra il
+   corpo senza modificarlo e registra lo scambio per la [dashboard](../../dashboard/).
 
 4. Anthropic riceve <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> e nient'altro. Il modello
    non vede mai la chiave reale.
@@ -128,8 +129,11 @@ Ecco cosa succede a una chiave presa da un file `.env`:
 
 </Steps>
 
-In modalità client il daemon può solo bloccare: non cambia mai un byte, quindi ogni richiesta arriva
-ad Anthropic esattamente come Claude Code l'ha costruita.
+In modalità client il daemon può solo bloccare: non cambia mai il corpo di una richiesta, che arriva
+ad Anthropic byte per byte. Delle sue intestazioni, Latet toglie solo quelle di telemetria e di
+tracing che aggiunge l'SDK di Claude Code (`x-stainless-*`, `traceparent`...) e quelle di Claude Code
+stesso che possono contenere testo libero, come gli id di un subagente, e le conta nella dashboard
+([Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie)).
 
 **Se il daemon non è in esecuzione**, il plugin prova ad avviarlo. Se non ci riesce, il plugin
 trattiene i contenuti invece di inviarli senza mascherarli: il tuo prompt non viene inviato, un
@@ -164,7 +168,12 @@ locale a mascherare. La stessa chiave di `.env`, questa volta con Codex:
 </Steps>
 
 Il provider vede sempre e solo valori fittizi; l'agente vede sempre e solo gli originali. I blocchi
-di thinking e il ragionamento cifrato passano intatti.
+di thinking, le loro firme e il ragionamento cifrato vengono rimandati come li ha prodotti il
+provider: Latet li ha visti arrivare dal provider in quella conversazione oppure, dopo un riavvio,
+lascia passare i campi cifrati del provider stesso con una regola integrata, solo nei turni del
+modello e solo verso l'indirizzo del provider. Ogni altra parte della richiesta, compresi
+l'indirizzo, la query e le intestazioni, viene letta prima che esca, e una parte che Latet non conosce
+ferma la richiesta ([Ogni parte di una richiesta](../protection-scope/#ogni-parte-di-una-richiesta)).
 
 Un controllo finale legge poi i testi di ogni richiesta prima che esca, quelli che Latet maschera,
 come in modalità client, e ferma quella che lascerebbe uscire un valore in chiaro, dicendo perché.

@@ -55,7 +55,7 @@ description: Reference for the latet command line.
 | `latet project init` | Write a latet.yaml to start from, at the root of the project's repository. |
 | `latet project show` | What applies in a project: its latet.yaml, your own settings for it, and what is ignored. |
 | `latet project check` | Check a project's latet.yaml, recognizers included (for CI, too). |
-| `latet project off` | Turn Latet off in a project: nothing is masked or blocked there (in your own settings only). |
+| `latet project off` | Turn Latet off in a project: its agents' requests are refused there, never sent unmasked; start an agent without Latet to reach its provider directly (in your own settings only). |
 | `latet project on` | Turn Latet on again in a project. |
 | `latet repositories` | The repositories Latet remembers, each with its state; forget one that stays unreadable. |
 | `latet repositories forget` | Take a repository out of the list, the daemon's memory too: no change is weighed in it until a conversation reaches it again. It lowers protection: run it yourself, in a terminal of your own. |
@@ -76,7 +76,7 @@ description: Reference for the latet command line.
 | `latet server` | Latet on a server: one Latet for the computers and programs of a team or a company. |
 | `latet server init` | Prepare a Latet server: its master key, the database's tables, and the first administration token. |
 | `latet server migrate` | Bring the database's tables to this version of Latet (one machine at a time: the others wait for it). |
-| `latet server run` | Run an instance of the Latet server in the foreground: the container's command, and the services'. |
+| `latet server run` | Run the Latet server in the foreground: one instance, or several with `--workers`. The container's command, and the services'. |
 | `latet server ready` | Whether this machine's instance answers ready (PostgreSQL and Valkey answer it): exit 0, else 1. |
 | `latet server certificate` | Show a certificate's fingerprint and expiry, or make a self-signed one for a first try. |
 | `latet server status` | The server's status, vault limits, log chain and edition checks. |
@@ -128,8 +128,7 @@ Run the gateway in the foreground.
 | --- | --- | --- |
 | `--port` `INT` |  | Local port to listen on (127.0.0.1 only). |
 | `--capture` `PATH` |  | Write raw exchanges (credentials redacted) to this local directory. |
-| `--log-level` `TEXT` | `info` | uvicorn log level. |
-| `--passthrough`, `--no-passthrough` | off | Forward without masking (debugging only). |
+| `--log-level` `TEXT` | `info` | The log's level: debug, info, warning or error. |
 | `--host` `TEXT` |  | The address to listen on: 127.0.0.1, or 0.0.0.0 in the container image. |
 
 ## `latet start`
@@ -234,7 +233,10 @@ data folder (`backups/before-<version>-<time>`; the three newest copies are kept
 made stops the upgrade with nothing changed. Then it stops the daemon and starts it again after. On Windows,
 which replaces no file of a program that runs, it installs the release in a window of its own once the
 command has ended. Where name detection and the text in images cannot be installed, a Latet that has
-neither is installed without them; one that has them is left as it was.
+neither is installed without them; one that has them is left as it was. The other extras this Latet was
+installed with stay (a server's `server`), as uv's record of that install names them. A Latet uv installed
+in folders other than the ones it installs in now (a server's, with UV_TOOL_DIR) is left as it is: the
+command stops before anything changes and says the command to run instead.
 
 With `--to` it installs that release instead; an older one only when you run it yourself, never an agent.
 Going back to a version a copy was taken under, it offers to put that copy back, and says how many values
@@ -595,7 +597,8 @@ error or when there is no file.
 
 ## `latet project off`
 
-Turn Latet off in a project: nothing is masked or blocked there (in your own settings only).
+Turn Latet off in a project: its agents' requests are refused there, never sent unmasked; start an agent
+without Latet to reach its provider directly (in your own settings only).
 
 | Argument | | Description |
 | --- | --- | --- |
@@ -854,11 +857,17 @@ Bring the database's tables to this version of Latet (one machine at a time: the
 
 ## `latet server run`
 
-Run an instance of the Latet server in the foreground: the container's command, and the services'.
+Run the Latet server in the foreground: one instance, or several with `--workers`. The container's command, and
+the services'.
+
+The workers share the one port, PostgreSQL and Valkey, as instances on several machines do: each has its own
+memory, connections and metrics port (metrics_port for the first, the next port for each other), and is started
+again when it ends or goes silent.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `--config` `PATH` |  | The server's settings file (server.yaml); its LATET_SERVER_* variables win over it. |
+| `--workers` `INT RANGE` |  | How many instances to run on this machine, on the one port, each a process of its own (default: workers, 1). More than one needs Linux or the container image. |
 
 ## `latet server ready`
 

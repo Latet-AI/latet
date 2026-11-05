@@ -86,5 +86,6 @@
   "why.lostRules": { "page": "dashboard/", "anchor": "rules" },
   "why.lostProject": { "page": "dashboard/", "anchor": "rules-of-a-project" },
   "why.projectNotices": { "page": "concepts/projects/", "anchor": "the-project-file" },
-  "why.importHeld": { "page": "concepts/export-import/", "anchor": "your-rules-for-a-colleague" }
+  "why.importHeld": { "page": "concepts/export-import/", "anchor": "your-rules-for-a-colleague" },
+  "section.approveException": { "page": "getting-started/upgrading-to-0-11/", "anchor": "approving-an-exact-exception" }
 }

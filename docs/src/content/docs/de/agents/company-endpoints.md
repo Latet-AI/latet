@@ -112,7 +112,8 @@ Die FIPS-Adresse von Bedrock und ein VPC-Endpunkt sind andere Fälle: siehe
 Anfragen an Bedrock werden geprüft, nie umgeschrieben: Sie kommen von Claude Code, dessen Plugin
 sie bereits maskiert hat. Die Antworten von Bedrock erreichen Claude Code genau so, wie Amazon sie
 gesendet hat; Latet liest sie nur, um sie im Dashboard anzuzeigen. Modell-IDs und ARNs von
-Inferenzprofilen erreichen Amazon genau so, wie Claude Code sie geschrieben hat.
+Inferenzprofilen erreichen Amazon genau so, wie Claude Code sie geschrieben hat; ein ARN muss
+zuerst in `request_resources` aufgelistet sein ([weiter unten](#was-ein-ziel-durchlässt)).
 
 ## Google Vertex
 
@@ -129,6 +130,30 @@ oder `ANTHROPIC_FOUNDRY_BASE_URL`) und Codex auf Azure OpenAI (ein Anbieter, des
 `https://<resource>.openai.azure.com/openai/v1` ist) sind Ziele wie ein Gateway: Die Adresse der
 Ressource wird gespeichert (`foundry-acme`, `azure-acme`), und der Schlüssel geht unverändert
 durch.
+
+## Was ein Ziel durchlässt
+
+Latet liest jeden Teil einer Anfrage an ein Ziel, wie an einen Anbieter
+([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)). Das `request_profile`
+eines Ziels, beim Ziel in [`upstreams`](../../reference/configuration/#upstreams-items) gesetzt, sagt,
+welche Aufrufe es annimmt: `standard` (die eigenen Routen der APIs von Anthropic und OpenAI, der
+Standard), `azure-openai-1` (Azure OpenAI, mit seiner `api-version`) oder `foundry-1` (Microsoft
+Foundry). Jeder andere Aufruf wird abgelehnt.
+
+- **Seine Zugangsdaten.** Ein Gateway, das seinen Schlüssel in `authorization` oder `x-api-key`
+  erwartet, braucht nichts weiter. Eines, das ihn in einem eigenen Header (`x-acme-key`) will, lehnt
+  ab, bis eine Ausnahme diesen Header als Zugangsdaten des Ziels nennt, die Latet sendet, wie sie
+  kamen, und nie liest: siehe
+  [Eine genaue Ausnahme genehmigen](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen).
+- **Seine Modellnamen und Versionen.** Eine Modell-ID in der dokumentierten Form eines Anbieters geht
+  durch. Die eigenen Namen eines Gateways (`acme-large`), die `api-version`, die ein Ziel für Azure
+  OpenAI oder Foundry annimmt, jeder Bedrock-ARN, auch der eines Anwendungs-Inferenzprofils, und ein
+  Vertex-Projekt werden zuerst in `request_resources` aufgelistet:
+  [Bedrock und Vertex: was aufzulisten ist](../../getting-started/upgrading-to-0-11/#bedrock-und-vertex-was-aufzulisten-ist).
+- **Thinking-Signaturen über ein Gateway.** Eine Unterhaltung über LiteLLM oder ein anderes
+  Gateway, das die Thinking-Signaturen von Claude weiterreicht, geht durch, solange Latet sich
+  erinnert, sie zurückkommen gesehen zu haben. Nach einem Neustart des Daemons wird ihre nächste Runde
+  abgelehnt: Beginnen Sie eine neue Unterhaltung.
 
 ## Ein Modell auf diesem Rechner
 
@@ -154,17 +179,17 @@ lokalen Netzwerk und im Internet laufen immer über Latet.
   Organisation `ANTHROPIC_BASE_URL` (oder die Adresse einer Cloud) auf etwas anderes setzen, kann
   nichts sie überschreiben. Latet sagt das und startet Claude Code nicht. Ihre IT kann diese Adresse
   auf Latet setzen, wie unten beschrieben.
-- **Die Mantle API von Amazon Bedrock** (`CLAUDE_CODE_USE_MANTLE`): Latet kann sie noch nicht lesen.
+- **Die Mantle API von Amazon Bedrock** (`CLAUDE_CODE_USE_MANTLE`): Latet liest sie nicht.
   Verwenden Sie die Invoke API von Bedrock (`CLAUDE_CODE_USE_BEDROCK`) oder das Gateway Ihres
   Unternehmens.
 - **Amazon Bedrock über einen VPC-Endpunkt** (eine `ANTHROPIC_BEDROCK_BASE_URL` auf
-  `vpce-….vpce.amazonaws.com`): noch nicht unterstützt. Latet müsste für diesen Endpunkt signieren,
+  `vpce-….vpce.amazonaws.com`): nicht unterstützt. Latet müsste für diesen Endpunkt signieren,
   und Amazon lehnt eine Signatur ab, die für die Adresse von Latet erstellt wurde. Latet sagt das und
   startet Claude Code nicht: Verwenden Sie die öffentliche Adresse von Bedrock oder das Gateway Ihres
   Unternehmens. Mit einem API-Schlüssel für Bedrock (`AWS_BEARER_TOKEN_BEDROCK`) muss nichts
   signiert werden, und der Endpunkt ist ein Ziel wie jede Adresse eines Unternehmens.
 - **Die FIPS-Adresse von Amazon Bedrock** (eine `ANTHROPIC_BEDROCK_BASE_URL` auf
-  `bedrock-runtime-fips.us-east-1.amazonaws.com`): noch nicht unterstützt. Latet kann nur an die
+  `bedrock-runtime-fips.us-east-1.amazonaws.com`): nicht unterstützt. Latet kann nur an die
   Standardadresse senden, die kein FIPS-Endpunkt ist, also sagt es das und startet Claude Code nicht,
   statt Ihre FIPS-Anforderung fallen zu lassen. Verwenden Sie das Gateway Ihres Unternehmens oder
   die Standardadresse, wenn Sie FIPS nicht brauchen. Mit einem API-Schlüssel für Bedrock

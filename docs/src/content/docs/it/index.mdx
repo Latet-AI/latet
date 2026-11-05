@@ -39,7 +39,7 @@ controllata prima di uscire, qualunque sia la fonte del testo che contiene:
 | Pagine web | Un pannello di amministrazione che l'agente apre con uno strumento di navigazione web | I dati personali nel testo della pagina vengono mascherati |
 | Istruzioni | CLAUDE.md, AGENTS.md, il prompt di sistema | Il tuo nome, il nome utente, il nome host e il dominio aziendale vengono mascherati |
 | Cronologia | Una sessione ripresa dieci giorni dopo | Lo stesso valore riceve lo stesso valore fittizio, ogni volta |
-| Screenshot | Lo screenshot di una fattura | Con il [riconoscimento del testo](concepts/images/) facoltativo, il testo che contiene viene letto sul tuo computer e ogni valore viene coperto con il suo valore fittizio; i PDF vengono segnalati, o non inviati (`images: block`) |
+| Screenshot | Lo screenshot di una fattura | Con il [riconoscimento del testo](concepts/images/) facoltativo, il testo che contiene viene letto sul tuo computer e ogni valore viene coperto con il suo valore fittizio; senza, e con un PDF, la richiesta non viene inviata |
 | Ciò che nessun pattern individua | *"Mark dell'ufficio vendite sta facendo colloqui di nascosto con un concorrente"* | Il [revisore locale](concepts/llm-review/) facoltativo, un modello linguistico tuo, lo trova prima che esca, seguendo le istruzioni di Latet e [le tue indicazioni](concepts/llm-review/#le-tue-indicazioni): cosa conta come sensibile nel tuo lavoro, ovunque o in un solo progetto |
 
 ## Come protegge
@@ -104,7 +104,7 @@ Windsurf e gli altri strumenti le cui richieste partono dai server del produttor
 <CardGrid>
 	<LinkCard
 		title="Abbonamenti Claude Pro e Max"
-		description="Claude Code funziona senza modifiche e accede con il proprio login; ogni richiesta esce così come l'ha costruita Claude Code."
+		description="Claude Code funziona senza modifiche e accede con il proprio login; il corpo di ogni richiesta esce byte per byte, e vengono tolte e contate solo poche intestazioni."
 		href="agents/claude-code/#abbonamenti-pro-e-max"
 	/>
 	<LinkCard

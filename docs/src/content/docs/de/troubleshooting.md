@@ -32,7 +32,7 @@ latet status
 latet start
 ```
 
-`latet status` gibt `running: Latet 0.10.4 on 127.0.0.1:5283 (masking), pid 12345` aus, wenn der
+`latet status` gibt `running: Latet 0.10.3 on 127.0.0.1:5283 (masking), pid 12345` aus, wenn der
 Daemon läuft, sonst `not running`. Wenn Sie Latet stattdessen nicht mehr verwenden möchten, führen
 Sie zuerst `latet global-uninstall` aus: Er stellt den vorherigen Zustand Ihrer Agenten wieder her.
 Siehe [Deinstallation](../getting-started/uninstall/).
@@ -177,6 +177,46 @@ Im Gateway-Modus bedeutet ein Fehler mit `Latet: masking failed` oder `Latet: un
 dass der Daemon die Anfrage nicht maskieren konnte und sie deshalb abgelehnt hat.
 Das Log des Daemons sagt, warum.
 
+### Ein Teil einer Anfrage wird abgelehnt
+
+Latet liest jeden Teil einer Anfrage, und ein Fehler wie dieser bedeutet, dass es einen Teil
+abgelehnt hat, den es nicht liest, und nichts gesendet hat:
+
+```text
+Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
+```
+
+Der Teil in Klammern nennt die Art:
+
+- `envelope-header-unknown`: ein Header, den kein Profil nennt, oft einer, den Sie für den Agenten
+  gesetzt haben (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` von Codex, `COPILOT_PROVIDER_HEADERS`).
+  Nehmen Sie ihn aus den Einstellungen des Agenten heraus, oder lassen Sie ihn mit einer genauen
+  Ausnahme durch.
+- `envelope-header-value`: ein Header, den Latet kennt, mit einem Wert außerhalb seiner Form.
+- `envelope-query-unknown`: ein Abfrageparameter, den kein Profil nennt.
+- `envelope-route`: ein Aufruf, den Latet nicht liest, etwa Dateien, Batches oder Audio. Der Agent
+  erfährt, dass diese Version von Latet den Aufruf nicht unterstützt. Keine Ausnahme nennt eine
+  Route: Ändern Sie die Einstellungen des Agenten so, dass er den Aufruf nicht macht, oder führen Sie
+  ihn ohne Latet aus.
+- `envelope-resource`: ein Bedrock-ARN, ein Vertex-Projekt oder ein Modellname außerhalb der von den
+  Anbietern dokumentierten Formen: Listen Sie ihn in `request_resources` auf.
+- `envelope-exception-expired`: Die Ausnahme, die es durchließ, ist abgelaufen; der Fehler nennt sie
+  und den Tag. Verlängern Sie sie.
+- `request body refused (unknown member in top-level)`, `(unknown member in message content
+  block)`, `(unknown member in tool definition)`...: ein Element des Inhalts, das kein Profil nennt,
+  und wo es steht. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), geht ein
+  neues Element mit Text durch, sobald es geprüft ist. Eine genaue Ausnahme kann ein anderes über
+  seinen JSON-Pointer nennen: Das Dashboard zeichnet seine Ablehnung als `body-unknown-member` auf. In
+  einem eigenen Element des Anbieters (`provider item`: Thinking, Reasoning) oder in der Quelle eines
+  Bildes (`inline image`) und in jedem WebSocket-Frame erreicht es keine: Die Ablehnung wird als
+  `body-unknown-member-no-exception` aufgezeichnet, und das Dashboard sagt, dass keine Ausnahme es
+  erreicht. Ein solches Element wird abgelehnt, bis eine Version von Latet es liest.
+- `Latet cannot read this document, audio or remote media, so it does not send it`: Geben Sie dem
+  Agenten stattdessen den Text.
+
+[Umstieg auf 0.11](../getting-started/upgrading-to-0-11/) sagt, was in jedem Fall zu tun ist und wie
+Sie eine Ausnahme genehmigen.
+
 ### Der Auto-Modus meldet, sein Prüfer sei vorübergehend nicht verfügbar
 
 Im Auto-Modus fragt Claude Code ein Prüfmodell, ob jede Aktion sicher ist. Wenn Latet diese Prüfung
@@ -270,11 +310,13 @@ Sie die Einstellung auf `0`, um den Schutz auszuschalten.
 - Es gilt nur die nächstgelegene `latet.yaml`, vom Ordner des Agenten bis hinauf zum
   Stammverzeichnis des Repositorys. Siehe [Projekte](../concepts/projects/).
 
-### In einem Projekt wird nichts maskiert
+### Jede Anfrage in einem Projekt wird abgelehnt
 
-Latet ist dort vielleicht ausgeschaltet: Das Dashboard markiert diese Austausche mit *Latet aus*.
-`latet project show` zeigt das an, und `latet project on` schaltet es wieder ein. Ein Projekt mit
-*Nur Geheimnisse* maskiert geheime Werte und Ihre Begriffe und lässt personenbezogene Daten durch.
+Latet ist dort ausgeschaltet: Seit 0.11 sendet ein Projekt, in dem Latet aus ist, keine seiner
+Anfragen, und der Agent erfährt es. Das Dashboard markiert diese Austausche mit *Latet aus*,
+`latet project show` zeigt das an, und `latet project on` schaltet es wieder ein. Um dort
+personenbezogene Daten durchzulassen, stellen Sie es auf *Nur Geheimnisse*, das geheime Werte und
+Ihre Begriffe maskiert und die Anfragen hinausgehen lässt.
 
 ### Ein Wert wird maskiert, der nicht maskiert werden sollte
 
@@ -511,13 +553,20 @@ irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | 
 
 Ein heruntergeladenes Wheel funktioniert ebenso: sein Pfad anstelle der Adresse.
 
+`LATET_SOURCE` wird so installiert, wie es angegeben ist: Ein Latet mit weiteren Extras behält sie
+nur, wenn es sie ebenfalls nennt. Auf einem Server gehört also auch `server` dazu, wie in
+`latet[ner,ocr,server] @ …`; `latet upgrade` sagt, welche Extras zu nennen sind. Ein als
+Betriebssystemdienst installierter Server wird aktualisiert, wie es der
+[Serverbetrieb](../concepts/server-operations/#ein-als-betriebssystemdienst-installiertes-latet-aktualisieren)
+beschreibt.
+
 ## FAQ
 
 ### Funktioniert es mit einem Abonnement Claude Pro oder Max?
 
 Ja, ohne API-Schlüssel: Dafür ist der Client-Modus da. Claude Code läuft unverändert, Sie verwenden
-seine eigene Anmeldung, das Plugin maskiert in Claude Code selbst, und der Daemon leitet jede Anfrage
-Byte für Byte weiter. Siehe [Claude Code](../agents/claude-code/#pro--und-max-abonnements).
+seine eigene Anmeldung, das Plugin maskiert in Claude Code selbst, und der Daemon leitet den Inhalt
+jeder Anfrage Byte für Byte weiter. Siehe [Claude Code](../agents/claude-code/#pro--und-max-abonnements).
 
 ### Können Hermes Agent oder OpenClaw über Latet mein Claude-Abonnement nutzen?
 
@@ -584,10 +633,23 @@ Extra `ocr`; ein Latet, das ohne dieses Extra installiert wurde, bekommt es mit 
 Der Text in Screenshots und Bildern wird dann auf Ihrem Rechner gelesen und maskiert, und jeder Wert
 wird im Bild mit seinem Ersatzwert überdeckt. Siehe [Screenshots und Bilder](../concepts/images/).
 
-PDFs und andere Dokumente werden nicht gelesen: Sie werden unverändert gesendet, und das Dashboard
-markiert diese Anfragen mit *Nicht gelesen*. Hängen Sie keine Dateien mit sensiblen Daten an, oder
-setzen Sie `images: block` (das Profil `max` tut dasselbe), damit eine Anfrage, die eine solche
-Datei enthält, nicht gesendet wird.
+Ohne sie wird eine Anfrage mit einem Bild nicht gesendet. PDFs und andere Dokumente werden nicht
+gelesen, daher wird auch eine Anfrage, die eines enthält, nicht gesendet: Geben Sie dem Agenten
+stattdessen den Text.
+
+### Ein Bild wurde abgelehnt
+
+Der Agent hat statt einer Antwort einen Fehler erhalten, und nichts wurde gesendet:
+
+- *Latet cannot read this image's text: text recognition is not installed...*: Die Texterkennung ist nicht
+  installiert, oder `ocr: off` ist gesetzt. Installieren Sie sie (`latet ocr install` auf einem Rechner; auf einem Latet-Server installiert sie seine Administration), setzen Sie dann die Unterhaltung auf
+  den Stand vor dem Bild zurück oder beginnen Sie eine neue, da das Bild in ihrem Verlauf bleibt.
+- *Latet cannot read all of this image's metadata or embedded images...*: Bei einer Anfrage, die
+  Latet nur prüft, wie denen von Claude Code, enthielt ein Foto einen Standort, Herstellerangaben der
+  Kamera, eine Vorschau oder ein zweites Bild. Entfernen Sie sie und hängen Sie es erneut an, wie
+  [Fotos und ihre Metadaten](../concepts/images/#fotos-und-ihre-metadaten) sagt.
+- *Latet cannot fully inspect original WebP images in verify-only mode...*: Exportieren Sie das Bild
+  als PNG und hängen Sie es erneut an.
 
 ### Ein Bild wurde zurückgehalten
 

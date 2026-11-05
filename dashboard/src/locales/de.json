@@ -267,7 +267,7 @@
     },
     "uninspected": {
       "label": "Nicht gelesen",
-      "help": "Ein Teil dieser Anfrage wurde nicht gelesen ({{detail}}): PDFs und andere Dokumente, per Adresse eingebundene Bilder sowie Bilder, solange die Texterkennung ausgeschaltet oder nicht installiert ist, werden unverändert gesendet."
+      "help": "Ein Teil dieser Anfrage wurde nicht gelesen ({{detail}}): Dokumente, Bilder über ihre Adresse und Bilder, während die Texterkennung ausgeschaltet oder nicht installiert ist. Latet 0.11 lehnt eine solche Anfrage ab; eine ältere Version hat sie unverändert gesendet."
     },
     "degraded": {
       "label": "Eingeschränkt",
@@ -279,7 +279,11 @@
     },
     "project-off": {
       "label": "Latet aus",
-      "help": "Latet ist in diesem Projekt ausgeschaltet (Ihre eigenen Einstellungen dafür): Die Anfrage wurde unverändert gesendet, und nur für Ersatzwerte, die schon in der Unterhaltung standen, wurden die echten Werte wieder eingesetzt."
+      "help": "Latet ist in diesem Projekt ausgeschaltet (in Ihren eigenen Einstellungen dafür). Latet 0.11 lehnt eine solche Anfrage ab, statt sie unmaskiert zu senden; eine ältere Version hat sie unverändert gesendet."
+    },
+    "project-claimed": {
+      "label": "Projekt nur behauptet",
+      "help": "Ein Header oder ein Ordner im Text der Anfrage nennt ihr Projekt, was Latet nicht prüfen kann: Es galten nur die Regeln des Projekts, die den Schutz verstärken, nie seine Lockerungen oder Ausnahmen."
     },
     "withheld": {
       "label": "Zurückgehalten",
@@ -695,7 +699,8 @@
       "noNewBlocks_one": "Nichts Neues: Der Block wurde bereits zuvor gesendet.",
       "noNewBlocks_other": "Nichts Neues: Alle {{count}} Blöcke wurden bereits zuvor gesendet.",
       "noBlocks": "Keine Textblöcke aufgezeichnet."
-    }
+    },
+    "launch": "Start:"
   },
   "exchange": {
     "back": "Live",
@@ -714,6 +719,12 @@
       "verifiedNothing": "Nichts darin musste maskiert werden.",
       "notVerified": "Nicht verifiziert.",
       "notVerifiedDetail": "Die abschließende Prüfung hat diese Anfrage nicht bestätigt. Sehen Sie sich die Markierungen und Lecks unten an.",
+      "partlyUnread": "Nichts Sensibles im Klartext in dem, was Latet gelesen hat.",
+      "partlyUnreadDetail": "Nicht jeder Teil wurde gelesen: Was ungelesen durchging und nach welcher Regel, steht unten.",
+      "notRecorded": "Von einer älteren Version von Latet aufgezeichnet.",
+      "notRecordedDetail": "Wie viel sie von dieser Anfrage gelesen hat, wurde nicht aufgezeichnet, daher wird sie nicht als geprüft angezeigt.",
+      "pluginCheck": "Eine Prüfung des Claude-Code-Plugins.",
+      "pluginCheckDetail": "Sie lief in Claude Code und hat selbst nichts gesendet; die Anfrage, die sie gelesen hat, ist ein eigener Austausch.",
       "uninspected": "Die Prüfung umfasst nur Text: Latet hat {{what}} unverändert gesendet.",
       "reviewAllowed": "An den Prüfer des Auto-Modus gesendet.",
       "reviewAllowedDetail": "Die Anfrage enthielt {{what}}, und Ihre Regeln lassen das zum Prüfer durch. Geheime Werte und personenbezogene Daten gehen nie durch."
@@ -1077,7 +1088,8 @@
       "action": "Anzeigen",
       "hide": "Ausblenden",
       "hidden": "Verborgen",
-      "shown": "{{seconds}} Sekunden lang angezeigt, dann wieder verborgen."
+      "shown": "{{seconds}} Sekunden lang angezeigt, dann wieder verborgen.",
+      "launchKey": "Latet-Startschlüssel"
     },
     "forget": {
       "action": "Vergessen",
@@ -1303,7 +1315,7 @@
       "noModel": "Der Text in Bildern wird noch nicht gelesen: Laden Sie die Modelle für die Texterkennung herunter (etwa 31 MB, einmalig).",
       "toggle": "Text in Bildern lesen",
       "on": "Screenshots werden auf diesem Rechner gelesen, und was Ihre Regeln maskieren, wird mit seinem Ersatzwert überdeckt.",
-      "off": "Bilder werden unverändert gesendet, und das Dashboard markiert sie."
+      "off": "Bilder werden nicht gelesen: Eine Anfrage mit einem Bild wird abgelehnt."
     },
     "ner": {
       "title": "Lokale Namenserkennung",
@@ -1777,7 +1789,7 @@
       "off": "Aus",
       "onHelp": "Ihre globalen Regeln, ergänzt um die des Projekts.",
       "secretsHelp": "Hier werden nur geheime Werte maskiert: Schlüssel, Tokens, Passwörter. Personenbezogene Daten werden unverändert gesendet.",
-      "offHelp": "In diesem Projekt wird nichts maskiert oder blockiert, auch keine geheimen Werte: Anfragen werden unverändert gesendet. Für Ersatzwerte, die schon in einer Unterhaltung stehen, werden die echten Werte weiterhin wieder eingesetzt."
+      "offHelp": "Anfragen von Agenten, die in diesem Projekt arbeiten, werden abgelehnt: Latet sendet sie nie unmaskiert. Um einen Anbieter aus diesem Ordner direkt zu erreichen, starten Sie den Agenten ohne Latet, mit Einstellungen, die auf den Anbieter zeigen."
     },
     "effective": {
       "title": "Wirksam",
@@ -2268,6 +2280,154 @@
     "elsewhere": {
       "title": "Starten Sie das Tutorial in einem Terminal",
       "body": "Dies ist Ihr eigenes Latet. Das Tutorial läuft in einer eigenen Sandbox, mit einem simulierten Agenten und einem simulierten Modell, und öffnet sich in Ihrem Browser. In einem Terminal:"
+    }
+  },
+  "coverage": {
+    "title": "Abdeckung",
+    "blocked": {
+      "before": "Vor dem Senden gestoppt: Nichts davon hat den Anbieter erreicht.",
+      "attempted": "Nach einem Versuch gestoppt: Ein früherer Versuch hat den Anbieter möglicherweise schon erreicht."
+    },
+    "refusal": {
+      "header": "Sie enthielt einen Header, den kein Anfrageprofil vorsieht.",
+      "query": "Sie enthielt einen Abfrageparameter, den kein Anfrageprofil vorsieht.",
+      "body-member": "Ihr Inhalt enthielt ein Feld, das kein Anfrageprofil vorsieht.",
+      "body-member-closed": "Ihr Inhalt enthielt ein Feld, das kein Anfrageprofil vorsieht, an einer Stelle, die keine Ausnahme erreicht (in einem Element des Anbieters, der Quelle eines Bildes oder einem WebSocket-Turn).",
+      "route": "Kein eingebautes Anfrageprofil deckt ihre Route ab.",
+      "expired": "Die Anfrage-Ausnahme, die sie durchgelassen hat, ist abgelaufen.",
+      "resource": "Sie nannte ein Modell, eine Ressource oder eine Region, die Latet nicht an ihrer Form erkennt.",
+      "sensitive": "Ihre Adresse oder ihre Header enthielten einen sensiblen Wert.",
+      "auth": "Zugangsdaten konnten nicht gelesen werden oder wurden abgelehnt.",
+      "egress": "Ihr Ziel darf von diesem Rechner aus nicht erreicht werden.",
+      "parse": "Ein Teil ließ sich nicht so lesen, wie sein Protokoll es vorsieht, daher konnte Latet nicht für alles davon einstehen.",
+      "limit": "Sie ging über das hinaus, was Latet von einer Anfrage liest, oder Latet war zu ausgelastet.",
+      "state": "Ein Zustand, den Latet für die Entscheidung braucht, konnte nicht gelesen werden.",
+      "masking": "Das Maskieren ist fehlgeschlagen.",
+      "other": "Die Regeln von Latet lassen sie nicht hinaus."
+    },
+    "remedy": {
+      "exception": "Eine genaue Anfrage-Ausnahme lässt sie durch: Nennen Sie den Header oder den Parameter unter request_exceptions in Ihren Einstellungen und genehmigen Sie die Änderung auf der Seite Freigaben.",
+      "exception-docs": "Eine genaue Anfrage-Ausnahme, in Ihren Einstellungen genannt und von Ihnen genehmigt, kann ein solches Feld durchlassen:",
+      "exceptionDocsLink": "wie Sie eine genehmigen",
+      "renew": "Eine Verlängerung ist eine neue Genehmigung: Ändern Sie die Ausnahme in Ihren Einstellungen und genehmigen Sie die Änderung.",
+      "resource": "Tragen Sie den Wert unter request_resources in Ihren Einstellungen für dieses Ziel ein.",
+      "websocket": "Ein WebSocket nimmt in dieser Version von Latet keine Anfrage-Ausnahme an.",
+      "none": "Keine Anfrage-Ausnahme kann dies durchlassen."
+    },
+    "outcome": {
+      "read": "Jeder Teil der Anfrage wurde gelesen, nichts ist ungelesen hinausgegangen.",
+      "passed": "Gelesen und durchgelassen durch:",
+      "unread": "Ein Teil ist ungelesen hinausgegangen, wie die hier genannten Regeln es erlauben, daher wird sie nicht als geprüft angezeigt.",
+      "unknown": "Wie viel Latet von dieser Anfrage gelesen hat, wurde nicht aufgezeichnet: Eine ältere Version von Latet hat sie aufgezeichnet."
+    },
+    "allowedByRule": "durch eine Regel erlaubt",
+    "pass": {
+      "checked-only": "nur geprüft (Werte, die die abschließende Prüfung gelesen hat und nicht maskieren musste)",
+      "image-remainder": "durch eine Regel erlaubt: der Rest eines Bildes, dessen Text gelesen wurde",
+      "sent-before": "Text, der in diesem Gespräch schon gesendet wurde",
+      "model-written": "Text, den das Modell geschrieben hat",
+      "provider-echo": "ein undurchsichtiges Element des Anbieters, das er früher in diesem Gespräch gesendet hat, ungelesen durchgelassen",
+      "provider-encrypted": "durch eine Regel erlaubt: ein verschlüsseltes Feld des Anbieters, ungelesen durchgelassen",
+      "exception": "eine Anfrage-Ausnahme, die Sie genehmigt haben"
+    },
+    "launch": {
+      "launched": "Von Latet gestartet, Schlüssel geprüft",
+      "launched-key-missing": "Von Latet gestartet, Schlüssel fehlt",
+      "trusted": "Vom Claude-Code-Plugin gebunden",
+      "claimed": "Nicht von Latet gestartet",
+      "launchedHelp": "Latet hat diesen Agenten gestartet und den Schlüssel geprüft, den es ihm gegeben hat: Die Lockerungen und Ausnahmen des Projekts gelten.",
+      "keyMissingHelp": "Latet hat diesen Agenten gestartet, aber seine Anfragen trugen den Schlüssel von Latet nicht, daher wurden sie als nur behauptet behandelt: Es galten die Regeln des Projekts, die den Schutz verstärken, nicht seine Lockerungen oder Ausnahmen.",
+      "trustedHelp": "Das Claude-Code-Plugin hat diese Sitzung an ihr Projekt gebunden: Die Lockerungen und Ausnahmen des Projekts gelten.",
+      "claimedHelp": "Nichts, was Latet prüfen kann, sagt, woher diese Anfrage kommt: Ein Projekt, das sie nennt, kann den Schutz nur verstärken."
+    },
+    "project": {
+      "trusted": "Projekt {{name}}, vertrauenswürdig: Alle seine Regeln gelten.",
+      "claimed": "Projekt {{name}}, nur behauptet: Es galten nur seine Regeln, die den Schutz verstärken."
+    },
+    "removed": {
+      "headers_one": "Latet hat {{count}} Header entfernt, den sein Profil als entfernbar ausweist.",
+      "headers_other": "Latet hat {{count}} Header entfernt, die sein Profil als entfernbar ausweist.",
+      "members_one": "Latet hat {{count}} Feld des Inhalts entfernt, das sein Profil als entfernbar ausweist.",
+      "members_other": "Latet hat {{count}} Felder des Inhalts entfernt, die sein Profil als entfernbar ausweist.",
+      "authAfter": "Der Anbieter hat mit {{status}} geantwortet, nachdem Latet einen Header entfernt hatte: Vielleicht braucht er diesen Header."
+    },
+    "profile": "Anfrageprofil"
+  },
+  "exceptions": {
+    "title": "Anfrage-Ausnahmen",
+    "help": "Jede lässt genau das durch, was sie nennt, auf dem Anfrageprofil eines Ziels, und was Latet sonst ablehnen würde. Sie genehmigen jede einzeln; sie gilt so viele Tage, wie sie nennt (30, wenn sie keine nennt, höchstens 90), außer Sie haben sie dauerhaft gemacht.",
+    "empty": "Keine Anfrage-Ausnahmen.",
+    "yoursAlone": "Diese gehören nur Ihnen: Ausnahmen anderer Personen oder Schlüssel gelten nicht für Ihre Anfragen.",
+    "expiryWarning_one": "{{count}} Ausnahme endet innerhalb von 7 Tagen. Eine Verlängerung ist eine neue Genehmigung.",
+    "expiryWarning_other": "{{count}} Ausnahmen enden innerhalb von 7 Tagen. Eine Verlängerung ist eine neue Genehmigung.",
+    "columns": {
+      "what": "Was sie durchlässt",
+      "where": "Wo",
+      "who": "Für",
+      "state": "Status"
+    },
+    "component": {
+      "header": "Header",
+      "query": "Abfrageparameter",
+      "body": "Feld des Inhalts"
+    },
+    "role": {
+      "credential": "Die eigenen Zugangsdaten des Ziels, unverändert gesendet und nie gelesen",
+      "checked": "Ihr Wert wird vor dem Senden auf sensible Werte geprüft"
+    },
+    "reason": {
+      "destination-credential": "Zugangsdaten eines Ziels",
+      "custom-header": "Ein Header, den Sie für einen Agenten setzen",
+      "query-parameter": "Ein Abfrageparameter",
+      "other": "Andere"
+    },
+    "scope": {
+      "identity": "Jede Ihrer Anfragen, in jedem Projekt",
+      "project": "Anfragen des Projekts {{name}}, wenn Latet ihrem Projekt vertraut"
+    },
+    "issuer": {
+      "owner": "Von Ihnen genehmigt",
+      "person": "Von Ihnen genehmigt, auf dem Server",
+      "administration": "Von der Administration des Servers genehmigt"
+    },
+    "state": {
+      "pending": "Wartet auf Ihre Genehmigung",
+      "revised": "Muss neu genehmigt werden: Ihr Profil wurde überarbeitet",
+      "expiredLabel": "Abgelaufen",
+      "expiringLabel": "Läuft bald ab",
+      "activeLabel": "Aktiv",
+      "forbidden": "Nicht in Kraft: Diese Edition erlaubt keine dauerhaften Ausnahmen",
+      "expiring_one": "Noch {{count}} Tag",
+      "expiring_other": "Noch {{count}} Tage",
+      "until": "Bis {{date}}",
+      "ended": "Abgelaufen am {{date}}",
+      "approveThere": "Auf der Seite Freigaben genehmigen"
+    },
+    "permanent": "Dauerhaft",
+    "revoke": "Widerrufen",
+    "revokeOne": "Ausnahme {{id}} widerrufen",
+    "revoking": "Wird widerrufen…",
+    "revoked": "Ausnahme {{id}} widerrufen: Anfragen, die sie brauchen, werden wieder abgelehnt.",
+    "status": {
+      "uses_one": "{{count}} Verwendung einer Ausnahme seit dem Start des Daemons, im Speicher gezählt und bei seinem Neustart gelöscht.",
+      "uses_other": "{{count}} Verwendungen von Ausnahmen seit dem Start des Daemons, im Speicher gezählt und bei seinem Neustart gelöscht.",
+      "historyOff": "Der Verlauf ist ausgeschaltet: Diese Zählungen sind alles, was von den Verwendungen der Ausnahmen bleibt.",
+      "summed": "Über die Instanzen des Servers summiert.",
+      "instanceAlone": "Die Zählungen der anderen Instanzen konnten nicht gelesen werden: nur die dieser Instanz.",
+      "overflow_one": "{{count}} Verwendung konnte nicht gezählt werden: Die Zählungen sind voll.",
+      "overflow_other": "{{count}} Verwendungen konnten nicht gezählt werden: Die Zählungen sind voll."
+    },
+    "change": {
+      "title": "Anfrage-Ausnahmen, die diese Änderung durchlässt",
+      "added": "Neu",
+      "widened": "Erweitert",
+      "madePermanent": "Dauerhaft gemacht",
+      "renewed": "Verlängert",
+      "identityWarning": "Sie gilt für Ihre ganze Identität: jede Ihrer Anfragen, in jedem Projekt, nicht nur ein Projekt.",
+      "projectOnly": "Nur für Anfragen des Projekts {{name}}, wenn Latet ihrem Projekt vertraut.",
+      "permanent": "Dauerhaft: Sie läuft nie ab. Genehmigen Sie sie nur, wenn Sie das bewusst gewählt haben.",
+      "lasts_one": "Sie gilt nach der Genehmigung {{count}} Tag.",
+      "lasts_other": "Sie gilt nach der Genehmigung {{count}} Tage."
     }
   }
 }

@@ -6,8 +6,10 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,8 +26,11 @@ from latet.gateway.aws import AwsCredentialStore
 from latet.gateway.capture import Capture
 from latet.gateway.cloud import CLOUD_UPSTREAMS
 from latet.gateway.forward import Forwarder, make_client
+from latet.gateway.launch_keys import LaunchControls, LaunchPrepare, LocalLaunchKeys
+from latet.gateway.local_launch import LocalLaunchDispatch, LocalLaunchIngress
 from latet.gateway.mediate import Mediator
 from latet.gateway.recorder import Recorder
+from latet.gateway.request_audit import RequestAudit
 from latet.gateway.routes import DEFAULT_UPSTREAMS, RouteTable, Upstream
 from latet.gateway.security import LocalOnlyMiddleware, url_hosts
 from latet.server.egress import EgressRefused
@@ -34,6 +39,10 @@ from latet.server.shared import personal_destination_problem
 DEFAULT_PORT = 5283
 _METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 _OWN = "/_latet"  # Latet's own paths: no destination's (a destination's name begins with a letter or a digit)
+
+if TYPE_CHECKING:
+    from latet.server.launch_requests import ServerLaunchRequests
+
 
 Pin = Callable[[str], Awaitable[tuple[str, str, dict[str, Any]]]]
 
@@ -87,12 +96,25 @@ class GatewayConfig:
     # On a server, the destinations of the identity's own, the shared ones being the administrator's: their address is
     # checked again when the server connects to them.
     personal_names: set[str] = field(default_factory=set)
+    request_resources: tuple[tuple[str, str, str, str], ...] = field(default=(), repr=False)
+    # Your approved request exceptions (``config.RequestException``), and the clock their lifetime is judged by as a
+    # request is decided (``Runtime.exception_clock``: PostgreSQL's on a server). None: this computer's.
+    request_exceptions: tuple[Any, ...] = field(default=(), repr=False)
+    exception_clock: Callable[[], datetime] | None = field(default=None, repr=False)
+    # On a server, RC-REC-3's read (``Spaces.exceptions_fresh``): the decision's clock and the settings' counts in one
+    # statement, the space's settings read again when PostgreSQL's are ahead. None: this computer's clock alone.
+    exception_fresh: Callable[[], Awaitable[tuple[datetime, bool]]] | None = field(default=None, repr=False)
+    request_audit: RequestAudit | None = field(default=None, repr=False)  # SAME Runtime-owned optional visibility
     # How: ``latet.server.egress.pin`` on a server (the identity's lookups counted for it), None on a computer.
     pin: Pin | None = None
     # Where a computer's two calls do their work on a server (the user name's fake, a destination its agent names): the
     # server's work threads (``latet.server.machines.in_work``, which raises for whatever the work raised), handed over
     # by the server as it builds the space; None on a computer, whose daemon takes a worker thread.
     work: Callable[[Callable[[], Any]], Awaitable[Any]] | None = None
+    launch_keys: LocalLaunchKeys | None = field(default=None, repr=False)  # Runtime owns; a computer bridge borrows
+    launch_prepare: LaunchPrepare | None = field(default=None, repr=False)
+    launch_controls: LaunchControls | None = field(default=None, repr=False)
+    protected_launch: ServerLaunchRequests | None = field(default=None, repr=False)
 
 
 def _checking(pin: Pin | None, on_server: OnServer | None) -> Pin | None:
@@ -115,14 +137,34 @@ def _checking(pin: Pin | None, on_server: OnServer | None) -> Pin | None:
     return checked
 
 
+async def _clock_fresh(config: GatewayConfig) -> tuple[datetime, bool]:
+    """RC-REC-3 on a computer, whose own settings are always the ones in force: its clock alone (the runtime's, which
+    a test may set), read in a worker thread."""
+    clock = config.exception_clock or (lambda: datetime.now(UTC))
+    return await asyncio.to_thread(clock), False
+
+
+def _fresh_of(config: GatewayConfig) -> Callable[[], Awaitable[tuple[datetime, bool]]]:
+    """The read a request that may be decided by a stored exception makes first, chosen once as the gateway is built
+    (Revision 9: one code path, its differences injected): this computer's clock, unless its builder gave one (a
+    server's space gives RC-REC-3's statement, ``Spaces.exceptions_fresh``). Each request calls what is given now: a
+    space gives its read once its app is made."""
+    if config.exception_fresh is None:
+        config.exception_fresh = partial(_clock_fresh, config)
+    return lambda: config.exception_fresh()  # type: ignore[misc]
+
+
 def create_app(config: GatewayConfig | None = None) -> Starlette:
     config = config or GatewayConfig()
     on_server = config.on_server
-    if config.mediator is not None and on_server is not None:  # what it does not read, it refuses (Mediator.on_server)
-        config.mediator.on_server = True
     fixed = config.fixed_routes
-    routes = config.routes = RouteTable(fixed if fixed is not None else [*config.upstreams, *config.destinations])
+    routes = config.routes = RouteTable(
+        fixed if fixed is not None else [*config.upstreams, *config.destinations],
+        config.request_resources,
+        config.request_exceptions if fixed is None else (),
+    )
     capture = Capture(config.capture_dir)
+    fresh = _fresh_of(config)
     state: dict[str, Forwarder] = {}
     pin = _checking(config.pin, on_server)
 
@@ -145,7 +187,8 @@ def create_app(config: GatewayConfig | None = None) -> Starlette:
             state["forwarder"] = Forwarder(
                 routes, capture, client, config.mediator, config.recorder, config.aws,
                 config.bridge_token if on_server is None else None,  # a server's AWS profiles are not its identities'
-                tutorial=config.tutorial, pin=pin, personal=personal, direct=direct,
+                tutorial=config.tutorial, pin=pin, personal=personal, direct=direct, request_audit=config.request_audit,
+                exception_fresh=fresh,
             )  # fmt: skip
             pruning: asyncio.Task[None] | None = None
             if config.recorder is not None and config.recorder.enabled:  # a history is also pruned by the clock
@@ -201,14 +244,33 @@ def create_app(config: GatewayConfig | None = None) -> Starlette:
             await websocket.close(code=4404)
             return
         await ws.relay(
-            websocket, routes, capture, config.mediator, config.recorder, config.tutorial, pin=pin, personal=personal
+            websocket,
+            routes,
+            capture,
+            config.mediator,
+            config.recorder,
+            config.tutorial,
+            pin=pin,
+            personal=personal,
+            request_audit=config.request_audit,
         )
 
     bridge_routes: list[Route] = []
     if config.mediator is not None and config.bridge_token:
         from latet.bridge.api import Bridge
 
-        bridge = Bridge(config.mediator, config.bridge_token, config.recorder, config.aws, on_server)
+        bridge = Bridge(
+            config.mediator,
+            config.bridge_token,
+            config.recorder,
+            config.aws,
+            on_server,
+            request_audit=config.request_audit,
+            launch_keys=config.launch_keys,
+            launch_prepare=config.launch_prepare,
+            launch_controls=config.launch_controls,
+            plugin_bindings=config.protected_launch.plugins if config.protected_launch is not None else None,
+        )
         bridge_routes = bridge.routes()
     # The applications API, in an API key's space on a server alone (its token, which the server's gate checks): a
     # computer has none, nor a person's space.
@@ -242,6 +304,10 @@ def create_app(config: GatewayConfig | None = None) -> Starlette:
             WebSocketRoute("/{path:path}", proxy_ws),
             Route("/{path:path}", proxy, methods=_METHODS),
         ],
-        middleware=[Middleware(LocalOnlyMiddleware, port=config.port, hosts=hosts)],
+        middleware=[
+            *([Middleware(LocalLaunchIngress, owner=config.launch_keys)] if on_server is None else []),
+            Middleware(LocalOnlyMiddleware, port=config.port, hosts=hosts),
+            *([Middleware(LocalLaunchDispatch)] if on_server is None else []),
+        ],
         lifespan=lifespan,
     )

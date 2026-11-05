@@ -8,17 +8,21 @@ import pydantic
 import pytest
 from starlette.testclient import TestClient
 
-from latet.config import Destination
+from latet.config import Config, Destination
+from latet.engine.build import build
+from latet.engine.vault import Vault
 from latet.gateway.app import GatewayConfig, create_app
 from latet.gateway.capture import Capture
 from latet.gateway.cloud import VertexUpstream, redact_access_log
 from latet.gateway.forward import error_shape, upstream_error
-from latet.gateway.mediate import Prepared
+from latet.gateway.mediate import Mediator, Prepared
 from latet.gateway.routes import DEFAULT_UPSTREAMS, Upstream
 
+from ..conftest import ROOT_KEY
 from ..e2e.fake_upstream import FakeUpstream
 
 KEY = "AIzaSyFAKE-key-0123456789"
+LOCAL = "http://127.0.0.1:5283"
 
 
 @pytest.fixture(scope="module")
@@ -41,10 +45,16 @@ def test_gemini_is_a_route_and_a_reserved_name():
 
 
 def test_the_key_reaches_google_as_it_was_sent(upstream, tmp_path):
-    config = GatewayConfig(upstreams=[Upstream("gemini", "/gemini", upstream.url, refuses_unread=True)])
-    with TestClient(create_app(config), base_url="http://127.0.0.1:5283") as client:
-        client.get("/gemini/v1beta/models", headers={"x-goog-api-key": KEY})
-        client.get(f"/gemini/v1beta/models?key={KEY}&pageSize=5")
+    # With request protection on: a gateway without it refuses every request since 855a0188 (passthrough is gone).
+    built = build(Config.model_validate({"profile": "balanced", "ner": "off"}), Vault(ROOT_KEY))
+    mediator = Mediator(built.engine, built.verifier)
+    upstreams = [Upstream("gemini", "/gemini", upstream.url, refuses_unread=True)]
+    try:
+        with TestClient(create_app(GatewayConfig(mediator=mediator, upstreams=upstreams)), base_url=LOCAL) as client:
+            assert client.get("/gemini/v1beta/models", headers={"x-goog-api-key": KEY}).status_code == 200
+            assert client.get(f"/gemini/v1beta/models?key={KEY}&pageSize=5").status_code == 200
+    finally:
+        mediator.close()
     by_header, by_query = upstream.requests[-2:]
     assert by_header["headers"]["x-goog-api-key"] == KEY and by_header["path"] == "/v1beta/models"
     assert by_query["query"] == f"key={KEY}&pageSize=5"
@@ -65,7 +75,9 @@ def test_the_access_log_keeps_no_key(caplog):
         access.info(
             '%s - "%s %s HTTP/%s" %d', "127.0.0.1:5", "POST", f"/gemini/v1beta/models/g:x?alt=sse&key={KEY}", "1.1", 200
         )
-    assert KEY not in caplog.text and "alt=sse" in caplog.text
+    # The line holds fixed categories alone since P2-5 (``_AccessRedactor``): no key, no query, no path past its area.
+    assert KEY not in caplog.text and "alt=sse" not in caplog.text and "v1beta" not in caplog.text
+    assert 'client - "POST /gateway HTTP/1.1" 200' in caplog.text
 
 
 def test_an_error_is_in_googles_shape():

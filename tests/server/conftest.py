@@ -162,19 +162,28 @@ def _refused(database: str, valkey: str) -> str:
     )
 
 
+class ServicesUnavailable(pytest.skip.Exception):
+    """A server's test skipped because the services it needs are not here (``unmet``): told apart from a skip of
+    another kind (a platform's, a capability this system lacks), which stays a skip where the services are required."""
+
+
 def unmet(reason: str) -> None:
-    """A server's test that cannot run here, for ``reason``: skipped, saying why; failed where the services are required
-    (CI's job sets LATET_TEST_REQUIRE_SERVICES=1), so that a job is never green with the server's tests not run."""
+    """A server's test that cannot run here, for want of its services (``reason``): skipped, saying why; failed where
+    the services are required (CI's job sets LATET_TEST_REQUIRE_SERVICES=1), so that a job is never green with the
+    server's tests not run."""
     if os.environ.get("LATET_TEST_REQUIRE_SERVICES") == "1":
         pytest.fail(f"the server's tests must run here (LATET_TEST_REQUIRE_SERVICES): {reason}", pytrace=False)
-    pytest.skip(reason)
+    raise ServicesUnavailable(reason)
 
 
-def required(report: pytest.TestReport) -> None:
-    """Where the services are required (LATET_TEST_REQUIRE_SERVICES=1, CI's job), a server's test skipped by any other
-    way than ``unmet`` (its own ``pytest.skip``, a skip mark) is failed, saying why, so that no skip leaves the job green
-    with a test not run; an expected failure (xfail) stays what it is."""
+def required(report: pytest.TestReport, excinfo: pytest.ExceptionInfo[BaseException] | None = None) -> None:
+    """Where the services are required (LATET_TEST_REQUIRE_SERVICES=1, CI's job), a server's test skipped for want of
+    its services (``ServicesUnavailable``, however it was raised) is failed, saying why, so that no such skip leaves
+    the job green with a test not run. A skip of another kind (a platform's mark, a capability this system lacks) stays
+    a skip, and an expected failure (xfail) stays what it is."""
     if not report.skipped or os.environ.get("LATET_TEST_REQUIRE_SERVICES") != "1" or hasattr(report, "wasxfail"):
+        return
+    if excinfo is None or not excinfo.errisinstance(ServicesUnavailable):
         return
     reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
     report.outcome = "failed"
@@ -183,9 +192,9 @@ def required(report: pytest.TestReport) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Every report of a server's test, through ``required``."""
+    """Every report of a server's test, through ``required``, with what its call raised."""
     report = yield
-    required(report)
+    required(report, call.excinfo)
     return report
 
 
@@ -253,19 +262,31 @@ def server(schema, prefix):
 @pytest.fixture
 def instances(schema, prefix):
     """Two instances of one server: one schema and one prefix, each instance with its own memory."""
-    found = (open_test_server(schema, prefix), open_test_server(schema, prefix))
-    yield found
-    for one in found:
-        close_test_server(one)
+    first = open_test_server(schema, prefix)
+    try:
+        second = open_test_server(schema, prefix)
+        try:
+            yield first, second
+        finally:
+            close_test_server(second)
+    finally:
+        close_test_server(first)
 
 
 @pytest.fixture
-def db(settings, schema):
+def migration_master(settings):
+    return MasterKey.load(settings)
+
+
+@pytest.fixture
+def db(settings, schema, migration_master):
     """The test's schema, migrated."""
     database = Database(settings.database_url, schema=schema, max_size=4)
-    migrate(database)
-    yield database
-    database.close()
+    try:
+        migrate(database, master=migration_master)
+        yield database
+    finally:
+        database.close()
 
 
 @pytest.fixture
@@ -403,7 +424,9 @@ def dump(db) -> bytes:
 
 
 def valkey_dump(bus, prefix) -> bytes:
-    """Every key of the test's prefix and what it holds, as bytes: what someone reading Valkey sees."""
+    """Every key of the test's prefix and what it holds, as bytes: what someone reading Valkey sees. Every type of
+    Valkey's own is read (a sorted set's scores too, a stream's ids and fields); a key of another type (a module's)
+    fails the test, since what it holds would not be read."""
     out = bytearray()
     for key in bus.client.scan_iter(match=prefix + "*", count=1000):
         out += key + b"\n"
@@ -416,9 +439,19 @@ def valkey_dump(bus, prefix) -> bytes:
         elif kind == "set":
             values = list(bus.client.smembers(key))
         elif kind == "zset":
-            values = list(bus.client.zrange(key, 0, -1))
-        else:
+            scored = bus.client.zrange(key, 0, -1, withscores=True)
+            values = [part for member, score in scored for part in (member, repr(score).encode())]
+        elif kind == "list":
+            values = list(bus.client.lrange(key, 0, -1))
+        elif kind == "stream":
+            entries = bus.client.xrange(key)
+            values = [
+                part for name, fields in entries for part in (name, *(x for pair in fields.items() for x in pair))
+            ]
+        elif kind == "none":  # gone since the scan listed it
             values = []
+        else:
+            raise AssertionError(f"valkey_dump does not read a key of the type {kind}")
         for value in values:
             out += (value or b"") + b"\n"
     return bytes(out)

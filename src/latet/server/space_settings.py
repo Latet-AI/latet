@@ -174,9 +174,13 @@ class PgSettings(OwnSettings):
         stale: Callable[[], None] | None = None,
         counted: Callable[[int], None] | None = None,
         kind: Literal["person", "key"] = "person",
+        index: Callable[[Connection[Any], Config], None] | None = None,
     ) -> None:
         super().__init__(self._shared_settings)
         self.db, self.identity = db, identity_id
+        # The index of the approved request exceptions (``index_exceptions``), written in the transaction that keeps
+        # the approved settings: kept with them or not at all.
+        self.index = index
         self.kind = kind  # an API key's approved snapshot is its own part (the module's words)
         self._store = shared
         self._sealer = Sealer(root_key, b"settings")
@@ -410,10 +414,24 @@ class PgSettings(OwnSettings):
         return found
 
     def _write_reviewed(
-        self, conn: Connection[Any], sealed: bytes, recording: Callable[[Connection[Any]], None] | None = None
+        self,
+        conn: Connection[Any],
+        sealed: bytes,
+        recording: Callable[[Connection[Any]], None] | None = None,
+        config: Config | None = None,
     ) -> int:
         conn.execute(_REVIEWED, (self.identity, self.identity, sealed, time.time(), self.identity))
         counter = self._count(conn)
+        if self.index is not None and config is not None:  # the approved exceptions' index, with what approves them
+            try:
+                self.index(conn, config)
+            except (psycopg.Error, DatabaseError):
+                raise  # the database's own: named by ``_db``
+            except Exception as exc:  # by its type: kept with the approval or not at all, the approval neither
+                raise SettingsUnrecorded(
+                    f"the request exceptions of {self.identity} could not be indexed ({type(exc).__name__}): the "
+                    "approval was not kept"
+                ) from None
         if recording is not None:  # last: the entry of the change, kept with it or not at all
             try:
                 recording(conn)
@@ -454,7 +472,7 @@ class PgSettings(OwnSettings):
             if kept == data:
                 self._approved = config
                 return
-            counter = self._db(lambda conn: self._write_reviewed(conn, sealed, recording), transaction=True)
+            counter = self._db(lambda conn: self._write_reviewed(conn, sealed, recording, config), transaction=True)
         except OSError as exc:
             refused = exc
         else:
@@ -469,3 +487,48 @@ class PgSettings(OwnSettings):
             counter, self._untold = self._untold, None
             self._changed(counter)
         raise refused
+
+
+def index_exceptions(conn: Connection[Any], identity_id: str, config: Config, *, permanent_allowed: bool) -> None:
+    """The identity's index of its approved request exceptions (root's ruling on F-3), replaced whole on ``conn``: in
+    the transaction that keeps its approved settings, and as its space is built. Latet's id, the scope's category,
+    whether it is permanent, its end and its state (``in-force``; ``suspended``: approved under a request profile this
+    version revised, R-100; ``forbidden``: permanent where the edition allows none); never more. One revoked is gone
+    from it at once; one past its end is never listed (``listed_exceptions``)."""
+    from latet.gateway.request_policy import carried
+
+    rows = []
+    for row in config.request_exceptions:
+        if not row.approved:
+            continue
+        state = (
+            "suspended" if not carried(row) else "forbidden" if row.permanent and not permanent_allowed else "in-force"
+        )
+        scope = "project" if row.project is not None else "identity"
+        rows.append((identity_id, row.id, scope, row.permanent, row.expires(), state))
+    conn.execute("DELETE FROM request_exception_index WHERE identity = %s", (identity_id,))
+    for found in rows:
+        conn.execute(
+            "INSERT INTO request_exception_index (identity, exception, scope, permanent, expires, state)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            found,
+        )
+
+
+_STATES = {"suspended": "needs approval again (profile revised)", "forbidden": "forbidden"}
+
+
+def listed_exceptions(db: Database) -> list[dict[str, str]]:
+    """What `latet server status` lists of every identity's request exceptions, from the index, read alone (it writes
+    nothing): each permanent one in force, and each that needs approval again or that the edition does not allow, not
+    past its end by PostgreSQL's clock; its identity, the exception's id, the scope's category and its state."""
+    with db.connection() as conn:
+        found = conn.execute(
+            "SELECT identity, exception, scope, permanent, state FROM request_exception_index"
+            " WHERE (permanent OR state <> 'in-force') AND (expires IS NULL OR expires > clock_timestamp())"
+            " ORDER BY identity, exception"
+        ).fetchall()
+    return [
+        {"identity": identity, "exception": exception, "scope": scope, "state": _STATES.get(state, "permanent")}
+        for identity, exception, scope, _permanent, state in found
+    ]

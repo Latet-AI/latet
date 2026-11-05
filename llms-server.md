@@ -28,7 +28,12 @@ master key or a private key into the conversation.
    - the **Compose server profile** of the repository's `compose.yaml`, which brings PostgreSQL,
      Valkey, two Latet instances and Caddy.
 
-   Both need a public HTTPS address for the server and a certificate the computers trust.
+   Both need a public HTTPS address for the server and a certificate the computers trust. On Linux,
+   or in the container image, each instance can run as several workers on one machine, one for each
+   core it is given (`latet server run --workers N`, or `LATET_SERVER_WORKERS` in the Compose `.env`):
+   each worker has its own memory and its own connections to PostgreSQL and Valkey, which must be
+   counted in their limits. See
+   <https://docs.latet.ai/concepts/server-operations/#several-instances-on-one-machine>.
 2. **Check what is there**, read-only: Docker and Compose (`docker --version`,
    `docker compose version`), the machine's operating system, whether the address resolves.
 3. **Give the user the steps in order**, to run in their own terminal, from
@@ -52,6 +57,17 @@ master key or a private key into the conversation.
    <https://docs.latet.ai/applications/>, with its pages on logs and RAG, and to the HTTP reference
    <https://docs.latet.ai/reference/apps-api/>. You may write the program's code; the token stays in
    the program's secret store, never in the conversation.
+
+7. **Upgrading a server from 0.10 to 0.11**: point the user to
+   <https://docs.latet.ai/getting-started/upgrading-to-0-11/> first. 0.11 refuses the parts of requests it does
+   not read, adds tables to the database (a backup before the migration is the way back), and
+   `latet server status` lists each identity's permanent request exceptions by id and kind alone. The migration
+   needs every instance and every worker stopped: the user stops them, waits 30 seconds (an instance of 0.10
+   counts as alive that long after it stops), runs `latet server migrate` once with 0.11, which changes nothing
+   and says how many instances are alive while any is, and starts them again; `latet server status` then shows
+   each instance's version. The vaults' prints are made in the background afterwards, and requests are answered
+   meanwhile, more slowly. The steps are in
+   <https://docs.latet.ai/concepts/server-operations/#upgrading-and-adding-instances>.
 
 Tell the user plainly at the start that these steps are theirs to run, and why: an agent that ran
 them would hold the keys to everyone's space.

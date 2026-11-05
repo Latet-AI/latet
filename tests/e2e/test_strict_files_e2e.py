@@ -60,7 +60,7 @@ def _read(client, path: str) -> None:
         {"role": "assistant", "content": [call]},
         {"role": "user", "content": [result]},
     ]
-    body = {"model": "m", "max_tokens": 64, "stream": True, "messages": messages}
+    body = {"model": "claude-sonnet-4-5", "max_tokens": 64, "stream": True, "messages": messages}
     assert client.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "k"}).status_code == 200
 
 
@@ -98,7 +98,7 @@ def _called(client, tool: str, arguments: dict[str, str]) -> None:
         {"role": "assistant", "content": None, "tool_calls": [call]},
         {"role": "tool", "tool_call_id": "call_1", "content": ROWS},
     ]
-    body = {"model": "m", "stream": True, "messages": messages}
+    body = {"model": "gpt-4.1-mini", "stream": True, "messages": messages}
     sent = client.post("/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer k"})
     assert sent.status_code == 200
 

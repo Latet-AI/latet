@@ -19,8 +19,10 @@ from onnxruntime.capi.onnxruntime_pybind11_state import Fail
 from latet import observe
 from latet.bridge.api import Bridge, _answered
 from latet.config import Config
+from latet.edition import Community
 from latet.engine.types import SlotKind
 from latet.gateway.app import create_app
+from latet.gateway.image_coverage import NO_OCR
 from latet.gateway.mediate import REWRITE, VERIFY
 from latet.gateway.routes import Upstream
 from latet.protocols.base import ImageRef
@@ -70,8 +72,13 @@ def _prepare(runtime, *, checked=True, data=None, copies=1):
     images = [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}} for _ in range(copies)
     ]
-    body = json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": images}]}).encode()
-    claude_code = {"user-agent": "claude-cli/2.1.291", "x-claude-code-session-id": "cc-ocr"}  # checked, never rewritten
+    messages = [{"role": "user", "content": images}]
+    body = json.dumps({"model": "claude-sonnet-4-5", "max_tokens": 10, "messages": messages}).encode()
+    # Claude Code's: checked, never rewritten. Its session id is a UUID (crypto.randomUUID()).
+    claude_code = {
+        "user-agent": "claude-cli/2.1.291",
+        "x-claude-code-session-id": "c4e9a2f7-5b8d-4e16-9a3c-7f1d6b2e8c05",
+    }
     headers = {"content-type": "application/json", **(claude_code if checked else {"user-agent": "python-httpx"})}
     return runtime.mediator.prepare(UPSTREAM, "POST", "/anthropic/v1/messages", headers, body)
 
@@ -139,6 +146,10 @@ def rig(tmp_path, monkeypatch):
             reviewer_key=None,
             settings=SimpleNamespace(url=URL, max_request_mb=32, key_working_values=20_000, key_held_secrets=1_000),
             metrics=metrics,
+            launch_prepare=None,  # a server's launch authority (P2-6a), none here: its spaces read no launch
+            launch_authority=None,
+            bus=None,  # no Valkey here: the request audit binds no status (``RequestAudit.bind_status``)
+            edition=Community(),  # a real server's, whose permanent exceptions a space reads when it is built
         )
         builder = Spaces(server)
         builders.append(builder)
@@ -204,15 +215,19 @@ def test_counter_is_registered_once_with_only_the_five_reason_values(rig):
 
 
 @pytest.mark.parametrize("checked", [True, False], ids=["checked", "rewritten"])
-def test_unavailable_shortcut_reports_each_image_without_invoking_ocr(rig, checked):
+def test_unavailable_shortcut_refuses_the_request_and_counts_it_once_without_invoking_ocr(rig, checked):
+    """P2-2: no image leaves unread. With the text recognition known to be unavailable, a request that carries
+    images is refused before any is read (NO_OCR), checked or rewritten alike; operators still see the text
+    recognition down: the refused request is one ``unavailable`` occurrence, whatever images it carries."""
     runtime, metrics = rig.build()
     rig.reader._rec = None
     rig.reader.error = OSError(PRIVATE)
     prepared = _prepare(runtime, checked=checked, copies=2)
-    assert bool(prepared.block_reason) is checked
-    assert len(prepared.images) == 2
+    assert prepared.block_reason == NO_OCR and prepared.images == []
     assert rig.reads[0] == 0
-    _only(metrics, "unavailable", 2)
+    _only(metrics, "unavailable", 1)
+    _prepare(runtime, checked=checked)
+    _only(metrics, "unavailable", 2)  # each refused request once
 
 
 @pytest.mark.parametrize("checked", [True, False], ids=["checked", "rewritten"])
@@ -312,9 +327,12 @@ def test_unavailable_shortcut_on_bridge_and_websocket_reports_one_occurrence(rig
         assert _answered(out) == [{"count": 0, "image": None, "withheld": "the text recognition is not available"}]
     else:
         image = {"type": "input_image", "image_url": f"data:image/png;base64,{png}"}
-        turn = json.dumps({"type": "response.create", "model": "m", "input": [{"role": "user", "content": [image]}]})
-        sent, prepared = runtime.mediator.mask_ws_frame(turn, runtime.built.engine.session("s-1"))
-        assert prepared is not None and prepared.block_reason is None and png not in sent
+        turn = json.dumps(
+            {"type": "response.create", "model": "gpt-5.1-codex", "input": [{"role": "user", "content": [image]}]}
+        )
+        _, prepared = runtime.mediator.mask_ws_frame(turn, runtime.built.engine.session("s-1"))
+        # P2-2: no image leaves unread; a turn is refused before any is read, and counted once.
+        assert prepared is not None and prepared.block_reason == NO_OCR and prepared.images == []
     assert rig.reads[0] == 0
     _only(metrics, "unavailable", 1)
 
@@ -347,11 +365,11 @@ def test_success_manual_decision_decode_pixel_policy_and_no_ocr_are_excluded(rig
     assert vision.work(_ref("not-base64")).state == WITHHELD
     vision.max_pixels = 100
     assert vision.work(_ref(_png(20, 20))).state == WITHHELD
-    runtime.mediator.ocr = False
-    assert _prepare(runtime).block_reason is None
+    runtime.mediator.ocr = False  # P2-2: no image leaves unread, refused before it is read (no occurrence)
+    assert _prepare(runtime).block_reason == NO_OCR
     runtime.mediator.ocr = True
     runtime.mediator.vision = None
-    assert _prepare(runtime).block_reason is None
+    assert _prepare(runtime).block_reason == NO_OCR
     assert not any(_counts(metrics).values())
 
 

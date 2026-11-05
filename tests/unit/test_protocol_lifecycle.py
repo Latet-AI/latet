@@ -212,7 +212,7 @@ async def test_gateway_cancellation_while_waiting_for_provider_discards_held_arg
         )
     )
     suffix = {"chat": "chat/completions", "anthropic": "messages", "responses": "responses"}[protocol]
-    body = {"model": "m", "stream": True}
+    body = {"model": "claude-sonnet-4-6" if protocol == "anthropic" else "gpt-4o", "stream": True}
     body.update(
         {"input": ORIGINAL}
         if protocol == "responses"

@@ -38,7 +38,7 @@ import os
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Final, LiteralString
 
 import zstandard
@@ -46,8 +46,33 @@ from cryptography.exceptions import InvalidTag
 
 from latet.engine.modules import module_of
 from latet.logline import Paced
-from latet.server.sealing import DERIVE, Sealer, derived
-from latet.storage.exchanges import ExchangeRecord, block_ref, new_exchange_id, ref_parts
+from latet.server.sealing import DERIVE, KEYED, Sealer, derived
+from latet.storage.exchanges import (
+    ExchangeRecord,
+    block_ref,
+    destination_batches,
+    destination_index,
+    detail_leaks,
+    history_coverage_opened,
+    history_coverage_payload,
+    history_coverage_summary,
+    history_digest,
+    history_handle,
+    history_handle_index,
+    history_project,
+    history_written,
+    keyed_private,
+    legacy_private,
+    new_exchange_id,
+    read_refs,
+    ref_parts,
+    refs_payload,
+    safe_flags,
+    safe_leaks,
+    safe_summary,
+    valid_history_coverage_id,
+    valid_project_id,
+)
 
 if TYPE_CHECKING:
     from psycopg import Connection
@@ -165,16 +190,13 @@ _KEPT: Final = (
     " + (SELECT COALESCE(SUM(" + _DATA_BYTES + "), 0) FROM images WHERE identity_id = %(identity)s)"
     " + (SELECT COALESCE(SUM(" + _REVIEW_BYTES + "), 0) FROM review_records WHERE identity_id = %(identity)s)"
 )
-_SUMMARIES: Final = "SELECT id, summary FROM exchanges WHERE "  # a page of them: ``list`` adds its conditions
+_SUMMARIES: Final = "SELECT id, summary, session FROM exchanges WHERE "  # a page of them: ``list`` adds its conditions
 # Each conversation with its counts, the latest first, and the newest of its summaries: the table keeps its key's keyed
 # hash alone, and the key is read in a summary.
 _SESSIONS: Final = (
-    "SELECT g.agent, g.first_ts, g.last_ts, g.exchanges, g.masked, g.blocked, e.id, e.summary FROM ("
-    "SELECT session, MAX(agent) AS agent, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS exchanges,"
-    " COALESCE(SUM(new_masked), 0) AS masked, SUM(CASE WHEN flags LIKE %(blocked)s THEN 1 ELSE 0 END) AS blocked"
-    " FROM exchanges WHERE identity_id = %(identity)s GROUP BY session ORDER BY MAX(ts) DESC LIMIT %(limit)s) AS g"
-    " CROSS JOIN LATERAL (SELECT id, summary FROM exchanges WHERE identity_id = %(identity)s AND session = g.session"
-    " ORDER BY seq DESC LIMIT 1) AS e ORDER BY g.last_ts DESC"
+    "SELECT session, MAX(agent), MIN(ts), MAX(ts), COUNT(*), COALESCE(SUM(new_masked), 0),"
+    " SUM(CASE WHEN flags LIKE %(blocked)s THEN 1 ELSE 0 END)"
+    " FROM exchanges WHERE identity_id = %(identity)s GROUP BY session ORDER BY MAX(ts) DESC LIMIT %(limit)s"
 )
 
 
@@ -217,6 +239,9 @@ class PgHistoryStore:
         self.forgets_values = forgets_values
         self._sealer = Sealer(root_key, b"exchanges")
         self._ids = derived(root_key, DERIVE, b"exchange-ids")  # what names blocks and images
+        self._destination_key = derived(root_key, DERIVE, b"exchange-destination-index:v1\0" + identity_id.encode())
+        self._session_key = derived(root_key, KEYED, b"exchanges")
+        self._history_handle_key = derived(root_key, DERIVE, b"history-group-handle:v1\0" + identity_id.encode())
         self.retention_days = retention_days
         self.limit = limit  # the bytes it may keep
         self._clock = clock  # what paces the log's lines about making room
@@ -239,7 +264,68 @@ class PgHistoryStore:
     def _keyed(self, kind: str, text: str) -> str:
         """The identity's keyed hash of a conversation's key (``kind`` "session") or of a project's id ("project"):
         what the history keeps of them, and what a filter looks for."""
+        if kind == "session":
+            return history_digest(self._session_key, text, b"session\x00").hex()
         return self._sealer.keyed(f"{kind}\x00{text}").hex()
+
+    def history_group(self, source: str) -> str:
+        return history_handle("p1", bytes.fromhex(self._keyed("session", source)), self._history_handle_key)
+
+    def _session_selector(self, value: str) -> str:
+        index = history_handle_index(value, "p1", self._history_handle_key)
+        return index.hex() if index is not None else self._keyed("session", value)
+
+    def _group_from_index(self, value: str) -> str:
+        if type(value) is not str or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise ValueError("history grouping unavailable")
+        return history_handle("p1", bytes.fromhex(value), self._history_handle_key)
+
+    def _history_coverage(self, raw: dict[str, Any], exchange_id: Any) -> int:
+        if not valid_history_coverage_id(exchange_id) or type(raw.get("id")) is not str or raw["id"] != exchange_id:
+            return 0
+        capsule = raw.get("_history_coverage")
+        if (
+            type(capsule) is not str
+            or len(capsule) != 74
+            or not capsule.startswith("hc:p1:")
+            or any(c not in "0123456789abcdef" for c in capsule[6:])
+        ):
+            return 0
+        try:
+            payload = self._sealer.open(
+                bytes.fromhex(capsule[6:]),
+                self.identity + ":history-coverage:v1:" + exchange_id,
+            )
+        except (InvalidTag, ValueError):
+            return 0
+        return history_coverage_opened(payload)
+
+    def _history_summary(
+        self,
+        raw: dict[str, Any],
+        index: str,
+        exchange_id: str | None = None,
+        *,
+        review: bool = False,
+    ) -> dict[str, Any]:
+        summary = (
+            dict(raw)
+            if review
+            else history_coverage_summary(
+                raw,
+                self._history_coverage(raw, exchange_id),
+                exchange_id,
+            )
+        )
+        if not review and not history_written(raw):
+            summary["verified"] = False  # an older Latet's claim, not this record's fact (coverage unknown too)
+        try:
+            summary["session"] = self._group_from_index(index)
+        except ValueError:
+            summary["session"] = None
+        project = history_project(raw.get("project"))
+        summary["project"] = (project["id"] if project is not None else None) if review else project
+        return summary
 
     def block_id(self, masked: str) -> str:
         return hmac.new(self._ids, masked.encode(), hashlib.sha256).hexdigest()[:32]
@@ -268,14 +354,41 @@ class PgHistoryStore:
             ).fetchall()
         return {row[0] for row in rows}
 
-    def last_used(self) -> dict[str, float]:
+    def last_used(self, current_names: Sequence[str] | None = None) -> dict[str, float]:
+        """One bounded canonical aggregate per current name; batches can each scan native history."""
+        out: dict[str, float] = {}
+        for batch in destination_batches(current_names):
+            wanted = [
+                (key, slot)
+                for slot, name in enumerate(batch)
+                for key in dict.fromkeys((destination_index(self._destination_key, name, name), name))
+                if key is not None
+            ]
+            values: LiteralString = ",".join("(%s,%s)" for _ in wanted)
+            query: LiteralString = (
+                "WITH wanted(key,slot) AS (VALUES " + values + ")"  # noqa: S608 - placeholders only; values are bound
+                " SELECT w.slot, MAX(e.ts) FROM exchanges e JOIN wanted w ON e.upstream = w.key"
+                " WHERE e.identity_id = %s GROUP BY w.slot"
+            )
+            with self.db.connection() as conn:
+                rows = conn.execute(query, [*(value for pair in wanted for value in pair), self.identity]).fetchall()
+            for slot, timestamp in rows:
+                out[batch[slot]] = float(timestamp)
+        return out
+
+    def destinations(self, ids: Iterable[str], current_names: Sequence[str]) -> dict[str, str]:
+        """Which of these exchanges went to which of the identity's current configured destinations, by the keyed index
+        its rows keep (the summary shows ``custom``): for the history owner's own dashboard alone."""
+        keys = {destination_index(self._destination_key, name): name for name in current_names}
+        keys.pop(None, None)
+        wanted = [i for i in dict.fromkeys(ids) if type(i) is str]
+        if not keys or not wanted:
+            return {}
         with self.db.connection() as conn:
             rows = conn.execute(
-                "SELECT upstream, MAX(ts) FROM exchanges WHERE identity_id = %s AND upstream IS NOT NULL"
-                " AND upstream <> '' GROUP BY upstream",
-                (self.identity,),
+                "SELECT id, upstream FROM exchanges WHERE identity_id = %s AND id = ANY(%s)", (self.identity, wanted)
             ).fetchall()
-        return {str(name): float(ts) for name, ts in rows}
+        return {exchange_id: keys[key] for exchange_id, key in rows if key in keys}
 
     def block_types(self, ids: Iterable[str]) -> dict[str, list[tuple[str, str, str, int]]]:
         wanted = list(dict.fromkeys(ids))
@@ -299,10 +412,29 @@ class PgHistoryStore:
         summary = rec.summary
         exchange_id = summary.setdefault("id", new_exchange_id())
         now = time.time()
-        refs = [block_ref(b) for b in rec.blocks]
+        blocks = [block_ref(b) for b in rec.blocks]
+        refs = refs_payload(blocks, keyed_private(rec.sensitive, self._destination_key))
         images = [{"id": i.id, "path": i.path, "state": i.state, "block": i.block} for i in rec.images]
-        flags = " " + " ".join(summary.get("flags", [])) + " "
-        project = (summary.get("project") or {}).get("id")
+        flags = " " + " ".join(safe_flags(summary.get("flags"))) + " "
+        public = safe_summary(summary)
+        payload = history_coverage_payload(rec.history_code, exchange_id)
+        if payload is not None:
+            public["_history_coverage"] = (
+                "hc:p1:"
+                + self._sealer.seal(
+                    payload,
+                    self.identity + ":history-coverage:v1:" + exchange_id,
+                ).hex()
+            )
+        source = rec.session_source if rec.session_source is not None else summary["session"]
+        session_index = self._keyed("session", source)
+        public["session"] = self._group_from_index(session_index)
+        public["history_group_version"] = 1
+        public["project"] = history_project(rec.project_id)
+        upstream = destination_index(self._destination_key, rec.destination_name, summary.get("upstream"))
+        if upstream is not None and upstream.startswith("dest:v1:"):
+            public["upstream"] = "custom"
+        project = valid_project_id(rec.project_id)
         added = 0  # the bytes of the rows this exchange adds: a block or an image kept already adds none
         with self.db.transaction() as conn:
             for b in rec.blocks:
@@ -329,17 +461,17 @@ class PgHistoryStore:
             row = conn.execute(
                 _EXCHANGE,
                 (
-                    self.identity, exchange_id, summary["ts"], now, self._keyed("session", summary["session"]),
-                    summary.get("agent", "other"), flags, summary.get("upstream"),
+                    self.identity, exchange_id, summary["ts"], now, session_index,
+                    public["agent"], flags, upstream,
                     int(summary.get("new_masked") or 0),
                     self._keyed("project", project) if project is not None else None,
-                    self._seal(summary, f"{exchange_id}:summary"),
+                    self._seal(public, f"{exchange_id}:summary"),
                     self._seal(refs, f"{exchange_id}:refs") if refs else None,
                     self._seal(rec.request_headers, f"{exchange_id}:headers") if rec.request_headers else None,
                     self._seal(rec.response, f"{exchange_id}:response") if rec.response is not None else None,
-                    self._seal(rec.leaks, f"{exchange_id}:leaks"), rec.body_bytes,
+                    self._seal(safe_leaks(rec.leaks), f"{exchange_id}:leaks"), rec.body_bytes,
                     self._seal(images, f"{exchange_id}:images") if images else None,
-                    self._kept_keys(_named(refs) | _named(rec.response)),
+                    self._kept_keys(_named(blocks) | _named(rec.response)),
                 ),
             ).fetchone()  # fmt: skip
             kept = self._counted(conn, added + _size(row))
@@ -347,19 +479,36 @@ class PgHistoryStore:
             self._make_room(now)
         return exchange_id
 
-    def record_review(self, summary: dict[str, Any]) -> str:
+    def record_review(
+        self,
+        summary: dict[str, Any],
+        *,
+        session_source: str | None = None,
+        project_id: str | None = None,
+    ) -> str:
         review_id = f"rv_{int(time.time() * 1000):x}{os.urandom(3).hex()}"
-        project = summary.get("project")
+        source = session_source if session_source is not None else summary["session"]
+        session_index = self._keyed("session", source)
+        stored = dict(summary)
+        stored["session"] = self._group_from_index(session_index)
+        stored["history_group_version"] = 1
+        project = stored["project"] = valid_project_id(project_id)
         with self.db.transaction() as conn:
             row = conn.execute(
                 _REVIEW,
                 (
-                    self.identity, review_id, summary["ts"], self._keyed("session", summary["session"]),
-                    self._keyed("project", project) if project is not None else None, summary["block"],
-                    summary["kind"], bool(summary.get("inline")), self._seal(summary, f"{review_id}:review"),
-                    self._kept_keys(_named(summary.get("findings"))),
+                    self.identity,
+                    review_id,
+                    stored["ts"],
+                    session_index,
+                    self._keyed("project", project) if project is not None else None,
+                    stored["block"],
+                    stored["kind"],
+                    bool(stored.get("inline")),
+                    self._seal(stored, f"{review_id}:review"),
+                    self._kept_keys(_named(stored.get("findings"))),
                 ),
-            ).fetchone()  # fmt: skip
+            ).fetchone()
             self._counted(conn, _size(row))
         return review_id
 
@@ -450,16 +599,19 @@ class PgHistoryStore:
         )
 
     def reviews(self, limit: int = 100, session: str | None = None) -> list[dict[str, Any]]:
-        query: LiteralString = "SELECT id, summary FROM review_records WHERE identity_id = %s"
+        query: LiteralString = "SELECT id, summary, session FROM review_records WHERE identity_id = %s"
         args: list[Any] = [self.identity]
         if session:
             query += " AND session = %s"
-            args.append(self._keyed("session", session))
+            args.append(self._session_selector(session))
         query += " ORDER BY ts DESC LIMIT %s"
         args.append(max(1, min(limit, 1000)))
         with self.db.connection() as conn:
             rows = conn.execute(query, args).fetchall()
-        return [{"id": rid, **self._open(data, f"{rid}:review")} for rid, data in rows]
+        return [
+            {"id": rid, **self._history_summary(self._open(data, f"{rid}:review"), index, review=True)}
+            for rid, data, index in rows
+        ]
 
     def prune(self, now: float | None = None) -> int:
         """Drop exchanges older than the retention period, and blocks no newer exchange carried."""
@@ -514,7 +666,11 @@ class PgHistoryStore:
                         for sealed, aad in zip(row[1:], parts, strict=True):
                             opened = None if sealed is None else bytes(sealed)
                             try:
-                                _named(self._open(opened, aad.format(id=row[0])), named)
+                                value = self._open(opened, aad.format(id=row[0]))
+                                # Only block/source spans name vault entries; private source metadata has no authority.
+                                if table == "exchanges" and aad == "{id}:refs":
+                                    value, _sensitive = read_refs(value)
+                                _named(value, named)
                             except (InvalidTag, ValueError, zstandard.ZstdError):
                                 named = set()  # does not open: names none
                                 break
@@ -534,20 +690,20 @@ class PgHistoryStore:
         with self.db.connection() as conn:
             rows = conn.execute(
                 "SELECT id FROM exchanges WHERE identity_id = %s AND session = %s ORDER BY seq",
-                (self.identity, self._keyed("session", session)),
+                (self.identity, self._session_selector(session)),
             ).fetchall()
         return [row[0] for row in rows]
 
     def detail(self, exchange_id: str) -> dict[str, Any] | None:
         with self.db.connection() as conn:
             row = conn.execute(
-                "SELECT summary, refs, request_headers, response, leaks, body_bytes, images FROM exchanges"
+                "SELECT id, summary, refs, request_headers, response, leaks, body_bytes, images, session FROM exchanges"
                 " WHERE identity_id = %s AND id = %s",
                 (self.identity, exchange_id),
             ).fetchone()
             if row is None:
                 return None
-            summary, refs, headers, response, leaks, body_bytes, images = row
+            exchange_id, summary, refs, headers, response, leaks, body_bytes, images, session_index = row
             images = self._open(images, f"{exchange_id}:images") or []
             wanted = [i["id"] for i in images if i.get("id")]
             kept = {
@@ -556,7 +712,7 @@ class PgHistoryStore:
                     "SELECT id FROM images WHERE identity_id = %s AND id = ANY(%s)", (self.identity, wanted)
                 )
             } if wanted else set()  # fmt: skip
-            refs = self._open(refs, f"{exchange_id}:refs") or []
+            refs, sensitive = read_refs(self._open(refs, f"{exchange_id}:refs"))
             ids = list(dict.fromkeys(r[0] for r in refs))
             stored: dict[str, tuple[str, list[dict[str, Any]], str]] = {}
             if ids:
@@ -579,7 +735,13 @@ class PgHistoryStore:
                  "masked": masked, "replacements": replacements, "tool": tool, "source": source}
             )  # fmt: skip
         return {
-            "summary": self._open(summary, f"{exchange_id}:summary"),
+            "summary": self._history_summary(self._open(summary, f"{exchange_id}:summary"), session_index, exchange_id),
+            "sensitive": sensitive
+            if sensitive is not None
+            else legacy_private(
+                self._open(summary, f"{exchange_id}:summary"),
+                bool(refs or headers or response),
+            ),
             "request": {
                 "headers": self._open(headers, f"{exchange_id}:headers") or [],
                 "slots": slots,
@@ -587,7 +749,9 @@ class PgHistoryStore:
                 "body_bytes": body_bytes,
             },
             "response": self._open(response, f"{exchange_id}:response"),
-            "leaks": self._open(leaks, f"{exchange_id}:leaks") or [],
+            "leaks": detail_leaks(
+                sensitive, self._open(leaks, f"{exchange_id}:leaks") or [], bool(refs or headers or response)
+            ),
         }
 
     def image(self, image_id: str) -> tuple[str, bytes] | None:
@@ -606,17 +770,25 @@ class PgHistoryStore:
                 _SESSIONS, {"blocked": "% blocked %", "identity": self.identity, "limit": limit}
             ).fetchall()
         return [
-            {"key": self._open(summary, f"{eid}:summary")["session"], "agent": a, "first_ts": f, "last_ts": la,
-             "exchanges": n, "masked": int(m), "blocked": int(b)}
-            for a, f, la, n, m, b, eid, summary in rows
-        ]  # fmt: skip
+            {
+                "key": self._group_from_index(index),
+                "agent": a,
+                "first_ts": f,
+                "last_ts": la,
+                "exchanges": n,
+                "masked": int(m),
+                "blocked": int(b),
+            }
+            for index, a, f, la, n, m, b in rows
+        ]
 
     def summaries_since(self, ts: float) -> list[dict[str, Any]]:
         with self.db.connection() as conn:
             rows = conn.execute(
-                "SELECT id, summary FROM exchanges WHERE identity_id = %s AND ts >= %s ORDER BY ts", (self.identity, ts)
+                "SELECT id, summary, session FROM exchanges WHERE identity_id = %s AND ts >= %s ORDER BY ts",
+                (self.identity, ts),
             ).fetchall()
-        return [self._open(data, f"{eid}:summary") for eid, data in rows]
+        return [self._history_summary(self._open(data, f"{eid}:summary"), index, eid) for eid, data, index in rows]
 
     def summaries_parts(self, ts: float, most: int) -> Iterator[list[dict[str, Any]]]:
         """The summaries of the exchanges since ``ts``, the latest ``most`` at most, ``SUMMARIES_AT_ONCE`` at a time,
@@ -632,13 +804,13 @@ class PgHistoryStore:
             with self.db.connection() as conn:
                 if after is None:
                     rows = conn.execute(
-                        "SELECT id, ts, seq, summary FROM exchanges WHERE identity_id = %s AND ts >= %s"
+                        "SELECT id, ts, seq, summary, session FROM exchanges WHERE identity_id = %s AND ts >= %s"
                         " ORDER BY ts DESC, seq DESC LIMIT %s",
                         (self.identity, ts, size),
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        "SELECT id, ts, seq, summary FROM exchanges WHERE identity_id = %s AND ts >= %s"
+                        "SELECT id, ts, seq, summary, session FROM exchanges WHERE identity_id = %s AND ts >= %s"
                         " AND (ts, seq) < (%s, %s) ORDER BY ts DESC, seq DESC LIMIT %s",
                         (self.identity, ts, *after, size),
                     ).fetchall()
@@ -646,7 +818,9 @@ class PgHistoryStore:
                 return
             left -= len(rows)
             after = (float(rows[-1][1]), int(rows[-1][2]))
-            yield [self._open(data, f"{eid}:summary") for eid, _, _, data in rows]
+            yield [
+                self._history_summary(self._open(data, f"{eid}:summary"), index, eid) for eid, _, _, data, index in rows
+            ]
             if len(rows) < size:
                 return
 
@@ -675,7 +849,7 @@ class PgHistoryStore:
                     args += [row[0], row[0], before]
             if session:
                 where.append("session = %s")
-                args.append(self._keyed("session", session))
+                args.append(self._session_selector(session))
             if agent:
                 where.append("agent = %s")
                 args.append(agent)
@@ -687,6 +861,6 @@ class PgHistoryStore:
                 args += [f"% {flag} %", f"% {flag}:%"]
             query: LiteralString = _SUMMARIES + " AND ".join(where) + " ORDER BY ts DESC, id DESC LIMIT %s"
             rows = conn.execute(query, [*args, limit + 1]).fetchall()
-        items = [self._open(data, f"{eid}:summary") for eid, data in rows]
+        items = [self._history_summary(self._open(data, f"{eid}:summary"), index, eid) for eid, data, index in rows]
         next_id = items[limit - 1]["id"] if len(items) > limit else None
         return items[:limit], next_id

@@ -174,8 +174,8 @@ Tool zeigt und die der Agent vielleicht nie gelesen hat, wie die Datei maskiert,
 - **Markdown gilt nur, wenn ein Muster es nennt** (`*.md`, `docs/**/*.md`): Agenten lesen ihre
   Anweisungen und Dokumente in Markdown, und ein Muster für jede Datei (`*`) lässt sie unberührt. In
   einer Markdown-Datei, die ein Muster nennt, werden nur die Tabellen maskiert, nie der Fließtext.
-- **PDF-Dateien sind nicht abgedeckt:** Latet liest den Text einer PDF nicht. `images: mask` oder
-  `block` verhindert, dass Dokumente überhaupt gesendet werden ([Bilder](../images/)).
+- **PDF-Dateien sind nicht abgedeckt:** Latet liest den Text einer PDF nicht, daher wird eine
+  Anfrage, die eine als Dokument enthält, nicht gesendet ([Bilder](../images/)).
 
 ### Webadressen, die als Daten gelten
 

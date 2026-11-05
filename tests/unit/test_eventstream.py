@@ -61,6 +61,7 @@ def test_the_dashboard_reads_a_tool_call_of_a_bedrock_answer():
             {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "name": "Write"}},
             {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"a":'}},
             {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "1}"}},
+            {"type": "content_block_stop", "index": 0},
             {"type": "message_stop"},
         )
     )

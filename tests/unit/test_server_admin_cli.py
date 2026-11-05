@@ -2196,6 +2196,101 @@ def test_status_says_each_identitys_own_limit_and_reads_a_server_that_does_not(a
     ) in done.output
 
 
+def test_status_prints_an_instance_line_for_each_instance(admin, monkeypatch):
+    """Task 10: each instance alive (each worker of each machine) on a line of its own, with its worker's number, its
+    readiness, its memory, its spaces, its vaults' indexes and its version; what an instance did not say, not said."""
+    original = admin.__call__
+
+    def with_instances(method, path, body=None, **kwargs):
+        path = _path(path, kwargs)
+        answer = original(method, path, body)
+        if (method, path) == ("GET", "status"):
+            answer["instances"] = [
+                {"instance": "3fa9c2e1b07d", "worker": 0, "version": "1.0.0", "ready": True, "memory": 536_870_912,
+                 "spaces": 3, "index": 25_165_824},
+                {"instance": "9b1e5a7c4d20", "worker": 1, "version": "1.0.0", "ready": False, "memory": None,
+                 "spaces": 0, "index": 0},
+                {"instance": "\x1b[2Jforged", "worker": None, "version": None, "ready": None, "memory": None,
+                 "spaces": None, "index": None},
+                {"instance": "0a1b2c3d4e5f", "worker": None, "version": None, "ready": None, "memory": None,
+                 "spaces": None, "index": None, "older": True},
+            ]  # fmt: skip
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", with_instances)
+    done = run_cli("server", "status")
+    assert done.exit_code == 0, done.output
+    lines = [line.strip() for line in done.output.splitlines() if line.strip().startswith("instance ")]
+    assert lines[:2] == [
+        "instance 3fa9c2e1b07d: worker 0, ready, 512 MiB in memory, 3 spaces, 24.0 MiB of vault indexes, Latet 1.0.0",
+        "instance 9b1e5a7c4d20: worker 1, not ready, memory unknown, 0 spaces, 0.0 MiB of vault indexes, Latet 1.0.0",
+    ]
+    assert len(lines) == 4 and "\x1b" not in done.output and "readiness unknown" in lines[2]
+    assert "Latet" not in lines[2]  # no version it did not say
+    # The final review's I-2: an instance of 0.10 or older says nothing of itself, and is listed as one all the same.
+    assert lines[3] == "instance 0a1b2c3d4e5f: readiness unknown, memory unknown, Latet 0.10 or older"
+
+
+@pytest.mark.parametrize("whole", [False, True, None])
+def test_status_says_a_list_of_instances_cut_at_its_bound_is_partial(admin, monkeypatch, whole):
+    """The final re-review's R-4: a list of instances the server cut at its bound (``instances_whole`` false) says so in
+    one plain line; one read whole, or a server that does not say, says nothing more."""
+    original = admin.__call__
+
+    def with_instances(method, path, body=None, **kwargs):
+        path = _path(path, kwargs)
+        answer = original(method, path, body)
+        if (method, path) == ("GET", "status"):
+            answer["instances"] = [{"instance": "3fa9c2e1b07d", "worker": 0, "version": "1.0.0", "ready": True}]
+            if whole is not None:
+                answer["instances_whole"] = whole
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", with_instances)
+    done = run_cli("server", "status")
+    assert done.exit_code == 0, done.output
+    partial = [line.strip() for line in done.output.splitlines() if "partial" in line]
+    if whole is False:
+        assert partial == [
+            "instances: the list is partial, cut at its bound: an instance may be alive and not listed"
+        ], done.output
+    else:
+        assert partial == [], done.output
+
+
+def test_status_lists_the_permanent_request_exceptions(admin, monkeypatch):
+    """D3 (root's ruling on F-3): each permanent request exception, by its identity, its id and its scope's category,
+    never anything it names; what the server says is printed as text alone."""
+    original = admin.__call__
+
+    def with_exceptions(method, path, body=None, **kwargs):
+        path = _path(path, kwargs)
+        answer = original(method, path, body)
+        if (method, path) == ("GET", "status"):
+            answer["exceptions"] = [
+                {"identity": "u_abcdefghij", "exception": "x0123456789", "scope": "identity", "state": "permanent"},
+                {"identity": "\x1b[2J", "exception": "x9876543210", "scope": "project", "state": "permanent"},
+                {
+                    "identity": "u_abcdefghij",
+                    "exception": "x5555555555",
+                    "scope": "identity",
+                    "state": "needs approval again (profile revised)",
+                },
+                {"identity": "u_klmnopqrst", "exception": "x6666666666", "scope": "project", "state": "forbidden"},
+            ]
+        return answer
+
+    monkeypatch.setattr("latet.cli.server.admin_call", with_exceptions)
+    done = run_cli("server", "status")
+    assert done.exit_code == 0, done.output
+    assert "permanent request exceptions: 2" in done.output
+    assert "u_abcdefghij: x0123456789 (identity)" in done.output and "\x1b" not in done.output
+    # Minor 2, R-100: one an upgrade suspended, and one the edition does not allow, said with their state
+    assert "request exceptions that grant nothing now: 2" in done.output
+    assert "u_abcdefghij: x5555555555 (identity, needs approval again (profile revised))" in done.output
+    assert "u_klmnopqrst: x6666666666 (project, forbidden)" in done.output
+
+
 def test_status_prints_the_editions_lines(admin, monkeypatch):
     original = admin.__call__
 

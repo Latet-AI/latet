@@ -35,13 +35,29 @@ EMAIL = "mario.rossi@acme.it"
 IBAN = "IT60 X054 2811 1010 0000 0123 456"
 CANARIES = (GH_PAT, EMAIL, IBAN)
 PROMPT = f'deploy with key {GH_PAT}, notify {EMAIL}, pay to {IBAN} and quote "done"'
+# Session ids within their agents' grammars (P2-1): Claude Code's UUID, Codex's ThreadId UUID.
+CC_SESSION = "0c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+S_1 = "019a4c2e-7d1b-7c3e-9f2a-000000000001"
+S_LEFT = "019a4c2e-7d1b-7c3e-9f2a-00000000001e"
+S_BIG = "019a4c2e-7d1b-7c3e-9f2a-0000000000b1"
+S_COUNTED = "019a4c2e-7d1b-7c3e-9f2a-0000000000c0"
 
 
 @pytest.fixture(scope="module")
 def upstream():
-    fake = FakeUpstream().start()
-    yield fake
-    fake.stop()
+    fake = FakeUpstream()
+    opened = False
+    try:
+        fake.start()
+        assert fake.server.started
+        opened = True
+        print(f"P24_PORT_OPEN {fake.port}")
+        yield fake
+    finally:
+        fake.stop()
+        assert not fake.thread.is_alive()
+        if opened:
+            print(f"P24_PORT_CLOSED {fake.port}")
 
 
 @pytest.fixture
@@ -50,9 +66,20 @@ def client(upstream):
     config = GatewayConfig(
         port=5283,
         upstreams=[
-            Upstream("anthropic", "/anthropic", upstream.url),
-            Upstream("openai", "/openai", upstream.url),
-            Upstream("chatgpt", "/backend-api/codex", upstream.url, keep_prefix=True),
+            Upstream(
+                "anthropic",
+                "/anthropic",
+                upstream.url,
+                envelope_expected=frozenset({("model", "x")}),
+            ),
+            Upstream("openai", "/openai", upstream.url, envelope_expected=frozenset({("model", "x")})),
+            Upstream(
+                "chatgpt",
+                "/backend-api/codex",
+                upstream.url,
+                keep_prefix=True,
+                envelope_expected=frozenset({("model", "x")}),
+            ),
         ],
         mediator=Mediator(built.engine, built.verifier),
     )
@@ -163,7 +190,7 @@ def test_codex_websocket(client, upstream):
         "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": PROMPT}]}],
     }
     with client.websocket_connect(
-        "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": "s-1"}
+        "/backend-api/codex/responses", headers={"host": "127.0.0.1:5283", "session-id": S_1}
     ) as ws:
         ws.send_text(json.dumps(frame))
         events = []
@@ -185,10 +212,10 @@ def _conversation(prompt: str, *outputs: str) -> dict:
     messages: list[dict] = [{"role": "user", "content": prompt}]
     for n, output in enumerate(outputs):
         messages.append(
-            {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{n}", "name": "Bash", "input": {}}]}
+            {"role": "assistant", "content": [{"type": "tool_use", "id": f"toolu_t{n}", "name": "Bash", "input": {}}]}
         )
         messages.append(
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{n}", "content": output}]}
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"toolu_t{n}", "content": output}]}
         )
     return {"model": "x", "messages": messages}
 
@@ -199,9 +226,15 @@ def _gateway(upstream, vault: Vault | None = None, config: Config | None = None)
     config = GatewayConfig(
         port=5283,
         upstreams=[
-            Upstream("anthropic", "/anthropic", upstream.url),
-            Upstream("openai", "/openai", upstream.url),
-            Upstream("chatgpt", "/backend-api/codex", upstream.url, keep_prefix=True),
+            Upstream("anthropic", "/anthropic", upstream.url, envelope_expected=frozenset({("model", "x")})),
+            Upstream("openai", "/openai", upstream.url, envelope_expected=frozenset({("model", "x")})),
+            Upstream(
+                "chatgpt",
+                "/backend-api/codex",
+                upstream.url,
+                keep_prefix=True,
+                envelope_expected=frozenset({("model", "x")}),
+            ),
         ],
         mediator=mediator,
     )
@@ -281,28 +314,28 @@ def _carrying(where: str, text: str) -> list[dict]:
                 {"role": "user", "content": "thanks"}]  # fmt: skip
     if where == "tool input":
         return [{"role": "user", "content": "send it"},
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"c": text}}]},
-                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}]  # fmt: skip
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_t1", "name": "Bash", "input": {"c": text}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_t1", "content": "ok"}]}]  # fmt: skip
     if where == "tool output":
         return [{"role": "user", "content": "look"},
-                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]},
-                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": text}]}]  # fmt: skip
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_t1", "name": "Bash", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_t1", "content": text}]}]  # fmt: skip
     return [{"role": "user", "content": text}]
 
 
 def _carrying_chat(where: str, text: str) -> list[dict]:
     """``_carrying`` on the OpenAI chat route: the model's own text, a tool call's arguments, a tool's message, a prompt."""
-    call = {"id": "c1", "type": "function", "function": {"name": "bash", "arguments": json.dumps({"c": text})}}
+    call = {"id": "call_c1", "type": "function", "function": {"name": "bash", "arguments": json.dumps({"c": text})}}
     if where == "model text":
         return [{"role": "user", "content": "who do we pay?"}, {"role": "assistant", "content": text},
                 {"role": "user", "content": "thanks"}]  # fmt: skip
     if where == "tool input":
         return [{"role": "user", "content": "send it"}, {"role": "assistant", "content": None, "tool_calls": [call]},
-                {"role": "tool", "tool_call_id": "c1", "content": "ok"}]  # fmt: skip
+                {"role": "tool", "tool_call_id": "call_c1", "content": "ok"}]  # fmt: skip
     if where == "tool output":
         empty = {**call, "function": {"name": "bash", "arguments": "{}"}}
         return [{"role": "user", "content": "look"}, {"role": "assistant", "content": None, "tool_calls": [empty]},
-                {"role": "tool", "tool_call_id": "c1", "content": text}]  # fmt: skip
+                {"role": "tool", "tool_call_id": "call_c1", "content": text}]  # fmt: skip
     return [{"role": "user", "content": text}]
 
 
@@ -383,13 +416,13 @@ def test_what_a_websocket_turn_carried_is_recorded_as_left_once_it_left(upstream
         "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "the page is up"}]}],
     }
     client, mediator = _gateway(upstream)
-    headers = {"host": "127.0.0.1:5283", "session-id": "s-left"}
+    headers = {"host": "127.0.0.1:5283", "session-id": S_LEFT}
     with client, client.websocket_connect("/backend-api/codex/responses", headers=headers) as ws:
         ws.send_text(json.dumps(frame))
         while json.loads(ws.receive_text())["type"] != "response.completed":
             pass
     mediator.executor.submit(lambda: None).result(5)  # what was handed to the engine's thread is done
-    assert mediator.verifier.sent("session-id:s-left", "the page is up")
+    assert mediator.verifier.sent(f"session-id:{S_LEFT}", "the page is up")
 
 
 class _Counted:
@@ -414,7 +447,15 @@ def _counted_gateway(upstream, counted: _Counted) -> TestClient:
     built = build(Config(), Vault(ROOT_KEY))
     config = GatewayConfig(
         port=5283,
-        upstreams=[Upstream("chatgpt", "/backend-api/codex", upstream.url, keep_prefix=True)],
+        upstreams=[
+            Upstream(
+                "chatgpt",
+                "/backend-api/codex",
+                upstream.url,
+                keep_prefix=True,
+                envelope_expected=frozenset({("model", "x")}),
+            )
+        ],
         mediator=Mediator(built.engine, built.verifier),
     )
     app = create_app(config)
@@ -432,7 +473,7 @@ def test_a_websocket_turn_is_counted_from_its_frame_to_its_last_event(upstream):
     answer's last event: an idle socket holds none, and a turn past the cap is refused with nothing of it sent."""
     frame = {"type": "response.create", "model": "x", "input": "the page is up"}
     counted = _Counted()
-    headers = {"host": "127.0.0.1:5283", "session-id": "s-counted"}
+    headers = {"host": "127.0.0.1:5283", "session-id": S_COUNTED}
     with (
         _counted_gateway(upstream, counted) as client,
         client.websocket_connect("/backend-api/codex/responses", headers=headers) as ws,
@@ -489,11 +530,19 @@ class _Answers:
         deadline = time.time() + 10
         while not self.server.started and time.time() < deadline:
             time.sleep(0.02)
+        if not self.server.started:
+            self.server.should_exit = True
+            self.thread.join(timeout=5)
+            assert not self.thread.is_alive()
+            raise AssertionError("owned upstream did not start")
+        print(f"P24_PORT_OPEN {self.port}")
         return self
 
     def __exit__(self, *_: object) -> None:
         self.server.should_exit = True
         self.thread.join(timeout=5)
+        assert not self.thread.is_alive()
+        print(f"P24_PORT_CLOSED {self.port}")
 
 
 def test_a_websocket_message_larger_than_latet_reads_ends_the_turn_with_an_error(monkeypatch):
@@ -503,7 +552,7 @@ def test_a_websocket_message_larger_than_latet_reads_ends_the_turn_with_an_error
     frame = {"type": "response.create", "model": "x", "input": "the page is up"}
     with _Answers(2 * 2**20) as answers:
         client, _ = _gateway(answers)
-        headers = {"host": "127.0.0.1:5283", "session-id": "s-big"}
+        headers = {"host": "127.0.0.1:5283", "session-id": S_BIG}
         with client, client.websocket_connect("/backend-api/codex/responses", headers=headers) as socket_:
             socket_.send_text(json.dumps(frame))
             told = json.loads(socket_.receive_text())
@@ -514,7 +563,7 @@ def test_a_websocket_message_larger_than_latet_reads_ends_the_turn_with_an_error
 
 
 def test_claude_code_is_verified_not_rewritten(client, upstream):
-    headers = {"user-agent": "claude-cli/2.1.291 (external, cli)", "x-claude-code-session-id": "cc-1"}
+    headers = {"user-agent": "claude-cli/2.1.291 (external, cli)", "x-claude-code-session-id": CC_SESSION}
     clean = {"model": "x", "stream": True, "messages": [{"role": "user", "content": "hello there"}]}
     raw = json.dumps(clean, separators=(",", ":")).encode()
     r = client.post("/anthropic/v1/messages", content=raw, headers={**headers, "content-type": "application/json"})

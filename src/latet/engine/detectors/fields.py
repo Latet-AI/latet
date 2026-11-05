@@ -673,6 +673,14 @@ class FieldDetector:
         """The numbers of a JSON document can be masked here: strict data mode, or field rules."""
         return bool(self.rules) or self.strict_for(ctx)
 
+    def apart(self, text: str) -> bool:
+        """Whether ``text`` is read with the lines around it, so that joined to other texts (``Masker.joined``) its
+        values could be read otherwise: an HTML table's rows and cells, whose header and whose row's end may stand in
+        other lines (a row left open takes the next text's header into it), and an accessibility snapshot's cells, which
+        the column headers of the lines before them name. Each such text is read alone; then no text joined holds them,
+        and no table of either kind is looked for (``cells``)."""
+        return "<t" in text.lower() or 'cell "' in text
+
     def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
         strict, as_file = self._covers(ctx)
         known: dict[str, _Field] = {}  # what each field's name says, read once for every value of the field here
@@ -684,7 +692,13 @@ class FieldDetector:
             return
         if not strict and not self.rules and not _secretish(text):
             return  # no structure here can hold a secret name: nothing to look for
-        for cell in cells(text, self.phone_regions):
+        if ctx.joined and not strict and not self.rules:
+            # Texts of their own joined by a blank line, which no table runs through (and none of HTML, nor a
+            # snapshot's: ``apart``): each line's pairs, read where the line names a secret, as each text alone is read.
+            found = _key_values([(at, line) for at, line in _lines(text) if _secretish(line)], self.phone_regions)
+        else:
+            found = cells(text, self.phone_regions)
+        for cell in found:
             yield from self._value(text, cell.start, cell.end, cell.field, strict, known, cell.markup)
 
     def _file(self, text: str, path: str, known: dict[str, _Field], edited: bool = False) -> Iterator[Span]:

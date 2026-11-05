@@ -227,32 +227,45 @@ einmal gefunden hat, bleibt maskiert.
 
 Ein Log-Bereich kann Millionen von Werten enthalten, deshalb hält eine Instanz den Tresor eines
 Schlüssels nicht im Speicher. Sie behält die Werte, die der Schlüssel zuletzt verwendet hat
-(`key_working_values`, standardmäßig 5.000, etwa 10 MiB pro Schlüssel), und findet jeden anderen in
-PostgreSQL, sobald die Texte eines Aufrufs ihn brauchen, mit einer einzigen Abfrage für alle, über
-einen Index der Wörter der Werte und Ersatzwerte. Dieser Index enthält Hashes, die mit einem geheimen
-Schlüssel gebildet sind, nie ein Wort im Klartext.
+(`key_working_values`, standardmäßig 5.000, etwa 10 MiB pro Schlüssel), und die Fingerabdrücke des
+ganzen Tresors: einen 64-Bit-Fingerabdruck jedes Wortes seiner Werte und Ersatzwerte, mit einem
+geheimen Schlüssel gebildet, etwa 15 MB für eine Million Werte. Die Wörter eines Aufrufs werden
+zuerst unter den Fingerabdrücken gesucht: Ein Wort ohne Fingerabdruck gehört zu keinem Wert und
+keinem Ersatzwert, und PostgreSQL wird nicht danach gefragt. Die Werte und Ersatzwerte, deren Wörter
+einen haben, werden aus PostgreSQL gelesen, alle des Aufrufs auf einmal, und jeder wird entschlüsselt
+und mit dem Text verglichen, bevor er etwas maskiert oder wiederherstellt, denn zwei Wörter können
+denselben Fingerabdruck haben. Weder die Fingerabdrücke noch der Index der Wörter in PostgreSQL
+enthalten ein Wort im Klartext. Vor jedem Aufruf liest die Instanz in PostgreSQL den Änderungszähler
+des Schlüssels und übernimmt, was die anderen Instanzen seither gespeichert oder vergessen haben;
+ein Wert, der auf einer Instanz gespeichert wurde, bevor ein Aufruf beginnt, wird also von diesem
+Aufruf auf jeder anderen gefunden, auch wenn die Nachricht darüber verloren ging. Ein Schlüssel mit
+wenigen Werten arbeitet genauso: Nur der Tresor einer Person mit 35.000 Werten oder weniger wird ganz
+im Speicher gehalten ([Serverbetrieb](../concepts/server-operations/)).
 
-**Geheimnisse, an die andere Buchstaben grenzen.** In PostgreSQL wird ein Geheimnis, das als eine
-einzige Folge von Buchstaben und Ziffern ohne Leerzeichen oder Satzzeichen geschrieben ist, über
-sein Wort gefunden, und über seine ersten und letzten sechs Zeichen, wenn auf einer Seite andere
-Buchstaben oder Ziffern angrenzen. Grenzen sie auf beiden Seiten an (`xhunter2y`), oder grenzt
-überhaupt etwas an, wenn das Wort an seinem Rand sechs Zeichen oder weniger hat, findet es kein Wort
-des Textes. Darum hält eine Instanz die kurzen Geheimnisse eines Schlüssels dauerhaft im Speicher,
-die aus einer einzigen Folge von 16 Zeichen oder weniger oder mit einem so kurzen Wort am Rand: die
-neuesten `key_held_secrets` davon (1.000, sofern die Einstellungen des Servers nichts anderes
-sagen), gefunden, wie auch immer etwas an sie grenzt. Ein älteres wird gefunden, wo nichts an es
-grenzt, oder wo eine Seite frei ist und es sieben Zeichen oder mehr hat; ein längeres überall dort,
-wo eine Seite frei ist. Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele kurze
-Geheimnisse sieht, etwa ein Sitzungstoken in jeder Logzeile: Jedes gehaltene belegt etwa 2,2 KB auf
-jeder Instanz, und jeder Text, den der Schlüssel maskiert oder wiederherstellt, wird danach
-durchsucht, was seine Aufrufe etwas verlangsamt. Gemessen wie unten mit einem eigenen Sitzungstoken
-in jeder Zeile (ein Wert mehr, der in jeder aufzubewahren ist), maskierte ein neuer Schlüssel mit
-1.000 gehaltenen solchen Geheimnissen 73 Zeilen pro Sekunde und stellte 1.935 wieder her, gegenüber
-75 und 2.103 ohne gehaltene. Ein Ersatzwert wird gefunden, wo etwas an ihn grenzt, wie sein
-Geheimnis: Er behält dessen Sonderzeichen an ihrer Stelle, sodass ein Ersatzwert, an den so etwas
-grenzt, dass keines seiner Wörter für sich steht, der eines im Speicher gehaltenen Geheimnisses ist,
-und gefunden wird, solange das Geheimnis gehalten wird. Wie überall in Latet wird ein Wert ab vier
-Zeichen wiedererkannt, der Name einer Person ab drei ([bekannte
+**Geheimnisse, an die andere Buchstaben grenzen.** In PostgreSQL wird ein Geheimnis, das als eine einzige Folge
+von Buchstaben und Ziffern ohne Leerzeichen oder Satzzeichen geschrieben ist, über sein Wort gefunden, und über
+seine ersten und letzten sechs Zeichen, wenn andere Buchstaben oder Ziffern an es grenzen: auf einer Seite am
+Rand der Folge des Textes, die es enthält, und auf beiden Seiten (`xhunter2y`) in dieser Folge, die ein Aufruf
+sechs Zeichen auf einmal liest. Ein Aufruf liest höchstens eine Million solcher Positionen: darüber hinaus
+werden seine späteren Folgen nur über ihre Wörter und Ränder gelesen. Ein Geheimnis von sechs Zeichen oder
+weniger, oder eines, dessen Wort an einem angrenzenden Rand sechs Zeichen oder weniger hat, findet kein Wort des
+Textes, wenn etwas an es grenzt. Darum hält eine Instanz die kurzen Geheimnisse eines Schlüssels dauerhaft im
+Speicher, die aus einer einzigen Folge von 16 Zeichen oder weniger oder mit einem so kurzen Wort am Rand: die
+neuesten `key_held_secrets` davon (1.000, sofern die Einstellungen des Servers nichts anderes sagen), gefunden,
+wie auch immer etwas an sie grenzt, auch jenseits der Million Positionen eines Aufrufs. Ein älteres oder ein
+längeres wird gefunden, wo nichts an es grenzt, mit etwas auf einer Seite, wenn das Wort an diesem Rand sieben
+Zeichen oder mehr hat, und mit etwas auf beiden Seiten, wenn es eine einzige Folge von sieben Zeichen oder mehr
+ist, innerhalb der Million Positionen des Aufrufs. Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele
+kurze Geheimnisse sieht, etwa ein Sitzungstoken in jeder Logzeile: Jedes gehaltene belegt etwa 23 KB auf jeder
+Instanz, die den Schlüssel bedient, das meiste davon im Detektor, der es findet, und jeder Text, den der
+Schlüssel maskiert oder wiederherstellt, wird danach durchsucht, was seine Aufrufe etwas verlangsamt. Gemessen
+mit Latet 0.10.0 auf dem Rechner aus [Wie schnell es ist](#wie-schnell-es-ist), mit einem eigenen Sitzungstoken
+in jeder Zeile (ein Wert mehr, der in jeder aufzubewahren ist), maskierte ein neuer Schlüssel mit 1.000
+gehaltenen solchen Geheimnissen 73 Zeilen pro Sekunde und stellte 1.935 wieder her, gegenüber 75 und 2.103 ohne
+gehaltene. Ein Ersatzwert wird gefunden, wo etwas an ihn grenzt, wie sein Geheimnis: Er behält dessen
+Sonderzeichen an ihrer Stelle, sodass ein Ersatzwert, an den so etwas grenzt, dass keines seiner Wörter für sich
+steht, der eines im Speicher gehaltenen Geheimnisses ist, und gefunden wird, solange das Geheimnis gehalten
+wird. Wie überall in Latet wird ein Wert ab vier Zeichen wiedererkannt, der Name einer Person ab drei ([bekannte
 Werte](../concepts/detection/#bekannte-werte)).
 
 **Kurze Geheimnisse.** Ein Geheimnis mit weniger als zwölf Zeichen (`password=1234`, ein kurzes
@@ -295,13 +308,19 @@ gesendet, den keine spätere Wiederherstellung zurückverwandelt.
   zählt sie; heben Sie eine Grenze also an, bevor sie erreicht ist. Jede Instanz zählt die neuen Werte
   eines Aufrufs, bevor sie sie bestätigt: Zwei Instanzen, oder ein Aufruf und ein Agent desselben
   Schlüssels, können die Grenze um die neuen Werte je eines Aufrufs überschreiten, bevor der nächste
-  Wert abgewiesen wird.
+  Wert abgewiesen wird. Ein Index der Fingerabdrücke eines Tresors wird bis zu 16.777.216
+  Fingerabdrücken aufgebaut, etwa acht Millionen Werten der Art, die
+  [Wie schnell es ist](#wie-schnell-es-ist) misst: darüber wird kein Index aufgebaut, solange der
+  Bereich des Schlüssels besteht, und seine Aufrufe suchen ihre Wörter allein in PostgreSQL,
+  langsamer.
 - **Ein Aufruf** nimmt höchstens 1.000 Texte und das `apps_request_mb` des Servers (8 MiB, wenn seine
   Einstellungen nichts anderes sagen, nie mehr als sein `max_request_mb`): Ein Aufruf wartet im
   Speicher auf den Thread des Schlüssels, und `latet-client` teilt eine längere Liste in Aufrufe von
   höchstens 8 MiB auf. Texte, deren Wörter mehr als 100.000 Werte oder Ersatzwerte des
-  Tresors nennen, werden mit 422 abgewiesen, ohne dass etwas maskiert wird: Senden Sie weniger Texte
-  pro Aufruf.
+  Tresors nennen, werden ganz mit 422 abgewiesen, in festen Worten, die keinen Wert nennen: Vom
+  Aufruf wird nichts maskiert oder wiederhergestellt, senden Sie also weniger Texte pro Aufruf. Ein
+  503 ist etwas anderes: Ein Speicher des Servers (PostgreSQL, Valkey) hat nicht geantwortet, und
+  derselbe Aufruf kann später erneut gesendet werden ([HTTP-Referenz](../reference/apps-api/)).
 - **Gleichzeitige Aufrufe.** Ein Schlüssel hat höchstens `requests_in_flight` Anwendungsanfragen auf
   einer Instanz (16, wenn die Einstellungen nichts anderes sagen); darüber hinaus 429 mit
   `Retry-After`.
@@ -310,42 +329,119 @@ gesendet, den keine spätere Wiederherstellung zurückverwandelt.
 
 Die Aufrufe eines Schlüssels laufen auf einer Instanz nacheinander, im Thread seines Bereichs; Aufrufe
 verschiedener Schlüssel und Aufrufe, die verschiedene Instanzen erreichen, laufen nebeneinander. Um
-mit einem Schlüssel schneller zu werden, betreiben Sie mehr Instanzen hinter dem Lastverteiler.
+mit einem Schlüssel schneller zu werden, betreiben Sie mehr Instanzen hinter dem Lastverteiler, oder
+mehrere Worker auf einer Linux-Maschine
+([mehrere Instanzen auf einer Maschine](../concepts/server-operations/#mehrere-instanzen-auf-einer-maschine)).
 
-Gemessen auf einer Instanz (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL in Docker Desktop auf
-demselben Rechner), mit Logzeilen von etwa 200 Zeichen mit je einer E-Mail-Adresse und einer
-öffentlichen IPv4-Adresse, von denen die Hälfte einen bereits gesehenen Kunden nennt, 500 Zeilen pro
-Aufruf als `data`; und mit Dokumenten von etwa 20 KB Prosa mit je zehn Werten, eines pro Aufruf:
+Gemessen mit Latet 0.11 auf einer Instanz (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL 18 in
+Docker Desktop auf demselben Rechner, die Standardeinstellungen des Servers): 40.000 Logzeilen von
+etwa 200 Zeichen mit je einer E-Mail-Adresse und einer öffentlichen IPv4-Adresse, von denen die
+Hälfte einen bereits gesehenen Kunden nennt, in Aufrufen zu 500 als `data`; danach 50 Dokumente von
+etwa 20 KB Prosa mit je zehn Werten, eines pro Aufruf. Zeilen pro Sekunde sind die Zeilen geteilt
+durch die Zeit, die ihre Aufrufe brauchten; die Zeit eines Dokuments ist der Median seiner 50
+Aufrufe:
 
 | Der Tresor des Schlüssels | Maskieren, Zeilen pro Sekunde | Wiederherstellen, Zeilen pro Sekunde | Ein Dokument, maskieren / wiederherstellen |
 | --- | ---: | ---: | ---: |
-| Neu, lernt seine Werte nach und nach | 189 | 2.691 | 77 / 28 ms |
-| 200.000 Werte | 440 | 1.691 | 87 / 30 ms |
-| 1.000.000 Werte | 410 | 1.498 | 95 / 32 ms |
+| Neu, lernt seine Werte nach und nach | 191 | 2.894 | 126 / 31 ms |
+| 200.000 Werte | 871 | 2.960 | 117 / 32 ms |
+| 1.000.000 Werte | 773 | 2.967 | 124 / 32 ms |
 
-Das Maskieren wird von den Detektoren begrenzt: Auf einem Thread, mit allen Werten im Speicher und
-ohne Datenbank, maskiert die Engine etwa 900 solcher Zeilen pro Sekunde. Ein neuer Schlüssel schreibt
-außerdem jeden neuen Wert in PostgreSQL. Eine Instanz hält höchstens `database_pool` Verbindungen zu
-PostgreSQL (10, sofern die Einstellungen des Servers nichts anderes sagen) für die Arbeit aller
-Identitäten und lässt drei Zehntel davon (drei von zehn) von Aufrufen halten, die ihre neuen Werte in
-je einer Transaktion speichern; die übrigen speichern jeden Wert einzeln, was langsamer ist. Erhöhen
-Sie `database_pool` für eine Instanz, die für viele neue Schlüssel gleichzeitig maskiert, und mit ihm
-`max_connections` von PostgreSQL
+Jedes Dokument bringt Werte mit, die für den Schlüssel neu sind und die er beim Maskieren in PostgreSQL
+schreibt: Dieselben 50 Dokumente, erneut maskiert, mit bekannten Werten, brauchten 16,6 ms bei 200.000 Werten
+und 16,4 ms bei 1.000.000 (Wiederherstellen jeweils 23 ms). Auch ein neuer Schlüssel schreibt die meisten Werte
+seiner Zeilen, darum maskiert er weniger.
+
+Latet 0.10.0, auf dieselbe Weise auf demselben Rechner gemessen, maskierte 350 und 304 Zeilen pro
+Sekunde bei 200.000 und 1.000.000 Werten und 153 für einen neuen Schlüssel, stellte 2.114 und 2.014
+wieder her und maskierte ein Dokument in 163 bis 182 ms. Latet 0.11 hatte sich vorgenommen, auf einer
+Instanz mindestens 1.000 solcher Zeilen pro Sekunde bei 200.000 und bei 1.000.000 Werten zu maskieren,
+und ein Dokument in 30 ms oder weniger: Es maskiert 871 und 773, und ein Dokument in 30 ms nur dann,
+wenn der Schlüssel seine Werte schon kennt. Der größte Teil der Zeit eines Maskierungsaufrufs geht an
+die Detektoren, ein Teil an das Warten auf PostgreSQL.
+
+Eine Instanz findet die Werte eines Schlüssels über die Fingerabdrücke der Wörter seines Tresors ([der Tresor
+eines Schlüssels](#der-tresor-eines-schlüssels)), die etwa 15 MB für eine Million Werte belegen (14,77 MB bei
+1.000.000) und im Hintergrund aufgebaut werden, während sich der Bereich des Schlüssels öffnet: in 1,5 Sekunden
+bei 1.000.000 Werten (der Median von drei Öffnungen, 1,42 bis 1,62 s). Bis sie bereit sind, suchen die Aufrufe
+des Schlüssels ihre Wörter allein in PostgreSQL: In einer früheren Messung mit Latet 0.11, mit abgeschalteten
+Fingerabdrücken, maskierte der Schlüssel mit 200.000 Werten 494 Zeilen pro Sekunde und stellte 1.382 wieder her.
+Jeder Aufruf liest zuerst den Änderungszähler des Schlüssels, 0,51 ms im Median, und übernimmt, was sich seither
+geändert hat: 1,87 ms für einen neuen Wert und 2,11 ms für 100, ebenfalls im Median.
+
+In einem Aufruf bereits maskierter Texte werden nur die neuen erneut gelesen, aber jeder der anderen
+wird trotzdem nachgeschlagen und mit dem verglichen, was der Schlüssel maskiert hat: 500 bereits
+maskierte Texte und ein neuer brauchten 168 ms, der neue allein 6,1 ms (Mediane von drei Läufen).
+
+Auf einer Linux-Maschine addieren sich die Worker. Gemessen in Docker auf demselben Rechner (eine
+virtuelle Linux-Maschine mit 20 Prozessoren und 16 GB, PostgreSQL 18.6 und Valkey 9.1.2 in Containern
+daneben), mit `latet server run --workers` und einem API-Schlüssel mit 200.000 Werten: 200.000
+verschiedene Zeilen der oben beschriebenen Art in Aufrufen zu 62, vier Verbindungen pro Worker, jede
+Anzahl 20 Sekunden lang, der Median von drei Runden; der Speicher ist der residente Speicher jedes
+Workers nach den Runden:
+
+| Worker | Maskieren, Zeilen pro Sekunde | Wiederherstellen, Zeilen pro Sekunde | Speicher pro Worker |
+| ---: | ---: | ---: | ---: |
+| 1 | 1.190 | 1.947 | 227 MB |
+| 2 | 2.260 | 3.711 | 227 MB |
+| 4 | 4.253 | 6.594 | 216 MB |
+| 8 | 7.477 | 10.147 | 185 MB |
+
+Acht Worker maskierten das 6,28-Fache dessen, was einer maskierte, und stellten das 5,21-Fache wieder
+her, wo sich Latet 0.11 mindestens das 5-Fache für beides vorgenommen hatte; keine Runde mit acht
+Workern stellte weniger als das 5,07-Fache wieder her. Der Kernel teilt die Verbindungen den Workern
+nach einem Hash zu, nicht der Reihe nach, sodass manche Worker mehr davon bekommen als andere: 1 bis
+10 der 32 in einer Runde mit acht Workern. Der Prozess, der die Worker startet, belegte daneben 47 bis
+48 MB. Diese Aufrufe kommen von mehreren Verbindungen zugleich; vergleichen Sie die Zeilen dieser
+Tabelle also miteinander, nicht mit der ersten Tabelle.
+
+Neue Werte zu schreiben braucht Verbindungen zu PostgreSQL: Eine Instanz, und jeder Worker, hält
+höchstens `database_pool` davon (10, sofern die Einstellungen des Servers nichts anderes sagen) für
+die Arbeit aller Identitäten und lässt drei Zehntel davon (drei von zehn) von Aufrufen halten, die
+ihre neuen Werte in je einer Transaktion speichern; die übrigen speichern jeden Wert einzeln, was
+langsamer ist. Erhöhen Sie `database_pool` für eine Instanz, die für viele neue Schlüssel
+gleichzeitig maskiert, und mit ihm `max_connections` von PostgreSQL
 ([Serverbetrieb](../concepts/server-operations/#verbindungen-grenzen-und-vertrauen)).
-`scripts/bench_apps.py` im Repository misst einen Server von Ihnen auf dieselbe Weise.
+`scripts/bench_apps.py` im Repository misst einen Server von Ihnen so, wie die erste Tabelle gemessen
+wurde.
 
 ## Einen Server aktualisieren
 
-Nach einer Aktualisierung, die ändert, wie die Wörter eines Tresors indiziert werden, erstellt die
-erste Instanz, die den Bereich eines Schlüssels aufbaut, sie neu, bevor sie den ersten Aufruf des
-Schlüssels beantwortet: etwa 40 Sekunden für 200.000 Werte und viereinhalb Minuten für 1.000.000 auf
-dem oben genannten Rechner. Ein Aufruf, der in der Zwischenzeit eintrifft, wartet, und eine Instanz
-baut vier Bereiche gleichzeitig auf; einige große Schlüssel verzögern also die ersten Aufrufe der
-anderen Schlüssel auf ihr. Das Changelog sagt, wann eine Version das tut; senden Sie dann jedem großen
-Schlüssel einen Aufruf mit ausreichend langem Timeout, bevor seine Programme wieder starten.
+Latet 0.11 ändert die Tabellen. Stoppen Sie jede Instanz und jeden Worker auf jeder Maschine, führen
+Sie `latet server migrate` einmal mit 0.11 aus und starten Sie dann alle damit
+([Aktualisieren](../concepts/server-operations/#aktualisieren-und-instanzen-hinzufügen)). Eine Instanz
+startet nicht auf Tabellen einer anderen Version, daher wird zwischen dem Stopp und dem Start kein
+Aufruf beantwortet, und `latet server migrate` ändert nichts, solange eine Instanz läuft, eine von
+0.10 noch 30 Sekunden nach ihrem Stopp. Die Migration gibt jeder Wortzeile jedes Tresors einen leeren
+Platz für ihren Fingerabdruck und für die Zählung der Änderung, die sie zuletzt geschrieben hat, mit
+ihren Indizes: Auf einer Datenbank mit großen Tresoren dauert sie länger als frühere Migrationen, und
+die Fingerabdrücke selbst werden später gebildet, im Hintergrund.
 
-Solange Instanzen zweier Versionen nebeneinander laufen, wird ein Wert, den eine ältere Instanz
-schreibt, von den neueren gefunden, solange sie ihn im Speicher halten, aber nicht in PostgreSQL, bis
-der Bereich des Schlüssels neu aufgebaut wird. Wenn die API für Anwendungen genutzt wird, stoppen Sie
-jede ältere Instanz, bevor die neuen starten, auch wenn die Tabellen gleich bleiben
-([Aktualisieren](../concepts/server-operations/#aktualisieren-und-instanzen-hinzufügen)).
+Ein Tresor, den Latet 0.10 gespeichert hat, hat noch keine Fingerabdrücke. Nach dem Neustart beantwortet die
+erste Instanz, die den Bereich eines Schlüssels aufbaut, dessen Aufrufe sofort, indem sie ihre Wörter in
+PostgreSQL sucht, wie 0.10 es tat, und bildet die Fingerabdrücke des Tresors im Hintergrund, einmal, eine
+Instanz nach der anderen; jede Instanz baut dann ihren eigenen Index daraus auf und nutzt ihn. Bis dahin
+maskieren die Aufrufe des Schlüssels dieselben Werte, langsamer ([Wie schnell es ist](#wie-schnell-es-ist): 494
+Zeilen pro Sekunde bei 200.000 Werten mit abgeschalteten Fingerabdrücken, in einer früheren Messung), und keiner
+wird deswegen abgewiesen. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
+werden kann (PostgreSQL oder Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), bleiben die
+Aufrufe bei der Suche in PostgreSQL, bis der Index erneut aufgebaut ist: sofort, wenn eine andere Instanz die
+Fingerabdrücke gebildet hat, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann einmal pro Minute. Das Log
+sagt einmal, wenn ein Index nicht mehr genutzt wird, und einmal, wenn er wieder genutzt wird. Ein Tresor über
+der Größe, für die ein Index aufgebaut wird ([Grenzen](#grenzen)), bleibt bei der Suche in PostgreSQL, solange
+sein Bereich besteht. Die Wörter selbst bleiben, wie 0.10 sie gebildet hat: 0.11 bildet sie nicht neu.
+
+Eine Version, die ändert, wie die Wörter eines Tresors gebildet werden (das Changelog sagt es),
+bildet die Wörter eines Schlüssels in der ersten Instanz neu, die seinen Bereich aufbaut, bevor dieser
+Bereich den ersten Aufruf des Schlüssels beantwortet: Latet 0.10.0 brauchte dafür etwa 40 Sekunden für
+200.000 Werte und viereinhalb Minuten für 1.000.000 auf dem oben genannten Rechner. Ein Aufruf, der in
+der Zwischenzeit eintrifft, wartet, und eine Instanz baut vier Bereiche gleichzeitig auf; einige große
+Schlüssel verzögern also die ersten Aufrufe der anderen Schlüssel auf ihr: Senden Sie nach einer
+solchen Version jedem großen Schlüssel einen Aufruf mit ausreichend langem Timeout, bevor seine
+Programme wieder starten.
+
+Solange Instanzen zweier Versionen nebeneinander laufen, was eine Version erlaubt, die die Tabellen
+gleich lässt, wird ein Wert, den eine ältere Instanz schreibt, von den neueren gefunden, solange sie
+ihn im Speicher halten, aber nicht in PostgreSQL, bis der Bereich des Schlüssels neu aufgebaut wird.
+Wenn die API für Anwendungen genutzt wird, stoppen Sie jede ältere Instanz, bevor die neuen starten,
+auch wenn die Tabellen gleich bleiben.

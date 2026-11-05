@@ -15,6 +15,26 @@ Indiquez le serveur et saisissez le jeton à l'invite masquée :
 latet server --server https://latet.acme.lan status
 ```
 
+`status` liste chaque instance du serveur en vie, chaque worker de chaque machine sur une ligne à lui :
+son identifiant, son numéro de worker, s'il est prêt, sa mémoire et les index de ses coffres-forts en
+Mio, ses espaces et sa version ; ce qu'une instance n'a pas dit est montré comme inconnu ou laissé de
+côté. Une instance de Latet 0.10 ou antérieure ne dit rien d'elle-même : quand une instance de la 0.11
+répond, il liste une instance de la 0.10 encore en vie par son identifiant, comme Latet 0.10 ou
+antérieure ; un serveur encore en 0.10 répond avec la seule instance qui a répondu. Avant une mise à
+jour, la vérification est `latet server migrate` : il ne change aucune table tant qu'une instance de
+quelque version que ce soit est en vie, une de la 0.10 pendant 30 secondes après son arrêt, et dit
+combien sont en vie et de quelle version. La liste vient d'une lecture bornée des clés de Valkey :
+quand cette lecture a été coupée à sa borne, `status` dit `instances: the list is partial, cut at its
+bound: an instance may be alive and not listed`, et le champ `instances_whole` de sa réponse est false
+(null quand Valkey n'a pas répondu).
+
+Sur la machine du serveur, `latet server run --workers N` démarre N instances, les workers, sur le même
+port, chacune dans son propre processus ; `LATET_SERVER_WORKERS` ou `workers` dans `server.yaml` donnent
+la même chose, et `--workers` l'emporte sur les deux, la variable sur le fichier. De 1 à 64, un seul par
+défaut. Plus d'un demande Linux ou l'image du conteneur : sous Windows, `latet server run` les refuse,
+et le service Windows en démarre un
+([plusieurs instances sur une machine](../../concepts/server-operations/#plusieurs-instances-sur-une-machine)).
+
 Ou utilisez `--admin-token-file FILE` : un fichier UTF-8 privé contenant le jeton seul, ou
 un enregistrement `{"url": "https://latet.acme.lan", "token": "<administration token>"}`.
 Un enregistrement n'est accepté que pour son serveur. Sous POSIX, utilisez `chmod 600 FILE`
@@ -183,11 +203,14 @@ avec cinq valeurs normales :
 | `too_wide` | Une ligne de texte a dépassé la largeur limite du reconnaisseur. |
 | `unavailable` | L'OCR était en chargement, n'a pas pu se charger ou a rencontré une autre erreur d'exécution prise en charge. |
 
-Une occurrence ultérieure de la même image originale compte à nouveau si elle
-reçoit un échec OCR en cache. Le compteur mesure les occurrences d'images non lues,
-pas les appels aux modèles. Les nouvelles tentatives internes, tuiles, lots et
-réparations de lecteurs sans image soumise n'ajoutent rien. Sont exclus l'OCR réussi,
-la rétention manuelle, les erreurs de décodage ou de politique de pixels, l'OCR
-désactivé ou absent, la répétition exacte d'une image peinte ou d'un espace réservé
-de Latet et l'OCR local d'un ordinateur. Les vérifications finales du même travail
-ne comptent pas à nouveau. Aucune étiquette ne contient d'image, de chemin ou d'identité.
+Une occurrence ultérieure de la même image originale compte à nouveau si elle reçoit un
+échec OCR en cache. Le compteur mesure les occurrences d'images non lues, pas les appels
+aux modèles, à une exception près : une requête ou un tour WebSocket refusé avant
+qu'aucune de ses images ne soit lue, parce que la reconnaissance de texte n'est pas
+disponible, compte `unavailable` une fois, quel que soit le nombre d'images qu'il porte.
+Les nouvelles tentatives internes, tuiles, lots et réparations de lecteurs sans image
+soumise n'ajoutent rien. Sont exclus l'OCR réussi, la rétention manuelle, les erreurs de
+décodage ou de politique de pixels, l'OCR désactivé ou absent, la répétition exacte
+d'une image peinte ou d'un espace réservé de Latet et l'OCR local d'un ordinateur. Les
+vérifications finales du même travail ne comptent pas à nouveau. Aucune étiquette ne
+contient d'image, de chemin ou d'identité.

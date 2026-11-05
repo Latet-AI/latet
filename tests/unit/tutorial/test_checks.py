@@ -62,10 +62,10 @@ def test_the_files_the_agent_wrote(tmp_path):
 
 
 def test_the_exchange_a_turn_answered():
-    summary = {
+    summary = {  # as the history's summary has it: why it was stopped by its category code, never its words
         "mode": "verify",
         "flags": ["blocked", "leak"],
-        "block_reason": "sensitive values would leave in clear: GENERIC_API_KEY[40]",
+        "block_reason": "refused",
         "by_class": {"SECRET": 1},
         "by_type": {"GENERIC_API_KEY": 1},
         "project": None,
@@ -75,7 +75,7 @@ def test_the_exchange_a_turn_answered():
         "ref": "last",
         "mode": "verify",
         "blocked": True,
-        "reason_contains": "would leave in clear",
+        "reason_contains": "refused",
         "masked_classes": ["SECRET"],
         "masked_types": ["GENERIC_API_KEY"],
         "flags": ["leak"],

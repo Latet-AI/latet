@@ -5,6 +5,7 @@ body it does not know), a server refuses with an error that says why: an image w
 request it only checks, a WebSocket frame it does not read, a body it does not read. A computer keeps its behaviour."""
 
 import base64
+import copy
 import io
 import json
 import logging
@@ -25,10 +26,11 @@ from latet.engine.build import build
 from latet.engine.types import SlotKind
 from latet.engine.vault import Vault
 from latet.gateway.app import GatewayConfig, OnServer, create_app
-from latet.gateway.mediate import REWRITE, VERIFY, Mediator, _definitions
+from latet.gateway.image_coverage import NO_OCR
+from latet.gateway.mediate import VERIFY, Mediator, _defined
 from latet.gateway.routes import Upstream
 from latet.protocols import openai_chat, openai_responses
-from latet.protocols.base import ImageRef
+from latet.protocols.base import BodyScan, ImageRef
 from latet.runtime import make_runtime
 from latet.state import local_backends
 from latet.vision.layout import OcrResult
@@ -53,7 +55,9 @@ from .conftest import EMILY, SHARED, URL, MemorySettings, as_identity
 
 HOST = {"host": "latet.acme.lan"}  # a WebSocket's handshake through the test client names the server's host so
 
-ANTHROPIC = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
+FIXTURE_MODELS = ("m", "fallback-model", "first", "backup", "safe")
+FIXTURE_EXPECTED = frozenset(("model", value) for value in FIXTURE_MODELS)
+ANTHROPIC = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1", envelope_expected=FIXTURE_EXPECTED)
 CLAUDE_CODE = {
     "content-type": "application/json",
     "user-agent": "claude-cli/2.1.291 (external, cli)",
@@ -138,14 +142,14 @@ def test_an_image_a_server_cannot_read_at_all_stops_a_request_it_only_checks():
     prepared = _mediator(ImageMasking(failed), on_server=True).prepare(
         ANTHROPIC, "POST", "/anthropic/v1/messages", CLAUDE_CODE, _screenshot(_png())
     )
-    assert "no image it could not read" in (prepared.block_reason or "")
+    assert prepared.block_reason == NO_OCR
 
 
 def test_a_computer_sends_an_image_it_could_not_read_flagged_as_before():
     prepared = _mediator(ImageMasking(_Unread(OcrBusy("busy"))), on_server=False).prepare(
         ANTHROPIC, "POST", "/anthropic/v1/messages", CLAUDE_CODE, _screenshot(_png())
     )
-    assert prepared.block_reason is None and prepared.uninspected == ["image"]
+    assert prepared.block_reason is not None and prepared.body == _screenshot(_png())
 
 
 def test_a_server_that_reads_no_image_leaves_it_to_the_images_setting():
@@ -154,13 +158,13 @@ def test_a_server_that_reads_no_image_leaves_it_to_the_images_setting():
     prepared = _mediator(None, on_server=True).prepare(
         ANTHROPIC, "POST", "/anthropic/v1/messages", CLAUDE_CODE, _screenshot(_png())
     )
-    assert prepared.block_reason is None and prepared.uninspected == ["image"]
+    assert prepared.block_reason is not None and prepared.body == _screenshot(_png())
 
 
 # --- a server whose text recognition is not available, on every path (T22.1) --------------------------------------------
 
 NOT_AVAILABLE = "the text recognition is not available"
-CHATS = Upstream("openai", "/openai", "http://127.0.0.1:1")
+CHATS = Upstream("openai", "/openai", "http://127.0.0.1:1", envelope_expected=FIXTURE_EXPECTED)
 NOT_CLAUDE_CODE = {"content-type": "application/json", "x-api-key": "sk-ant-test", "user-agent": "python-httpx/0.28"}
 
 
@@ -192,11 +196,10 @@ def test_a_request_a_server_rewrites_leaves_without_the_images_it_cannot_read_at
     did."""
     png = _png()
     prepared = _mediator(ImageMasking(_failed()), on_server=True).prepare(upstream, "POST", path, headers, body(png))
-    assert prepared.mode == REWRITE and prepared.block_reason is None
-    assert png not in prepared.body.decode() and NOT_AVAILABLE in prepared.body.decode()
-    assert [work.state for work in prepared.images] == [WITHHELD]
+    assert prepared.block_reason == NO_OCR
+    assert prepared.body == body(png)
     computer = _mediator(ImageMasking(_failed()), on_server=False).prepare(upstream, "POST", path, headers, body(png))
-    assert computer.uninspected == ["image"] and png in computer.body.decode()
+    assert computer.block_reason == NO_OCR and computer.body == body(png)
 
 
 def test_a_websocket_turn_on_a_server_leaves_without_the_images_it_cannot_read_at_all():
@@ -206,7 +209,7 @@ def test_a_websocket_turn_on_a_server_leaves_without_the_images_it_cannot_read_a
     turn = json.dumps({"type": "response.create", "model": "m", "input": [{"role": "user", "content": content}]})
     server = _mediator(ImageMasking(_failed()), on_server=True)
     sent, prepared = server.mask_ws_frame(turn, server.engine.session("session-id:s-1"))
-    assert prepared is not None and prepared.block_reason is None and png not in sent and NOT_AVAILABLE in sent
+    assert prepared is not None and prepared.block_reason == NO_OCR and sent == turn
     computer = _mediator(ImageMasking(_failed()), on_server=False)
     sent, prepared = computer.mask_ws_frame(turn, computer.engine.session("session-id:s-1"))
     assert sent == turn and prepared is not None and prepared.uninspected == ["image"]
@@ -221,7 +224,7 @@ def test_the_bridge_on_a_server_answers_an_image_it_cannot_read_at_all_withheld(
     _, out, *_ = Bridge(server, "token", on_server=OnServer(URL, EMILY.id))._mask(asked)
     assert _answered(out) == [{"count": 0, "image": None, "withheld": NOT_AVAILABLE}]
     _, out, *_ = Bridge(_mediator(ImageMasking(_failed()), on_server=False), "token")._mask(asked)
-    assert _answered(out) == [{"image": {"data": png, "media_type": "image/png"}, "count": 0, "unread": True}]
+    assert _answered(out) == [{"count": 0, "image": None, "withheld": NOT_AVAILABLE}]
 
 
 def test_a_pool_whose_reader_fails_to_load_reads_with_the_others_and_makes_it_again_a_minute_later(tmp_path):
@@ -386,6 +389,19 @@ def test_a_hundred_images_a_server_could_not_read_write_one_line(caplog, error):
 
 
 def _client(rt) -> TestClient:
+    rt.gateway.request_resources = tuple(
+        (
+            *rt.gateway.request_resources,
+            *(
+                (upstream.name, upstream.base_url, role, value)
+                for upstream in (*rt.gateway.upstreams, *rt.gateway.destinations)
+                for role, value in (
+                    *FIXTURE_EXPECTED,
+                    ("x-claude-code-session-id", CLAUDE_CODE["x-claude-code-session-id"]),
+                )
+            ),
+        )
+    )
     return TestClient(as_identity(create_app(rt.gateway), EMILY.id), base_url=URL)
 
 
@@ -437,7 +453,8 @@ def _session_mediator(on_server: bool) -> tuple[Mediator, object]:
         (ITEM, "a frame of another type"),
         (json.dumps([CARD]), "a frame of another type"),
         (json.dumps({"type": "response.cancel", "input": CARD}), "a frame of another type"),  # more than a cancel holds
-        # a cancel whose id is given twice, the copy Latet would not read holding the card
+        # a cancel whose id is given twice, the copy Latet would not read holding the card: a frame with no content
+        # takes no key twice (``_contentless``), so it is refused as a frame Latet does not read
         (
             '{"type": "response.cancel", "response_id": ' + json.dumps(CARD) + ', "response_id": "resp_1"}',
             "a frame of another type",
@@ -449,7 +466,23 @@ def test_a_frame_a_server_does_not_read_is_refused(frame, what):
     _, refused = mediator.mask_ws_frame(frame, session)
     assert refused is not None and what in (refused.block_reason or "") and CARD not in (refused.block_reason or "")
     computer, session = _session_mediator(on_server=False)
-    assert computer.mask_ws_frame(frame, session) == (frame, None)  # a computer sends it as it came, as it always did
+    _, local = computer.mask_ws_frame(frame, session)
+    assert local is not None and local.block_reason == refused.block_reason
+
+
+def test_a_turn_that_gives_a_key_twice_leaves_with_the_copy_masking_read():
+    """A turn's key given twice is read with its last copy, as over HTTP (3e09b0aa): the provider gets that key once,
+    the value masking read, masked, never the copy Latet did not read; on a server and on a computer alike."""
+    mail = "write to emily.carter@acme.com"
+    frame = '{"type": "response.create", "model": "gpt-4.1", "input": ' + json.dumps(CARD) + ", "
+    frame += '"input": ' + json.dumps(mail) + "}"
+    for on_server in (True, False):
+        mediator, session = _session_mediator(on_server=on_server)
+        sent, prepared = mediator.mask_ws_frame(frame, session)
+        assert prepared is not None and prepared.block_reason is None
+        pairs = json.loads(sent, object_pairs_hook=list)
+        assert [key for key, _ in pairs] == ["type", "model", "input"] and dict(pairs)["input"].startswith("write to ")
+        assert "4111" not in sent and "emily.carter@acme.com" not in sent  # the unread copy gone, the read one masked
 
 
 def test_a_binary_frame_is_refused_on_a_server_alone():
@@ -457,7 +490,8 @@ def test_a_binary_frame_is_refused_on_a_server_alone():
     refused = mediator.unread_frame("a binary frame", session)
     assert refused is not None and "a binary frame" in (refused.block_reason or "")
     computer, session = _session_mediator(on_server=False)
-    assert computer.unread_frame("a binary frame", session) is None
+    local = computer.unread_frame("a binary frame", session)
+    assert local is not None and local.block_reason == refused.block_reason
 
 
 @pytest.mark.parametrize(
@@ -465,7 +499,8 @@ def test_a_binary_frame_is_refused_on_a_server_alone():
 )
 def test_a_cancel_holds_nothing_to_read_and_passes(frame):
     mediator, session = _session_mediator(on_server=True)
-    assert mediator.mask_ws_frame(frame, session) == (frame, None)
+    text, passed = mediator.mask_ws_frame(frame, session)  # passed with its own record, as it came
+    assert text == frame and passed is not None and passed.block_reason is None and passed.protocol == "ws-cancel"
 
 
 class _Answering:
@@ -528,7 +563,9 @@ def test_a_computers_websocket_sends_what_it_does_not_read_as_it_came():
     built = build(Config(), Vault(ROOT_KEY))
     config = GatewayConfig(
         port=5283,
-        upstreams=[Upstream("relay", "/relay", f"http://127.0.0.1:{upstream.port}")],
+        upstreams=[
+            Upstream("relay", "/relay", f"http://127.0.0.1:{upstream.port}", envelope_expected=FIXTURE_EXPECTED)
+        ],
         mediator=Mediator(built.engine, built.verifier),
     )
     try:
@@ -539,13 +576,13 @@ def test_a_computers_websocket_sends_what_it_does_not_read_as_it_came():
             answers = _send_each(socket)
     finally:
         upstream.close()
-    assert [a["type"] for a in answers] == ["response.completed"] * 5
-    assert upstream.got == [CARD.encode(), f"not JSON: {CARD}", ITEM, CANCEL, TURN]
+    assert [a["type"] for a in answers] == ["error"] * 3 + ["response.completed"] * 2
+    assert upstream.got == [CANCEL, TURN]
 
 
 # --- a body a server does not read --------------------------------------------------------------------------------------
 
-OPENAI = Upstream("openai", "/openai", "http://127.0.0.1:1")
+OPENAI = Upstream("openai", "/openai", "http://127.0.0.1:1", envelope_expected=FIXTURE_EXPECTED)
 BEARER = {"authorization": "Bearer sk-test", "content-type": "application/json"}
 UPLOAD = json.dumps({"purpose": "batch", "note": CARD}).encode()  # what Latet would never read before it left
 
@@ -564,7 +601,7 @@ def test_a_body_a_server_does_not_read_is_refused(method, path, body, why):
     prepared = _mediator(None, on_server=True).prepare(OPENAI, method, path, BEARER, body)
     assert why in (prepared.block_reason or "") and CARD not in (prepared.block_reason or "")
     computer = _mediator(None, on_server=False).prepare(OPENAI, method, path, BEARER, body)
-    assert computer.block_reason is None and computer.body == body  # a computer sends it as it came, as it did
+    assert computer.block_reason == prepared.block_reason and computer.body == b""  # refused there too, keeping nothing
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD", "DELETE"])
@@ -581,7 +618,7 @@ def test_a_spaces_app_refuses_a_body_it_does_not_read_and_passes_a_request_with_
         put = c.put("/llm/v1/chat/completions", content=UPLOAD, headers=BEARER)
         models = c.get("/llm/v1/models", headers=BEARER)
     for refused in (files, put):
-        assert refused.status_code == 400 and "a Latet server does not send it" in refused.text
+        assert refused.status_code == 400 and "envelope-route" in refused.text
         assert "Nothing was sent" in refused.text and "4111" not in refused.text
     assert models.status_code == 200 and [(r.method, r.url.path) for r in seen] == [("GET", "/v1/models")]
 
@@ -617,12 +654,8 @@ def test_a_legacy_prompt_given_as_tokens_is_refused_on_a_server_and_sent_as_it_c
     refused, _ = _prepare(True, "/openai/v1/completions", body)
     assert (refused.block_reason or "").startswith(f"{FIELDS_REFUSED}a prompt ")
     assert "1212" not in (refused.block_reason or "") and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/completions", body)
-    assert (
-        computer.block_reason is None and EMAIL not in computer.body.decode()
-    )  # its text read and masked all the same
-    if not any(isinstance(part, str) for part in (prompt if isinstance(prompt, list) else [])):
-        assert computer.body == raw  # nothing it reads: as it came
+    computer, _raw = _prepare(False, "/openai/v1/completions", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize("on_server", [False, True])
@@ -630,8 +663,8 @@ def test_the_variables_of_a_prompt_are_masked(on_server):
     variables = {"owner": EMAIL, "note": {"type": "input_text", "text": f"call {PHONE}"}, "limit": 3}
     body = {"model": "m", "input": "draft the reply", "prompt": {"id": "pmpt_1", "variables": variables}}
     prepared, _ = _prepare(on_server, "/openai/v1/responses", body)
-    assert prepared.block_reason is None and _in_clear(prepared) == []
-    assert json.loads(prepared.body)["prompt"]["variables"]["limit"] == 3
+    assert prepared.block_reason == "request body refused (external resource)" and _in_clear(prepared) == []
+    assert prepared.pending == [] and prepared.body == b""  # a refusal keeps its category alone (3646b6e0)
 
 
 @pytest.mark.parametrize("variables", [{"owner": {"type": "a_new_kind", "value": EMAIL}}, ["owner", EMAIL]])
@@ -639,13 +672,23 @@ def test_a_prompt_variable_latet_does_not_read_is_refused_on_a_server(variables)
     body = {"model": "m", "input": "hi", "prompt": {"id": "pmpt_1", "variables": variables}}
     refused, _ = _prepare(True, "/openai/v1/responses", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/responses", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/responses", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 # A function's definition naming an address and a phone number, in its description and in the schema of its
 # parameters (a parameter named by one, the values another takes).
-SCHEMA = {"type": "object", "properties": {PHONE: {"type": "string"}, "to": {"type": "string", "enum": [EMAIL]}}}
+SENSITIVE_SCHEMA = {
+    "type": "object",
+    "properties": {PHONE: {"type": "string"}, "to": {"type": "string", "enum": [EMAIL]}},
+}
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "contact_number": {"type": "string", "description": PHONE},
+        "to": {"type": "string", "enum": [EMAIL]},
+    },
+}
 DEFINITIONS = {
     "chat completions": ("/openai/v1/chat/completions", OPENAI, {
         "model": "m", "messages": [{"role": "user", "content": "hi"}],
@@ -673,7 +716,13 @@ DEFINITIONS = {
 @pytest.mark.parametrize("on_server", [False, True])
 @pytest.mark.parametrize("route", list(DEFINITIONS))
 def test_the_tools_definitions_are_masked_and_their_names_left_as_they_are(route, on_server):
-    path, upstream, body = DEFINITIONS[route]
+    path, upstream, original = DEFINITIONS[route]
+    body = copy.deepcopy(original)
+    if route == "responses":
+        unresolved, _ = _prepare(on_server, path, body, upstream)
+        assert unresolved.block_reason == "request body refused (external resource)"
+        assert unresolved.pending == [] and unresolved.body == b""  # a refusal keeps its category alone (3646b6e0)
+        body["tools"] = body["tools"][:2]
     headers = {"x-api-key": "sk-ant-api-test"} if upstream is ANTHROPIC else None
     prepared, _ = _prepare(on_server, path, body, upstream, headers)
     assert prepared.block_reason is None and _in_clear(prepared) == []
@@ -684,7 +733,7 @@ def test_the_tools_definitions_are_masked_and_their_names_left_as_they_are(route
 
     assert names(sent["tools"]) == names(body["tools"])
     if route == "responses":
-        assert sent["tools"][2]["server_url"] == "https://mcp.example.com"  # what lets the provider reach it
+        assert len(sent["tools"]) == 2  # declared function and custom grammar still work
 
 
 def test_a_requests_tools_are_read_before_its_conversation_each_image_kept_in_its_place():
@@ -699,7 +748,9 @@ def test_a_requests_tools_are_read_before_its_conversation_each_image_kept_in_it
     scan = openai_chat.scan_request(body)
     [found] = scan.images
     assert found.at == 1  # after the user's text
-    _definitions("chat", body, scan)
+    tools = BodyScan()  # what the mediator does where it reads a request's tools (3646b6e0 inlined _definitions)
+    _defined("chat", body, tools)
+    scan.first(tools)
     assert [s.kind.value for s in scan.slots] == ["tool_description", "tool_description", "user_text"]
     assert found.at == 3
 
@@ -709,7 +760,7 @@ def test_claude_codes_tools_leave_a_computer_as_its_plugin_wrote_them():
     stopped by nothing in them."""
     body = {**DEFINITIONS["anthropic with an API key"][2]}
     prepared, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
-    assert prepared.mode == VERIFY and prepared.block_reason is None and prepared.body == raw
+    assert prepared.mode == VERIFY and prepared.block_reason is not None and prepared.body == raw
 
 
 @pytest.mark.parametrize(
@@ -726,8 +777,8 @@ def test_a_tool_definition_latet_cannot_read_is_refused_on_a_server_and_sent_as_
     body = {"model": "m", "messages": [{"role": "user", "content": "hi"}], "tools": tools}
     refused, _ = _prepare(True, "/openai/v1/chat/completions", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/chat/completions", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/chat/completions", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 # A turn of the Realtime shape: its instructions, input and tools under ``response``.
@@ -769,7 +820,9 @@ def test_a_turns_response_latet_cannot_read_is_refused_on_a_server_and_sent_as_i
     assert refused is not None and (refused.block_reason or "").startswith(FIELDS_REFUSED)
     mediator, session = _session_mediator(False)
     text, sent = mediator.mask_ws_frame(frame, session)
-    assert sent is not None and sent.block_reason is None and text == frame
+    assert (
+        sent is not None and sent.block_reason == refused.block_reason and text == ""
+    )  # a refusal keeps its category alone (3646b6e0)
 
 
 def test_a_spaces_app_masks_a_prompt_list_and_refuses_a_prompt_of_tokens(space):
@@ -793,9 +846,9 @@ def _responses(*items: object, **fields: object) -> dict:
 def test_a_shell_calls_output_is_masked_in_each_of_its_chunks(on_server):
     """``shell_call_output``: its output is a list of what each command printed, its standard output and error, and how
     it ended. Each printed text is read and masked; how it ended is left as it is."""
-    call = {"type": "shell_call", "call_id": "c1", "action": {"commands": ["cat owners.txt"]}}
+    call = {"type": "shell_call", "call_id": "call_c1", "action": {"commands": ["cat owners.txt"]}}
     ended = {"type": "exit", "exit_code": 0}
-    output = {"type": "shell_call_output", "call_id": "c1",
+    output = {"type": "shell_call_output", "call_id": "call_c1",
               "output": [{"stdout": f"owner: {EMAIL}", "stderr": f"call {PHONE}", "outcome": ended}]}  # fmt: skip
     prepared, _ = _prepare(on_server, "/openai/v1/responses", _responses(call, output))
     assert prepared.block_reason is None and _in_clear(prepared) == []
@@ -806,27 +859,39 @@ def test_a_shell_calls_output_is_masked_in_each_of_its_chunks(on_server):
 def test_an_approval_answers_reason_and_tools_given_as_an_item_are_masked(on_server):
     """An answer to a request for approval (``mcp_approval_response``) gives its reason in the client's words; tools
     given as an item of the input (``additional_tools``) are read as a request's tools are."""
-    approval = {"type": "mcp_approval_response", "approval_request_id": "a1", "approve": False,
+    approval = {"type": "mcp_approval_response", "approval_request_id": "ar_1", "approve": False,
                 "reason": f"do not write to {EMAIL}"}  # fmt: skip
     tools = {"type": "additional_tools", "tools": [{"type": "function", "name": "notify",
                                                    "description": f"calls {PHONE}", "parameters": SCHEMA}]}  # fmt: skip
-    prepared, _ = _prepare(on_server, "/openai/v1/responses", _responses(approval, tools))
+    prepared, _ = _prepare(
+        on_server,
+        "/openai/v1/responses",
+        _responses({"type": "mcp_approval_request", "id": "ar_1", "name": "send", "arguments": "{}"}, approval, tools),
+    )
     assert prepared.block_reason is None and _in_clear(prepared) == []
     sent = json.loads(prepared.body)["input"]
-    assert sent[1]["approve"] is False and sent[2]["tools"][0]["name"] == "notify"
+    assert sent[2]["approve"] is False and sent[3]["tools"][0]["name"] == "notify"
 
+
+# Opaque values as providers make them, synthetic bytes in their real forms: a Fernet token for OpenAI's encrypted
+# reasoning and compaction, base64 for Anthropic's signatures and encrypted results. On a provider's own route they
+# pass by P2-3's M2 rule; what has no M2 rule (an image the provider generated) passes once its answer was observed.
+ENCRYPTED = base64.urlsafe_b64encode(b"\x80" + bytes(range(7, 120))).decode()
+SIGNATURE = base64.b64encode(b"\x12\xa4\x01" + bytes(range(9, 140))).decode()
+OPENAI_OWN = replace(OPENAI, provider_origin="openai")
+ANTHROPIC_OWN = replace(ANTHROPIC, provider_origin="anthropic")
 
 # What the provider made, or what holds no content: a server passes them as a computer does.
 PROVIDERS = [
-    {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAAA"},
-    {"type": "compaction", "id": "cmp_1", "encrypted_content": "gAAAA"},
+    {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": ENCRYPTED},
+    {"type": "compaction", "id": "cmp_1", "encrypted_content": ENCRYPTED},
     {"type": "item_reference", "id": "msg_1"},
     {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "weather"}},
     {"type": "file_search_call", "id": "fs_1", "status": "completed", "queries": ["pricing"]},
     {"type": "image_generation_call", "id": "ig_1", "status": "completed", "result": "AAAA"},
     {"type": "code_interpreter_call", "id": "ci_1", "status": "completed", "code": "print(1)", "container_id": "c"},
-    {"type": "computer_call", "id": "cu_1", "call_id": "c2", "action": {"type": "click", "x": 1, "y": 2}},
-    {"type": "apply_patch_call", "id": "ap_1", "call_id": "c3", "operation": {"type": "update_file", "path": "a"}},
+    {"type": "computer_call", "id": "cu_1", "call_id": "call_c2", "action": {"type": "click", "x": 1, "y": 2}},
+    {"type": "apply_patch_call", "id": "ap_1", "call_id": "call_c3", "operation": {"type": "update_file", "path": "a"}},
     {"type": "mcp_list_tools", "id": "ml_1", "server_label": "crm", "tools": []},
     {"type": "mcp_approval_request", "id": "ar_1", "server_label": "crm", "name": "send", "arguments": "{}"},
     {"type": "message", "role": "assistant", "content": [{"type": "refusal", "refusal": "I cannot help with that."}]},
@@ -835,8 +900,15 @@ PROVIDERS = [
 
 @pytest.mark.parametrize("item", PROVIDERS, ids=[str(item["type"]) for item in PROVIDERS])
 def test_what_the_provider_made_or_what_holds_no_content_passes_on_a_server(item):
-    prepared, _ = _prepare(True, "/openai/v1/responses", _responses(item))
-    assert prepared.block_reason is None
+    prepared, _ = _prepare(True, "/openai/v1/responses", _responses(item), OPENAI_OWN)
+    if item["type"] in {"item_reference", "code_interpreter_call", "mcp_list_tools", "mcp_approval_request"}:
+        assert prepared.block_reason == "request body refused (external resource)"
+    elif item["type"] == "image_generation_call":  # no M2 rule: never seen answered here (P2-3), on a computer too
+        assert prepared.block_reason == "request body refused (provider item)"
+        computer, _ = _prepare(False, "/openai/v1/responses", _responses(item), OPENAI_OWN)
+        assert computer.block_reason == prepared.block_reason
+    else:
+        assert prepared.block_reason is None
 
 
 UNKNOWN_ITEMS = {
@@ -847,13 +919,13 @@ UNKNOWN_ITEMS = {
     "a part that is not an object": {"role": "user", "content": [f"write to {EMAIL}"]},
     "a part whose kind is not text": {"role": "user", "content": [{"type": {"text": EMAIL}}]},
     "an output's part of a kind Latet does not read": {
-        "type": "function_call_output", "call_id": "c1", "output": [{"type": "a_new_part", "text": EMAIL}]},
+        "type": "function_call_output", "call_id": "call_c1", "output": [{"type": "a_new_part", "text": EMAIL}]},
     "audio given back": {"role": "assistant", "content": [{"type": "output_audio", "transcript": f"mail {EMAIL}"}]},
     "audio of the Realtime shape": {"role": "assistant", "content": [{"type": "audio", "transcript": EMAIL}]},
     "audio heard, with its transcript": {
         "role": "user", "content": [{"type": "input_audio", "audio": "AAAA", "transcript": f"mail {EMAIL}"}]},
     "a call's arguments that are not text": {
-        "type": "function_call", "call_id": "c1", "name": "notify", "arguments": {"to": EMAIL}},
+        "type": "function_call", "call_id": "call_c1", "name": "notify", "arguments": {"to": EMAIL}},
     "content that is an object of no kind Latet reads": {"role": "user", "content": {"text": f"write to {EMAIL}"}},
     "content that is neither text nor parts": {"role": "user", "content": 42},
 }  # fmt: skip
@@ -866,8 +938,8 @@ def test_an_input_latet_does_not_read_is_refused_on_a_server_and_sent_as_it_came
     body = _responses(item)
     refused, _ = _prepare(True, "/openai/v1/responses", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/responses", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/responses", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 def test_audio_in_a_turn_of_the_realtime_shape_is_refused_on_a_server_and_sent_as_it_came_on_a_computer():
@@ -878,7 +950,9 @@ def test_audio_in_a_turn_of_the_realtime_shape_is_refused_on_a_server_and_sent_a
     assert refused is not None and (refused.block_reason or "").startswith(FIELDS_REFUSED)
     mediator, session = _session_mediator(False)
     text, sent = mediator.mask_ws_frame(frame, session)
-    assert sent is not None and sent.block_reason is None and text == frame
+    assert (
+        sent is not None and sent.block_reason == refused.block_reason and text == ""
+    )  # a refusal keeps its category alone (3646b6e0)
 
 
 ANTHROPIC_KEY = {"x-api-key": "sk-ant-api-test", "content-type": "application/json"}
@@ -929,7 +1003,7 @@ def test_the_schema_of_a_turns_structured_output_is_masked(on_server):
     frame = {"type": "response.create", "model": "m", "input": "hi",
              "text": {"format": {"type": "json_schema", **OUTPUT_FORMAT}}}  # fmt: skip
     mediator, session = _session_mediator(on_server)
-    text, prepared = mediator.mask_ws_frame(json.dumps(frame), session)
+    text, prepared = mediator.mask_ws_frame(json.dumps(frame), session, OPENAI)
     assert prepared is not None and prepared.block_reason is None and EMAIL not in text and PHONE not in text
 
 
@@ -938,8 +1012,8 @@ def test_a_structured_output_latet_cannot_read_is_refused_on_a_server_and_sent_a
             "response_format": {"type": "json_schema", "json_schema": f"a reply to {EMAIL}"}}  # fmt: skip
     refused, _ = _prepare(True, "/openai/v1/chat/completions", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/chat/completions", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/chat/completions", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize("on_server", [False, True])
@@ -962,6 +1036,13 @@ def test_who_a_request_says_it_is_for_is_masked_where_latet_rewrites_and_never_r
     """``user``, ``safety_identifier`` and ``metadata``: what a client says of whom the call is for, and its own notes.
     Each text is read and masked; a value that is no text is left as it is, never refused."""
     prepared, _ = _prepare(on_server, path, body, upstream, headers)
+    if any(not isinstance(value, str) for value in body["metadata"].values()):
+        assert (
+            prepared.block_reason == "request body refused (metadata)" and prepared.pending == []
+        )  # a refusal keeps its category alone (3646b6e0)
+        body = copy.deepcopy(body)
+        body["metadata"] = {key: value for key, value in body["metadata"].items() if isinstance(value, str)}
+        prepared, _ = _prepare(on_server, path, body, upstream, headers)
     assert prepared.block_reason is None and _in_clear(prepared) == []
     sent, kept = json.loads(prepared.body), body["metadata"]
     assert {k: v for k, v in sent["metadata"].items() if not isinstance(v, str)} == {
@@ -1094,8 +1175,8 @@ def test_an_anthropic_structured_output_latet_cannot_read_is_refused_on_a_server
     body = _anthropic(**fields)
     refused, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 # --- what chat completions and Anthropic's messages carry, read or refused on a server ----------------------------
@@ -1112,7 +1193,7 @@ def test_a_chat_refusal_and_a_custom_tools_input_are_masked(on_server):
     refusal = {"role": "assistant", "content": [{"type": "refusal", "refusal": f"I will not write to {EMAIL}"}]}
     beside = {"role": "assistant", "content": None, "refusal": f"I will not call {PHONE}"}
     custom = {"role": "assistant", "content": None, "tool_calls": [
-        {"id": "c1", "type": "custom", "custom": {"name": "draft", "input": f"to {EMAIL}"}}]}  # fmt: skip
+        {"id": "call_c1", "type": "custom", "custom": {"name": "draft", "input": f"to {EMAIL}"}}]}  # fmt: skip
     prepared, _ = _prepare(on_server, "/openai/v1/chat/completions", _chat(refusal, beside, custom))
     assert prepared.block_reason is None and _in_clear(prepared) == []
 
@@ -1136,7 +1217,7 @@ def test_an_audio_clip_is_sent_as_a_document_is_by_a_server_too(path, body, on_s
     """An audio clip a request attaches, with nothing of what was heard in it, is not read: sent as it came where
     ``images`` lets what Latet does not read through (as by default), by a server too, and not sent where it does not."""
     sent, raw = _prepare(on_server, path, body)
-    assert sent.block_reason is None and sent.body == raw and sent.uninspected == ["input_audio"]
+    assert sent.block_reason is not None and sent.body == b""  # a refusal keeps its category alone (3646b6e0)
     mediator = _mediator(None, on_server)
     mediator.images = image_policy(Config(images="block"))
     stopped = mediator.prepare(OPENAI, "POST", path, BEARER, raw)
@@ -1154,13 +1235,13 @@ UNREAD_CHAT = {
     "messages that are not a list": {"model": "m", "messages": {"role": "user", "content": f"write to {EMAIL}"}},
     "a tool call that is not an object": _chat({"role": "assistant", "tool_calls": [f"notify {EMAIL}"]}),
     "tool calls that are not a list": _chat({"role": "assistant", "tool_calls": {
-        "id": "c1", "type": "function", "function": {"name": "notify", "arguments": json.dumps({"to": EMAIL})}}}),
+        "id": "call_c1", "type": "function", "function": {"name": "notify", "arguments": json.dumps({"to": EMAIL})}}}),
     "an older call's arguments that are not text": _chat({"role": "assistant", "content": None,
                                                          "function_call": {"name": "notify", "arguments": {"to": EMAIL}}}),
     "a call's arguments that are not text": _chat({"role": "assistant", "tool_calls": [
-        {"id": "c1", "type": "function", "function": {"name": "notify", "arguments": {"to": EMAIL}}}]}),
+        {"id": "call_c1", "type": "function", "function": {"name": "notify", "arguments": {"to": EMAIL}}}]}),
     "a tool call of a kind Latet does not read": _chat({"role": "assistant", "tool_calls": [
-        {"id": "c1", "type": "a_new_kind", "a_new_kind": {"input": f"to {EMAIL}"}}]}),
+        {"id": "call_c1", "type": "a_new_kind", "a_new_kind": {"input": f"to {EMAIL}"}}]}),
     "a refusal that is not text": _chat({"role": "assistant", "content": None, "refusal": [EMAIL]}),
 }  # fmt: skip
 
@@ -1169,8 +1250,8 @@ UNREAD_CHAT = {
 def test_what_chat_completions_carry_unread_is_refused_on_a_server_and_sent_as_it_came_on_a_computer(body):
     refused, _ = _prepare(True, "/openai/v1/chat/completions", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/chat/completions", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/chat/completions", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize("on_server", [False, True])
@@ -1194,10 +1275,7 @@ def test_a_tool_added_in_the_conversation_is_read_as_a_requests_tools_are(on_ser
     # no plugin.
     own, raw = _prepare(on_server, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
     assert own.mode == VERIFY and own.body == raw
-    if on_server:
-        assert own.block_reason is not None and "EMAIL[21]" in own.block_reason
-    else:
-        assert own.block_reason is None
+    assert own.block_reason is not None and "EMAIL[21]" in own.block_reason
     other, raw = _prepare(on_server, "/anthropic/v1/messages", body, ANTHROPIC, SUBSCRIPTION)
     assert other.mode == VERIFY and other.body == raw
     assert other.block_reason is not None and "EMAIL[21]" in other.block_reason
@@ -1208,29 +1286,29 @@ def test_a_tool_added_in_a_form_latet_does_not_read_is_refused_on_a_server_as_a_
     body = _anthropic(messages=[{"role": "user", "content": "hi"}, added])
     refused, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED)
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
-    assert computer.block_reason is None and computer.body == raw
-    # Claude Code's: refused by a server, which reads its tools too; sent as it came by a computer, which does not.
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
+    # Claude Code's: refused by a server, which reads its tools too; refused by a computer too, keeping nothing.
     own, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
     assert (own.block_reason or "").startswith(FIELDS_REFUSED)
-    own, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
-    assert own.block_reason is None and own.body == raw
+    own, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
+    assert own.block_reason is not None and own.body == b""  # a refusal keeps its category alone (3646b6e0)
 
 
 # Blocks Claude Code sends back that the provider made, or that hold no content: a server passes them as a computer does.
 CLAUDE_CODES_BLOCKS = [
-    {"type": "thinking", "thinking": "the user wants the status", "signature": "EqQB"},
-    {"type": "redacted_thinking", "data": "EmwK"},
-    {"type": "server_tool_use", "id": "srv_1", "name": "web_search", "input": {"query": "status page"}},
-    {"type": "web_search_tool_result", "tool_use_id": "srv_1", "content": [
-        {"type": "web_search_result", "url": "https://status.example.com", "title": "Status", "encrypted_content": "E"}]},
-    {"type": "web_fetch_tool_result", "tool_use_id": "srv_2", "content": {"type": "web_fetch_result", "url": "u"}},
-    {"type": "code_execution_tool_result", "tool_use_id": "srv_3", "content": {"type": "code_execution_result"}},
-    {"type": "bash_code_execution_tool_result", "tool_use_id": "srv_4", "content": {"stdout": "ok"}},
-    {"type": "text_editor_code_execution_tool_result", "tool_use_id": "srv_5", "content": {"file_type": "text"}},
-    {"type": "tool_search_tool_result", "tool_use_id": "srv_6", "content": {
+    {"type": "thinking", "thinking": "the user wants the status", "signature": SIGNATURE},
+    {"type": "redacted_thinking", "data": SIGNATURE},
+    {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "status page"}},
+    {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": [
+        {"type": "web_search_result", "url": "https://status.example.com", "title": "Status", "encrypted_content": SIGNATURE}]},
+    {"type": "web_fetch_tool_result", "tool_use_id": "srvtoolu_2", "content": {"type": "web_fetch_result", "url": "u"}},
+    {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_3", "content": {"type": "code_execution_result"}},
+    {"type": "bash_code_execution_tool_result", "tool_use_id": "srvtoolu_4", "content": {"stdout": "ok"}},
+    {"type": "text_editor_code_execution_tool_result", "tool_use_id": "srvtoolu_5", "content": {"file_type": "text"}},
+    {"type": "tool_search_tool_result", "tool_use_id": "srvtoolu_6", "content": {
         "type": "tool_search_tool_search_result", "tool_references": [{"type": "tool_reference", "tool_name": "x"}]}},
-    {"type": "advisor_tool_result", "tool_use_id": "srv_7", "content": {"type": "advisor_result", "text": "fine"}},
+    {"type": "advisor_tool_result", "tool_use_id": "srvtoolu_7", "content": {"type": "advisor_result", "text": "fine"}},
     {"type": "mcp_tool_use", "id": "mcp_1", "name": "list", "server_name": "crm", "input": {}},
     {"type": "mcp_tool_result", "tool_use_id": "mcp_1", "content": [{"type": "text", "text": "two items"}]},
     {"type": "mcp_tool_listing", "server_name": "crm", "tools": []},
@@ -1243,17 +1321,26 @@ CLAUDE_CODES_BLOCKS = [
 
 @pytest.mark.parametrize("block", CLAUDE_CODES_BLOCKS, ids=[str(b["type"]) for b in CLAUDE_CODES_BLOCKS])
 def test_a_block_the_provider_made_passes_on_a_server(block):
-    body = _anthropic(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": [block]},
+    block = copy.deepcopy(block)
+    declarations = []
+    if "tool_use_id" in block:
+        declarations.append({"type": "server_tool_use", "id": block["tool_use_id"], "name": "lookup", "input": {}})
+    body = _anthropic(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": [*declarations, block]},
                                 {"role": "user", "content": "go on"}])  # fmt: skip
-    prepared, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
-    assert prepared.block_reason is None, block["type"]
+    prepared, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC_OWN, CLAUDE_CODE)
+    if block["type"] in {"mcp_tool_use", "mcp_tool_listing", "container_upload"}:
+        assert prepared.block_reason == "request body refused (external resource)"
+    elif block["type"] == "fallback":
+        assert prepared.block_reason == "request body refused (model resource)"
+    else:
+        assert prepared.block_reason is None, block["type"]
 
 
 def test_a_tool_result_naming_a_tool_passes_on_a_server():
     """A tool search of Claude Code's own answers with references to the tools it found, in a tool's result."""
-    result = {"type": "tool_result", "tool_use_id": "t1", "content": [
+    result = {"type": "tool_result", "tool_use_id": "toolu_t1", "content": [
         {"type": "tool_reference", "tool_name": "notify"}, {"type": "text", "text": "found one"}]}  # fmt: skip
-    call = {"type": "tool_use", "id": "t1", "name": "ToolSearch", "input": {"query": "notify"}}
+    call = {"type": "tool_use", "id": "toolu_t1", "name": "ToolSearch", "input": {"query": "notify"}}
     body = _anthropic(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": [call]},
                                 {"role": "user", "content": [result]}])  # fmt: skip
     prepared, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, CLAUDE_CODE)
@@ -1267,9 +1354,9 @@ UNREAD_ANTHROPIC = {
     "a block whose kind is not text": [{"role": "user", "content": [{"type": {"t": 1}, "text": EMAIL}]}],
     "a text block whose text is not text": [{"role": "user", "content": [{"type": "text", "text": [EMAIL]}]}],
     "a tool call whose input is a string": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": [
-        {"type": "tool_use", "id": "t1", "name": "send", "input": f"to {EMAIL}"}]}],
+        {"type": "tool_use", "id": "toolu_t1", "name": "send", "input": f"to {EMAIL}"}]}],
     "a tool's result that is neither text nor blocks": [{"role": "user", "content": [
-        {"type": "tool_result", "tool_use_id": "t1", "content": {"text": f"to {EMAIL}"}}]}],
+        {"type": "tool_result", "tool_use_id": "toolu_t1", "content": {"text": f"to {EMAIL}"}}]}],
     "content that is neither text nor blocks": [{"role": "user", "content": {"text": f"mail {EMAIL}"}}],
     "a message that is not an object": [f"mail {EMAIL}"],
     "a tool added in another form": [{"role": "system", "content": [
@@ -1282,8 +1369,8 @@ def test_what_anthropics_messages_carry_unread_is_refused_on_a_server_and_sent_a
     body = _anthropic(messages=messages)
     refused, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 @pytest.mark.parametrize(
@@ -1305,8 +1392,8 @@ def test_anthropics_own_fields_in_another_form_are_refused_on_a_server(fields):
     body = {**_anthropic(), **fields}
     refused, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 def test_messages_that_are_a_number_are_refused_on_a_server_and_sent_by_a_computer():
@@ -1314,9 +1401,8 @@ def test_messages_that_are_a_number_are_refused_on_a_server_and_sent_by_a_comput
     body = _anthropic(messages=5, system=f"mail {EMAIL}")
     refused, _ = _prepare(True, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED)
-    computer, _ = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
-    sent = json.loads(computer.body)
-    assert computer.block_reason is None and sent["messages"] == 5 and EMAIL not in sent["system"]
+    computer, _raw = _prepare(False, "/anthropic/v1/messages", body, ANTHROPIC, ANTHROPIC_KEY)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 # --- the Responses API's own fields in another form -----------------------------------------------------------------
@@ -1333,11 +1419,27 @@ UNREAD_RESPONSES_FIELDS = {
 def test_the_responses_apis_own_fields_in_another_form_are_refused_on_a_server(body):
     refused, _ = _prepare(True, "/openai/v1/responses", body)
     assert (refused.block_reason or "").startswith(FIELDS_REFUSED) and EMAIL not in (refused.block_reason or "")
-    computer, raw = _prepare(False, "/openai/v1/responses", body)
-    assert computer.block_reason is None and computer.body == raw
+    computer, _raw = _prepare(False, "/openai/v1/responses", body)
+    assert computer.block_reason == refused.block_reason and computer.body == b""
 
 
 def test_a_responses_refusal_is_masked_as_the_models_text():
     item = {"role": "assistant", "content": [{"type": "refusal", "refusal": f"I will not write to {EMAIL}"}]}
     prepared, _ = _prepare(True, "/openai/v1/responses", _responses(item))
     assert prepared.block_reason is None and _in_clear(prepared) == []
+
+
+@pytest.mark.parametrize("route", list(DEFINITIONS))
+@pytest.mark.parametrize("on_server", [False, True])
+def test_sensitive_schema_names_refuse_with_the_old_masked_slots_preserved(route, on_server):
+    path, upstream, original = DEFINITIONS[route]
+    body = copy.deepcopy(original)
+    # Isolate the original sensitive property-name fixture from unresolved MCP bindings.
+    if route == "responses":
+        body["tools"] = body["tools"][:1]
+    tool = body["tools"][0].get("function", body["tools"][0])
+    tool["input_schema" if upstream is ANTHROPIC else "parameters"] = SENSITIVE_SCHEMA
+    prepared, _ = _prepare(on_server, path, body, upstream, ANTHROPIC_KEY if upstream is ANTHROPIC else None)
+    assert prepared.block_reason and "PHONE[16]" in prepared.block_reason
+    assert prepared.pending and _in_clear(prepared) == []
+    assert any(replacements for _, replacements, _ in prepared.pending)

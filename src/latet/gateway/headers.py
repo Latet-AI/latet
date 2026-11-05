@@ -67,3 +67,12 @@ def forwardable(
 def redacted(headers: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
     """Headers as they may be written to a log: secret values replaced by their length."""
     return [(k, f"<redacted len={len(v)}>" if is_secret_header(k) else v) for k, v in headers]
+
+
+def unread_redacted(headers: Iterable[tuple[str, str]], unread: frozenset[str]) -> list[tuple[str, str]]:
+    """``headers`` as a record keeps them: those sent unread (``unread``, by lowered name: a destination's credential,
+    whatever its name, D4) replaced by their length, as ``redacted`` replaces a secret's; one ``redacted`` replaces by
+    its name is left to it, so that its length is the value's."""
+    return [
+        (k, f"<redacted len={len(v)}>" if k.lower() in unread and not is_secret_header(k) else v) for k, v in headers
+    ]

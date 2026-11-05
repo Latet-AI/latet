@@ -24,11 +24,15 @@ from .test_reviewer import request as reviewed_request
 from .test_what_leaves import (
     ANTHROPIC,
     BEARER,
+    CALL_ID,
+    CLAUDE,
     EMAIL,
+    GPT,
     OPENAI,
     PHONE,
     ROUTES,
     SECRET,
+    TOOL_ID,
     _mediator,
     _object,
     _prepared,
@@ -76,7 +80,7 @@ def test_an_address_a_phone_number_and_a_token_as_keys_of_a_tool_output_leave_ma
 
 def test_an_address_a_phone_number_and_a_token_as_keys_of_a_websocket_turn_leave_masked_and_are_sent():
     mediator = _mediator()
-    frame = json.dumps({"type": "response.create", "model": "m", "input": _responses_input(KEYS)})
+    frame = json.dumps({"type": "response.create", "model": GPT, "input": _responses_input(KEYS)})
     text, prepared = mediator.mask_ws_frame(frame, mediator.engine.session("session-id:s-1"))
     assert prepared is not None and prepared.block_reason is None and not prepared.leaks
     output = json.loads(json.loads(text)["input"][2]["output"])
@@ -180,11 +184,11 @@ def test_two_keys_that_would_be_one_once_restored_are_left_as_the_model_wrote_th
         "id": "msg_1",
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "tool_use", "id": "t9", "name": "grant", "input": {"users": users, fake: "notify"}}],
+        "content": [{"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": {"users": users, fake: "notify"}}],
     }
     prepared = mediator.prepare(
         ANTHROPIC, "POST", "/anthropic/v1/messages", {**API_KEY, "session-id": "s-1"},
-        json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "go"}]}).encode(),
+        json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": [{"role": "user", "content": "go"}]}).encode(),
     )  # fmt: skip
     transform = mediator.response_transform(prepared, "application/json", None)
     assert isinstance(transform, JSONTransform) and prepared.session is session
@@ -207,10 +211,10 @@ def test_two_keys_that_would_be_one_once_restored_are_left_as_the_model_wrote_th
         found = wellformed.read(text)
         return found.doc == {"users": users, EMAIL: "notify"} and not found.repeated
 
-    call = {"id": "c9", "type": "function", "function": {"name": "grant", "arguments": arguments}}
+    call = {"id": CALL_ID, "type": "function", "function": {"name": "grant", "arguments": arguments}}
     chat = {"choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": [call]}}]}
     assert left(restore_chat_completion(ctx, chat)["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])
-    item = {"type": "function_call", "id": "fc_1", "call_id": "c9", "name": "grant", "arguments": arguments}
+    item = {"type": "function_call", "id": "fc_1", "call_id": CALL_ID, "name": "grant", "arguments": arguments}
     assert left(restore_response_item(ctx, item, remember=True)["arguments"])
     done = {"type": "response.function_call_arguments.done", "item_id": "fc_1", "output_index": 0}
     emitted = ResponsesStream(ctx).on_event({**done, "arguments": arguments})
@@ -230,13 +234,13 @@ def test_a_value_of_a_tool_calls_input_under_a_masked_key_is_shown_under_the_key
     first = _prepared(mediator, "anthropic with an API key", f"the owner is {EMAIL}")
     assert first.block_reason is None
     fake = _fake(mediator, EMAIL)
-    call = {"type": "tool_use", "id": "t2", "name": "grant", "input": {"users": {EMAIL: "the owner"}}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": {"users": {EMAIL: "the owner"}}}
     messages = [
         {"role": "user", "content": "make them owner"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "done"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    raw = json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": messages}).encode()
     prepared = mediator.prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", API_KEY, raw)
     assert prepared.block_reason is None and EMAIL not in prepared.body.decode()
     sent = json.loads(prepared.body)["messages"][1]["content"][0]["input"]
@@ -264,13 +268,13 @@ def test_the_masked_keys_of_many_objects_are_renamed_each_object_looking_only_at
     mediator = _mediator()
     owners = [f"owner{i}@acme.com" for i in range(200)]
     users = [{owner: f"note {i}"} for i, owner in enumerate(owners)]
-    call = {"type": "tool_use", "id": "t2", "name": "grant", "input": {"users": users}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": {"users": users}}
     messages = [
         {"role": "user", "content": "make them owners"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "done"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    raw = json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": messages}).encode()
     prepared = mediator.prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", API_KEY, raw)
     assert prepared.block_reason is None and not any(owner in prepared.body.decode() for owner in owners)
     assert len(looked) == len(owners) and sum(looked) == len(owners)  # each object its own value's slot alone
@@ -327,13 +331,13 @@ def test_a_fake_drawn_for_a_key_of_a_tool_calls_input_is_none_of_the_other_keys(
     vault._generate = lambda etype, eclass, value, counter, *rest, **more: (  # type: ignore[method-assign]
         COLLIDING if value == "Robert Johnson" and counter == 0 else drawn(etype, eclass, value, counter, *rest, **more)
     )
-    call = {"type": "tool_use", "id": "t1", "name": "bill", "input": {COLLIDING: 1200, "Robert Johnson": 80}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "bill", "input": {COLLIDING: 1200, "Robert Johnson": 80}}
     messages = [
         {"role": "user", "content": "bill them"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "done"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    raw = json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": messages}).encode()
     prepared = mediator.prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", API_KEY, raw)
     assert prepared.block_reason is None and b"Robert Johnson" not in prepared.body
 
@@ -341,13 +345,13 @@ def test_a_fake_drawn_for_a_key_of_a_tool_calls_input_is_none_of_the_other_keys(
 def test_two_keys_of_a_tool_calls_input_that_would_be_one_once_masked_stop_the_request():
     mediator = _mediator(terms=[TermConfig(value="Robert Johnson", type="CLIENT")])
     _colliding(mediator)
-    call = {"type": "tool_use", "id": "t1", "name": "bill", "input": {COLLIDING: 1200, "Robert Johnson": 80}}
+    call = {"type": "tool_use", "id": TOOL_ID, "name": "bill", "input": {COLLIDING: 1200, "Robert Johnson": 80}}
     messages = [
         {"role": "user", "content": "bill them"},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "done"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": messages}).encode()
+    raw = json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": messages}).encode()
     prepared = mediator.prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", API_KEY, raw)
     assert (prepared.block_reason or "").startswith("masking failed: two keys of one of its JSON objects")
 
@@ -377,11 +381,13 @@ def test_a_key_the_model_writes_with_a_fake_in_it_is_restored_in_its_answer():
         "id": "msg_1",
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "tool_use", "id": "t9", "name": "grant", "input": {"users": {fake: {"role": "owner"}}}}],
+        "content": [
+            {"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": {"users": {fake: {"role": "owner"}}}}
+        ],
     }
     prepared = mediator.prepare(
         ANTHROPIC, "POST", "/anthropic/v1/messages", {**API_KEY, "session-id": "s-1"},
-        json.dumps({"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "go"}]}).encode(),
+        json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": [{"role": "user", "content": "go"}]}).encode(),
     )  # fmt: skip
     transform = mediator.response_transform(prepared, "application/json", None)
     assert isinstance(transform, JSONTransform) and prepared.session is session
@@ -389,7 +395,7 @@ def test_a_key_the_model_writes_with_a_fake_in_it_is_restored_in_its_answer():
     restored = json.loads(transform.end())
     assert restored["content"][0]["input"] == {"users": {EMAIL: {"role": "owner"}}}
     # The tools' arguments of chat completions too, a text of JSON.
-    call = {"id": "c9", "type": "function", "function": {"name": "grant", "arguments": json.dumps({fake: "owner"})}}
+    call = {"id": CALL_ID, "type": "function", "function": {"name": "grant", "arguments": json.dumps({fake: "owner"})}}
     chat = {"choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": [call]}}]}
     back = restore_chat_completion(mediator.restore_context(session), chat)
     assert json.loads(back["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]) == {EMAIL: "owner"}
@@ -404,30 +410,30 @@ def test_a_key_of_the_models_tool_call_restored_for_the_agent_leaves_as_the_mode
     session = mediator.engine.session("session-id:s-1")
     ctx = mediator.restore_context(session)
     arguments = json.dumps({"users": {fake.upper(): "owner"}})
-    call = {"id": "c9", "type": "function", "function": {"name": "grant", "arguments": arguments}}
+    call = {"id": CALL_ID, "type": "function", "function": {"name": "grant", "arguments": arguments}}
     restored = restore_chat_completion(
         ctx, {"choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": [call]}}]}
     )
     messages = [
         {"role": "user", "content": "make them owner"},
         restored["choices"][0]["message"],
-        {"role": "tool", "tool_call_id": "c9", "content": "done"},
+        {"role": "tool", "tool_call_id": CALL_ID, "content": "done"},
     ]
     assert EMAIL.upper() in json.dumps(messages)  # the agent holds the address
-    raw = json.dumps({"model": "m", "messages": messages}).encode()
+    raw = json.dumps({"model": GPT, "messages": messages}).encode()
     prepared = mediator.prepare(OPENAI, "POST", "/openai/v1/chat/completions", {**BEARER, "session-id": "s-1"}, raw)
     assert prepared.block_reason is None and EMAIL.upper() not in prepared.body.decode()
     assert json.loads(json.loads(prepared.body)["messages"][1]["tool_calls"][0]["function"]["arguments"]) == {
         "users": {fake.upper(): "owner"}
     }
     # Anthropic's tool calls are objects of the request: the same.
-    tool_use = {"type": "tool_use", "id": "t9", "name": "grant", "input": {"users": {EMAIL: "owner"}}}
+    tool_use = {"type": "tool_use", "id": TOOL_ID, "name": "grant", "input": {"users": {EMAIL: "owner"}}}
     history = [
         {"role": "user", "content": "make them owner"},
         {"role": "assistant", "content": [tool_use]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t9", "content": "done"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": TOOL_ID, "content": "done"}]},
     ]
-    raw = json.dumps({"model": "m", "max_tokens": 10, "messages": history}).encode()
+    raw = json.dumps({"model": CLAUDE, "max_tokens": 10, "messages": history}).encode()
     prepared = mediator.prepare(ANTHROPIC, "POST", "/anthropic/v1/messages", {**API_KEY, "session-id": "s-1"}, raw)
     assert prepared.block_reason is None and EMAIL not in prepared.body.decode()
     assert json.loads(prepared.body)["messages"][1]["content"][0]["input"] == {"users": {fake: "owner"}}

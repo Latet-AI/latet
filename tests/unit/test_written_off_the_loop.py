@@ -32,8 +32,17 @@ CLAUDE_CODE = {
     "user-agent": "claude-cli/2.1.291 (external, cli)",
     "x-claude-code-session-id": SESSION,
 }
-ASKED = {"model": "claude-x", "max_tokens": 10, "messages": [{"role": "user", "content": "write the fixtures"}]}
-ANTHROPIC = Upstream("anthropic", "/anthropic", "http://127.0.0.1:1")
+ASKED = {
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 10,
+    "messages": [{"role": "user", "content": "write the fixtures"}],
+}
+ANTHROPIC = Upstream(
+    "anthropic",
+    "/anthropic",
+    "http://127.0.0.1:1",
+    envelope_expected=frozenset({("x-claude-code-session-id", SESSION)}),
+)
 # The longest a turn of the event loop may take while the gateway reads what the model wrote in an answer as large as it
 # reads of one, in seconds, or twice what Python's own parse of the input alone (``json.loads``, 30 to 45 ms here) takes
 # on a slower machine: with every step read on the loop, its parse and its strings held it 0.15 to 0.23 s, four to six

@@ -27,15 +27,18 @@ from starlette.testclient import TestClient, WebSocketDenialResponse
 from starlette.websockets import WebSocketDisconnect
 from websockets.exceptions import InvalidStatus
 
-from latet.config import Config, Destination, ProjectEntry, TermConfig
+from latet.config import Config, Destination, IdentityConfig, ProjectEntry, TermConfig
+from latet.engine.build import build
 from latet.engine.detectors import recognizers as recognizers_module
 from latet.engine.reviewer import Answer
 from latet.engine.types import SlotKind
 from latet.engine.vault import Vault
-from latet.gateway import ws
+from latet.gateway import request_policy, request_transport
 from latet.gateway.app import GatewayConfig, OnServer, create_app
 from latet.gateway.aws import profile_tag
+from latet.gateway.coverage import envelope_of
 from latet.gateway.forward import too_large
+from latet.gateway.mediate import Mediator
 from latet.gateway.routes import destination_upstream
 from latet.projects import Projects
 from latet.protocols.base import ImageRef
@@ -69,6 +72,7 @@ from latet.vision.pool import (
 
 from ...conftest import ROOT_KEY
 from ...fake_ocr import ModelSession, blank_image, lines_map, long_lines_map, nothing_read, stand_in_ocr
+from ..test_request_worker_freeze import _decided_handshake
 from .conftest import EMILY, SHARED, URL, MemorySettings, as_identity
 
 API = "/_latet/api/v1"
@@ -77,7 +81,8 @@ GH_PAT = "ghp_" + "R7tK2pQ9xZ4mW8vB3nL6hJ1cF5dS0aY2eU4i"
 INSIDE = ipaddress.ip_address("10.0.3.9")
 OUTSIDE = ipaddress.ip_address("1.2.3.4")  # an address on the internet (the documentation ranges are refused)
 MINE = {"upstreams": [{"name": "llm", "url": "https://llm.acme.com"}, {"name": "gw", "url": "https://gw.acme.com"}]}
-CHAT = {"model": "m", "messages": [{"role": "user", "content": "hello"}]}
+MODEL = "gpt-4.1-mini"  # an OpenAI model id, as an agent sends it to a company gateway
+CHAT = {"model": MODEL, "messages": [{"role": "user", "content": "hello"}]}
 BEARER = {"authorization": "Bearer sk-test"}
 REDIRECTS = (301, 302, 303, 307, 308)
 CANARY = "emily.carter@acme.com"
@@ -415,7 +420,16 @@ def test_a_web_page_is_refused_on_a_proxy_route_and_nothing_shuts_the_space_down
 
 
 def test_the_servers_aws_profiles_never_sign(space):
-    rt, _ = space
+    rt, settings = space
+    settings.own["request_resources"] = [
+        {
+            "destination": "bedrock",
+            "url": "https://bedrock-runtime.us-east-1.amazonaws.com",
+            "role": "model",
+            "value": "m",
+        }
+    ]
+    rt.apply_config(settings.load(), save=False)
     tag = profile_tag(rt.gateway.bridge_token or "", "default")
     with _client(rt) as c:
         assert c.post(f"/bedrock/us-east-1/profile/default/{tag}/model/m/invoke", json={}).status_code == 404
@@ -859,15 +873,21 @@ def test_a_destination_named_as_the_identitys_own_is_judged_where_its_route_does
     gw = destination_upstream(Destination(name="gw", url="https://gw.acme.com"))
     seen: list[httpx.Request] = []
     model = httpx.MockTransport(lambda request: seen.append(request) or _answered())
+    built = build(Config(identity=IdentityConfig(enabled=False)), Vault(ROOT_KEY))
+    mediator = Mediator(built.engine, built.verifier)  # request protection: a gateway without it refuses first
     config = GatewayConfig(
+        mediator=mediator,
         upstreams=[],
         destinations=[gw],
         personal_names={"gw"},
         pin=pin,
         client=lambda: httpx.AsyncClient(transport=model),
     )
-    with TestClient(create_app(config), base_url="http://127.0.0.1:5283") as c:
-        stopped = c.post("/gw/v1/chat/completions", json=CHAT, headers=BEARER)
+    try:
+        with TestClient(create_app(config), base_url="http://127.0.0.1:5283") as c:
+            stopped = c.post("/gw/v1/chat/completions", json=CHAT, headers=BEARER)
+    finally:
+        mediator.close()
     assert stopped.status_code == 400 and asked == ["https://gw.acme.com/v1/chat/completions"] and seen == []
 
 
@@ -931,7 +951,7 @@ def test_a_request_to_a_destination_of_ones_own_takes_no_proxy_and_follows_no_re
     )
 
     async def pin(url):  # the address checked: the server that answers 302
-        return f"http://127.0.0.1:{moved.port}/v1/chat/completions", "gw.acme.com", {}
+        return f"http://127.0.0.1:{moved.port}/v1/chat/completions", "gw.acme.com", {"sni_hostname": "gw.acme.com"}
 
     monkeypatch.setattr(egress, "resolve", outside)
     monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{elsewhere.port}")
@@ -966,6 +986,17 @@ def test_a_shared_destinations_redirect_reaches_the_agent_as_a_clear_error_on_a_
     assert [str(request.url) for request in seen] == ["https://llm.acme.com/v1/chat/completions"]
 
 
+async def _connected(url: str, pinned: tuple[str, int]) -> object:
+    """The relay's S3, through the guarded transport's WebSocket adapter: an authorized handshake opened, decided as the
+    relay decides it, with its arena and its admission's proof for ``url`` (855a0188)."""
+    scope = {"type": "websocket", "path": "/v1/responses", "headers": [], "query_string": b""}
+    handshake = envelope_of(scope, "ws-handshake", "gw")
+    arena, decision = _decided_handshake(handshake, url)
+    authorized = request_transport.validate_connect(decision, handshake, request_policy.current(), [], arena)
+    assert isinstance(authorized, request_transport.AuthorizedConnect)
+    return await request_transport.connect_ws(authorized, url, pinned)
+
+
 @pytest.mark.parametrize("where", ["the same host", "another origin"])
 async def test_a_websocket_to_a_destination_of_ones_own_takes_no_proxy_and_follows_no_redirect(monkeypatch, where):
     """Reached at the address checked, through no proxy of the server's environment, its redirect is followed nowhere,
@@ -977,7 +1008,7 @@ async def test_a_websocket_to_a_destination_of_ones_own_takes_no_proxy_and_follo
     monkeypatch.setenv("WS_PROXY", f"http://127.0.0.1:{elsewhere.port}")  # a proxy the server's environment names
     try:
         with pytest.raises(InvalidStatus) as refused:  # raised as the handshake's refusal: the relay answers it 502
-            await ws._upstream("ws://gw.acme.com/v1/responses", [], ("127.0.0.1", moved.port))
+            await _connected("ws://gw.acme.com/v1/responses", ("127.0.0.1", moved.port))
     finally:
         moved.close()
         elsewhere.close()
@@ -1051,13 +1082,13 @@ def test_a_vault_at_its_limit_stops_the_request_with_a_clear_error(space, monkey
     monkeypatch.setattr(rt.built.vault, "intern", full)
     seen = _upstream(rt)
     with _client(rt) as c, caplog.at_level(logging.INFO):
-        body = {"model": "m", "messages": [{"role": "user", "content": "write to emily.carter@acme.com"}]}
+        body = {"model": MODEL, "messages": [{"role": "user", "content": "write to emily.carter@acme.com"}]}
         stopped = c.post("/llm/v1/chat/completions", json=body, headers=BEARER)
         assert stopped.status_code == 400 and "vault_limit" in stopped.text and "Nothing was sent" in stopped.text
         items = [{"text": "write to emily.carter@acme.com", "kind": "user_text"}]
         held = c.post("/_latet/engine/v1/mask", json={"session": "s", "items": items})
         assert held.status_code == 500 and "vault_limit" in held.json()["error"]
-    frame = json.dumps({"type": "response.create", "model": "m", "input": "write to emily.carter@acme.com"})
+    frame = json.dumps({"type": "response.create", "model": MODEL, "input": "write to emily.carter@acme.com"})
     sent, turn = rt.mediator.mask_ws_frame(frame, rt.built.engine.session("ws:1"))  # a turn over a WebSocket alike
     assert sent == frame and turn is not None and "vault_limit" in (turn.block_reason or "") and seen == []
     assert "emily.carter" not in caplog.text
@@ -1069,7 +1100,7 @@ def test_a_compressed_request_that_would_decode_past_the_limit_is_stopped_and_no
     rt, _ = space
     rt.mediator.body_limit = 1024 * 1024  # what Spaces gives a space: the server's max_request_mb
     seen = _upstream(rt)
-    big = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x" * (8 * 1024 * 1024)}]}).encode()
+    big = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": "x" * (8 * 1024 * 1024)}]}).encode()
     packed = {
         "gzip": gzip.compress(big),
         "br": brotli.compress(big),
@@ -1098,14 +1129,16 @@ def test_a_request_stopped_for_decoding_past_the_limit_is_on_the_dashboard_as_st
     rt, _ = space
     rt.mediator.body_limit = 1024 * 1024
     seen = _upstream(rt)
-    big = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x" * (2 * 1024 * 1024)}]}).encode()
+    big = json.dumps({"model": MODEL, "messages": [{"role": "user", "content": "x" * (2 * 1024 * 1024)}]}).encode()
     headers = {**BEARER, "content-encoding": "gzip", "content-type": "application/json"}
     with _client(rt) as c:
         assert c.post("/llm/v1/chat/completions", content=gzip.compress(big), headers=headers).status_code == 413
     assert seen == [] and rt.recorder is not None and rt.recorder.drain()
     [row] = rt.exchanges.summaries_since(0)
     assert row["status"] == 413 and "blocked" in row["flags"] and "error" not in row["flags"]
-    assert row["block_reason"] == too_large(DecodedTooLarge(1024 * 1024))
+    assert row["block_reason"] == "too-large"  # its category: the 413's words are in the private view
+    private = rt.exchanges.detail(row["id"])["sensitive"]
+    assert private is not None and private["block_reason"] == too_large(DecodedTooLarge(1024 * 1024))
 
 
 def test_a_request_the_live_reviewers_queue_does_not_keep_is_stopped_with_its_reason(space, monkeypatch):
@@ -1130,6 +1163,7 @@ def test_what_a_request_carried_is_recorded_as_left_once_it_has_left_and_never_b
     the gateway records what a request it rewrote carried once its provider has answered, and nothing of one that never
     reached it."""
     rt, _ = space
+    session = "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a1f"  # within Codex's session-id grammar, no configured row
     answers = iter([httpx.ConnectError("refused"), None])
 
     def maybe(request):
@@ -1139,14 +1173,14 @@ def test_what_a_request_carried_is_recorded_as_left_once_it_has_left_and_never_b
         return _answered()
 
     seen = _upstream(rt, maybe)
-    body = {"model": "m", "messages": [{"role": "user", "content": "the status page is up"}]}
-    headers = {**BEARER, "session-id": "s-1"}
+    body = {"model": MODEL, "messages": [{"role": "user", "content": "the status page is up"}]}
+    headers = {**BEARER, "session-id": session}
     with _client(rt) as c:
         assert c.post("/llm/v1/chat/completions", json=body, headers=headers).status_code == 502
-        assert not rt.mediator.verifier.sent("session-id:s-1", "the status page is up")
+        assert not rt.mediator.verifier.sent(f"session-id:{session}", "the status page is up")
         assert c.post("/llm/v1/chat/completions", json=body, headers=headers).status_code == 200
     rt.mediator.executor.submit(lambda: None).result(5)  # what was handed to the engine's thread is done
-    assert len(seen) == 2 and rt.mediator.verifier.sent("session-id:s-1", "the status page is up")
+    assert len(seen) == 2 and rt.mediator.verifier.sent(f"session-id:{session}", "the status page is up")
 
 
 def test_a_history_that_counts_as_empty_is_recorded_and_read(tmp_path):

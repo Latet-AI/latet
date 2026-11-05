@@ -13,11 +13,14 @@ import hmac
 import json
 import logging
 import re
+import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field, replace
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import InitVar, dataclass, field, replace
 from functools import partial
+from itertools import chain
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from latet.engine import document, wellformed
@@ -27,31 +30,74 @@ from latet.engine.modules import origin
 from latet.engine.pipeline import (
     LRU,
     Engine,
+    RequestScope,
     Scope,
     Session,
     SlotResult,
     dump_notice,
     personal_values,
+    request_scope,
     shows_known,
     unread_notice,
 )
+from latet.engine.response_guard import safe_text
 from latet.engine.review import ReviewPolicy, block_reason
 from latet.engine.reviewer import Answer, Finding, Picture, Reviewer, View, readable, view_of
 from latet.engine.reviewer.reviewer import CATEGORY_TYPES
 from latet.engine.types import EntityClass, Policy, Replacement, SlotKind, Span
 from latet.engine.vault import MaskingError
 from latet.engine.verifier import Leak, Verifier
-from latet.gateway import outbound
+from latet.gateway import body_selectors, outbound
 from latet.gateway.approvals import Approvals, Batch, Decision
+from latet.gateway.body_coverage import (
+    M3,
+    PROTECTED_LAUNCH,
+    BodyFreeze,
+    BodyInspection,
+    BodyProof,
+    BodyRefused,
+    ContentEpoch,
+    Ledger,
+    declared_body_safe,
+    declared_string_safe,
+    freeze_body,
+    inspect_body,
+)
 from latet.gateway.cloud import model_of, shape_of
-from latet.gateway.provenance import _BATCH_BYTES, _NAME_BYTES, _PAIR_BYTES, _AcceptedProvenance, _Records
-from latet.gateway.recorder import reconstruct
+from latet.gateway.frozen import FrozenText, freeze_text
+from latet.gateway.image_coverage import NO_OCR, UnreadImage, inspect_image
+from latet.gateway.launch_authority import RequestLaunch
+from latet.gateway.lease import ExchangeLease
+from latet.gateway.provenance import (
+    _BATCH_BYTES,
+    _NAME_BYTES,
+    _PAIR_BYTES,
+    ECHO_ENTRY_BYTES,
+    ECHO_RULE,
+    EchoCheck,
+    EchoScope,
+    LocalEchoes,
+    OpaqueCapture,
+    _AcceptedProvenance,
+    _Records,
+)
+from latet.gateway.recorder import (
+    EncodedImage,
+    _Block,
+    _Image,
+    build_record_blocks,
+    build_record_images,
+    reconstruct,
+    record_positions,
+)
+from latet.gateway.request_profiles import opaque_scope
 from latet.gateway.routes import Upstream
 from latet.gateway.written import Written
-from latet.protocols import anthropic, codec, gemini, openai_chat, openai_responses
+from latet.protocols import anthropic, codec, gemini, openai_chat, openai_responses, sse
 from latet.protocols.base import (
     BodyScan,
     ImageRef,
+    JsonRef,
     SlotRef,
     definitions,
     dumps_compact,
@@ -66,6 +112,7 @@ from latet.protocols.rewrite import (
     GeminiStream,
     ResponsesStream,
     RestoreContext,
+    _json_bound,
     _json_size,
     _utf8_size,
     restore_anthropic_message,
@@ -75,16 +122,19 @@ from latet.protocols.rewrite import (
 )
 from latet.protocols.sse import ResponseError, SSEEvent, SSEParser, StreamDecoder, serialize, too_large
 from latet.state import Left, LocalGiven
+from latet.state.protocols import Echoes
 from latet.vision.masking import NOT_AVAILABLE, UNREAD, WITHHELD, ImageMasking, ImageWork
 from latet.vision.policy import ALLOW, refusal
 
 if TYPE_CHECKING:
     from latet.config import LiveReview, LlmReview
+    from latet.gateway.request_policy import ProfileGrants
     from latet.state import Given
 
 log = logging.getLogger(__name__)
 
 PASSTHROUGH, VERIFY, REWRITE = "passthrough", "verify", "rewrite"
+_NO_RECORD_POSITIONS: Mapping[tuple[int, Any], tuple[int, ...]] = MappingProxyType({})
 # What the local reviewer reads besides the kinds it reads inline: what the user and the tools bring.
 _REVIEWED = frozenset({SlotKind.USER_TEXT, SlotKind.ATTACHMENT, SlotKind.TOOL_RESULT})
 # How many texts approved in the Live Reviewer one conversation keeps (a key of 64 characters each): past that,
@@ -92,7 +142,7 @@ _REVIEWED = frozenset({SlotKind.USER_TEXT, SlotKind.ATTACHMENT, SlotKind.TOOL_RE
 APPROVED_KEPT = 2_000
 # What one entry of the memory of texts found fit to leave as they were kept takes, at most (a key of 32 bytes, a vault
 # version, the memory's own links: measured between 170 and 200 bytes).
-_CHECK_BYTES = 256
+_CHECK_BYTES = 320
 # The time the local name model has for the strings and keys of one JSON document (``Mediator._read_ahead``), checked
 # before each of its windows (a second or so on a desktop CPU): with what else masking takes, within the 10 seconds
 # Claude Code gives a plugin's hook. A document it could not read in that time is withheld.
@@ -122,6 +172,16 @@ def protocol_for(upstream: Upstream, method: str, path: str) -> str | None:
     if called in gemini.METHODS or (called == "cachedContents" and p.endswith("/cachedContents")):
         return "gemini"
     return None
+
+
+def _remove_declared(inspection: BodyInspection) -> tuple[str, ...]:
+    """Take the declared removable members out of the document before it is masked, encoded and checked again: the
+    final check reads the document without them, and the ledger records their occurrences as removed."""
+    names = []
+    for holder, key in inspection.removed:
+        if holder.pop(key, None) is not None:
+            names.append(key)
+    return tuple(names)
 
 
 def _scan(protocol: str, body: dict[str, Any]) -> BodyScan:
@@ -171,6 +231,16 @@ def cwd_from(headers: dict[str, str], scan: BodyScan) -> str | None:
     return None
 
 
+def verify_only(protocol: str | None, shape: str | None, headers: dict[str, str], body: Any) -> bool:
+    """Whether Latet only checks this request, never rewrites it: Claude Code's, a subscription's (``sk-ant-oat``), and
+    Bedrock's and Vertex's calls (``shape``), whose answers come in formats Latet does not restore (Bedrock's
+    event-stream). Asked once for a request: it decides both how the request is prepared and whether a live launch key
+    in its texts is screened before masking (P2-6a's re-review, R-4)."""
+    return protocol == "anthropic" and (
+        shape is not None or anthropic.is_claude_code(headers, body) or "sk-ant-oat" in headers.get("authorization", "")
+    )
+
+
 def _json_document(value: str) -> bool:
     stripped = value.lstrip()
     if stripped[:1] not in ("{", "["):
@@ -204,6 +274,7 @@ class Masked:
     fresh: bool = False  # masked now, not found in the cache
     withheld: bool = False  # the dump guard replaced it: too many personal values in one output
     original: str = ""  # the text as the client sent it
+    history_allowed: bool = False
 
 
 @dataclass(slots=True)
@@ -385,7 +456,17 @@ class Prepared:
     document: Any = None
     pending: list[tuple[SlotRef, list[Replacement], bool]] = field(default_factory=list)
     review: bool = False  # Claude Code's auto mode reviewer
-    off: bool = False  # Latet is off in the session's project: sent as it is
+    off: bool = False  # Latet is off in its project: refused (D5), never sent
+    # The project whose rules it was decided by and how it came: ``trusted`` (a binding Latet made) or ``claimed`` (what
+    # the request said, whose rules only add protection; it binds no conversation). For the dashboard (D7).
+    project: str | None = None
+    binding: str | None = None
+    # The folders of its route's project exceptions that name the project Latet trusts it to be in
+    # (``request_policy.trusted_folders``), compared as it was prepared, in its worker, never on the event loop.
+    excepted: frozenset[str] = frozenset()
+    # The body selectors of the exceptions its project allows (``request_policy.ProfileGrants.chosen``), read again by
+    # its final check (``_check``) as by its first: what an undeclared member of its body may be admitted by.
+    body_grants: Any = field(default=None, repr=False)
     withheld: int = 0  # tool outputs the dump guard withheld, the first time they were sent
     history: bool = False  # Claude Code: the values in clear are in history Latet never masked
     reviews: list[ReviewItem] = field(default_factory=list)  # texts for the local reviewer
@@ -398,19 +479,309 @@ class Prepared:
     shape: str | None = None  # a cloud's model call (Bedrock, Vertex): checked, never rewritten
     bypass: bool = False  # a Claude Code session whose requests do not go through Latet
     images: list[ImageWork] = field(default_factory=list)  # the images read: masked, clean or withheld
-    # Its conversation's vault holds what its answer restores (``Engine.hold``, which ``_mask_slots`` asks once it has
-    # masked), and has let it go (``Engine.release``): one release for each hold, none for a request that never held.
-    held: bool = False
-    hold: object | None = None  # what the vault counted that hold in, handed back at its release
-    released: bool = False
+    # What its conversation's vault holds for its answer (``Engine.hold``, which ``_mask_slots`` asks once it has
+    # masked, through the lease that owns the handle it returns): released once, by whoever ends the exchange, and only
+    # for a request that held (RC-REC-11).
+    lease: ExchangeLease | None = None
     # The local reviewer or you changed it after it was masked (a text masked again, an image withheld or covered): it
     # leaves written anew from ``document``, a WebSocket turn as a body is.
     amended: bool = False
     # Claude Code's: what its answer's model writes is read as the answer passes (``Mediator.read_written``).
     claude_code: bool = False
+    # What it was when its request's decision was made (``outcome.finalize``, once, after its last change): set there
+    # alone. Any change made to it afterwards (a reviewer's, a late writer's) means that decision sends nothing.
+    sealed: object | None = None
+    authority: Any = field(default=None, repr=False)
+    route_authority: Any = field(default=None, repr=False)
+    control_target: str | None = field(default=None, repr=False)
+    control_current: Callable[[], bool] | None = field(default=None, repr=False)
+    protected_unavailable: bool = False
+    protected_current: Callable[[], Awaitable[bool]] | None = field(default=None, repr=False)
+    # What its launch was decided as (``launch_authority.LAUNCH_CATEGORIES``), for the history and P2-7's display.
+    launch: str | None = None
+    # Immutable, checked-only envelope values. Never pending/body slots and never recorded as conversation text.
+    envelope_checked: tuple[str, ...] = field(default=(), repr=False)
+    body_checked: tuple[str, ...] = field(default=(), repr=False)
+    body_semantic: tuple[str, ...] = field(default=(), repr=False)
+    body_metadata: tuple[str, ...] = field(default=(), repr=False)
+    body_rules: tuple[str, ...] = ()
+    opaque_required: bool = field(default=False, init=False, repr=False)
+    body_authority: tuple[str, ...] = ()
+    body_input: bytes | str = field(default=b"", repr=False)
+    body_ledger: Ledger | None = field(default=None, repr=False)
+    body_upstream: Upstream | None = field(default=None, repr=False)
+    # A Gemini cache's creation, whose model the GenAI SDK names as models/{id} (P2-8a, root's ruling 4).
+    body_cache_create: bool = field(default=False, repr=False)
+    opaque_check: EchoCheck | None = field(default=None, repr=False)
+    body_scan: BodyScan | None = field(default=None, repr=False)
+    body_structure: BodyFreeze | None = field(default=None, repr=False)
+    # The shape its ledger last accounted (``inspect_body``'s ``accounted``): the final check accounts again only a body
+    # whose shape changed since. Worker-owned, as the ledger is.
+    body_shape: BodyFreeze | None = field(default=None, repr=False, compare=False)
+    body_epoch: ContentEpoch | None = field(default=None, repr=False)
+    body_verified_token: object | None = field(default=None, repr=False)
+    body_verified: bool = False
+    body_verified_payload: bytes | None = field(default=None, repr=False)
+    frame_verified_payload: str | None = field(default=None, repr=False)
+    body_proof: BodyProof | None = field(default=None, init=False, repr=False)
+    envelope_refusal: str | None = None  # explicit safe category, independent of agent-facing wording
+    # Declared removable body members taken out before the send (Codex's client_metadata), by name.
+    body_removed: tuple[str, ...] = ()
+    # A worker construction index for selected occurrence ordinals. Discarded once immutable blocks/images own
+    # their selected ordinals; the finishing event loop shares those tuples directly.
+    record_positions: Mapping[tuple[int, Any], tuple[int, ...]] = field(init=False, repr=False, compare=False)
+    # An edited refusal's logical JSON, only when the unsent original bytes no longer describe its arena.
+    record_body: bytes | str | None = field(default=None, init=False, repr=False, compare=False)
+    record_error: str | None = field(default=None, init=False, repr=False, compare=False)
+
+    # Worker-owned representations. Only JsonRef subtrees retain container checks, private to this arena;
+    # decisions and snapshots share their immutable strings alone.
+    freeze_generation: object = field(default_factory=object, init=False, repr=False, compare=False)
+    frozen_slots: tuple[SlotRef, ...] = field(default=(), init=False, repr=False, compare=False)
+    frozen_texts: tuple[str, ...] = field(default=(), init=False, repr=False, compare=False)
+    frozen_outbound: tuple[str, ...] = field(default=(), init=False, repr=False, compare=False)
+    frozen_json: dict[int, FrozenText] = field(default_factory=dict, init=False, repr=False, compare=False)
+    frozen_image_data: tuple[tuple[object, str, str | EncodedImage | None], ...] = field(
+        default=(), init=False, repr=False, compare=False
+    )
+    record_blocks: tuple[_Block, ...] = field(default=(), init=False, repr=False, compare=False)
+    record_images: tuple[_Image, ...] = field(default=(), init=False, repr=False, compare=False)
+    # A WS frame's exact final representation, set/refreshed in the worker. None for an HTTP arena.
+    frame_payload: str | None = field(default=None, init=False, repr=False, compare=False)
+    # Whether a request exception may apply to its body at all: never a WebSocket frame's (F-2), which an unknown
+    # member's refusal then says (``BodyRefused``, P2-7 review I-8).
+    body_excepted: bool = field(default=True, init=False, repr=False, compare=False)
+    frame_body: bytes | None = field(default=None, init=False, repr=False, compare=False)
+    frame_count: int | None = field(default=None, init=False, repr=False, compare=False)
+    frame_compact: bool = field(default=False, init=False, repr=False, compare=False)
+    # Built by a worker that refreshes its recording itself once its final check is done, on every way out
+    # (``_mark_outbound``, ``mask_ws_frame``, ``discard_unadmitted_content``): not refreshed as it is built too (P2-8).
+    recorded_later: InitVar[bool] = False
+
+    def discard_unadmitted_content(self, reason: str, code: str | None = None) -> None:
+        """Keep the exchange's categorical refusal and its release owner."""
+        self.block_reason = reason
+        self.envelope_refusal = code
+        self.body = self.body_input = b""
+        self.document = None
+        self.model = None
+        self.pending = []
+        self.masked = []
+        self.reviews = []
+        self.outbound = []
+        self.outbound_slots = []
+        self.images = []
+        self.body_scan = self.body_ledger = self.body_structure = self.body_shape = None
+        self.body_checked = self.body_semantic = self.body_metadata = ()
+        self.body_rules = self.body_authority = ()
+        self.leaks = []
+        self.close_receipt()
+        self.opaque_check = None
+        self.body_proof = None
+        self.body_verified = False
+        self.body_verified_payload = None
+        self.frame_payload = self.frame_verified_payload = None
+        self.frame_body = None
+        self.refresh_recording()
+
+    def __post_init__(self, recorded_later: bool) -> None:
+        if not recorded_later:
+            self.refresh_recording(logical=bool(self.block_reason and any(w.state == WITHHELD for w in self.images)))
+
+    def refresh_recording(self, *, logical: bool = False, serialized: bytes | None = None) -> None:
+        """Refresh selected occurrence identities after a worker changes the document or its references. Production
+        document constructors and all calls here run in workers; recording an exchange never walks its arena.
+        Failure loses the record alone, latched by its type without retaining an exception or its traceback."""
+        self.freeze_inputs()  # transport correctness is independent of recording allocation/failure
+        if self.record_error is not None:
+            return
+        try:
+            self._refresh_recording(logical=logical, serialized=serialized)
+        except Exception as exc:
+            self.record_positions = _NO_RECORD_POSITIONS
+            self.record_body = None
+            self.record_blocks = self.record_images = ()
+            self.frozen_image_data = ()
+            self.record_error = type(exc).__name__
+
+    def _refresh_recording(self, *, logical: bool, serialized: bytes | None) -> None:
+        needed = set()
+        for slot in chain((slot for slot, _, _ in self.pending), self.outbound_slots):
+            needed.add((id(slot.container), slot.key))
+            given = slot.source_input if slot.kind == SlotKind.TOOL_RESULT else None
+            if given is not None and isinstance(given[0], dict):
+                needed.add((id(given[0]), given[1]))
+        needed.update((id(work.ref.holder), work.ref.key) for work in self.images)
+        self.record_positions = MappingProxyType(record_positions(self.document, needed))
+        self.record_body = None
+        if logical and self.document is not None:
+            self.record_body = serialized if serialized is not None else dumps_compact(self.document)
+        self._freeze_images()  # image recording allocation failures drop only the record
+        self.record_blocks = build_record_blocks(self)
+        self.record_images = build_record_images(self)
+        # The immutable blocks/images now own the selected ordinal tuples; their construction map is redundant.
+        self.record_positions = _NO_RECORD_POSITIONS
+
+    def freeze_inputs(self) -> None:
+        """Called only in preparation workers, after every edit, including exceptional reviewer exits."""
+        if self.body_verified and (
+            self.body is not self.body_verified_payload or self.frame_payload is not self.frame_verified_payload
+        ):
+            self.body_verified = False
+            self.block_reason = (
+                self.block_reason or "request bytes changed after the final check; send the request again"
+            )
+        previous = self.frozen_json
+        frozen: dict[int, FrozenText] = {}
+
+        def text_of(slot: SlotRef) -> str:
+            if isinstance(slot, JsonRef):
+                held = frozen.get(id(slot)) or freeze_text(slot, previous.get(id(slot)))
+                frozen[id(slot)] = held
+                return held.text
+            value = slot.get()
+            return value if isinstance(value, str) else ""
+
+        self.frozen_slots = tuple(slot for slot, _, _ in self.pending)
+        self.frozen_texts = tuple(text_of(slot) for slot in self.frozen_slots)
+        self.frozen_outbound = tuple(text_of(slot) for slot in self.outbound_slots)
+        self.frozen_json = frozen
+        if self.frame_payload is not None and not self.block_reason:
+            if self.amended and self.body is not self.frame_body:
+                # Reviews already wrote the final body here. Decode only a newly written body, off the event loop.
+                self.frame_payload = self.body.decode()
+                self.frame_body, self.frame_compact = self.body, True
+            elif self.frame_count != self.masked_count and not self.frame_compact:
+                # The baseline relay rewrites on a count-only review too, even with no changed slot text.
+                self.frame_payload = dumps_compact(self.document)
+                self.frame_compact = True
+            self.frame_count = self.masked_count
+            self.frame_verified_payload = self.frame_payload
+        self.freeze_generation = object()  # any later worker refresh invalidates an already minted seal
+        self.body_proof = None
+        self.opaque_required = ECHO_RULE in self.body_rules
+        if self.body_structure is not None and not self.body_structure.unchanged():
+            self.body_verified = False
+            self.block_reason = (
+                self.block_reason or "request body changed after the final check; send the request again"
+            )
+        if (
+            self.body_epoch is not None
+            and self.body_verified_token is not None
+            and self.body_verified_token is not self.body_epoch.token
+        ):
+            self.body_verified = False
+            self.block_reason = (
+                self.block_reason or "request values changed after the final check; send the request again"
+            )
+        # The body revision its protocol is read by (``body_selectors.revision``): a protocol with none mints no proof.
+        read_by = self.protocol
+        known = read_by is not None and read_by in body_selectors.HISTORY
+        profile = body_selectors.revision(read_by) if known and read_by is not None else None
+        if self.body_verified and not self.block_reason and self.body_ledger is not None and profile is not None:
+            self.body_proof = BodyProof(
+                self.body_input,
+                self.frame_payload if self.frame_payload is not None else self.body,
+                self.freeze_generation,
+                len(self.body_ledger.raw),
+                len(self.body_ledger.active),
+                self.body_ledger.retained,
+                self.body_rules,
+                self.body_checked,
+                profile,
+                self.body_verified_token,
+                self.body_ledger.receipts,
+                tuple(self.body_ledger.final[path][0] for path in self.body_ledger.active),
+                self.body_authority,
+            )
+
+    def _freeze_images(self) -> None:
+        """Freeze recording-only image carriers without making an extra canonical payload before review."""
+        images = []
+        for n, work in enumerate(self.images):
+            raw = work.ref.holder.get(work.ref.key)
+            old = self.frozen_image_data[n] if n < len(self.frozen_image_data) else None
+            if work.state == WITHHELD:
+                data = None
+            elif (canonical := work.current_original) is not None:
+                data = canonical
+            elif work.ref.form == "base64":
+                data = raw
+            elif old is not None and old[0] is raw and old[1] == work.ref.form and old[2] is not None:
+                data = old[2]
+            else:
+                if not isinstance(raw, str):
+                    raise TypeError("an image carrier is not text")
+                data = EncodedImage(raw, work.ref.form)
+            images.append((raw, work.ref.form, data))
+        self.frozen_image_data = tuple(images)
+
+    def opaque_current(self) -> bool:
+        """Constant-time receipt gate after any await, before the sealed request/frame is authorized."""
+        check = self.opaque_check
+        return not self.opaque_required or (
+            check is not None and bool(check.found) and time.monotonic() < check.expires
+        )
+
+    def inputs_unchanged(self) -> bool:
+        if self.body_structure is not None and not self.body_structure.unchanged():
+            return False
+        return self.slots_unchanged()
+
+    def slots_unchanged(self) -> bool:
+        """Its selected texts as frozen: the very slots, each holding the text frozen (a JSON document's nested objects
+        too, never serialized again); its body's whole shape is not walked here (``freeze_inputs`` walks it, in the
+        worker). What the event loop checks before a decision is sent (``outcome.sendable``), in the slots' count."""
+        if len(self.pending) != len(self.frozen_slots):
+            return False
+        try:
+            for (slot, _, _), held, text in zip(self.pending, self.frozen_slots, self.frozen_texts, strict=True):
+                if slot is not held:
+                    return False
+                json_text = self.frozen_json.get(id(slot))
+                if json_text is not None:
+                    if not json_text.unchanged(slot):
+                        return False
+                elif slot.get() is not text:
+                    return False
+        except Exception:
+            return False
+        return True
+
+    @property
+    def held(self) -> bool:
+        """Whether its conversation's vault held for its answer (a hold taken, released since or not)."""
+        return self.lease is not None and self.lease.taken
+
+    @property
+    def hold(self) -> object | None:
+        """The handle its lease holds (what the vault counted its hold in), None without one."""
+        return self.lease.handle if self.lease is not None else None
+
+    @property
+    def released(self) -> bool:
+        return self.lease is not None and self.lease.released
+
+    def close_receipt(self) -> None:
+        """Release the input evidence after its final send/refusal; capture keeps only the scope/hash interface."""
+        if self.opaque_check is not None:
+            self.opaque_check.close()
 
 
-def _counted(body: dict[str, Any]) -> dict[str, Any] | None:
+def _release_given_up(future: Future[Any]) -> None:
+    """``Mediator.run_held``'s step ended after its request was given up: the lease of what it returned released, once
+    (in the thread it ended in, or at once when it had ended already)."""
+    if future.cancelled() or future.exception() is not None:
+        return
+    found = future.result()
+    for item in found if isinstance(found, tuple) else (found,):
+        if isinstance(item, Prepared):
+            item.close_receipt()
+            if item.lease is not None:
+                item.lease.release()
+
+
+def _counted(body: dict[str, Any], ledger: Ledger | None = None, *, projection: bool = False) -> dict[str, Any] | None:
     """The request a Bedrock token count carries, in base64 (``input.invokeModel.body``); None when
     it holds anything else, beside it too (a ``converse`` request Latet would not read), or gives a key
     twice in an object (it leaves as it came, the copy Latet did not read in it)."""
@@ -418,52 +789,69 @@ def _counted(body: dict[str, Any]) -> dict[str, Any] | None:
         wrapper = body["input"]["invokeModel"]
         if set(body) != {"input"} or set(body["input"]) != {"invokeModel"} or set(wrapper) != {"body"}:
             return None
-        inner = wellformed.read(base64.b64decode(wrapper["body"], validate=True))
+        decoded = base64.b64decode(wrapper["body"], validate=True)
+        if ledger is not None:
+            if projection:
+                ledger.projected_embedded(decoded)
+            else:
+                ledger.embedded(decoded)
+        inner = wellformed.read(decoded)
+    except BodyRefused:
+        raise
     except (KeyError, TypeError, ValueError, binascii.Error):
         return None
-    return inner.doc if isinstance(inner.doc, dict) and not inner.repeated else None
+    return inner.doc if isinstance(inner.doc, dict) and not inner.repeated and not inner.mended else None
 
 
+# D5: a request of a project where Latet is off is refused (0.11 sends no request unread), whether its project came from
+# a binding Latet made (trusted) or from what the request says (a claim, R-83), with how to go on without Latet there.
+_OFF_ADVICE = (
+    "Latet sends no request from there; turn it on for the project (`latet project on` in its folder, or the "
+    "project's switch in the dashboard), or reach the provider directly for this folder by starting the agent "
+    "without Latet's address"
+)
+OFF_THERE = f"Latet is off in this project: {_OFF_ADVICE}"
+CLAIMED_OFF = f"request claimed a project where Latet is off: {_OFF_ADVICE}"
 # Bedrock and Vertex carry many models' requests: Latet reads Claude's (its messages), and sends no other.
 _NOT_MESSAGES = (
     "Latet reads Claude's messages on Bedrock and Vertex, and this request is not one, so it does not send it"
 )
 # A request Latet only checks leaves as it came: one whose body gives a key twice would leave with the copy Latet did
 # not read (it reads the last, as Python's json does). One it rewrites leaves written anew from what it read.
+_MENDED = "Latet cannot send a verify-only request containing an incomplete character; repair the text and try again"
+# What a request carries that Latet does not read, as a refusal made before its content is read keeps it: these fixed
+# kinds alone (the dashboard's uninspected flags), never a type name the client wrote.
+_UNREAD_KINDS = frozenset({"image", "audio", "video", "file", "document"})
+
+
+def _unread_kinds(unread: list[str]) -> list[str]:
+    return [kind if kind in _UNREAD_KINDS else "other" for kind in unread]
+
+
 _TWICE = (
     "this request's body gives a key twice in one of its objects, and Latet reads one copy of it: as it came, the "
     "request would leave with the other unread, so Latet does not send it"
 )
-# What a Latet server reads and nothing else: a body it does not read is refused, saying why (a computer sends it as it
-# came, as Latet always did). A request with no body has nothing to read: a GET of the models list passes.
+# A coded body leaves as Latet read it, never as the container it came in (G2 review I-1): a coding can carry bytes its
+# decoder skips. One Latet rewrites leaves encoded again; one it only checks would leave as it came, so it is refused,
+# under the code a content-encoding outside its profile's values has. No client Latet supports compresses those.
+_CODED_CODE = "envelope-header-value"
+_CODED = (
+    f"request envelope refused ({_CODED_CODE}): header content-encoding: Latet checks this request and sends it as it "
+    "came, never rewritten, so it does not send a compressed body; send the body uncompressed, without a "
+    "content-encoding header"
+)
+# What Latet reads and nothing else: a body it does not read is refused, saying why, on a computer as on a server (one
+# code path, so its words are true on both). A request with no body has nothing to read: a GET of the models list
+# passes.
 _READ_BODIES = "messages, chat completions, completions, responses, embeddings or Gemini's generateContent"
-# Why a route that reads every body it sends refuses one it does not read, on a computer too (``refuses_unread``).
-UNREAD_HERE = (
-    "Latet does not read this kind of request yet (Google's Interactions API, the Batch API, file uploads and image "
-    "generation among them), so it does not send it"
-)
 _NOT_AN_OBJECT = (
-    "Latet reads a model's call as a JSON object, and this request's body is not one, so a Latet server does not send "
-    "it"
+    "Latet reads a model's call as a JSON object, and this request's body is not one, so it does not send it"
 )
-
-
-def _definitions(protocol: str | None, body: dict[str, Any], scan: BodyScan) -> None:
-    """The tools a request defines, and the format it asks the answer in, read (``definitions``, ``output_format``)
-    before its own texts in ``scan``, as a model reads them: the tools' descriptions, the schemas of their parameters
-    and the examples of their input, in chat completions' ``tools`` and older ``functions``, the Responses API's and
-    Anthropic's ``tools`` (and those its conversation adds as it goes); the schema of a structured output (chat
-    completions' ``response_format``, the Responses API's ``text.format``; Anthropic's is read with the request's own
-    texts, checked wherever Latet only checks). Read where Latet masks the request, where it only checks one of a
-    client other than Claude Code, and on a Latet server where it checks Claude Code's (on a computer, its plugin masks
-    the descriptions of its tools and they are sent as they came)."""
-    tools = BodyScan()
-    _defined(protocol, body, tools)
-    scan.first(tools)
 
 
 def _defined(protocol: str | None, body: dict[str, Any], tools: BodyScan) -> None:
-    """What ``_definitions`` reads of ``body``, added to ``tools``."""
+    """Select tool descriptions and schemas without imposing masking or off policy."""
     if protocol in ("anthropic", "chat", "responses"):
         definitions(body.get("tools"), tools)
     if protocol == "anthropic":
@@ -479,32 +867,53 @@ def _defined(protocol: str | None, body: dict[str, Any], tools: BodyScan) -> Non
         output_format(body["text"].get("format"), tools)
 
 
-def _unread_fields(fields: Sequence[str]) -> str:
-    """Why a Latet server refuses a request that holds content in a form Latet does not read (``BodyScan.unreadable``),
-    in words that name no content: a computer sends it as it came."""
-    what = ", ".join(sorted(set(fields)))
-    return (
-        f"Latet reads the content of a model's call, and this request holds {what}, so a Latet server does not send it"
+def _projected_request_safe(
+    body: dict[str, Any], protocol: str, upstream: Upstream, ledger: Ledger, shape: str | None, grants: Any = None
+) -> bool:
+    if shape == "bedrock-count":
+        decoded = _counted(body, ledger, projection=True)
+        if decoded is None:
+            raise BodyRefused("shadow wrapper")
+        body = decoded
+    if shape is not None and not isinstance(body.get("messages"), list):
+        raise BodyRefused("shadow shape")
+    try:
+        scan = _scan(protocol, body)
+        _defined(protocol, body, scan)
+    except (TypeError, KeyError) as error:
+        raise BodyRefused("shadow shape") from error
+    if scan.unreadable:
+        raise BodyRefused("shadow shape")
+    return ledger.declared_scan_safe(scan, projection=True) and declared_body_safe(
+        body, protocol, upstream, scan, ledger, projection=True, grants=grants
     )
+
+
+def _unread_fields(fields: Sequence[str]) -> str:
+    """Why Latet refuses a request that holds content in a form it does not read (``BodyScan.unreadable``), in words
+    that name no content, on a computer as on a server."""
+    what = ", ".join(sorted(set(fields)))
+    return f"Latet reads the content of a model's call, and this request holds {what}, so it does not send it"
 
 
 def _unread_body(method: str) -> str:
-    """Why a Latet server refuses a request with a body Latet does not read: its method, or its endpoint."""
+    """Why Latet refuses a request with a body it does not read, on a computer as on a server: its method, or its
+    endpoint."""
     if method != "POST":
         return (
-            f"Latet reads the body of a model's call, made by POST, and this is a {method} request with a body, so a "
-            "Latet server does not send it"
+            f"Latet reads the body of a model's call, made by POST, and this is a {method} request with a body, so it "
+            "does not send it"
         )
     return (
-        f"Latet reads the body of a model's call ({_READ_BODIES}), and this request is to another endpoint, so a Latet "
-        "server does not send it"
+        f"Latet reads the body of a model's call ({_READ_BODIES}), and this request is to another endpoint, one it "
+        "does not read yet (Google's Interactions API, the Batch API, file uploads and image generation among them), "
+        "so it does not send it"
     )
 
 
-# Why a Latet server refuses a client's WebSocket frame: what it is (never its content, which it did not read).
+# Why Latet refuses a client's WebSocket frame: what it is (never its content, which it did not read).
 _UNREAD_FRAME = (
-    "Latet reads the turns of a WebSocket (response.create frames), and this is {what}, so a Latet server does not "
-    "send it"
+    "Latet reads the turns of a WebSocket (response.create frames), and this is {what}, so it does not send it"
 )
 # The frames a client may send that the protocol defines with no content, and the fields they hold: a server passes
 # them as they came (cancelling a turn), and refuses one that holds anything else.
@@ -535,10 +944,16 @@ R = TypeVar("R")
 
 class Mediator:
     def __init__(
-        self, engine: Engine, verifier: Verifier, approvals: Approvals | None = None, given: Given | None = None
+        self,
+        engine: Engine,
+        verifier: Verifier,
+        approvals: Approvals | None = None,
+        given: Given | None = None,
+        echoes: Echoes | None = None,
     ) -> None:
         self.engine = engine
         self.verifier = verifier
+        self.echoes: Echoes = echoes if echoes is not None else LocalEchoes()
         self.images = ALLOW  # whether requests that carry images and documents are sent (the global rules)
         self.ocr = True  # the text in images is read (the global rules), when the models are installed
         self.vision: ImageMasking | None = None  # reads and paints images, once the models are installed
@@ -562,7 +977,7 @@ class Mediator:
         self.given: Given = given if given is not None else LocalGiven()
         # Each text found fit to leave again as it was kept (by a keyed hash of its key and of that text), with the
         # vault's version then: checked again once the vault has changed.
-        self._as_it_left: LRU[bytes, int] = LRU(50_000)
+        self._as_it_left: LRU[bytes, tuple[int, bool]] = LRU(50_000)
         self._outbound_seen: LRU[bytes, bool] = LRU(50_000)  # tool calls said already (history repeats them)
         self.loop: asyncio.AbstractEventLoop | None = None  # the daemon's, for what threads publish
         # The Live Reviewer's batches opened here and waiting (``hold_live``): their texts are here alone, so their
@@ -572,6 +987,7 @@ class Mediator:
         self._refreshing: asyncio.Task[None] | None = None
         self._refresh_again = False
         self._refresh_asked = False  # by a thread, and not taken by the loop yet
+        self._content_epoch = ContentEpoch()
         engine.vault.on_change = self.live_changed
         # Claude Code's auto mode reviewer is sent the OS user name and paths, which no plugin can
         # mask: the details the user lets through to it (auto_mode_review), the rest blocks the review
@@ -587,23 +1003,58 @@ class Mediator:
         # On a Latet server, the bytes a request's body may decode to (its max_request_mb, which bounds it on the wire
         # too): a few KiB that would inflate past it stop the request (DecodedTooLarge), never fill the memory every
         # identity's space shares. None on a computer: decoded as it always was.
-        self.body_limit: int | None = None
+        self.body_limit: int = 32 << 20
         # An identity's space on a Latet server (its app sets it: ``create_app``). The server masks and never trusts a
         # computer: what a computer sends as it came because Latet does not read it, the server refuses, saying why (an
         # image it could not read on a request it only checks, a WebSocket frame or a body it does not read).
-        self.on_server = False
+        # Payload-free saturating D4 count. P2-5/P2-7 project runtime status into the dashboard.
+        self.envelope_removed_headers = 0
+        # Payload-free saturating count of declared removable body members that left removed (P2-5/P2-7 show it).
+        self.body_removed_members = 0
         # This identity's answers restored on the event loop, one step of one answer at a time (``RESTORING_AT_ONCE``):
         # however many streams it has, the others wait their turn, and the loop serves every other identity between
         # two of its steps.
         self.restoring = asyncio.Semaphore(RESTORING_AT_ONCE)
 
+    @staticmethod
+    def _request_work(fn: Callable[[], R]) -> Callable[[], R]:
+        selected = request_scope.get()
+        if selected is None:
+            return fn
+
+        def scoped() -> R:
+            token = request_scope.set(selected)
+            try:
+                return fn()
+            finally:
+                request_scope.reset(token)
+
+        return scoped
+
     async def run(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         loop = self.loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.executor, lambda: fn(*args, **kwargs))
+        return await loop.run_in_executor(self.executor, self._request_work(lambda: fn(*args, **kwargs)))
+
+    async def run_held(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+        """``fn`` in the engine's thread, as ``run``, for a step that may take a hold (``prepare``, ``mask_ws_frame``):
+        given up before it ends (its request cancelled), the lease of what it returns (a ``Prepared``, alone or in a
+        tuple) is released as it ends, since no one else will own it (RC-REC-11 (b)); a step never started takes
+        none."""
+        self.loop = asyncio.get_running_loop()
+        future = self.executor.submit(self._request_work(lambda: fn(*args, **kwargs)))
+        try:
+            return await asyncio.wrap_future(future)
+        except asyncio.CancelledError:
+            future.add_done_callback(_release_given_up)
+            raise
 
     async def run_bridge(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         loop = self.loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self.bridge_executor, lambda: fn(*args, **kwargs))
+
+    def submit_launch(self, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> Future[R]:
+        self.loop = asyncio.get_running_loop()
+        return self.bridge_executor.submit(fn, *args, **kwargs)
 
     def close(self) -> None:
         """No more work for the two worker threads: each ends once what it holds is done (not waited for)."""
@@ -613,8 +1064,13 @@ class Mediator:
             with contextlib.suppress(RuntimeError):  # its loop closed already
                 task.get_loop().call_soon_threadsafe(task.cancel)
         self.provenance.close()
+        self.echoes.close()
         self.executor.shutdown(wait=False)
         self.bridge_executor.shutdown(wait=False)
+
+    @property
+    def opaque_provenance_bytes(self) -> int:
+        return self.echoes.retained_bytes
 
     @property
     def checked_bytes(self) -> int:
@@ -625,82 +1081,424 @@ class Mediator:
 
     # --- requests --------------------------------------------------------------------------------
 
-    def prepare(self, upstream: Upstream, method: str, path: str, headers: dict[str, str], raw: bytes) -> Prepared:
+    def prepare_handshake(
+        self,
+        upstream: Upstream,
+        path: str,
+        headers: dict[str, str],
+        checked: tuple[str, ...],
+        session: Session,
+        launch: RequestLaunch | None = None,
+    ) -> Prepared:
+        from latet.gateway.request_policy import LocalAuthority, session_facts
+
+        if launch is None:  # isolated preparation seam; the actual relay always supplies typed input
+            prepared = self.prepare_http(upstream, "GET", path, headers, b"", checked)
+            prepared.session = session
+            prepared.authority = replace(prepared.authority, session=session, facts=session_facts(session))
+            return prepared
+        selection = request_scope.get()
+        if selection is not None:
+            selection.project = selection.binding = selection.launch = selection.compared = None
+        reason, unavailable = self._ws_launch_scope(session, headers, BodyScan(), launch)
+        scope = self.engine.scope(session)
+        off = reason == CLAIMED_OFF or (scope is not None and not scope.enabled)
+        if reason is None and off:  # D5: a socket of a project where Latet is off is refused before it opens
+            reason = OFF_THERE
+        prepared = Prepared(
+            PASSTHROUGH,
+            None,
+            b"",
+            session,
+            block_reason=reason,
+            protected_unavailable=unavailable,
+            off=off,
+        )
+        if selection is not None:
+            prepared.project, prepared.binding, prepared.launch = selection.project, selection.binding, selection.launch
+        prepared.envelope_checked = checked
+        if reason is None:
+            with self.engine.vault.holding():
+                result = self.verifier.verify(
+                    ((text, SlotKind.OTHER, False) for text in checked),
+                    session.key,
+                    scope=scope,
+                    record=False,
+                )
+            if result.blocking:
+                prepared.envelope_refusal = "envelope-sensitive"
+                prepared.block_reason = "request envelope refused (envelope-sensitive)"
+        prepared.protected_current = selection.protected_current if selection is not None else None
+        prepared.authority = replace(
+            LocalAuthority.capture(self.engine, upstream),
+            session=session,
+            facts=session_facts(session),
+            off=prepared.off,
+            empty=True,
+        )
+        return prepared
+
+    def prepare_http(
+        self,
+        upstream: Upstream,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        raw: bytes,
+        envelope_checked: tuple[str, ...],
+        envelope_occurrences: int = 0,
+        query: str = "",
+        launch: RequestLaunch | None = None,
+        body_grants: ProfileGrants | None = None,
+    ) -> Prepared:
+        """One HTTP worker call and lookup allowance for body preparation and envelope verification together.
+        ``body_grants``: the body selectors of the exceptions of the request's profile (``request_policy.body_grants``),
+        of which it takes those its project allows. A request with neither a body nor an envelope text to check (a
+        bodyless GET) has nothing a value could be found in: it holds no vault call, whose outermost hold asks an API
+        key's store what other instances learnt since (P2-8); any text to check takes it, on both machines."""
+        if not raw and not envelope_checked:
+            prepared = self.prepare(
+                upstream, method, path, headers, raw, envelope_occurrences=envelope_occurrences, query=query,
+                launch=launch, body_grants=body_grants,
+            )  # fmt: skip
+            prepared.envelope_checked = envelope_checked
+            if prepared.block_reason:
+                prepared.close_receipt()
+            return prepared
+        with self.engine.vault.holding():
+            prepared = self.prepare(
+                upstream,
+                method,
+                path,
+                headers,
+                raw,
+                envelope_occurrences=envelope_occurrences,
+                query=query,
+                launch=launch,
+                body_grants=body_grants,
+            )
+            try:
+                prepared.envelope_checked = envelope_checked
+                if not prepared.block_reason:
+                    key = prepared.session.key if prepared.session is not None else f"route|{upstream.name}|{method}"
+                    scope = self.engine.scope(prepared.session) if prepared.session is not None else None
+                    result = self.verifier.verify(
+                        ((text, SlotKind.OTHER, False) for text in envelope_checked),
+                        key,
+                        scope=scope,
+                        record=False,
+                    )
+                    if result.blocking:
+                        prepared.envelope_refusal = "envelope-sensitive"
+                        prepared.block_reason = "request envelope refused (envelope-sensitive)"
+                if prepared.block_reason:
+                    prepared.close_receipt()
+                return prepared
+            except BaseException:
+                prepared.close_receipt()
+                if prepared.lease is not None:
+                    prepared.lease.release()
+                raise
+
+    def prepare(
+        self,
+        upstream: Upstream,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        raw: bytes,
+        *,
+        envelope_occurrences: int = 0,
+        query: str = "",
+        launch: RequestLaunch | None = None,
+        body_grants: ProfileGrants | None = None,
+    ) -> Prepared:
+        from latet.gateway.request_policy import LocalAuthority, session_facts
+
+        authority = LocalAuthority.capture(self.engine, upstream)
+        receipts: list[EchoCheck] = []
+        prepared: Prepared | None = None
+        selection = request_scope.get()
+        if selection is not None:  # this preparation's own project: never one an earlier preparation selected
+            selection.project = selection.binding = selection.launch = selection.compared = None
+        try:
+            prepared = self._prepare(
+                upstream,
+                method,
+                path,
+                headers,
+                raw,
+                envelope_occurrences=envelope_occurrences,
+                query=query,
+                receipts=receipts,
+                launch=launch,
+                body_grants=body_grants,
+            )
+            if selection is not None and selection.protected_current is not None:
+                prepared.protected_current = selection.protected_current
+            if selection is not None:
+                prepared.project, prepared.binding, prepared.launch = (
+                    selection.project,
+                    selection.binding,
+                    selection.launch,
+                )
+                prepared.excepted = self._excepted(upstream, selection)
+            prepared.authority = replace(
+                authority,
+                session=prepared.session,
+                facts=session_facts(prepared.session) if prepared.session is not None else (),
+                off=prepared.off,
+                empty=not raw and prepared.protocol is None,
+            )
+            return prepared
+        finally:
+            for check in receipts:
+                if prepared is None or prepared.block_reason or prepared.opaque_check is not check:
+                    check.close()
+
+    def _prepare(
+        self,
+        upstream: Upstream,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        raw: bytes,
+        *,
+        envelope_occurrences: int = 0,
+        query: str = "",
+        receipts: list[EchoCheck],
+        launch: RequestLaunch | None = None,
+        body_grants: ProfileGrants | None = None,
+    ) -> Prepared:
         protocol = protocol_for(upstream, method, path)
-        if not raw:  # nothing to read: a GET of the models, say
-            return Prepared(PASSTHROUGH, protocol, raw)
-        if protocol is None:  # a body Latet does not read: sent as it came on a computer, refused on a server
-            refused = _unread_body(method) if self.on_server else UNREAD_HERE if upstream.refuses_unread else None
-            return Prepared(PASSTHROUGH, protocol, raw, block_reason=refused)
+        shape = shape_of(method, path)
+        if len(raw) > self.body_limit:
+            raise codec.DecodedTooLarge(self.body_limit)
+        if not raw:
+            reason = "a model request requires a JSON body" if protocol is not None else None
+            prepared = Prepared(PASSTHROUGH, protocol, raw, block_reason=reason)
+            if launch is not None and launch.presented is not None and reason is None:
+                prepared.block_reason, prepared.protected_unavailable = self._launch_scope(launch, None, None)
+            return prepared
+        if protocol is None:  # a body Latet does not read: refused, on a computer as on a server
+            refused = _unread_body(method)
+            return Prepared(PASSTHROUGH, protocol, b"", shape=shape, block_reason=refused)
         encoding = headers.get("content-encoding")
+        ledger = Ledger(envelope=envelope_occurrences)
         try:
             # Half of a character is read as U+FFFD, and a key given twice by its last copy: a request Latet rewrites
             # leaves written anew from what was read (``changed``), one it only checks with neither (``_TWICE``).
-            read = wellformed.read(codec.decode(raw, encoding, limit=self.body_limit))
+            decoded = codec.decode(raw, encoding, limit=self.body_limit)
+            ledger.preflight(decoded)
+            outer_stop = len(ledger.raw)
+            read = wellformed.read(decoded)
+        except BodyRefused as error:
+            return Prepared(
+                VERIFY,
+                protocol,
+                b"",
+                shape=shape,
+                block_reason=str(error),
+                envelope_refusal=error.safe_code,
+            )
         except codec.DecodedTooLarge:  # the forwarder answers it (413): never passed through as unreadable
             raise
         except (ValueError, codec.UnsupportedEncodingError) as exc:
-            return Prepared(PASSTHROUGH, None, raw, block_reason=f"unreadable request body ({type(exc).__name__})")
+            return Prepared(
+                PASSTHROUGH, None, b"", shape=shape, block_reason=f"unreadable request body ({type(exc).__name__})"
+            )
         body = read.doc
-        shape = shape_of(method, path)
         if not isinstance(body, dict):
             if shape is not None:
-                return Prepared(VERIFY, protocol, raw, model=model_of(path), shape=shape, block_reason=_NOT_MESSAGES)
-            refused = _NOT_AN_OBJECT if self.on_server else UNREAD_HERE if upstream.refuses_unread else None
-            return Prepared(PASSTHROUGH, protocol, raw, block_reason=refused)
+                return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=_NOT_MESSAGES)
+            refused = _NOT_AN_OBJECT
+            return Prepared(PASSTHROUGH, protocol, b"", block_reason=refused)
         model = _model(body) or model_of(path) or (gemini.model_of(path) if protocol == "gemini" else None)
         if shape == "bedrock-count":  # the whole request whose tokens Bedrock counts, sent in base64
-            counted = _counted(body)
+            try:
+                counted = _counted(body, ledger)
+            except BodyRefused as error:
+                return Prepared(
+                    VERIFY,
+                    protocol,
+                    b"",
+                    shape=shape,
+                    block_reason=str(error),
+                    envelope_refusal=error.safe_code,
+                )
             if counted is None:
                 reason = "Latet cannot read this token count (not a request it knows), so it does not send it"
-                return Prepared(VERIFY, protocol, raw, model=model, shape=shape, block_reason=reason)
+                return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=reason)
             body = counted
         if shape is not None and not isinstance(body.get("messages"), list):
-            return Prepared(VERIFY, protocol, raw, model=model, shape=shape, block_reason=_NOT_MESSAGES)
-        scan = _scan(protocol, body)
-        session = self.engine.session(_session_key(protocol, headers, body, self.engine.conversations.named))
-        stream = bool(body.get("stream"))
-        self._attach_project(session, headers, scan)
-        scope = self.engine.scope(session)
-        off = scope is not None and not scope.enabled
-        unread = scan.unread()
-        if (refused := self._refuses(scope, unread, off)) is not None:
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=_NOT_MESSAGES)
+        tools = BodyScan()
+        try:
+            scan = _scan(protocol, body)
+            _defined(protocol, body, tools)
+        except (TypeError, KeyError):
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason="request body refused (shape)")
+        # What the exceptions of its profile could admit is screened too, whichever of them its project takes later.
+        screened = body_grants.every if body_grants is not None else None
+        # Refuse before any shortcut can send or retain the original text: a live launch key where nothing masks it.
+        # A request Latet rewrites masks its texts, a key in them as a known secret (R-103), screened again as it
+        # leaves; one it only checks (Claude Code's, Bedrock's and Vertex's, a subscription's) masks none of them.
+        checked_only = verify_only(protocol, shape, headers, body)
+        if checked_only and codec.coded(encoding):
             return Prepared(
-                VERIFY, protocol, raw, session, uninspected=unread, model=model, document=body,
-                pending=[(s, [], False) for s in scan.slots], block_reason=refused,
+                VERIFY, protocol, b"", shape=shape, block_reason=_CODED, envelope_refusal=_CODED_CODE
             )  # fmt: skip
-        claude_code = anthropic.is_claude_code(headers, body)
-        # Bedrock's and Vertex's calls are checked, never rewritten: Claude Code makes them, and their
-        # answers come in formats Latet does not restore (Bedrock's event-stream).
-        verify_only = protocol == "anthropic" and (
-            shape is not None or claude_code or "sk-ant-oat" in headers.get("authorization", "")
+        try:
+            protected = not (
+                ledger.declared_scan_safe(scan, masked=not checked_only)
+                and ledger.declared_scan_safe(tools)
+                and declared_body_safe(body, protocol, upstream, scan, ledger, grants=screened)
+            )
+            if not protected:
+                for alternate in ledger.shadow_projections(decoded, outer_stop):
+                    protected = not _projected_request_safe(alternate, protocol, upstream, ledger, shape, screened)
+                    del alternate
+                    if protected:
+                        break
+        except BodyRefused as error:
+            return Prepared(
+                VERIFY, protocol, b"", shape=shape, block_reason=str(error),
+                envelope_refusal=error.safe_code,
+            )  # fmt: skip
+        if protected:
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=PROTECTED_LAUNCH)
+        session = self.engine.session(_session_key(protocol, headers, body, self.engine.conversations.named))
+        echo_scope = opaque_scope(upstream, method, path, protocol, query)
+        echo_check = EchoCheck(
+            self.engine.vault.cache_key, self.echoes, echo_scope or EchoScope((), protocol), session.key, body
         )
-        if verify_only and read.repeated and not off:
+        receipts.append(echo_check)
+        stream = bool(body.get("stream"))
+        if launch is None:  # isolated preparation seam; the admitted relay always hands a launch
+            self._attach_project(session, headers, scan)
+        else:
+            claude = protocol == "anthropic" and anthropic.is_claude_code(headers, body)
+            declared = headers.get("x-claude-code-session-id")
+            eligible = claude and bool(declared) and session.key == f"cc:{declared}"
+            reason, unavailable = self._launch_scope(launch, session, cwd_from(headers, scan), legacy_eligible=eligible)
+            if reason is not None:
+                return Prepared(
+                    VERIFY, protocol, b"", shape=shape, block_reason=reason, protected_unavailable=unavailable,
+                    off=reason == CLAIMED_OFF,
+                )  # fmt: skip
+        scope = self.engine.scope(session)
+        if scope is not None and not scope.enabled:  # D5: 0.11 sends no request of a project where Latet is off
+            return Prepared(VERIFY, protocol, b"", session, shape=shape, block_reason=OFF_THERE, off=True)
+        unread = scan.unread()
+        if (refused := self._refuses(scope, unread)) is not None:
+            # Its category alone, and what it did not read by fixed kinds: the dashboard flags what was not sent.
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=refused, uninspected=_unread_kinds(unread))
+        claude_code = anthropic.is_claude_code(headers, body)
+        if checked_only and (read.repeated or read.mended):
             return Prepared(
                 VERIFY, protocol, raw, session, uninspected=unread, model=model, document=body,
-                pending=[(s, [], False) for s in scan.slots], block_reason=_TWICE, shape=shape,
+                pending=[(s, [], False) for s in scan.slots],
+                block_reason=_TWICE if read.repeated else _MENDED, shape=shape,
             )  # fmt: skip
         # Its tools, and the format it asks the answer in. Claude Code's plugin masks the descriptions of its tools,
         # which a computer sends as they came; a server, which never trusts a computer, reads them with the schemas of
         # their parameters and the examples of their input, and checks them, as it checks the rest of its requests.
-        if not off and (self.on_server or not (verify_only and claude_code)):
-            _definitions(protocol, body, scan)
-        if self.on_server and scan.unreadable and not off:
+        scan.first(tools)
+        if scan.unreadable:
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=_unread_fields(scan.unreadable))
+        selected = request_scope.get()
+        grants = body_grants.chosen(self._excepted(upstream, selected)) if body_grants is not None else None
+        # A Gemini cache's creation (POST .../cachedContents), whose model the GenAI SDK names as models/{id}.
+        cache_create = protocol == "gemini" and method == "POST" and path.rstrip("/").endswith("/cachedContents")
+        try:
+            inspected = inspect_body(
+                body,
+                protocol,
+                upstream,
+                scan,
+                checked_only,
+                ledger,
+                echo_check.rules(body) if echo_scope else {},
+                grants=grants,
+                cache_create=cache_create,
+            )
+        except BodyRefused as error:
             return Prepared(
-                VERIFY, protocol, raw, session, uninspected=unread, model=model, document=body,
-                pending=[(s, [], False) for s in scan.slots], block_reason=_unread_fields(scan.unreadable), shape=shape,
-            )  # fmt: skip
-        works = self._read_images(scan, scope, off, modify=not verify_only)
+                VERIFY,
+                protocol,
+                b"",
+                shape=shape,
+                block_reason=str(error),
+                envelope_refusal=error.safe_code,
+            )
+        if any(not safe_text(text) for text in inspected.checked):
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=PROTECTED_LAUNCH)
+        body_metadata: tuple[str, ...] = ()
+        if scan.uninspected:
+            return Prepared(
+                VERIFY,
+                protocol,
+                raw,
+                session,
+                document=body,
+                pending=[(s, [], False) for s in scan.slots],
+                block_reason="Latet cannot read this document, audio or remote media, so it does not send it",
+            )
+        reads = scope.ocr if scope is not None else self.ocr
+        if scan.images and (not reads or self.vision is None or not self.vision.available):
+            if reads and self.vision is not None:  # the text recognition down, not images the settings leave unread
+                self.vision.refused_unavailable()
+            return Prepared(
+                VERIFY,
+                protocol,
+                raw,
+                session,
+                document=body,
+                pending=[(s, [], False) for s in scan.slots],
+                block_reason=NO_OCR,
+            )
+        if checked_only:
+            try:
+                body_metadata = tuple(
+                    text
+                    for index, image in enumerate(scan.images)
+                    for text in inspect_image(image.data(), partial(ledger.metadata, index)).texts
+                )
+                ledger.finish()
+            except BodyRefused as error:
+                return Prepared(
+                    VERIFY,
+                    protocol,
+                    raw,
+                    session,
+                    document=body,
+                    block_reason=str(error),
+                    envelope_refusal="coverage-limit",
+                )
+            except UnreadImage as error:
+                return Prepared(
+                    VERIFY,
+                    protocol,
+                    raw,
+                    session,
+                    document=body,
+                    pending=[(s, [], False) for s in scan.slots],
+                    block_reason=str(error),
+                )
+        works = self._read_images(scan, scope, modify=not checked_only)
+        if any(not safe_text(text) for text in chain(body_metadata, (work.text for work in works))):
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=PROTECTED_LAUNCH)
         unread = scan.uninspected + ["image"] * len(self._unread(scan, works))
-        refused = self._refuses_unmasked(scope, unread, off)
-        if refused is None and verify_only:
-            refused = self._not_read_here(scan, works, scope, off)
+        refused = self._refuses_unmasked(scope, unread)
+        if refused is None and checked_only:
+            refused = self._not_read_here(scan, works, scope)
         if refused is not None:
             return Prepared(
                 VERIFY, protocol, raw, session, uninspected=unread, model=model, document=body,
                 pending=[(s, [], False) for s in scan.slots], block_reason=refused, images=works, shape=shape,
             )  # fmt: skip
-        if verify_only:
+        if checked_only:
+            body_checked = tuple(inspected.checked) + body_metadata
             review = anthropic.is_auto_mode_review(body)
             policy = self.review if review else None
             # Its own verifier scope: the plugin's final check (same session) must not mark blocks sent.
@@ -711,12 +1509,30 @@ class Mediator:
             slots = ((s.get(), s.kind, s.from_model) for s in scan.slots)
             # What the model wrote, exactly so, leaves: known only of Claude Code's conversations (``read_written``, and
             # the plugin's tool calls). Another client's assistant turns are its own texts.
-            written = partial(self.verifier.written, session.key) if claude_code else None
-            result = self.verifier.verify(slots, sent_scope, policy, scope, written=written)
+            written = partial(self.verifier.written_source, session.key) if claude_code else None
+            # A clean text check cannot publish sent-history authority for a refused body.
+            # Keep the same check/budget path, including its blocking and source evidence.
+            result = self.verifier.verify(
+                slots,
+                sent_scope,
+                policy,
+                scope,
+                written=written,
+                checked_only=body_checked,
+                record=inspected.problem is None,
+            )
             prepared = Prepared(
                 VERIFY, protocol, raw, session, result.leaks, unread, stream=stream, model=model,
-                document=body, pending=[(s, [], False) for s in scan.slots], review=review, off=off,
-                withheld=result.withheld, images=works, claude_code=claude_code,
+                document=body, pending=[(s, [], False) for s in scan.slots], review=review,
+                withheld=result.withheld, images=works, claude_code=claude_code, body_checked=body_checked,
+                body_semantic=tuple(inspected.semantic), body_metadata=body_metadata,
+                body_rules=tuple(sorted(inspected.rules | result.rules | ({M3} if works else set()))),
+                body_input=raw, body_ledger=ledger, body_upstream=upstream, body_scan=scan, body_grants=grants,
+                body_cache_create=cache_create, opaque_check=echo_check,
+                body_verified=not result.blocking, body_verified_payload=raw,
+                body_authority=tuple(sorted(result.authority)),
+                body_epoch=self._content_epoch, body_verified_token=self._content_epoch.token,
+                body_structure=freeze_body(body),
             )  # fmt: skip
             if result.blocking:
                 what = ", ".join(sorted({leak.preview for leak in result.blocking}))
@@ -728,36 +1544,59 @@ class Mediator:
                         "; Bedrock and Vertex calls are checked, never rewritten: make them from Claude Code with "
                         "Latet's plugin"
                     )
+            if inspected.problem is not None and prepared.block_reason is None:
+                prepared.block_reason = inspected.problem
             prepared.shape = shape
             return self._mark_outbound(prepared)
-        if off:  # nothing is masked; surrogates from earlier in the conversation are still restored
-            return Prepared(
-                REWRITE, protocol, raw, session, [], unread, stream=stream, model=model,
-                document=body, pending=[(s, [], True) for s in scan.slots], off=True,
-            )  # fmt: skip
+        removed = _remove_declared(inspected)
         report = MaskReport()
-        held, hold = False, None
+        lease = None
         try:
-            masked, done_slots, hold = self._mask_slots(scan.slots, session, report, scan.keyed)
-            held = True  # its conversation's vault holds for its answer, whatever stops it from here
+            masked, done_slots, lease = self._mask_slots(scan.slots, session, report, scan.keyed)
+            # its conversation's vault holds for its answer, whatever stops it from here
             withheld = sum(done.withheld and done.fresh for done in done_slots)
             pending = [(slot, done.replacements, done.exact) for slot, done in zip(scan.slots, done_slots, strict=True)]
-            changed = masked > 0 or read.mended or read.repeated or any(w.state == WITHHELD for w in works)
-            out = codec.encode(dumps_compact(body).encode(), encoding) if changed else raw
+            # A coded body leaves encoded again from what was read, never as the container it came in (G2 review I-1).
+            changed = (
+                masked > 0 or read.mended or read.repeated or bool(works) or bool(removed) or codec.coded(encoding)
+            )
+            out = self._serialize_body(body, encoding) if changed else raw
             prepared = Prepared(
                 REWRITE, protocol, out, session, [], unread, masked, report.degraded, stream=stream,
                 model=model, document=body, pending=pending, withheld=withheld, masked=done_slots,
-                encoding=encoding, images=works, held=held, hold=hold,
+                encoding=encoding, images=works, lease=lease,
+                body_semantic=tuple(inspected.semantic), body_metadata=body_metadata,
+                body_input=raw, body_ledger=ledger, body_shape=inspected.shape,
+                body_upstream=upstream, body_scan=scan, body_epoch=self._content_epoch, body_grants=grants,
+                body_cache_create=cache_create, opaque_check=echo_check, body_removed=removed, recorded_later=True,
             )  # fmt: skip
             self._check(prepared)  # one stopped here is shown to no reviewer, nor to you
             if prepared.block_reason is None:
                 prepared.reviews = self._review_items(session, scan.slots, done_slots)
         except MaskingError as exc:  # a vault at its limit says so: a MaskingError's words name no value
             log.error("masking failed: %s", exc)
-            return Prepared(
-                REWRITE, protocol, raw, session, block_reason=f"masking failed: {exc}", held=held, hold=hold
-            )
-        return self._mark_outbound(prepared)
+            return Prepared(REWRITE, protocol, raw, session, block_reason=f"masking failed: {exc}", lease=lease)
+        except BaseException:  # anything else once it held: no request will own the hold, so it goes now
+            if lease is not None:
+                lease.release()
+            raise
+        try:
+            return self._mark_outbound(prepared)
+        except BaseException:
+            if lease is not None:
+                lease.release()
+            raise
+
+    def _serialize_body(self, document: Any, encoding: str | None = None, *, frame: bool = False) -> bytes:
+        limit = min(self.body_limit, sse.MAX_DECODED) if frame else self.body_limit
+        # Its size before the encoder makes it: an upper bound first, counted character by character only past it.
+        if _json_bound(document) > limit and _json_size(document) > limit:
+            raise codec.DecodedTooLarge(limit)
+        raw = dumps_compact(document).encode()
+        encoded = codec.encode(raw, encoding)
+        if len(encoded) > limit:
+            raise codec.DecodedTooLarge(limit)
+        return encoded
 
     def _check(self, prepared: Prepared) -> None:
         """A request this gateway rewrote, checked before it leaves as one it may only check is (``Verifier.verify``):
@@ -769,14 +1608,102 @@ class Mediator:
         check never runs it. Called again once the local reviewer or you masked more, on what leaves then. In the
         engine's thread."""
         session = prepared.session
-        if session is None or prepared.mode != REWRITE or prepared.off or prepared.block_reason:
+        if session is None or prepared.mode != REWRITE or prepared.off:
             return
+        ledger, scan = prepared.body_ledger, prepared.body_scan
+        if ledger is not None and scan is not None and prepared.body_upstream is not None:
+            # What leaves: its slots, as masked, screened here; every other text the declaration reads is screened as
+            # the inspection below reads it (``body_checked``), or refused by it (a fixed word, a member it does not
+            # read). The declaration's own walk, which read them all once more, is made before masking alone (R-103):
+            # tests/unit/test_request_coverage_speed.py holds the two to the same refusals.
+            try:
+                if not ledger.declared_scan_safe(scan):
+                    prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+                    return
+            except BodyRefused as error:
+                prepared.discard_unadmitted_content(str(error), error.safe_code)
+                return
+        if prepared.block_reason:
+            return
+        frozen = None  # the body's shape as accounted here, when it is accounted again
+        if prepared.body_ledger is not None and prepared.body_upstream is not None and prepared.body_scan is not None:
+            prepared.body_verified = False
+            try:
+                inspection = inspect_body(
+                    prepared.document,
+                    prepared.protocol or "",
+                    prepared.body_upstream,
+                    prepared.body_scan,
+                    False,
+                    prepared.body_ledger,
+                    prepared.opaque_check.rules(prepared.document) if prepared.opaque_check is not None else {},
+                    grants=prepared.body_grants,
+                    excepted=prepared.body_excepted,
+                    # Masking changed its leaf strings alone: its final paths are those of its last account. Images
+                    # re-encoded or withheld are accounted again, with their metadata.
+                    accounted=None if prepared.images else prepared.body_shape,
+                    cache_create=prepared.body_cache_create,
+                )
+                frozen = inspection.shape
+                # Re-encoded/repainted carriers have a new container shape. Its
+                # generated parts share this exchange ledger and this same final
+                # verifier call; removed source metadata receives no allowance.
+                if prepared.images:
+                    prepared.body_metadata = tuple(
+                        text
+                        for index, work in enumerate(prepared.images)
+                        if work.state != WITHHELD
+                        for text in inspect_image(work.ref.data(), partial(prepared.body_ledger.metadata, index)).texts
+                    )
+                    prepared.body_ledger.finish()
+                prepared.body_checked = tuple(inspection.checked) + prepared.body_semantic + prepared.body_metadata
+                if any(not safe_text(text) for text in prepared.body_checked):
+                    prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+                    return
+                prepared.body_rules = tuple(sorted(inspection.rules))
+                if inspection.problem is not None:
+                    prepared.discard_unadmitted_content(inspection.problem)
+                    return
+            except UnreadImage as error:
+                prepared.discard_unadmitted_content(str(error))
+                return
+            except BodyRefused as error:
+                code = error.safe_code
+                prepared.discard_unadmitted_content(str(error), code)
+                return
         slots = [(text if isinstance(text := slot.get(), str) else "", slot.kind, slot.from_model)
                  for slot, _, _ in prepared.pending]  # fmt: skip
         result = self.verifier.verify(
-            slots, session.key, scope=self.engine.scope(session), record=False, rewritten=True
+            slots,
+            session.key,
+            scope=self.engine.scope(session),
+            record=False,
+            rewritten=True,
+            checked_only=(*prepared.body_checked, *prepared.envelope_checked),
         )
         prepared.leaks = result.leaks
+        prepared.body_authority = tuple(sorted(result.authority))
+        if prepared.body_ledger is not None:
+            # The freeze of what leaves: the account's own when it was made here (nothing changed the body since).
+            frozen = frozen if frozen is not None else freeze_body(prepared.document)
+            prepared.body_structure = prepared.body_shape = frozen
+        else:
+            prepared.body_structure = None
+        prepared.body_verified = not result.blocking
+        prepared.body_verified_payload = prepared.body
+        prepared.body_verified_token = self._content_epoch.token
+        prepared.body_rules = tuple(
+            sorted(
+                set(prepared.body_rules)
+                | result.rules
+                | ({M3} if prepared.images else set())
+                | (
+                    {"sent before in this conversation"}
+                    if any(done.history_allowed for done in prepared.masked)
+                    else set()
+                )
+            )
+        )
         if result.blocking:
             what = ", ".join(sorted({leak.preview for leak in result.blocking}))
             prepared.block_reason = f"sensitive values would leave in clear: {what}"
@@ -789,6 +1716,8 @@ class Mediator:
         the event loop. A failure is said in the log by its type, and the texts are then masked anew when sent again."""
         if prepared.session is None or prepared.mode != REWRITE or prepared.off:
             return
+        if prepared.body_removed:
+            self.body_removed_members = min((1 << 63) - 1, self.body_removed_members + len(prepared.body_removed))
         loop = self.loop = asyncio.get_running_loop()
         with contextlib.suppress(RuntimeError):  # the engine's thread has ended (the space closes): nothing to record
             loop.run_in_executor(self.executor, self.record_left, prepared).add_done_callback(_left_failure)
@@ -801,12 +1730,48 @@ class Mediator:
             texts = [text for slot, _, _ in prepared.pending if isinstance(text := slot.get(), str) and text]
             self.verifier.left(prepared.session.key, texts)
 
-    def written(self, prepared: Prepared, content_type: str, content_encoding: str | None) -> Written | None:
+    def written(
+        self, prepared: Prepared, content_type: str, content_encoding: str | None, *, observe: bool = True
+    ) -> Written | None:
         """What the model writes in the answer to ``prepared``, to read as it passes (``read_written``): a request of
         Claude Code's that Latet only checks, its answer passed on as it came. None for any other."""
-        if prepared.mode != VERIFY or not prepared.claude_code or prepared.session is None or prepared.off:
+        if prepared.session is None or prepared.off:
             return None
-        return Written(content_type, content_encoding)
+        record_text = prepared.mode == VERIFY and prepared.claude_code
+        opaque = self.opaque_capture(prepared) if observe else None
+        return (
+            Written(content_type, content_encoding, opaque=opaque, record_text=record_text)
+            if record_text or opaque
+            else None
+        )
+
+    def opaque_capture(self, prepared: Prepared) -> OpaqueCapture | None:
+        check = prepared.opaque_check
+        return (
+            OpaqueCapture(check, self.echoes)
+            if check is not None and check.scope.binding and not prepared.off
+            else None
+        )
+
+    async def commit_opaque(self, capture: OpaqueCapture | None, held: int = 0) -> None:
+        """The terminal owner holds publication while the existing engine worker commits observation.
+
+        Extra terminal bytes are charged only for this await; the worker retains digest reservations separately.
+        Cancellation releases queued work, while a running capture releases its reservation when it actually ends.
+        """
+        if capture is None or not capture.ready or capture.closed:
+            return
+        if not capture.pending:
+            capture.close()
+            return
+        if not capture.backend.reserve(held):
+            capture.close()
+            return
+        try:
+            await self.run(capture.commit)
+        finally:
+            capture.close()
+            capture.backend.release(held)
 
     async def read_written(self, capture: Written, session: Session, chunk: bytes | None) -> None:
         """What the model wrote that ``chunk`` of its answer ends (None: the answer's end), known in its conversation
@@ -822,6 +1787,9 @@ class Mediator:
             await self._read_written_step(capture, session, piece)
         if chunk is None:
             await self._read_written_step(capture, session, None)
+        await self.commit_opaque(
+            capture.opaque, len(chunk) + 64 if chunk is not None and not capture.holds_answer else 0
+        )
 
     async def _read_written_step(self, capture: Written, session: Session, piece: bytes | None) -> None:
         """One step of ``read_written``: ``piece``, or the answer's end (None)."""
@@ -838,7 +1806,7 @@ class Mediator:
             return
         async with self.restoring:
             texts = capture.read(piece) if piece is not None else capture.end()
-            distinct = list(dict.fromkeys(texts))
+            distinct = list(dict.fromkeys(text for text in texts if safe_text(text)))
             for start in range(0, len(distinct), WRITTEN_AT_ONCE):
                 self.verifier.wrote(session.key, distinct[start : start + WRITTEN_AT_ONCE])
                 await asyncio.sleep(0)
@@ -850,13 +1818,13 @@ class Mediator:
         so the event loop, all along)."""
         texts = capture.read(piece) if piece is not None else capture.end()
         seen: set[str] = set()
-        distinct = [text for text in texts if not (text in seen or seen.add(text))]
+        distinct = [text for text in texts if safe_text(text) and not (text in seen or seen.add(text))]
         self.verifier.wrote(session_key, distinct)
 
     def _mark_outbound(self, prepared: Prepared) -> Prepared:
         """Tools the provider ran with stand-ins in their input: too late to stop, so said (once)."""
         session = prepared.session
-        if session is None or prepared.off:
+        if session is None or prepared.off or prepared.document is None:
             return prepared
         masker = self._masker(session)
         for tool, refs in outbound.server_calls(prepared.protocol, prepared.document):
@@ -871,8 +1839,84 @@ class Mediator:
             self._outbound_seen.put(key, True)
             prepared.outbound.append(tool)
             prepared.outbound_slots.extend(refs)
-            log.warning("the provider ran %s with values Latet replaced (%s)", tool, ", ".join(sorted(set(types))))
+            log.warning(
+                "provider outbound tool used stand-ins: category=%s occurrences=%d", outbound.category(tool), len(types)
+            )
+        if prepared.outbound_slots or prepared.body_ledger is not None:
+            prepared.refresh_recording()
         return prepared
+
+    def _excepted(self, upstream: Upstream, selection: RequestScope | None) -> frozenset[str]:
+        """The folders of ``upstream``'s project exceptions that name the project Latet trusts this request's to be
+        (``request_policy.trusted_folders``), compared here, in the worker that prepares it (I-6)."""
+        from latet.gateway.request_policy import trusted_folders
+
+        if selection is None:
+            return frozenset()
+        return trusted_folders(
+            upstream.envelope_exceptions,
+            binding=selection.binding,
+            compared=selection.compared,
+            projects=self.engine.scopes,
+        )
+
+    def _launch_scope(
+        self,
+        launch: RequestLaunch,
+        session: Session | None,
+        claimed: str | None,
+        *,
+        legacy_eligible: bool = False,
+    ) -> tuple[str | None, bool]:
+        """The one launch decision of a request, on both machines (Revision 9): the authority construction injected
+        (``RequestLaunch.decide``) says whether its launch is verified, bound by the plugin, a claim, refused or
+        unavailable; a verified or bound project gives its rules and its one freshness check (awaited where the request
+        is sent), a claim only tightens (D7) and a claimed project that is off is refused (D5).
+
+        Returns (reason, unavailable)."""
+        from latet.projects import Projects, _a_folder
+
+        refused = "request launch authority refused"
+        request = request_scope.get()
+        if request is None:
+            return refused, False
+        scopes = self.engine.scopes
+        chosen = launch.decide(session, claimed, legacy_eligible=legacy_eligible, projects=scopes)
+        if chosen.status == "unavailable":
+            return "request launch authority unavailable", True
+        if chosen.status == "refused":
+            return refused, False
+        request.launch = chosen.category  # recorded whatever follows: a claimed project that is off is refused below
+        if chosen.project is not None and chosen.current is not None:
+            request.scope = chosen.project.scope
+            request.protected_current = chosen.current
+            request.project, request.binding = chosen.project.id, "trusted"
+            # Its project as projects are compared (R-105): the id a project exception's folder is compared with, the
+            # same on both machines, whichever folder of the project it was bound in (I-4).
+            compare = getattr(scopes, "compared_id", None)
+            request.compared = compare(chosen.project.root) if compare is not None else None
+        else:
+            folder = claimed or (session.cwd if session is not None else None)
+            project = scopes.resolve(folder) if isinstance(scopes, Projects) and _a_folder(folder) else None
+            if project is not None:
+                request.project, request.binding = project.id, "claimed"
+            if project is not None and project.scope is not None and not project.scope.enabled:
+                return CLAIMED_OFF, False
+            request.scope = None if project is None else project.safe if project.lowers else project.scope
+        request.session = session
+        return None, False
+
+    def _ws_launch_scope(
+        self,
+        session: Session,
+        headers: dict[str, str],
+        scan: BodyScan,
+        launch: RequestLaunch | None,
+    ) -> tuple[str | None, bool]:
+        if launch is None:
+            return None, False  # direct preparation tests; never the admitted relay
+        # A WebSocket turn has no admitted Claude plugin binding (Responses only).
+        return self._launch_scope(launch, session, cwd_from(headers, scan))
 
     def _attach_project(self, session: Session, headers: dict[str, str], scan: BodyScan) -> None:
         """Give a session its project, from what the request says of its working directory. Claude
@@ -891,12 +1935,12 @@ class Mediator:
         session: Session,
         report: MaskReport,
         keyed: Sequence[tuple[Any, SlotKind, bool]] = (),
-    ) -> tuple[int, list[Masked], object | None]:
-        """Mask the slots of a request in place: (values masked, what was done to each, what its conversation's vault
-        counted its hold in: ``Engine.hold``, handed back at its release). And the keys of the ``keyed`` objects (a tool
-        call's input), each masked as a text and written back in its place, the slots of its object's values told its
-        new name: a key the model wrote with a fake in it is restored in the answer, and so leaves masked again when the
-        agent sends it back. Two keys of an object that would be one stop the request
+    ) -> tuple[int, list[Masked], ExchangeLease]:
+        """Mask the slots of a request in place: (values masked, what was done to each, the lease of what its
+        conversation's vault holds for its answer: ``Engine.hold``'s handle, registered as it is taken). And the keys
+        of the ``keyed`` objects (a tool call's input), each masked as a text and written back in its place, the slots
+        of its object's values told its new name: a key the model wrote with a fake in it is restored in the answer, and
+        so leaves masked again when the agent sends it back. Two keys of an object that would be one stop the request
         (``KeysCollide``)."""
         texts = [s.get() for s in slots]
         named = [(obj, kind, from_model) for root, kind, from_model in keyed for obj in objects(root)]
@@ -940,8 +1984,9 @@ class Mediator:
         for at, (obj, given) in names.items():
             rename(obj, given, held.get(at, []))
             masked += len(given)
-        hold = self.engine.hold(session)  # what its answer restores, in memory (an API key's vault: ``Vault.hold``)
-        return masked, done_slots, hold
+        lease = ExchangeLease(self.engine, session)  # what its answer restores, in memory (``Engine.hold``)
+        lease.acquire()
+        return masked, done_slots, lease
 
     def call(self) -> Call:
         """What ``mask_value`` notes of a request's texts, for ``settle`` once they are all masked."""
@@ -954,11 +1999,27 @@ class Mediator:
         masked again, in place. One sent as it was kept is asked again whether it may leave so
         (``_leaves_as_it_left``): known to have left so in its conversation, it leaves as it left; otherwise, holding
         in clear a value the vault knows now, it is masked anew, with every sight of it in the request."""
+        refresh = getattr(self.engine.vault, "refresh", None)
+        if refresh is not None:
+            refresh()
         if self.engine.vault.version == call.version:
             return
+        originals = dict.fromkeys(done.original for _, dones in call.new.values() for done in dones)
+        originals.update(dict.fromkeys(done.original for _, _, sights in call.kept.values() for _, done in sights))
+        # A refresh revoked the call's word answers. Restore their batching before even classifying kept texts:
+        # each individual prefetch otherwise rebuilds a matcher over a progressively growing candidate set.
+        self.engine.vault.prefetch(list(originals))
         groups = dict(call.new)
         for key, (session, again, sights) in call.kept.items():
-            if all(self._leaves_as_it_left(session, key, left, done.original) for left, done in sights):
+            entries = []
+            for left, done in sights:
+                entry = self._leaves_as_it_left(session, key, left, done.original)
+                if entry is None:
+                    break
+                entries.append(entry)
+            else:
+                for (_, done), entry in zip(sights, entries, strict=True):
+                    done.history_allowed = self._history_allowed(entry)
                 continue
             masking, dones = groups.get(key, (again, []))  # also masked anew in the request: one group
             groups[key] = (masking, [*(done for _, done in sights), *dones])
@@ -971,6 +2032,7 @@ class Mediator:
                 # held a value learnt since): either way this one leaves as the text masks now.
                 done.text, done.replacements, done.exact = new.text, list(new.replacements), new.exact
                 done.fresh, done.withheld = True, new.withheld
+                done.history_allowed = new.history_allowed
 
     def mask_value(
         self,
@@ -1008,7 +2070,8 @@ class Mediator:
         flags = f"{int(from_model)}{int(keep_surrogates)}{int(json_mode)}{'t' if as_text else ''}"
         key = self._given_key(session, kind, value, path, tool, flags)
         given = None if extra or not session.kept else self.given.masked(key)
-        if given is not None and not self._leaves_as_it_left(session, key, given, value):
+        entry = self._leaves_as_it_left(session, key, given, value) if given is not None else None
+        if entry is None:
             given = None  # a value the vault knows is in clear in it, whole or in part, and it never left so: anew
 
         def new() -> Masked:
@@ -1020,14 +2083,18 @@ class Mediator:
                 self.given.keep(key, Left(done.text, tuple(done.replacements), done.exact))
             return self._guarded(done, kind, session)
 
-        if given is None:
+        if given is None or entry is None:
             done = new()
         else:
             masked, replacements, exact = given.text, given.replacements, given.exact
             if keep_surrogates:
                 self.engine.adopt(session, value, self._masker(session))
             self.engine.show(session, (r.entity_id for r in replacements if r.entity_id))
-            done = self._guarded(Masked(masked, list(replacements), exact, original=value), kind, session)
+            done = self._guarded(
+                Masked(masked, list(replacements), exact, original=value, history_allowed=self._history_allowed(entry)),
+                kind,
+                session,
+            )
         if call is not None and (given is None or key in call.new):  # the same text twice in a request too
             call.new.setdefault(key, (new, []))[1].append(done)
         elif call is not None and given is not None:  # sent as it was kept: asked again in ``settle``
@@ -1054,7 +2121,7 @@ class Mediator:
         message = "\x00".join((session.key, rules, kind.value, flags, path or "", tool or "", text)).encode()
         return hmac.new(self.engine.vault.cache_key, message, hashlib.sha256).digest()
 
-    def _leaves_as_it_left(self, session: Session, key: bytes, left: Left, original: str) -> bool:
+    def _leaves_as_it_left(self, session: Session, key: bytes, left: Left, original: str) -> tuple[int, bool] | None:
         """Whether a text its conversation sent before (``original``, as its client sends it) leaves again as it was
         kept (``left``): while it shows in clear no value the vault knows, whole or in part (``shows_known``: one learnt
         since around a value masked in it too, 0.10.2), or once the final check saw that very text leave in the
@@ -1069,25 +2136,35 @@ class Mediator:
         the version, which such a forget heard elsewhere does not move. A person's Forget leaves the texts as they left
         (review 11b's N2). Checked once per vault version, for the text read now. The values the kept text holds among
         those its request's words found (an API key's vault, which keeps most of its values in its store) are brought
-        into memory first, in whatever form the text was kept (``Vault.weigh``), and those it names, by their ids."""
+        into memory first, in whatever form the text was kept (``Vault.weigh``), and those it names, by their ids.
+
+        Returns its entry when it leaves as it left (the vault version it was checked at, whether it shows a known
+        value in clear), None when it does not: what ``_history_allowed`` reads, its keyed mark made once (P2-8)."""
         vault = self.engine.vault
         vault.weigh([left.text])  # first: what it brings into memory moves the version
         named = [r.entity_id for r in left.replacements if r.entity_id]
         if named and vault.forgot_any(named):  # those out of memory brought back first: it moves the version
-            return False
+            return None
         version = vault.version  # first: a value learnt while it is checked has it checked again
         mark = hmac.new(vault.cache_key, b"L\x00" + key + left.text.encode(), hashlib.sha256).digest()
-        if self._as_it_left.get(mark) == version:
-            return True
+        cached = self._as_it_left.get(mark)
+        if cached is not None and cached[0] == version:
+            return cached
         masker = self._masker(session)
         if left.exact:
             shown = shows_known(masker, original, left.text, left.replacements)
         else:  # a JSON document masked value by value: its replacements place no value in ``original``
             shown = masker.known_outside(original, ())
         if shown and not self.verifier.sent(session.key, left.text):
-            return False
-        self._as_it_left.put(mark, version)
-        return True
+            return None
+        entry = (version, bool(shown))
+        self._as_it_left.put(mark, entry)
+        return entry
+
+    def _history_allowed(self, entry: tuple[int, bool]) -> bool:
+        """Whether a text that leaves as it left (its entry, ``_leaves_as_it_left``'s) does so holding a value in clear
+        the conversation sent before (``HISTORY``): its check made at the vault's version still."""
+        return entry[0] == self.engine.vault.version and entry[1]
 
     def _mask_new(
         self,
@@ -1311,8 +2388,13 @@ class Mediator:
         inline = current and kind.value in config.inline
         if not inline and not config.background:
             return None
-        text = readable(done.text) if json_mode or kind == SlotKind.TOOL_RESULT else done.text
-        if not text.strip():
+        reads_json = json_mode or kind == SlotKind.TOOL_RESULT
+        for selected in (done.original, done.text):
+            screen = declared_string_safe if reads_json and selected.lstrip()[:1] in ("{", "[") else safe_text
+            if not screen(selected):
+                return None
+        text = readable(done.text) if reads_json else done.text
+        if not text.strip() or not safe_text(text):
             return None
         work = image if config.images and kind == SlotKind.IMAGE_TEXT and image is not None else None
         key = work.key if work is not None else None
@@ -1437,6 +2519,8 @@ class Mediator:
         """A background answer: what it found is masked wherever it appears from now on (in the engine
         thread). The block it was found in was sent already: it is sent the same way again once it is
         known to have left so, and masked anew otherwise (``_leaves_as_it_left``)."""
+        if any(not safe_text(finding.value) for finding in chain(answer.findings, answer.unlocated)):
+            return
         masker = self._masker(session)
         found = self.kept(config, masker, answer)
         for finding in found:
@@ -1500,6 +2584,17 @@ class Mediator:
         return prepared
 
     def _apply_review(self, prepared: Prepared, config: LlmReview, answers: dict[int, Answer]) -> None:
+        try:
+            self._apply_review_changes(prepared, config, answers)
+        except BaseException:
+            prepared.refresh_recording(logical=True)
+            raise
+        prepared.refresh_recording(
+            logical=bool(prepared.block_reason and prepared.amended),
+            serialized=prepared.body if prepared.encoding is None else None,
+        )
+
+    def _apply_review_changes(self, prepared: Prepared, config: LlmReview, answers: dict[int, Answer]) -> None:
         session = prepared.session
         assert session is not None
         masker = self._masker(session)
@@ -1511,6 +2606,9 @@ class Mediator:
             answer = answers.get(item.index)
             if answer is None:
                 continue
+            if any(not safe_text(finding.value) for finding in chain(answer.findings, answer.unlocated)):
+                prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+                return
             if answer.failed:
                 report.degraded.append("llm-review")
                 failed.setdefault(answer.failed, []).append(item.kind.value)
@@ -1519,6 +2617,9 @@ class Mediator:
                 done = self.remask(session, item, found, report, keep=False)
                 lost = lost or still_in_clear(found, item.original, done.text, masker)
                 slot = prepared.pending[item.index][0]
+                if not (declared_string_safe(done.text) if slot.mode == "json" else safe_text(done.text)):
+                    prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+                    return
                 if done.text != slot.get():
                     slot.put(done.text, done.replacements)
                     changed = True
@@ -1542,8 +2643,9 @@ class Mediator:
         if changed:
             prepared.amended = True
             if isinstance(prepared.document, dict):
-                text = dumps_compact(prepared.document).encode()
-                prepared.body = text if prepared.encoding is None else codec.encode(text, prepared.encoding)
+                prepared.body = self._serialize_body(
+                    prepared.document, prepared.encoding, frame=prepared.frame_payload is not None
+                )
         if lost and prepared.block_reason is None:  # never sent with a value it found in clear, as the Live Reviewer's
             raise MaskingError("a value the local reviewer found would have left in clear")
         self._check(prepared)  # what leaves now: a secret it found, in clear in a text it did not read, stops it
@@ -1687,6 +2789,8 @@ class Mediator:
         while they waited (Not sensitive: always allow) leaves in clear, and the values you masked are masked in them.
         The vault keeps those, so they are masked wherever they appear from now on, like the values the detectors and
         the local reviewer found."""
+        if any(not safe_text(mask.value) for mask in decision.masks):
+            raise MaskingError(PROTECTED_LAUNCH)
         self._approve(session, items)
         human: dict[str, ExtraValue] = {}
         for mask in decision.masks:
@@ -1706,6 +2810,11 @@ class Mediator:
                     # Never sent with a value you masked still in clear (the text is withheld instead).
                     raise MaskingError("a value masked in the Live Reviewer would have left in clear")
             out.append(done)
+        if any(
+            not (declared_string_safe(done.text) if item.json_mode else safe_text(done.text))
+            for item, done in zip(items, out, strict=True)
+        ):
+            raise MaskingError(PROTECTED_LAUNCH)
         self._approve(session, items, [done.text for done in out])  # as sent, with your masks
         return out
 
@@ -1730,6 +2839,7 @@ class Mediator:
         """The rules or the vault changed, from any thread (the vault tells it under its lock: this returns at once):
         the previews of the batches waiting here are made again on the event loop. Once asked, not again until the loop
         took it: a large output keeps thousands of values."""
+        self._content_epoch.token = object()
         loop = self.loop
         if loop is None or not self._held_live or self._refresh_asked:
             return
@@ -1887,8 +2997,22 @@ class Mediator:
             self.release_live(batch.id)
 
     def _apply_live_prepared(self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision) -> None:
+        try:
+            self._apply_live_changes(prepared, items, decision)
+        except BaseException:
+            prepared.refresh_recording(logical=True)
+            raise
+        prepared.refresh_recording(
+            logical=bool(prepared.block_reason and prepared.amended),
+            serialized=prepared.body if prepared.encoding is None else None,
+        )
+
+    def _apply_live_changes(self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision) -> None:
         session = prepared.session
         assert session is not None
+        if any(not safe_text(mask.value) for mask in decision.masks):
+            prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+            return
         done = self.apply_live(session, items, decision, keep=False)
         changed = self.decide_images(items, decision)
         for item, masked in zip(items, done, strict=True):
@@ -1901,9 +3025,15 @@ class Mediator:
         if changed:
             prepared.amended = True
             if isinstance(prepared.document, dict):
-                text = dumps_compact(prepared.document).encode()
-                prepared.body = text if prepared.encoding is None else codec.encode(text, prepared.encoding)
+                prepared.body = self._serialize_body(
+                    prepared.document, prepared.encoding, frame=prepared.frame_payload is not None
+                )
         self._check(prepared)  # what leaves now: a value you masked, in clear in a text that did not wait, stops it
+        # Its answer restores what the conversation was shown: held again after the wait (its hold may have lapsed),
+        # the handle ``Engine.reacquire`` returns owned by its lease from then on (released at once when the exchange
+        # was given up meanwhile: RC-REC-11 (b)).
+        if prepared.lease is not None:
+            prepared.lease.reacquire()
 
     def read_image(self, ref: ImageRef, session: Session, modify: bool) -> ImageWork | None:
         """One image the Claude Code plugin sends: read, when Latet reads images in its project. On a Latet server whose
@@ -1913,23 +3043,26 @@ class Mediator:
         if (scope is not None and not scope.enabled) or not reads or self.vision is None:
             return None
         if not self.vision.available:
-            return self.vision.unread(ref, NOT_AVAILABLE, modify) if self.on_server else None
+            return self.vision.unread(ref, NOT_AVAILABLE, modify)
         return self.vision.work(ref, modify)
 
-    def _read_images(self, scan: BodyScan, scope: Scope | None, off: bool, modify: bool) -> list[ImageWork]:
+    def _read_images(self, scan: BodyScan, scope: Scope | None, modify: bool) -> list[ImageWork]:
         """Read the request's images, when Latet reads them here, and put each one's text among the
         slots, where the image is. ``modify``: an image that cannot be read is withheld. On a Latet server whose text
         recognition is not available (its models could not load), each image is one whose text could not be read: a
         request it rewrites leaves without it, one it only checks is stopped (``_not_read_here``). A computer sends
         them as ``images`` says, as it always did."""
         reads = scope.ocr if scope is not None else self.ocr
-        if off or not reads or self.vision is None or not scan.images:
+        if not reads or self.vision is None or not scan.images:
             return []
         if not self.vision.available:
-            if not self.on_server:
-                return []
             return [self.vision.unread(ref, NOT_AVAILABLE, modify) for ref in scan.images]
-        works = self.vision.works(scan.images, modify)
+        works = self.vision.works(scan.images, modify, strip_metadata=modify)
+        if modify:
+            for work in works:
+                work.strip_metadata = True
+                if work.decoded is not None and work.state != WITHHELD:
+                    work.masked("text", work.text, work.replacements)
         for at, _, work in sorted(((w.ref.at, i, w) for i, w in enumerate(works)), reverse=True):
             if work.slot is not None:
                 scan.slots.insert(at, work.slot)
@@ -1943,92 +3076,292 @@ class Mediator:
             return list(scan.images)
         return [w.ref for w in works if w.state == UNREAD]
 
-    def _not_read_here(self, scan: BodyScan, works: list[ImageWork], scope: Scope | None, off: bool) -> str | None:
-        """On a Latet server, why a request it only checks is stopped, whatever ``images`` says: it carries an image
-        whose text the server reads there and could not read. A request it rewrites has such an image withheld; one it
-        only checks would leave with it, unread, though a computer would have read it (another identity's images
-        holding the text recognition every space shares, a read's time budget, a server's pixels) and the final check
-        its text. None on a computer, and where Latet reads no image (``ocr: off``, the models not installed):
-        ``images`` says then, as it always did. Why an image could not be read is its own reason (a load that failed
-        is said by its type), else that the text recognition is not available."""
+    def _not_read_here(self, scan: BodyScan, works: list[ImageWork], scope: Scope | None) -> str | None:
+        """Why a request Latet only checks is stopped, whatever ``images`` says, on a computer as on a server: it
+        carries an image whose text Latet reads there and could not read. A request it rewrites has such an image
+        withheld; one it only checks would leave with it, unread (on a server: another identity's images holding the
+        text recognition every space shares, a read's time budget, a server's pixels), and the final check its text.
+        None where Latet reads no image (``ocr: off``, the models not installed): ``images`` says then, as it always
+        did. Why an image could not be read is its own reason (a load that failed is said by its type), else that the
+        text recognition is not available."""
         reads = scope.ocr if scope is not None else self.ocr
-        if not self.on_server or off or not reads or self.vision is None or not scan.images:
+        if not reads or self.vision is None or not scan.images:
             return None
         why = next((work.reason or "it could not be read" for work in works if work.state == UNREAD), "")
         if not why and not self.vision.available:
             why = NOT_AVAILABLE
         if not why:
             return None
-        return f"a Latet server sends no image it could not read, and this request carries one: {why}"
+        return f"Latet sends no image it could not read, and this request carries one: {why}"
 
-    def _refuses_unmasked(self, scope: Scope | None, unread: list[str], off: bool) -> str | None:
+    def _refuses_unmasked(self, scope: Scope | None, unread: list[str]) -> str | None:
         """``images: mask``: a request that carries what Latet did not read and mask is not sent."""
         policy = scope.images if scope is not None else self.images
-        if off or not unread or policy.send != "mask":
+        if not unread or policy.send != "mask":
             return None
         return refusal(policy, unread)
 
-    def _refuses(self, scope: Scope | None, unread: list[str], off: bool) -> str | None:
+    def _refuses(self, scope: Scope | None, unread: list[str]) -> str | None:
         """Why a request that carries what Latet does not read is not sent; None when it is."""
         policy = scope.images if scope is not None else self.images
-        if off or not unread or not policy.blocks:
+        if not unread or not policy.blocks:
             return None
         return refusal(policy, unread)
 
     def unread_frame(self, what: str, session: Session) -> Prepared | None:
-        """A client's WebSocket frame Latet does not read (``what`` it is): on a Latet server it is refused, with an
-        error frame that says why, as a request body it cannot read is. None on a computer: it is sent as it came."""
-        if not self.on_server:
-            return None
+        """A client's WebSocket frame Latet does not read (``what`` it is): refused, with an error frame that says why,
+        as a request body it cannot read is, on a computer as on a server."""
         return Prepared(PASSTHROUGH, None, b"", session, block_reason=_UNREAD_FRAME.format(what=what))
 
-    def mask_ws_frame(self, text: str, session: Session) -> tuple[str, Prepared | None]:
+    def mask_ws_frame(
+        self,
+        text: str,
+        session: Session,
+        upstream: Upstream | None = None,
+        path: str = "",
+        query: str = "",
+        launch: RequestLaunch | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[str, Prepared | None]:
+        from latet.gateway.request_policy import LocalAuthority, session_facts
+
+        authority = LocalAuthority.capture(self.engine, upstream)
+        receipts: list[EchoCheck] = []
+        prepared: Prepared | None = None
+        complete = False
+        selection = request_scope.get()
+        if selection is not None:
+            selection.project = selection.binding = selection.launch = selection.compared = None
+        try:
+            sent, prepared = self._mask_ws_frame(
+                text,
+                session,
+                upstream,
+                path,
+                query,
+                receipts=receipts,
+                launch=launch,
+                headers=headers or {},
+            )
+            if prepared is not None:
+                prepared.protected_current = selection.protected_current if selection is not None else None
+                if selection is not None:
+                    prepared.project, prepared.binding, prepared.launch = (
+                        selection.project,
+                        selection.binding,
+                        selection.launch,
+                    )
+                prepared.authority = replace(
+                    authority,
+                    session=session,
+                    facts=session_facts(session),
+                    off=prepared.off,
+                )
+                prepared.frame_payload = sent
+                prepared.frame_verified_payload = sent
+                prepared.frame_count = prepared.masked_count
+                prepared.frame_compact = sent is not text
+                edited = prepared.masked_count or any(work.state == WITHHELD for work in prepared.images)
+                failed = prepared.block_reason and prepared.block_reason.startswith("masking failed:")
+                prepared.refresh_recording(logical=bool(prepared.block_reason and (edited or failed)))
+            complete = True
+            return sent, prepared
+        except BaseException:
+            if prepared is not None and prepared.lease is not None:
+                prepared.lease.release()
+            raise
+        finally:
+            for check in receipts:
+                if not complete or prepared is None or prepared.block_reason or prepared.opaque_check is not check:
+                    check.close()
+
+    def _mask_ws_frame(
+        self,
+        text: str,
+        session: Session,
+        upstream: Upstream | None = None,
+        path: str = "",
+        query: str = "",
+        *,
+        receipts: list[EchoCheck],
+        launch: RequestLaunch | None = None,
+        headers: dict[str, str],
+    ) -> tuple[str, Prepared | None]:
         """A client WebSocket frame: a ``response.create`` is masked like a Responses request body (one that gives a key
         twice leaves written anew from what was read, as it does). Another frame is sent as it came on a computer, and
         refused on a server (``unread_frame``), but a frame the protocol defines with no content (``_contentless``)."""
+        ledger = Ledger()
         try:
+            limit = min(self.body_limit, sse.MAX_DECODED)
+            if len(text) > limit or _utf8_size(text) > limit:
+                raise codec.DecodedTooLarge(limit)
+            ledger.preflight(text.encode())
             read = wellformed.read(text)
+        except BodyRefused as error:
+            return text, Prepared(
+                PASSTHROUGH,
+                None,
+                b"",
+                session,
+                block_reason=str(error),
+                envelope_refusal=error.safe_code,
+            )
         except ValueError:
             return text, self.unread_frame("a text frame that is not JSON", session)
         frame = read.doc
+        # One code path with HTTP: a turn that gives a key twice is read with its last copy and leaves written anew
+        # from what was read (``changed`` below), so the provider never gets the copy Latet did not read. Any other
+        # frame that does is refused (``_contentless`` takes no repeated frame).
         if not isinstance(frame, dict) or frame.get("type") != "response.create":
-            if _contentless(frame, read.repeated):
-                return text, None
+            if _contentless(frame, read.repeated) and not read.mended:
+                from latet.gateway.body_coverage import cancel_fields
+
+                prepared = Prepared(PASSTHROUGH, "ws-cancel", b"", session, document=frame)
+                try:
+                    checked = cancel_fields(frame, ledger)
+                    if any(not safe_text(value) for value in checked):
+                        return "", Prepared(VERIFY, "ws-cancel", b"", session, block_reason=PROTECTED_LAUNCH)
+                    reason, unavailable = self._ws_launch_scope(session, headers, BodyScan(), launch)
+                    if reason is not None:
+                        return "", Prepared(
+                            VERIFY, "ws-cancel", b"", session, block_reason=reason, protected_unavailable=unavailable
+                        )
+                    scope = self.engine.scope(session)
+                    if scope is not None and not scope.enabled:
+                        scope = replace(scope, enabled=True)  # controls retain the project's rules even when off
+                    with self.engine.vault.holding():
+                        result = self.verifier.verify(
+                            (),
+                            session.key,
+                            scope=scope,
+                            record=False,
+                            checked_only=checked,
+                        )
+                    prepared.leaks = result.leaks
+                    prepared.body_rules = tuple(sorted(result.rules))
+                    prepared.body_authority = tuple(sorted(result.authority))
+                    if result.blocking:
+                        raise BodyRefused("control sensitive")
+                    prepared.control_target = frame.get("response_id")
+                    prepared.body_input = text
+                    prepared.body_ledger = ledger
+                    prepared.body_checked = checked
+                    prepared.body_epoch = self._content_epoch
+                    prepared.body_verified_token = self._content_epoch.token
+                    prepared.body_structure = freeze_body(frame)
+                    prepared.body_verified = True
+                    prepared.body_verified_payload = prepared.body
+                except BodyRefused as error:
+                    prepared.block_reason = str(error)
+                return text, prepared
             return text, self.unread_frame("a frame of another type", session)
         scan = openai_responses.scan_turn(frame)
-        self._attach_project(session, {}, scan)
-        scope = self.engine.scope(session)
-        unread = scan.unread()
-        prepared = Prepared(REWRITE, "responses", b"", session, uninspected=unread, model=_model(frame), document=frame)
-        if scope is not None and not scope.enabled:
-            prepared.off = True
-            prepared.pending = [(s, [], True) for s in scan.slots]
-            return text, prepared
-        # The tools a turn defines and the format it asks the answer in, at its top or in its response: read before its
-        # own texts.
         tools = BodyScan()
         for level in (frame, frame.get("response")):
             if isinstance(level, dict):
                 _defined("responses", level, tools)
-        scan.first(tools)
-        if self.on_server and scan.unreadable:
-            prepared.block_reason = _unread_fields(scan.unreadable)
+        source = upstream or Upstream("openai", "/openai", "https://api.openai.com")
+        try:
+            # A turn Latet rewrites: a live launch key in its texts is masked (R-103), screened again as it leaves.
+            protected = not (
+                ledger.declared_scan_safe(scan, masked=True)
+                and ledger.declared_scan_safe(tools)
+                and declared_body_safe(frame, "responses", source, scan, ledger)
+            )
+        except BodyRefused as error:
+            return "", Prepared(
+                VERIFY, "responses", b"", session, block_reason=str(error),
+                envelope_refusal=error.safe_code,
+            )  # fmt: skip
+        if protected:
+            return "", Prepared(VERIFY, "responses", b"", session, block_reason=PROTECTED_LAUNCH)
+        if launch is None:
+            self._attach_project(session, {}, scan)
+        else:
+            reason, unavailable = self._ws_launch_scope(session, headers, scan, launch)
+            if reason is not None:
+                return "", Prepared(
+                    VERIFY, "responses", b"", session, block_reason=reason, protected_unavailable=unavailable,
+                    off=reason == CLAIMED_OFF,
+                )  # fmt: skip
+        scope = self.engine.scope(session)
+        unread = scan.unread()
+        prepared = Prepared(
+            REWRITE, "responses", b"", session, uninspected=unread, model=_model(frame), document=frame,
+            recorded_later=True,  # mask_ws_frame refreshes what it returns
+        )  # fmt: skip
+        if scope is not None and not scope.enabled:  # D5: refused, as over HTTP
+            prepared.off = True
+            prepared.block_reason = OFF_THERE
             prepared.pending = [(s, [], False) for s in scan.slots]
             return text, prepared
-        if (refused := self._refuses(scope, unread, False)) is not None:
+        scan.first(tools)
+        if scan.unreadable:
+            prepared.discard_unadmitted_content(_unread_fields(scan.unreadable))
+            return "", prepared
+        if (refused := self._refuses(scope, unread)) is not None:
             prepared.block_reason = refused
             prepared.pending = [(s, [], False) for s in scan.slots]
             return text, prepared
-        prepared.images = self._read_images(scan, scope, False, modify=True)
+        try:
+            prepared.body_ledger = ledger
+            prepared.body_input = text
+            prepared.body_upstream = source
+            prepared.body_scan = scan
+            prepared.body_excepted = False  # a frame takes no request exception (F-2)
+            prepared.body_epoch = self._content_epoch
+            route = path or prepared.body_upstream.prefix + (
+                "/responses" if prepared.body_upstream.name == "chatgpt" else "/v1/responses"
+            )
+            echo_scope = opaque_scope(prepared.body_upstream, "POST", route, "responses", query)
+            if echo_scope is not None:
+                echo_scope = EchoScope((*echo_scope.binding, "ws"), echo_scope.protocol, echo_scope.fallback)
+                prepared.opaque_check = EchoCheck(
+                    self.engine.vault.cache_key, self.echoes, echo_scope, session.key, frame
+                )
+                receipts.append(prepared.opaque_check)
+            inspection = inspect_body(
+                frame,
+                "responses",
+                prepared.body_upstream,
+                scan,
+                False,
+                ledger,
+                prepared.opaque_check.rules(frame) if prepared.opaque_check else {},
+                excepted=False,
+            )
+            if any(not safe_text(value) for value in inspection.checked):
+                return "", Prepared(VERIFY, "responses", b"", session, block_reason=PROTECTED_LAUNCH)
+            prepared.body_shape = inspection.shape
+            prepared.body_semantic = tuple(inspection.semantic)
+            prepared.body_removed = _remove_declared(inspection)
+        except BodyRefused as error:
+            prepared.block_reason = str(error)
+            if error.safe_code is not None:
+                prepared.envelope_refusal = error.safe_code
+            return text, prepared
+        if scan.uninspected:
+            prepared.block_reason = "Latet cannot read this document, audio or remote media, so it does not send it"
+            return text, prepared
+        reads = scope.ocr if scope is not None else self.ocr
+        if scan.images and (not reads or self.vision is None or not self.vision.available):
+            if reads and self.vision is not None:  # the text recognition down, counted once for the turn
+                self.vision.refused_unavailable()
+            prepared.block_reason = NO_OCR
+            return text, prepared
+        prepared.images = self._read_images(scan, scope, modify=True)
+        if any(not safe_text(work.text) for work in prepared.images):
+            prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+            return "", prepared
         prepared.uninspected = scan.uninspected + ["image"] * len(self._unread(scan, prepared.images))
-        if (refused := self._refuses_unmasked(scope, prepared.uninspected, False)) is not None:
+        if (refused := self._refuses_unmasked(scope, prepared.uninspected)) is not None:
             prepared.block_reason = refused
             prepared.pending = [(s, [], False) for s in scan.slots]
             return text, prepared
         report = MaskReport()
         try:
-            prepared.masked_count, done_slots, prepared.hold = self._mask_slots(scan.slots, session, report, scan.keyed)
-            prepared.held = True
+            masked_count, done_slots, prepared.lease = self._mask_slots(scan.slots, session, report, scan.keyed)
+            prepared.masked_count = masked_count
             prepared.withheld = sum(done.withheld and done.fresh for done in done_slots)
             prepared.pending = [
                 (s, done.replacements, done.exact) for s, done in zip(scan.slots, done_slots, strict=True)
@@ -2043,12 +3376,25 @@ class Mediator:
             prepared.block_reason = f"masking failed: {exc}"
             prepared.pending = [(s, [], False) for s in scan.slots]
             return text, prepared
+        except BaseException:  # anything else once it held: no turn will own the hold, so it goes now
+            if prepared.lease is not None:
+                prepared.lease.release()
+            raise
         if prepared.block_reason is not None:
             return text, prepared
         changed = (
-            prepared.masked_count or read.mended or read.repeated or any(w.state == WITHHELD for w in prepared.images)
+            prepared.masked_count
+            or read.mended
+            or read.repeated
+            or bool(prepared.images)
+            or bool(prepared.body_removed)
         )
-        return (dumps_compact(frame) if changed else text), prepared
+        try:
+            return (self._serialize_body(frame, frame=True).decode() if changed else text), prepared
+        except BaseException:
+            if prepared.lease is not None:
+                prepared.lease.release()
+            raise
 
     # --- responses -------------------------------------------------------------------------------
 
@@ -2070,9 +3416,11 @@ class Mediator:
         protocol = prepared.protocol or ""
         if "text/event-stream" in content_type:
             named = self._on_response_id(prepared.session)
-            return SSETransform(protocol, ctx, content_encoding, named, mediator=self)
+            return SSETransform(
+                protocol, ctx, content_encoding, named, mediator=self, opaque=self.opaque_capture(prepared)
+            )
         if "json" in content_type:
-            return JSONTransform(protocol, ctx, content_encoding, mediator=self)
+            return JSONTransform(protocol, ctx, content_encoding, mediator=self, opaque=self.opaque_capture(prepared))
         return None
 
     def _on_response_id(self, session: Session) -> Callable[[str], None]:
@@ -2242,8 +3590,10 @@ class SSETransform(ResponseTransform):
         on_response_id: Callable[[str], None],
         *,
         mediator: Mediator | None = None,
+        opaque: OpaqueCapture | None = None,
     ) -> None:
         self.protocol = protocol
+        self.opaque = opaque
         self.decoder = StreamDecoder(content_encoding)
         self.parser = SSEParser()
         self.on_response_id = on_response_id
@@ -2322,6 +3672,8 @@ class SSETransform(ResponseTransform):
                 out += ev.raw
                 continue
             obj = ev.json()
+            if self.opaque is not None:
+                self.opaque.event(obj)
             work.json_batch |= _json_work(obj)
             if work.json_batch:
                 rewriter.budget.check(2 * (len(out) + len(ev.raw)))
@@ -2403,6 +3755,7 @@ class SSETransform(ResponseTransform):
                 work.stream.budget.release(batch.json_charge)
                 work.stream.ctx.restored_ids.clear()
                 work.json_batch = False
+            await self.mediator.commit_opaque(self.opaque, len(batch.data) + 64)
             return batch.data
         except ResponseError as exc:
             return self._stop(exc)
@@ -2458,6 +3811,8 @@ class SSETransform(ResponseTransform):
 
     def close(self) -> None:
         self.stopped = self.stopped or "CancelledError"
+        if self.opaque is not None:
+            self.opaque.close()
         if self._busy:
             self.rewriter = _detached(self._work.stream)
             self.ctx = self.rewriter.ctx
@@ -2491,9 +3846,16 @@ class JSONTransform(ResponseTransform):
     streams = False
 
     def __init__(
-        self, protocol: str, ctx: RestoreContext, content_encoding: str | None, *, mediator: Mediator | None = None
+        self,
+        protocol: str,
+        ctx: RestoreContext,
+        content_encoding: str | None,
+        *,
+        mediator: Mediator | None = None,
+        opaque: OpaqueCapture | None = None,
     ) -> None:
         self.protocol = protocol
+        self.opaque = opaque
         self.ctx = ctx
         self.decoder = StreamDecoder(content_encoding)
         self.mediator = mediator  # its engine's thread restores an answer too large for the event loop
@@ -2517,8 +3879,16 @@ class JSONTransform(ResponseTransform):
 
     async def restored_end(self) -> bytes:
         if self.mediator is None or len(self.buf) <= RESTORED_ON_LOOP:
-            return self.end()
-        return await self.mediator.run(self.end)
+            result = self.end()
+        else:
+            result = await self.mediator.run(self.end)
+        if self.mediator is not None:
+            await self.mediator.commit_opaque(self.opaque, len(result) + 64)
+        return result
+
+    def close(self) -> None:
+        if self.opaque is not None:
+            self.opaque.close()
 
     def end(self) -> bytes:
         self._held(self.decoder.flush())
@@ -2526,6 +3896,8 @@ class JSONTransform(ResponseTransform):
             body = wellformed.loads(self.buf)
         except ValueError:
             return bytes(self.buf)
+        if self.opaque is not None:
+            self.opaque.body(body)
         if self.protocol == "gemini" and isinstance(body, dict | list):  # an array: a stream not sent as events
             return dumps_compact(restore_gemini_answer(self.ctx, body)).encode()
         if not isinstance(body, dict):
@@ -2537,6 +3909,18 @@ class JSONTransform(ResponseTransform):
         elif self.protocol == "responses":
             body = restore_response_body(self.ctx, body)
         return dumps_compact(body).encode()
+
+
+@dataclass(slots=True, repr=False)
+class _ResponseState:
+    """One precharged socket state; no ID history and no authority after ambiguous overlap."""
+
+    lock: Any = field(default_factory=threading.RLock)
+    generation: int = 0
+    phase: str = "idle"
+    digest: bytes | None = None
+    token: object | None = None
+    closed: bool = False
 
 
 class WSResponseRewriter:
@@ -2552,6 +3936,116 @@ class WSResponseRewriter:
         self._deferred = False
         self._work: _StreamWork | None = None
         self._name = mediator._on_response_id(session)
+        self.opaque: OpaqueCapture | None = None
+        # None: never sent; False: stateless quarantine after reservation failure or closure.
+        self._target: _ResponseState | bool | None = None
+
+    def _clear_target(self) -> None:
+        state = self._target
+        self._target = False
+        if isinstance(state, _ResponseState):
+            with state.lock:
+                if not state.closed:
+                    state.closed = True
+                    state.digest = state.token = None
+                    self.mediator.echoes.release(ECHO_ENTRY_BYTES)
+
+    def begin(self) -> None:
+        """Called synchronously by S4 immediately before invoking a create send."""
+        if self.stopped:
+            raise ValueError("WebSocket response state closed")
+        state = self._target
+        if state is False:
+            return
+        if state is None:
+            if not self.mediator.echoes.reserve(ECHO_ENTRY_BYTES):
+                self._target = False  # prior untracked generations can never become explicit-ID authority
+                return
+            try:
+                state = _ResponseState()
+            except BaseException:
+                self.mediator.echoes.release(ECHO_ENTRY_BYTES)
+                raise
+            self._target = state
+            if self.stopped:
+                self._clear_target()
+                raise ValueError("WebSocket response state closed")
+        assert isinstance(state, _ResponseState)
+        with state.lock:
+            if state.closed:
+                raise ValueError("WebSocket response state closed")
+            if state.generation == 2**63 - 1:
+                raise ValueError("WebSocket generation limit")
+            state.generation += 1
+            state.digest = state.token = None
+            state.phase = "awaiting" if state.phase in {"idle", "terminal"} else "disabled"
+
+    def target_check(self, value: str) -> Callable[[], bool]:
+        digest = hashlib.sha256(value.encode("utf-8")).digest()
+        token = None
+        state = self._target
+        if isinstance(state, _ResponseState):
+            with state.lock:
+                if not state.closed and state.phase == "active" and state.digest == digest:
+                    token = state.token
+
+        def current_target() -> bool:
+            found = self._target
+            if not isinstance(found, _ResponseState):
+                return False
+            with found.lock:
+                return (
+                    not self.stopped
+                    and not found.closed
+                    and found.phase == "active"
+                    and token is not None
+                    and found.token is token
+                )
+
+        return current_target
+
+    def _observe_target(self, event: dict[str, Any], generation: int) -> None:
+        from latet.gateway.body_coverage import _ID
+
+        state = self._target
+        if not isinstance(state, _ResponseState):
+            return
+        with state.lock:
+            if self.stopped or state.closed or generation != state.generation or state.phase == "disabled":
+                return
+            kind = event.get("type")
+            if kind in {"response.completed", "response.done", "response.incomplete", "response.failed", "error"}:
+                state.digest = state.token = None
+                state.phase = "terminal"
+            elif kind == "response.created":
+                state.digest = state.token = None
+                awaiting = state.phase == "awaiting"
+                state.phase = "disabled"
+                response = event.get("response")
+                value = response.get("id") if isinstance(response, dict) else None
+                if (
+                    not awaiting
+                    or generation == 0
+                    or not isinstance(value, str)
+                    or len(value) > 512
+                    or not _ID.fullmatch(value)
+                ):
+                    return
+                state.digest = hashlib.sha256(value.encode("utf-8")).digest()
+                state.token = object()
+                state.phase = "active"
+
+    def _target_generation(self) -> int:
+        state = self._target
+        if not isinstance(state, _ResponseState):
+            return 0
+        with state.lock:
+            return state.generation
+
+    def observe(self, prepared: Prepared) -> None:
+        if self.opaque is not None:
+            self.opaque.close()
+        self.opaque = self.mediator.opaque_capture(prepared)
 
     def _ctx(self) -> ResponsesStream:
         # Restores are rebuilt when the session learnt new entities (a new response.create).
@@ -2569,11 +4063,15 @@ class WSResponseRewriter:
         self._deferred = True
         try:
             held = self.stream.budget.held if self.stream is not None else 0
-            if self.session.entity_ids and len(text.encode("utf-8")) + held > RESTORED_ON_LOOP:
+            # Character length is a lower bound: only bounded small strings need a byte-size allocation here.
+            large = len(text) + held > RESTORED_ON_LOOP or len(text.encode("utf-8")) + held > RESTORED_ON_LOOP
+            if large:
                 self._busy = True
-                out = await self.mediator.run(self.on_frame, text)
+                out, held = await self.mediator.run(self._observed_frame, text)
+                self._busy = False
             else:
-                out = self.on_frame(text)
+                out, held = self._observed_frame(text)
+            await self.mediator.commit_opaque(self.opaque, held)
             if self.stopped:
                 return []
             work = self._work
@@ -2593,6 +4091,12 @@ class WSResponseRewriter:
             raise
         finally:
             self._deferred = False
+
+    def _observed_frame(self, text: str) -> tuple[list[str], int]:
+        out = self.on_frame(text)
+        terminal = self.opaque is not None and self.opaque.ready and not self.opaque.closed
+        held = sum(_utf8_size(part) + 64 for part in out) if terminal else 0
+        return out, held
 
     def _accept(self, work: _StreamWork) -> _RewrittenEvents:
         batch = _RewrittenEvents(b"", work.pending, work.named, work.charge, work.json_charge)
@@ -2615,6 +4119,9 @@ class WSResponseRewriter:
 
     def close(self) -> None:
         self.stopped = True
+        self._clear_target()
+        if self.opaque is not None:
+            self.opaque.close()
         if self._work is not None:
             if self._busy:
                 self.stream = _detached(self._work.stream)
@@ -2625,13 +4132,17 @@ class WSResponseRewriter:
     def on_frame(self, text: str) -> list[str]:
         if self.stopped:
             return []
-        if not self.session.entity_ids:
-            return [text]
+        generation = self._target_generation()
         try:
             event = wellformed.loads(text)
         except ValueError:
             return [text]
         if not isinstance(event, dict):
+            return [text]
+        self._observe_target(event, generation)
+        if self.opaque is not None:
+            self.opaque.event(event)
+        if not self.session.entity_ids:
             return [text]
         etype = event.get("type", "")
         stream = self.stream if self.stream is not None and etype != "response.created" else self._ctx()

@@ -138,7 +138,8 @@ def test_where_the_services_are_required_a_reason_to_skip_fails_the_test(monkeyp
     # Both caught here, so that the one this test does not expect fails it (a skip let out would skip it).
     with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as raised:
         guard.unmet("Valkey does not answer at 127.0.0.1:56379")
-    assert raised.type is outcome and "Valkey does not answer" in str(raised.value)
+    assert issubclass(raised.type, outcome) and "Valkey does not answer" in str(raised.value)
+    assert (raised.type is guard.ServicesUnavailable) is (outcome is pytest.skip.Exception)  # a skip for want of them
 
 
 def _marked(source: str) -> bool:
@@ -166,48 +167,87 @@ def test_every_module_of_the_servers_tests_carries_their_mark_so_that_ci_runs_it
     assert modules and [path.name for path in modules if not _marked(path.read_text("utf-8"))] == []
 
 
+def _skipped(raised: BaseException | None, reason: str) -> tuple[pytest.TestReport, object]:
+    """A server's test's report, skipped for ``reason``, and the exception information its call caught (``raised``)."""
+    where = ("tests/server/test_spaces.py", 365, "test_x")
+    report = pytest.TestReport(
+        "tests/server/test_spaces.py::test_x", where, {}, "skipped",
+        ("tests/server/test_spaces.py", 366, f"Skipped: {reason}"), "setup",
+    )  # fmt: skip
+    if raised is None:
+        return report, None
+    try:
+        raise raised
+    except BaseException:
+        return report, pytest.ExceptionInfo.from_current()
+
+
 @pytest.mark.parametrize(("required", "outcome"), [("1", "failed"), (None, "skipped")])
-def test_where_the_services_are_required_any_skip_of_a_servers_test_fails_it(monkeypatch, required, outcome):
-    """A server's test that skips by itself (its own ``pytest.skip``, a mark), not through ``unmet``, fails too where
-    the services are required, saying why; an expected failure stays what it is."""
+def test_where_the_services_are_required_a_skip_for_want_of_them_fails_the_test(monkeypatch, required, outcome):
+    """A server's test skipped because its services are not here (``ServicesUnavailable``, which ``unmet`` raises)
+    fails where they are required, saying why; skipped where they are not."""
     if required is None:
         monkeypatch.delenv("LATET_TEST_REQUIRE_SERVICES", raising=False)
     else:
         monkeypatch.setenv("LATET_TEST_REQUIRE_SERVICES", required)
-    where = ("tests/server/test_spaces.py", 365, "test_x")
-    skipped = pytest.TestReport(
-        "tests/server/test_spaces.py::test_x", where, {}, "skipped",
-        ("tests/server/test_spaces.py", 366, "Skipped: no count of a process's own memory on this system"), "call",
-    )  # fmt: skip
-    guard.required(skipped)
+    reason = "Valkey does not answer at 127.0.0.1:56379"
+    skipped, raised = _skipped(guard.ServicesUnavailable(reason), reason)
+    guard.required(skipped, raised)
     assert skipped.outcome == outcome
     if outcome == "failed":
         said = str(skipped.longrepr)
-        assert "no count of a process's own memory" in said and "LATET_TEST_REQUIRE_SERVICES" in said
-    expected = pytest.TestReport("tests/server/test_spaces.py::test_x", where, {}, "skipped", None, "call")
+        assert "Valkey does not answer" in said and "LATET_TEST_REQUIRE_SERVICES" in said
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["several workers run on Linux alone (ruling I2)", "no count of a process's own memory on this system"],
+)
+@pytest.mark.parametrize("required", ["1", None])
+def test_a_skip_of_another_kind_stays_a_skip_where_the_services_are_required(monkeypatch, required, reason):
+    """A platform's skip (a Linux-only test on Windows), or one for a capability this system lacks, is no test the
+    services would have let run: it stays skipped, whether the services are required or not; and so does an expected
+    failure."""
+    if required is None:
+        monkeypatch.delenv("LATET_TEST_REQUIRE_SERVICES", raising=False)
+    else:
+        monkeypatch.setenv("LATET_TEST_REQUIRE_SERVICES", required)
+    for raised in (pytest.skip.Exception(reason), None):
+        skipped, info = _skipped(raised, reason)
+        guard.required(skipped, info)
+        assert skipped.outcome == "skipped" and reason in str(skipped.longrepr)
+    expected, info = _skipped(guard.ServicesUnavailable(reason), reason)
     expected.wasxfail = "a known fault"
-    guard.required(expected)
+    guard.required(expected, info)
     assert expected.outcome == "skipped"
 
 
-def test_a_server_test_skipped_by_a_mark_fails_the_run_where_the_services_are_required(tmp_path):
-    """The whole thing, as CI's job meets it: a plugin of the test's own marks a server's test skipped, and the run
-    fails, saying why; without LATET_TEST_REQUIRE_SERVICES it is skipped."""
-    (tmp_path / "t16_skip_plugin.py").write_text(
-        "import pytest\n\n\ndef pytest_collection_modifyitems(items):\n"
-        "    for item in items:\n        item.add_marker(pytest.mark.skip(reason='skipped by a plugin of the test'))\n",
-        "utf-8",
-    )
+_PLATFORM_PLUGIN = """import pytest
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        item.add_marker(pytest.mark.skipif(True, reason="this platform runs none of it, by a plugin of the test"))
+"""
+
+
+@pytest.mark.parametrize("why", ["services", "platform"])
+def test_a_server_test_skipped_fails_the_run_where_the_services_are_required_only_for_want_of_them(tmp_path, why):
+    """The whole thing, as CI's job meets it: a server's test run with no services to reach (none named), or skipped by
+    a platform's mark (a plugin of the test's own). Where the services are required the first fails the run, saying
+    why, and the second stays a skip; without LATET_TEST_REQUIRE_SERVICES both are skipped."""
+    (tmp_path / "t16_skip_plugin.py").write_text(_PLATFORM_PLUGIN, "utf-8")
     env = {key: value for key, value in os.environ.items() if not key.startswith(("PG", "LATET_TEST_"))}
     env["PYTHONPATH"] = str(tmp_path)
-    argv = [sys.executable, "-m", "pytest", "tests/server/test_services.py", "-q", "-p", "no:cacheprovider", "-p",
-            "t16_skip_plugin"]  # fmt: skip
-    for required, code, words in (("1", 1, "LATET_TEST_REQUIRE_SERVICES"), (None, 0, "1 skipped")):
+    argv = [sys.executable, "-m", "pytest", "tests/server/test_services.py", "-q", "-p", "no:cacheprovider"]
+    argv += ["-p", "t16_skip_plugin"] if why == "platform" else []
+    required_gives = (1, "LATET_TEST_REQUIRE_SERVICES") if why == "services" else (0, "skipped")
+    for required, (code, words) in (("1", required_gives), (None, (0, "skipped"))):
         run_env = {**env, "LATET_TEST_REQUIRE_SERVICES": required} if required else env
         done = subprocess.run(argv, cwd=ROOT, env=run_env, capture_output=True, encoding="utf-8", errors="replace",
                               timeout=120)  # fmt: skip
         said = done.stdout + done.stderr
-        assert done.returncode == code and words in said, said
+        assert done.returncode == code and words in said and " passed" not in said, said
 
 
 @pytest.mark.parametrize(

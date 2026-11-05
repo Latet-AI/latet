@@ -2,6 +2,7 @@
 a timer while the daemon runs; what the recorder asks its backends (the blocks recorded, the job's lock, the feed)."""
 
 import asyncio
+import json
 import logging
 import sqlite3
 import threading
@@ -36,7 +37,9 @@ def test_opening_the_history_prunes_nothing(tmp_path):
     _history(tmp_path / "exchanges.db", [30]).close()
     store = ExchangeStore(tmp_path / "exchanges.db", ROOT_KEY, retention_days=14)
     try:
-        assert [s["session"] for s in store.list()[0]] == ["30d"]  # its retention is the settings', not yet known
+        assert [s["session"] for s in store.list()[0]] == [
+            store.history_group("30d")
+        ]  # its retention is the settings', not yet known
     finally:
         store.close()
 
@@ -54,14 +57,16 @@ def test_the_start_prunes_the_history_with_the_retention_set(tmp_path, retention
     config = Config(identity=IdentityConfig(enabled=False), retention_days=retention_days)
     rt = make_runtime(config, data=data, config_file=tmp_path / "config.yaml", root_key=ROOT_KEY)
     try:
-        assert [s["session"] for s in rt.exchanges.list()[0]] == kept  # its own retention, not the default 14 days
+        assert [s["session"] for s in rt.exchanges.list()[0]] == [
+            rt.exchanges.history_group(value) for value in kept
+        ]  # its own retention, not the default 14 days
     finally:
         rt.close()
 
 
 def _recorded(recorder, texts):
     pending = [(SlotRef(texts, i, SlotKind.USER_TEXT), [], False) for i in range(len(texts))]
-    prepared = Prepared(VERIFY, "anthropic", b"", None, document=texts, pending=pending)
+    prepared = Prepared(VERIFY, "anthropic", json.dumps(texts).encode(), None, document=texts, pending=pending)
     recorder.finish(Outcome({"user-agent": "claude-cli/2"}, "anthropic", "/v1/messages", "http", time.time(), prepared))
     assert recorder.drain()
 
@@ -122,7 +127,8 @@ HISTORY_ON_OR_OFF = pytest.mark.parametrize(
 
 
 def _kept(rt):
-    return [s["session"] for s in rt.exchanges.list()[0]]
+    labels = {rt.exchanges.history_group(label): label for label in ("3d", "10d", "30d", "100d")}
+    return [labels.get(s["session"], s["session"]) for s in rt.exchanges.list()[0]]
 
 
 def _retention(rt, days):
@@ -224,7 +230,7 @@ def test_a_pruning_that_cannot_be_queued_leaves_nothing_pending(aged, caplog):
 def test_an_exchange_that_cannot_be_queued_leaves_nothing_pending(aged, caplog):
     aged.recorder._executor.shutdown()  # the thread has ended, as when ``close`` races the last exchange
     pending = [(SlotRef(["call Ada Byron"], 0, SlotKind.USER_TEXT), [], False)]
-    prepared = Prepared(VERIFY, "anthropic", b"", None, document=["call Ada Byron"], pending=pending)
+    prepared = Prepared(VERIFY, "anthropic", b'["call Ada Byron"]', None, document=["call Ada Byron"], pending=pending)
     aged.recorder.finish(
         Outcome({"user-agent": "claude-cli/2"}, "anthropic", "/v1/messages", "http", time.time(), prepared)
     )
@@ -296,7 +302,7 @@ def test_closing_right_after_a_retention_made_shorter_still_prunes_before_the_st
     rt.close()  # no ``drain`` first: the pruning may be queued still
     store = ExchangeStore(tmp_path / "data" / "exchanges.db", ROOT_KEY)
     try:
-        assert [s["session"] for s in store.list()[0]] == ["3d"]
+        assert [s["session"] for s in store.list()[0]] == [store.history_group("3d")]
     finally:
         store.close()
 

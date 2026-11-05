@@ -172,8 +172,8 @@ réglages, réduit la protection par rapport aux vôtres, et vous demande confir
   `before-restore-` daté, à côté du coffre-fort.
 
 Ensuite : `latet llm key` pour la clé d'API du relecteur, `latet ner install` pour la détection locale
-des noms, `latet ocr install` pour le texte des images (d'ici là, les images partent telles quelles,
-signalées *Non inspecté*, ou ne partent pas du tout avec `images: mask`), et `latet global-install`
+des noms, `latet ocr install` pour le texte des images (d'ici là, une requête qui porte une image
+n'est pas envoyée), et `latet global-install`
 (ou `latet claude`) pour vos agents.
 
 **Dans votre terminal uniquement.** Les deux commandes refusent de s'exécuter dans un agent : elles

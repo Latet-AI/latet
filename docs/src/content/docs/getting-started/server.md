@@ -17,6 +17,11 @@ lists of people and keys, the log) run for it.
 Choose the [host service or Compose deployment](../../concepts/server-operations/).
 A host service needs a trusted machine-wide installation and protected configuration;
 the Compose server profile supplies PostgreSQL, Valkey, two instances and Caddy.
+On Linux an instance can run as several workers, one for each core the machine gives the
+server (`latet server run --workers N`, or `LATET_SERVER_WORKERS` in the Compose `.env`):
+each is an instance of its own, with its own memory and connections to PostgreSQL and
+Valkey ([several instances on one machine](../../concepts/server-operations/#several-instances-on-one-machine)).
+A first server can start with one.
 Set the public HTTPS address and prepare the master key and secret files first.
 Initialization prints an administration token: keep it in a private terminal and secret
 store. Follow the operations guide's initialization with Docker logging disabled for a
@@ -44,8 +49,9 @@ latet server --server https://latet.acme.lan status
 ```
 
 Give the administration token at the hidden prompt. The answer reports the database,
-Valkey, identities and the instance that answered. It does not check every agent or prove
-that all of a computer's traffic passes through Latet.
+Valkey, identities, the instance that answered and every instance alive, each worker on a
+line of its own with its readiness, its memory and its version. It does not check every
+agent or prove that all of a computer's traffic passes through Latet.
 
 For repeated administration, `--admin-token-file FILE` reads a private file holding the
 token, or a record bound to this server. Keep it outside repositories and agent workspaces.

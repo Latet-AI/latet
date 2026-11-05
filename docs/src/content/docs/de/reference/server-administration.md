@@ -14,6 +14,26 @@ Geben Sie den Server an und das Token an der verdeckten Eingabeaufforderung ein:
 latet server --server https://latet.acme.lan status
 ```
 
+`status` listet jede laufende Instanz des Servers auf, jeden Worker jeder Maschine in einer eigenen
+Zeile: ihre ID, die Nummer des Workers, ob sie bereit ist, ihren Speicher und die Indizes ihrer Tresore
+in MiB, ihre Bereiche und ihre Version; was eine Instanz nicht gesagt hat, erscheint als unbekannt oder
+fehlt. Eine Instanz von Latet 0.10 oder älter sagt nichts über sich: Wenn eine Instanz von 0.11
+antwortet, listet es eine noch laufende von 0.10 mit ihrer ID auf, als Latet 0.10 oder älter; ein
+Server, der noch 0.10 ausführt, antwortet nur mit der antwortenden Instanz. Vor einer Aktualisierung
+ist `latet server migrate` die Prüfung: Es ändert keine Tabelle, solange eine Instanz irgendeiner
+Version läuft, eine von 0.10 noch 30 Sekunden nach ihrem Stopp, und sagt, wie viele laufen und mit
+welcher Version. Die Liste stammt aus einem begrenzten Lesen der Schlüssel von Valkey: Wurde dieses
+Lesen an seiner Grenze abgeschnitten, sagt `status` `instances: the list is partial, cut at its bound:
+an instance may be alive and not listed`, und das Feld `instances_whole` seiner Antwort ist false (null,
+wenn Valkey nicht geantwortet hat).
+
+Auf der Maschine des Servers startet `latet server run --workers N` N Instanzen, die Worker, auf
+demselben Port, jede in einem eigenen Prozess; `LATET_SERVER_WORKERS` oder `workers` in `server.yaml`
+geben dasselbe an, und `--workers` hat Vorrang vor beiden, die Variable vor der Datei. Von 1 bis 64,
+standardmäßig einer. Mehr als einer braucht Linux oder das Container-Image: Unter Windows lehnt
+`latet server run` sie ab, und der Windows-Dienst startet einen
+([mehrere Instanzen auf einer Maschine](../../concepts/server-operations/#mehrere-instanzen-auf-einer-maschine)).
+
 Oder verwenden Sie `--admin-token-file FILE`: eine private UTF-8-Datei mit dem Token allein
 oder einem Datensatz `{"url": "https://latet.acme.lan", "token": "<administration token>"}`.
 Ein Datensatz wird nur für seinen Server akzeptiert. Verwenden Sie unter POSIX `chmod 600 FILE`
@@ -187,9 +207,12 @@ ist `reason`, mit fünf regulären Werten:
 
 Ein späteres Vorkommen desselben Originalbildes zählt erneut, wenn es einen
 gespeicherten OCR-Fehler erhält. Der Zähler misst erfolglose Bildvorkommen, keine
-Modellaufrufe. Interne Wiederholungen, Kacheln, Batches und Leserreparaturen ohne
-eingereichtes Bild zählen nicht zusätzlich. Ausgenommen sind erfolgreiche OCR,
-manuelles Zurückhalten, Dekodierungs- oder Pixelrichtlinienfehler, deaktivierte
-oder nicht installierte OCR, die exakte Wiederholung eines von Latet übermalten
-Bildes oder Platzhalters und die lokale OCR eines Rechners. Abschließende Prüfungen
-derselben Arbeit zählen nicht erneut. Kein Label enthält Bildinhalt, Pfade oder Identitäten.
+Modellaufrufe, mit einer Ausnahme: Eine Anfrage oder ein WebSocket-Zug, der abgelehnt
+wird, bevor eines seiner Bilder gelesen ist, weil die Texterkennung nicht verfügbar ist,
+zählt `unavailable` einmal, gleich wie viele Bilder er enthält. Interne Wiederholungen,
+Kacheln, Batches und Leserreparaturen ohne eingereichtes Bild zählen nicht zusätzlich.
+Ausgenommen sind erfolgreiche OCR, manuelles Zurückhalten, Dekodierungs- oder
+Pixelrichtlinienfehler, deaktivierte oder nicht installierte OCR, die exakte
+Wiederholung eines von Latet übermalten Bildes oder Platzhalters und die lokale OCR
+eines Rechners. Abschließende Prüfungen derselben Arbeit zählen nicht erneut. Kein Label
+enthält Bildinhalt, Pfade oder Identitäten.

@@ -9,8 +9,11 @@ export function unused(destinations: readonly DestinationUse[]): DestinationUse[
 }
 
 /** Who Latet signed a Bedrock request with: an AWS profile, or the credentials of `latet claude`'s shell. */
-export function signedBy(signed: string | null | undefined): { by: 'profile'; profile: string } | { by: 'session' } | null {
+export function signedBy(
+  signed: boolean | string | null | undefined,
+): { by: 'profile'; profile: string } | { by: 'session' } | { by: 'latet' } | null {
   if (!signed) return null
+  if (signed === true) return { by: 'latet' } // the summary says that Latet signed it, never with which profile
   if (signed.startsWith('aws-profile:')) return { by: 'profile', profile: signed.slice('aws-profile:'.length) }
   return { by: 'session' }
 }

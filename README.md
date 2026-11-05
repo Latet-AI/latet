@@ -63,7 +63,7 @@ agent's own instructions.
 | Web pages | An admin panel the agent opens with a browser tool | The personal data in the page's text is masked |
 | Instructions | CLAUDE.md, AGENTS.md, the system prompt | Your name, user name, host name and company domain are masked |
 | History | A session resumed ten days later | The same value gets the same fake, every time |
-| Screenshots | A screenshot of an invoice | With the optional text recognition, the text in it is read on your machine and each value is covered with its fake; PDFs are flagged, or not sent (`images: block`) |
+| Screenshots | A screenshot of an invoice | With the optional text recognition, the text in it is read on your machine and each value is covered with its fake; without it, and with a PDF, the request is not sent |
 | What no pattern finds | *"Mark from sales is quietly interviewing at a competitor"* | The optional local reviewer, a language model on your computer, finds it before it leaves, following Latet's instructions and [your own guidance](https://docs.latet.ai/concepts/llm-review/#your-guidance): what counts as sensitive in your work, everywhere or in one project |
 
 A key in `.env`, for example: the agent reads the file to learn the configuration, and the model
@@ -87,8 +87,12 @@ agent runs, Latet puts the real key back on your machine. See
   files written by the agent contain the real values.
 - **Adapts** to each project: a `latet.yaml` in a repository adds the project's own terms,
   formats and stricter rules, shared with everyone who works on it, and can never turn protection
-  down; your own settings for a project may also loosen it, or turn Latet off there
+  down; your own settings for a project may also loosen it, in a session whose project Latet trusts,
+  or turn Latet off there, which stops the project's requests
   ([projects](https://docs.latet.ai/concepts/projects/)).
+- **Reads every part of a request** before it leaves: its path, query, headers and body. A part no
+  profile names, or a call Latet does not read, is not sent, unless an exact exception you approved
+  lets it through ([every part of a request](https://docs.latet.ai/concepts/protection-scope/#every-part-of-a-request)).
 - **Reads** production data by its structure: the secret columns of a query result are always
   masked, and strict data mode masks every value of the tables, JSON and logs an agent reads; the
   dashboard proposes the columns that can stay in clear, such as ids, dates and states
@@ -190,8 +194,8 @@ whose requests leave from the vendor's servers
 ([what Latet cannot protect](https://docs.latet.ai/agents/other-tools/#what-latet-cannot-protect)).
 
 - **Client mode**, for Claude Code: the plugin masks inside Claude Code, before the request is
-  built. The daemon checks each request and forwards it unchanged; it stops one that would carry a
-  sensitive value in clear.
+  built. The daemon checks each request and forwards its body byte for byte, and its headers less
+  a few it takes off and counts; it stops one that would carry a sensitive value in clear.
 - **Gateway mode**, for every other agent: the daemon on `127.0.0.1:5283` masks the request and
   restores the answer, streams included (SSE and WebSocket).
 
@@ -209,7 +213,7 @@ flowchart LR
     D --- V
     D --- UI
   end
-  D -- "Claude Code's requests:<br/>checked, forwarded unchanged" --> P["Anthropic, OpenAI / ChatGPT,<br/>OpenRouter, Google Gemini"]
+  D -- "Claude Code's requests:<br/>checked, body forwarded byte for byte" --> P["Anthropic, OpenAI / ChatGPT,<br/>OpenRouter, Google Gemini"]
   D -- "every other agent's:<br/>masked, answers restored" --> P
 ```
 
@@ -239,9 +243,13 @@ place Latet uses one:
 - **Your sign-in stays Anthropic's.** You log in with Claude Code's own login. Latet never asks
   for your credentials, never reads them for itself and never stores them.
 - **Each request is the one Claude Code built.** The plugin masks inside Claude Code, before the
-  request is built. The daemon then forwards it byte for byte, headers included, as Anthropic's
-  [gateway guide](https://code.claude.com/docs/en/llm-gateway-protocol) asks a gateway to do: it
-  inspects without modifying. Your token passes through it and is never saved or logged.
+  request is built. The daemon then forwards its body byte for byte and inspects it without
+  rewriting it, as Anthropic's [gateway guide](https://code.claude.com/docs/en/llm-gateway-protocol)
+  asks a gateway to do. Of its headers, it takes off only the telemetry and tracing ones its SDK
+  adds and Claude Code's own that can carry free text, such as a subagent's ids, and counts them in
+  the dashboard
+  ([Headers Latet takes off](https://docs.latet.ai/getting-started/upgrading-to-0-11/#headers-latet-takes-off)).
+  Your token passes through it and is never saved or logged.
 - **No one else uses your subscription.** The other agents go through the gateway with their own
   API keys.
 
@@ -308,8 +316,8 @@ installs the next release the same way.
 
 **Recommended: names and images from day one.** Patterns find what has a shape, such as a key, an
 email address or an IBAN. A name in a sentence has none (*Emily Carter lives at 42 Mill Lane*):
-the local name model finds it. The text in a screenshot needs text recognition, or the image leaves
-as it is. The installers install what both run on; download their models once:
+the local name model finds it. The text in a screenshot needs text recognition, or a request that
+carries the image is not sent. The installers install what both run on; download their models once:
 
 ```sh
 latet ner install   # names and street addresses: about 1.6 GB
@@ -380,7 +388,7 @@ To work on Latet itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 | `latet status`, `latet start`, `latet stop` | The background daemon |
 | `latet reload` | Apply edits to `config.yaml` without a restart |
 | `latet config get`, `set`, `add`, `remove` | Read and change a setting; what lowers protection waits for your approval |
-| `latet project show`, `init`, `off` | What applies in a project, a `latet.yaml` to start from, Latet off in one project |
+| `latet project show`, `init`, `off` | What applies in a project, a `latet.yaml` to start from, Latet off in one project (its requests are then refused) |
 | `latet rules suggest`, `test`, `add` | Find formats no rule covers (shapes only), check your own recognizers, add them |
 | `latet rules export`, `import` | Your rules in a file for a colleague; what an import would lower is left out unless you ask |
 | `latet backup`, `latet restore` | Your installation in one encrypted file, the vault and its key with `--vault`, for another machine |
@@ -401,7 +409,8 @@ is in the [CLI reference](https://docs.latet.ai/reference/cli/).
 
 For a team, one Latet can run on a server instead of on each computer: people's agents, and
 programs such as a CI pipeline, send their requests to it over HTTPS, and it masks them there. It
-runs on several instances, with PostgreSQL and Valkey behind them.
+runs on several instances, and on Linux as several workers on one machine, with PostgreSQL and
+Valkey behind them.
 
 **In practice:**
 
@@ -492,6 +501,9 @@ service, unmask what comes back. In n8n: **Settings > Community Nodes > Install*
 `@latet-ai/n8n-nodes-latet` ([n8n in the documentation](https://docs.latet.ai/applications/n8n/)).
 
 A key's vault lives in PostgreSQL, so a log space of millions of values works on every instance.
+Measured with Latet 0.11 on one instance of the documentation's computer, a key of 200,000 values
+masks 871 log lines a second and unmasks 2,960, and one of 1,000,000 values 773 and 2,967; on
+Linux, eight workers on one machine masked 6.28 times what one did.
 See [the applications API](https://docs.latet.ai/applications/),
 with its pages for [logs](https://docs.latet.ai/applications/logs/), [RAG](https://docs.latet.ai/applications/rag/),
 [n8n](https://docs.latet.ai/applications/n8n/) and [forgetting values](https://docs.latet.ai/applications/forget/),
@@ -503,8 +515,12 @@ For Latet running locally on your computer, the intended guarantees are:
 
 - Values it **detects** are replaced before the request leaves your machine, and the mapping to the
   originals stays local.
-- In client mode, the daemon never modifies a request; it can only block one that carries a value
-  the detectors find in clear.
+- In client mode, the daemon never modifies a request's body; it can only block one that carries a
+  value the detectors find in clear. Of its headers, it takes off the SDK's telemetry and tracing ones
+  and Claude Code's own that can carry free text, and counts each removal in the dashboard.
+- Every part of a request is read before it leaves, on a computer as on a server: a part no profile
+  names, a call Latet does not read and an image it cannot read are not sent. A refusal says nothing
+  was sent; after an attempt that may have arrived, it says so instead.
 
 What it cannot do:
 
@@ -520,8 +536,11 @@ What it cannot do:
   characters. Names in free text need the optional local name model or the local reviewer, and both
   are best effort.
 - **The text in images is masked only with the optional text recognition, and best effort**: text
-  it does not read leaves as it is. PDFs and other documents are not read: they are sent as they
-  are and flagged, or not sent at all with the `max` profile or `images: block`.
+  it does not read leaves as it is, and QR codes are not decoded. PDFs and other documents are not
+  read, so a request that carries one is not sent.
+- **A folder a request names only adds protection.** Your loosenings for a project apply where Latet
+  trusts the session's project: an agent it started with its launch key, or Claude Code with the
+  plugin. Agents you set up by hand get your own rules and the project's added ones.
 - **claude.ai connectors** (Gmail, Calendar, Slack...) run on Anthropic's servers, so Latet keeps
   the fakes in their arguments: a connector searching for a masked name searches for the fake one.
 - **Uncovered surfaces** (Claude Desktop Chat and Cowork, cloud sessions, Cursor) are out of reach.

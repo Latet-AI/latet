@@ -254,13 +254,19 @@ def test_a_row_that_does_not_hold_is_said_once_a_minute_without_a_word_of_it(ide
 # --- a tag over a time -----------------------------------------------------------------------------------------------
 
 
-def test_a_tag_over_a_time_holds_in_sessions_that_default_to_a_short_float(role_url, schema, bus, clock):
+def test_a_tag_over_a_time_holds_in_sessions_that_default_to_a_short_float(
+    role_url,
+    schema,
+    bus,
+    clock,
+    migration_master,
+):
     """A code and an administration token end at a time with microseconds, and their tags cover it. With
     ``extra_float_digits`` at 0 the database would give it back rounded to 15 digits, and the tag over what was read would
     not hold: the connections of the server are told 3 whatever the role defaults to."""
     clock.now = 1_760_431_234.123456
     with closing(Database(role_url(extra_float_digits="0"), schema=schema)) as db:
-        migrate(db)
+        migrate(db, master=migration_master)
         people, administration = (
             Identities(db, bus, key=CREDENTIALS_KEY, clock=clock),
             AdminTokens(db, key=CREDENTIALS_KEY, clock=clock),

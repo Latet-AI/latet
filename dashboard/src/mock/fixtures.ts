@@ -9,6 +9,7 @@ import type {
   ExchangeSummary,
   Header,
   Integrations,
+  LaunchCategory,
   Leak,
   Mode,
   ReviewerPrompt,
@@ -192,6 +193,23 @@ interface ExchangeInput {
   images?: MockImage[]
 }
 
+// The request profile a protocol's main call is admitted by, as the history names it.
+const PROFILE_OF: Record<string, string> = {
+  anthropic: 'anthropic.messages.1',
+  responses: 'openai.responses.1',
+  chat: 'openai.chat.1',
+  embeddings: 'openai.embeddings.1',
+}
+
+// How an agent's sessions are launched in the sample: Claude Code through its plugin, the others by `latet <agent>`.
+const LAUNCH_OF: Partial<Record<Agent, LaunchCategory>> = {
+  'claude-code': 'trusted',
+  codex: 'launched',
+  opencode: 'launched',
+  'gemini-cli': 'launched',
+  other: 'claimed',
+}
+
 export function makeExchange(input: ExchangeInput): MockExchange {
   const byType = countTypes(input.slots, false)
   const newByType = countTypes(input.slots, true)
@@ -230,6 +248,12 @@ export function makeExchange(input: ExchangeInput): MockExchange {
       flags,
       verified: input.mode !== 'passthrough' && leaks.length === 0 && !flags.includes('blocked'),
       ...(input.blockReason ? { block_reason: input.blockReason } : {}),
+      // What Latet read of it and what let it through (P2-7): every part read, unless a variant below says otherwise.
+      coverage: flags.includes('blocked') || input.transport === 'plugin' ? 'unknown' : 'complete-accounting',
+      launch: input.transport === 'plugin' ? null : (LAUNCH_OF[input.agent] ?? null),
+      passes: [],
+      profile: (input.protocol && PROFILE_OF[input.protocol]) ?? null,
+      removed: { headers: 0, members: 0 },
     },
     kept: 'full',
     slots: input.slots,
@@ -1078,6 +1102,28 @@ const others: MockExchange[] = [
     response: { headers: [['content-type', 'application/json']], text: [], tools: [] },
   }),
 ]
+
+/**
+ * The sample's coverage variants, on a few exchanges chosen by their place alone (the same at every load): an older
+ * record whose coverage is unknown, a Claude Code request passed with values checked only, another that carried the
+ * provider's opaque thinking back and lost an SDK header its profile removes, and an OpenCode session whose launch
+ * key went missing, its project claimed. Codex's turns go over a WebSocket, which records its coverage too.
+ */
+function coverageVariants(): void {
+  for (const old of ccOld) {
+    Object.assign(old.summary, { coverage: 'unknown', launch: null, passes: undefined, profile: null, removed: undefined })
+  }
+  const sent = cc.filter((x) => !x.summary.flags.includes('blocked') && x.summary.transport === 'http')
+  const checked = sent[1]
+  if (checked) checked.summary.passes = ['checked-only']
+  const opaque = sent[2]
+  if (opaque) Object.assign(opaque.summary, { passes: ['provider-echo'], removed: { headers: 1, members: 0 } })
+  for (const x of opencode) {
+    x.summary.launch = 'launched-key-missing'
+    if (!x.summary.flags.includes('project-claimed')) x.summary.flags.push('project-claimed')
+  }
+}
+coverageVariants()
 
 export const initialExchanges: MockExchange[] = [...cc, ...ccOld, ...codex, ...opencode, ...others].sort(
   (a, b) => b.summary.ts - a.summary.ts,

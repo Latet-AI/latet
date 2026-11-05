@@ -20,7 +20,10 @@ from .fake_upstream import FakeUpstream
 
 pytestmark = pytest.mark.e2e
 
-CLAUDE_CODE = {"user-agent": "claude-cli/2.1.294 (external, sdk-cli)", "x-claude-code-session-id": "cc-sign"}
+CLAUDE_CODE = {
+    "user-agent": "claude-cli/2.1.294 (external, sdk-cli)",
+    "x-claude-code-session-id": "7c1e4b2a-93d5-4f60-8a2b-5e9d0c3f6a14",
+}
 CALL = "/model/us.anthropic.claude-opus-5-5/invoke"
 BODY = b'{"anthropic_version":"bedrock-2023-05-31","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}'
 
@@ -129,7 +132,8 @@ def test_the_record_keeps_no_key(client, runtime):
     _post(client, route + CALL)
     runtime.recorder.drain()
     [last] = runtime.exchanges.list(limit=1)[0]
-    assert last["path"] == "/bedrock/us-east-1" + CALL and last["signed"] == "aws-profile:work"
+    assert last["path"] == "/bedrock/{region}/model/{model}/{operation}"  # the route template the envelope admitted
+    assert last["signed"] is True and "aws-profile" not in json.dumps(last)  # signed, never by which profile
     assert route.rsplit("/", 1)[1] not in json.dumps(last)
 
 
@@ -141,7 +145,8 @@ def test_an_expired_aws_login_sends_nothing_and_says_what_to_do(client, runtime,
     assert len(upstream.received) == before
     runtime.recorder.drain()
     [last] = runtime.exchanges.list(limit=1)[0]
-    assert "aws sso login --profile work" in last["block_reason"]  # the dashboard says it in plain words
+    assert last["block_reason"] == "credentials"  # its category; the plain words in the full history's private view
+    assert "aws sso login --profile work" in runtime.exchanges.detail(last["id"])["sensitive"]["block_reason"]
 
 
 @pytest.mark.parametrize("aws", [FakeAwsCli("expired-token", "fresh-token")])

@@ -654,7 +654,7 @@ STRICTER = pytest.mark.parametrize("isolation", ["repeatable read", "serializabl
 @PIN_OR_NOT
 @STRICTER
 def test_entries_written_at_once_follow_each_other_in_sessions_that_default_to_a_stricter_isolation(
-    role_url, schema, clock, monkeypatch, pin, isolation
+    role_url, schema, clock, monkeypatch, pin, isolation, migration_master
 ):
     """In REPEATABLE READ the snapshot is taken by the lock's own statement, before it waits: the entry that waited reads
     the hash that was the last then, and two entries follow one; in SERIALIZABLE one of two is refused and its action goes
@@ -662,7 +662,7 @@ def test_entries_written_at_once_follow_each_other_in_sessions_that_default_to_a
     itself when they are not."""
     url = role_url(default_transaction_isolation=isolation)
     with closing(Database(url, schema=schema, max_size=4)) as home:
-        migrate(home)
+        migrate(home, master=migration_master)
         if not pin:
             lose_pins(monkeypatch, schema, "default_transaction_isolation")  # connections made from here on
         with closing(Database(url, schema=schema, max_size=4)) as db:
@@ -678,13 +678,13 @@ def test_entries_written_at_once_follow_each_other_in_sessions_that_default_to_a
 @PIN_OR_NOT
 @STRICTER
 def test_two_prunes_at_once_both_succeed_in_sessions_that_default_to_a_stricter_isolation(
-    role_url, schema, clock, monkeypatch, pin, isolation
+    role_url, schema, clock, monkeypatch, pin, isolation, migration_master
 ):
     """Both wait for the chain's lock with the snapshot they took before it: the one that goes second would delete rows
     that the first deleted after that snapshot, and PostgreSQL would refuse it in REPEATABLE READ and SERIALIZABLE."""
     url = role_url(default_transaction_isolation=isolation)
     with closing(Database(url, schema=schema, max_size=4)) as home:
-        migrate(home)
+        migrate(home, master=migration_master)
         if not pin:
             lose_pins(monkeypatch, schema, "default_transaction_isolation")
         with closing(Database(url, schema=schema, max_size=4)) as db:
@@ -707,13 +707,20 @@ def test_two_prunes_at_once_both_succeed_in_sessions_that_default_to_a_stricter_
 
 
 @PIN_OR_NOT
-def test_entries_hold_in_sessions_that_default_to_a_short_float(role_url, schema, clock, monkeypatch, pin):
+def test_entries_hold_in_sessions_that_default_to_a_short_float(
+    role_url,
+    schema,
+    clock,
+    monkeypatch,
+    pin,
+    migration_master,
+):
     """With ``extra_float_digits`` at 0 PostgreSQL gives a time back with 15 digits: every entry would read as changed,
     and the prune would refuse for good. The server's connections are told 3 whatever the role defaults to."""
     clock.now = 1_760_431_234.123456
     url = role_url(extra_float_digits="0")
     with closing(Database(url, schema=schema)) as home:
-        migrate(home)
+        migrate(home, master=migration_master)
         if not pin:
             lose_pins(monkeypatch, schema, "extra_float_digits")
         with closing(Database(url, schema=schema)) as db:
@@ -726,12 +733,12 @@ def test_entries_hold_in_sessions_that_default_to_a_short_float(role_url, schema
             assert log.prune(365) == (2 if pin else 0)
 
 
-def test_the_chain_lock_is_the_schemas_own(db, settings, clock, monkeypatch):
+def test_the_chain_lock_is_the_schemas_own(db, settings, clock, monkeypatch, migration_master):
     """Two servers in two schemas of one database do not wait for each other's entries."""
     name = db.schema + "_b"
     other = Database(settings.database_url, schema=name, max_size=2)
     try:
-        migrate(other)
+        migrate(other, master=migration_master)
         here, there = AuditLog(db, key=AUDIT_KEY, clock=clock), AuditLog(other, key=AUDIT_KEY, clock=clock)
         inside, release, calls = threading.Event(), threading.Event(), []
         last = AuditLog._last

@@ -10,6 +10,7 @@ import pytest
 from latet.server import admin as admin_module
 from latet.server.app import create_server_app, open_server
 from latet.server.db import Database, migrate
+from latet.server.master import MasterKey
 
 from .support import URL
 
@@ -22,7 +23,7 @@ def idle_server(settings, schema, prefix, role_url, tmp_path):
     configured = settings.model_copy(update={"database_url": role_url(idle_in_transaction_session_timeout="1s")})
     db = Database(configured.database_url, schema=schema, max_size=1)
     try:
-        migrate(db)
+        migrate(db, master=MasterKey.load(configured))
     finally:
         db.close()
     server = open_server(configured, schema=schema, prefix=prefix, data=tmp_path / "models")

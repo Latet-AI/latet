@@ -14,6 +14,25 @@ Indica il server e inserisci il token nel prompt nascosto:
 latet server --server https://latet.acme.lan status
 ```
 
+`status` elenca ogni istanza attiva del server, ogni worker di ogni macchina su una riga sua: il suo id,
+il numero del worker, se è pronta, la sua memoria e gli indici delle sue casseforti in MiB, i suoi spazi
+e la sua versione; ciò che un'istanza non ha detto viene mostrato come sconosciuto o lasciato fuori.
+Un'istanza di Latet 0.10 o precedente non dice nulla di sé: quando risponde un'istanza della 0.11,
+elenca con il suo id una della 0.10 ancora attiva, come Latet 0.10 o precedente; un server ancora alla
+0.10 risponde con la sola istanza che ha risposto. Prima di un aggiornamento la verifica è
+`latet server migrate`: non cambia nessuna tabella finché un'istanza di qualsiasi versione è attiva,
+una della 0.10 per 30 secondi dopo il suo arresto, e dice quante sono attive e di quale versione.
+L'elenco viene da una lettura limitata delle chiavi di Valkey: quando quella lettura è stata tagliata
+al suo limite, `status` dice `instances: the list is partial, cut at its bound: an instance may be
+alive and not listed`, e il campo `instances_whole` della sua risposta è false (null quando Valkey non
+ha risposto).
+
+Sulla macchina del server, `latet server run --workers N` avvia N istanze, i worker, sulla stessa
+porta, ognuna in un processo suo; `LATET_SERVER_WORKERS` o `workers` in `server.yaml` danno lo stesso,
+e `--workers` vale su entrambi, la variabile sul file. Da 1 a 64, uno per impostazione predefinita.
+Più di uno richiede Linux o l'immagine del container: su Windows `latet server run` li rifiuta, e il
+servizio Windows ne avvia uno ([più istanze su una macchina](../../concepts/server-operations/#più-istanze-su-una-macchina)).
+
 Oppure usa `--admin-token-file FILE`: un file UTF-8 privato con il solo token, o un record
 `{"url": "https://latet.acme.lan", "token": "<administration token>"}`.
 Un record è accettato solo per il proprio server. Su POSIX usa `chmod 600 FILE` (o `0400`
@@ -182,10 +201,13 @@ viene rifiutata sia quando un'immagine riscritta viene trattenuta. L'unica etich
 | `unavailable` | L'OCR era in caricamento, non è riuscito a caricarsi o ha incontrato un altro errore di esecuzione gestito. |
 
 Un'occorrenza successiva della stessa immagine originale viene contata di nuovo se
-riceve un errore OCR dalla cache. Il contatore misura le occorrenze non lette, non
-le chiamate ai modelli. Tentativi interni, riquadri, batch e riparazioni dei lettori
-senza un'immagine inviata non aggiungono conteggi. Sono esclusi OCR riuscito,
-trattenimento manuale, errori di decodifica o dei limiti sui pixel, OCR disattivato
-o non installato, reinvio esatto di un'immagine dipinta o di un segnaposto di Latet
-e OCR locale di un computer. I controlli finali dello stesso lavoro non contano
-di nuovo. Nessuna etichetta contiene immagini, percorsi o identità.
+riceve un errore OCR dalla cache. Il contatore misura le occorrenze non lette, non le
+chiamate ai modelli, con un'eccezione: una richiesta o un turno WebSocket rifiutato
+prima che una sua immagine venga letta, perché il riconoscimento del testo non è
+disponibile, conta `unavailable` una volta, quante che siano le immagini che porta.
+Tentativi interni, riquadri, batch e riparazioni dei lettori senza un'immagine inviata
+non aggiungono conteggi. Sono esclusi OCR riuscito, trattenimento manuale, errori di
+decodifica o dei limiti sui pixel, OCR disattivato o non installato, reinvio esatto di
+un'immagine dipinta o di un segnaposto di Latet e OCR locale di un computer. I controlli
+finali dello stesso lavoro non contano di nuovo. Nessuna etichetta contiene immagini,
+percorsi o identità.

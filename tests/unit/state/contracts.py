@@ -266,9 +266,16 @@ class HistoryStoreContract:
         assert [p["id"] for p in page] == [ids[2], ids[1]]
         assert [p["id"] for p in b.list(flag="blocked")[0]] == [ids[3]] and b.list(agent="claude-code")[0] == []
         [session] = b.sessions()
-        assert (session["key"], session["exchanges"], session["blocked"], session["masked"]) == ("s", 5, 1, 5)
+        assert (session["key"], session["exchanges"], session["blocked"], session["masked"]) == (
+            b.history_group("s"),
+            5,
+            1,
+            5,
+        )
         later = a.record(ExchangeRecord(_summary(now - 5)))  # a clock set back meanwhile: recorded last all the same
         assert b.in_order("s") == [*ids, later] and b.in_order("nobody") == []
+        assert b.in_order(session["key"]) == [*ids, later]
+        assert b.list(session=session["key"]) == b.list(session="s")
 
     def test_the_reviewers_records_are_shown_to_both(self, stores):
         a, b = stores
@@ -280,6 +287,7 @@ class HistoryStoreContract:
         [found] = b.reviews(session="s")
         assert found["id"] == review and found["findings"] == [{"category": "person", "masked": True}]
         assert b.reviews(session="other") == []
+        assert b.reviews(session=b.history_group("s")) == b.reviews(session="s")
 
     def test_an_image_as_it_was_sent_is_kept_once(self, stores):
         a, b = stores

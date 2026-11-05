@@ -171,8 +171,8 @@ ajustes reduce la protección en comparación con los tuyos, y te pregunta. Desp
   `before-restore-` con fecha, junto a la caja fuerte.
 
 Después: `latet llm key` para la clave de API del revisor, `latet ner install` para la detección
-local de nombres, `latet ocr install` para el texto de las imágenes (hasta entonces las imágenes se
-envían tal cual, marcadas *No inspeccionado*, o no se envían en absoluto con `images: mask`), y
+local de nombres, `latet ocr install` para el texto de las imágenes (hasta entonces una petición que
+lleva una imagen no se envía), y
 `latet global-install` (o `latet claude`) para tus agentes.
 
 **Solo en tu terminal.** Los dos comandos se niegan a ejecutarse dentro de un agente: manejan tu

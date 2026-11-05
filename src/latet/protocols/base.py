@@ -150,8 +150,9 @@ class BodyScan:
     # keys are masked in place (``Mediator._mask_slots``).
     keyed: list[tuple[Any, SlotKind, bool]] = field(default_factory=list)
     # The fields that carry content in a form Latet does not read (a prompt given as tokens), each said in words that
-    # name no content: a Latet server refuses the request, a computer sends it as it came.
+    # name no content: Latet refuses the request, on a computer as on a server.
     unreadable: list[str] = field(default_factory=list)
+    confidential_keys: list[dict[str, Any]] = field(default_factory=list)
 
     def unread(self) -> list[str]:
         """What the request carries that Latet does not read: the images too, as long as nothing reads them."""
@@ -165,6 +166,7 @@ class BodyScan:
             image.at += len(other.slots)
         self.slots[:0] = other.slots
         self.unreadable += other.unreadable
+        self.confidential_keys += other.confidential_keys
 
 
 # The arguments of a tool call that say where its output comes from: the file it reads, the web address it fetches.
@@ -308,6 +310,7 @@ def metadata(body: dict[str, Any], scan: BodyScan) -> None:
             scan.slots.append(SlotRef(body, key, SlotKind.OTHER))
     notes = body.get("metadata")
     if isinstance(notes, dict):
+        scan.confidential_keys.append(notes)
         scan.slots.extend(SlotRef(notes, key, SlotKind.OTHER) for key, value in notes.items() if isinstance(value, str))
 
 

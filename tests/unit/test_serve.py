@@ -1,6 +1,7 @@
 """The uvicorn settings `latet serve`, the daemon and the tutorial's sandbox share: one helper makes the server, so
 they cannot drift apart. The app is told its server (what `POST end` and the shutdown route stop)."""
 
+import logging
 import os
 import socket
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from starlette.applications import Starlette
 
 from latet.cli import main as cli_main
 from latet.cli.main import run_server, uvicorn_server
+from latet.server.logs import RequestLog, TextFormatter, saved
 from latet.service import ports
 
 
@@ -27,14 +29,17 @@ def test_the_server_has_the_gateways_settings():
 
 
 def test_serve_and_the_daemon_make_their_server_with_it(tmp_path, monkeypatch):
+    """Both log as a server's instance does: one line per request (``RequestLog``, outermost), uvicorn's access lines
+    off and its logging left alone; `latet serve` sets a server's own up on the console, the daemon its own before."""
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     free = sock.getsockname()[1]
     sock.close()
-    made = []
+    made, logged = [], []
 
-    def fake(application, host, port, log_level="info", log_config="default"):
-        made.append((host, port, log_level, log_config))
+    def fake(application, host, port, log_level="info", log_config="default", **settings):
+        made.append((host, port, log_level, log_config, settings, application.user_middleware[0].cls))
+        logged.append([type(handler.formatter) for handler in logging.getLogger().handlers])
         return SimpleNamespace(run=lambda: None)
 
     monkeypatch.setenv("LATET_DATA_DIR", str(tmp_path))
@@ -43,9 +48,19 @@ def test_serve_and_the_daemon_make_their_server_with_it(tmp_path, monkeypatch):
     # A server made any other way would run for good: fail instead.
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: pytest.fail("a server of its own was run"))
     monkeypatch.setattr(ports, "probe", lambda port: ports.PortState(port, True, "free"))
-    run_server(port=free, passthrough=True)  # latet serve
-    run_server(port=free, passthrough=True, log_config=None, log_level="warning")  # as the daemon passes its own
-    assert made == [("127.0.0.1", free, "info", "default"), ("127.0.0.1", free, "warning", None)]
+    with saved():
+        run_server(port=free)  # latet serve
+        run_server(port=free, log_config=None, log_level="warning")  # as the daemon passes its own
+    assert made == [("127.0.0.1", free, None, None, {"access_log": False}, RequestLog)] * 2
+    assert logged[0] == [TextFormatter]  # a server's writer, on the console
+
+
+@pytest.mark.parametrize("level", ["trace", "critical", "loud"])
+def test_serve_refuses_a_level_a_servers_log_does_not_take(level, monkeypatch, capsys):
+    monkeypatch.setattr(cli_main, "uvicorn_server", lambda *args, **kwargs: pytest.fail("a server was made"))
+    with pytest.raises(SystemExit) as refused:
+        run_server(log_level=level)
+    assert refused.value.code == 2 and "debug, info, warning or error" in capsys.readouterr().err
 
 
 def test_the_daemon_leaves_a_port_latet_already_runs_on_without_failing(monkeypatch):
@@ -60,7 +75,7 @@ def test_the_daemon_leaves_a_port_latet_already_runs_on_without_failing(monkeypa
     with pytest.raises(SystemExit) as background:
         daemon.main()
     with pytest.raises(SystemExit) as foreground:
-        run_server(passthrough=True)
+        run_server()  # latet serve
     # Windows starts it once, at login (the Run key), and restarts nothing: there it is as it was.
     assert (background.value.code, foreground.value.code) == (1 if os.name == "nt" else 0, 1)
 

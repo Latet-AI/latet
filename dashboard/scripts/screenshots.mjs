@@ -39,6 +39,13 @@ const SCREENS = {
     await page.locator('#response').waitFor()
     await top(page, 'nav:has(+ #request)') // the exchange's flow, then its request
   },
+  // What Latet read of a request and what let it through, at the top of its page: a Codex turn that carried the
+  // provider's opaque reasoning back, its launch key verified, a tracing header its profile removed.
+  coverage: async (page, ids) => {
+    await open(page, `/exchanges/${ids.coverage}`)
+    await page.locator('[data-coverage]').waitFor()
+    await settle(page)
+  },
   // The same exchange, a masked value clicked: what it is, which rule found it, what to do about it.
   inspector: async (page, ids) => {
     await open(page, `/exchanges/${ids.exchange}`)
@@ -64,6 +71,14 @@ const SCREENS = {
     await suggested.waitFor()
     await suggested.click()
     await page.locator('mark.mask-pending').first().waitFor()
+  },
+  // Your request exceptions, on the Integrations page: what each lets through, where, for whom and its state, one
+  // ending within 7 days warned of, a permanent one marked, one waiting for approval.
+  exceptions: async (page) => {
+    await open(page, '/integrations')
+    await page.locator('#exceptions tbody tr').first().waitFor()
+    await settle(page)
+    await top(page, '#exceptions')
   },
   // A project's rules: Rules, with the project picked at the top, open on its Overview tab.
   project: async (page, ids) => {
@@ -109,7 +124,9 @@ async function lookups(browser, origin) {
         exchange.slots.some((slot) => slot.new && slot.kind === 'tool_input' && text(slot).includes('customer.json')),
       )
       if (!write) throw new Error('no exchange writes customer.json in the mock')
-      return { exchange: write.summary.id, project: projectOfAgent('claude-code').id }
+      const opaque = initialExchanges.find((exchange) => (exchange.summary.passes ?? []).includes('provider-echo'))
+      if (!opaque) throw new Error('no exchange passes a provider echo in the mock')
+      return { exchange: write.summary.id, coverage: opaque.summary.id, project: projectOfAgent('claude-code').id }
     }, BASE)
   } finally {
     await page.close()

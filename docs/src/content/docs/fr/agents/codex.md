@@ -87,6 +87,23 @@ Latet de la même façon. Voir [Points de terminaison d'entreprise](../company-e
 - Codex lit les fichiers avec des commandes shell : le
   [mode données strict](../../concepts/production-data/#quels-outils) couvre donc aussi les fichiers qu'il
   lit. Nommez son outil de base de données dans `data_tools` pour ne couvrir que celui-ci.
+- Le chemin, les remotes et le commit du dépôt que Codex ajoute à chaque requête, dans l'en-tête
+  `x-codex-turn-metadata` et dans `client_metadata` du corps, sont retirés avant l'envoi, de même que
+  l'en-tête `x-openai-subagent`, le type ou l'étiquette libre que Codex donne à un sous-agent ; le
+  tableau de bord les compte. Sa liste de modèles passe ; un appel que Latet ne lit pas, comme récupérer une réponse enregistrée, est refusé.
+- Vos propres en-têtes dans `http_headers` ou `env_http_headers` d'un fournisseur sont refusés,
+  chacun nommé, tant qu'une [exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne
+  le laisse pas passer (`openai.responses.1`). Sur le WebSocket d'une connexion ChatGPT, aucune
+  exception ne s'applique dans la 0.11.0 : un en-tête ou un paramètre de requête que Latet ne lit pas
+  ferme la connexion avant qu'elle ne s'ouvre, et la fermeture dit pourquoi et nomme l'en-tête ou le
+  paramètre, jamais sa valeur. L'historique enregistre le refus.
+- **Son projet.** `latet codex` donne à Codex une clé de lancement par un fournisseur de
+  `model_providers` (`env_http_headers`), à partir de Codex 0.115 : les réglages de son projet
+  s'appliquent alors entièrement. Sur les fournisseurs intégrés de Codex (connecté avec ChatGPT, ou le
+  fournisseur d'OpenAI), et avant la 0.115, aucune clé ne peut voyager : `latet codex` le dit au
+  démarrage, et le projet que Codex nomme dans ses requêtes est déclaré, donc ses règles qui ajoutent
+  de la protection s'appliquent et ses assouplissements non
+  ([Projets](../../concepts/projects/#de-confiance-et-déclarés)).
 
 Testé en conditions réelles : la CLI Codex connectée avec ChatGPT. Codex Desktop lit le même
 `config.toml` ; si quelque chose n'y fonctionne pas, merci

@@ -162,8 +162,8 @@ may never have read, are masked as the file is, even when `data_tools` names oth
 - **Markdown counts only when a pattern names it** (`*.md`, `docs/**/*.md`): agents read their
   instructions and documents in markdown, and a pattern for every file (`*`) leaves them alone. In a
   markdown file a pattern names, only its tables are masked, never its prose.
-- **PDF files are not covered:** Latet does not read the text of a PDF. `images: mask` or `block`
-  keeps documents from being sent at all ([images](../images/)).
+- **PDF files are not covered:** Latet does not read the text of a PDF, so a request that carries
+  one as a document is not sent ([images](../images/)).
 
 ### Web addresses that count as data
 

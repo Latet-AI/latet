@@ -29,9 +29,10 @@ uv run latet doctor
 To keep a test instance apart from a Latet you use for real, set `LATET_DATA_DIR` and
 `LATET_CONFIG` to a scratch folder and choose another port in that `config.yaml`.
 
-`latet serve --passthrough` forwards traffic without masking, and `--capture <folder>` writes
-every exchange to local files (credential headers redacted), which helps when you study a
-protocol. Captures hold conversation content: never commit them (`notes/captures/` is ignored by
+`latet serve --capture <folder>` writes every exchange to local files (credential headers
+redacted), which helps when you study a protocol. There is no mode that forwards without masking: a
+request part Latet does not read is refused, and a new protocol's calls need a request profile and
+its tests first. Captures hold conversation content: never commit them (`notes/captures/` is ignored by
 git for this reason).
 
 ## Checks

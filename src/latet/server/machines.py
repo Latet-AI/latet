@@ -78,7 +78,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -743,6 +743,11 @@ async def in_work[T](work: Callable[..., T], *args: Any) -> T:
     """``work(*args)`` in the threads of what may wait on a person (``WORK_THREADS``). Raises StoresUnavailable."""
     loop = asyncio.get_running_loop()
     return await _answered(loop.run_in_executor(_WORK, functools.partial(work, *args)))
+
+
+def submit_store[A, T](work: Callable[[A], T], argument: A) -> Future[T]:
+    """The actual STORE work owner for protected launch operations."""
+    return _STORE.submit(work, argument)
 
 
 async def in_store[T](work: Callable[..., T], *args: Any) -> T:

@@ -3,6 +3,7 @@ into small streaming pieces (text and tool-call arguments), in each wire format 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 import threading
@@ -105,6 +106,10 @@ class FakeUpstream:
         self.real = real
         self.text_only = text_only
         self.finish = finish
+        # A WebSocket turn's last event, `response.completed`, waits until the test sets ``ws_release`` (both set by
+        # the test: no header or frame an agent never sends goes through the gateway to ask for it).
+        self.ws_hold = False
+        self.ws_release = threading.Event()
         self.received: list[bytes] = []
         self.requests: list[dict[str, Any]] = []
         self.ws_received: list[str] = []
@@ -114,6 +119,7 @@ class FakeUpstream:
                 Route("/v1/chat/completions", self.chat, methods=["POST"]),
                 Route("/v1/responses", self.responses, methods=["POST"]),
                 WebSocketRoute("/backend-api/codex/responses", self.responses_ws),
+                WebSocketRoute("/v1/responses", self.responses_ws),  # a company gateway's Responses over a WebSocket
                 Route("/{path:path}", self.anything, methods=["GET", "POST", "PUT", "DELETE", "HEAD"]),
             ]
         )
@@ -497,21 +503,18 @@ class FakeUpstream:
 
     async def responses_ws(self, websocket: WebSocket) -> None:
         await websocket.accept()
-        # `x-fake-hold: 1`: a turn's last event, `response.completed`, waits for a `fake.release` frame.
-        hold = websocket.headers.get("x-fake-hold") == "1"
-        held: list[dict[str, Any]] = []
         while True:
             try:
                 frame = await websocket.receive_text()
             except Exception:
                 return
             self.ws_received.append(frame)
-            body = json.loads(frame)
-            if body.get("type") == "fake.release":
-                events, held = held, []
-            else:
-                events = self._responses_events(body)
-                if hold:
-                    events, held = events[:-1], events[-1:]
+            events = self._responses_events(json.loads(frame))
+            if self.ws_hold:
+                for event in events[:-1]:
+                    await websocket.send_text(json.dumps(event))
+                await asyncio.to_thread(self.ws_release.wait, 30)
+                self.ws_release.clear()
+                events = events[-1:]
             for event in events:
                 await websocket.send_text(json.dumps(event))

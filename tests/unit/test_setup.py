@@ -1,3 +1,4 @@
+import socket
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,12 @@ from latet.config import load_config
 from latet.integrations.routes import ROUTE_VARS
 
 
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("LATET_DATA_DIR", str(tmp_path / "data"))
@@ -18,6 +25,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     for var in ROUTE_VARS:  # where the agents go is read from the shell too: none of this one's
         monkeypatch.delenv(var, raising=False)
+    # A port the system says is free, not 5283: Windows can reserve 5241-5340 (Hyper-V's excluded ranges, `netsh int
+    # ipv4 show excludedportrange protocol=tcp`), where global-install refuses rightly.
+    monkeypatch.setenv("LATET_PORT", str(_free_port()))
     from latet.service import autostart, daemon
 
     calls = {"autostart": 0, "start": 0}
@@ -98,11 +108,16 @@ def test_run_with_an_agent_is_its_wrapper(isolated, monkeypatch):
     assert env["LATET_BRIDGE_TOKEN"] and env["ANTHROPIC_BASE_URL"].endswith("/anthropic")
     assert runner.invoke(app, ["run", "codex.exe", "exec", "hi"]).exit_code == 0
     argv, _ = launched.pop()
-    assert argv[0] == "codex.exe" and argv[2] == 'openai_base_url="http://127.0.0.1:5283/backend-api/codex"'
+    assert (
+        argv[0] == "codex.exe"
+        and argv[2] == f'openai_base_url="http://127.0.0.1:{load_config().port}/backend-api/codex"'
+    )
     # Anything else gets the two addresses, and runs as usual.
     assert runner.invoke(app, ["run", "python", "script.py"]).exit_code == 0
     argv, env = launched.pop()
-    assert argv == ["python", "script.py"] and env["OPENAI_BASE_URL"] == "http://127.0.0.1:5283/openai/v1"
+    assert (
+        argv == ["python", "script.py"] and env["OPENAI_BASE_URL"] == f"http://127.0.0.1:{load_config().port}/openai/v1"
+    )
 
 
 def test_a_missing_agent_is_named(isolated, monkeypatch):

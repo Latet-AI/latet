@@ -22,8 +22,8 @@ import json
 import re
 from array import array
 from bisect import bisect_right
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from html.entities import name2codepoint
 from itertools import accumulate
 from urllib.parse import quote, quote_plus, unquote, unquote_plus
@@ -410,6 +410,11 @@ def cased(text: str, upper: bool) -> str:
     return "".join((part.upper() if upper else part.lower()) if k % 2 == 0 else part for k, part in enumerate(parts))
 
 
+def uncached(text: str) -> Decoded | None:
+    """Read one complete unit without admitting either spelling to the last-reading cache."""
+    return _decode(text)
+
+
 _last: tuple[str, Decoded | None] = ("", None)  # the text read last, and its reading
 
 
@@ -422,7 +427,10 @@ def decoded(text: str) -> Decoded | None:
     if last[0] is text:
         return last[1]
     found = _decode(text)
-    _last = (text, found)
+    # A text that holds a launch key's prefix, as it is written or as it reads, is read again rather than kept: a live
+    # key masked in content (R-103) never stays in this cache after its masking.
+    if "latet_lk_" not in text and (found is None or "latet_lk_" not in found.text):
+        _last = (text, found)
     return found
 
 
@@ -449,6 +457,7 @@ def read_escaped(
     read: Callable[[str], list[Span]],
     again: Callable[[str], list[Span]] | None = None,
     deep: Callable[[str, bool], list[Span]] | None = None,
+    parts: Sequence[tuple[int, int]] | None = None,
 ) -> list[Span]:
     """What ``read`` finds in ``text``, with what it finds (or ``again``, when given) where the letters of the
     text's escapes are blanked out, and where the escapes read as what they stand for (``decoded``; ``deep``, when
@@ -457,7 +466,13 @@ def read_escaped(
     A value found blanked out stands for its place: a finding of no stronger class that lies inside it, or only adds
     escape letters to it (`nluca.neri@…`), gives way. A value found where the escapes read stands at the escapes it is
     written with, with the value it reads (``Span.value``), and is added to what the text as written holds: never less
-    is found. One that reads as it is written gives way to a finding of no weaker class around it."""
+    is found. One that reads as it is written gives way to a finding of no weaker class around it.
+
+    ``parts``: where the texts ``text`` is joined of stand in it, none holding a line break (an applications call's,
+    ``Masker.joined``): each is read where its escapes read on its own, as it is read alone. That reading may hold a
+    line break (a `\\n` written in JSON), and among the other texts' lines a detector would read it otherwise (a
+    table's header is its first line). No escape runs from one text into the next: the blanked reading of the whole is
+    each text's."""
     spans = read(text)
     places = escapes(text)
     if places:
@@ -465,10 +480,18 @@ def read_escaped(
         after = {p: end for start, end in places for p in range(start, end)}
         inside = _covering(found)
         spans = list(dict.fromkeys([*(s for s in spans if not inside(s, after.get(s.start, s.start))), *found]))
-    reading = decoded(text)
-    if reading is None:
+    placed: list[Span] = []
+    read_any = False
+    for start, piece in ((0, text),) if parts is None else ((start, text[start:end]) for start, end in parts):
+        reading = decoded(piece)
+        if reading is None:
+            continue
+        read_any = True
+        more = deep(reading.text, reading.characters) if deep is not None else (again or read)(reading.text)
+        for found in more:
+            span = reading.span(found, piece)
+            placed.append(span if not start else replace(span, start=span.start + start, end=span.end + start))
+    if not read_any:
         return spans
-    more = deep(reading.text, reading.characters) if deep is not None else (again or read)(reading.text)
-    placed = [reading.span(found, text) for found in more]
     inside = _covering(spans)
     return list(dict.fromkeys([*spans, *(p for p in placed if p.value is not None or not inside(p, p.start))]))

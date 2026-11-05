@@ -100,9 +100,13 @@ peticiones a través de él, como lo hace a través de cualquier puerta de enlac
 [puerta de enlace](https://code.claude.com/docs/en/llm-gateway) con el inicio de sesión de una
 suscripción, y su [guía de puertas de enlace](https://code.claude.com/docs/en/llm-gateway-protocol) pide
 a una puerta de enlace que reenvíe las peticiones sin cambios y que las inspeccione sin modificarlas.
-Eso es lo que hace el daemon: cada petición llega a Anthropic byte a byte, cabeceras incluidas, con tu
-token dentro tal como lo puso Claude Code. El token nunca se guarda, ni se escribe en los registros, ni
-se muestra en el panel.
+Eso es lo que hace el daemon: el cuerpo de cada petición llega a Anthropic byte a byte, y sus
+cabeceras tal como las escribió Claude Code, con tu token dentro, salvo dos tipos que Latet quita y
+cuenta en el panel: las cabeceras de telemetría y de trazado que añade su SDK (`x-stainless-*`,
+`traceparent`...), y las propias de Claude Code que pueden contener texto libre (los id de un
+subagente, que pueden contener su nombre, y valores que Claude Code copia de su entorno).
+[Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet) las enumera todas. El token nunca se guarda, ni se escribe en
+los registros, ni se muestra en el panel.
 
 **Por qué no hace falta reescribir nada.** Claude Code añade al prompt de sistema de cada petición un
 bloque de atribución con una huella digital derivada de la conversación. Un proxy que reescribiera las
@@ -164,7 +168,12 @@ Con `ANTHROPIC_BASE_URL` apuntando a él, cada petición pasa por el daemon, que
 - comprueba si la petición saliente contiene valores sensibles en claro, y la bloquea si encuentra
   alguno: Claude Code muestra entonces un error de la API con el mensaje
   `Latet: sensitive values would leave in clear`;
-- si no, reenvía los bytes sin cambios, cabeceras incluidas;
+- lee cada una de sus demás partes: una cabecera, un parámetro de consulta o un miembro del cuerpo que
+  ningún perfil nombra se rechaza
+  ([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)), salvo un
+  miembro nuevo del cuerpo que contiene texto, que pasa una vez que la comprobación final lo ha leído;
+- si no, reenvía el cuerpo byte a byte, y las cabeceras salvo las que quita y cuenta
+  ([Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet));
 - registra el intercambio para el [panel](../../dashboard/), sin sus credenciales.
 
 Nunca reescribe una petición de Claude Code, ni una que lleve el token de una suscripción de Claude, la
@@ -195,6 +204,24 @@ latet claude --continue
 comprueban. `latet run claude`
 equivale a `latet claude`: Claude Code necesita el plugin además de la dirección, y `latet run` por sí
 solo le daría solo la dirección.
+
+### Su proyecto, y tus propias cabeceras
+
+Latet solo aplica por completo los ajustes de un proyecto a una sesión cuyo proyecto considera de
+confianza ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)):
+
+- **Arrancada con `latet claude`,** la sesión lleva una clave de lanzamiento, que `latet claude` añade a
+  `ANTHROPIC_CUSTOM_HEADERS` en el archivo de ajustes privado que da a esa sesión. Donde tus ajustes
+  gestionados o de proyecto, o las fuentes de ajustes que eliges en la línea de comandos, dejarían en
+  duda qué ajustes mandan, no añade ninguna, lo dice, y el proyecto de la sesión queda declarado.
+- **Configurado con `latet global-install`,** el plugin vincula cada sesión a su proyecto; el vínculo
+  termina tras 30 minutos sin una llamada del plugin. Las llamadas que Claude Code hace al arrancar,
+  antes de la primera llamada del plugin, se deciden solo con tus propias reglas.
+
+Las cabeceras que defines en `ANTHROPIC_CUSTOM_HEADERS` se rechazan, nombrando cada una, hasta que una
+excepción exacta la deje pasar, una por cada tipo de llamada que la envía (`anthropic.messages.1`,
+`anthropic.count_tokens.1`, `anthropic.models.1`): consulta
+[Pasar a la 0.11](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-defines-para-tus-agentes).
 
 ## Qué cambia global-install
 
@@ -312,4 +339,8 @@ nunca tu nombre de usuario. Cuando son iguales, las rutas llevan de todos modos 
 - **Imágenes**, con el [reconocimiento de texto](../../concepts/images/) opcional: las que devuelven las
   herramientas se sustituyen por su copia enmascarada; una captura de pantalla que pegas con valores
   dentro se saca del prompt, y Claude recibe la ruta de una copia enmascarada para abrirla con Read.
-  Los **PDF** no se leen y se envían tal cual.
+  Sin reconocimiento de texto, una petición con una imagen no se envía. Como Latet solo comprueba las
+  peticiones de Claude Code, una foto con ubicación, notas del fabricante de la cámara o una imagen
+  dentro, y una imagen WebP original, se rechazan
+  ([Las fotos y sus metadatos](../../concepts/images/#las-fotos-y-sus-metadatos)). Los **PDF** no se
+  leen: una petición que lleve uno no se envía.

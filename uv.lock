@@ -1050,7 +1050,7 @@ wheels = [
 
 [[package]]
 name = "latet"
-version = "0.10.4"
+version = "0.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "brotli" },
@@ -1083,6 +1083,7 @@ ocr = [
     { name = "pillow" },
 ]
 server = [
+    { name = "numpy" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "redis" },
 ]
@@ -1115,6 +1116,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "numpy", marker = "extra == 'ner'", specifier = ">=2.0" },
     { name = "numpy", marker = "extra == 'ocr'", specifier = ">=2.0" },
+    { name = "numpy", marker = "extra == 'server'", specifier = ">=2.0" },
     { name = "onnxruntime", marker = "extra == 'ner'", specifier = ">=1.20" },
     { name = "onnxruntime", marker = "extra == 'ocr'", specifier = ">=1.20" },
     { name = "phonenumbers", specifier = ">=9.0.40" },

@@ -17,7 +17,9 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from latet.server import db as db_module
 from latet.server.db import _NO_FILE, CONNECT_TIMEOUT, Database, DatabaseError, _parameters, check_schema, migrate
+from latet.server.master import MasterKey
 from latet.server.settings import ServerSettings
+from latet.server.start_errors import SettingRefused
 
 from ...server.libpq_environment import PASSWORD_IN_THE_FILE, hostile, options
 
@@ -152,7 +154,7 @@ def test_libpq_takes_nothing_the_address_leaves_out_from_the_environment(worked_
 )
 def test_an_address_without_a_host_is_refused_though_the_environment_has_one(worked_with_psql, address):
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "host" in str(refused) and "PGHOST" in str(refused)
+    assert type(refused) is SettingRefused and "host" in str(refused) and "PGHOST" in str(refused)
     assert PASSWORD not in _shown(refused)
 
 
@@ -170,10 +172,10 @@ def test_a_service_file_is_never_read(worked_with_psql, monkeypatch):
     address = f"postgresql://latet:{PASSWORD}@{HERE}:{port}/latet"
     assert _parameters(address, SCHEMA, 5)  # PGSERVICEFILE alone reads nothing: no service is named
     refused = _raised(lambda: Database(address + "?service=prod", schema=SCHEMA))
-    assert type(refused) is ValueError and "service" in str(refused) and PASSWORD not in _shown(refused)
+    assert type(refused) is SettingRefused and "service" in str(refused) and PASSWORD not in _shown(refused)
     monkeypatch.setenv("PGSERVICE", "prod")
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "PGSERVICE" in str(refused) and PASSWORD not in _shown(refused)
+    assert type(refused) is SettingRefused and "PGSERVICE" in str(refused) and PASSWORD not in _shown(refused)
 
 
 def _options(schema: str) -> str:
@@ -200,13 +202,13 @@ def test_a_schema_named_like_this_is_the_connections_search_path(name):
 )  # fmt: skip
 def test_a_schema_is_a_name_of_its_own_and_nothing_that_adds_to_the_search_path(name):
     refused = _raised(lambda: Database(f"postgresql://u:{PASSWORD}@{HERE}/d", schema=name))
-    assert type(refused) is ValueError and "schema" in str(refused)
+    assert type(refused) is SettingRefused and "schema" in str(refused)
 
 
 @pytest.mark.parametrize("seconds", [-1, 0, 1, 121, 3600])
 def test_a_connect_timeout_is_two_to_a_hundred_and_twenty_seconds(seconds):
     refused = _raised(lambda: Database(f"postgresql://u:{PASSWORD}@{HERE}/d", schema=SCHEMA, connect_timeout=seconds))
-    assert type(refused) is ValueError and "connect_timeout" in str(refused)
+    assert type(refused) is SettingRefused and "connect_timeout" in str(refused)
 
 
 def test_the_connect_timeout_of_the_database_is_the_one_of_the_settings():
@@ -225,7 +227,7 @@ def test_the_connect_timeout_of_the_database_is_the_one_of_the_settings():
 )
 def test_an_address_the_driver_cannot_read_is_refused_without_a_word_of_it(address):
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "database address" in str(refused)
+    assert type(refused) is SettingRefused and "database address" in str(refused)
     assert PASSWORD not in _shown(refused)
     assert refused.__cause__ is None and refused.__context__ is None  # nothing to follow back to the address
 
@@ -249,7 +251,7 @@ def test_what_the_driver_says_of_a_failed_connection_is_neither_shown_nor_logged
     caplog.set_level(logging.DEBUG)
     db = Database(f"postgresql://latet:{PASSWORD}@{HERE}:5/latet", schema=SCHEMA, connect_timeout=2)
     try:
-        error = _raised(lambda: migrate(db))
+        error = _raised(lambda: migrate(db, master=MasterKey([b"m" * 32])))
         assert _until(lambda: any("error connecting" in record.getMessage() for record in caplog.records))
     finally:
         db.close()
@@ -270,7 +272,7 @@ def test_a_database_that_does_not_answer_is_given_up_after_the_time_it_was_set_t
         db = Database(f"postgresql://latet:{PASSWORD}@{HERE}:{port}/latet", schema=SCHEMA, connect_timeout=2)
         try:
             started = time.monotonic()
-            error = _raised(lambda: migrate(db))
+            error = _raised(lambda: migrate(db, master=MasterKey([b"m" * 32])))
             took = time.monotonic() - started
             # The pool's own worker gave up too, and said so (by the type): its connection has the same limit.
             assert _until(lambda: any("error connecting" in record.getMessage() for record in caplog.records))
@@ -319,7 +321,7 @@ def test_no_option_that_libpq_has_a_variable_for_is_filled_in_from_the_computer(
         monkeypatch.setenv(variable, value)
     for variable in REFUSED:
         refused = _raised(lambda: _parameters(address, SCHEMA, 5))
-        assert type(refused) is ValueError and variable in str(refused)
+        assert type(refused) is SettingRefused and variable in str(refused)
         monkeypatch.delenv(variable)
     parameters = _parameters(address, SCHEMA, 5)
     given = {keyword for keyword in options() if keyword not in ("service", "require_auth")}
@@ -381,7 +383,7 @@ def test_a_verified_connection_with_no_root_certificate_named_is_refused_in_word
     """The root certificates of the home folder are not read, so such an address could never connect: it is said at
     once, in words, rather than by the type of the driver's error at the first connection."""
     refused = _raised(lambda: Database(f"postgresql://u:{PASSWORD}@{HERE}/d?{query}", schema=SCHEMA))
-    assert type(refused) is ValueError and "sslrootcert=system" in str(refused) and PASSWORD not in _shown(refused)
+    assert type(refused) is SettingRefused and "sslrootcert=system" in str(refused) and PASSWORD not in _shown(refused)
     for named in ("sslrootcert=system", "sslrootcert=%2Fetc%2Fssl%2Fca.pem"):
         assert _parameters(f"postgresql://u@{HERE}/d?sslmode=verify-full&{named}", SCHEMA, 5)
     for unverified in ("require", "prefer", "disable"):  # nothing to check against: nothing is asked for
@@ -404,7 +406,7 @@ def test_require_auth_is_the_addresss_or_it_is_not_set(monkeypatch):
     assert "require_auth" not in _parameters(address, SCHEMA, 5)  # not set: any method the server asks
     monkeypatch.setenv("PGREQUIREAUTH", "scram-sha-256")
     refused = _raised(lambda: _parameters(address, SCHEMA, 5))
-    assert type(refused) is ValueError and "PGREQUIREAUTH" in str(refused) and "require_auth" in str(refused)
+    assert type(refused) is SettingRefused and "PGREQUIREAUTH" in str(refused) and "require_auth" in str(refused)
     assert (
         _parameters(address + "?require_auth=md5", SCHEMA, 5)["require_auth"] == "md5"
     )  # the variable fills in nothing
@@ -422,7 +424,7 @@ def test_require_auth_is_the_addresss_or_it_is_not_set(monkeypatch):
 )
 def test_an_address_with_a_control_character_is_refused_before_it_is_parsed(address):
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "control character" in str(refused)
+    assert type(refused) is SettingRefused and "control character" in str(refused)
     assert PASSWORD not in _shown(refused) and "a.example" not in _shown(refused)
 
 
@@ -448,7 +450,7 @@ def test_ssl_and_requiressl_are_refused_whatever_sslmode_is_written_beside_them(
     """The sslmode that libpq will use is not the one written: ``sslmode=verify-full&requiressl=0`` is ``prefer``."""
     address = f"postgresql://u:{PASSWORD}@{HERE}/d?{query}"
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "requiressl" in str(refused) and "write sslmode" in str(refused)
+    assert type(refused) is SettingRefused and "requiressl" in str(refused) and "write sslmode" in str(refused)
     assert PASSWORD not in _shown(refused)
 
 
@@ -468,7 +470,7 @@ def test_ssl_and_requiressl_are_refused_whatever_sslmode_is_written_beside_them(
 )
 def test_the_aliases_are_found_in_the_forms_of_an_address_that_libpq_reads(address):
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "requiressl" in str(refused), refused
+    assert type(refused) is SettingRefused and "requiressl" in str(refused), refused
 
 
 @pytest.mark.parametrize(
@@ -582,7 +584,7 @@ def test_sslrootcert_system_beside_another_sslmode_is_refused_in_words(mode):
     address = f"postgresql://u:{PASSWORD}@{HERE}:{_closed_port()}/d?sslmode={mode}&sslrootcert=system"
     assert "weak sslmode" in (_libpq_bad(conninfo_to_dict(address)) or "")  # why: libpq's own words, before it connects
     refused = _raised(lambda: Database(address, schema=SCHEMA))
-    assert type(refused) is ValueError and "sslrootcert=system" in str(refused) and "verify-full" in str(refused)
+    assert type(refused) is SettingRefused and "sslrootcert=system" in str(refused) and "verify-full" in str(refused)
     assert PASSWORD not in _shown(refused)
 
 
@@ -634,7 +636,7 @@ def test_a_verify_full_address_with_a_hostaddr_and_no_host_is_refused_in_words(q
     """libpq checks the certificate against the host's name, and says only ``host name must be specified for a verified
     SSL connection``: the operator would see a type. verify-ca checks no name, and connects."""
     refused = _raised(lambda: Database(f"postgresql://u:{PASSWORD}@/d?{query}", schema=SCHEMA))
-    assert type(refused) is ValueError and "hostaddr" in str(refused) and "host" in str(refused)
+    assert type(refused) is SettingRefused and "hostaddr" in str(refused) and "host" in str(refused)
     assert PASSWORD not in _shown(refused) and HERE not in _shown(refused)
     kept = _parameters(
         f"postgresql://u@/d?hostaddr={HERE}&sslmode=verify-ca&sslrootcert=%2Fetc%2Fssl%2Fca.pem", SCHEMA, 5

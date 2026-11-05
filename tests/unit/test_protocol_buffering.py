@@ -18,7 +18,7 @@ from latet.protocols.rewrite import RestoreContext, restore_anthropic_message, r
 from latet.protocols.sse import ResponseError, SSEParser, serialize
 
 from .test_json_keys import API_KEY, _taught
-from .test_what_leaves import ANTHROPIC, BEARER, OPENAI, _mediator
+from .test_what_leaves import ANTHROPIC, BEARER, CALL_ID, CLAUDE, GPT, OPENAI, TOOL_ID, _mediator
 
 FAKE = "masked-owner@example.test"
 ORIGINAL = "emily.carter@acme.com"
@@ -528,6 +528,7 @@ def test_preserved_colliding_tool_history_stays_refused_until_the_call_is_remove
     mediator = _mediator()
     mediator.on_server = True
     route = "chat completions" if protocol == "chat" else "anthropic with an API key"
+    call_id, model = (CALL_ID, GPT) if protocol == "chat" else (TOOL_ID, CLAUDE)  # as each provider issues them
     fake = _taught(mediator, route)
     session = mediator.engine.session("session-id:s-1")
     raw = json.dumps({"users": {fake: "owner", ORIGINAL: "viewer"}})
@@ -548,12 +549,12 @@ def test_preserved_colliding_tool_history_stays_refused_until_the_call_is_remove
         )
         arguments = _arguments(protocol, wire)
     elif protocol == "chat":
-        call = {"id": "call-0", "type": "function", "function": {"name": "grant", "arguments": raw}}
+        call = {"id": call_id, "type": "function", "function": {"name": "grant", "arguments": raw}}
         restored = restore_chat_completion(ctx, {"choices": [{"message": {"role": "assistant", "tool_calls": [call]}}]})
         arguments = restored["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
     else:
         restored = restore_anthropic_message(
-            ctx, {"content": [{"type": "tool_use", "id": "call-0", "name": "grant", "input": json.loads(raw)}]}
+            ctx, {"content": [{"type": "tool_use", "id": call_id, "name": "grant", "input": json.loads(raw)}]}
         )
         arguments = json.dumps(restored["content"][0]["input"])
     read = wellformed.read(arguments)
@@ -563,22 +564,22 @@ def test_preserved_colliding_tool_history_stays_refused_until_the_call_is_remove
             {
                 "role": "assistant",
                 "tool_calls": [
-                    {"id": "call-0", "type": "function", "function": {"name": "grant", "arguments": arguments}}
+                    {"id": call_id, "type": "function", "function": {"name": "grant", "arguments": arguments}}
                 ],
             },
-            {"role": "tool", "tool_call_id": "call-0", "content": "done"},
+            {"role": "tool", "tool_call_id": call_id, "content": "done"},
         ]
         upstream, path, headers = OPENAI, "/openai/v1/chat/completions", BEARER
     else:
         history = [
             {
                 "role": "assistant",
-                "content": [{"type": "tool_use", "id": "call-0", "name": "grant", "input": read.doc}],
+                "content": [{"type": "tool_use", "id": call_id, "name": "grant", "input": read.doc}],
             },
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call-0", "content": "done"}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call_id, "content": "done"}]},
         ]
         upstream, path, headers = ANTHROPIC, "/anthropic/v1/messages", API_KEY
-    body = {"model": "m", "max_tokens": 10, "messages": [{"role": "user", "content": "go on"}, *history]}
+    body = {"model": model, "max_tokens": 10, "messages": [{"role": "user", "content": "go on"}, *history]}
     headers = {**headers, "session-id": "s-1"}
     for _ in range(2):
         refused = mediator.prepare(upstream, "POST", path, headers, json.dumps(body).encode())

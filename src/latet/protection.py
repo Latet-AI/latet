@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import functools
 import json
+import secrets
 from collections.abc import Collection, Hashable, Iterable, Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -678,6 +680,9 @@ def _repositories(
 # The settings that protect nothing in a project: the port, what the history keeps and for how long. A change of them
 # alone lowers nothing in a repository's latet.yaml, and no repository is read for it (R21).
 _NOT_PROTECTING = ("port", "history", "retention_days")
+# What no repository's latet.yaml can hold, nor is laid over in one (``project_file.REPO_KEYS``): your request
+# exceptions are weighed at the top alone, whatever the repositories hold.
+_NOT_IN_REPOSITORIES = ("request_exceptions",)
 
 
 def weighs_repositories(old: Config, new: Config) -> bool:
@@ -688,7 +693,7 @@ def weighs_repositories(old: Config, new: Config) -> bool:
     it, and one that cannot be read now holds it back from nothing."""
     if old.projects != new.projects:
         return True
-    unweighed: dict[str, Any] = dict.fromkeys(_NOT_PROTECTING)
+    unweighed: dict[str, Any] = dict.fromkeys((*_NOT_PROTECTING, *_NOT_IN_REPOSITORIES))
     return _context(old).model_copy(update=unweighed) != _context(new).model_copy(update=unweighed)
 
 
@@ -718,7 +723,16 @@ def _destinations(old: Config, new: Config) -> list[str]:
         if destination.name not in now:
             out.append(f"destination {destination.name}: removed")
         elif now[destination.name] != destination.url:
-            out.append(f"destination {destination.name}: its address changed")
+            # An exception names its destination: it follows it to the new address (Minor 9), and the move says so.
+            bound = sum(1 for row in new.request_exceptions if row.destination == destination.name and row.approved)
+            follows = (
+                ""
+                if not bound
+                else ", and the request exception that names it goes with it"
+                if bound == 1
+                else f", and the {bound} request exceptions that name it go with it"
+            )
+            out.append(f"destination {destination.name}: its address changed{follows}")
     return out
 
 
@@ -729,6 +743,136 @@ def destination_changes(old: Config, new: Config) -> list[dict[str, str | None]]
     return [
         {"name": d.name, "before": d.url, "after": now.get(d.name)} for d in old.upstreams if now.get(d.name) != d.url
     ]
+
+
+def _exceptions(old: Config, new: Config) -> list[str]:
+    """The request exceptions ``new`` adds, widens, renews or makes permanent (D3, R-108): each a loosening, said by
+    its destination alone, never by what it names or its description. One taken away, narrowed, shortened, scoped to a
+    project, made no longer permanent or only described applies at once. One whose id, approval time or revision is
+    not the one approved is new: Latet's stamps are never caller input."""
+    before = {row.id: row for row in old.request_exceptions if row.id is not None}
+    return [
+        f"a request exception for {row.destination}: {_approved_as(row, how)}"
+        for row in new.request_exceptions
+        if (how := exception_loosened(before.get(row.id) if row.id is not None else None, row)) is not None
+    ]
+
+
+def _approved_as(row: Any, how: str) -> str:
+    """What approving ``row`` approves, as its approval says it (I-2, D3): how it lowers protection, how long it then
+    lasts (``permanent``, chosen on purpose, or its days), and that it lets a credential through unread when one of
+    its components is a destination's credential (D4); by category alone, never what it names or its description."""
+    if how == "made permanent":
+        words = how
+    elif row.permanent:
+        words = f"{how}, permanent"
+    else:
+        words = f"{how} for {row.days} days"
+    if any(component.role == "credential" for component in row.components):
+        words += ", lets a credential through unread"
+    return words
+
+
+def exception_view(row: Any) -> dict[str, Any]:
+    """An exception as the dashboard shows it to its owner (P2-7): what it names (each component's kind, exact name,
+    role and a body member's type), where (its destination and request profile), for whom (``identity``, or ``project``
+    with the project folder's name alone), why by category, how long and the owner's own words. Never a request's
+    value."""
+    from pathlib import PureWindowsPath
+
+    project = PureWindowsPath(row.project).name or row.project if row.project is not None else None
+    return {
+        "id": row.id,
+        "destination": row.destination,
+        "profile": row.profile,
+        "scope": "project" if row.project is not None else "identity",
+        "project": project,
+        "reason": row.reason,
+        "components": [{"kind": c.kind, "name": c.name, "role": c.role, "type": c.type} for c in row.components],
+        "days": row.days,
+        "permanent": row.permanent,
+        "description": row.description,
+        # Who approved it, by its category (owner, person, administration): None while it waits.
+        "issuer": row.issuer,
+    }
+
+
+def exception_changes(old: Config, new: Config) -> list[dict[str, Any]]:
+    """The request exceptions ``new`` adds, widens, renews or makes permanent against ``old`` (the settings approved),
+    each as the dashboard shows it (``exception_view``) with how it lowers protection (``how``): what an approval would
+    let through, read before it is approved (R-75: one for the whole identity says so)."""
+    before = {row.id: row for row in old.request_exceptions if row.id is not None}
+    out = []
+    for row in new.request_exceptions:
+        how = exception_loosened(before.get(row.id) if row.id is not None else None, row)
+        if how is not None:
+            out.append({**exception_view(row), "how": how})
+    return out
+
+
+def exception_loosened(was: Any, row: Any) -> str | None:
+    """How ``row`` lowers protection against ``was``, the approved exception of the same id (None: there is none):
+    ``added``, ``widened``, ``made permanent`` or ``renewed``; None when it does not."""
+    from latet.projects import norm_path
+
+    stamps = (was.granted, was.revision, was.body_revision, was.issuer) if was is not None else None
+    if was is None or (stamps != (row.granted, row.revision, row.body_revision, row.issuer) and not _earlier(was, row)):
+        return "added"
+    project_was = norm_path(was.project) if was.project is not None else None
+    project_now = norm_path(row.project) if row.project is not None else None
+    # A body member's type is part of what it names: the same pointer with another type lets another value through.
+    components_was = {(c.kind, c.name, c.type): c.role for c in was.components}
+    if (
+        (row.destination, row.profile) != (was.destination, was.profile)
+        or (project_was is not None and project_now != project_was)
+        or any(components_was.get((c.kind, c.name, c.type)) not in (c.role, "credential") for c in row.components)
+    ):
+        return "widened"
+    if row.permanent and not was.permanent:
+        return "made permanent"
+    if not row.permanent and not was.permanent and (row.expires() or row.granted) > (was.expires() or was.granted):
+        return "renewed"
+    return None
+
+
+def stamp_exceptions(base: Config, approved: Config, now: datetime, revision: str, issuer: str | None = None) -> Config:
+    """``approved`` as you approved it: each exception it adds, widens, renews or makes permanent against ``base`` (the
+    settings approved before) stamped by Latet, a new id, ``now`` as its approval time (its lifetime runs from then),
+    the request profiles' ``revision`` (with body components, its body protocol's revision too, R-100) and who
+    approved it (``issuer``), whatever stamps it carried; every other one as it is."""
+    from latet.gateway.body_selectors import revision as body_revision
+    from latet.gateway.request_policy import body_protocol
+
+    before = {row.id: row for row in base.request_exceptions if row.id is not None}
+    rows = []
+    for row in approved.request_exceptions:
+        if exception_loosened(before.get(row.id) if row.id is not None else None, row) is not None:
+            protocol = body_protocol(row.profile) if any(c.kind == "body" for c in row.components) else None
+            row = row.model_copy(
+                update={
+                    "id": "x" + secrets.token_hex(5),
+                    "granted": now,
+                    "revision": revision,
+                    "body_revision": body_revision(protocol) if protocol is not None else None,
+                    "issuer": issuer,
+                }
+            )
+        rows.append(row)
+    if rows == list(approved.request_exceptions):
+        return approved
+    return approved.model_copy(update={"request_exceptions": rows})
+
+
+def _earlier(was: Any, row: Any) -> bool:
+    """``row`` the same approval as ``was``, its time moved earlier and nothing else of Latet's changed: it ends sooner,
+    which applies at once."""
+    return (
+        was.revision == row.revision
+        and was.body_revision == row.body_revision
+        and was.granted is not None
+        and row.granted is not None
+        and (row.granted < was.granted)
+    )
 
 
 def loosened(old: Config, new: Config, repositories: Collection[tuple[str, ProjectSettings]] = ()) -> list[str]:
@@ -756,6 +900,7 @@ def loosened(old: Config, new: Config, repositories: Collection[tuple[str, Proje
     out += _reviewer(old.llm_review, new.llm_review)
     out += _live(old.live_review, new.live_review)
     out += _destinations(old, new)
+    out += _exceptions(old, new)
     top = set(out)
     out += _projects(old, new, top)
     if repositories:

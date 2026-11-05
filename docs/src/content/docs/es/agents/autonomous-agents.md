@@ -27,6 +27,14 @@ OpenRouter, o con una clave de API de Anthropic. La clave pasa por Latet hasta e
 escribe en los registros ni se muestra en el panel. Hermes Agent con la sesión iniciada con ChatGPT no
 necesita clave: pasa por Latet con esa sesión, como Codex ([más abajo](#con-tu-cuenta-de-chatgpt)).
 
+Latet lee cada parte de cada petición que envían estos agentes
+([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)): una llamada que no lee,
+como una subida o un lote, se rechaza, y también una cabecera que añades en los ajustes del proveedor
+de un agente, hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la
+deje pasar. Estos agentes se configuran a mano, así que Latet no considera de confianza ningún
+proyecto para ellos: una carpeta que nombran solo añade protección, y tus ajustes para un proyecto no
+relajan nada ahí ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)).
+
 ## Hermes Agent
 
 Hermes lee su modelo y su punto de conexión de `config.yaml`, en su carpeta: `~/.hermes` en macOS

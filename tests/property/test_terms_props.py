@@ -7,8 +7,18 @@ index."""
 from hypothesis import given
 from hypothesis import strategies as st
 
-from latet.engine.detectors.terms import _WORDS, Term, _Alternation, _WordIndex
+from latet.engine.detectors.base import DetectContext
+from latet.engine.detectors.terms import (
+    _WORDS,
+    KnownValuesDetector,
+    NotPlain,
+    PlainTerms,
+    Term,
+    _Alternation,
+    _WordIndex,
+)
 from latet.engine.detectors.terms import _word_char as _word
+from latet.engine.types import EntityClass
 
 ASCII = "ab C-+_ .1"
 WORLD = "abéòÉZ -+_.1"
@@ -105,3 +115,57 @@ def test_the_alternation_finds_every_place_of_a_term_whatever_the_width_of_the_c
     terms = [Term(v) for v in values]
     found = _Alternation(terms, case_sensitive=True, whole_word=whole_word).finditer(text)
     _check([(s, e) for s, e, _ in found], terms, text, whole_word)
+
+
+# The values a text's repeats are looked for by: a person's name (whole words, from three letters), a secret (inside a
+# word too), and others; the same string may come twice, with another type (the later one names it).
+PLAIN = "abAB12.@-_ ò"
+_KINDS = [
+    ("PERSON", EntityClass.NER),
+    ("API_KEY", EntityClass.SECRET),
+    ("EMAIL", EntityClass.PII),
+    ("DOMAIN", EntityClass.PII),
+]
+
+
+@st.composite
+def _values_and_text(draw: st.DrawFn) -> tuple[list[tuple[str, str, EntityClass]], str]:
+    strings = draw(st.lists(st.text(PLAIN, min_size=3, max_size=7).filter(str.strip), min_size=1, max_size=6))
+    values = [(value, *draw(st.sampled_from(_KINDS))) for value in strings]
+    pieces = st.one_of(
+        st.sampled_from(strings),
+        st.sampled_from(strings).flatmap(lambda v: st.sampled_from([v[i:] for i in range(1, len(v))] or [v])),
+        st.sampled_from(strings).flatmap(lambda v: st.sampled_from([v[:i] for i in range(1, len(v))] or [v])),
+        st.text(PLAIN, max_size=3),
+    )
+    return values, "".join(draw(st.lists(pieces, max_size=12)))[:60]
+
+
+@given(_values_and_text())
+def test_plain_terms_find_what_known_values_find(case):
+    values, text = case
+    known = list(KnownValuesDetector(values, rule="repeat").detect(text, DetectContext()))
+    plain = PlainTerms(values, rule="repeat")
+    try:
+        strict = plain.strict_spans(text)
+    except NotPlain:
+        strict = None  # a value not ASCII found, or two that overlap: the masker asks KnownValuesDetector there
+    if strict is not None:
+        assert strict == known  # the same spans, in the same order
+    assert _covered({(s.start, s.end) for s in known}) <= _covered({(s.start, s.end) for s in plain.spans(text)})
+
+
+@given(_values_and_text(), st.data())
+def test_plain_terms_find_what_known_values_find_with_strings_found_whole(case, data):
+    # ``whole``: strings found only as whole words, a secret's too (a vault's short fakes, ``known._Part``).
+    values, text = case
+    whole = set(data.draw(st.lists(st.sampled_from([value for value, _, _ in values]), max_size=3)))
+    known = list(KnownValuesDetector(values, rule="repeat", whole=whole).detect(text, DetectContext()))
+    plain = PlainTerms(values, rule="repeat", whole=whole)
+    try:
+        strict = plain.strict_spans(text)
+    except NotPlain:
+        strict = None
+    if strict is not None:
+        assert strict == known
+    assert _covered({(s.start, s.end) for s in known}) <= _covered({(s.start, s.end) for s in plain.spans(text)})

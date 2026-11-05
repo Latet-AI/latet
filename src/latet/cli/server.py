@@ -222,13 +222,22 @@ def server_migrate(
         typer.echo("The database's tables are this version's." if why is None else why)
         raise typer.Exit(0 if why is None else 1)
 
+    alive: list[str] = []  # what an instance alive once the migrations were applied says (AliveAfterMigration)
+
     def migrated() -> list[str]:
         _logging_as(settings)
-        return instance.migrate_schema(settings)
+        try:
+            return instance.migrate_schema(settings)
+        except instance.AliveAfterMigration as exc:  # applied: never "Not migrated"
+            alive.append(str(exc))
+            return exc.applied
 
     applied = _done("Not migrated", migrated)
     if applied:
         typer.echo(f"Applied: {', '.join(applied)}.")
+    if alive:
+        typer.secho(alive[0], fg="red", err=True)
+        raise typer.Exit(1)
     # What the migrations leave, as an instance's start reads it: a schema newer than this Latet keeps the names of the
     # migrations it does not know, which migrating skips.
     why = _done("Not checked", lambda: instance.schema_state(settings))
@@ -242,17 +251,46 @@ def server_migrate(
 
 
 @server_app.command("run")
-def server_run(config: ConfigOption = None) -> None:
-    """Run an instance of the Latet server in the foreground: the container's command, and the services'."""
+def server_run(
+    config: ConfigOption = None,
+    workers: Annotated[
+        int | None,
+        typer.Option(
+            "--workers",
+            min=1,
+            max=64,
+            help="How many instances to run on this machine, on the one port, each a process of its own (default: "
+            "workers, 1). More than one needs Linux or the container image.",
+        ),
+    ] = None,
+) -> None:
+    """Run the Latet server in the foreground: one instance, or several with --workers. The container's command, and
+    the services'.
+
+    The workers share the one port, PostgreSQL and Valkey, as instances on several machines do: each has its own
+    memory, connections and metrics port (metrics_port for the first, the next port for each other), and is started
+    again when it ends or goes silent.
+    """
     from latet.server import instance
+    from latet.server import workers as supervising
 
     if instance.asyncio_debug():  # before anything is opened: its lines would name callbacks with what they hold
         typer.secho(f"Not started: {instance.DEBUG_MODE}.", fg="red", err=True)
         raise typer.Exit(2)
     _logging_first()
     settings = _local(config)
-    made = _done("Not started", lambda: instance.make_instance(settings))
-    made.run()
+    count = settings.workers if workers is None else workers
+    if (refused := supervising.refused_here(count)) is not None:  # Windows: one, by `--workers` or by the settings
+        typer.secho(f"Not started: {refused}.", fg="red", err=True)
+        raise typer.Exit(2)
+    supervisor = _done("Not started", lambda: supervising.Supervisor(settings, count))
+    if supervisor.workers > 1:  # one instance sets the log up itself, as it always has
+        _logging_as(supervisor.settings)
+    _done("Not started", supervisor.start)
+    if supervisor.workers == 1:
+        supervisor.run()  # one instance, as it always ran: what ends it is its own to say
+        return
+    _done("Stopped", supervisor.run)  # what ends the workers once started (a worker that cannot start, CannotStart)
 
 
 @server_app.command("ready")
@@ -904,6 +942,34 @@ def _show_token(
         )
 
 
+def _whole(value: Any) -> int | None:
+    """A count the server said, or None for what is no count (a bool is not one)."""
+    return value if type(value) is int and value >= 0 else None
+
+
+def _instance_line(row: Any) -> str:
+    """An instance alive, as the status lists it (Task 10): its id, its worker's number, its readiness, its memory, its
+    spaces, its vaults' indexes and its version; what it did not say, not said (or unknown); one of Latet 0.10 or older,
+    which says nothing of itself, said so; every text escaped."""
+    row = row if isinstance(row, dict) else {}
+    parts = []
+    if (worker := _whole(row.get("worker"))) is not None:
+        parts.append(f"worker {worker}")
+    ready = row.get("ready")
+    parts.append("ready" if ready is True else "not ready" if ready is False else "readiness unknown")
+    memory = _whole(row.get("memory"))
+    parts.append("memory unknown" if memory is None else f"{memory / 1048576:.0f} MiB in memory")
+    if (spaces := _whole(row.get("spaces"))) is not None:
+        parts.append(f"{spaces} spaces")
+    if (index := _whole(row.get("index"))) is not None:
+        parts.append(f"{index / 1048576:.1f} MiB of vault indexes")
+    if isinstance(row.get("version"), str):
+        parts.append(f"Latet {_text(row['version'], 64)}")
+    elif row.get("older") is True:
+        parts.append("Latet 0.10 or older")
+    return f"instance {_text(row.get('instance'), 64)}: " + ", ".join(parts)
+
+
 @server_app.command("status")
 def server_status() -> None:
     """The server's status, vault limits, log chain and edition checks."""
@@ -918,12 +984,31 @@ def server_status() -> None:
         typer.echo(f"  server names itself: {_text(answer.get('url'))}")
     if "instance" in answer:
         typer.echo(f"  instance: {_text(answer['instance'])}")
+    instances = answer.get("instances", [])
+    for row in instances if isinstance(instances, list) else []:
+        typer.echo(f"  {_instance_line(row)}")
+    if answer.get("instances_whole") is False:  # cut at its bound: a missing instance is no stopped one
+        typer.echo("  instances: the list is partial, cut at its bound: an instance may be alive and not listed")
     identities = _object_field(answer, "identities")
     typer.echo(
         "  identities: " + ", ".join(f"{key} {_count(identities.get(key))}" for key in ("people", "keys", "enabled"))
     )
     if "spaces" in answer:
         typer.echo(f"  spaces: {_count(answer['spaces'])}")
+    exceptions = answer.get("exceptions")
+    if isinstance(exceptions, list):  # D3: each permanent request exception, by id and scope category alone
+        rows = [row for row in exceptions if isinstance(row, dict)]
+        permanent = [row for row in rows if row.get("state", "permanent") == "permanent"]
+        typer.echo(f"  permanent request exceptions: {len(permanent)}")
+        for row in permanent:
+            typer.echo(f"    {_text(row.get('identity'))}: {_text(row.get('exception'))} ({_text(row.get('scope'))})")
+        # R-100, Minor 2: one an upgrade suspended (it needs approval again), one the edition does not allow
+        idle = [row for row in rows if row.get("state", "permanent") != "permanent"]
+        if idle:
+            typer.echo(f"  request exceptions that grant nothing now: {len(idle)}")
+        for row in idle:
+            said = f"{_text(row.get('scope'))}, {_text(row.get('state'))}"
+            typer.echo(f"    {_text(row.get('identity'))}: {_text(row.get('exception'))} ({said})")
     for key in ("database", "valkey"):
         if key in answer:
             shown = str(answer[key]).lower() if type(answer[key]) is bool else "?"

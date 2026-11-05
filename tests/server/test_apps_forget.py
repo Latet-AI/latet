@@ -255,7 +255,10 @@ async def test_nothing_of_a_forgotten_value_stays_in_the_database(server, bus, p
         _reviewed(runtime, FakeServer())
         masked = await _masked(client, secret, f"{text}, {CANARY}")
         assert "Maria" not in masked and CANARY not in masked
-        body = {"model": "m", "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}]}
+        body = {
+            "model": "gpt-4.1-mini",
+            "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}],
+        }
         turn = await client.post(
             f"/u/{route_key(secret)}/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-x"}
         )
@@ -401,7 +404,10 @@ async def test_the_gateway_of_the_same_key_masks_it_anew(server, upstream):
         old = (await _masked(client, secret, f"write to {CANARY}")).removeprefix("write to ")
         assert (await _forget(client, eraser, [CANARY])).json() == {"forgotten": 1, "unknown": 0}
         before = len(upstream.received)
-        body = {"model": "m", "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}]}
+        body = {
+            "model": "gpt-4.1-mini",
+            "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}],
+        }
         answer = await client.post(
             f"/u/{route_key(secret)}/openai/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-x"}
         )
@@ -545,7 +551,7 @@ async def test_the_administrators_forget_takes_what_the_gateway_kept_too(instanc
     a, b = instances
     key, secret = a.identities.add_key("Billing CI")
     admin = await _admin(a)
-    body = {"model": "m", "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}]}
+    body = {"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": f"write to {CANARY} about the invoice"}]}
     route = f"/u/{route_key(secret)}/openai/v1/chat/completions"
     async with _calling(a, b) as (first, second):
         turn = await first.post(route, json=body, headers={"authorization": "Bearer sk-x"})

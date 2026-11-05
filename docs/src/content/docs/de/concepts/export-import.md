@@ -174,8 +174,8 @@ Einstellungen den Schutz gegenüber Ihren verringert, und fragt Sie. Dann:
   Ordner `before-restore-` neben dem Tresor.
 
 Danach: `latet llm key` für den API-Schlüssel des Prüfers, `latet ner install` für die lokale
-Namenserkennung, `latet ocr install` für den Text in Bildern (bis dahin werden Bilder so gesendet,
-wie sie sind, mit der Markierung *Nicht gelesen*, oder mit `images: mask` gar nicht gesendet) und
+Namenserkennung, `latet ocr install` für den Text in Bildern (bis dahin wird eine Anfrage mit einem
+Bild nicht gesendet) und
 `latet global-install` (oder `latet claude`) für Ihre Agenten.
 
 **Nur in Ihrem Terminal.** Beide Befehle verweigern die Ausführung innerhalb eines Agenten: Sie

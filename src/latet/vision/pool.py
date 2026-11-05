@@ -64,10 +64,24 @@ def usable_cpus(
 ) -> int:
     """The processors this process may use, one at least: the smaller of those its affinity lets it run on (a
     container's --cpuset-cpus; ``os.process_cpu_count``) and, on Linux, its control group's quota (``cpu.max``: the
-    quota over the period, rounded down, one at least). ``affinity`` and ``cpu_max`` give the two counts' sources."""
+    quota over the period, rounded down, one at least), divided among the processes that share them as equals
+    (``share``: the workers of `latet server run --workers`). ``affinity`` and ``cpu_max`` give the two counts'
+    sources."""
     count = (affinity or _affinity)() or os.cpu_count() or 1
     quota = _quota((cpu_max or _cpu_max)())
-    return max(1, min(count, quota) if quota is not None else count)
+    return max(1, (min(count, quota) if quota is not None else count) // _SHARE)
+
+
+# How many processes share this machine's processors as equals: the workers of `latet server run --workers` (each one
+# of them, ``share``), each sizing its text recognitions by its share. One otherwise.
+_SHARE = 1
+
+
+def share(processes: int) -> None:
+    """This process is one of ``processes`` that share the machine's processors (a worker of `latet server run
+    --workers`): from now on ``usable_cpus`` says its share of them, one at least."""
+    global _SHARE
+    _SHARE = max(1, int(processes))
 
 
 def _affinity() -> int | None:

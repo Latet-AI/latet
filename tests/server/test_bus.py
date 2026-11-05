@@ -519,6 +519,21 @@ def test_a_call_that_waits_past_the_bound_for_a_connection_fails_as_a_store_that
         few.close()
 
 
+def test_the_names_under_a_prefix_are_read_and_bounded_and_none_is_deleted(bus):
+    """``Bus.names`` (the status's and a migration's read of the instances' keys, the final review's I-2): the names
+    under a prefix, without the bus's, each once, and whether every key was read; past ``most`` names, those and False;
+    nothing deleted. A prefix with a pattern's character reaches its own keys alone; an empty one is refused."""
+    _keys(bus, *(f"instance:{number:012x}" for number in range(5)), "instances", "instance*x", "other:instance:1")
+    names, whole = bus.names("instance:", pages=1_000, most=100)
+    assert sorted(names) == [f"instance:{number:012x}" for number in range(5)] and whole
+    names, whole = bus.names("instance:", pages=1_000, most=3)
+    assert len(names) == 3 and not whole
+    assert bus.names("instance*", pages=1_000, most=100) == (["instance*x"], True)
+    assert all(bus.get(f"instance:{number:012x}") == b"1" for number in range(5))
+    with pytest.raises(ValueError, match="needs a prefix"):
+        bus.names("", pages=1, most=1)
+
+
 def test_the_keys_of_a_big_purge_go_in_batches(bus, monkeypatch):
     _keys(bus, *(f"conv:u_emilycarte:{number}" for number in range(1_200)), "conv:u_danielokaf:1")
     sizes, delete = [], bus.client.delete

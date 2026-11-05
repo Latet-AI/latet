@@ -20,6 +20,8 @@ class Edition(Protocol):
 
     def shared_rules(self, stored: Config) -> Mapping[str, Any]: ...
 
+    def permanent_exceptions(self) -> bool: ...
+
     def close(self) -> None: ...
 
 
@@ -31,6 +33,10 @@ class Community:
     def shared_rules(self, stored: Config) -> Mapping[str, Any]:
         """The rules for everyone in force, read from the shared settings as stored: none."""
         return {}
+
+    def permanent_exceptions(self) -> bool:
+        """Whether a request exception may be made permanent on purpose (D3): the Community Edition allows it."""
+        return True
 
     def close(self) -> None:
         return None

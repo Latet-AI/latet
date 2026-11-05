@@ -15,7 +15,10 @@ Geheime Werte werden in jedem [Profil](../profiles/) maskiert.
 Auch Latets eigene Zugangsdaten sind enthalten: `LATET_PERSONAL_TOKEN` (`latet_pat_`),
 `LATET_COMPUTER_KEY` (`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
 `LATET_SCIM_TOKEN` (`latet_scim_`, das SCIM-Token eines Enterprise-Servers), `LATET_BRIDGE_TOKEN`
-(`latet_brg_`, das Token, das das Plugin für Claude Code dem Daemon Ihres Rechners gibt) und
+(`latet_brg_`, das Token, das das Plugin für Claude Code dem Daemon Ihres Rechners gibt), `LATET_LAUNCH_KEY`
+(`latet_lk_`, der Schlüssel, den `latet claude`, `latet codex` und die anderen Startbefehle dem Agenten
+geben, den sie starten, und den ein Befehl, der die Umgebung des Agenten ausgibt, in die Ausgabe eines
+Werkzeugs schreibt) und
 `LATET_ONE_TIME_CODE` (`latet_code_`, der Code, den eine Administratorin oder ein Administrator einer Person
 gibt, um einen Rechner zu verbinden), jeweils mit 43 URL-sicheren Zeichen (32 beim Einmalcode; `A-Z`,
 `a-z`, `0-9`, `_`, `-`) nach dem Präfix. Ein Bridge-Token oder ein Einmalcode aus einer früheren Version

@@ -676,7 +676,14 @@ def run_smoke(
                 connection.request(
                     "POST",
                     base + "/smoke/v1/messages",
-                    json.dumps({"model": "smoke", "messages": [{"role": "user", "content": "key " + CANARY}]}),
+                    # A documented model id: 0.11 refuses a body model its provider's grammar does not read.
+                    json.dumps(
+                        {
+                            "model": "claude-sonnet-4-5",
+                            "max_tokens": 64,
+                            "messages": [{"role": "user", "content": "key " + CANARY}],
+                        }
+                    ),
                     {"content-type": "application/json", "x-latet-token": key["key"]},
                 )
                 response = connection.getresponse()

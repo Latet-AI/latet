@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from latet.config import _yaml_error_at, load_yaml
 from latet.fileio import FileReadError, read_regular_bytes
 from latet.secret_text import KEY_BYTES, KEY_LONGEST, key_problem
+from latet.server.start_errors import SettingRefused
 
 SERVER_API = "/_latet/server/v1"  # the machines' calls, under the server's address
 # The applications API (``latet.bridge.apps``), under the server's address: an API key's token in each call. Named here,
@@ -60,7 +61,11 @@ _VARIABLES = {
     "ocr_readers": "LATET_SERVER_OCR_READERS",
     "ocr_read_seconds": "LATET_SERVER_OCR_READ_SECONDS",
     "ocr_wait_seconds": "LATET_SERVER_OCR_WAIT_SECONDS",
+    "workers": "LATET_SERVER_WORKERS",
 }
+# The workers `latet server run` starts on one machine at most (``workers``, ``--workers``): each an instance, a process
+# of its own with its own memory, pools and metrics port.
+WORKERS_MOST = 64
 # How many days the administration log keeps an entry when the settings say nothing (audit_retention_days): what the
 # beat's hourly prune drops is older (``latet.server.app._audit``).
 AUDIT_DAYS = 365
@@ -444,8 +449,9 @@ class ServerSettings(BaseModel):
         default=KEY_WORKING_VALUES,
         ge=1_000,
         le=1_000_000,
-        description="How many values of an API key's vault an instance keeps in memory, those used last: every other "
-        "one is found in PostgreSQL as a text needs it.",
+        description="How many values of an API key's or a person's vault an instance keeps in memory, those used "
+        "last: every other one is found in PostgreSQL as a text needs it. A person's vault of 35,000 values or fewer "
+        "is held whole, whatever this says.",
     )
     key_held_secrets: int = Field(
         default=KEY_HELD_SECRETS,
@@ -453,10 +459,12 @@ class ServerSettings(BaseModel):
         le=1_000_000,
         description="How many secrets of an API key's vault that no word of a text finds glued to letters or digits "
         "(one run of 16 characters or fewer, or a short word at its edge) an instance holds in memory for good, the "
-        "newest: an older one is found in PostgreSQL when nothing is glued to it, or one side only when it has seven "
-        "characters or more. Each one held takes about 2.2 KB on every instance, and every text the key masks or "
-        "unmasks is read for it: raise it for a key that sees many short secrets, such as a session token in each "
-        "log line.",
+        "newest: an older one is found in PostgreSQL when nothing is glued to it, glued on one side when the word at "
+        "that edge has seven characters or more, and glued on both sides when it is one run of seven characters or "
+        "more, within a call's lookup bounds. Each one held takes about 23 KB on every instance that serves the key, "
+        "most of it in the detector that finds it, and every text the key masks or unmasks is read for it: raise it "
+        "for a key that sees many short secrets, such as a session token in each log line. A person's space holds "
+        "every one, whatever this says.",
     )
     history_limit_mb: int = Field(
         default=1024,
@@ -492,7 +500,8 @@ class ServerSettings(BaseModel):
         description="How many text recognitions an instance keeps, each reading one image at a time, the processors "
         "this instance may use shared among them (never more readers than processors): each holds its models in "
         "memory (0.05 GB at rest; the first brings ONNX Runtime, 0.7 GB), and up to 0.9 GB more while it reads a large "
-        "screenshot.",
+        "screenshot. With several workers, each worker's instance may use its share of the processors (the "
+        "machine's divided by the workers), which bounds it.",
     )
     ocr_read_seconds: float = Field(
         default=30.0,  # SPACE_READ_SECONDS
@@ -507,6 +516,17 @@ class ServerSettings(BaseModel):
         le=300,
         description="How long a read waits at most, for its identity's other read and then for a text recognition: "
         "past it, as past the read's time. Never shorter than ocr_read_seconds.",
+    )
+    workers: int = Field(
+        default=1,
+        ge=1,
+        le=WORKERS_MOST,
+        description="How many instances `latet server run` starts on this machine, on the one port: each a process "
+        "of its own, with its own memory, its own connections (database_pool, valkey_connections) and its own "
+        "metrics port (metrics_port for the first, the next port for each other), started again when it ends or "
+        "goes silent; a worker that cannot start three times in a row stops the server. `--workers` gives it too. "
+        "More than one needs Linux or the container image: on Windows `latet server run` refuses them, and the "
+        "Windows service runs one.",
     )
 
     @field_validator("url")
@@ -581,11 +601,26 @@ class ServerSettings(BaseModel):
     @model_validator(mode="after")
     def _metrics_socket(self) -> ServerSettings:
         """The metrics have a socket of their own, which a load balancer in front of the instances' port never reaches:
-        an instance tells it from its own by the port a request came to."""
+        an instance tells it from its own by the port a request came to. Each worker has its own (Task 10): the first
+        on metrics_port, each other on the next port, every one of them a port and none the instance's own."""
+        last = self.metrics_port + self.workers - 1
         if self.metrics_port == self.port:
             raise ValueError(
                 "metrics_port is the instance's own port (port): the metrics have a socket of their own, which no load "
                 "balancer reaches; give metrics_port another port (7283 by default)"
+            )
+        if last > 65535:
+            raise ValueError(
+                f"metrics_port is {self.metrics_port} and each of the {self.workers} workers has a metrics port of its "
+                f"own, the next one after it, up to {last}, past the last port (65535): give metrics_port a lower "
+                "port, or start fewer workers"
+            )
+        if self.metrics_port <= self.port <= last:
+            raise ValueError(
+                f"the instance's own port (port) is among the metrics ports of the {self.workers} workers "
+                f"(metrics_port, {self.metrics_port}, and the next ones, a port each, up to {last}): give metrics_port "
+                "a port from "
+                "which the workers' metrics ports stay clear of the instance's own"
             )
         return self
 
@@ -750,31 +785,32 @@ SECRET_BYTES = KEY_BYTES
 
 
 def read_secret_file(path: Path, setting: str) -> str:
-    """Read one bounded regular UTF-8 file, following secret-volume links; errors name only the setting."""
+    """Read one bounded regular UTF-8 file, following secret-volume links; its refusals (SettingRefused, a ValueError)
+    name only the setting."""
     content, problem = b"", ""
     try:
         content = read_regular_bytes(path, limit=SECRET_BYTES, follow=True)
     except FileReadError as exc:
         problem = str(exc)
     if problem:
-        raise ValueError(f"{setting} names a file that {problem}")
+        raise SettingRefused(f"{setting} names a file that {problem}")
     text = ""
     try:
         text = content.decode("utf-8-sig").strip()
     except UnicodeDecodeError:
         problem = "cannot be read: it is not UTF-8 text"
     if problem:
-        raise ValueError(f"{setting} names a file that {problem}")
+        raise SettingRefused(f"{setting} names a file that {problem}")
     invalid = key_problem(text)
     if invalid == "empty":
-        raise ValueError(f"{setting} names a file that holds nothing")
+        raise SettingRefused(f"{setting} names a file that holds nothing")
     if invalid == "characters":
-        raise ValueError(
+        raise SettingRefused(
             f"{setting} names a file that holds more than one line, a space, a control character or a character "
             "outside ASCII: a key is one line of printable ASCII"
         )
     if invalid == "long":
-        raise ValueError(f"{setting} names a file that holds more than {SECRET_LONGEST} characters")
+        raise SettingRefused(f"{setting} names a file that holds more than {SECRET_LONGEST} characters")
     return text
 
 
@@ -798,6 +834,19 @@ def load_server_settings(path: Path | None = None) -> ServerSettings:
     problem = ""
     try:
         return ServerSettings.model_validate(data)
+    except ValidationError as exc:
+        problem = str(exc)
+    raise ValueError(problem)
+
+
+def with_workers(settings: ServerSettings, workers: int) -> ServerSettings:
+    """``settings`` with ``workers`` workers (`latet server run --workers`), checked as the settings are checked, every
+    rule that weighs the workers with them (each worker's metrics port among them): never an unchecked copy. What was
+    given stays given, and nothing else. Raises ValueError, a plain one holding its words alone, as
+    ``load_server_settings`` does."""
+    problem = ""
+    try:
+        return ServerSettings.model_validate({**settings.model_dump(exclude_unset=True), "workers": workers})
     except ValidationError as exc:
         problem = str(exc)
     raise ValueError(problem)

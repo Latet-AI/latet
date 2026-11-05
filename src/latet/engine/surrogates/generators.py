@@ -225,6 +225,13 @@ def gen_latet_token(original: str, rng: Drbg) -> str:
     return original[:end] + gen_latet_route_key(original[end:], rng)
 
 
+def gen_latet_launch_key(original: str, rng: Drbg) -> str:
+    """A launch key's stand-in keeps its prefix (``latet_lk_``) with 32 drawn characters, never a key's 43: the content
+    guard (``response_guard.safe_text``) refuses a live key's shape wherever it would leave, and must never take the
+    stand-in that leaves in its place for one."""
+    return "latet_lk_" + gen_latet_route_key("x" * 32, rng)
+
+
 def gen_latet_route_key(original: str, rng: Drbg) -> str:
     """A route key has no public prefix, even if it holds separators or consists of signs alone."""
     return "".join(rng.choice(_UPPER + _LOWER + _DIGITS + "_-") for _ in original)
@@ -746,6 +753,7 @@ GENERATORS: dict[str, Callable[[str, Drbg], str]] = {
     "LATET_COMPUTER_KEY": gen_latet_token,
     "LATET_SCIM_TOKEN": gen_latet_token,
     "LATET_BRIDGE_TOKEN": gen_latet_token,
+    "LATET_LAUNCH_KEY": gen_latet_launch_key,
     "LATET_ONE_TIME_CODE": gen_latet_token,
     "LATET_ROUTE_KEY": gen_latet_route_key,
     "JWT": gen_jwt,

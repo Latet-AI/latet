@@ -201,27 +201,38 @@ address that a rule of the key once found, then removed, is still masked.
 
 A log space can hold millions of values, so an instance does not hold a key's vault in memory. It
 keeps the values the key used last (`key_working_values`, 5,000 by default, about 10 MiB a key) and
-finds every other one in PostgreSQL as the texts of a call need it, with one lookup for all of them,
-through an index of the words of the values and fakes. That index holds hashes made with a secret
-key, never a word in clear.
+the prints of the whole vault: a 64-bit fingerprint of each word of its values and fakes, made with a
+secret key, about 15 MB for a million values. A call's words are looked up among the prints first: a
+word with no print is no value's and no fake's, and PostgreSQL is not asked for it. The values and
+fakes whose words have one are read from PostgreSQL, all of the call's at once, and each is decrypted
+and compared with the text before it masks or restores anything, since two words can share a print.
+Neither the prints nor PostgreSQL's index of the words hold a word in clear. Before each call the
+instance reads the key's change counter in PostgreSQL and takes in what the other instances kept or
+forgot since, so a value kept on one instance before a call starts is found by that call on any other,
+even when the message that told of it was lost. A key with few values works the same way: only a
+person's vault of 35,000 values or fewer is held whole in memory
+([Server operations](../concepts/server-operations/)).
 
-**Secrets glued to other letters.** From PostgreSQL, a secret written as one run of letters and digits,
-with no space or punctuation, is found by its word, and by its first and last six characters when
-other letters or digits are glued to one side of it. Glued on both sides (`xhunter2y`), or glued at
-all when the word at its edge has six characters or fewer, no word of the text finds it. So an
-instance holds a key's short secrets in memory for good, those of one run of 16 characters or fewer
-or with such a short word at an edge: the newest `key_held_secrets` of them (1,000 unless the server's
-settings say otherwise), found however they are glued. An older one is found where nothing is glued
-to it, or where one side is free and it has seven characters or more; a longer one, wherever one side
-is free. Raise `key_held_secrets` for a key that sees many short secrets, such as a session token in
-each log line: each one held takes about 2.2 KB on every instance, and every text the key masks or
-unmasks is read for it, which slows its calls a little. Measured as below with a session token of its
-own in every line (one more value to keep in each), a new key with 1,000 of them held masked 73 lines
-a second and unmasked 1,935, against 75 and 2,103 with none held. A fake is found glued as its secret
-is: it keeps the secret's signs in place, so a fake glued so that none of its words stands apart is
-one of a secret held in memory, and is found while the secret is held. As everywhere in Latet, a
-value is matched again from four characters, a person's name from three
-([known values](../concepts/detection/#known-values)).
+**Secrets glued to other letters.** From PostgreSQL, a secret written as one run of letters and digits, with no
+space or punctuation, is found by its word, and by its first and last six characters when other letters or
+digits are glued to it: on one side, at the edge of the text's run that holds it, and on both sides
+(`xhunter2y`), inside that run, which a call reads six characters at a time. A call reads a million such
+positions at most: past them, its later runs are read by their words and edges alone. A secret of six characters
+or fewer, or one whose word at a glued edge has six characters or fewer, is found by no word of the text when it
+is glued. So an instance holds a key's short secrets in memory for good, those of one run of 16 characters or
+fewer or with such a short word at an edge: the newest `key_held_secrets` of them (1,000 unless the server's
+settings say otherwise), found however they are glued, past a call's million positions too. An older one, or a
+longer one, is found where nothing is glued to it, glued on one side when the word at that edge has seven
+characters or more, and glued on both sides when it is one run of seven characters or more, within the call's
+million positions. Raise `key_held_secrets` for a key that sees many short secrets, such as a session token in
+each log line: each one held takes about 23 KB on every instance that serves the key, most of it in the detector
+that finds it, and every text the key masks or unmasks is read for it, which slows its calls a little. Measured
+with Latet 0.10.0 on the computer of [how fast it is](#how-fast-it-is), with a session token of its own in every
+line (one more value to keep in each), a new key with 1,000 of them held masked 73 lines a second and unmasked
+1,935, against 75 and 2,103 with none held. A fake is found glued as its secret is: it keeps the secret's signs
+in place, so a fake glued so that none of its words stands apart is one of a secret held in memory, and is found
+while the secret is held. As everywhere in Latet, a value is matched again from four characters, a person's name
+from three ([known values](../concepts/detection/#known-values)).
 
 **Short secrets.** A secret shorter than twelve characters (`password=1234`, a short token) gets a
 longer fake of the same kinds, its signs in place: fifteen digits for a number (its sign and decimal
@@ -256,11 +267,17 @@ gateway meanwhile has already sent that value's fake, which no unmask restores l
   status lists the identities at 90% of their limit, and the metric `latet_vault_near_limit` counts
   them, so raise a limit before it is reached. Each instance counts a call's new values before it
   commits them: two instances, or a call and an agent of the same key, can pass the limit by one
-  call's new values each before the next value is refused.
+  call's new values each before the next value is refused. An index of a vault's prints is built up to
+  16,777,216 prints, about eight million values of the kind [how fast it is](#how-fast-it-is)
+  measures: past that, no index is built while the key's space lasts, and its calls look their words
+  up in PostgreSQL alone, more slowly.
 - **A call** takes at most 1,000 texts and the server's `apps_request_mb` (8 MiB unless its settings
   say otherwise, never more than its `max_request_mb`): a call waits in memory for the key's thread,
-  and `latet-client` splits a longer list into calls of 8 MiB at most. Texts whose words name more than 100,000 values or fakes of the vault are refused
-  with 422, nothing masked: send fewer texts in a call.
+  and `latet-client` splits a longer list into calls of 8 MiB at most. Texts whose words name more
+  than 100,000 values or fakes of the vault are refused whole with 422, in fixed words that name no
+  value: nothing of the call is masked or restored, so send fewer texts in a call. A 503 is another
+  matter: a store of the server (PostgreSQL, Valkey) did not answer, and the same call can be sent
+  again later ([HTTP reference](../reference/apps-api/)).
 - **Calls at once.** A key has at most `requests_in_flight` application requests on an instance (16
   unless the settings say otherwise); past it, 429 with `Retry-After`.
 
@@ -268,38 +285,104 @@ gateway meanwhile has already sent that value's fake, which no unmask restores l
 
 The calls of one key run one after the other on an instance, in its space's thread; calls of
 different keys, and calls that reach different instances, run side by side. To go faster with one
-key, run more instances behind the load balancer.
+key, run more instances behind the load balancer, or several workers on one Linux machine
+([several instances on one machine](../concepts/server-operations/#several-instances-on-one-machine)).
 
-Measured on one instance (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL in Docker Desktop on the same
-computer), log lines of about 200 characters with an email address and a public IPv4 address each,
-half of them naming a customer seen before, 500 lines a call as `data`; and documents of about 20 KB
-of prose with ten values each, one a call:
+Measured with Latet 0.11 on one instance (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL 18 in Docker
+Desktop on the same computer, the server's default settings): 40,000 log lines of about 200
+characters with an email address and a public IPv4 address each, half of them naming a customer seen
+before, in calls of 500 as `data`; then 50 documents of about 20 KB of prose with ten values each, one
+a call. Lines a second are the lines over the time their calls took; a document's time is the median
+of its 50 calls:
 
 | The key's vault | Mask, lines a second | Unmask, lines a second | A document, mask / unmask |
 | --- | ---: | ---: | ---: |
-| New, learning its values as it goes | 189 | 2,691 | 77 / 28 ms |
-| 200,000 values | 440 | 1,691 | 87 / 30 ms |
-| 1,000,000 values | 410 | 1,498 | 95 / 32 ms |
+| New, learning its values as it goes | 191 | 2,894 | 126 / 31 ms |
+| 200,000 values | 871 | 2,960 | 117 / 32 ms |
+| 1,000,000 values | 773 | 2,967 | 124 / 32 ms |
 
-Mask is bound by the detectors: on one thread, with every value in memory and no database, the engine
-masks about 900 such lines a second. A new key also writes each new value to PostgreSQL. An instance
-keeps at most `database_pool` connections to PostgreSQL (10 unless the server's settings say
-otherwise) for every identity's work, and lets three tenths of them (three of ten) be held by calls
-that keep their new values in one transaction each; the others keep each value as it comes, which is
-slower. Raise `database_pool` for an instance that masks for many new keys at once, and PostgreSQL's
-`max_connections` with it ([server operations](../concepts/server-operations/#connections-budgets-and-trust)).
-`scripts/bench_apps.py` in the repository measures a server of yours the same way.
+Each document brings values new to the key, which it writes to PostgreSQL as it masks them: the same 50
+documents masked again, their values known, took 16.6 ms at 200,000 values and 16.4 ms at 1,000,000 (unmask 23
+ms at each). A new key writes most of its lines' values too, which is why it masks fewer.
+
+Latet 0.10.0, measured the same way on the same computer, masked 350 and 304 lines a second at
+200,000 and 1,000,000 values and 153 for a new key, unmasked 2,114 and 2,014, and masked a document in
+163 to 182 ms. Latet 0.11 set out to mask at least 1,000 such lines a second on one instance at
+200,000 and at 1,000,000 values, and a document in 30 ms or less: it masks 871 and 773, and a document
+in 30 ms only when the key holds its values already. Most of a mask call's time goes to the
+detectors, and some to waiting for PostgreSQL.
+
+An instance finds a key's values through the prints of its vault's words ([a key's vault](#a-keys-vault)), which
+take about 15 MB for a million values (14.77 MB at 1,000,000) and are built in the background as the key's space
+opens: in 1.5 seconds at 1,000,000 values (the median of three openings, 1.42 to 1.62 s). Until they are ready,
+the key's calls look their words up in PostgreSQL alone: in an earlier run of this measurement on Latet 0.11,
+with the prints turned off, the key of 200,000 values masked 494 lines a second and unmasked 1,382. Each call
+first reads the key's change counter, 0.51 ms at the median, and takes in what changed since: 1.87 ms for one
+new value and 2.11 ms for 100, at the median too.
+
+In a call of texts masked before, only the new ones are read again, but each of the others is still
+looked up and checked against what the key masked: 500 texts masked before and one new took 168 ms,
+the new one alone 6.1 ms (medians of three runs).
+
+On one Linux machine, workers add up. Measured in Docker on the same computer (a Linux virtual
+machine of 20 processors and 16 GB, PostgreSQL 18.6 and Valkey 9.1.2 in containers beside it), with
+`latet server run --workers` and an API key of 200,000 values: 200,000 distinct lines of the kind
+above in calls of 62, four connections a worker, each count for 20 seconds, the median of three
+rounds; the memory is each worker's resident memory after the rounds:
+
+| Workers | Mask, lines a second | Unmask, lines a second | Memory a worker |
+| ---: | ---: | ---: | ---: |
+| 1 | 1,190 | 1,947 | 227 MB |
+| 2 | 2,260 | 3,711 | 227 MB |
+| 4 | 4,253 | 6,594 | 216 MB |
+| 8 | 7,477 | 10,147 | 185 MB |
+
+Eight workers masked 6.28 times what one did and unmasked 5.21 times, where Latet 0.11 set out to
+reach at least 5 times both; no round of eight workers unmasked at less than 5.07 times. The kernel
+deals the connections to the workers by a hash, not in turn, so some workers get more of them than
+others: from 1 to 10 of the 32 in a round of eight workers. The process that starts the workers took
+47 to 48 MB beside them. These calls come from several connections at once, so compare the rows of
+this table with each other, not with the first table.
+
+Writing new values takes connections to PostgreSQL: an instance, and each worker, keeps at most
+`database_pool` of them (10 unless the server's settings say otherwise) for every identity's work,
+and lets three tenths of them (three of ten) be held by calls that keep their new values in one
+transaction each; the others keep each value as it comes, which is slower. Raise `database_pool` for
+an instance that masks for many new keys at once, and PostgreSQL's `max_connections` with it
+([server operations](../concepts/server-operations/#connections-budgets-and-trust)).
+`scripts/bench_apps.py` in the repository measures a server of yours as the first table was measured.
 
 ## Upgrading a server
 
-After an upgrade that changes how the words of a vault are indexed, the first instance that builds a
-key's space makes them again before it answers the key's first call: about 40 seconds for 200,000
-values and four and a half minutes for 1,000,000 on the computer above. A call that arrives meanwhile
-waits, and an instance builds four spaces at once, so a few big keys delay the first calls of the
-other keys on it. The changelog says when a release does this; then send each big key one call, with
-a long enough timeout, before its programs start again.
+Latet 0.11 changes the tables. Stop every instance and every worker, on every machine, run
+`latet server migrate` once with 0.11, then start them all with it
+([upgrading](../concepts/server-operations/#upgrading-and-adding-instances)). An instance does not
+start on tables of another version, so no call is answered between the stop and the start, and
+`latet server migrate` changes nothing while an instance is alive, one of 0.10 for 30 seconds after
+it stops. The migration adds to each word row of every vault an empty place for its print and for the
+count of the change that wrote it last, with their indexes: on a database of large vaults it takes
+longer than earlier migrations did, and the prints themselves are made later, in the background.
 
-While instances of two versions run side by side, a value an older instance writes is found by the
-newer ones while they hold it in memory, but not in PostgreSQL until the key's space is built again.
-When the applications API is in use, stop every older instance before the new ones start, even when
-the tables stay the same ([upgrading](../concepts/server-operations/#upgrading-and-adding-instances)).
+A vault kept by Latet 0.10 has no prints yet. After the restart, the first instance that builds a key's space
+answers the key's calls at once, looking their words up in PostgreSQL as 0.10 did, and makes the vault's prints
+in the background, once, one instance at a time; each instance then builds its own index of them and uses it.
+Until then the key's calls mask the same values, more slowly ([how fast it is](#how-fast-it-is): 494 lines a
+second at 200,000 values with the prints turned off, in an earlier run), and none is refused for it. When the
+prints are not all made or an index cannot be built (PostgreSQL or Valkey not answering, a catch-up that
+failed), the calls stay on PostgreSQL's lookup until the index is built again: at once when another instance has
+made the prints, otherwise 10, 20 and 30 seconds after each try and then once a minute. The log says once when
+an index stops being used and once when it is used again. A vault past the size an index is built for
+([limits](#limits)) stays on PostgreSQL's lookup while its space lasts. The words themselves stay as 0.10 made
+them: 0.11 does not make them again.
+
+A release that changes how the words of a vault are made (the changelog says so) makes a key's words
+again in the first instance that builds its space, before that space answers the key's first call:
+Latet 0.10.0 took about 40 seconds for 200,000 values and four and a half minutes for 1,000,000 on
+the computer above. A call that arrives meanwhile waits, and an instance builds four spaces at once,
+so a few big keys delay the first calls of the other keys on it: after such a release, send each big
+key one call, with a long enough timeout, before its programs start again.
+
+While instances of two versions run side by side, which a release that keeps the tables allows, a
+value an older instance writes is found by the newer ones while they hold it in memory, but not in
+PostgreSQL until the key's space is built again. When the applications API is in use, stop every
+older instance before the new ones start, even when the tables stay the same.

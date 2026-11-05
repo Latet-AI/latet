@@ -55,7 +55,7 @@ def _client(upstream, server, reader, **review):
 
 def _send(c, data: str):
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
-    body = {"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": [image]}]}
+    body = {"model": "claude-sonnet-4-5", "max_tokens": 5, "messages": [{"role": "user", "content": [image]}]}
     return c.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "t"})
 
 

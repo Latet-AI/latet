@@ -84,7 +84,8 @@ on. Name the agents step 2 found.
   Hermes Agent, their own scripts and frameworks...): each goes through Latet in its own way, see
   [Other agents and tools](#other-agents-and-tools).
 - **The local models**, recommended from day one: name detection finds names and street addresses
-  (about 1.6 GB), text in images reads screenshots and masks the values in them (about 31 MB). They
+  (about 1.6 GB), text in images reads screenshots and masks the values in them (about 31 MB);
+  without it, Latet refuses a request that carries an image. They
   run on the CPU, are downloaded once from huggingface.co, and nothing leaves the computer with
   either. Ask whether to download them.
 

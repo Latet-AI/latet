@@ -55,7 +55,8 @@ con il motivo. Succede a un'immagine animata, a una più grande di 20 MB o di 40
 non è un'immagine valida, a una così lunga rispetto alla sua larghezza, o così larga rispetto alla
 sua altezza, che andrebbe letta in più di 16 parti (lo screenshot di una pagina lunga più di circa
 29.000 pixel), e a qualsiasi immagine mentre i modelli si stanno ancora caricando (una richiesta li
-attende fino a 20 secondi).
+attende fino a 20 secondi). Da una richiesta che Latet si limita a verificare, come quelle di Claude Code, non
+si può togliere un'immagine: una con un'immagine che Latet non riesce a leggere non viene inviata.
 
 ## Quali immagini
 
@@ -63,7 +64,7 @@ attende fino a 20 secondi).
 | --- | --- |
 | Immagini nei messaggi: le immagini base64 di Claude, gli URL `data:` di OpenAI Chat e Responses, Codex via HTTP e via il suo WebSocket, le immagini inline di Gemini (`inlineData`) | sì |
 | Screenshot restituiti dagli strumenti: Read di Claude Code su un'immagine, server MCP come quello di un browser, il computer use di OpenAI | sì |
-| Immagini indicate dal loro indirizzo (un URL `https://`, un id di file), PDF e altri documenti, audio | no: inviati così come sono, con la segnalazione *Non ispezionato*, o non inviati (vedi sotto) |
+| Immagini indicate dal loro indirizzo (un URL `https://`, un id di file), PDF e altri documenti, audio | no: la richiesta non viene inviata |
 
 ## Le impostazioni
 
@@ -73,7 +74,7 @@ in un progetto.
 
 | `images` | Con il riconoscimento del testo | Senza |
 | --- | --- | --- |
-| `allow` (predefinito) | le immagini vengono lette e mascherate | le immagini vengono inviate così come sono, con la segnalazione *Non ispezionato* |
+| `allow` (predefinito) | le immagini vengono lette e mascherate | non viene inviata nessuna richiesta con un'immagine |
 | `mask` | vengono inviate solo le immagini lette e mascherate: una richiesta che ne contiene una che Latet non riesce a leggere (un PDF, un'immagine indicata dal suo indirizzo) non viene inviata | non viene inviata nessuna richiesta con un'immagine |
 | `block` | non viene inviata nessuna richiesta che contiene un'immagine o un documento | lo stesso |
 
@@ -82,7 +83,47 @@ in un progetto.
 - Il `latet.yaml` di un repository può solo inviare meno immagini. Inviarne di più, dalle tue
   impostazioni o da un tuo progetto, e `ocr: off` attendono la tua approvazione quando li chiede un
   agente ([Gli agenti e le tue impostazioni](../agents-and-settings/)).
-- Un agente che viene fermato riceve un errore che dice perché e cosa fare.
+- Con `ocr: off`, come senza il riconoscimento del testo, non viene inviata nessuna richiesta con
+  un'immagine.
+- Un agente che viene fermato riceve un errore che dice perché e cosa fare. Senza il riconoscimento
+  del testo, gli viene detto di eseguire `latet ocr install` e di iniziare una nuova conversazione,
+  perché l'immagine resta nella sua cronologia:
+
+  ```text
+  Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
+  ```
+
+## Le foto e i loro metadati
+
+Una richiesta che Latet riscrive (Codex, OpenCode e gli altri agenti in modalità gateway) invia ogni
+immagine riscritta, senza metadati. Una richiesta che Latet si limita a verificare, come quelle di Claude Code,
+esce come l'ha costruita l'agente, quindi lì Latet rende conto di ogni byte di ogni immagine: la
+struttura del suo formato, letta secondo la sua grammatica; il testo dei suoi metadati (il commento
+*Screenshot* di uno screenshot, il programma che l'ha creata, il nome del suo profilo colore), letto
+dal controllo finale; e i pixel dell'immagine principale, di cui il riconoscimento del testo ha letto
+il testo. Ciò che resta non viene inviato:
+
+- una posizione (GPS) nei metadati di una foto;
+- le note che il produttore della fotocamera scrive in una forma tutta sua;
+- la miniatura che una fotocamera conserva dentro una foto, e qualsiasi altra immagine al suo interno,
+  come le mappe di profondità e di guadagno della foto ritratto di un telefono;
+- ciò che segue la fine dell'immagine, come il video di una foto animata.
+
+All'agente viene detto come andare avanti:
+
+```text
+Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
+```
+
+Riporta la conversazione a prima dell'immagine, o iniziane una nuova, poi allega di nuovo l'immagine
+senza i metadati: su iOS, *Condividi*, *Opzioni*, *Posizione* disattivata; in Anteprima su macOS,
+*Strumenti*, *Mostra Inspector*, *Rimuovi informazioni sulla posizione*; su Windows, *Proprietà* del
+file, *Dettagli*, *Rimuovi proprietà e informazioni personali*. Un normale screenshot non ha niente di
+tutto questo, e passa.
+
+Lì nemmeno un'immagine WebP originale può essere spiegata byte per byte, e viene rifiutata anche lei:
+esportala come PNG, poi torna indietro o inizia una nuova conversazione. Una richiesta che Latet
+riscrive invia un'immagine WebP riscritta come PNG.
 
 ## In Claude Code
 
@@ -127,6 +168,9 @@ le invii:
   valore letto male potrebbe non essere riconosciuto.
 - **Il modello legge il valore fittizio.** Se lo legge male, la sua risposta contiene il valore
   fittizio letto male, al posto del quale Latet non può rimettere il valore reale.
-- **I PDF e gli altri documenti non vengono letti**, né le immagini indicate dal loro indirizzo: vedi
-  la tabella qui sopra.
+- **I PDF e gli altri documenti non vengono letti**, né le immagini indicate dal loro indirizzo: una
+  richiesta che ne contiene uno non viene inviata.
+- **I codici QR e i codici a barre non vengono decodificati.** Il riconoscimento del testo legge il
+  testo: i dati che un codice contiene escono con l'immagine. Non inviare un codice che contiene un
+  valore che proteggi.
 - **Solo testo.** Volti, firme, loghi e scrittura a mano non vengono coperti.

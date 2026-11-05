@@ -205,18 +205,42 @@ def test_display_names_are_texts_of_the_same_kind_as_the_ref_that_names_them():
     assert texts.count(("ann.png", SlotKind.TOOL_RESULT)) == 2  # the $ref and the name it points at, masked alike
 
 
-def test_the_providers_parts_pass_and_metadata_holds_no_text():
+def test_the_providers_parts_are_read_as_a_functions_and_metadata_holds_no_text():
+    """The code and the tools the provider ran are read as a function's call and response are (their input and output,
+    the code and what it printed), each response its tool's output; a signature holds no text."""
     parts = [
         {"executableCode": {"language": "PYTHON", "code": "print(1)"}},
         {"codeExecutionResult": {"outcome": "OUTCOME_OK", "output": "1"}},
-        {"toolCall": {"id": "t1", "toolType": "GOOGLE_SEARCH", "args": {"query": "q"}}},
-        {"toolResponse": {"id": "t1", "toolType": "GOOGLE_SEARCH", "response": {"results": []}}},
+        {"toolCall": {"id": "t1", "toolType": "GOOGLE_SEARCH_WEB", "args": {"query": "q"}}},
+        {"toolResponse": {"id": "t1", "toolType": "GOOGLE_SEARCH_WEB", "response": {"results": ["r"]}}},
         {"thoughtSignature": "c2ln"},
         {"text": "signed", "thoughtSignature": "c2ln"},
     ]
     scan = gemini.scan_request({"contents": [{"role": "model", "parts": parts}]})
-    assert _slots(scan) == [("signed", SlotKind.ASSISTANT_TEXT, True)]
+    assert _slots(scan) == [
+        ("print(1)", SlotKind.TOOL_INPUT, True),
+        ("1", SlotKind.TOOL_RESULT, False),
+        ("q", SlotKind.TOOL_INPUT, True),
+        ("r", SlotKind.TOOL_RESULT, False),
+        ("signed", SlotKind.ASSISTANT_TEXT, True),
+    ]
+    assert scan.slots[3].tool == "GOOGLE_SEARCH_WEB"
     assert scan.unreadable == []
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        {"toolCall": {"toolType": "URL_CONTEXT", "weird": 1}},
+        {"toolResponse": {"toolType": "URL_CONTEXT", "response": "not an object"}},
+        {"executableCode": {"language": "PYTHON", "code": 1}},
+        {"codeExecutionResult": {"outcome": "OUTCOME_OK", "output": "1", "stdout": "1"}},
+        {"executable_code": "print(1)"},
+    ],
+)
+def test_a_providers_part_in_another_form_is_named_unreadable(part):
+    scan = gemini.scan_request({"contents": [{"role": "model", "parts": [part]}]})
+    assert scan.unreadable
 
 
 def test_a_parts_own_metadata_is_read_as_other_text():
@@ -230,7 +254,6 @@ def test_a_parts_own_metadata_is_read_as_other_text():
     "part",
     [
         {"text": "heard", "audioTranscription": {"text": "what was said"}},
-        {"weird": 1},
         {"text": "a", "functionCall": {"name": "f", "args": {}}},
         "not an object",
         {"text": 3},
@@ -240,6 +263,15 @@ def test_a_parts_own_metadata_is_read_as_other_text():
 def test_a_part_latet_cannot_read_is_named_unreadable(part):
     scan = gemini.scan_request({"contents": [{"role": "user", "parts": [part]}]})
     assert scan.unreadable
+
+
+def test_a_parts_unknown_member_is_left_to_the_bodys_declaration():
+    """A member no field names is refused by the body's declaration as body-unknown-member, as on every other protocol
+    (P2-8a, root's ruling 6; test_gemini_mediate's test_an_unknown_member_of_a_part_is_refused_on_either_machine), not
+    by the scanner, which reads the part's text as before."""
+    scan = gemini.scan_request({"contents": [{"role": "user", "parts": [{"text": "x", "weird": 1}]}]})
+    assert not scan.unreadable
+    assert _slots(scan) == [("x", SlotKind.USER_TEXT, False)]
 
 
 def test_a_thought_is_read_as_the_models_text():

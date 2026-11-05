@@ -53,6 +53,13 @@ pytestmark = pytest.mark.server
 CANARY = "emily.carter@acme.com"
 
 
+def _from_memory(monkeypatch) -> None:
+    """Each person's space built in the test served from memory, its whole vault there, as a person's whose words are
+    not all made yet is (Task 9): the path the tests that call it hold, a person's on its store being an API key's
+    (``StoredVault``, ``test_person_vault``)."""
+    monkeypatch.setattr(PgVaultStore, "words_complete", lambda self: False)
+
+
 def _terms(runtime):
     return [t.value for t in runtime.config.terms]
 
@@ -210,7 +217,7 @@ async def test_what_the_model_wrote_found_in_an_instances_own_memory_is_kept_ali
         verifier.clock = lambda: now[0]
         verifier.wrote("cc:s-1", [text])
         assert verifier.shared is not None
-        name = verifier.shared._reverse(verifier._written_key("cc:s-1", text).hex())  # type: ignore[attr-defined]
+        name = verifier.shared._reverse(verifier._written_key("cc:s-1", text, "o").hex())  # type: ignore[attr-defined]
         client = a.bus.client
         await until(lambda: client.exists(name))
         client.expire(name, 30)
@@ -225,7 +232,10 @@ async def test_what_the_model_wrote_found_in_an_instances_own_memory_is_kept_ali
         assert there.built.verifier.written("cc:s-1", text)
 
 
-async def test_a_conversation_naming_a_value_not_heard_of_yet_loads_it_first(instances):
+async def test_a_conversation_naming_a_value_not_heard_of_yet_loads_it_first(instances, monkeypatch):
+    # The memory path's (Task 9's I3): a person's vault on its store loads nothing here, its answer's hold bringing the
+    # conversation's values back at once (``test_person_vault``).
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     a.listening.set()  # no ear (no message is heard), and the instances count as listening: a space is built only then
@@ -306,7 +316,8 @@ async def test_a_space_loads_at_most_the_vault_limit_and_keeps_its_count_as_valu
         )
         await asyncio.to_thread(here.forget, entity.id)
         await until(lambda: there.built.vault.get(entity.id) is None)
-        assert b.spaces._spaces[emily.id].parts.vault.count == 1  # its domain stays
+        # Its domain stays; a person's space on its store has PostgreSQL count its values, a second late at most.
+        await until(lambda: b.spaces._spaces[emily.id].parts.vault.count == 1)
 
 
 def _hold_build(spaces, monkeypatch):
@@ -517,17 +528,25 @@ async def test_two_clients_at_once_never_build_project_maskers_past_the_share(se
         assert 1 <= len(projects._scopes) <= 2, len(projects._scopes)  # what the share holds, as for one client alone
 
 
-async def test_one_long_text_never_carries_a_space_past_its_share(server):
+async def test_one_long_text_never_carries_a_space_past_its_share(server, monkeypatch):
     """The re-review's probe (RP1): one tool output of 2.5 million characters, 160 lines of a key of 16,000 characters,
     kept 135 values worth 82 MiB that no weighing saw, each value's length counted only when the vault's parts were next
     read. Each value is weighed as it is kept, its length too: the call stops with the share's words once the next one
-    would carry the space past its share, and what it kept before stays within it."""
+    would carry the space past its share, and what it kept before stays within it. What her detectors were granted past
+    the ordinary RE2 budget since Task 9 put her on the stored vault (an API key's budget, with its ceiling: Task 8's
+    fix round 9) is in her space's size, never in its share, as a key's is, and within the ceiling of this budget: her
+    space is built again once the budget is lowered, as a server's spaces are built under the budget it starts with
+    (the review of the merge of Task 9, M2)."""
     emily, _ = server.identities.add_person("Emily Carter")
     async with listening(server):
-        runtime = await server.spaces.runtime(emily)
+        measured = await server.spaces.runtime(emily)
+        budget = 2 * (space_size(measured) + 8 * 1024 * 1024)  # her share: room for 8 MiB more
+        server.spaces.budget = budget
+        await server.spaces.drop(emily.id)
+        runtime = await server.spaces.runtime(emily)  # built again under the lowered budget, and weighed
         vault, engine = runtime.built.vault, runtime.built.engine
-        server.spaces.budget = 2 * (space_size(runtime) + 8 * 1024 * 1024)  # her share: room for 8 MiB more
-        await server.spaces.runtime(emily)  # weighed
+        ceiling = int(budget * spaces_module.SPACE_SHARE * spaces_module.DETECTORS_SHARE)
+        assert vault.detectors_extra_most == ceiling
         rng, count = random.Random(7), vault.count
         text = "\n".join(f"api_key_{n} = {rng.randbytes(8_000).hex()}" for n in range(160))
         session = await asyncio.to_thread(engine.session, "cc:large")
@@ -536,7 +555,58 @@ async def test_one_long_text_never_carries_a_space_past_its_share(server):
         assert text[-200:] not in str(stopped.value)
         await asyncio.to_thread(vault.matchers.current)  # every value it kept, matched and so weighed by any count
         assert vault.count > count  # it kept what fitted
-        assert space_size(runtime) <= server.spaces.budget * spaces_module.SPACE_SHARE
+        assert spaces_module._detectors(runtime) <= ceiling
+        assert space_size(runtime) - spaces_module._detectors(runtime) <= budget * spaces_module.SPACE_SHARE
+
+
+async def test_what_a_spaces_detectors_were_granted_never_closes_it_for_its_share_as_its_request_ends(
+    server, monkeypatch
+):
+    """Round 9's rule, pinned (its acceptance review's carry; the review of the merge of Task 9, M5): a share is judged
+    without what a space's detectors were granted past the ordinary RE2 budget (``Space.extra``), which counts against
+    the budget alone. A person whose grants carry her space past the budget, what she holds otherwise within her share,
+    is not closed as past its share when her request ends: else a busy space would be made again after every request."""
+    emily, _ = server.identities.add_person("Emily Carter")
+    async with listening(server):
+        runtime = await server.spaces.runtime(emily)
+        space = server.spaces._spaces[emily.id]
+        server.spaces.budget = 2 * space_size(runtime) + 1024 * 1024  # her share holds all she holds but her grants
+        monkeypatch.setattr(spaces_module, "_detectors", lambda runtime: server.spaces.budget)  # granted: the budget
+        server.spaces._weigh(space, ended=True)
+        assert space.extra == server.spaces.budget < space.size  # over the budget, by what was granted
+        assert space.size - space.extra <= server.spaces.budget * spaces_module.SPACE_SHARE
+        assert server.spaces._spaces.get(emily.id) is space and not space.closed  # kept, in use
+
+
+async def test_a_space_past_its_share_by_its_grants_alone_keeps_its_long_connections_when_room_is_made(
+    server, monkeypatch
+):
+    """Round 9's rule in ``_fit``, carried to Task 13 by name (the final review's M-8): a share is judged without what a
+    space's detectors were granted past the ordinary RE2 budget (``Space.extra``). A person whose grants alone carry
+    her space past its share, with a long connection open (a dashboard's stream) and no request served, is no space
+    past its share when room is made over the budget: kept while it is busy, as any space within its share is, her
+    stream left running. A space past its share would be closed even then, its stream ended with the share's words."""
+    emily, _ = server.identities.add_person("Emily Carter")
+    async with listening(server):
+        runtime = await server.spaces.runtime(emily)
+        space = server.spaces._spaces[emily.id]
+        server.spaces.budget = 2 * space_size(runtime) + 1024 * 1024  # her share holds all she holds but her grants
+        monkeypatch.setattr(spaces_module, "_detectors", lambda runtime: server.spaces.budget)  # granted: the budget
+        stream = asyncio.create_task(asyncio.sleep(3600))  # her dashboard's stream: busy, serving no request
+        space.long.add(stream)
+        space.busy += 1
+        try:
+            server.spaces._fit(keep=None)
+            share = server.spaces.budget * spaces_module.SPACE_SHARE
+            assert space.extra == server.spaces.budget and space.size > server.spaces.budget  # over, by its grants
+            assert space.size - space.extra <= share and space.serving == 0
+            assert server.spaces._spaces.get(emily.id) is space and not space.closed  # kept
+            await asyncio.sleep(0)
+            assert not stream.done()  # its stream runs on
+        finally:
+            space.long.discard(stream)
+            space.busy -= 1
+            stream.cancel()
 
 
 TAUGHT = "Orion Holdings"  # a client's name the local reviewer taught: only the vault's own detector finds it again
@@ -551,12 +621,15 @@ async def _past_its_share_on_b(a, b, emily):
     return here, there, await asyncio.to_thread(here.built.vault.intern, "CLIENT", EntityClass.CUSTOM, TAUGHT)
 
 
-async def test_a_space_past_its_share_learns_no_value_a_conversation_names_and_stops_what_needs_it(instances):
+async def test_a_space_past_its_share_learns_no_value_a_conversation_names_and_stops_what_needs_it(
+    instances, monkeypatch
+):
     """RP4: values another instance kept are learnt through ``Vault.learn``, outside the share's check of a value kept
     here, so a space past its share on one instance still grew by what another kept. It learns none past its share,
     whatever the route: a conversation the other instance showed a value is stopped with the share's words, never sent
     with the value in clear, which only the vault's own detector would find; and the space is made again from
     PostgreSQL at its next use, every value known."""
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     a.listening.set()  # no ear: B learns of the value through the conversation alone
@@ -599,9 +672,10 @@ async def test_a_space_past_its_share_learns_no_value_another_instance_keeps_and
         assert TAUGHT not in await _leaves(again, f"the {TAUGHT} renewal is due on Friday")
 
 
-async def test_a_catch_up_past_its_share_learns_nothing_and_its_space_is_made_again(instances):
+async def test_a_catch_up_past_its_share_learns_nothing_and_its_space_is_made_again(instances, monkeypatch):
     """RP4: the beat's catch-up of a vault learns every value PostgreSQL holds that the space does not know, past its
     share none: the space is made again from PostgreSQL at its next use instead."""
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     a.listening.set()  # no ear: the catch-up alone
@@ -1245,7 +1319,14 @@ async def test_an_idle_space_weighs_what_it_holds(server):
             TermConfig(value=f"Client {n:05d}") for n in range(1_000)]}))  # fmt: skip
         with_terms = space_size(runtime)
         assert with_terms - idle >= 1_000 * 256  # its masker holds each term
-        count = runtime.built.vault.count
+
+        def but_the_index() -> int:
+            # The index of prints, its log of what changed and the words of what calls found are weighed at what they
+            # hold, and move in the background (a telling of 64 bytes lands when the space's freshness moves): left
+            # out here, read at the same moment as the rest.
+            return space_size(runtime) - runtime.store.index_bytes - getattr(runtime.built.vault, "words_bytes", 0)
+
+        before, count = but_the_index(), runtime.built.vault.count
         secret = await asyncio.to_thread(
             runtime.built.vault.intern, "PASSWORD", EntityClass.SECRET, "hunter2-correct-horse"
         )
@@ -1255,7 +1336,7 @@ async def test_an_idle_space_weighs_what_it_holds(server):
         # hold of it (2,841 bytes measured for a value of 40 characters: 3,136 weighed).
         chars = max(len(secret.original), len(secret.surrogate))
         weighed = spaces_module._PER_VALUE + spaces_module._PER_CHAR * chars
-        assert added == 1 and space_size(runtime) - with_terms == weighed
+        assert added == 1 and but_the_index() - before == weighed
 
 
 async def test_a_spaces_long_values_are_weighed_by_their_length(server):
@@ -1374,6 +1455,8 @@ async def test_a_batch_holding_images_raises_its_spaces_weight_by_their_size_unt
     emily, _ = server.identities.add_person("Emily Carter")
     async with listening(server):
         runtime = await server.spaces.runtime(emily)
+        index = runtime.store.index  # a person's space builds its index in the background: built before it is weighed
+        await until(lambda: index is None or index.ready or not server.spaces._index_tasks, seconds=30)
         before = space_size(runtime)
         clean, masked, painted = _screenshot(640, 360), _screenshot(800, 450), _screenshot(800, 450)
         masked.ref.set(painted.original[0], "image/png")  # as it would leave: painted where its values were
@@ -2219,6 +2302,7 @@ async def test_a_value_a_conversation_loads_that_puts_another_out_has_the_engine
                                                                                                    monkeypatch):  # fmt: skip
     """C-15, T-11 (R-21 through the conversations' hook): a value loaded for a conversation whose fake was given anew
     puts the old value out, the vault's count follows, and the engine forgets the masked blocks that hold the fake."""
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     a.listening.set()  # no ear: nothing is heard, and the instances count as listening
@@ -2270,6 +2354,7 @@ async def test_a_value_forgotten_here_while_a_conversation_loads_it_is_not_learn
     """S17 (the final review's area 2, M-8): what a conversation loads of the values another instance showed it is
     learnt under the runtime's lock, as a value heard of is (``_learn``): one forgotten here meanwhile, out of the vault
     and not yet out of PostgreSQL, is not learnt back, and the store's count stays the vault's."""
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     try:
@@ -2336,6 +2421,7 @@ async def test_a_catch_up_reads_the_vault_outside_the_runtimes_lock_and_what_pos
                                                                                                     monkeypatch):  # fmt: skip
     """M-09: a vault at its limit took seconds to read under the runtime's lock; and a value read a moment before that
     would put another out is read again first, so that a fake given anew restores the value PostgreSQL holds."""
+    _from_memory(monkeypatch)
     a, b = instances
     emily, _ = a.identities.add_person("Emily Carter")
     a.listening.set()
@@ -2382,6 +2468,7 @@ async def test_a_catch_up_of_a_vault_lets_go_of_the_gil_with_a_pause_that_yields
     """S10 (open item 4; area 1's Minor, area 4's M-1): what learns a vault's values under the runtime's lock lets go of
     the GIL every ``_YIELD_EVERY`` values with the pause ``engine.known`` takes: one of no time gives the event loop no
     turn on Windows (a 601 ms stall measured)."""
+    _from_memory(monkeypatch)
     emily, _ = server.identities.add_person("Emily Carter")
     async with listening(server):
         runtime = await server.spaces.runtime(emily)

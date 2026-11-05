@@ -37,7 +37,8 @@ Das Skript erledigt zwei Dinge, in dieser Reihenfolge:
    Texterkennung in Bildern sind dabei; ihre Modelle werden erst heruntergeladen, wenn Sie es
    verlangen. Wo sie sich nicht installieren lassen, wird Latet ohne sie installiert, und das Skript
    weist am Ende darauf hin; ein Latet, das bereits mit ihnen installiert ist, bleibt dagegen, wie
-   es war. Läuft ein älteres Latet, beendet das Skript es und startet es nicht wieder. Zum
+   es war. Die übrigen Extras eines installierten Latet (auf einem Server `server`) bleiben. Läuft
+   ein älteres Latet, beendet das Skript es und startet es nicht wieder. Zum
    Aktualisieren ist `latet upgrade` der bessere Weg. Nachdem das Skript ein Latet aktualisiert hat,
    führen Sie `latet start` aus, und `latet agents apply claude`, wenn Claude Code dauerhaft über
    Latet läuft, damit es das neue Plugin erhält.
@@ -67,8 +68,8 @@ Dinge haben keines und brauchen ein Modell, das auf Ihrem Rechner läuft:
 - **Namen und Anschriften** in freiem Text, etwa *Emily Carter wohnt in der 42 Mill Lane*: Das
   lokale Namensmodell findet sie.
 - **Der Text in Screenshots**, etwa eine IBAN auf einer Rechnung: Die Texterkennung liest ihn, und
-  Latet überdeckt jeden Wert im Bild mit seinem Ersatzwert. Ohne sie verlassen Bilder den Rechner
-  unverändert.
+  Latet überdeckt jeden Wert im Bild mit seinem Ersatzwert. Ohne sie wird eine Anfrage mit einem
+  Bild nicht gesendet.
 
 Das Installationsskript installiert, worauf beide laufen. Laden Sie ihre Modelle einmal herunter:
 
@@ -95,11 +96,18 @@ kann Dateien, die in Gebrauch sind, nicht ersetzen), installiert das neue Plugin
 wenn Sie Claude Code verwenden, und startet den Daemon wieder. Ein Latet, das ohne Namenserkennung
 oder Texterkennung in Bildern installiert wurde, erhält sie auf diesem Weg. Wo die neue Version sie
 nicht haben kann, bleibt ein Latet, das sie hat, wie es war, und eines ohne sie wird ohne sie
-aktualisiert. Unter Windows, das keine Dateien eines laufenden Programms ersetzt, läuft das Upgrade
+aktualisiert. Die übrigen Extras, mit denen es installiert wurde, bleiben (auf einem Server
+`server`); einen als Betriebssystemdienst installierten Server aktualisieren Sie, wie es der
+[Serverbetrieb](../../concepts/server-operations/#ein-als-betriebssystemdienst-installiertes-latet-aktualisieren)
+beschreibt. Unter Windows, das keine Dateien eines laufenden Programms ersetzt, läuft das Upgrade
 nach dem Ende des Befehls in einem eigenen Fenster weiter, und dieses Fenster zeigt, wie es
 ausgegangen ist. Ein Latet 0.9.0 oder 0.9.1 unter Windows aktualisieren Sie, indem Sie das
 Installationsskript erneut ausführen: Sein eigenes `latet upgrade` könnte es so hinterlassen, dass es
 nicht mehr startet.
+
+**Von 0.10 auf 0.11** lesen Sie zuerst [Umstieg auf 0.11](../upgrading-to-0-11/): Latet 0.11 liest
+jeden Teil einer Anfrage und lehnt Aufrufe ab, die 0.10 ungelesen gesendet hat. `latet doctor` listet
+vor dem Upgrade auf, was stehen bleiben wird.
 
 Bevor es den Daemon beendet, kopiert `latet upgrade`, was die neue Version beim Öffnen ändern kann:
 den Tresor, den Verlauf und Ihre Einstellungen (`config.yaml` und die Einstellungen, die Sie zuletzt

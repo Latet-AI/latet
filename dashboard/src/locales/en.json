@@ -267,7 +267,7 @@
     },
     "uninspected": {
       "label": "Not inspected",
-      "help": "Part of this request was not read ({{detail}}): PDFs and other documents, images by their address, and images while text recognition is off or not installed are sent as they are."
+      "help": "Part of this request was not read ({{detail}}): documents, images by their address, and images while text recognition is off or not installed. Latet 0.11 refuses such a request; an older Latet sent it as it was."
     },
     "degraded": {
       "label": "Degraded",
@@ -279,7 +279,11 @@
     },
     "project-off": {
       "label": "Latet off",
-      "help": "Latet is off in this project (your own settings for it): the request was sent as it was, and only surrogates already in the conversation were restored."
+      "help": "Latet is off in this project (your own settings for it). Latet 0.11 refuses such a request rather than sending it unmasked; an older Latet sent it as it was."
+    },
+    "project-claimed": {
+      "label": "Project claimed",
+      "help": "A header or a folder in the request's text named its project, which Latet cannot verify: only the project's rules that add protection applied, never its loosenings or its exceptions."
     },
     "withheld": {
       "label": "Withheld",
@@ -695,7 +699,8 @@
       "noNewBlocks_one": "Nothing new: its only block was sent before.",
       "noNewBlocks_other": "Nothing new: all {{count}} blocks were sent before.",
       "noBlocks": "No text blocks recorded."
-    }
+    },
+    "launch": "Launch:"
   },
   "exchange": {
     "back": "Live",
@@ -714,6 +719,12 @@
       "verifiedNothing": "Nothing in it needed masking.",
       "notVerified": "Not verified.",
       "notVerifiedDetail": "The final check didn't confirm this request. Look at the flags and leaks below.",
+      "partlyUnread": "Nothing sensitive in clear in what Latet read.",
+      "partlyUnreadDetail": "Not every part of it was read: what passed unread, and under which rule, is listed below.",
+      "notRecorded": "Recorded by an older Latet.",
+      "notRecordedDetail": "How much of this request it read was not recorded, so it is not shown as verified.",
+      "pluginCheck": "A check of the Claude Code plugin's.",
+      "pluginCheckDetail": "It ran inside Claude Code and sent nothing itself; the request it read is an exchange of its own.",
       "uninspected": "The check covers text only: {{what}} went as it was.",
       "reviewAllowed": "Sent to auto mode's reviewer.",
       "reviewAllowedDetail": "It carried {{what}}, which your rules let through to the reviewer. Secrets and personal data never go through."
@@ -1077,7 +1088,8 @@
       "action": "Reveal",
       "hide": "Hide",
       "hidden": "Hidden",
-      "shown": "Shown for {{seconds}} seconds, then hidden again."
+      "shown": "Shown for {{seconds}} seconds, then hidden again.",
+      "launchKey": "Latet launch key"
     },
     "forget": {
       "action": "Forget",
@@ -1303,7 +1315,7 @@
       "noModel": "The text in images is not read yet: download the text recognition models (about 31 MB, once).",
       "toggle": "Read the text in images",
       "on": "Screenshots are read on this computer and what your rules mask is covered with its fake.",
-      "off": "Images are sent as they are, and the dashboard flags them."
+      "off": "Images are not read: a request that carries an image is refused."
     },
     "ner": {
       "title": "Local name detection",
@@ -1777,7 +1789,7 @@
       "off": "Off",
       "onHelp": "Your global rules, with the project's own on top.",
       "secretsHelp": "Only secrets are masked here: keys, tokens, passwords. Personal data is sent as it is.",
-      "offHelp": "Nothing is masked or blocked in this project, secrets included: requests are sent as they are. Surrogates already in a conversation are still restored."
+      "offHelp": "The requests of agents working in this project are refused: Latet never sends them unmasked. To reach a provider directly from this folder, start the agent without Latet, its settings pointing at the provider."
     },
     "effective": {
       "title": "In effect",
@@ -2268,6 +2280,154 @@
     "elsewhere": {
       "title": "Start the tutorial from a terminal",
       "body": "This is your own Latet. The tutorial runs in a sandbox of its own, with a pretend agent and a pretend model, and opens in your browser. In a terminal:"
+    }
+  },
+  "coverage": {
+    "title": "Coverage",
+    "blocked": {
+      "before": "Stopped before it was sent: nothing of it reached the provider.",
+      "attempted": "Stopped after an attempt: an earlier attempt may already have reached the provider."
+    },
+    "refusal": {
+      "header": "It carried a header that no request profile names.",
+      "query": "It carried a query parameter that no request profile names.",
+      "body-member": "Its body held a member that no request profile names.",
+      "body-member-closed": "Its body held a member that no request profile names, where no exception can reach it (inside a provider's item, an image's source, or a WebSocket turn).",
+      "route": "No built-in request profile covers its route.",
+      "expired": "The request exception that let this through has expired.",
+      "resource": "It named a model, a resource or a region that Latet does not know by its form.",
+      "sensitive": "Its address or its headers held a sensitive value.",
+      "auth": "Credentials could not be read, or were refused.",
+      "egress": "Its destination is one this machine may not reach.",
+      "parse": "A part of it could not be read as its protocol says, so Latet could not account for all of it.",
+      "limit": "It went past what Latet reads of one request, or Latet was too busy.",
+      "state": "A state Latet needs to decide could not be read.",
+      "masking": "Masking it failed.",
+      "other": "Latet's rules do not let it leave."
+    },
+    "remedy": {
+      "exception": "An exact request exception lets it through: name the header or the parameter under request_exceptions in your settings, then approve the change on the Approvals page.",
+      "exception-docs": "An exact request exception, named in your settings and approved by you, can let such a member through:",
+      "exceptionDocsLink": "how to approve one",
+      "renew": "Renewing it is a new approval: change the exception in your settings, then approve the change.",
+      "resource": "List the value under request_resources in your settings for this destination.",
+      "websocket": "A WebSocket takes no request exception in this version of Latet.",
+      "none": "No request exception can let this through."
+    },
+    "outcome": {
+      "read": "Every part of the request was read, and nothing left unread.",
+      "passed": "Read, and let through by:",
+      "unread": "Part of it left without being read, as the rules named here allow, so it is not shown as verified.",
+      "unknown": "How much of this request Latet read was not recorded: an older Latet recorded it."
+    },
+    "allowedByRule": "allowed by rule",
+    "pass": {
+      "checked-only": "checked only (values the final check read and did not need to mask)",
+      "image-remainder": "allowed by rule: the rest of an image whose text was read",
+      "sent-before": "text sent before in this conversation",
+      "model-written": "text the model wrote",
+      "provider-echo": "a provider's opaque item, which it sent earlier in this conversation, passed unread",
+      "provider-encrypted": "allowed by rule: a provider's encrypted field, passed unread",
+      "exception": "a request exception you approved"
+    },
+    "launch": {
+      "launched": "Launched by Latet, key verified",
+      "launched-key-missing": "Launched by Latet, key missing",
+      "trusted": "Bound by the Claude Code plugin",
+      "claimed": "Not launched by Latet",
+      "launchedHelp": "Latet started this agent and verified the key it gave it: the project's loosenings and exceptions apply.",
+      "keyMissingHelp": "Latet started this agent, but its requests did not carry the key Latet gave it, so they were decided as claimed: the project's rules that add protection applied, its loosenings and exceptions did not.",
+      "trustedHelp": "The Claude Code plugin bound this session to its project: the project's loosenings and exceptions apply.",
+      "claimedHelp": "Nothing Latet can verify says where this request comes from: a project it names only adds protection."
+    },
+    "project": {
+      "trusted": "Project {{name}}, trusted: all of its rules apply.",
+      "claimed": "Project {{name}}, claimed: only its rules that add protection applied."
+    },
+    "removed": {
+      "headers_one": "Latet removed {{count}} header that its profile declares removable.",
+      "headers_other": "Latet removed {{count}} headers that its profile declares removable.",
+      "members_one": "Latet removed {{count}} body member that its profile declares removable.",
+      "members_other": "Latet removed {{count}} body members that its profile declares removable.",
+      "authAfter": "The provider answered {{status}} after Latet removed a header: that header may be one it needs."
+    },
+    "profile": "Request profile"
+  },
+  "exceptions": {
+    "title": "Request exceptions",
+    "help": "Each one lets through exactly what it names, on one destination's request profile, which Latet would refuse otherwise. You approve each one, and it lasts the days it names (30 by default, 90 at most) unless you made it permanent.",
+    "empty": "No request exceptions.",
+    "yoursAlone": "These are yours alone: no other person's or key's exceptions apply to your requests.",
+    "expiryWarning_one": "{{count}} exception ends within 7 days. Renewing it is a new approval.",
+    "expiryWarning_other": "{{count}} exceptions end within 7 days. Renewing one is a new approval.",
+    "columns": {
+      "what": "What it lets through",
+      "where": "Where",
+      "who": "For",
+      "state": "State"
+    },
+    "component": {
+      "header": "Header",
+      "query": "Query parameter",
+      "body": "Body member"
+    },
+    "role": {
+      "credential": "The destination's own credential, sent as it came and never read",
+      "checked": "Its value is checked for sensitive values before it leaves"
+    },
+    "reason": {
+      "destination-credential": "A destination's credential",
+      "custom-header": "A header you set for an agent",
+      "query-parameter": "A query parameter",
+      "other": "Other"
+    },
+    "scope": {
+      "identity": "Every request of yours, in every project",
+      "project": "Requests of project {{name}}, when Latet trusts their project"
+    },
+    "issuer": {
+      "owner": "Approved by you",
+      "person": "Approved by you, on the server",
+      "administration": "Approved by the server's administration"
+    },
+    "state": {
+      "pending": "Waiting for your approval",
+      "revised": "Needs approval again: its profile was revised",
+      "expiredLabel": "Expired",
+      "expiringLabel": "Ending soon",
+      "activeLabel": "Active",
+      "forbidden": "Not in force: this edition does not allow permanent exceptions",
+      "expiring_one": "{{count}} day left",
+      "expiring_other": "{{count}} days left",
+      "until": "Until {{date}}",
+      "ended": "Ended on {{date}}",
+      "approveThere": "Approve it on the Approvals page"
+    },
+    "permanent": "Permanent",
+    "revoke": "Revoke",
+    "revokeOne": "Revoke exception {{id}}",
+    "revoking": "Revoking…",
+    "revoked": "Exception {{id}} revoked: requests that need it are refused again.",
+    "status": {
+      "uses_one": "{{count}} use of an exception since the daemon started, counted in memory and cleared when it restarts.",
+      "uses_other": "{{count}} uses of exceptions since the daemon started, counted in memory and cleared when it restarts.",
+      "historyOff": "The history is off: these counts are all that is kept of the exceptions' uses.",
+      "summed": "Summed across the server's instances.",
+      "instanceAlone": "The other instances' counts could not be read: this instance's alone.",
+      "overflow_one": "{{count}} use could not be counted: the counts are full.",
+      "overflow_other": "{{count}} uses could not be counted: the counts are full."
+    },
+    "change": {
+      "title": "Request exceptions this change lets through",
+      "added": "New",
+      "widened": "Widened",
+      "madePermanent": "Made permanent",
+      "renewed": "Renewed",
+      "identityWarning": "It covers your whole identity: every request of yours, in every project, not one project.",
+      "projectOnly": "Only for requests of project {{name}}, when Latet trusts their project.",
+      "permanent": "Permanent: it never expires. Approve it only if you chose this on purpose.",
+      "lasts_one": "It lasts {{count}} day once approved.",
+      "lasts_other": "It lasts {{count}} days once approved."
     }
   }
 }

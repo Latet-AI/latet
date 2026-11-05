@@ -35,7 +35,8 @@ The script does two things, in this order:
    GitHub as an isolated command-line tool, with uv. Local name detection and text in images come
    with it; their models are downloaded only when you ask. Where they cannot be installed, Latet
    is installed without them, and the script ends by saying so; a Latet already installed with
-   them is left as it was instead. If an older Latet is running, it stops it, and does not start
+   them is left as it was instead. The other extras of a Latet installed here (a server's
+   `server`) stay. If an older Latet is running, it stops it, and does not start
    it again. To upgrade, `latet upgrade` is the better way. After the script has upgraded a Latet,
    run `latet start`, and `latet agents apply claude` if Claude Code goes through Latet for good,
    so that it gets the new plugin.
@@ -65,7 +66,8 @@ model that runs on your computer:
 - **Names and street addresses** in free text, such as *Emily Carter lives at 42 Mill Lane*:
   the local name model finds them.
 - **The text in screenshots**, such as an IBAN on an invoice: text recognition reads it, and
-  Latet covers each value on the image with its fake. Without it, images leave as they are.
+  Latet covers each value on the image with its fake. Without it, a request that carries an image
+  is not sent.
 
 The installer installs what both run on. Download their models once:
 
@@ -90,10 +92,17 @@ images included. It stops the daemon first (Windows cannot replace files that ar
 the new Claude Code plugin if you use Claude Code, and starts the daemon again. A Latet
 installed without name detection or text in images gets them this way. Where the new release cannot
 have them, a Latet that has them is left as it was, and one without them is upgraded without
-them. On Windows, which replaces no file of a program that runs, the upgrade goes on in a window of
+them. The other extras it was installed with stay (a server's `server`); a server installed as a
+host service is upgraded as
+[Server operations](../../concepts/server-operations/#upgrading-a-latet-installed-as-a-host-service)
+says. On Windows, which replaces no file of a program that runs, the upgrade goes on in a window of
 its own once the command has ended, and that window says how it went. A Latet 0.9.0 or 0.9.1 on
 Windows upgrades by running the installer again: its own `latet upgrade` could leave it unable to
 start.
+
+**From 0.10 to 0.11**, read [Upgrading to 0.11](../upgrading-to-0-11/) first: Latet 0.11 reads every
+part of a request, and refuses calls 0.10 sent without reading them. `latet doctor` lists what will
+stop before you upgrade.
 
 Before it stops the daemon, `latet upgrade` copies what the new version may change as it opens it:
 the vault, the history and your settings (`config.yaml`, and the settings you approved last), into

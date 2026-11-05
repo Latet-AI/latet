@@ -231,7 +231,19 @@ def test_the_access_log_never_holds_a_signing_key_nor_a_session(caplog):
         for path in paths:
             access.info(line, "127.0.0.1:5000", "POST", path, "1.1", 200)
     assert all(letter * 32 not in caplog.text for letter in "afed")
-    assert "/bedrock/eu-west-1/profile/work/" in caplog.text and "/model/x/invoke" in caplog.text
-    assert "/_latet/engine/v1/aws-sessions/***/hold" in caplog.text
-    assert "/_latet/engine/v1/aws-sessions/***" in caplog.text
-    assert "/anthropic/v1/messages?beta=true" in caplog.text
+    records = [record for record in caplog.records if record.name == "uvicorn.access"]
+    assert len(records) == 5
+    assert [record.args[2] for record in records] == ["/gateway", "/gateway", "/bridge", "/bridge", "/gateway"]
+    assert all(record.args[1] == "POST" and record.args[4] == 200 for record in records)
+    assert all(
+        raw not in caplog.text
+        for raw in (
+            "eu-west-1",
+            "profile/work",
+            "/model/x/invoke",
+            "aws-sessions",
+            "/hold",
+            "/v1/messages",
+            "beta=true",
+        )
+    )

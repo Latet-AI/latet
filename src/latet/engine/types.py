@@ -102,6 +102,9 @@ class Replacement:
 class MaskedText:
     text: str
     replacements: list[Replacement] = field(default_factory=list)
+    # The vault's version its values were read at, where that was before its masking: a text of an applications call
+    # read joined, answered by its part's reading (``Masker.joined``). None: read as it was masked.
+    read_at: int | None = None
 
     @property
     def changed(self) -> bool:

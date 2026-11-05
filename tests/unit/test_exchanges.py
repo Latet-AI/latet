@@ -129,7 +129,16 @@ def test_a_range_of_the_masked_text_is_found_in_the_original(vault):
 def _stopped(recorder, texts, leaks):
     """The record of a request Latet stopped, as the gateway and the plugin's final check leave it."""
     pending = [(SlotRef(texts, i, SlotKind.TOOL_RESULT), [], False) for i in range(len(texts))]
-    prepared = Prepared(VERIFY, "anthropic", b"", None, leaks, document=texts, pending=pending, block_reason="stopped")
+    prepared = Prepared(
+        VERIFY,
+        "anthropic",
+        json.dumps(texts).encode(),
+        None,
+        leaks,
+        document=texts,
+        pending=pending,
+        block_reason="stopped",
+    )
     outcome = Outcome({"user-agent": "claude-cli/2"}, "anthropic", "/v1/messages", "http", time.time(), prepared)
     recorder.finish(outcome)
     assert recorder.drain()
@@ -153,10 +162,10 @@ def test_a_stopped_value_is_recorded_with_its_block_and_where_in_it(tmp_path):
     assert (stored["class"], stored["rule"]) == ("SECRET", "gitleaks:github-pat")
     assert (stored["type"], stored["preview"], stored["new"]) == ("GITHUB_PAT", "GITHUB_PAT[40]", True)
     assert GH_PAT not in json.dumps(stored)  # where the value is, never what it is
-    # The history keeping no texts has nothing to point at: the leak is only its type and length.
+    # The history keeping no texts has nothing to point at: the leak is only its type, a detector's category.
     other = ExchangeStore(tmp_path / "y.db", ROOT_KEY)
     [bare] = _stopped(Recorder(other, history="metadata"), texts, [leak])["leaks"]
-    assert bare == {"type": "GITHUB_PAT", "kind": "tool_result", "preview": "GITHUB_PAT[40]", "new": True}
+    assert bare == {"type": "GITHUB_PAT", "kind": "tool_result", "new": True, "allowed": False}
 
 
 def test_what_stopped_a_request_names_a_field_by_its_kind_and_one_kept_before_is_cut_once_the_history_opens(tmp_path):

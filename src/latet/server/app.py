@@ -95,6 +95,9 @@ from latet.api.rest import (
 from latet.config import data_dir
 from latet.edition import Community, Edition
 from latet.engine.detectors.latet import starts_a_secret
+from latet.gateway.coverage import EnvelopeRefused, preflight_scope
+from latet.gateway.launch_ingress import valid_launch_scope
+from latet.gateway.launch_keys import RecoveryFence, canonical_launch_key
 from latet.gateway.security import BodyLimit, refuse, url_hosts
 from latet.logline import Paced, described
 from latet.server import live, logs, queue
@@ -104,6 +107,12 @@ from latet.server.bus import Bus
 from latet.server.db import Database, check_schema
 from latet.server.grants import bridge_needs
 from latet.server.identities import IDENTITY_ID, AdminTokens, Identities
+from latet.server.instance import process_memory
+from latet.server.launch_controls import LAUNCH_HOLD_TICKET, LaunchHoldAdmission, launch_control, launch_hold
+from latet.server.launch_mutations import LAUNCH_MUTATION, LaunchMutations
+from latet.server.launch_records import check_launch_registry
+from latet.server.launch_sweep import LaunchSweep
+from latet.server.launches import LaunchAuthority
 from latet.server.live import SIGNINS, ChainVerdicts, ValkeyAwsSessions, ValkeySignIns
 from latet.server.logs import REFUSED, RequestLog
 from latet.server.machines import (
@@ -136,7 +145,9 @@ from latet.server.settings import APPS_API, SERVER_API, ServerSettings, read_sec
 from latet.server.shared import SharedSettings
 from latet.server.spaces import IdentityUnavailable, Spaces, SpaceUnavailable
 from latet.server.spaces import _long as space_long
+from latet.server.start_errors import SettingRefused, ValkeyUnavailable
 from latet.server.tokens import is_route_key
+from latet.server.workers import INSTANCE_ID, TELEMETRY, beat_checked
 from latet.state.local import CODE_TTL, SESSION_TTL
 
 if TYPE_CHECKING:
@@ -162,16 +173,12 @@ PURGE_SECONDS = 300.0  # the purge's lock, for the instance that takes it (one s
 PURGED_SECONDS = 86_400.0  # the mark that an identity's keys are purged, for the instances that come late
 
 
-class ValkeyUnavailable(RuntimeError):
-    """Valkey refused the instance, or did not answer in time, at its start: the instance does not start. Its words
-    name the setting and the driver's error by its type, never the address or its password."""
-
-
 def server_reading(settings: ServerSettings) -> ServerReading | None:
     """The bounds of the text recognitions an instance's spaces share, its settings': ``ocr_readers`` left unset is its
     default, or the processors this instance may use when they are fewer (``vision.pool.usable_cpus``). None where the
-    ``ocr`` extra is not installed: its spaces read no image. Raises ValueError, in words that name the setting and the
-    numbers, for ``ocr_readers`` given past those processors, which would share them past what each reader was given."""
+    ``ocr`` extra is not installed: its spaces read no image. Raises SettingRefused (a ValueError), in words that name
+    the setting and the numbers, for ``ocr_readers`` given past those processors, which would share them past what each
+    reader was given."""
     from latet.vision import models
 
     if not models.runtime_available():
@@ -182,13 +189,22 @@ def server_reading(settings: ServerSettings) -> ServerReading | None:
     readers = settings.ocr_readers
     if "ocr_readers" in settings.model_fields_set:
         if readers > processors:
-            raise ValueError(
-                f"ocr_readers is {readers}, more than the {processors} processors this instance may use: each text "
-                "recognition reads with a share of them, so set it to that many at most"
+            raise SettingRefused(
+                f"ocr_readers is {readers}, more than the {processors} processors this instance may use (with several "
+                "workers, a worker's share of the machine's): each text recognition reads with a share of them, so set "
+                "it to that many at most"
             )
     else:
         readers = min(readers, processors)
     return pool.ServerReading(readers, settings.ocr_wait_seconds, settings.ocr_read_seconds)
+
+
+@dataclass(frozen=True, slots=True)
+class _ProtectedLaunchPrepare:
+    epoch: str
+
+    def prepare(self) -> RecoveryFence:
+        return {"epoch": self.epoch, "retirement": 0}
 
 
 @dataclass(eq=False)
@@ -209,9 +225,21 @@ class Server:
     data: Path = field(default_factory=data_dir)  # the instance's models
     reviewer_key: str | None = field(default=None, repr=False)  # read once; never an identity's setting
     listening: asyncio.Event = field(default_factory=asyncio.Event)  # Valkey's messages are heard
+    # Its number among the workers of `latet server run --workers` (Task 10), which its beat says; None: it runs alone.
+    worker: int | None = None
+    # Who hears its beat on this machine (a worker's supervisor: ``workers.worker_main``), handed what the beat says in
+    # the beat's thread before Valkey is asked; it never waits.
+    reporting: Callable[[dict[str, Any]], None] | None = field(default=None, repr=False)
     # Made by each process, never given: what this instance's spaces' announcements and its counts in Valkey name.
     instance: str = field(init=False, default_factory=lambda: secrets.token_hex(6))
+    # Whether its last beat found it ready, as ``/_latet/ready`` answers: what its beat says.
+    ready: bool = field(init=False, default=False)
     spaces: Spaces = field(init=False)
+    launch_holds: LaunchHoldAdmission = field(init=False, default_factory=LaunchHoldAdmission, repr=False)
+    launch_prepare: _ProtectedLaunchPrepare | None = field(default=None, repr=False, kw_only=True)
+    launch_authority: LaunchAuthority | None = field(default=None, repr=False, kw_only=True)
+    launch_mutations: LaunchMutations = field(init=False, default_factory=LaunchMutations, repr=False)
+    launch_sweep: LaunchSweep = field(init=False, default_factory=LaunchSweep, repr=False)
     # When this instance last heard its own beat (time.monotonic), or last subscribed: R-14's silence is measured so.
     beat_heard: float = field(init=False, default=0.0)
     # What was found valid in the last hour, here or on another instance (``machines.Known``, kept in Valkey too):
@@ -245,7 +273,8 @@ class Server:
 
     def __post_init__(self) -> None:
         self.reading = server_reading(self.settings)
-        self.spaces = Spaces(self)
+        self.spaces = Spaces(self, launch_holds=self.launch_holds, launch_mutations=self.launch_mutations)
+        self.launch_holds.bind_budget(self.spaces.launch_fits)
         self.chain = ChainVerdicts(self.bus, self.master, clock=lambda: self.clock())  # the instance's clock, as it is
         known = self.master.derive(b"known")  # the same on every instance: what one found valid, another knows
         self.known_secrets = Known(self.bus, known, kind="secret")
@@ -378,10 +407,23 @@ class Server:
             self._clean(identity_id, removed=gone)
         if self._cleanups and (self._cleaning is None or self._cleaning.done()):
             self._cleaning = asyncio.get_running_loop().create_task(self._cleaned(), name="latet-cleanups")
+        self.spaces.kick_status()  # security/forget/cleanup scheduling precede optional D2
+
+    def instances(self) -> list[dict[str, Any]]:
+        """In a worker thread: the server's instances alive now, every worker of every machine
+        (``alive_instances``). Raises what Valkey's client raises."""
+        return alive_instances(self.bus)[0]
+
+    def instances_read(self) -> tuple[list[dict[str, Any]], bool]:
+        """``instances``, and whether every key was read to find them (False: the list was cut at its bound, and an
+        instance may be alive and not listed), as the status says both. Raises what Valkey's client raises."""
+        return alive_instances(self.bus)
 
     def close(self) -> None:
         """Its metrics, its edition, its spaces' threads, then its connections to Valkey and PostgreSQL (its app's
         lifespan has closed its spaces)."""
+        self.launch_mutations.stop()
+        self.launch_mutations.require_drained()
         self.metrics.close()  # first: no scrape asks the stores once they close, and no report reaches a closed server
         self.edition.close()  # E1's listens on Valkey in a thread of its own: it stops before the connections go
         self.spaces.shutdown()
@@ -415,12 +457,12 @@ def reviewer_key_of(settings: ServerSettings, master: MasterKey) -> str | None:
         with contextlib.suppress(OSError, ValueError):  # unusable files are refused by their own read below
             same = other is not None and path.samefile(other)
         if same:
-            raise ValueError(f"reviewer_key_file names the file of {name}: the reviewer needs a key of its own")
+            raise SettingRefused(f"reviewer_key_file names the file of {name}: the reviewer needs a key of its own")
     key = read_secret_file(path, "reviewer_key_file")
     if master.is_version(key):
-        raise ValueError("reviewer_key_file holds a version of the master key: the reviewer needs a key of its own")
+        raise SettingRefused("reviewer_key_file holds a version of the master key: the reviewer needs a key of its own")
     if starts_a_secret(key):
-        raise ValueError("reviewer_key_file holds a server token or API key: the reviewer needs a key of its own")
+        raise SettingRefused("reviewer_key_file holds a server token or API key: the reviewer needs a key of its own")
     return key
 
 
@@ -461,6 +503,7 @@ def open_server(
     bus: Bus | None = None
     try:
         check_schema(db)
+        launch_keys = check_launch_registry(db, master)
         check_master_key(db, master, clock=clock)  # before the bus: no message is signed or heard with a wrong key
         # Every message signed and checked; its calls share ``valkey_connections`` connections at most.
         bus = Bus(
@@ -475,7 +518,8 @@ def open_server(
             AuditLog(db, key=master.derive(b"audit"), clock=clock),
             SharedSettings(db, bus, master, clock=clock, rules=edition.shared_rules),
             ValkeySignIns(bus, master, clock=clock), clock=clock, data=data or data_dir(), reviewer_key=reviewer_key,
-            edition=edition,
+            edition=edition, launch_prepare=_ProtectedLaunchPrepare(launch_keys.epoch.hex()),
+            launch_authority=LaunchAuthority._from_keys(db, bus, launch_keys),
         )  # fmt: skip
     except BaseException:
         if bus is not None:
@@ -540,6 +584,17 @@ ANY_HOST = ("/_latet/health", "/_latet/ready")  # a load balancer asks an instan
 STARTUP_SECONDS = 10.0  # how long an instance waits to hear Valkey before it answers
 BEAT_SECONDS = 10.0
 ALIVE_MS = 30_000  # an instance that has not said it is alive for this long counts no dashboard
+# The server's instances, by when each last beat: a sorted set of their ids alone, which the status reads
+# (``Server.instances``). An id whose beats stopped this long ago leaves it; the status reads the newest alone.
+INSTANCES = "instances"
+INSTANCES_KEPT_MS = 10 * ALIVE_MS
+INSTANCES_LISTED = 256
+# Latet 0.10 and older beat with their key alone (``instance:<id>`` holding ``OLDER_BEAT``): no place among
+# ``INSTANCES``, no version. The status and a migration find them by a read of the bus's own ``instance:*`` keys
+# (``Bus.names``), ``INSTANCE_PAGES`` pages of a scan and ``INSTANCE_KEYS`` keys at most: never on a request's path.
+OLDER_BEAT = b"1"
+INSTANCE_PAGES = 10_000
+INSTANCE_KEYS = 4 * INSTANCES_LISTED
 FLUSH_SECONDS = 60.0  # what the log counted and has not said yet is said once a minute (``latet.server.logs.flush``)
 READY_SECONDS = 1.0  # how long one look at the stores answers readiness, whoever asks (the pre-read's M2)
 CROWDED_RETRY_AFTER = 2  # seconds an identity past its requests in flight is told to wait (``Retry-After``)
@@ -738,17 +793,48 @@ class ServerGate:
         rest = "/" + rest
         prefix = f"/u/{route}".encode()
         raw: bytes = scope.get("raw_path") or path.encode()
+        valid_address = is_route_key(route) and (raw == prefix or raw.startswith(prefix + b"/"))
+        inner_raw = raw[len(prefix) :] or b"/"
+        bridge = rest.startswith("/_latet")
+        method = scope.get("method")
+        computer = bridge and computer_call(rest, method, inner_raw)
+        if valid_address and (rest == "/_k" or rest.startswith("/_k/") or inner_raw.startswith(b"/_k/")):
+            await self._refuse(scope, send, 400, "request launch authority refused")
+            return
+        control = (
+            valid_address
+            and computer
+            and launch_control(rest)
+            and method == ("GET" if rest.endswith(("/prepare", "/hold")) else "POST")
+        )
+        held = rest.endswith("/hold")
+        if control and not valid_launch_scope(scope, hold=held):
+            invalid = JSONResponse({"error": "launch-invalid"}, status_code=400, headers={"cache-control": "no-store"})
+            await invalid(scope, receive, send)
+            return
         if from_a_page(scope):
             await self._refuse(scope, send, 403, "browser requests are not accepted on an identity's address")
             return
-        if not is_route_key(route) or not (raw == prefix or raw.startswith(prefix + b"/")):
+        if not valid_address:
             await self._refuse(scope, send, 403, "there is no such address")
             return
-        inner_raw = raw[len(prefix) :] or b"/"
-        bridge = rest.startswith("/_latet")
-        if bridge and not computer_call(rest, scope.get("method"), inner_raw):
+        if bridge and not computer:
             await self._refuse(scope, send, 404, "there is no such route")
             return
+        await self._authenticated_address(scope, receive, send, route, rest, inner_raw, bridge, control=bool(control))
+
+    async def _authenticated_address(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        route: str,
+        rest: str,
+        inner_raw: bytes,
+        bridge: bool,
+        *,
+        control: bool = False,
+    ) -> None:
         bucket = bucket_of(client_of(scope))
         server = self.server
         address = server.identities.remembered_grant(route=route)
@@ -795,10 +881,72 @@ class ServerGate:
                 await self._refuse(scope, send, 403, f"this token lacks the {lacking} permission")
                 return
         changes = {"path": rest, "raw_path": inner_raw, "latet.space": f"{server.settings.url}/u/{route}"}
+        if bridge:
+            # A launch key's carrier never reaches a bridge call: taken off every call, as a computer takes it off every
+            # path (the review's Minor 3); only a provider request below carries one to its space.
+            scope["headers"] = [
+                (name, value) for name, value in scope.get("headers", []) if name.lower() != b"x-latet-launch-key"
+            ]
         if rest in _COMPUTER_CALLS:  # computer_call let it through: by POST, with the owner's token
             await self._computer(scope, receive, send, identity, changes)
             return
-        await self._serve(scope, receive, send, identity, changes, counted=not bridge)
+        if bridge:
+            await self._bridge_call(scope, receive, send, identity, changes, control)
+            return
+        try:
+            preflight_scope({**scope, **changes})
+        except EnvelopeRefused:
+            await self._refuse(scope, send, 400, "request envelope refused")
+            return
+        headers = scope.get("headers", [])
+        carrier = [value for name, value in headers if name.lower() == b"x-latet-launch-key"]
+        scope["headers"] = [(name, value) for name, value in headers if name.lower() != b"x-latet-launch-key"]
+        del headers
+        if len(carrier) > 1 or (
+            carrier
+            and (
+                len(carrier[0]) != 52
+                or not carrier[0].isascii()
+                or not canonical_launch_key(carrier[0].decode("ascii"))
+            )
+        ):
+            carrier.clear()
+            await self._refuse(scope, send, 400, "request launch authority refused")
+            return
+
+        try:
+            await self._serve(scope, receive, send, identity, changes, counted=True, launch_carrier=carrier)
+        finally:
+            carrier.clear()
+
+    async def _bridge_call(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        identity: Identity,
+        changes: dict[str, Any],
+        control: bool,
+    ) -> None:
+        """An authenticated bridge call, given to its space. A launch control takes one of the instance's launch-control
+        slots only now, once its token is checked (the review's Minor 4): an unauthenticated client holds none while
+        authentication runs. A full instance answers ``launch-capacity``: the launcher starts its agent claimed."""
+        mutation = None
+        if control:
+            mutation = self.server.launch_mutations.reserve(self.server.spaces.launch_fits)
+            if mutation is None:
+                capacity = JSONResponse(
+                    {"error": "launch-capacity"}, status_code=503, headers={"cache-control": "no-store"}
+                )
+                await capacity(scope, receive, send)
+                return
+            scope[LAUNCH_MUTATION] = mutation
+        try:
+            await self._serve(scope, receive, send, identity, changes, counted=False)
+        finally:
+            if mutation is not None:
+                scope.pop(LAUNCH_MUTATION, None)
+                mutation.end_ingress()
 
     async def _computer(
         self, scope: Scope, receive: Receive, send: Send, identity: Identity, changes: dict[str, Any]
@@ -978,7 +1126,15 @@ class ServerGate:
         return identity
 
     async def _serve(
-        self, scope: Scope, receive: Receive, send: Send, identity: Identity, changes: dict[str, Any], *, counted: bool
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        identity: Identity,
+        changes: dict[str, Any],
+        *,
+        counted: bool,
+        launch_carrier: list[bytes] | None = None,
     ) -> None:
         """The request handed to the identity's space, as its app reads it (``changes``, its headers among them when
         they say, and whose it is), without what a proxy added to it (``_unproxied``). ``counted``: a request to the
@@ -986,8 +1142,9 @@ class ServerGate:
         applications API's requests are each held within it apart."""
         headers = changes.get("headers", scope.get("headers") or [])
         inner = {**scope, **changes, "headers": _unproxied(headers), "latet.identity": identity.id}
+        held_launch = launch_hold(inner)
         limits: list[tuple[dict[str, int], int, str]] = []
-        if scope["type"] == "http":
+        if scope["type"] == "http" and not held_launch:
             dashboard = inner["path"].startswith(f"{API}/")
             if space_long(inner):
                 limits.append((self._long, LONG_PER_IDENTITY, "long connections"))
@@ -1009,9 +1166,24 @@ class ServerGate:
                 return
         for counts, _, _ in limits:
             counts[identity.id] = counts.get(identity.id, 0) + 1
+        ticket = None
         try:
+            if held_launch:
+                ticket = self.server.launch_holds.reserve()
+                if ticket is None:
+                    await self._too_many(
+                        scope,
+                        send,
+                        "this instance has too many held launches: try again soon",
+                        "too many held launches",
+                    )
+                    return
+                inner[LAUNCH_HOLD_TICKET] = ticket
             try:
-                app = await self.server.spaces.app(identity)
+                if launch_carrier is None:
+                    app = await self.server.spaces.app(identity)
+                else:
+                    app = await self.server.spaces.app(identity, launch_carrier=launch_carrier)
             except SpaceUnavailable:  # NotListening too: no listening space on this instance now
                 await self._refuse(
                     scope, send, 503, "this identity's space is not available here now: try again in a moment"
@@ -1029,7 +1201,7 @@ class ServerGate:
                     )
                 await self._refuse(scope, send, 503, _UNAVAILABLE)
                 return
-            if not counted:
+            if held_launch or not counted:
                 await app(inner, receive, send)
                 return
             if scope["type"] == "websocket":
@@ -1043,6 +1215,8 @@ class ServerGate:
             finally:
                 self.end(identity.id)
         finally:  # release synchronously, including cancellation or failure during the space lookup
+            if ticket is not None:
+                ticket.release_unadopted()
             self._release_surface(identity.id, limits)
 
     @staticmethod
@@ -1204,16 +1378,18 @@ async def _answers(ping: Callable[[], bool]) -> bool:
         return False
 
 
-async def beat(server: Server) -> None:
+async def beat(server: Server, ready: Callable[[], Awaitable[bool]] | None = None) -> None:
     """Every ``BEAT_SECONDS`` while the instance runs, in this order: its ear is cancelled when it has heard no beat of
-    its own for three beats (R-14: a connection that delivers nothing, which ``listen`` then treats as lost); it says it
-    is alive (the dashboards it counts are counted while it is) and publishes its beat on ``beat``, ``{"instance":
-    <id>}``, in a thread of its own that no other work holds up; the spaces' check (``Server.check``) and the
-    administration log's prune and chain check (once an hour, on one instance of the server) run, each as a job of its
-    own, one at a time, so that neither holds up the next beat; and once a minute what the log counted and has not said
-    yet is said (``latet.server.logs.flush``), and what the administration counted of its refusals and has not written
-    yet is written, as a job too (``admin.Refusals.flush``). A step that fails, and a round that fails anywhere else,
-    is said by its error's type, once a minute each, and the next beat comes all the same.
+    its own for three beats (R-14: a connection that delivers nothing, which ``listen`` then treats as lost); whether it
+    is ready is asked (``ready``, its readiness, as ``/_latet/ready`` asks it, ``READY_SECONDS`` at most; without it,
+    whether it hears Valkey); it says it is alive (the dashboards it counts are counted while it is) and publishes its
+    beat on ``beat``, what ``beat_said`` says of it (Task 10), in a thread of its own that no other work holds up, which
+    hands it first to whoever hears it on this machine (``Server.reporting``); the spaces' check (``Server.check``) and
+    the administration log's prune and chain check (once an hour, on one instance of the server) run, each as a job of
+    its own, one at a time, so that neither holds up the next beat; and once a minute what the log counted and has not
+    said yet is said (``latet.server.logs.flush``), and what the administration counted of its refusals and has not
+    written yet is written, as a job too (``admin.Refusals.flush``). A step that fails, and a round that fails anywhere
+    else, is said by its error's type, once a minute each, and the next beat comes all the same.
 
     A beat that wakes more than a beat late was held with the event loop, and so was the ear, which reads what was
     published meanwhile once the loop is let go: its silence is judged a beat later, never at once (two large restores
@@ -1241,12 +1417,15 @@ async def beat(server: Server) -> None:
             try:
                 if now >= judged_from and server.ear_silent(3 * BEAT_SECONDS):
                     server.silenced()
+                server.ready = await _ready_now(server, ready)
                 try:
                     await loop.run_in_executor(_BEATING, _alive, server)
                 except Exception as exc:  # Valkey away: the ear notices it too, and the next beat tries again
                     _failed(failures["beat"], "beat", exc)
                 _start(jobs, failures, "check", server.check)
                 _start(jobs, failures, "audit", lambda: asyncio.to_thread(_audit, server))
+                if server.launch_authority is not None:
+                    server.launch_sweep.tick(server.launch_authority, server.spaces)
                 if time.monotonic() - flushed >= FLUSH_SECONDS:
                     flushed = time.monotonic()
                     logs.flush()
@@ -1263,11 +1442,104 @@ async def beat(server: Server) -> None:
                 await task
 
 
+async def _ready_now(server: Server, ready: Callable[[], Awaitable[bool]] | None) -> bool:
+    """Whether the instance is ready now, for its beat: as its readiness answers (it asks the stores once a second at
+    most, whoever asks), waited for ``READY_SECONDS`` at most; without one, whether it hears Valkey."""
+    if ready is None:
+        return server.listening.is_set()
+    try:
+        return bool(await asyncio.wait_for(ready(), READY_SECONDS))
+    except Exception:  # late, or failed: not ready, said so by the readiness's own line
+        return False
+
+
+def _text(raw: object) -> str:
+    """What Valkey's client gave back, as text: an id read from a key is ASCII when it is one."""
+    return raw.decode("ascii", "replace") if isinstance(raw, bytes) else str(raw)
+
+
+def beat_said(server: Server) -> dict[str, Any]:
+    """What an instance's beat says of it (Task 10), numbers, booleans and its version alone, never an identity, a
+    setting or an error: its id, its worker's number (None: it runs alone), its version, whether its last beat found it
+    ready, its process's memory in bytes (``instance.process_memory``: None where it cannot be read), its spaces open
+    here, and what their vaults' indexes take in memory (``Spaces.index_bytes``: counts they keep, nothing read). A part
+    that cannot be read is None: what the beat says never keeps it from beating, nor ends a worker."""
+    return {
+        "instance": server.instance, "worker": server.worker, "version": __version__, "ready": server.ready,
+        "memory": _or_none(process_memory), "spaces": _or_none(server.spaces.count),
+        "index": _or_none(server.spaces.index_bytes),
+    }  # fmt: skip
+
+
+def _or_none(read: Callable[[], object]) -> object:
+    """What ``read`` answers, or None when it fails."""
+    try:
+        return read()
+    except Exception:  # a part of a beat's telemetry: None, said nowhere
+        return None
+
+
 def _alive(server: Server) -> None:
-    """In the beat's thread: the instance alive for ``ALIVE_MS``, and its beat published, for its own ear to hear."""
+    """In the beat's thread: what the beat says (``beat_said``) handed first to whoever hears it on this machine
+    (``Server.reporting``: a worker's supervisor, for which a beat is the worker's life, whatever Valkey does next);
+    then the instance alive for ``ALIVE_MS``, its key holding what its beat says, its id listed among the server's
+    instances (``INSTANCES``, those of the last ``INSTANCES_KEPT_MS`` kept), and its beat published, for its own ear to
+    hear. The key keeps its meaning for the dashboards' counts (``queue``): any value there is an instance alive."""
+    said = beat_said(server)
+    if server.reporting is not None:
+        with contextlib.suppress(Exception):  # the supervisor's end of it: never a reason to skip Valkey
+            server.reporting(said)
     bus = server.bus
-    bus.client.set(bus.key(f"instance:{server.instance}"), b"1", px=ALIVE_MS)
-    bus.publish("beat", {"instance": server.instance})
+    seconds, micros = bus.client.time()  # Valkey's clock: every machine lists and prunes by the same one
+    now = int(seconds) * 1000 + int(micros) // 1000
+    listed = bus.key(INSTANCES)
+    pipe = bus.client.pipeline(transaction=False)
+    pipe.set(bus.key(f"instance:{server.instance}"), json.dumps(said, separators=(",", ":")).encode(), px=ALIVE_MS)
+    pipe.zadd(listed, {server.instance: now})
+    pipe.zremrangebyscore(listed, "-inf", now - INSTANCES_KEPT_MS)
+    pipe.pexpire(listed, INSTANCES_KEPT_MS)
+    pipe.execute()
+    bus.publish("beat", said)
+
+
+def alive_instances(bus: Bus) -> tuple[list[dict[str, Any]], bool]:
+    """The server's instances alive now, every worker of every machine, by worker then id, and whether every key of the
+    bus was read to find them (False: the scan stopped at its bound, and one may be missing). Each is listed as its last
+    beat said it (``workers.beat_checked``: its id, its worker's number, its version, whether it was ready, its memory,
+    its spaces and its vaults' indexes, what is not a number of its kind None): the ``INSTANCES_LISTED`` newest of the
+    list the beats keep (``INSTANCES``), and every other key ``instance:<id>`` of the bus a scan reads (``Bus.names``),
+    whose key has not expired (``ALIVE_MS``). A key that holds 0.10's beat (``OLDER_BEAT``) is an instance of Latet 0.10
+    or older, which says nothing more of itself: listed by its id, ``older`` True, nothing else said. A key that holds
+    no beat of its own instance (written by hand) is listed by its id alone. Nothing is changed or deleted. A beat that
+    says what is not so is anyone's who has Valkey's password, as every key there: no decision is taken on it but a
+    migration's refusal (``instance.migrate_schema``). Raises what Valkey's client raises."""
+    newest = bus.client.zrevrange(bus.key(INSTANCES), 0, INSTANCES_LISTED - 1)
+    ids = dict.fromkeys(found for one in newest if INSTANCE_ID.fullmatch(found := _text(one)))
+    names, whole = bus.names("instance:", pages=INSTANCE_PAGES, most=INSTANCE_KEYS)
+    for name in names:
+        if INSTANCE_ID.fullmatch(found := name.removeprefix("instance:")):
+            ids.setdefault(found)
+    if not ids:
+        return [], whole
+    listed = []
+    for one, raw in zip(ids, bus.client.mget([bus.key(f"instance:{one}") for one in ids]), strict=True):
+        if raw is None:  # expired: not alive
+            continue
+        if raw == OLDER_BEAT:
+            listed.append(dict.fromkeys(TELEMETRY) | {"instance": one, "older": True})
+        else:
+            listed.append(beat_checked(raw, instance=one) or dict.fromkeys(TELEMETRY) | {"instance": one})
+    return sorted(listed, key=lambda row: (row["worker"] is None, row["worker"] or 0, row["instance"])), whole
+
+
+def _gone(server: Server) -> None:
+    """In the beat's thread, after its last beat: the instance stops, so it is listed alive no more (its key and its
+    place among the server's instances gone at once, rather than when its key expires)."""
+    bus = server.bus
+    pipe = bus.client.pipeline(transaction=False)
+    pipe.delete(bus.key(f"instance:{server.instance}"))
+    pipe.zrem(bus.key(INSTANCES), server.instance)
+    pipe.execute()
 
 
 def _audit(server: Server) -> None:
@@ -1475,7 +1747,7 @@ def create_server_app(server: Server) -> Starlette:
         server.listening = asyncio.Event()
         tasks = [
             asyncio.create_task(listen(server), name="latet-listen"),
-            asyncio.create_task(beat(server), name="latet-beat"),
+            asyncio.create_task(beat(server, readiness.ready), name="latet-beat"),
         ]
         try:
             try:
@@ -1486,12 +1758,17 @@ def create_server_app(server: Server) -> Starlette:
             await in_store(server.audit.record, "server", "server.started", None, started)
             yield
         finally:
+            server.launch_mutations.stop()
             for task in tasks:
                 task.cancel()
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+            # Behind any beat still in its thread: no later status lists this instance alive (Task 10's M3).
+            with contextlib.suppress(Exception):
+                await asyncio.get_running_loop().run_in_executor(_BEATING, _gone, server)
             await server.spaces.close()
+            await server.launch_mutations.drain()
 
     return Starlette(
         routes=[

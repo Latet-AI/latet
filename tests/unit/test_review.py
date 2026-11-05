@@ -1,6 +1,7 @@
 """Claude Code's auto mode reviewer: per-detail settings, what each value found is, what goes through."""
 
 import json
+import socket
 
 import pytest
 import yaml
@@ -152,6 +153,11 @@ def isolated(tmp_path, monkeypatch):
         monkeypatch.setenv(name, str(tmp_path / sub))
     monkeypatch.setenv("LATET_CONFIG", str(tmp_path / "config.yaml"))
     monkeypatch.setenv("LATET_BRIDGE_TOKEN", "t-123")
+    # A port the system says is free, not 5283: Windows can reserve 5241-5340 (`netsh int ipv4 show
+    # excludedportrange protocol=tcp`), where global-install refuses rightly.
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        monkeypatch.setenv("LATET_PORT", str(sock.getsockname()[1]))
     return tmp_path
 
 

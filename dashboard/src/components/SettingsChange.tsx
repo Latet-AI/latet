@@ -14,6 +14,7 @@ import { refusedWords } from '../lib/refused'
 import { useFormat } from '../lib/useFormat'
 import { DocsWhyLink } from './DocsLinks'
 import { Icon } from './Icon'
+import { ExceptionsAsked } from './RequestExceptions'
 import { useToast } from './Toast'
 import { errorText } from './ui'
 
@@ -121,6 +122,8 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
           {(change.destinations ?? []).map((moved) => (
             <DestinationMoved key={moved.name} change={moved} />
           ))}
+
+          <ExceptionsAsked items={change.exceptions ?? []} />
 
           {change.keys.length > 0 && (
             <p className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-ink-2">

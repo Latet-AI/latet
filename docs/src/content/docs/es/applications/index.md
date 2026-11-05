@@ -223,31 +223,44 @@ cliente que una regla de la clave encontró una vez, y que luego se quitó, sigu
 
 Un espacio de registros puede contener millones de valores, así que una instancia no guarda en
 memoria la caja fuerte de una clave. Guarda los valores que la clave usó por última vez
-(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave) y encuentra cualquier otro en
-PostgreSQL cuando los textos de una llamada lo necesitan, con una sola búsqueda para todos, mediante
-un índice de las palabras de los valores y de los valores ficticios. Ese índice contiene hashes
-calculados con una clave secreta, nunca una palabra en claro.
+(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave) y las huellas de toda la caja
+fuerte: una huella de 64 bits de cada palabra de sus valores y de sus valores ficticios, calculada
+con una clave secreta, unos 15 MB por un millón de valores. Las palabras de una llamada se buscan
+primero entre las huellas: una palabra sin huella no es de ningún valor ni de ningún valor ficticio,
+y a PostgreSQL no se le pregunta por ella. Los valores y los valores ficticios cuyas palabras tienen
+una se leen de PostgreSQL, todos los de la llamada de una vez, y cada uno se descifra y se compara
+con el texto antes de enmascarar o restaurar nada, porque dos palabras pueden tener la misma huella.
+Ni las huellas ni el índice de las palabras en PostgreSQL contienen una palabra en claro. Antes de
+cada llamada la instancia lee en PostgreSQL el contador de cambios de la clave y recoge lo que las
+otras instancias guardaron u olvidaron desde entonces, así que un valor guardado en una instancia
+antes de que empiece una llamada lo encuentra esa llamada en cualquier otra, aunque el mensaje que lo
+anunciaba se haya perdido. Una clave con pocos valores funciona igual: solo la caja fuerte de una
+persona de 35.000 valores o menos se guarda entera en memoria
+([operación del servidor](../concepts/server-operations/)).
 
-**Secretos pegados a otras letras.** En PostgreSQL, un secreto escrito como una sola serie de letras
-y dígitos, sin espacios ni puntuación, se encuentra por su palabra, y por sus seis primeros y seis
-últimos caracteres cuando otras letras o dígitos están pegados a uno de sus lados. Pegado por ambos
-lados (`xhunter2y`), o pegado de cualquier modo cuando la palabra de su borde tiene seis caracteres
-o menos, ninguna palabra del texto lo encuentra. Por eso una instancia guarda en memoria para
-siempre los secretos cortos de una clave, los de una sola serie de 16 caracteres o menos o con una
-palabra así de corta en un borde: los `key_held_secrets` más recientes (1.000 si los ajustes del
-servidor no dicen otra cosa), que se encuentran estén pegados como estén. Uno más antiguo se
-encuentra donde nada está pegado a él, o donde un lado está libre y tiene siete caracteres o más;
-uno más largo, dondequiera que un lado esté libre. Sube `key_held_secrets` para una clave que ve
-muchos secretos cortos, como un token de sesión en cada línea de registro: cada uno que se guarda
-ocupa unos 2,2 KB en cada instancia, y cada texto que la clave enmascara o restaura se recorre para
-buscarlo, lo que hace sus llamadas un poco más lentas. Medida como abajo con un token de sesión
-propio en cada línea (un valor más que guardar en cada una), una clave nueva con 1.000 de esos
-secretos guardados enmascaró 73 líneas por segundo y restauró 1.935, frente a 75 y 2.103 sin ninguno
-guardado. Un valor ficticio se encuentra pegado como su secreto: conserva los signos del secreto en
-su sitio, así que un valor ficticio pegado de modo que ninguna de sus palabras quede suelta es el de
-un secreto guardado en memoria, y se encuentra mientras el secreto se guarda. Como en todo Latet, un
-valor se vuelve a reconocer a partir de cuatro caracteres, el nombre de una persona a partir de tres
-([valores conocidos](../concepts/detection/#valores-conocidos)).
+**Secretos pegados a otras letras.** En PostgreSQL, un secreto escrito como una sola serie de letras y dígitos,
+sin espacios ni puntuación, se encuentra por su palabra, y por sus seis primeros y seis últimos caracteres
+cuando otras letras o dígitos están pegados a él: por un lado, en el borde de la serie del texto que lo
+contiene, y por ambos lados (`xhunter2y`), dentro de esa serie, que una llamada lee de seis en seis caracteres.
+Una llamada lee como mucho un millón de esas posiciones: por encima, sus series siguientes se leen solo por sus
+palabras y sus bordes. Un secreto de seis caracteres o menos, o cuya palabra en un borde pegado tiene seis
+caracteres o menos, no lo encuentra ninguna palabra del texto cuando está pegado. Por eso una instancia guarda
+en memoria para siempre los secretos cortos de una clave, los de una sola serie de 16 caracteres o menos o con
+una palabra así de corta en un borde: los `key_held_secrets` más recientes (1.000 si los ajustes del servidor no
+dicen otra cosa), que se encuentran estén pegados como estén, también por encima del millón de posiciones de una
+llamada. Uno más antiguo, o uno más largo, se encuentra donde nada está pegado a él, pegado por un lado cuando
+la palabra de ese borde tiene siete caracteres o más, y pegado por ambos lados cuando es una sola serie de siete
+caracteres o más, dentro del millón de posiciones de la llamada. Sube `key_held_secrets` para una clave que ve
+muchos secretos cortos, como un token de sesión en cada línea de registro: cada uno que se guarda ocupa unos 23
+KB en cada instancia que sirve a la clave, la mayor parte en el detector que lo encuentra, y cada texto que la
+clave enmascara o restaura se recorre para buscarlo, lo que hace sus llamadas un poco más lentas. Medida con
+Latet 0.10.0 en el equipo de [velocidad](#velocidad), con un token de sesión propio en cada línea (un valor más
+que guardar en cada una), una clave nueva con 1.000 de esos secretos guardados enmascaró 73 líneas por segundo y
+restauró 1.935, frente a 75 y 2.103 sin ninguno guardado. Un valor ficticio se encuentra pegado como su secreto:
+conserva los signos del secreto en su sitio, así que un valor ficticio pegado de modo que ninguna de sus
+palabras quede suelta es el de un secreto guardado en memoria, y se encuentra mientras el secreto se guarda.
+Como en todo Latet, un valor se vuelve a reconocer a partir de cuatro caracteres, el nombre de una persona a
+partir de tres ([valores conocidos](../concepts/detection/#valores-conocidos)).
 
 **Secretos cortos.** Un secreto de menos de doce caracteres (`password=1234`, un token corto) recibe
 un valor ficticio más largo de los mismos tipos, con sus signos en su sitio: quince dígitos para un
@@ -288,13 +301,18 @@ que ninguna restauración posterior devolverá.
   límite, y la métrica `latet_vault_near_limit` las cuenta, así que sube un límite antes de alcanzarlo.
   Cada instancia cuenta los valores nuevos de una llamada antes de confirmarlos: dos instancias, o una
   llamada y un agente de la misma clave, pueden superar el límite en los valores nuevos de una llamada
-  cada uno antes de que se rechace el siguiente valor.
+  cada uno antes de que se rechace el siguiente valor. Un índice de las huellas de una caja fuerte se
+  construye hasta 16.777.216 huellas, unos ocho millones de valores del tipo que mide
+  [velocidad](#velocidad): por encima, no se construye ningún índice mientras dura el espacio de la
+  clave, y sus llamadas buscan sus palabras solo en PostgreSQL, más despacio.
 - **Una llamada** admite como mucho 1.000 textos y el `apps_request_mb` del servidor (8 MiB si sus
   ajustes no dicen otra cosa, nunca más que su `max_request_mb`): una llamada espera en memoria al
   hilo de la clave, y `latet-client` divide una lista más larga en llamadas de 8 MiB como mucho. Los
-  textos cuyas palabras nombran más de 100.000 valores o valores
-  ficticios de la caja fuerte se rechazan con 422, sin enmascarar nada: envía menos textos por
-  llamada.
+  textos cuyas palabras nombran más de 100.000 valores o valores ficticios de la caja fuerte se
+  rechazan enteros con 422, con palabras fijas que no nombran ningún valor: no se enmascara ni se
+  restaura nada de la llamada, así que envía menos textos por llamada. Un 503 es otra cosa: un
+  almacén del servidor (PostgreSQL, Valkey) no respondió, y la misma llamada puede volver a enviarse
+  más tarde ([referencia HTTP](../reference/apps-api/)).
 - **Llamadas simultáneas.** Una clave tiene como mucho `requests_in_flight` solicitudes de
   aplicaciones en una instancia (16 si los ajustes no dicen otra cosa); por encima, 429 con
   `Retry-After`.
@@ -303,42 +321,117 @@ que ninguna restauración posterior devolverá.
 
 Las llamadas de una clave se ejecutan una tras otra en una instancia, en el hilo de su espacio; las
 llamadas de claves distintas, y las que llegan a instancias distintas, se ejecutan a la vez. Para ir
-más rápido con una clave, pon más instancias detrás del equilibrador de carga.
+más rápido con una clave, pon más instancias detrás del equilibrador de carga, o varios workers en una
+máquina Linux
+([varias instancias en una máquina](../concepts/server-operations/#varias-instancias-en-una-máquina)).
 
-Medido en una instancia (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL en Docker Desktop en el mismo
-equipo), con líneas de registro de unos 200 caracteres, cada una con una dirección de correo y una
-dirección IPv4 pública, la mitad de las cuales nombra a un cliente ya visto, 500 líneas por llamada
-como `data`; y con documentos de unos 20 KB de prosa con diez valores cada uno, uno por llamada:
+Medido con Latet 0.11 en una instancia (Intel i9-10850K, 64 GB, Windows 10, PostgreSQL 18 en Docker
+Desktop en el mismo equipo, los ajustes por defecto del servidor): 40.000 líneas de registro de unos
+200 caracteres, cada una con una dirección de correo y una dirección IPv4 pública, la mitad de las
+cuales nombra a un cliente ya visto, en llamadas de 500 como `data`; después 50 documentos de unos
+20 KB de prosa con diez valores cada uno, uno por llamada. Las líneas por segundo son las líneas
+divididas por el tiempo que tardaron sus llamadas; el tiempo de un documento es la mediana de sus 50
+llamadas:
 
 | La caja fuerte de la clave | Enmascarar, líneas por segundo | Restaurar, líneas por segundo | Un documento, enmascarar / restaurar |
 | --- | ---: | ---: | ---: |
-| Nueva, aprende sus valores sobre la marcha | 189 | 2.691 | 77 / 28 ms |
-| 200.000 valores | 440 | 1.691 | 87 / 30 ms |
-| 1.000.000 de valores | 410 | 1.498 | 95 / 32 ms |
+| Nueva, aprende sus valores sobre la marcha | 191 | 2.894 | 126 / 31 ms |
+| 200.000 valores | 871 | 2.960 | 117 / 32 ms |
+| 1.000.000 de valores | 773 | 2.967 | 124 / 32 ms |
 
-El enmascaramiento está limitado por los detectores: en un hilo, con todos los valores en memoria y
-sin base de datos, el motor enmascara unas 900 líneas como estas por segundo. Una clave nueva además
-escribe cada valor nuevo en PostgreSQL. Una instancia mantiene como mucho `database_pool` conexiones
-a PostgreSQL (10 si los ajustes del servidor no dicen otra cosa) para el trabajo de todas las
-identidades, y deja que tres décimas partes de ellas (tres de diez) las ocupen llamadas que conservan
-sus valores nuevos en una transacción cada una; las demás conservan cada valor según llega, más
-despacio. Sube `database_pool` para una instancia que enmascara para muchas claves nuevas a la vez, y
-con él el `max_connections` de PostgreSQL
+Cada documento trae valores nuevos para la clave, que los escribe en PostgreSQL mientras los enmascara: los
+mismos 50 documentos enmascarados de nuevo, con sus valores ya conocidos, tardaron 16,6 ms con 200.000 valores y
+16,4 ms con 1.000.000 (restaurar, 23 ms en ambos casos). Una clave nueva también escribe la mayoría de los
+valores de sus líneas, y por eso enmascara menos.
+
+Latet 0.10.0, medido de la misma manera en el mismo equipo, enmascaraba 350 y 304 líneas por segundo
+con 200.000 y 1.000.000 de valores y 153 para una clave nueva, restauraba 2.114 y 2.014, y enmascaraba
+un documento en entre 163 y 182 ms. Latet 0.11 se proponía enmascarar al menos 1.000 líneas como
+estas por segundo en una instancia con 200.000 y con 1.000.000 de valores, y un documento en 30 ms o
+menos: enmascara 871 y 773, y un documento en 30 ms solo cuando la clave ya conoce sus valores. La
+mayor parte del tiempo de una llamada de enmascarar se va en los detectores, y una parte en esperar a
+PostgreSQL.
+
+Una instancia encuentra los valores de una clave mediante las huellas de las palabras de su caja fuerte ([la
+caja fuerte de una clave](#la-caja-fuerte-de-una-clave)), que ocupan unos 15 MB por un millón de valores (14,77
+MB con 1.000.000) y se construyen en segundo plano mientras se abre el espacio de la clave: en 1,5 segundos con
+1.000.000 de valores (la mediana de tres aperturas, de 1,42 a 1,62 s). Hasta que están listas, las llamadas de
+la clave buscan sus palabras solo en PostgreSQL: en una medición anterior con Latet 0.11, con las huellas
+desactivadas, la clave de 200.000 valores enmascaró 494 líneas por segundo y restauró 1.382. Cada llamada lee
+primero el contador de cambios de la clave, 0,51 ms de mediana, y recoge lo que cambió desde entonces: 1,87 ms
+por un valor nuevo y 2,11 ms por 100, también de mediana.
+
+En una llamada de textos enmascarados antes, solo los nuevos se vuelven a leer, pero cada uno de los
+demás se sigue buscando y comparando con lo que la clave enmascaró: 500 textos enmascarados antes y
+uno nuevo tardaron 168 ms, el nuevo solo 6,1 ms (medianas de tres ejecuciones).
+
+En una máquina Linux, los workers se suman. Medido en Docker en el mismo equipo (una máquina virtual
+Linux de 20 procesadores y 16 GB, con PostgreSQL 18.6 y Valkey 9.1.2 en contenedores al lado), con
+`latet server run --workers` y una clave de API de 200.000 valores: 200.000 líneas distintas del tipo
+descrito arriba en llamadas de 62, cuatro conexiones por worker, cada número de workers durante 20
+segundos, la mediana de tres rondas; la memoria es la memoria residente de cada worker tras las
+rondas:
+
+| Workers | Enmascarar, líneas por segundo | Restaurar, líneas por segundo | Memoria por worker |
+| ---: | ---: | ---: | ---: |
+| 1 | 1.190 | 1.947 | 227 MB |
+| 2 | 2.260 | 3.711 | 227 MB |
+| 4 | 4.253 | 6.594 | 216 MB |
+| 8 | 7.477 | 10.147 | 185 MB |
+
+Ocho workers enmascararon 6,28 veces lo que uno y restauraron 5,21 veces, donde Latet 0.11 se
+proponía llegar al menos a 5 veces en ambos; ninguna ronda con ocho workers restauró a menos de 5,07
+veces. El kernel reparte las conexiones entre los workers según un hash, no por turnos, así que unos
+workers reciben más que otros: de 1 a 10 de las 32 en una ronda con ocho workers. El proceso que
+arranca los workers ocupaba de 47 a 48 MB a su lado. Estas llamadas llegan desde varias conexiones a
+la vez, así que compara las filas de esta tabla entre sí, no con la primera tabla.
+
+Escribir valores nuevos necesita conexiones a PostgreSQL: una instancia, y cada worker, mantiene como
+mucho `database_pool` (10 si los ajustes del servidor no dicen otra cosa) para el trabajo de todas
+las identidades, y deja que tres décimas partes de ellas (tres de diez) las ocupen llamadas que
+conservan sus valores nuevos en una transacción cada una; las demás conservan cada valor según llega,
+más despacio. Sube `database_pool` para una instancia que enmascara para muchas claves nuevas a la
+vez, y con él el `max_connections` de PostgreSQL
 ([operación del servidor](../concepts/server-operations/#conexiones-límites-y-confianza)).
-`scripts/bench_apps.py`, en el repositorio, mide un servidor tuyo de la misma manera.
+`scripts/bench_apps.py`, en el repositorio, mide un servidor tuyo como se midió la primera tabla.
 
 ## Actualizar un servidor
 
-Tras una actualización que cambia cómo se indexan las palabras de una caja fuerte, la primera
-instancia que construye el espacio de una clave las vuelve a crear antes de responder a la primera
-llamada de la clave: unos 40 segundos para 200.000 valores y cuatro minutos y medio para 1.000.000 en
-el equipo indicado arriba. Una llamada que llega mientras tanto espera, y una instancia construye
-cuatro espacios a la vez, así que unas pocas claves grandes retrasan las primeras llamadas de las demás
-claves en ella. El registro de cambios dice cuándo una versión lo hace; entonces envía a cada clave
-grande una llamada, con un tiempo de espera suficiente, antes de que sus programas vuelvan a arrancar.
+Latet 0.11 cambia las tablas. Detén cada instancia y cada worker, en cada máquina, ejecuta
+`latet server migrate` una vez con la 0.11 y luego arráncalos todos con ella
+([actualizar](../concepts/server-operations/#actualizar-y-añadir-instancias)). Una instancia no
+arranca sobre tablas de otra versión, así que entre la parada y el arranque no se responde ninguna
+llamada, y `latet server migrate` no cambia nada mientras una instancia está viva, una de la 0.10
+durante 30 segundos después de detenerse. La migración añade a cada fila de palabra de cada caja
+fuerte un sitio vacío para su huella y para el número del cambio que la escribió por última vez, con
+sus índices: en una base de datos con cajas fuertes grandes tarda más que las migraciones anteriores,
+y las huellas mismas se calculan después, en segundo plano.
 
-Mientras instancias de dos versiones se ejecutan a la vez, un valor que escribe una instancia más
-antigua lo encuentran las más nuevas mientras lo tienen en memoria, pero no en PostgreSQL hasta que el
-espacio de la clave se vuelve a construir. Cuando la API para aplicaciones está en uso, detén cada
-instancia más antigua antes de que arranquen las nuevas, aunque las tablas no cambien
-([actualizar](../concepts/server-operations/#actualizar-y-añadir-instancias)).
+Una caja fuerte guardada por Latet 0.10 aún no tiene huellas. Tras el reinicio, la primera instancia que
+construye el espacio de una clave responde enseguida a las llamadas de la clave, buscando sus palabras en
+PostgreSQL como hacía la 0.10, y calcula las huellas de la caja fuerte en segundo plano, una vez, una instancia
+cada vez; después cada instancia construye su propio índice de esas huellas y lo usa. Hasta entonces las
+llamadas de la clave enmascaran los mismos valores, más despacio ([velocidad](#velocidad): 494 líneas por
+segundo con 200.000 valores y las huellas desactivadas, en una medición anterior), y ninguna se rechaza por
+ello. Cuando las huellas aún no están todas calculadas o no puede construirse un índice (PostgreSQL o Valkey que
+no responden, una actualización del índice que falló), las llamadas siguen con la búsqueda en PostgreSQL hasta
+que el índice se construye de nuevo: enseguida cuando otra instancia ha calculado las huellas, y si no 10, 20 y
+30 segundos después de cada intento y luego una vez por minuto. El registro dice una vez cuando un índice deja
+de usarse y una vez cuando vuelve a usarse. Una caja fuerte por encima del tamaño para el que se construye un
+índice ([límites](#límites)) sigue con la búsqueda en PostgreSQL mientras dura su espacio. Las palabras mismas
+quedan como las hizo la 0.10: la 0.11 no las vuelve a hacer.
+
+Una versión que cambia cómo se hacen las palabras de una caja fuerte (el registro de cambios lo dice)
+vuelve a hacer las palabras de una clave en la primera instancia que construye su espacio, antes de
+que ese espacio responda a la primera llamada de la clave: Latet 0.10.0 tardaba unos 40 segundos para
+200.000 valores y cuatro minutos y medio para 1.000.000 en el equipo indicado arriba. Una llamada que
+llega mientras tanto espera, y una instancia construye cuatro espacios a la vez, así que unas pocas
+claves grandes retrasan las primeras llamadas de las demás claves en ella: tras una versión así, envía
+a cada clave grande una llamada, con un tiempo de espera suficiente, antes de que sus programas vuelvan
+a arrancar.
+
+Mientras instancias de dos versiones se ejecutan a la vez, lo que permite una versión que no cambia
+las tablas, un valor que escribe una instancia más antigua lo encuentran las más nuevas mientras lo
+tienen en memoria, pero no en PostgreSQL hasta que el espacio de la clave se vuelve a construir.
+Cuando la API para aplicaciones está en uso, detén cada instancia más antigua antes de que arranquen
+las nuevas, aunque las tablas no cambien.

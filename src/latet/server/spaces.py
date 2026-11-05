@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import functools
 import json
 import logging
@@ -55,27 +56,39 @@ import weakref
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from latet.api.rest import API
+from latet.api.rest import API, _submit_publication
 from latet.engine.known import LET_GO, value_chars
 from latet.engine.stored import StoredVault
+from latet.engine.vault import Vault
 from latet.gateway.app import OnServer, create_app
+from latet.gateway.provenance import LocalEchoes
+from latet.gateway.request_audit import RequestAudit, _SweepLease
 from latet.logline import Paced, described
-from latet.projects import masker_weight
+from latet.projects import Projects, masker_weight
 from latet.protection import loosened
 from latet.runtime import Runtime, SpaceFull, make_runtime
 from latet.server.backends import SpaceBackends, shown_forgotten, space_backends, vault_limit_of
-from latet.server.live import WRITER_CLOSE
+from latet.server.index import INDEX_BUILDS_AT_ONCE
+from latet.server.launch_binding import BindingCodec
+from latet.server.launch_controls import LaunchHoldAdmission, launch_hold
+from latet.server.launch_lifecycle import ProtectedLaunchControls
+from latet.server.launch_mutations import LAUNCH_MUTATION, LaunchMutations, MutationAdmission
+from latet.server.launch_open import ProtectedLaunchOpen
+from latet.server.live import WRITER_CLOSE, ValkeyEchoes
 from latet.server.master import root_key
 from latet.server.shared import OwnSettings
 from latet.server.space_settings import settings_owner
-from latet.server.vault import Forgotten, NotRecorded, UnreadableEntry
+from latet.server.vault import INDEX_TOO_LARGE, PRINTS_UNMADE, Forgotten, NotRecorded, UnreadableEntry
 
 if TYPE_CHECKING:
-    from latet.engine.vault import Entity, Vault
+    from latet.engine.vault import Entity
+    from latet.gateway.request_audit import _NativeRLock
     from latet.server.app import Server
     from latet.server.db import Database
     from latet.server.identities import Identity
@@ -92,6 +105,9 @@ SPACE_BASE = 1024 * 1024
 # characters a value; weighed at 1,536 and 40.
 _PER_VALUE = 1536
 _PER_CHAR = 40
+# Each entry of a lookup table of a whole read's older snapshot (``StoredVault.whole_tables``): a dict's slot, its key
+# and a small tuple, its values shared with the newer snapshot.
+_PER_TABLE_ENTRY = 120
 SPACE_THREADS = 16  # the threads that apply what the spaces hear: each space's work one at a time, in one of them
 BUILDS_AT_ONCE = 4  # spaces built at once at most (the module's words)
 # How long closing every space is waited for: a space's app drains its recorder for five seconds at most
@@ -109,6 +125,10 @@ _TRAILING: weakref.WeakKeyDictionary[object, threading.Timer] = weakref.WeakKeyD
 _TRAILING_LOCK = threading.Lock()
 _ABOVE_KEPT = 10_000  # counts a space applied past one it never heard, kept until the beat's check catches it up
 _DROP = "drop"  # what a space being built hears when it is closed meanwhile
+# Seconds an instance holds the job of making a person's words (``_make_words``) before another may take it, should it
+# stop meanwhile; more for a vault of many values (as ``fill_prints`` sizes its own): expiry lets a second instance walk
+# it again, which writes nothing twice.
+WORDS_HOLD_SECONDS = 600
 # What a space is handed besides the messages of its channels: a re-application after a save refused as stale, the
 # beat's catching up (its vault, its settings, the shared settings: each by its own count; its identity, by its vault
 # limit), and a change of its identity's name, email or vault limit.
@@ -148,6 +168,23 @@ class NotListening(SpaceUnavailable):
 # others. Half the budget: a full vault (``vault_limit`` values of a few dozen characters, about 550 MiB) with settings
 # at their caps fits within it at the default budget, and a space of the same weight beside it.
 SPACE_SHARE = 0.5
+# What an API key's detectors may take past the ordinary RE2 budget (``StoredVault.detectors_extra_most``, Task 8's
+# fix round 9), and a person's since Task 9 put it on the stored vault: this much of its space's share, at most. It is
+# weighed in the space's size, counted against the instance's budget, and never in its share: a request is never
+# refused for the speed of a space's detectors, where the release before masked it, slower (the owner's ruling of
+# 2026-10-29).
+DETECTORS_SHARE = 1 / 8
+# How long the vaults' index bytes counted last are said again (``Spaces.index_bytes``, which the beat and the metrics
+# ask): each print cache's count walks its entries, five thousand at most a space.
+INDEX_BYTES_SECONDS = 60.0
+# A space whose vault's index is not ready (its build found the vault's prints not all made, their lease held by
+# another instance, or failed; or a catch-up of the ready one failed since) is answered through PostgreSQL's lookup, and
+# its index is built again: at once when another instance's fill of the prints ends (its ``prints`` message), and from
+# the beat's check ``INDEX_AGAIN_SECONDS`` after each build that left it so, the last of them from then on, with
+# ``INDEX_BUILDS_AT_ONCE`` builds under way at most and each under its turn (``index.BUILD_TURNS``), as the first.
+# One refused for its size (``index.IndexTooLarge``) is not built again while its space lasts: a vault's size only
+# grows, and each try counts its print rows under a turn; a new space of the identity tries once again.
+INDEX_AGAIN_SECONDS = (10.0, 20.0, 30.0, 60.0)
 PAST_SHARE = (
     "this identity's space holds its share of the memory this instance of the server gives the spaces: it learns no "
     "new value until it holds less (values forgotten in the dashboard, fewer rules or projects) or the server has more"
@@ -160,19 +197,40 @@ def space_size(runtime: Runtime) -> int:
     as a project's is weighed: ``projects.masker_weight``), each value of its vault, what its projects hold (each one's
     masker and copy of the settings: ``Projects.weight``), the bytes its caches hold, each bounded on a server: the
     engine's masked blocks and restores, the mediator's memory of texts fit to leave as they were kept and the final
-    check's of the texts it found clean (``Mediator.checked_bytes``), and the memories in front of Valkey of its
-    conversations and of its texts as they left; and the batches of the Live Reviewer it holds
-    on this instance, their texts and their images, each image with its pixels (``ValkeyApprovals.held_bytes``). A value
-    is weighed by its length too, from the moment it is kept: the characters the vault's parts hold of it
-    (``Vault.chars``), a whole JSON string of strict data mode's weighing what it takes there."""
+    check's of the texts it found clean (``Mediator.checked_bytes``), the index of prints of a vault on its store (an
+    API key's, a person's) and the words of what its calls found (``PgVaultStore.index_bytes``,
+    ``StoredVault.words_bytes``), a person's whole vault read past a bound while it lives (``StoredVault.whole_count``),
+    and the memories in front of Valkey of its conversations and of its texts as they left; the batches of the Live
+    Reviewer it holds on this instance, their texts and their images, each image with its pixels
+    (``ValkeyApprovals.held_bytes``). A value is weighed by its length too, from the moment it is kept: the characters
+    the vault's parts hold of it (``Vault.chars``), a whole JSON string of strict data mode's weighing what it takes
+    there. And what an API key's or a person's detectors were granted past the ordinary RE2 budget (``_detectors``),
+    which its share leaves out."""
     projects = runtime.projects.weight if runtime.projects is not None else 0
-    return _fixed(runtime) + projects + _values(runtime.built.vault)
+    return _fixed(runtime) + projects + _values(runtime.built.vault) + _detectors(runtime)
 
 
-def _fixed(runtime: Runtime) -> int:
+def _detectors(runtime: Runtime) -> int:
+    """What an API key's or a person's detectors were granted past the ordinary RE2 budget
+    (``StoredVault.detectors_bytes``), at most its ceiling (``DETECTORS_SHARE`` of the share): in the space's size,
+    never in its share, so that the speed of its detectors never refuses a value (Task 8's fix round 9)."""
+    return getattr(runtime.built.vault, "detectors_bytes", 0)
+
+
+def _fixed(runtime: Runtime, retained: int | None = None) -> int:
     """What a space weighs but its values and its projects (``space_size``): idle, its own masker, its caches and the
     batches of the Live Reviewer it holds."""
     held = runtime.built.engine.cached_bytes + runtime.mediator.checked_bytes
+    held += getattr(runtime.store, "index_bytes", 0)
+    held += runtime.request_retained_bytes if retained is None else retained
+    launch_open = runtime.gateway.launch_controls
+    if isinstance(launch_open, ProtectedLaunchOpen):
+        held += launch_open.retained_bytes
+    vault = runtime.built.vault
+    held += getattr(vault, "words_bytes", 0)  # the words of what its calls found (an API key's vault, a person's)
+    # A person's whole vault read past a bound of a call, while it lives (``StoredVault._whole_read``): as its values.
+    held += _PER_VALUE * getattr(vault, "whole_count", 0) + _PER_CHAR * getattr(vault, "whole_chars", 0)
+    held += _PER_TABLE_ENTRY * getattr(vault, "whole_tables", 0)  # an older snapshot's own lookup tables
     backends = runtime.backends
     if backends is not None:
         held += getattr(backends.given, "cached_bytes", 0) + getattr(backends.conversations, "cached_bytes", 0)
@@ -291,6 +349,10 @@ class Space:
     size: int = 0  # what it weighed last (space_size)
     # What it weighed last but its values and its projects (``_fixed``), over which each value is weighed as it comes.
     fixed: int = 0
+    retained: int = 0
+    # What its vault's detectors (an API key's, a person's) were granted past the ordinary RE2 budget
+    # (``StoredVault.detectors_bytes``): in its size, never in its share (``DETECTORS_SHARE``).
+    extra: int = 0
     closed: bool = False
     # Its changes, in order, each with its place in the queue (``seq``, the number queued so far).
     queue: asyncio.Queue[tuple[str, dict[str, Any], int]] = field(default_factory=asyncio.Queue)
@@ -305,6 +367,16 @@ class Space:
     long_scopes: dict[asyncio.Task[Any], Scope] = field(default_factory=dict, repr=False)
     ended: set[asyncio.Task[Any]] = field(default_factory=set)
     words: str = _CLOSED
+    # Its vault's index (``Spaces._index_space``): the build under way, the builds since it was last ready that left it
+    # not ready and when the last of them ended (``time.monotonic``), whether one more is wanted once the one under way
+    # ends (a fill of its prints ended meanwhile), whether it is said not to be used (``Spaces._index_off``), and
+    # whether it was refused for its size, never built again while the space lasts.
+    index_build: asyncio.Task[None] | None = None
+    index_tries: int = 0
+    index_tried: float = 0.0
+    index_wanted: bool = False
+    index_off: bool = False
+    index_refused: bool = False
 
     def __repr__(self) -> str:
         return f"Space({self.identity.id})"
@@ -341,7 +413,7 @@ def _long(scope: Scope) -> bool:
     if scope["type"] != "http":
         return False
     path = scope.get("path", "")
-    if path in _STREAMS:
+    if path in _STREAMS or launch_hold(scope):
         return True
     if scope.get("method") == "POST":
         return path == "/_latet/engine/v1/approvals/wait"
@@ -435,6 +507,22 @@ def _retrieved(task: asyncio.Task[Any]) -> None:
     to log with its traceback."""
     if not task.cancelled():
         task.exception()
+
+
+def _indexed(space: Space) -> bool:
+    """Whether ``space``'s vault finds its values through an index of its prints (a stored vault's, Task 8)."""
+    return isinstance(space.runtime.built.vault, StoredVault) and space.parts.vault.index is not None
+
+
+def _index_ready(space: Space) -> bool:
+    """Whether ``space``'s vault's index is ready (built from a vault whose every word has its print, and caught up)."""
+    index = space.parts.vault.index
+    return index is not None and index.ready
+
+
+def _since(count: int) -> str:
+    """What a paced line adds (``logline.Paced``): how many times it happened since the line before."""
+    return f" ({count} times since the line before)" if count > 1 else ""
 
 
 def _read_counts(db: Database, owners: list[str]) -> dict[str, int]:
@@ -562,6 +650,11 @@ def _learn_ids(runtime: Runtime, store: PgVaultStore, ids: set[str]) -> None:
     catch-up, never without the lock. One its space is past its share for is not learnt, nor any after it: the vault
     then refuses every text (``Vault.lacking``), this conversation's first, and the space is made again at its next
     weighing (``Spaces._unlearnt``)."""
+    if isinstance(runtime.built.vault, StoredVault):
+        # A vault on its store (an API key's, a person's) finds a value by the words of the texts that hold it, and a
+        # conversation's values are brought back in one read before its answer (``StoredVault.hold``): nothing to load
+        # here, and nothing asked of the store one value at a time, nor on the event loop (Task 9's I3).
+        return
     if all(runtime.built.vault.get(entity_id) is not None for entity_id in ids):
         return
     if not runtime._lock.acquire(blocking=not _on_a_loop()):
@@ -620,6 +713,7 @@ def _forget(space: Space, entity_id: str) -> None:
     and kept since, with another fake, which is learnt here at once (``_learned``: review 11b's M2), never left to its
     own message, which may come late or not at all."""
     runtime, store = space.runtime, space.parts.vault
+    store.drop_cached(entity_id)
     with runtime._lock:
         vault = runtime.built.vault
         entity, held = None, True
@@ -658,6 +752,54 @@ def _settle_obsolete(runtime: Runtime, *, every: bool = False) -> None:
         change = approvals.changes.get(change_id)
         if change is not None and (every or (change.config is not None and change.config == applied)):
             approvals.settle_change(change_id, "superseded")
+
+
+def _exception_logged(server: Server, identity_id: str, details: Mapping[str, Any]) -> None:
+    """A permanent request exception the identity approved, in the administration log (R-108): its id and its scope's
+    category alone, the identity its actor and its target."""
+    server.audit.record(identity_id, "exception.permanent", identity_id, dict(details))
+
+
+def _index_again(server: Server, identity_id: str, config: Any) -> None:
+    """The index of the identity's approved request exceptions written again as its space is built, by what this
+    version and this edition make of them (one a new version suspends, R-100; a permanent one an edition forbids): kept
+    otherwise as its approved settings were last kept. Its failure is said by its type: the space runs, and `latet
+    server status` lists from what the index last held."""
+    from latet.server.space_settings import index_exceptions
+
+    allowed = server.edition.permanent_exceptions()
+    try:
+        with server.db.transaction() as conn:
+            index_exceptions(conn, identity_id, config, permanent_allowed=allowed)
+    except Exception as exc:
+        log.warning(
+            "the index of the request exceptions of %s was not written again: %s", identity_id, type(exc).__name__
+        )
+
+
+def _counts_and_now(db: Any, owner: str) -> tuple[datetime, int, int]:
+    """RC-REC-3's one statement: PostgreSQL's clock, the identity's settings count and the shared settings' (owner
+    ``''``), read together, so that what decides an exception and the time it is judged at are one reading."""
+    with db.connection() as conn:
+        row = conn.execute(
+            "SELECT clock_timestamp(),"
+            " COALESCE((SELECT counter FROM change_counters WHERE owner = %s), 0),"
+            " COALESCE((SELECT counter FROM change_counters WHERE owner = ''), 0)",
+            (owner,),
+        ).fetchone()
+    if row is None or not isinstance(row[0], datetime) or row[0].tzinfo is None:
+        raise OSError("the database gave no time")
+    return row[0], int(row[1]), int(row[2])
+
+
+def database_now(db: Any) -> datetime:
+    """PostgreSQL's clock, the one a request exception's lifetime is judged by on a server (D3, RC-REC-3): every
+    instance reads the same time, whatever its own clock says."""
+    with db.connection() as conn:
+        row = conn.execute("SELECT clock_timestamp()").fetchone()
+    if row is None or not isinstance(row[0], datetime) or row[0].tzinfo is None:
+        raise OSError("the database gave no time")
+    return row[0]
 
 
 def _reapply(space: Space) -> None:
@@ -745,6 +887,25 @@ def _resync(space: Space, db: Database) -> int:
     return count
 
 
+def _make_words(store: PgVaultStore, jobs: Any) -> int:
+    """In the index's threads: the words of a person's vault kept before they were (0.10.0's, or an older version of
+    the anchors), then their prints, on one instance at a time (``words:<identity>``), none while another makes them;
+    stopped at the next part once the space closes (``PgVaultStore.closed``). Its space keeps its whole vault in memory
+    meanwhile, as before; the space built after them is on its store. How many values got their words."""
+    seconds = max(WORDS_HOLD_SECONDS, store.count_entities() * 0.002)
+    with jobs.hold(f"words:{store.identity}", seconds) as mine:
+        if not mine or store.closed:
+            return 0
+        filled = store.backfill_words()
+        if filled:
+            log.info(
+                "the words of %d values of a person's vault were made, so that they are found in its texts", filled
+            )
+        if not store.closed:
+            store.fill_prints()
+        return filled
+
+
 def _shut(runtime: Runtime) -> None:
     """A space's runtime closed, after any change it applies (under its lock)."""
     with runtime._lock:
@@ -820,22 +981,210 @@ async def _forgetting(
     return done
 
 
+_RLOCK_TYPE = type(threading.RLock())
+
+
+class _AuditFence:
+    """No wait, retry or callback-only mutex: fence each real check-to-commit lock."""
+
+    __slots__ = ("check", "locks")
+
+    def __init__(self, locks: tuple[Any, ...], check: Callable[[int], str | None]) -> None:
+        self.locks, self.check = locks, check
+
+    def __call__(self, added: int) -> str | None:
+        if added != 0 or not 2 <= len(self.locks) <= 3:
+            return PAST_SHARE
+        acquired = 0
+        try:
+            for lock in self.locks:
+                if type(lock) is not _RLOCK_TYPE:
+                    return PAST_SHARE
+                owned = cast("_NativeRLock", lock)._is_owned()
+                if type(owned) is not bool or owned:  # reentrant pending work is not committed
+                    return PAST_SHARE
+                if not lock.acquire(blocking=False):
+                    return PAST_SHARE
+                acquired += 1
+            return self.check(0)  # Audit's entire positive delta is already published
+        finally:
+            for index in range(acquired - 1, -1, -1):
+                self.locks[index].release()
+
+
+def _audit_active(space: Space) -> bool:
+    audit = space.runtime.request_audit
+    return type(audit) is RequestAudit and audit.protects_idle
+
+
+def _retire_audit(space: Space) -> bool:
+    audit = space.runtime.request_audit
+    # Unsupported ownership cannot be assumed idle. No foreign locks/callbacks
+    # are acquired by this atomic A-only seal, and no cleanup is awaited here.
+    return type(audit) is RequestAudit and audit.try_retire_if_idle()
+
+
+class _StatusSweep:
+    """Finite loop-owned traversal; actual carriers/Handles are strong owners."""
+
+    __slots__ = ("__weakref__", "_cursor", "_lease", "_loop", "_phase", "_remaining", "_spaces")
+
+    def __init__(
+        self, lease: _SweepLease, spaces: Spaces, loop: asyncio.AbstractEventLoop, remaining: int, cursor: int
+    ) -> None:
+        self._lease = self._spaces = self._loop = None
+        self._cursor = self._remaining = 0
+        self._phase = 0
+        self._spaces = weakref.ref(spaces)
+        self._loop, self._remaining, self._cursor = loop, remaining, cursor
+        self._lease = lease  # full construction before ownership transfers
+
+    @property
+    def _input(self) -> bool:
+        return type(self._phase) is weakref.ReferenceType
+
+    @property
+    def _pending(self) -> bool:
+        return self._phase is True
+
+    @property
+    def _stopped(self) -> bool:
+        return self._remaining < 0
+
+    def _schedule(self) -> None:
+        if self._stopped or self._pending or self._input:
+            return
+        self._phase = True
+        try:
+            cast("asyncio.AbstractEventLoop", self._loop).call_soon_threadsafe(self, context=contextvars.Context())
+        except BaseException as error:
+            # An exception may follow enqueue. Keep pending ownership until the
+            # actual Handle is consumed/discarded; never retry an ambiguous wake.
+            self.stop()
+            BaseException.__setattr__(error, "__traceback__", None)
+            BaseException.__setattr__(error, "__context__", None)
+            BaseException.__setattr__(error, "__cause__", None)
+
+    def _input_ended(self) -> None:
+        self._phase = 0  # weak Work marker ends BEFORE Work's charge can end
+
+    def cancel(self, audit: object) -> None:
+        phase = self._phase
+        work = phase() if type(phase) is weakref.ReferenceType else None
+        if work is not None and work._owner is audit:
+            work.close()  # C ends; real N/Q keep every live byte charged
+
+    def _disposed(self) -> None:
+        self._phase = 0
+        self._schedule()  # carrier/Work refs already cleared; never under A
+
+    def stop(self) -> None:
+        self._remaining = -1  # terminal sentinel, independent of input/pending; never refunds
+
+    def __call__(self) -> None:
+        self._phase = 0
+        spaces = self._spaces() if self._spaces is not None else None
+        if self._stopped or spaces is None or spaces._status_stopped or not self._remaining or not spaces._spaces:
+            self.stop()
+            return
+        size = len(spaces._spaces)
+        cursor = self._cursor % size
+        space = next(space for index, space in enumerate(spaces._spaces.values()) if index == cursor)
+        self._cursor = (cursor + 1) % size
+        self._remaining -= 1
+        if not space.closed and spaces._spaces.get(space.identity.id) is space:
+            audit = space.runtime.request_audit
+            if type(audit) is RequestAudit:
+                work = audit.reserve_snapshot()
+                if work is not None:
+                    try:
+                        self._phase = weakref.ref(work)  # paid by the LIVE Work, never a strong cycle
+                    except MemoryError:
+                        work.close()
+                        self._schedule()
+                        return
+                    if _submit_publication(work, space.runtime.mediator, spaces._executor, self):
+                        return
+                    self._phase = 0
+        self._schedule()  # yield ONE candidate; no retained iterator/Space/list
+
+    def __del__(self) -> None:
+        lease = self._lease
+        self._lease = None
+        spaces = self._spaces() if self._spaces is not None else None
+        if spaces is not None and spaces._status_sweep is not None and spaces._status_sweep() is self:
+            spaces._status_sweep = None
+        self._spaces = self._loop = None
+        self._cursor = self._remaining = 0
+        self._phase = 0
+        self._spaces = None
+        spaces = None  # disarm foreign loop/weak/metadata owners OUTSIDE A
+        if lease is not None:
+            lease.close()
+
+
 class Spaces:
-    def __init__(self, server: Server, *, budget_mb: int = 2048) -> None:
+    def __init__(
+        self,
+        server: Server,
+        *,
+        budget_mb: int = 2048,
+        launch_holds: LaunchHoldAdmission | None = None,
+        launch_mutations: LaunchMutations | None = None,
+    ) -> None:
         self.server = server
+        self._launch_holds = launch_holds
+        self._launch_mutations = launch_mutations
+        self._status_sweep: weakref.ReferenceType[_StatusSweep] | None = None
+        self._status_stopped = False
         self.budget = budget_mb * 1024 * 1024
         self._spaces: dict[str, Space] = {}
+        self._live_weight = 0
         self._building: dict[str, asyncio.Task[Space]] = {}
         self._missed: dict[str, list[tuple[str, dict[str, Any]]]] = {}  # what a space being built has not seen
         self._closing: set[asyncio.Task[None]] = set()
         self._executor = ThreadPoolExecutor(SPACE_THREADS, thread_name_prefix="latet-space")
+        self._index_executor = ThreadPoolExecutor(INDEX_BUILDS_AT_ONCE, thread_name_prefix="latet-vault-index")
+        self._index_tasks: set[asyncio.Task[None]] = set()
         # The builds under way, each its turn: made for the event loop that runs them (one on a server).
         self._builds: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
         self._unapplied = Paced()  # catch-ups that failed, said once a minute
         self._unlearnt_said = Paced()  # spaces made again for a value they did not learn, said once a minute
+        self._index_off_said = Paced()  # a space's index no longer used, said once a minute
+        self._index_on_said = Paced()  # a space's index used again, said once a minute
+        self._index_unjudged = Paced()  # a space the index pass could not judge, said once a minute
+        self._index_bytes: tuple[float, int] | None = None  # the vaults' index bytes counted last, and when
 
     def count(self) -> int:
         return len(self._spaces)
+
+    def index_bytes(self) -> int:
+        """What the vaults of the spaces open here take in memory for their indexes, the prints and the cache of the
+        entries fetched by print, with an index being built (``PgVaultStore.index_bytes``): counts they keep, in bytes,
+        nothing read from PostgreSQL and no vault opened, from any thread (the beat's, the metrics'). The spaces are
+        listed at once: one that opens or closes meanwhile is counted or not, never twice. Counted once in
+        ``INDEX_BYTES_SECONDS`` at most, whoever asks: a cache's count walks its entries."""
+        counted = self._index_bytes
+        if counted is not None and 0 <= time.monotonic() - counted[0] < INDEX_BYTES_SECONDS:
+            return counted[1]
+        total = self._counted_index_bytes()
+        self._index_bytes = (time.monotonic(), total)
+        return total
+
+    def _counted_index_bytes(self) -> int:
+        for _ in range(3):  # a list taken while the event loop changes the dict, taken again
+            try:
+                spaces = list(self._spaces.values())
+                break
+            except RuntimeError:
+                continue
+        else:
+            return 0
+        total = 0
+        for space in spaces:
+            with contextlib.suppress(Exception):  # a space closing as it is weighed: counted as nothing
+                total += int(getattr(space.runtime.store, "index_bytes", 0) or 0)
+        return total
 
     def _build_turns(self) -> asyncio.Semaphore:
         loop = asyncio.get_running_loop()
@@ -848,7 +1197,7 @@ class Spaces:
         IdentityUnavailable for an identity that is gone or disabled."""
         return (await self._space(identity)).runtime
 
-    async def app(self, identity: Identity) -> ASGIApp:
+    async def app(self, identity: Identity, *, launch_carrier: list[bytes] | None = None) -> ASGIApp:
         """The identity's app on this instance, which counts the requests it serves and weighs the space after each
         (past its share and the spaces past the budget, it goes as its last request ends: ``_fit``), and holds its long
         connections (its WebSockets, its dashboards' streams) to end them with the space (``_held``). Raises as
@@ -856,6 +1205,15 @@ class Spaces:
         space = await self._space(identity)
 
         async def counted(scope: Scope, receive: Receive, send: Send) -> None:
+            mutation = scope.get(LAUNCH_MUTATION)
+            if isinstance(mutation, MutationAdmission) and not mutation.attach(
+                space.identity.id, self._request_fence(space)
+            ):
+                refused = JSONResponse(
+                    {"error": "launch-capacity"}, status_code=503, headers={"cache-control": "no-store"}
+                )
+                await refused(scope, receive, send)
+                return
             space.busy += 1
             try:
                 if _long(scope):
@@ -868,7 +1226,34 @@ class Spaces:
                 if not space.closed:
                     self._weigh(space, ended=True)
 
-        return counted
+        if launch_carrier is None:
+            return counted
+
+        async def with_launch(scope: Scope, receive: Receive, send: Send) -> None:
+            from latet.engine.pipeline import RequestScope, request_scope
+            from latet.gateway.launch_authority import REQUEST_LAUNCH, RequestLaunch
+
+            requests = space.runtime.gateway.protected_launch
+            if requests is None and launch_carrier:
+                launch_carrier.clear()
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1011})
+                    return
+                refusal = JSONResponse(
+                    {"error": "launch-unavailable"}, status_code=503, headers={"cache-control": "no-store"}
+                )
+                await refusal(scope, receive, send)
+                return
+            presented = requests.derive(launch_carrier.pop()) if requests is not None and launch_carrier else None
+            scope[REQUEST_LAUNCH] = RequestLaunch(requests, presented)
+            token = request_scope.set(RequestScope())
+            try:
+                await counted(scope, receive, send)
+            finally:
+                scope.pop(REQUEST_LAUNCH, None)
+                request_scope.reset(token)
+
+        return with_launch
 
     async def _space(self, identity: Identity) -> Space:
         if not self.server.listening.is_set():
@@ -932,12 +1317,32 @@ class Spaces:
             ocr_unread=server.metrics.ocr_unread,
             working=server.settings.key_working_values,
             held=server.settings.key_held_secrets,
+            detectors_most=int(self.budget * SPACE_SHARE * DETECTORS_SHARE),
+            permanent_allowed=server.edition.permanent_exceptions,  # the edition's from its first build (Minor 1)
         )
         # Before its app is made (create_app): the identity's kind (an API key's space alone has the applications API),
         # and what that API writes in the administration log, under the identity's own name, in the log threads.
         audit = functools.partial(_audited, server, found.id)
         forget = functools.partial(_forgetting, server, parts, found.id)  # its values forgotten (Task 11b)
         runtime.gateway.on_server = OnServer(server.settings.url, found.id, audit, found.kind, forget)
+        # A request exception's approval time is PostgreSQL's, the same on every instance, never this one's clock (D3).
+        runtime.exception_clock = functools.partial(database_now, server.db)
+        runtime.exception_log = functools.partial(_exception_logged, server, found.id)
+        _index_again(server, found.id, runtime.config)
+        runtime.gateway.launch_prepare = server.launch_prepare
+        if server.launch_authority is not None:
+            from latet.server.launch_requests import ServerLaunchRequests
+            from latet.server.plugin_bindings import PluginBindings
+
+            codec = BindingCodec(key)
+            runtime.gateway.launch_controls = ProtectedLaunchControls(
+                server.launch_authority, codec, found.id, weakref.ref(runtime)
+            )
+            runtime.gateway.protected_launch = ServerLaunchRequests(
+                server.launch_authority, codec, PluginBindings(server.db, found.id, key), runtime.mediator.run
+            )
+        if type(runtime.request_audit) is RequestAudit:
+            runtime.request_audit.bind_status(server.bus, found.id, server.instance)
         # A computer's two calls do their work in the server's work threads, never the default executor, which the
         # spaces' builds hold for seconds (Task 9's T9.13). Imported here: ``machines`` imports this module.
         from latet.server.machines import in_work
@@ -981,13 +1386,171 @@ class Spaces:
                 await self._close(space)
                 raise
             # Nothing was awaited since what it missed was applied: it misses nothing from now on.
-            self._spaces[identity_id] = space
+            self._publish_space(space)
             space.worker = asyncio.create_task(self._work(space), name="latet-space-changes")
+            vault = space.runtime.built.vault
+            if _indexed(space):
+                self._build_index(space)
+            elif not isinstance(vault, StoredVault) and space.identity.kind == "person":
+                # Its words not all made yet: served from memory, as 0.10.0 served it, while they are made.
+                task = asyncio.create_task(self._words_space(space), name="latet-space-words")
+                self._index_tasks.add(task)
+                task.add_done_callback(self._index_tasks.discard)
             self._weigh(space)
             return space
         finally:
             self._missed.pop(identity_id, None)
             self._building.pop(identity_id, None)
+
+    def _build_index(self, space: Space) -> None:
+        """``space``'s index built in the background (``_index_space``), unless one is under way already."""
+        if space.closed or (space.index_build is not None and not space.index_build.done()):
+            return
+        task = asyncio.create_task(self._index_space(space), name="latet-space-index")
+        space.index_build = task
+        self._index_tasks.add(task)
+        task.add_done_callback(self._index_tasks.discard)
+        task.add_done_callback(self._index_ended)
+
+    def _index_ended(self, task: asyncio.Task[None]) -> None:
+        """A build ended (done: no longer counted under way): the next ones due start now (``_build_index_again``),
+        not at the beat's next check, so that spaces that lost their indexes together (PostgreSQL restarted) are built
+        again two at a time, one after another. None once the spaces' threads are let go, nor for a build cancelled."""
+        if task.cancelled() or self._status_stopped:
+            return
+        self._build_index_again()
+
+    async def _index_space(self, space: Space) -> None:
+        """Its bounded, owned background build; no request waits for a legacy print backfill. What it left is judged
+        once it ends (``_index_judged``)."""
+        if space.closed:
+            return
+        try:
+            future = asyncio.get_running_loop().run_in_executor(self._index_executor, space.parts.vault.build_index)
+            while not future.done():
+                await asyncio.wait({future}, timeout=0.1)
+                if not space.closed:
+                    self._weigh(space)  # published, building and cached memory all count while the build runs
+            await future
+        except asyncio.CancelledError:
+            space.parts.vault.revoke_index()
+            raise
+        finally:
+            if not space.closed:
+                self._weigh(space)
+        if not space.closed:
+            self._index_judged(space)
+
+    def _index_judged(self, space: Space) -> None:
+        """What a build of ``space``'s index left. Ready: used, and said used again when it was said not to be (once a
+        minute at most, by the identity's id alone). Not ready: said not to be used (``_index_off``), and built again,
+        at once when a fill of its prints ended while it was built, else by the beat's check once due
+        (``_build_index_again``); but never again while the space lasts when it was refused for its size
+        (``INDEX_TOO_LARGE``)."""
+        if _index_ready(space):
+            space.index_tries, space.index_wanted = 0, False
+            if space.index_off:
+                space.index_off = False
+                if count := self._index_on_said.due():
+                    log.info("the vault index of %s is used again%s", space.identity.id, _since(count))
+            return
+        space.index_tries += 1
+        space.index_tried = time.monotonic()
+        space.index_refused = space.parts.vault.index_failure == INDEX_TOO_LARGE
+        self._index_off(space)
+        if space.index_wanted and not space.index_refused:
+            space.index_wanted = False
+            self._build_index(space)
+
+    def _index_off(self, space: Space) -> None:
+        """``space``'s index not used from now on: said once, until it is used again, once a minute at most whatever
+        the space, by the identity's id and why (``PgVaultStore.index_failure``: the prints its words lack, or an
+        error's type), never a value, a word or a print."""
+        if space.index_off:
+            return
+        space.index_off = True
+        if count := self._index_off_said.due():
+            why = space.parts.vault.index_failure or "not built"
+            log.log(
+                logging.INFO if why == PRINTS_UNMADE else logging.WARNING,
+                "the vault index of %s is not used (%s): its lookups go to PostgreSQL %s%s",
+                space.identity.id,
+                why,
+                "while its space lasts" if space.index_refused else "until it is built again",
+                _since(count),
+            )
+
+    def _index_soon(self, space: Space) -> None:
+        """A fill of ``space``'s prints ended (another instance's ``prints``): its index built again now when it is not
+        ready (once the build under way ends, when one is), within ``INDEX_BUILDS_AT_ONCE`` builds under way; past
+        them, at the beat's next check."""
+        if space.closed or space.index_refused or not _indexed(space) or _index_ready(space):
+            return
+        if space.index_build is not None and not space.index_build.done():
+            space.index_wanted = True
+        elif self._index_builds() < INDEX_BUILDS_AT_ONCE:
+            self._build_index(space)
+        else:
+            space.index_tried = 0.0  # due at once
+
+    def _index_builds(self) -> int:
+        """The index builds under way here."""
+        return sum(
+            1 for space in self._spaces.values() if space.index_build is not None and not space.index_build.done()
+        )
+
+    def _build_index_again(self) -> None:
+        """In the beat's check, and as a build ends (``_index_ended``): each space whose index is not ready and is not
+        being built has it built again, once due
+        (``INDEX_AGAIN_SECONDS`` after the last build that left it so), ``INDEX_BUILDS_AT_ONCE`` under way at most. One
+        that was ready (no build left it so since) lost it to a catch-up that failed (``PgVaultStore.current``): said
+        not to be used now, and built again at once. One refused for its size is not built again. Each space is judged
+        alone: one that raises is said by its error's type (once a minute at most) and the others, and the beat's check
+        that called this, go on."""
+        now, building = time.monotonic(), self._index_builds()
+        for space in list(self._spaces.values()):
+            if building >= INDEX_BUILDS_AT_ONCE:
+                return
+            try:
+                if space.closed or space.index_refused or not _indexed(space) or _index_ready(space):
+                    continue
+                if space.index_build is not None and not space.index_build.done():
+                    continue
+                tries = space.index_tries
+                if tries == 0:
+                    self._index_off(space)
+                elif now - space.index_tried < INDEX_AGAIN_SECONDS[min(tries, len(INDEX_AGAIN_SECONDS)) - 1]:
+                    continue
+                self._build_index(space)
+            except Exception as exc:  # by its type alone: its words could quote what the space holds
+                if count := self._index_unjudged.due():
+                    log.warning(
+                        "the vault index of %s could not be judged (%s): it is judged again at the next check%s",
+                        space.identity.id,
+                        type(exc).__name__,
+                        _since(count),
+                    )
+                continue
+            building += 1
+
+    async def _words_space(self, space: Space) -> None:
+        """The words and prints of a person's vault made in the background (``_make_words``): a failure is said by its
+        type alone, and the space goes on from memory; they are made at a later build."""
+        if space.closed:
+            return
+        store = space.parts.vault
+        try:
+            await asyncio.get_running_loop().run_in_executor(self._index_executor, _make_words, store, self.server.bus)
+        except asyncio.CancelledError:
+            store.revoke_index()
+            raise
+        except Exception as exc:  # by its type alone: a driver's words can quote what it was sent
+            log.warning(
+                "the words of the vault of %s were not made (%s): its space is served from memory, and they are made "
+                "at its next build",
+                space.identity.id,
+                type(exc).__name__,
+            )
 
     async def _started(self, built: _Built) -> Space:
         """The built runtime's app, its lifespan entered, and the space."""
@@ -1003,10 +1566,10 @@ class Spaces:
             built.settings_counts, built.shared_counts, built.tokens,
         )  # fmt: skip
         built.hooks.loop, built.hooks.space = asyncio.get_running_loop(), space
-        if (new_values := built.runtime.new_values) is not None:  # each value weighed as it is kept, its length too
-            new_values.ceiling = functools.partial(self._past_share, space)
-        if (projects := built.runtime.projects) is not None:  # each project's masker weighed before it is built
-            projects.past_share = functools.partial(self._projects_past_share, space)
+        # RC-REC-3: a request that may be decided by a stored exception reads the settings' counts first.
+        built.runtime.gateway.exception_fresh = functools.partial(self.exceptions_fresh, space)
+        self._bind_request_budget(space)
+
         self._weighed(space)  # before it keeps, learns or builds anything
         return space
 
@@ -1129,6 +1692,25 @@ class Spaces:
         finally:
             space.pending.discard(kind)  # over: the beat may queue another of its kind
 
+    async def exceptions_fresh(self, space: Space) -> tuple[datetime, bool]:
+        """RC-REC-3, for a request that may be decided by a stored exception: PostgreSQL's clock and the counts of the
+        identity's settings and of the shared settings, in one statement; whichever is ahead of what the space applied
+        is read again now (the shared settings, this instance's copy of them forgotten first), before the request is
+        decided, so that an exception revoked, or added, on another instance or worker counts at once, its message
+        lost or not. The time, and whether the settings were read again. A store that does not answer raises: the
+        request is refused (503)."""
+        now, settings, shared = await self._run(_counts_and_now, self.server.db, settings_owner(space.identity.id))
+        settings_behind = settings > space.settings_counts.applied
+        shared_behind = shared > space.shared_counts.applied
+        if not settings_behind and not shared_behind:
+            return now, False
+        if shared_behind:
+            self.server.shared.forget()
+        await self._read_settings(space, None)
+        space.settings_counts.caught_up(settings)
+        space.shared_counts.caught_up(shared)
+        return now, True
+
     async def _read_settings(self, space: Space, seq: int | None) -> None:
         """The space's settings read again whole and applied (``_reapply``), unless a reading began after this change
         was queued: that one read it too, so a burst of changes costs one reading after the one under way, never one
@@ -1153,12 +1735,49 @@ class Spaces:
             counts.caught_up(message.get("counter"))
             return
         if what in ("entity", "rule") and isinstance(entity_id, str):
+            await self._run(space.parts.vault.current)
             await self._run(_learn, space, entity_id)
         elif what == "forgotten" and isinstance(entity_id, str):
             await self._run(_forget, space, entity_id)
+        elif what in ("words", "prints"):  # a part of the vault's words or prints made (``backfill_words``,
+            # ``fill_prints``), or the end of a fill of its prints, after which its index is built again when not ready
+            await self._run(space.parts.vault.current)
+            if what == "prints":
+                self._index_soon(space)
         else:
             return  # not a change this Latet knows: its count stays unapplied, and the check catches the space up
         counts.done(message.get("counter"))
+
+    def kick_status(self) -> None:
+        """Post-security, finite best-effort sweep; no await/traffic context."""
+        if self._status_stopped or (self._status_sweep is not None and self._status_sweep() is not None):
+            return
+        count = len(self._spaces)
+        for cursor, space in enumerate(self._spaces.values()):
+            if space.closed:
+                continue
+            audit = space.runtime.request_audit
+            if type(audit) is not RequestAudit:
+                continue
+            lease = audit._reserve_sweep()
+            if lease is None:
+                continue
+            sweep = None
+            installed = False
+            try:
+                sweep = _StatusSweep(lease, self, asyncio.get_running_loop(), count - cursor, cursor)
+                self._status_sweep = weakref.ref(sweep)
+                installed = True
+            except BaseException as error:
+                BaseException.__setattr__(error, "__traceback__", None)
+                BaseException.__setattr__(error, "__context__", None)
+                BaseException.__setattr__(error, "__cause__", None)
+            if not installed:
+                sweep = None
+                lease.close()
+            else:
+                cast("_StatusSweep", sweep)._schedule()
+            return
 
     async def check(self) -> list[tuple[str, bool]]:
         """The beat's check (I5; Task 14 runs it every few seconds): each open space against PostgreSQL, in one query.
@@ -1203,6 +1822,7 @@ class Spaces:
             self.server.shared.forget()
             for space in behind:
                 self._enqueue(space, _SHARED_BEHIND, {"counter": shared_now})
+        self._build_index_again()
         return ended
 
     async def drop(self, identity_id: str, *, wait: bool = True) -> None:
@@ -1211,7 +1831,7 @@ class Spaces:
         nothing."""
         if identity_id in self._missed:
             self._missed[identity_id].append((_DROP, {}))
-        space = self._spaces.pop(identity_id, None)
+        space = self._remove_space(identity_id)
         if space is None:
             return
         if wait:
@@ -1226,6 +1846,7 @@ class Spaces:
         for waiting in self._missed.values():
             waiting.append((_DROP, {}))
         spaces, self._spaces = list(self._spaces.values()), {}
+        self._live_weight = 0
         if spaces:
             self._close_later(spaces)
         if wait and self._closing:
@@ -1233,13 +1854,18 @@ class Spaces:
 
     def shutdown(self) -> None:
         """The spaces' threads let go (the server closes): what is queued is dropped, nothing new starts."""
+        self._status_stopped = True
+        sweep = self._status_sweep() if self._status_sweep is not None else None
+        if sweep is not None:
+            sweep.stop()
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self._index_executor.shutdown(wait=False, cancel_futures=True)
 
     def _discard(self, space: Space, words: str | None = None) -> None:
         """Close ``space`` in the background, while it is still the identity's here (its long connections ended with
         ``words``, when given)."""
         if self._spaces.get(space.identity.id) is space:
-            del self._spaces[space.identity.id]
+            self._remove_space(space.identity.id)
             self._close_later([space], words)
 
     def _unlearnt(self, space: Space) -> None:
@@ -1255,10 +1881,17 @@ class Spaces:
             )
         self._discard(space, _PAST_SHARE_CLOSED)
 
+    def _cancel_status(self, space: Space) -> None:
+        sweep = self._status_sweep() if self._status_sweep is not None else None
+        if sweep is not None:
+            sweep.cancel(space.runtime.request_audit)
+
     def _close_later(self, spaces: list[Space], words: str | None = None) -> None:
         """``spaces`` closed in the background, their long connections ended at once (with ``words``, when given)."""
         for space in spaces:
             space.closed = True  # from now on, not weighed and handed nothing
+            self._cancel_status(space)
+            space.parts.vault.revoke_index()
             space.end_long(words)  # its WebSockets and streams end at once, whatever its close waits for
         task = asyncio.get_running_loop().create_task(self._close_all(spaces), name="latet-spaces-close")
         self._closing.add(task)
@@ -1275,6 +1908,8 @@ class Spaces:
         a thread, whatever went before. One that does not close cleanly is said by the error's type, and keeps no other
         open."""
         space.closed = True
+        self._cancel_status(space)
+        space.parts.vault.revoke_index()
         space.end_long()
         space.parts.approvals.close()
         space.runtime.mediator.approvals.close()
@@ -1284,6 +1919,7 @@ class Spaces:
             space.worker.cancel()
         try:
             try:
+                await asyncio.to_thread(space.parts.vault.close)
                 await space.stack.aclose()
                 await asyncio.to_thread(_flush, space.parts.conversations)
             finally:
@@ -1293,21 +1929,89 @@ class Spaces:
                 "the space of %s did not close cleanly on this instance (%s)", space.identity.id, described(exc)
             )
 
+    def _bind_request_budget(self, space: Space) -> None:
+        """Bind the actual owners before first weighing or runtime publication."""
+        runtime = space.runtime
+        if runtime.new_values is not None:
+            runtime.new_values.ceiling = functools.partial(self._past_share, space)
+        runtime.retained_ceiling = functools.partial(self._retained_past_share, space)
+        if runtime.projects is not None:
+            runtime.projects.past_share = functools.partial(self._projects_past_share, space)
+        if type(runtime.request_audit) is RequestAudit:
+            runtime.request_audit.bind_ceiling(self._request_fence(space))
+
+    def _request_fence(self, space: Space) -> _AuditFence:
+        runtime = space.runtime
+        vault, projects, echoes = runtime.built.vault, runtime.projects, runtime.mediator.echoes
+        supported = type(vault) in (Vault, StoredVault) and (projects is None or type(projects) is Projects)
+        locks = [vault._lock] if supported else []
+        if supported and projects is not None:
+            locks.append(projects._lock)
+        if type(echoes) is LocalEchoes:
+            locks.append(echoes._lock)
+        elif type(echoes) is ValkeyEchoes and type(echoes._front) is LocalEchoes:
+            locks.append(echoes._front._lock)
+        else:
+            supported = False
+        return _AuditFence(tuple(locks) if supported else (), functools.partial(self._retained_past_share, space))
+
+    def _publish_space(self, space: Space) -> None:
+        self._remove_space(space.identity.id)
+        self._spaces[space.identity.id] = space
+        self._live_weight += space.size
+
+    def _remove_space(self, identity_id: str) -> Space | None:
+        space = self._spaces.pop(identity_id, None)
+        if space is not None:
+            self._live_weight -= space.size
+        return space
+
+    def _mutation_share(self, space: Space) -> int:
+        return self._launch_mutations.issuer_bytes(space.identity.id) if self._launch_mutations is not None else 0
+
     def _weighed(self, space: Space) -> None:
         """``space`` weighed afresh (``space_size``): what it holds but its values and its projects first, over which
         each value and each project's masker is weighed as it comes (``_past_share``, ``_projects_past_share``), then
         the whole."""
         runtime = space.runtime
-        space.fixed = _fixed(runtime)
+        retained = runtime.request_retained_bytes
+        space.fixed = _fixed(runtime, retained)
+        space.retained = retained
+        space.extra = _detectors(runtime)
         projects = runtime.projects.weight if runtime.projects is not None else 0
-        space.size = space.fixed + projects + _values(runtime.built.vault)
+        size = space.fixed + projects + _values(runtime.built.vault) + space.extra
+        if self._spaces.get(space.identity.id) is space:
+            self._live_weight += size - space.size
+        space.size = size
+
+    def _retained_past_share(self, space: Space, added: int) -> str | None:
+        runtime = space.runtime
+        projects = runtime.projects.weight if runtime.projects is not None else 0
+        weight = (
+            space.fixed
+            - space.retained
+            + runtime.request_retained_bytes
+            + added
+            + self._mutation_share(space)
+            + projects
+            + _values(runtime.built.vault)
+        )
+        return PAST_SHARE if weight > self.budget * SPACE_SHARE else None
 
     def _projects_past_share(self, space: Space, projects: int) -> str | None:
         """The share's words when ``space``, its projects weighing ``projects`` (the masker they would build counted),
         would weigh past its share of the budget (``SPACE_SHARE``); None when it fits. Asked by its projects under their
         lock before they build a masker (``Projects._scope``): builds at once, each in its turn of the lock, are weighed
         one after another, never against a weight read before the other's masker was counted."""
-        weight = space.fixed + projects + _values(space.runtime.built.vault)
+        runtime = space.runtime
+        weight = (
+            space.fixed
+            - space.retained
+            + runtime.request_retained_bytes
+            + projects
+            + _values(runtime.built.vault)
+            + self._mutation_share(space)
+        )
         return PAST_SHARE if weight > self.budget * SPACE_SHARE else None
 
     def _past_share(self, space: Space, entity: Entity) -> str | None:
@@ -1318,8 +2022,32 @@ class Spaces:
         brings, never carries the space past its share between two weighings."""
         runtime = space.runtime
         projects = runtime.projects.weight if runtime.projects is not None else 0
-        weight = space.fixed + projects + _values(runtime.built.vault, 1, value_chars(entity))
+        weight = (
+            space.fixed
+            - space.retained
+            + runtime.request_retained_bytes
+            + self._mutation_share(space)
+            + projects
+            + _values(runtime.built.vault, 1, value_chars(entity))
+        )
         return PAST_SHARE if weight > self.budget * SPACE_SHARE else None
+
+    def _retained_total(self) -> int:
+        shared = self._launch_holds.retained_bytes if self._launch_holds is not None else 0
+        mutations = self._launch_mutations.retained_bytes if self._launch_mutations is not None else 0
+        return shared + mutations + self._live_weight
+
+    def launch_fits(self) -> bool:
+        return self._retained_total() <= self.budget
+
+    def launch_background_fits(self, issuer: str) -> bool:
+        mutations = self._launch_mutations
+        if mutations is None or not self.launch_fits():
+            return False
+        space = self._spaces.get(issuer)
+        if space is not None:
+            return self._request_fence(space)(0) is None
+        return mutations.issuer_bytes(issuer) <= self.budget * SPACE_SHARE
 
     def _weigh(self, space: Space, *, ended: bool = False) -> None:
         """The space weighed again (it may have grown), and past the budget room is made: around ``space``, in use, or,
@@ -1329,8 +2057,8 @@ class Spaces:
             self._unlearnt(space)
             return
         self._weighed(space)
-        if sum(other.size for other in self._spaces.values()) > self.budget:
-            past = space.size > self.budget * SPACE_SHARE
+        if self._retained_total() > self.budget:
+            past = space.size - space.extra > self.budget * SPACE_SHARE
             self._fit(keep=None if ended and past else space.identity.id)
 
     def _fit(self, keep: str | None) -> None:
@@ -1340,31 +2068,46 @@ class Spaces:
         ``app``), nor while it holds a batch of the Live Reviewer, whose wait would end not approved, nor when it is
         ``keep`` (in use); while it stays it counts at its share, so that no space within its share goes for what it
         holds past it: one identity never closes the others to make room. One within its share goes only idle (no
-        request, no long connection, no batch held), and never ``keep``. Every space is weighed afresh, and nothing is
-        awaited between choosing a space and taking it out: none is closed twice, nor one dropped meanwhile."""
+        request, no long connection, no batch held), and never ``keep``. A share is judged without what a key's or a
+        person's detectors were granted past the ordinary RE2 budget (``Space.extra``), which counts against the budget
+        alone.
+        Every space is weighed afresh, and nothing is awaited between choosing a space and taking it out: none is
+        closed twice, nor one dropped meanwhile."""
         share = self.budget * SPACE_SHARE
         for space in self._spaces.values():
             self._weighed(space)
-        total = sum(space.size for space in self._spaces.values())
+        total = self._retained_total()
         by_use = sorted(self._spaces.values(), key=lambda space: space.used)
         past, gone = [], []
-        for space in (space for space in by_use if space.size > share):
+        for space in (space for space in by_use if space.size - space.extra > share):
             if total <= self.budget:
                 break
-            if space.identity.id == keep or space.serving or space.parts.approvals.holding:
-                total -= space.size - share  # it stays, counted at its share
+            if (
+                space.identity.id == keep
+                or space.serving
+                or space.parts.approvals.holding
+                or _audit_active(space)
+                or not _retire_audit(space)
+            ):
+                total -= space.size - space.extra - share  # it stays, counted at its share (and its detectors' extra)
                 continue
             total -= space.size
             past.append(space)
-        for space in (space for space in by_use if space.size <= share):
+        for space in (space for space in by_use if space.size - space.extra <= share):
             if total <= self.budget:
                 break
-            if space.identity.id == keep or space.busy or space.parts.approvals.holding:
+            if (
+                space.identity.id == keep
+                or space.busy
+                or space.parts.approvals.holding
+                or _audit_active(space)
+                or not _retire_audit(space)
+            ):
                 continue
             total -= space.size
             gone.append(space)
         for space in (*past, *gone):
-            del self._spaces[space.identity.id]
+            self._remove_space(space.identity.id)
         if past:
             self._close_later(past, _PAST_SHARE_CLOSED)
         if gone:

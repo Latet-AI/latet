@@ -22,7 +22,7 @@ A profile decides which [detectors](../detection/) are active. There are three:
 | Names and street addresses, with the [optional local name model](../../getting-started/installation/) | in your prompts, attachments and the text in images | everywhere | ❌ |
 | What no pattern finds, with the [optional local reviewer](../llm-review/) | when it is on | when it is on | when it is on |
 | The text in images, with the [optional text recognition](../images/) | masked | not sent | masked |
-| PDFs, and images without text recognition | sent, and flagged | not sent | sent, and flagged |
+| PDFs, and images without text recognition | not sent | not sent | not sent |
 
 - **`balanced`** suits most code work. It is the default.
 - **`max`** adds private IP addresses and the ID numbers of every country, turns

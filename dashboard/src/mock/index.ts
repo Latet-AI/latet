@@ -7,6 +7,7 @@ import type { ConfigUpdate, ConfigView, Destination, ExchangeSummary, Recognizer
 import { hasFlag } from '../lib/flags'
 import { dayRange } from '../lib/stats'
 import { hasLetterOrDigit, TERM_LONGEST, termTooLong } from '../lib/terms'
+import { mockRequestStatus, routeExceptions } from './exceptions'
 import { addBatch, addChange, onDecided, resetQueue, routeApprovals, startApprovals, subscribeApprovals } from './approvals'
 import {
   detailOf,
@@ -283,7 +284,7 @@ function vaultPage(q: string, type: string, cls: string, page: number, perPage: 
         e.surrogate.toLowerCase().includes(query) ||
         e.type.toLowerCase().includes(query) ||
         e.id === query ||
-        e.original.toLowerCase().includes(query),
+        (e.type !== 'LATET_LAUNCH_KEY' && e.original.toLowerCase().includes(query)),
     )
     .sort((a, b) => b.created - a.created || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const size = Math.max(10, Math.min(200, perPage))
@@ -333,7 +334,7 @@ function route(method: Method, path: string, body: unknown): unknown {
 
   if (method === 'GET' && p === '/me') {
     return {
-      version: '0.10.4',
+      version: '0.11.0',
       profile: config.profile,
       port: 5283,
       data_dir: 'C:\\Users\\dhayes\\AppData\\Local\\latet',
@@ -343,6 +344,8 @@ function route(method: Method, path: string, body: unknown): unknown {
       // The documentation of its version, as a release has it (?mock-no-docs: an install from a checkout without it,
       // whose links go to docs.latet.ai). The dev server has no /_latet/docs/: its links are to look at, not to open.
       docs: !REVIEW.includes('mock-no-docs'),
+      // What the request exceptions let through since the pretend daemon started, in memory alone (M1).
+      request_status: mockRequestStatus(),
     }
   }
   if (method === 'POST' && p === '/logout') return { ok: true }
@@ -405,6 +408,7 @@ function route(method: Method, path: string, body: unknown): unknown {
   if (method === 'POST' && revealMatch) {
     const entity = vault.entities.get(decodeURIComponent(revealMatch[1] ?? ''))
     if (!entity) throw new ApiError(404, 'not found')
+    if (entity.type === 'LATET_LAUNCH_KEY') return { original: null, launch_key: true }
     return { original: entity.original }
   }
   const vaultMatch = p.match(/^\/vault\/([^/]+)$/)
@@ -588,6 +592,10 @@ function route(method: Method, path: string, body: unknown): unknown {
     integrations.destinations = integrations.destinations?.filter((d) => d.name !== name)
     rulesVersion++
     return { ok: true, rules_version: rulesVersion }
+  }
+  if (p.startsWith('/exceptions')) {
+    const answer = routeExceptions(method, p)
+    if (answer !== undefined) return json(answer)
   }
   if (p.startsWith('/approvals') || p.startsWith('/changes')) {
     const answer = routeApprovals(method, p, body)

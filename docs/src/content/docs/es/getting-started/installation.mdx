@@ -36,7 +36,8 @@ El script hace dos cosas, en este orden:
    como herramienta de línea de comandos aislada, con uv. Incluye la detección de nombres local y la
    lectura de texto en imágenes; sus modelos solo se descargan cuando lo pides. Donde no se pueden
    instalar, Latet se instala sin ellas, y el script lo dice al terminar; en cambio, un Latet ya
-   instalado con ellas se queda como estaba. Si se está ejecutando un Latet anterior, lo detiene, y
+   instalado con ellas se queda como estaba. Los demás extras de un Latet ya instalado (`server`, en
+   un servidor) se mantienen. Si se está ejecutando un Latet anterior, lo detiene, y
    no lo vuelve a iniciar. Para actualizar, `latet upgrade` es el mejor camino. Después de que el
    script haya actualizado un Latet, ejecuta `latet start`, y `latet agents apply claude` si Claude
    Code pasa por Latet de forma permanente, para que obtenga el plugin nuevo.
@@ -66,8 +67,8 @@ IBAN. Hay dos cosas que no lo tienen, y necesitan un modelo que se ejecute en tu
 - **Los nombres y las direcciones postales** en texto libre, como
   *Emily Carter vive en 42 Mill Lane*: los encuentra el modelo local de nombres.
 - **El texto de las capturas de pantalla**, como un IBAN en una factura: el reconocimiento de texto
-  lo lee, y Latet cubre cada valor de la imagen con su valor ficticio. Sin él, las imágenes salen tal
-  cual.
+  lo lee, y Latet cubre cada valor de la imagen con su valor ficticio. Sin él, una petición que lleva
+  una imagen no se envía.
 
 El instalador instala lo que ambos necesitan para ejecutarse. Descarga sus modelos una vez:
 
@@ -93,10 +94,17 @@ y la lectura de texto en imágenes incluidas. Primero detiene el daemon (Windows
 archivos que están en uso), instala el nuevo plugin de Claude Code si usas Claude Code y vuelve a
 iniciar el daemon. Un Latet instalado sin detección de nombres o sin lectura de texto en imágenes las
 obtiene así. Donde la nueva versión no puede tenerlas, un Latet que las tiene se queda como estaba, y
-uno que no las tiene se actualiza sin ellas. En Windows, que no sustituye ningún archivo de un
+uno que no las tiene se actualiza sin ellas. Los demás extras con los que se instaló se mantienen
+(`server`, en un servidor); un servidor instalado como servicio del sistema se actualiza como explica
+[Operación del servidor](../../concepts/server-operations/#actualizar-un-latet-instalado-como-servicio-del-sistema).
+En Windows, que no sustituye ningún archivo de un
 programa en ejecución, la actualización sigue en una ventana propia cuando el comando ha terminado, y
 esa ventana dice cómo ha ido. Un Latet 0.9.0 o 0.9.1 en Windows se actualiza volviendo a ejecutar el
 instalador: su propio `latet upgrade` podría dejarlo sin poder arrancar.
+
+**De la 0.10 a la 0.11**, lee primero [Pasar a la 0.11](../upgrading-to-0-11/): Latet 0.11 lee cada
+parte de una petición, y rechaza llamadas que la 0.10 enviaba sin leerlas. `latet doctor` enumera lo
+que se detendrá antes de que actualices.
 
 Antes de detener el daemon, `latet upgrade` copia lo que la nueva versión puede cambiar al abrirlo: la
 caja fuerte, el historial y tu configuración (`config.yaml` y la configuración que aprobaste por

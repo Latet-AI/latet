@@ -63,9 +63,11 @@ _READY = {
     "postgres-tls": ["pg_isready", "-h", "127.0.0.1", "-U", "latet", "-d", "latet"],
 }
 # The TLS PostgreSQL's start: its certificate and key, handed over as base64 in its environment, written where the
-# postgres user alone reads them and unset, then PostgreSQL's own entrypoint with TLS on.
+# postgres user alone reads them and unset, then PostgreSQL's own entrypoint with TLS on. Those of a start before are
+# removed first: `docker start` runs this again, and in /tmp, sticky, root may not write over the postgres user's file.
 _TLS_START = (
-    "(umask 077 && printf '%s' \"$LATET_TLS_CERT\" | base64 -d > /tmp/server.crt"
+    "rm -f /tmp/server.crt /tmp/server.key"
+    " && (umask 077 && printf '%s' \"$LATET_TLS_CERT\" | base64 -d > /tmp/server.crt"
     " && printf '%s' \"$LATET_TLS_KEY\" | base64 -d > /tmp/server.key)"
     " && chown postgres:postgres /tmp/server.crt /tmp/server.key"
     " && unset LATET_TLS_CERT LATET_TLS_KEY"

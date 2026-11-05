@@ -34,6 +34,12 @@ x-latet-server: &latet-server
     # Scrape inside each instance only. There is no host port, Caddy route or monitoring network for metrics.
     LATET_SERVER_METRICS_HOST: 127.0.0.1
     LATET_SERVER_METRICS_PORT: "7283"
+    # Instances in each container, on its one port: a process each, with its own memory (about 110 MB resident a
+    # worker at rest, 185 to 227 MB with a key's space of 200,000 values, and about 70 MB for the process that
+    # watches them) and connections (database_pool, valkey_connections); the kernel spreads new connections across
+    # them by a hash, so a few long-lived connections can land unevenly. Raise it with the container's cores, and its
+    # memory with it; worker k's metrics port is 7283 + k.
+    LATET_SERVER_WORKERS: ${LATET_SERVER_WORKERS:-1}
     LATET_SERVER_LOG_FORMAT: json
     # Caddy alone has this fixed front-network address: trust its forwarded headers alone.
     LATET_SERVER_FORWARDED_ALLOW_IPS: 172.28.0.2
@@ -66,6 +72,10 @@ x-latet-server: &latet-server
   security_opt:
     - no-new-privileges:true
   init: true
+  # Optional with several workers, on Linux 5.14 or later: the connections waiting for a worker that ends go to the
+  # other workers instead of being cut. Not set by default: on an older kernel Docker refuses to start the container.
+  # sysctls:
+  #   net.ipv4.tcp_migrate_req: 1
 
 services:
   latet:

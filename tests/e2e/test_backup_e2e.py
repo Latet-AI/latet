@@ -96,7 +96,7 @@ def test_the_vault_moved_keeps_its_fakes(machines, tmp_path):
     config = load_config()
     assert config.profile == "max" and config.port == 5283  # this machine's port, not the backup's
     assert config.identity.hostname == socket.gethostname()  # this machine's identity, added
-    assert [e.path for e in config.projects] == ["D:/work/shop"]
+    assert [e.path for e in config.projects] == [r"D:\work\shop"]  # moved, and read in its canonical form (I-7)
     reviewed = json.loads((b / "data" / REVIEWED_FILE).read_text("utf-8"))
     assert reviewed["profile"] == "max"  # confirmed at your terminal: approved
     assert calls == [] and not (b / "data" / "restore.json").exists()

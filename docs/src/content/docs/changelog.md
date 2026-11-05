@@ -11,6 +11,191 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.11.0 (2026-11-05)
+
+Latet 0.11.0 blocks requests by default when a part of the path, query, headers or body is neither
+inspected nor explicitly authorized. An empty body is not enough to allow a request. Required
+provider credentials and signed components are preserved under their defined rules. Review your
+routes and narrow exceptions before upgrading; calls previously sent unread may now be blocked. The
+dashboard identifies explicitly allowed unread parts. A refusal tells the agent that nothing was
+sent only when nothing was: when a second attempt is refused after a first one reached the provider,
+the agent is told that no further attempt was sent and that the first may have arrived.
+[Upgrading to 0.11](../getting-started/upgrading-to-0-11/) says what to check first, and
+`latet doctor` lists what will stop.
+
+- **The same on a computer and on a server.** A computer now refuses what a Latet server refused:
+  a request whose body Latet does not read, content in a form it does not read, a WebSocket frame
+  other than a turn. Claude Code's tool definitions are checked on a computer too. A request body
+  is bounded at 32 MiB on a computer.
+- **Calls without a body.** Listing the models and reading one pass on every provider Latet knows,
+  Bedrock's inference profiles included, their query parameters read. Any other call is refused,
+  naming no route of yours: files, uploads, batches, audio, image generation, moderations, a stored
+  response, a Gemini cache's reads.
+- **Headers and query parameters.** Each is read by a rule of its own. A header no profile names is
+  refused, its name told to the agent alone. SDK telemetry and tracing headers (`x-stainless-*`,
+  `traceparent`, the AWS SDK's `amz-sdk-*`, `x-goog-api-client`), Claude Code's subagent ids and the
+  values it copies from its environment (`x-claude-code-agent-id`, `x-claude-remote-session-id`...),
+  and Codex's `x-codex-turn-metadata` and `x-openai-subagent` are taken off and counted in the
+  dashboard, and a `401` or `403` that follows says so ([the list](../getting-started/upgrading-to-0-11/#headers-latet-takes-off)). On a request Latet only
+  checks, the body still leaves byte for byte. A compressed request body leaves compressed again
+  from what Latet read, never as it came, so a file name in its gzip header or bytes after its
+  compressed data never reach the provider; on a request Latet only checks, a compressed body is
+  refused, with words that say to send it uncompressed. A query parameter no profile
+  names is refused, its name told to the agent alone. A request refused for a header, a query
+  parameter or its route is in the history with that category, no header kept; a WebSocket refused
+  so is closed with code 1008 and a reason that says the same. Headers you set for an agent (`ANTHROPIC_CUSTOM_HEADERS`, Codex's
+  `http_headers`, `COPILOT_PROVIDER_HEADERS`) are refused until an exception names them.
+- **Every member of the body.** A member no profile names is refused, naming where it is, never its
+  name; on a request Latet only checks (Claude Code, Bedrock, Vertex), a new member holding text
+  passes once checked, shown as *checked only*. Codex's `client_metadata` is taken out before the
+  request is masked. Model ids pass by their providers' documented forms; a Bedrock ARN, a Vertex
+  project, a gateway's own model name or an `api-version` is listed in `request_resources` first.
+  On OpenRouter a model passes as `anthropic/`, `openai/` or `google/` followed by that provider's
+  model, or as `openrouter/auto`; another provider's model there is listed first too.
+- **What the provider gave back.** Thinking signatures, encrypted reasoning, compactions and web
+  search results pass when Latet saw them come from the provider in that conversation, on any
+  instance of a server; after a computer's daemon restarts, a built-in rule lets the provider's own
+  encrypted fields through, in the model's turns and to the provider's own address alone. A
+  conversation through a company gateway that relays thinking signatures is refused after a restart.
+- **Gemini's own tools and code.** The code Google runs for the model and what that code printed,
+  and the inputs and outputs of Google's built-in tools (Google Search, URL context, Maps, File
+  Search), are now masked, as a function's call and its result are; 0.10 left them as written. The
+  model's thinking is still left as it wrote it.
+- **Images and documents.** A request with an image is sent only once Latet has read its text:
+  without text recognition, or with `ocr: off`, it is refused with words that name
+  `latet ocr install`. `images: allow` no longer sends an image Latet did not read, and documents,
+  audio and images by their address are refused. On a request Latet only checks, every byte of an
+  image is accounted for: a photo's location, a camera's maker notes, a thumbnail, a second image
+  and the video of a motion photo are refused with how to remove them, and an original WebP image
+  is refused; QR codes are not decoded. Requests Latet rewrites send images written anew without
+  their metadata.
+  On a server whose text recognition is not available (it failed to load),
+  `latet_ocr_unread_total{reason="unavailable"}` counts each refused request or WebSocket turn once,
+  however many images it carries.
+- **A project where Latet is off sends nothing.** Its requests are refused, over HTTP and over a
+  WebSocket, with words that say how to turn Latet on there or reach the provider directly.
+  `latet project off` and the dashboard's switch say so first. `latet serve --passthrough` is
+  removed: the hidden flag exits with a message.
+- **Trusted and claimed projects.** A folder a request names (`x-latet-project`, the working folder
+  Codex, OpenCode and Gemini CLI write) only adds protection: its project's loosenings and request
+  exceptions do not apply, and a claimed project that is off is refused. A project is trusted through
+  the Claude Code plugin's binding, which ends after 30 minutes without a call, or through a launch
+  key. Claude Code's calls before the plugin's first call are decided with your own rules alone.
+- **Launch keys.** `latet claude`, `latet codex`, `latet opencode`, `latet gemini` and
+  `latet copilot` give the agent a secret key of that launch, in its own headers setting, which Latet
+  checks and takes off; Codex on its built-in providers, Codex before 0.115, OpenCode before 1.19.5,
+  Gemini CLI in ACP mode, Copilot CLI outside Chat Completions and `latet run` pass none, and the
+  launcher says so in a sentence. A live key in a tool's
+  output is masked like Latet's token. The dashboard shows each request's project as trusted or
+  claimed, and its launch as *Launched by Latet, key verified*, *Launched by Latet, key missing*,
+  *Bound by the Claude Code plugin* or *Not launched by Latet*; `latet doctor` names the agents seen
+  without their key, and a Codex, OpenCode or Gemini CLI too old to carry one.
+- **Request exceptions.** `request_exceptions` names exactly what it lets through (a header, a query
+  parameter or a body member, on one destination and one request profile), for every request of
+  yours or, under a trusted binding, one project. Each waits for your approval, lasts 30 days by
+  default and 90 at most, with a warning seven days before its end, or is made permanent on purpose,
+  marked so and listed by `latet doctor` and `latet server status`. A profile revision that changes
+  what one names stops it until you approve it again. No exception applies to a WebSocket in 0.11.0,
+  or to a body member inside a provider's item or an image's source, and none names a whole route:
+  the dashboard offers none there. With the history off, the requests each one let through are counted
+  in memory, and summed over a server's instances. A server keeps an index of each person's approved
+  exceptions in PostgreSQL, which `latet server status` reads: ids, kinds of scope, ends and states
+  alone, never what one names or its description.
+- **Visible coverage.** Each exchange in the dashboard says how its request was covered: blocked,
+  every part read, or let through by a named rule or exception, with the headers and members its
+  profile took off and its request profile. An exchange recorded before 0.11 is never shown as
+  verified: it says *Recorded by an older Latet. How much of this request it read was not recorded,
+  so it is not shown as verified.* Nor is one that let a part through unread, or a check of the
+  Claude Code plugin's.
+- **What logs keep.** Logs, the history's metadata and a server's decision records keep fixed
+  categories and route templates, never a header's or a tool's name, a value or a request's path as
+  sent.
+- `latet doctor`, and the daemon's first 0.11 start in its log, list by kind and count what 0.11
+  stops that 0.10 sent: projects with Latet off, text recognition not installed or off,
+  `--passthrough` in an entry that starts Latet, and the calls in your history that no profile
+  covers.
+
+- The project folders in your settings are stored in canonical form: backslashes and an upper-case drive
+  letter on Windows, and no trailing separator (`C:/work/shop/` is kept as `C:\work\shop`). Each
+  project's id is unchanged, and so are the settings that apply to it.
+
+- A person's vault on a server is held whole in memory when it has 35,000 values or fewer as its space
+  is built (about 1.6 KB a value on each instance and each worker that serves the person, counted in
+  the space's memory): the person's
+  texts are masked without asking PostgreSQL for their values, about twice as fast as looking them up.
+  Past 35,000 values a person's space keeps in memory the values the person used last
+  (`key_working_values`) and finds every other one in PostgreSQL, as an API key's does: a person's
+  space of 200,000 values takes 24 MB, where 0.10.0's took 495 MB. Either way each
+  request first asks PostgreSQL what the other instances changed, so a value kept or forgotten on one
+  instance is seen by the next request on any other
+  ([Server operations](../concepts/server-operations/)).
+- **A server masks faster.** The detectors run fewer patterns over each text, the texts of an
+  applications call are read together, and an instance finds an API key's or a person's values
+  through prints of its vault's words held in memory (about 15 MB for a million values), asking
+  PostgreSQL only for the words that may be a value or a fake. Measured on one instance on the
+  documentation's computer, an API key of 200,000 values masks 871 log lines a second and unmasks
+  2,960, where 0.10.0, measured the same way, masked 350 and unmasked 2,114; one of 1,000,000 values
+  773 and 2,967, against 304 and 2,014; a new key masks 191, against 153. The goal of 1,000 lines a
+  second at those sizes is not reached ([How fast it is](../applications/#how-fast-it-is)).
+- **The upgrade stops the server once.** 0.11 adds to each word row of a vault a place for its print and for the
+  count of the change that wrote it last: stop every instance and worker, run `latet server migrate` once, and
+  start them on 0.11. A vault kept by 0.10 gets its prints after the restart, in the background, once, on one
+  instance at a time, while its requests and calls are answered through PostgreSQL's lookup, more slowly, none
+  refused; each instance then builds its index of them, in 1.5 seconds for 1,000,000 values ([Upgrading a
+  server](../applications/#upgrading-a-server)).
+- `latet server migrate`, and `latet server init` on tables a migration is due for, change nothing
+  while an instance of the server is alive, of 0.10 or 0.11, or while Valkey does not answer: they say
+  how many instances are alive and of which version, and exit 2. An instance of 0.10 counts as alive
+  for 30 seconds after it stops. Once the migrations are applied they ask again, and when an instance
+  came alive meanwhile they say so and exit with an error (`migrate` 1, `init` 2): an instance of 0.10
+  left running on the tables of 0.11 would go on serving requests without reading them as 0.11 does.
+- `latet server status` lists an instance of Latet 0.10 still alive beside those of 0.11, by its id,
+  as Latet 0.10 or older, and says when its list was cut at its bound (`instances: the list is
+  partial, cut at its bound: an instance may be alive and not listed`, and `instances_whole` false in
+  its answer).
+- **Reading every part of a request costs time.** Measured on one instance at the median, against
+  the same release without that reading: a small chat request takes about 1 ms more on a computer
+  (2.02 ms against 0.94) and on a server (6.99 ms against 5.95); a request of 4,000 slots takes 3.8
+  times as long on a computer (362 ms against 96) and 1.4 times on a server; a request of 500 texts
+  masked before and one new 2.8 times on a computer (36 ms against 13) and 1.16 times on a server.
+- `latet server run --workers N` (or the `workers` setting) runs N instances of the server on one
+  machine, on the one port, each a process of its own, so that a server uses more of its cores. On
+  Linux each worker listens on the port with a socket of its own, and the kernel spreads new
+  connections across them by a hash of each connection's addresses and ports: many connections
+  spread evenly, a few long-lived ones, such as a load balancer's, can still land unevenly. The
+  process that starts the workers holds the port the whole time, and only programs running as the
+  server's user can listen there beside them, so that user runs Latet alone. Measured on Linux
+  through the applications API, eight workers mask 6.28 times what one masks and unmask 5.21 times,
+  each taking 185 to 227 MB with an API key's space of 200,000 values. Several workers are refused on Windows,
+  and on macOS they share one socket ([Server operations](../concepts/server-operations/), Several
+  instances on one machine).
+- Fixed: `latet upgrade` named only name detection and the text in images in what it installed, and
+  uv, which installs a tool with exactly the extras its requirement names, took the others away: a
+  server installed with `latet[server]` that it upgraded lost psycopg and redis, and
+  `latet server run` then refused to start. The upgrade now names every extra the installed Latet
+  has, as uv's record of its install lists them (where that record is missing or cannot be read,
+  each extra whose packages are all installed), beside name detection and the text in images; where
+  those two cannot be installed, the other extras stay. `--to` and the upgrade's own window on
+  Windows keep them too, and so do the installers, run again over a Latet installed with other
+  extras, as uv lists them (a uv too old to list them gives none, as before).
+
+  An upgrade runs the code of the version installed, so a Latet up to 0.10.4 still names only name
+  detection and the text in images on its way to this release. A server on 0.10.4 or earlier
+  therefore takes this release once by another way: the command it was installed with, naming
+  `server` and its `UV_*` folders, or the installer fetched again from GitHub and run with those
+  variables. A server whose upgrade has already taken `server` away gets it back with that command
+  ([Server operations](../concepts/server-operations/), Upgrading a Latet installed as a host
+  service).
+  Where the extra is missing, `latet server run` now gives that command with the other extras in it,
+  and `latet upgrade` and Troubleshooting say which extras `LATET_SOURCE` names for an install by
+  hand.
+- Fixed: `latet upgrade` installed in uv's own tool folder whatever folder the Latet that runs is in:
+  a server installed with a `UV_TOOL_DIR` of its own, as Server operations says, was never upgraded,
+  and a second Latet was installed and started in the home folder of the account that ran the
+  command. `latet upgrade` now stops there before anything changes, and prints the command to run
+  instead, with the folders it found. Server operations has a new section on upgrading a Latet
+  installed as a host service, and Installation points a server to it.
+
 ## 0.10.4 (2026-11-04)
 
 - Fixed: on Windows, local name detection could stop finding names when Latet ran inside an app

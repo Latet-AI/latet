@@ -69,6 +69,31 @@ keinen getrennten Speicher und keine neue Unterhaltung. Getrennt konfigurierte D
 Tresore bieten getrennte Speicher; verschiedene Repositorys allein reichen nicht. Siehe
 [Projekte](../concepts/projects/) und [Latet auf einem Server](../concepts/server/).
 
+**Welche Projektregeln gelten.** Ein Ordner, den eine Anfrage nennt (der Header `x-latet-project`
+oder der Arbeitsordner, den ein Agent in seine Anfragen schreibt), ist *nur behauptet*: Die Regeln
+seines Projekts, die Schutz hinzufügen, gelten, seine Lockerungen und seine Anfrageausnahmen nicht,
+und ein behauptetes Projekt, in dem Latet aus ist, wird abgelehnt. Ein Projekt ist nur dann
+*vertrauenswürdig*, wenn Latet es selbst kennt, aus zwei Quellen:
+
+- **Die Bindung des Plugins von Claude Code.** Das Plugin bindet eine Sitzung an das Projekt eines
+  Ordners, den Latet kennt; jeder seiner Aufrufe hält die Bindung, die nach 30 Minuten ohne Aufruf
+  endet. Das hat eine akzeptierte Grenze: Eine Anthropic-Messages-Anfrage mit der ID einer laufenden
+  Sitzung von Ihnen, die das Plugin gebunden hat, wird mit diesem Projekt entschieden, samt
+  Lockerungen und Ausnahmen, welcher Ihrer Clients sie auch sendet. Sie wird trotzdem von der
+  abschließenden Prüfung gelesen und nie umgeschrieben, und die Anfragen keiner anderen Person
+  erreichen die Bindung. Die Aufrufe, die Claude Code vor dem ersten Aufruf des Plugins macht, der die
+  Sitzung bindet (seine Startaufrufe), werden nur mit Ihren eigenen Regeln entschieden, weder mit den
+  hinzugefügten Regeln des Projekts noch mit seinen Lockerungen.
+- **Ein Startschlüssel.** Ein Agent, den Latet startet, führt einen geheimen Schlüssel dieses Starts
+  mit, an das Projekt des Ordners und an Sie gebunden; Latet prüft ihn, entfernt ihn, bevor irgendetwas
+  weitergesendet wird, und behält nur einen mit einem Schlüssel gebildeten Hash davon. Jedes Programm,
+  das den Schlüssel besitzt, zählt als dieser Start: Es läuft als derselbe Benutzer, und Latet
+  gibt nicht vor, einen Schlüssel an einen Prozess zu binden. Eine Sitzung, die `latet claude`
+  gestartet hat, braucht ihren Schlüssel, daher erreicht ihre Sitzungs-ID allein keine Lockerung des
+  Projekts.
+
+Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
+
 ## Im Geltungsbereich
 
 - Versehentliche Weitergabe erkennbarer Werte an den Anbieter über Prompts, Dateien,
@@ -77,6 +102,10 @@ Tresore bieten getrennte Speicher; verschiedene Repositorys allein reichen nicht
   Beispiel über einen Weg, den das Plugin nicht abdeckt: Die abschließende Prüfung des Plugins und
   der Daemon blockieren sie.
 - Webseiten, die versuchen, den lokalen Daemon zu nutzen (DNS-Rebinding, Cross-Site-Anfragen).
+- Ein Teil einer Anfrage, den Latet nicht liest: Pfad, Abfrage, Header und Inhalt werden jeweils
+  gelesen, durch eine festgelegte Regel entfernt oder durch eine von Ihnen genehmigte Ausnahme
+  durchgelassen, sonst wird die Anfrage nicht gesendet, auf einem Rechner wie auf einem Server
+  ([Jeder Teil einer Anfrage](../concepts/protection-scope/#jeder-teil-einer-anfrage)).
 
 ## Außerhalb des Geltungsbereichs
 
@@ -251,14 +280,26 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
 - Was Sie im Live-Prüfer über ein Bild entscheiden, und ein Bild, das der lokale Prüfer
   zurückgehalten hat, werden versiegelt in der Datenbank des Tresors gespeichert, über einen
   schlüsselabhängigen Hash des Bildes.
-- Ein Bild, das nicht gelesen werden kann, wird zurückgehalten, nie so gesendet, wie es war.
+- Ein Bild, das nicht gelesen werden kann, wird zurückgehalten, nie so gesendet, wie es war; bei
+  einer Anfrage, die Latet nur prüft, wird stattdessen die Anfrage abgelehnt.
 
 **Datenverkehr**
 
 - Header mit Zugangsdaten (`Authorization`, API-Schlüssel, Cookies und Ähnliches) werden unverändert
   weitergeleitet, aber nie in Logs oder ins Dashboard geschrieben: Nur ihre Länge wird aufgezeichnet.
-  Die eigenen Header von Latet (`x-latet-*`, von denen einer einen Ihrer Ordner nennt) verlassen
-  Ihren Rechner nie.
+  Die eigenen Header von Latet (`x-latet-*`, von denen einer einen Ihrer Ordner nennt) werden nie an
+  einen Anbieter weitergesendet.
+- Der Startschlüssel, den Latet einem Agenten gibt, den es startet, in `x-latet-launch-key`, ist ein
+  Geheimnis wie das Token von Latet: geprüft, entfernt, nie protokolliert oder aufgezeichnet. In der
+  Ausgabe eines Tools oder in einer Nachricht wird er maskiert; wo er sich nicht maskieren lässt, wird
+  die Anfrage abgelehnt.
+- Ein Header, den kein Profil nennt, wird abgelehnt: Sein Name wird nur dem Agenten genannt, und Logs
+  und Verlauf behalten nur seine Art. Die Header, die ein Profil als entfernbar ausweist, werden
+  entfernt und im Dashboard gezählt: Telemetrie und Tracing der SDKs (`x-stainless-*`,
+  `traceparent`...) und die eigenen Header der Agenten, die freien Text enthalten können, etwa die
+  IDs eines Subagenten von Claude Code oder die Turn-Metadaten von Codex, die Pfad und Remotes Ihres
+  Repositorys enthalten ([Header, die Latet entfernt](../getting-started/upgrading-to-0-11/#header-die-latet-entfernt)). Bei einer Anfrage, die Latet nur
+  prüft, sind sie die einzige Änderung: Der Inhalt geht Byte für Byte hinaus.
 - Eine Ausnahme, wenn Sie Amazon Bedrock mit Ihrer AWS-Anmeldung nutzen: Claude Code sendet keine
   Zugangsdaten, und Latet signiert jede Anfrage für Amazon (SigV4) mit Ihrem AWS-Profil. Es liest
   das Profil so, wie die AWS CLI es tut, hält die Zugangsdaten nur im Arbeitsspeicher, schreibt sie
@@ -290,7 +331,10 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
 - Die Rohaufzeichnung von Austauschen zur Fehlersuche ist standardmäßig aus. Wenn Sie sie
   einschalten (`latet serve --capture <folder>`), werden Header mit Zugangsdaten geschwärzt, aber
   die Aufzeichnungen enthalten trotzdem Inhalte der Unterhaltungen: Behalten Sie sie auf Ihrem
-  Rechner.
+  Rechner. Die Logs von Latet, die Metadaten des Verlaufs und die Aufzeichnungen eines Servers über
+  seine Entscheidungen behalten feste Kategorien und Routenvorlagen, nie einen Wert, den Namen eines
+  Headers oder eines Tools oder den Pfad, an den eine Anfrage ging: Die Aufzeichnung und der
+  vollständige Verlauf sind die Aufzeichnungen, die Inhalte enthalten.
 
 Der Daemon baut keine Netzwerkverbindungen auf, außer um die Anfragen Ihres Agenten an den Anbieter
 (oder den Unternehmens-Endpunkt) weiterzuleiten, den Ihr Agent bereits nutzt, und, wenn Sie ihn
@@ -314,6 +358,40 @@ und keine Nutzungsanalyse, weder im Daemon noch im Dashboard noch auf dieser Dok
   Ablehnungen; `latet server log verify` prüft die Kette.
 - Das Token, das die Agenten eines Rechners besitzen, öffnet die Bridge des Plugins und den Proxy des
   Bereichs, nie das Dashboard: Dafür braucht es außerdem den Rechnerschlüssel, den kein Agent erhält.
+- Eine Anfrageausnahme gehört zu den eigenen Einstellungen einer Person und gilt, sobald diese Person
+  sie genehmigt. Die Genehmigung einer dauerhaften schreibt einen Eintrag ins Verwaltungsprotokoll, nur
+  mit ihrer ID und der Art ihres Geltungsbereichs, nie mit ihrer Beschreibung; `latet server status`
+  listet die dauerhaften auf dieselbe Weise auf. Es liest sie aus einem Index, den PostgreSQL neben
+  den versiegelten Einstellungen führt: für jede genehmigte Ausnahme ihre ID, die Art ihres
+  Geltungsbereichs, ob sie dauerhaft ist, ihr Ende und ob sie in Kraft ist, nach einer Überarbeitung
+  ihres Profils neu genehmigt werden muss oder von der Edition nicht erlaubt ist; nie ihre
+  Beschreibung, ihr Ziel, den Ordner eines Projekts oder das, was sie nennt.
+- Bei ausgeschaltetem Verlauf werden die verwendeten Ausnahmen im Speicher gezählt und für das
+  Dashboard über Valkey nach Instanz und Identität geteilt, nur IDs und Zahlen. Valkey, wie Latet es
+  ausliefert, speichert nichts auf der Festplatte; ein Betreiber, der seine Persistenz einschaltet,
+  schreibt diese Zählungen auf die Festplatte.
+- Mit mehreren Workern unter Linux bleibt der Port die ganze Zeit für den Server gehalten, auch
+  solange kein Worker lauscht, und nur ein Programm, das unter dem Benutzer des Servers selbst
+  läuft, kann neben den Workern auf ihm lauschen; ein solches Programm könnte seine Verbindungen
+  übernehmen: Betreiben Sie den Server unter einem Benutzer, der nichts anderes ausführt
+  ([Serverbetrieb](../concepts/server-operations/)).
+- PostgreSQL speichert die Werte und Ersatzwerte jedes Tresors versiegelt mit dem Schlüssel der
+  Identität, und neben jedem ihrer Wörter einen Hash mit Schlüssel und einen Fingerabdruck: einen
+  64-Bit-Fingerabdruck unter einem vom Schlüssel der Identität abgeleiteten Schlüssel, den die
+  Instanzen im Speicher halten, um die Werte eines Textes zu finden. Wer die Datenbank liest, erfährt
+  daraus kein Wort, sieht aber, welche Zeilen einer Identität ein Wort gemeinsam haben, wie viele es
+  sind und, an den Änderungszählungen der Zeilen, welche Zeilen sich in welcher Reihenfolge geändert
+  haben: Ein Fingerabdruck ist keine Verschlüsselung. Zwei Wörter können denselben Fingerabdruck
+  haben, daher wird jeder Wert oder Ersatzwert, auf den ein Fingerabdruck zeigt, entschlüsselt und
+  mit dem Text verglichen, bevor er etwas maskiert oder wiederherstellt.
+- Was Valkey für einen Tresor hält und überträgt, sind IDs, Arten, Zählungen und versiegelte Daten:
+  kein Wert, Ersatzwert, Wort oder Fingerabdruck im Klartext und kein Hash mit Schlüssel des Tresors.
+  Tests prüfen das an allem, was die Instanzen an Valkey senden, während sie Werte für einen
+  API-Schlüssel und eine Person maskieren, wiederherstellen und vergessen, die Fingerabdrücke eines
+  Tresors neu bilden und ihre Herzschläge senden, und an den Protokollen. Seine Nachrichten sind
+  signiert, was sagt, wer sie gesendet hat, und nichts geheim hält; was geheim bleiben muss, ist
+  versiegelt. Die Herzschläge der Instanzen tragen Zahlen, Wahrheitswerte und die Version, nie eine
+  Identität.
 
 ## Eine Sicherheitslücke melden
 

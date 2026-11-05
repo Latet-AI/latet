@@ -67,8 +67,16 @@ def test_explicit_ids_keep_unseen_originals_out_of_http_answers(mediator, header
 
 
 def test_response_names_continue_their_session_but_headers_take_precedence(mediator):
-    a = prepare(mediator, request(FIRST, responses=True, prompt_cache_key="first"), responses=True)
-    b = prepare(mediator, request(SECOND, responses=True, prompt_cache_key="second"), responses=True)
+    a = prepare(
+        mediator,
+        request(FIRST, responses=True, prompt_cache_key="019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a43"),
+        responses=True,
+    )
+    b = prepare(
+        mediator,
+        request(SECOND, responses=True, prompt_cache_key="019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a44"),
+        responses=True,
+    )
     try:
         fa, fb = fake(mediator, FIRST, a), fake(mediator, SECOND, b)
         assert a.session is not None
@@ -79,7 +87,12 @@ def test_response_names_continue_their_session_but_headers_take_precedence(media
         stream.end()
         continued = prepare(
             mediator,
-            request("Continue.", responses=True, previous_response_id="resp_first", prompt_cache_key="second"),
+            request(
+                "Continue.",
+                responses=True,
+                previous_response_id="resp_first",
+                prompt_cache_key="019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a44",
+            ),
             responses=True,
         )
         overridden = prepare(

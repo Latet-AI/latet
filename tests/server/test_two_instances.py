@@ -19,7 +19,7 @@ import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from latet.engine.types import EntityClass
 from latet.engine.vault import derive_keys
@@ -115,7 +115,7 @@ async def _live_reviewer_on(client, identity_id, *servers):
 
 def _send(client, secret, text, destination="llm"):
     """An agent's request through its identity's address, to a shared destination."""
-    body = {"model": "m", "messages": [{"role": "user", "content": text}]}
+    body = {"model": "gpt-4o", "messages": [{"role": "user", "content": text}]}
     path = f"/u/{route_key(secret)}/{destination}/v1/chat/completions"
     return client.post(path, json=body, headers={"authorization": "Bearer sk-test"})
 
@@ -475,7 +475,7 @@ async def test_a_shared_change_reaches_every_space_and_disabling_a_person_stops_
 
 FRAME = {
     "type": "response.create",
-    "model": "m",
+    "model": "gpt-4o",
     "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": f"mail {EMILY_MAIL}"}]}],
 }
 
@@ -494,7 +494,7 @@ async def test_disabling_a_person_closes_their_websocket_on_the_other_instance_a
         while (message := await websocket.receive())["type"] != "websocket.disconnect":
             received.append(message.get("text") or message.get("bytes"))
 
-    far = Starlette(routes=[WebSocketRoute("/backend-api/codex/responses", destination)])
+    far = Starlette(routes=[WebSocketRoute("/v1/responses", destination)])  # a company gateway's Responses route
     admin = {"x-latet-admin": a.admin.issue("first administrator")}
     proxied = {"host": "latet.acme.lan", "x-forwarded-proto": "https", "x-forwarded-for": "10.20.30.40"}
     with (
@@ -506,8 +506,12 @@ async def test_disabling_a_person_closes_their_websocket_on_the_other_instance_a
             shared = {"upstreams": [{"name": "llm", "url": f"http://127.0.0.1:{there}"}]}
             assert (await one.put(f"{ADMIN}/shared", json=shared, headers=admin)).status_code == 200
             emily_id, emily, _ = await _person(one, admin, "Emily Carter")
-            where = f"ws://latet.acme.lan/u/{route_key(emily)}/llm/backend-api/codex/responses"
-            headers = {"x-forwarded-proto": "https", "authorization": "Bearer sk-test", "session-id": "ws-1"}
+            where = f"ws://latet.acme.lan/u/{route_key(emily)}/llm/v1/responses"
+            headers = {
+                "x-forwarded-proto": "https",
+                "authorization": "Bearer sk-test",
+                "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2e03",
+            }
             async with connect(where, host="127.0.0.1", port=second, proxy=None, additional_headers=headers) as ws:
                 await ws.send(json.dumps(FRAME))
                 await until(lambda: len(received) == 1)  # her turn reached her destination, masked
@@ -626,7 +630,8 @@ async def test_an_instance_stopped_loses_nothing(schema, prefix, upstream, monke
             ]
             await _sign_in(two, emily)
             history = (await two.get(f"{API}/exchanges")).json()["items"]
-            assert [item.get("upstream") for item in history].count("llm") == 1  # recorded on A, shown by B
+            # Recorded on A, shown by B: the summary says `custom`, the owner's own list names the destination.
+            assert [(item.get("upstream"), item.get("destination")) for item in history].count(("custom", "llm")) == 1
     finally:
         close_test_server(a)
         close_test_server(b)
@@ -727,7 +732,7 @@ async def test_another_identity_reads_nothing_of_someone_elses_history_on_anothe
 
         async def asked(client, secret):
             answer = await client.post(f"/u/{route_key(secret)}/llm/v1/chat/completions", headers={"authorization": "Bearer sk-test"},
-                                       json={"model": "m", "messages": said})  # fmt: skip
+                                       json={"model": "gpt-4o", "messages": said})  # fmt: skip
             assert answer.status_code == 200
 
         await asked(one, emily)
@@ -828,11 +833,11 @@ async def test_the_logs_hold_no_secret_at_any_level_over_http_or_a_websocket(ins
     administrator = a.admin.issue("first administrator")
     admin, provider, address = {"x-latet-admin": administrator}, "sk-provider-0123456789abcdef", "10.20.30.40"
     proxied = {"host": "latet.acme.lan", "x-forwarded-proto": "https", "x-forwarded-for": address}
-    asked = {"model": "m", "messages": [{"role": "user", "content": f"write to {EMILY_MAIL} about the invoice"}]}
+    asked = {"model": "gpt-4o", "messages": [{"role": "user", "content": f"write to {EMILY_MAIL} about the invoice"}]}
     content = [{"type": "input_text", "text": f"mail {EMILY_MAIL}"}]
     frame = {
         "type": "response.create",
-        "model": "m",
+        "model": "gpt-4o",
         "input": [{"type": "message", "role": "user", "content": content}],
     }
     served_a, served_b = _on_uvicorn(create_server_app(a)), _on_uvicorn(create_server_app(b))
@@ -862,16 +867,35 @@ async def test_the_logs_hold_no_secret_at_any_level_over_http_or_a_websocket(ins
             ).status_code == 200
             for client, secret in ((one, emily), (two, key)):
                 path = f"/u/{route_key(secret)}/llm/v1/chat/completions?key={secret}&api-key={provider}"
+                sent = len(upstream.received)
                 answer = await client.post(path, json=asked, headers={"authorization": f"Bearer {provider}"})
+                assert answer.status_code == 400 and len(upstream.received) == sent
+                answer = await client.post(
+                    path.partition("?")[0], json=asked, headers={"authorization": f"Bearer {provider}"}
+                )
                 assert answer.status_code == 200 and EMILY_MAIL in answer.text
             route = route_key(emily)
             written = (f"/U/{route.upper()}/llm/v1/models", f"/u%2F{route}/llm/v1/models", f"//u//{route}/llm",
                        f"/u;x/{route}/llm", f"/x/{route}/y")  # fmt: skip
             for path in written:
                 assert (await two.get(ends[1] + path)).status_code in (403, 404)
-            where = f"ws://latet.acme.lan/u/{route}/llm/backend-api/codex/responses?api-key={provider}&token={emily}"
-            headers = {**proxied, "authorization": f"Bearer {provider}", "session-id": "ws-1"}
+            where = f"ws://latet.acme.lan/u/{route}/llm/v1/responses"
+            headers = {
+                **proxied,
+                "authorization": f"Bearer {provider}",
+                "session-id": "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2e04",
+            }
             del headers["host"]  # the address's own
+            # Secrets in the address: refused by the handshake's envelope, as the request over HTTP above is.
+            with pytest.raises(InvalidStatus):
+                async with connect(
+                    f"{where}?api-key={provider}&token={emily}",
+                    host="127.0.0.1",
+                    port=second,
+                    proxy=None,
+                    additional_headers=headers,
+                ):
+                    pass
             async with connect(where, host="127.0.0.1", port=second, proxy=None, additional_headers=headers) as ws:
                 await ws.send(json.dumps(frame))
                 said = []
@@ -880,8 +904,11 @@ async def test_the_logs_hold_no_secret_at_any_level_over_http_or_a_websocket(ins
             assert "".join(said).startswith(f"You said: mail {EMILY_MAIL}")
     assert EMILY_MAIL not in upstream.all_received()
     lines = logs.getvalue()
-    assert "WS /u/***/llm/backend-api/codex/responses 101" in lines  # RequestLog's line for the WebSocket
-    assert "GET /_latet/api/v1/exchanges 200" in lines and "PUT /_latet/api/v1/projects/***/personal 200" in lines
+    # RequestLog's lines for the WebSockets, the gateway's area alone (no route key, destination or query): the one its
+    # envelope refused, and the one that went.
+    assert "WS /gateway 403" in lines and "WS /gateway 101" in lines
+    # And the dashboard's, its area alone as well: neither the call nor the project's id it names.
+    assert "GET /dashboard 200" in lines and "PUT /dashboard 200" in lines and "/_latet/api/" not in lines
     assert "[accepted]" not in lines and "WebSocket /" not in lines  # uvicorn's own, with the client and the query
     below = {(level, name) for level, name in _records(lines, format) if level in ("DEBUG", "INFO")}
     assert below and all(name.startswith(("latet.", "uvicorn")) for _, name in below)  # no library's below WARNING

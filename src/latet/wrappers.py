@@ -12,11 +12,13 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from latet.config import RESERVED_DESTINATIONS, Config, data_dir, load_config, write_atomic
+from latet.launch_carriers import floor as _carrier_floor
 from latet.storage.keys import load_bridge_token
 
 if TYPE_CHECKING:
@@ -363,6 +365,23 @@ def codex_version(exe: str = "codex") -> tuple[int, int, int] | None:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
+# The first OpenCode `latet opencode` gives a launch key: the anchors are latet.launch_carriers' OpenCode row.
+OPENCODE_CARRIER = _carrier_floor("opencode")
+
+
+def opencode_version(exe: str = "opencode") -> tuple[int, int, int] | None:
+    """OpenCode's release number, as `opencode --version` prints it; None when it is not found or prints none."""
+    path = shutil.which(exe)
+    if not path:
+        return None
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=15, check=False).stdout  # noqa: S603
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out or "")
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
 def codex_uses_chatgpt(exe: str = "codex") -> bool:
     path = shutil.which(exe)
     if not path:
@@ -466,17 +485,34 @@ def gemini_choice(cwd: Path | None = None) -> tuple[str | None, str | None]:
     return next(((chosen, where) for chosen, where in layers if chosen is not None), (None, None))
 
 
-def gemini_env(config: Config | None = None, said: list[str] | None = None) -> dict[str, str]:
-    """What Gemini CLI starts with through Latet: the base URLs, and the server's certificate this computer pinned."""
-    return {**generic_env(config), **extra_ca_env("gemini", said)}
-
-
-def run(argv: list[str], extra_env: dict[str, str]) -> int:
+def run(
+    argv: list[str], extra_env: dict[str, str], *, launch: Any = None, _carrier_names: tuple[str, str] | None = None
+) -> int:
     exe = shutil.which(argv[0])
     if exe is None:
         raise FileNotFoundError(argv[0])
-    env = {**os.environ, **extra_env}  # Latet's variables win over your shell's
+    inherited = dict(os.environ)
+    if _carrier_names is not None:
+        # These fresh names were checked against every known provider map and
+        # inherited variable. Never repurpose/pop a caller's ordinary binding.
+        for name in _carrier_names:
+            inherited.pop(name, None)
+    env = {**inherited, **extra_env}
     env.pop("LATET_SERVER_ADMIN_TOKEN", None)
+    if launch is not None:
+        from latet.launch_session import run_owned
+
+        return run_owned(launch, [exe, *argv[1:]], env)
+    env.pop("LATET_LAUNCH_ID", None)
+    from latet.launch_session import claude_headers
+
+    for name in ("ANTHROPIC_CUSTOM_HEADERS", "COPILOT_PROVIDER_HEADERS"):
+        if name in env:
+            env[name] = claude_headers(env[name], None)
+    if "GEMINI_CLI_CUSTOM_HEADERS" in env:
+        env["GEMINI_CLI_CUSTOM_HEADERS"] = gemini_headers(env["GEMINI_CLI_CUSTOM_HEADERS"], None)
+    if "OPENCODE_CONFIG_CONTENT" in env:
+        env["OPENCODE_CONFIG_CONTENT"] = opencode_keyless_content(env["OPENCODE_CONFIG_CONTENT"])
     return subprocess.call([exe, *argv[1:]], env=env)  # noqa: S603 - the user's own command
 
 
@@ -497,7 +533,11 @@ def claude_argv(args: list[str], exe: str = "claude", settings: Path | None = No
 
 
 def claude_settings_file(
-    env: dict[str, str], args: list[str], *, _prepared: _PreparedConnection | None = None
+    env: dict[str, str],
+    args: list[str],
+    *,
+    _prepared: _PreparedConnection | None = None,
+    _launch_setup: Callable[[dict[str, Any], str | None, str | None], None] | None = None,
 ) -> tuple[Path, list[str]]:
     """A private settings file with Latet's variables for one Claude Code session: `--settings` beats
     your settings and the project's (only your organization's managed ones come first). A `--settings` of
@@ -524,6 +564,9 @@ def claude_settings_file(
         loaded = json.loads(text)
         yours.update(loaded if isinstance(loaded, dict) else {})
     mine = {**yours, "env": {**(yours.get("env") or {}), **env}}
+    if _launch_setup is not None:
+        headers, reason = _claude_carrier_headers(mine, rest)
+        _launch_setup(mine, headers, reason)
     if _prepared is not None:
         _require_selection(_prepared)
     if on_server:
@@ -545,7 +588,9 @@ class CodexTooOld(Exception):
     what to do."""
 
 
-def codex_session_profile(overrides: dict[str, str], profile: str | None, home: Path) -> Path:
+def codex_session_profile(
+    overrides: dict[str, str], profile: str | None, home: Path, *, _text: str | None = None, _path: Path | None = None
+) -> Path:
     """A profile file of Latet's for one Codex session on a computer connected to a Latet server,
     ``<CODEX_HOME>/latet-<16 hex>.config.toml``, private: the profile the person named (or none) with Latet's addresses
     laid over it. The identity's address holds its route key, a secret like the token, and a command line is read by
@@ -561,10 +606,14 @@ def codex_session_profile(overrides: dict[str, str], profile: str | None, home: 
         with contextlib.suppress(OSError):
             if _CODEX_PROFILE.fullmatch(old.name) and time.time() - old.stat().st_mtime > _SETTINGS_KEPT:
                 old.unlink(missing_ok=True)
-    named = home / f"{profile}.config.toml" if profile else None
-    base = named.read_text("utf-8") if named is not None and named.parent == home and named.is_file() else ""
-    path = home / f"latet-{secrets.token_hex(8)}.config.toml"
-    write_atomic(path, merge.codex_merge(base, overrides), private=True)
+    path = _path if _path is not None else home / f"latet-{secrets.token_hex(8)}.config.toml"
+    if path.parent != home or _CODEX_PROFILE.fullmatch(path.name) is None:
+        raise CodexArgs("Codex's private profile path is invalid")
+    if _text is None:
+        named = home / f"{profile}.config.toml" if profile else None
+        base = named.read_text("utf-8") if named is not None and named.parent == home and named.is_file() else ""
+        _text = merge.codex_merge(base, overrides)
+    write_atomic(path, _text, private=True)
     return path
 
 
@@ -879,5 +928,613 @@ def drop_aws_session(session: str, config: Config | None = None) -> None:
         _daemon_call(f"/_latet/engine/v1/aws-sessions/{session}", None, config, method="DELETE")
 
 
-def opencode_env(config: Config | None = None, said: list[str] | None = None) -> dict[str, str]:
-    return {"OPENCODE_CONFIG_CONTENT": json.dumps(opencode_overrides(config)), **extra_ca_env("opencode", said)}
+def _claude_carrier_headers(mine: dict[str, Any], args: list[str]) -> tuple[str | None, str | None]:
+    """Determine present sources without guessing ambiguous repository precedence.
+
+    Explicit final env wins over known lower sources. A present managed override,
+    malformed source, or repository header whose root precedence is unqualified
+    is keyless; an ordinary project without such a header is not made keyless.
+    """
+    from latet.integrations.agents import ClaudeCode
+    from latet.integrations.routes import MANAGED_SETTINGS
+
+    name = "ANTHROPIC_CUSTOM_HEADERS"
+    if any(
+        argument in {"-w", "--worktree", "--setting-sources", "--settings-sources"}
+        or argument.startswith(("--worktree=", "--setting-sources=", "--settings-sources="))
+        for argument in args
+    ):
+        return None, "carrier-unverified"
+
+    def source(path: Path) -> tuple[bool, str | None]:
+        try:
+            with path.open("rb") as handle:
+                raw = handle.read(_ANSWER_MOST + 1)
+        except FileNotFoundError:
+            return False, None
+        if len(raw) > _ANSWER_MOST:
+            raise ValueError("carrier source unavailable")
+        found = _object(raw)
+        block = found.get("env", {})
+        if type(block) is not dict:
+            raise ValueError("carrier source unavailable")
+        if name not in block:
+            return False, None
+        value = block[name]
+        if type(value) is not str:
+            raise ValueError("carrier source unavailable")
+        return True, value
+
+    try:
+        for path in MANAGED_SETTINGS:
+            present, _ = source(path)
+            if present:
+                return None, "carrier-unverified"
+        block = mine["env"]
+        if name in block:
+            value = block[name]
+            return (value, None) if type(value) is str else (None, "carrier-unverified")
+        value = os.environ.get(name, "")
+        present, user = source(ClaudeCode().config_dir() / "settings.json")
+        if present:
+            assert user is not None
+            value = user
+        here = Path.cwd()
+        # Only metadata locates the repository boundary. Never read unrelated
+        # ancestors' .claude directories outside the nearest .git boundary.
+        root = next((parent for parent in (here, *here.parents) if (parent / ".git").exists()), here)
+        current = here
+        while True:
+            for leaf in ("settings.json", "settings.local.json"):
+                present, _ = source(current / ".claude" / leaf)
+                if present:
+                    return None, "carrier-unverified"
+            if current == root:
+                break
+            current = current.parent
+        return value, None
+    except (OSError, ValueError, RecursionError):
+        return None, "carrier-unverified"
+
+
+def _launch_call(method: str, path: str, body: dict[str, Any] | None, *, _wire: Any) -> dict[str, Any]:
+    return _wire.call(method, path, body)
+
+
+def _launch_hold(launch_id: str, generation: int, *, _wire: Any) -> Any:
+    return _wire.hold(launch_id, generation)
+
+
+def launch_session(config: Config, prepared: _PreparedConnection) -> tuple[Any, str | None]:
+    """One initial OPEN; every control failure is categorical/keyless."""
+    from functools import partial
+
+    from latet.launch_session import LaunchControlUnavailable, LaunchSession
+    from latet.launch_transport import LaunchWire
+    from latet.server.client import _tls_context
+    from latet.server.connection import _agent_base, _require_selection
+
+    try:
+        _require_selection(prepared)
+        base, token = _agent_base(prepared, config), _daemon_token(prepared)
+        connection = prepared.connection
+        context = _tls_context(connection.fingerprint, _data=prepared.selected.data) if connection is not None else None
+        _require_selection(prepared)
+        wire = LaunchWire(base, token, context, lambda: _require_selection(prepared))
+        folder = str(Path.cwd().resolve(strict=True))
+        registration: dict[str, Any] = {"folder": folder}
+        if connection is not None:
+            registration.update(root=None, flavor="windows" if os.name == "nt" else "posix")
+        owner = LaunchSession.open(
+            partial(_launch_call, _wire=wire),
+            partial(_launch_hold, _wire=wire),
+            registration,
+            wire.interrupt,
+        )
+        return owner, None if owner is not None else "launch-capacity"
+    except LaunchControlUnavailable as error:
+        return None, error.code
+    except Exception:
+        return None, "launch-unavailable"
+
+
+_LAUNCH_HEADER = "x-latet-launch-key"
+
+
+def _codex_carrier_names(documents: tuple[dict[str, Any], ...]) -> tuple[str, str]:
+    # Conservative case-insensitive comparison also covers Windows environment
+    # lookup. Include every provider, not only the currently selected one.
+    occupied = {name.upper() for name in os.environ}
+    for document in documents:
+        providers = document.get("model_providers", {})
+        if not isinstance(providers, dict):
+            raise ValueError("carrier source unavailable")
+        for provider in providers.values():
+            if not isinstance(provider, dict):
+                raise ValueError("carrier source unavailable")
+            headers = provider.get("env_http_headers", {})
+            if not isinstance(headers, dict) or not all(isinstance(value, str) for value in headers.values()):
+                raise ValueError("carrier source unavailable")
+            occupied.update(value.upper() for value in headers.values())
+    nonce = secrets.token_hex(16).upper()
+    # Each occupied name can block at most one index. N+1 distinct pairs must
+    # contain a free pair; no retrying RNG or new resource-cap assumption.
+    for index in range(len(occupied) + 1):
+        active = f"LATET_CARRIER_KEY_{nonce}_{index}"
+        absent = f"LATET_CARRIER_NONE_{nonce}_{index}"
+        if active not in occupied and absent not in occupied:
+            return active, absent
+    raise ValueError("carrier environment unavailable")
+
+
+def _codex_program_data() -> Path:
+    """Read the same known folder as pinned Codex; never trust PROGRAMDATA."""
+    if sys.platform != "win32":  # a known folder is Windows's (and a type checker on another system reads it so)
+        raise OSError("Codex policy location unavailable")
+    import ctypes
+
+    class Guid(ctypes.Structure):
+        _fields_ = [
+            ("a", ctypes.c_uint32),
+            ("b", ctypes.c_uint16),
+            ("c", ctypes.c_uint16),
+            ("d", ctypes.c_ubyte * 8),
+        ]
+
+    identifier = Guid(0x62AB5D82, 0xFDC1, 0x4DC3, (ctypes.c_ubyte * 8)(0xA9, 0xDD, 7, 13, 29, 73, 93, 151))
+    shell = ctypes.WinDLL("shell32", use_last_error=True)
+    ole = ctypes.WinDLL("ole32", use_last_error=True)
+    read = shell.SHGetKnownFolderPath
+    read.argtypes = [ctypes.POINTER(Guid), ctypes.c_uint32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    read.restype = ctypes.c_long
+    free = ole.CoTaskMemFree
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = None
+    value = ctypes.c_wchar_p()
+    try:
+        if read(ctypes.byref(identifier), 0, None, ctypes.byref(value)) != 0 or not value.value:
+            raise OSError("Codex policy location unavailable")
+        return Path(value.value)
+    finally:
+        free(ctypes.cast(value, ctypes.c_void_p))
+
+
+def _codex_policy_paths() -> tuple[Path, ...] | None:
+    """Only pinned policy locations; unknown MDM/platform remains unqualified."""
+    if sys.platform == "win32":
+        root = _codex_program_data() / "OpenAI" / "Codex"
+        return root / "config.toml", root / "requirements.toml"
+    if sys.platform.startswith("linux"):
+        root = Path("/etc/codex")
+        return root / "config.toml", root / "requirements.toml", root / "managed_config.toml"
+    return None
+
+
+def _codex_policy_clear() -> bool:
+    try:
+        paths = _codex_policy_paths()
+        if paths is None:
+            return False
+        for path in paths:
+            try:
+                path.stat()
+            except FileNotFoundError:
+                continue
+            return False
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def codex_carrier_profiles(
+    texts: dict[str, str],
+    profile: str | None,
+    args: list[str],
+    overrides: dict[str, str],
+    config: Config,
+    base: str,
+    chatgpt: bool,
+) -> tuple[str | None, str | None, str, tuple[str, str] | None]:
+    """Private live/keyless profile texts, containing env NAMES, never the key.
+
+    Selected source profile: custom Responses with ordinary API-key auth and no
+    higher policy/CLI ambiguity. Unqualified inputs retain ordinary route behavior.
+    """
+    import tomllib
+
+    import tomlkit
+
+    from latet.integrations.routes import is_latet
+
+    reason = "carrier-unverified"
+    try:
+        check_codex_session(args)
+    except CodexArgs:
+        # Do not introduce a private-profile requirement for an ordinary local
+        # command that cannot select one; its existing invocation stays keyless.
+        return None, None, reason, None
+    before_separator = args[: args.index("--")] if "--" in args else args
+    if any(
+        item in {"-c", "--config", "--oss", "--local-provider", "--remote", "--remote-auth-token-env"}
+        or item.startswith(("-c=", "--config=", "--local-provider=", "--remote=", "--remote-auth-token-env="))
+        or (item.startswith("-c") and item != "-c")
+        for item in before_separator
+    ):
+        # A later explicit override may restore a reserved value. Do not claim
+        # that a profile can scrub it, or silently rewrite the user's override.
+        return None, None, reason, None
+    try:
+        user = tomllib.loads(texts.get("config.toml", ""))
+        named_text = texts.get(f"{profile}.config.toml", "") if profile else ""
+        named = tomllib.loads(named_text)
+        if "profile" in user or "profiles" in user:
+            return None, None, reason, None
+        selected = named.get("model_provider", user.get("model_provider", "openai"))
+        if not isinstance(selected, str):
+            return None, None, reason, None
+        if selected in {"openai", "amazon-bedrock", "amazon-bedrock-runtime", "ollama", "lmstudio", "ollama-chat"}:
+            return None, None, "builtin-provider", None  # a provider of Codex's own: no carrier verified (R-97)
+        tables = []
+        for source in (user, named):
+            providers = source.get("model_providers", {})
+            if not isinstance(providers, dict):
+                return None, None, reason, None
+            table = providers.get(selected, {})
+            if not isinstance(table, dict):
+                return None, None, reason, None
+            tables.append(table)
+        effective = {**tables[0], **tables[1]}
+        reserved: dict[str, set[str]] = {"http_headers": set(), "env_http_headers": set()}
+        for table in tables:
+            for field, names in reserved.items():
+                headers = table.get(field, {})
+                if not isinstance(headers, dict) or not all(isinstance(v, str) for v in headers.values()):
+                    return None, None, reason, None
+                names.update(name for name in headers if name.lower() == _LAUNCH_HEADER)
+        carrier_names = _codex_carrier_names((user, named))
+        active, absent = carrier_names
+        document: Any = tomlkit.parse(named_text)
+        for name, value in overrides.items():
+            if name == "openai_base_url":
+                document[name] = value
+            elif name.startswith("model_providers.") and name.endswith(".base_url"):
+                identifier = name[len("model_providers.") : -len(".base_url")]
+                providers = document.setdefault("model_providers", tomlkit.table())
+                providers.setdefault(identifier, tomlkit.table())["base_url"] = value
+        providers = document.setdefault("model_providers", tomlkit.table())
+        target = providers.setdefault(selected, tomlkit.table())
+        for field, names in reserved.items():
+            if names:
+                headers = target.setdefault(field, tomlkit.table())
+                for name in names:
+                    # Codex silently skips invalid HeaderValue strings. Omission
+                    # would inherit the old value through its recursive merge.
+                    headers[name] = "\n" if field == "http_headers" else absent
+        keyless = tomlkit.dumps(document)
+        address = overrides.get(f"model_providers.{selected}.base_url", effective.get("base_url"))
+        eligible = (
+            not chatgpt
+            and effective.get("wire_api", "responses") == "responses"
+            and effective.get("supports_websockets", False) is False
+            and effective.get("requires_openai_auth", False) is False
+            and not any(name in effective for name in ("aws", "auth", "gateway_oauth"))
+            and isinstance(address, str)
+            and is_latet(address, config.port, base)
+            and _codex_policy_clear()
+        )
+        if not eligible:
+            return None, keyless if any(reserved.values()) else None, reason, carrier_names
+        headers = target.setdefault("env_http_headers", tomlkit.table())
+        headers[_LAUNCH_HEADER] = active
+        return tomlkit.dumps(document), keyless, reason, carrier_names
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None, None, reason, None
+
+
+def copilot_carrier_verified(env: dict[str, str], routed: bool) -> bool:
+    """The recorded 1.0.103 Chat profile, not inferred Responses/WS support."""
+    return (
+        routed
+        and env.get("COPILOT_PROVIDER_TYPE", "").strip().lower() == "openai"
+        and not env.get("COPILOT_PROVIDER_WIRE_API", "").strip()
+        and not env.get("COPILOT_PROVIDER_TRANSPORT", "").strip()
+    )
+
+
+_JS_SPACE = (
+    "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006"
+    "\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+_GEMINI_HEADER_SPLIT = re.compile(",(?=[" + re.escape(_JS_SPACE) + "]*[^,:]+:)")
+
+
+def gemini_headers(original: str, key: str | None) -> str:
+    """Preserve raw ordinary entries under the pinned JS split/trim grammar."""
+    kept = []
+    for entry in _GEMINI_HEADER_SPLIT.split(original):
+        name, separator, _value = entry.strip(_JS_SPACE).partition(":")
+        if separator and name.strip(_JS_SPACE).lower() == _LAUNCH_HEADER:
+            continue
+        kept.append(entry)
+    result = ",".join(kept)
+    if key is not None:
+        result += ("," if result else "") + f"{_LAUNCH_HEADER}: {key}"
+    return result
+
+
+def _carrier_read(path: Path) -> tuple[dict[str, Any], str] | None:
+    """Read one named configuration source with the existing settings bound."""
+    from latet.integrations import jsonc
+
+    try:
+        with path.open("rb") as source:
+            raw = source.read(_GEMINI_SETTINGS_BYTES + 1)
+    except FileNotFoundError:
+        return {}, ""
+    except (OSError, ValueError):
+        return None
+    if len(raw) > _GEMINI_SETTINGS_BYTES:
+        return None
+    try:
+        text = raw.decode("utf-8-sig")
+        data = jsonc.loads(text)
+        return (data, text) if isinstance(data, dict) else None
+    except (ValueError, RecursionError):
+        return None
+
+
+def _header_sources_safe(value: Any, base: str) -> bool:
+    """Only inspect known override field names; never rewrite file policy."""
+    from latet.integrations.routes import is_latet
+
+    if isinstance(value, dict):
+        for name, child in value.items():
+            if "{env:" in name or "{file:" in name:
+                return False
+            if name in {"customHeaders", "headers"} and (
+                not isinstance(child, dict) or any(k.lower() == _LAUNCH_HEADER for k in child)
+            ):
+                return False
+            if (
+                name in {"baseUrl", "baseURL"}
+                and child
+                and (
+                    not isinstance(child, str)
+                    or "{env:" in child
+                    or "{file:" in child
+                    or not is_latet(child, port=0, base=base)
+                )
+            ):
+                # Explicit base selects the existing canonical origin/path
+                # proof; port is unused in that branch. Never resolve text.
+                return False
+            if not _header_sources_safe(child, base):
+                return False
+    elif isinstance(value, str) and "{file:" in value:
+        return False  # File substitution is deliberately not resolved here.
+    elif isinstance(value, list):
+        return all(_header_sources_safe(child, base) for child in value)
+    return True
+
+
+def gemini_acp(args: list[str]) -> bool:
+    """Whether Gemini CLI starts in ACP mode (`--acp`, `--experimental-acp`, yargs' camel-case and =value forms
+    included: Gemini CLI 97041320 packages/cli/src/config/config.ts:363-371). There the editor's authenticate call can
+    set another base URL and headers (packages/cli/src/acp/acpRpcDispatcher.ts:128-157), so a launch key could go to
+    them: the launcher gives none (P2-8a)."""
+    return any(
+        item.startswith("--") and item[2:].partition("=")[0].replace("-", "").lower() in {"acp", "experimentalacp"}
+        for item in args
+    )
+
+
+def gemini_carrier_verified(chosen: str | None, args: list[str], base: str) -> bool:
+    if (
+        chosen not in GEMINI_THROUGH_LATET
+        or any(item.startswith(("--settings", "--config", "--extensions")) for item in args)
+        or gemini_acp(args)
+    ):
+        return False
+    system = _gemini_system_path()
+    paths = {
+        system,
+        Path(os.environ.get("GEMINI_CLI_SYSTEM_DEFAULTS_PATH") or system.parent / "system-defaults.json"),
+        gemini_settings_path(),
+        Path.cwd() / ".gemini" / "settings.json",
+    }
+    try:
+        for path in paths:
+            result = _carrier_read(path)
+            if result is None or not _header_sources_safe(result[0], base):
+                return False
+    except (OSError, ValueError, RecursionError):
+        return False
+    return True
+
+
+def _opencode_header_paths(data: dict[str, Any]) -> list[list[str]]:
+    paths = []
+    providers = data.get("provider", {})
+    if not isinstance(providers, dict):
+        raise ValueError("unqualified config")
+    for identifier, provider in providers.items():
+        if not isinstance(provider, dict):
+            raise ValueError("unqualified config")
+        options = provider.get("options", {})
+        if not isinstance(options, dict):
+            raise ValueError("unqualified config")
+        if "headers" in options:
+            paths.append(["provider", identifier, "options", "headers"])
+        models = provider.get("models", {})
+        if not isinstance(models, dict):
+            raise ValueError("unqualified config")
+        for model, entry in models.items():
+            if not isinstance(entry, dict):
+                raise ValueError("unqualified config")
+            if "headers" in entry:
+                paths.append(["provider", identifier, "models", model, "headers"])
+    return paths
+
+
+def opencode_keyless_content(original: str) -> str:
+    """Scrub statically named reserved entries, preserving unrelated JSONC bytes.
+
+    Unknown/dynamic input stays unchanged and unqualified; this does not claim
+    an arbitrary final-config scrub or create a new command failure.
+    """
+    from latet.integrations import jsonc
+
+    try:
+        data = jsonc.loads(original)
+        if not isinstance(data, dict):
+            return original
+        text = original
+        for path in _opencode_header_paths(data):
+            while True:
+                node = jsonc.parse(text)
+                for part in path:
+                    member = node.members.get(part)
+                    if member is None or member.value.kind != "object":
+                        raise ValueError("unqualified header map")
+                    node = member.value
+                names = [name for name in node.members if name.lower() == _LAUNCH_HEADER]
+                if not names:
+                    break
+                # Reparse after each removal, including repeated same-spelling
+                # members: an earlier duplicate must not resurrect a stale key.
+                member = node.members[names[0]]
+                trivia = jsonc._Parser(text)
+                trivia.i = member.end
+                trivia.ws()
+                # Reuse the existing JSONC trivia reader, not a comma search:
+                # comments may contain commas, or precede the real separator.
+                if text[trivia.i : trivia.i + 1] == ",":
+                    text = text[: member.start] + text[member.end : trivia.i] + text[trivia.i + 1 :]
+                else:
+                    # A preceding comma becomes an accepted JSONC trailing
+                    # comma. Keep ordinary/comment bytes and duplicate members.
+                    text = text[: member.start] + text[member.end :]
+        return text
+    except (ValueError, IndexError, RecursionError):
+        return original
+
+
+def opencode_routed_content(original: str, base: str) -> str:
+    from latet.integrations import jsonc
+
+    text = opencode_keyless_content(original)
+    try:
+        if not isinstance(jsonc.loads(text), dict):
+            return original
+        for provider, route in (
+            ("anthropic", "anthropic/v1"),
+            ("openai", "openai/v1"),
+            ("openrouter", "openrouter/api/v1"),
+        ):
+            text = jsonc.set_path(text, ["provider", provider, "options", "baseURL"], f"{base}/{route}")
+        return text
+    except (ValueError, IndexError, RecursionError):
+        return original
+
+
+def _opencode_sources() -> tuple[list[Path], list[Path], list[Path]] | None:
+    """Pinned local source locations, conservatively including all ancestors."""
+    if sys.platform == "darwin":
+        return None  # MDM remains explicitly unqualified in this slice.
+    home = Path.home()
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "opencode"
+    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share") / "opencode"
+    managed = Path(
+        os.environ.get("OPENCODE_TEST_MANAGED_CONFIG_DIR")
+        or (
+            str(Path(os.environ.get("PROGRAMDATA") or "C:/ProgramData") / "opencode")
+            if sys.platform == "win32"
+            else "/etc/opencode"
+        )
+    )
+    directories = [config, Path(os.environ.get("OPENCODE_TEST_HOME") or home) / ".opencode"]
+    sources = [config / name for name in ("config.json", "opencode.json", "opencode.jsonc")]
+    # Include ancestors even for false-like flag spellings. Presence never
+    # changes child policy; it can only withhold our new key.
+    for parent in (Path.cwd(), *Path.cwd().parents):
+        sources.extend(parent / name for name in ("opencode.json", "opencode.jsonc"))
+        directories.append(parent / ".opencode")
+    if custom := os.environ.get("OPENCODE_CONFIG"):
+        sources.append(Path(custom))
+    if custom := os.environ.get("OPENCODE_CONFIG_DIR"):
+        directories.append(Path(custom))
+    for directory in directories:
+        if directory != config:
+            sources.extend(directory / name for name in ("opencode.json", "opencode.jsonc"))
+    blocked = [data / "auth.json", managed / "opencode.json", managed / "opencode.jsonc"]
+    blocked.extend(directory / name for directory in directories for name in ("plugin", "plugins"))
+    return sources, blocked, directories
+
+
+def _opencode_safe_config(data: dict[str, Any], base: str) -> bool:
+    if data.get("plugin") or data.get("plugins") or not _header_sources_safe(data, base):
+        return False
+    providers = data.get("provider", {})
+    if not isinstance(providers, dict):
+        return False
+    for provider in providers.values():
+        if not isinstance(provider, dict) or provider.get("npm"):
+            return False
+        models = provider.get("models", {})
+        if not isinstance(models, dict):
+            return False
+        if any(not isinstance(model, dict) or model.get("options") for model in models.values()):
+            return False
+    return True
+
+
+def opencode_carrier_content(
+    original: str, args: list[str], base: str
+) -> tuple[str | None, str, tuple[str, str] | None]:
+    from latet.integrations import jsonc
+
+    keyless = opencode_routed_content(original, base)
+    if os.environ.get("OPENCODE_AUTH_CONTENT") or any(
+        item in {"-m", "--model"} or item.startswith(("--model=", "--config", "--agent")) for item in args
+    ):
+        return None, keyless, None
+    try:
+        data = jsonc.loads(keyless)
+        model = data.get("model") if isinstance(data, dict) else None
+        if not isinstance(model, str) or "/" not in model:
+            return None, keyless, None
+        provider, model_id = model.split("/", 1)
+        if provider not in {"anthropic", "openai", "openrouter"} or not model_id or "instruct" in model_id:
+            return None, keyless, None
+        if not _opencode_safe_config(data, base):
+            return None, keyless, None
+        sources = _opencode_sources()
+        if sources is None:
+            return None, keyless, None
+        files, blocked, _directories = sources
+        for path in blocked:
+            try:
+                path.stat()
+            except FileNotFoundError:
+                continue
+            return None, keyless, None
+        texts = [original]
+        for path in dict.fromkeys(files):
+            result = _carrier_read(path)
+            if result is None or not _opencode_safe_config(result[0], base):
+                return None, keyless, None
+            texts.append(result[1])
+        occupied = {name.upper() for name in os.environ}
+        for text in texts:
+            occupied.update(match.strip().upper() for match in re.findall(r"\{env:([^{}]+)\}", text))
+        nonce = secrets.token_hex(16).upper()
+        for index in range(len(occupied) + 1):
+            active, absent = f"LATET_OC_KEY_{nonce}_{index}", f"LATET_OC_NONE_{nonce}_{index}"
+            if active not in occupied and absent not in occupied:
+                live = jsonc.set_path(
+                    keyless, ["provider", provider, "options", "headers", _LAUNCH_HEADER], "{env:" + active + "}"
+                )
+                return live, keyless, (active, absent)
+    except (OSError, ValueError, TypeError, AttributeError, IndexError, RecursionError):
+        return None, keyless, None
+    return None, keyless, None

@@ -7,14 +7,16 @@ import hmac
 import sys
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from latet import observe
 from latet.engine import document
 from latet.engine.masker import ExtraValue, Masker, MaskReport
 from latet.engine.rehydrate import Restore, restore_text, restores_for
+from latet.engine.response_guard import safe_text
 from latet.engine.types import EntityClass, Replacement, SlotKind, Span
 from latet.engine.vault import Vault
 from latet.vision.policy import ALLOW, ImagePolicy
@@ -210,6 +212,11 @@ class Session:
     # process that serves it. False: a call that is no conversation (an application's, on the applications API), whose
     # session lives as long as the call and holds what it was shown in its own memory alone.
     kept: bool = True
+    launch_required: bool = False
+    local_plugin_project: str | None = None
+    # When the plugin's bridge last bound it to ``local_plugin_project`` (``local_launch.plugin_clock``): the binding
+    # lives ``PLUGIN_IDLE_SECONDS`` past that, refreshed by the bridge alone (R-85, R-88).
+    local_plugin_seen: float = 0.0
 
     def add(self, ids: Iterable[str]) -> None:
         self.entity_ids.update(ids)
@@ -228,6 +235,27 @@ class Scope:
     review: LlmReview | None = None  # the local reviewer here (None: as the global settings say)
     live: LiveReview | None = None  # the Live Reviewer here (None: as the global settings say)
     ocr: bool = True  # the text in images is read here, when the models are installed
+
+
+@dataclass(slots=True)
+class RequestScope:
+    session: Session | None = None
+    scope: Scope | None = None
+    # The one freshness check of the launch authority that decided it (``launch_authority.LaunchChoice.current``),
+    # awaited where it is sent, and what its launch was decided as (``LAUNCH_CATEGORIES``).
+    protected_current: Callable[[], Awaitable[bool]] | None = None
+    # The project whose rules this request is decided by, and how it came (RC-REC-7, D7): ``trusted``, from a binding
+    # Latet made (a verified launch key, the plugin's bridge); ``claimed``, from what the request says (a header, a
+    # folder in its text), whose rules only add protection. None: no project.
+    project: str | None = None
+    binding: Literal["trusted", "claimed"] | None = None
+    launch: str | None = None
+    # A trusted project's id as projects are compared (R-105, ``Projects.compared_id`` of its root): what a project
+    # exception's folder is compared with (``request_policy.trusted_folders``). None for any other request.
+    compared: str | None = None
+
+
+request_scope: ContextVar[RequestScope | None] = ContextVar("request_scope", default=None)
 
 
 class ScopeSource(Protocol):
@@ -322,12 +350,29 @@ class Engine:
         that masks."""
         return self.vault.hold(tuple(session.entity_ids), session.key)  # tuple(): a copy at once, as ``restores``
 
+    def renew(self, session: Session) -> bool:
+        """``session``'s answer still awaited: what its vault holds for it kept a while more (``StoredVault.renew``: a
+        lock and a time, on the event loop too). False once there is nothing to renew any more (its space closed)."""
+        renew = getattr(self.vault, "renew", None)
+        return renew is not None and bool(renew(session.key))
+
+    def reacquire(self, session: Session, held: object | None) -> object | None:
+        """``session``'s values held again for its answer after it waited (a Live Reviewer's decision): what to release
+        at its end from then on (``held`` where it still holds). In the thread that masks."""
+        again = getattr(self.vault, "reacquire", None)
+        if again is None:
+            return held
+        return again(tuple(session.entity_ids), session.key, held)
+
     def release(self, session: Session, held: object | None) -> None:
         """``session``'s answer is restored: what ``hold`` kept for it (``held``, its answer) may leave memory again."""
         self.vault.release(session.key, held)
 
     def scope(self, session: Session) -> Scope | None:
         """The rules of the session's project, when they differ from the global ones."""
+        selected = request_scope.get()
+        if selected is not None and selected.session is session:
+            return selected.scope
         if self.scopes is None or session.project_id is None:
             return None
         return self.scopes.scope_for(session)
@@ -407,8 +452,10 @@ class Engine:
             if hit is not None and not self.vault.kept_since(hit[2]):
                 hit = None  # it may hold a fake of a call that did not keep its values: masked again below
             if hit is not None and hit[2] != version:
-                if not self.vault.holds_since(hit[2]):
-                    self.vault.prefetch([text])  # values left memory since: memory alone no longer vouches for it
+                # The values the text may hold asked for first, by its words (``Vault.prefetch``, once a call), as its
+                # masking asked for them: an API key's vault reads a check of the text by its words, and leaves unasked
+                # those of the fakes it holds, which a masked text holds where its values were (``engine.stored``).
+                self.vault.prefetch([text])
                 if shows_known(masker, text, hit[0], hit[1]):
                     hit = None  # it left a value the vault learnt since in clear, whole or in part: masked again below
                 else:
@@ -433,6 +480,10 @@ class Engine:
             )
         observe.masked(result.replacements)  # a server's metrics: the values of a text masked for the first time here
         self.show(session, (r.entity_id for r in result.replacements if r.entity_id))
+        # Kept with the version its values were read at: a text of an applications call read joined was read with its
+        # part, before it was masked, and a value another thread taught since is checked for next time (``settle``).
+        if result.read_at is not None:
+            version = min(version, result.read_at)
         self._frozen.put(fkey, (result.text, tuple(result.replacements), version))
         return SlotResult(result.text, result.replacements, False)
 
@@ -493,13 +544,16 @@ class Engine:
 
     def remember_model_output(self, masked: str, restored: str) -> None:
         """When the client sends back ``restored`` as history, send the model's exact ``masked``."""
-        if masked != restored:
+        if masked != restored and safe_text(masked) and safe_text(restored):
             self.conversations.remember(self._key("R", restored), masked)
 
     def restores(self, session: Session, json_mode: bool) -> list[Restore]:
         """What the conversation's fakes restore to, every one it was shown: kept while neither its values nor the
         vault moved, one list for each conversation and mode."""
         key, count, version = (session.key, json_mode), len(session.entity_ids), self.vault.version
+        renew = getattr(self.vault, "renew", None)  # a person's answer still restored keeps its values (Task 9's I1)
+        if renew is not None:
+            renew(session.key)
         kept = self._restores.get(key)
         if kept is not None and kept[0] == count and kept[1] == version:
             return kept[2]

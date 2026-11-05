@@ -10,6 +10,7 @@ import {
   type ContextType,
   type ReactNode,
 } from 'react'
+import { revealedText } from '../../lib/vault'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -265,8 +266,7 @@ function SpanPopover({
   const resolveOriginal = async (): Promise<string | null> => {
     if (info.original !== null) return info.original
     if (!info.entity) return null
-    const { original } = await api.reveal(info.entity)
-    return original
+    return revealedText(await api.reveal(info.entity), t)
   }
 
   const reveal = async () => {
