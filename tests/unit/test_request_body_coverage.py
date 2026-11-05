@@ -1189,9 +1189,18 @@ def test_never_less_slots_and_masks_against_independent_baseline_fixture(tmp_pat
                         "raw": base64.b64encode(raw).decode(),
                     }
                 )
-    assert rows == capture["inputs"], "the immutable synthetic input inventory changed"
+
+    def content(row):  # a gzip body's bytes depend on the zlib Python was built with (3.12's and 3.13's differ)
+        raw = base64.b64decode(row["raw"])
+        if ["content-encoding", "gzip"] in row["headers"] and raw[:2] == b"\x1f\x8b":  # a case may say gzip falsely
+            raw = gzip.decompress(raw)
+        return {**row, "raw": base64.b64encode(raw).decode()}
+
+    assert [content(row) for row in rows] == [content(row) for row in capture["inputs"]], (
+        "the immutable synthetic input inventory changed"
+    )
     fixture = tmp_path / "fixtures.json"
-    fixture.write_text(json.dumps(rows), encoding="utf-8")
+    fixture.write_text(json.dumps(capture["inputs"]), encoding="utf-8")  # the very bytes the baseline read
     script = tmp_path / "oracle.py"
     script.write_text(_ORACLE, encoding="utf-8")
     pins = {

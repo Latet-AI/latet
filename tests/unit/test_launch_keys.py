@@ -1425,7 +1425,29 @@ class _LaunchGraph:
                 assert item.f_trace is None, f"unexpected traced frame at {edge}"
                 name = item.f_code.co_qualname
                 frame_counts[name] = frame_counts.get(name, 0) + 1
-                children = [item.f_back, item.f_locals, *gc.get_referents(item)]
+                if sys.version_info >= (3, 13):
+                    children = [item.f_back, item.f_locals, *gc.get_referents(item)]
+                else:
+                    # CPython 3.12: f_locals is a dict this very read makes (and leaves on the frame), the walker's own
+                    # artifact as 3.13's proxy is: its keys that are the code's own names are program code, recorded
+                    # and not counted; any other key, and every value, is followed and counted.
+                    snapshot = item.f_locals
+                    code_names = {
+                        id(local): local
+                        for local in (*item.f_code.co_varnames, *item.f_code.co_cellvars, *item.f_code.co_freevars)
+                    }
+                    for key in snapshot:
+                        if code_names.get(id(key)) is key and id(key) not in recorded:
+                            recorded[id(key)] = key
+                            program_code["builtins.str"] = program_code.get("builtins.str", 0) + sys.getsizeof(key)
+                    observation_bytes += sys.getsizeof(snapshot)
+                    children = [
+                        item.f_back,
+                        *(key for key in snapshot if code_names.get(id(key)) is not key),
+                        *snapshot.values(),
+                        *(part for part in gc.get_referents(item) if part is not snapshot),
+                    ]
+                    del snapshot, code_names
             elif (kind.__module__, kind.__name__) == ("builtins", "FrameLocalsProxy"):
                 # CPython 3.13 exposes fast locals through a proxy with an owning frame reference. The keys that are
                 # the owning code's own names are program code (root's ruling, checkpoint 16): recorded, not counted;
