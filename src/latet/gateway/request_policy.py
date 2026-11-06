@@ -290,17 +290,25 @@ class LocalAuthority:
         """Invalid only because the settings moved (a newer policy or rules version) while its route still selects the
         same destination: it may be taken again under the rules now in force. Its launch is the launch authority's one
         freshness check, awaited where it is sent (``RequestScope.protected_current``)."""
-        return (self.policy is not current() or self.rules != self.engine.rules_version) and (
-            self.routes is None or self.routes.match(self.path) is self.upstream
-        )
+        return (self.policy is not current() or self.rules != self.engine.rules_version) and self._same_route()
 
     def valid(self) -> bool:
         return (
             self.policy is current()
             and self.rules == self.engine.rules_version
-            and (self.routes is None or self.routes.match(self.path) is self.upstream)
+            and self._same_route()
             and (self.session is None or self.facts == session_facts(self.session))
         )
+
+    def _same_route(self) -> bool:
+        """Whether its path still selects the route it was captured with, compared by what the route is: settings
+        applied again make a new ``Upstream`` for every configured destination (``RouteTable.use``), equal to the one
+        before when nothing of it changed (its address, profile, exceptions, request resources: every field an
+        ``Upstream`` compares). One whose content changed is another route (minors after 0.11, item 2)."""
+        if self.routes is None:
+            return True
+        found = self.routes.match(self.path)
+        return found is self.upstream or (found is not None and found == self.upstream)
 
 
 def session_facts(session: Any) -> tuple[object, ...]:

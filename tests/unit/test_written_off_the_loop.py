@@ -9,8 +9,8 @@ import asyncio
 import contextlib
 import json
 import threading
-import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -24,7 +24,6 @@ from latet.gateway.routes import Upstream
 from latet.gateway.written import WRITTEN_BYTES, Written
 
 from ..conftest import ROOT_KEY
-from .test_restore_off_the_loop import HELD, _ticking
 
 SESSION = "4f6c1a52-0d1e-4b8e-9a37-2c5e8d0b7a11"
 CLAUDE_CODE = {
@@ -43,12 +42,6 @@ ANTHROPIC = Upstream(
     "http://127.0.0.1:1",
     envelope_expected=frozenset({("x-claude-code-session-id", SESSION)}),
 )
-# The longest a turn of the event loop may take while the gateway reads what the model wrote in an answer as large as it
-# reads of one, in seconds, or twice what Python's own parse of the input alone (``json.loads``, 30 to 45 ms here) takes
-# on a slower machine: with every step read on the loop, its parse and its strings held it 0.15 to 0.23 s, four to six
-# times that parse; on the engine's thread the parse holds Python's lock all the same, and the loop waited 0.046 to
-# 0.077 s.
-HELD_HERE = 0.1
 
 
 def _items(size: int, each: int = 12) -> list[str]:
@@ -112,28 +105,70 @@ async def _gateway(provider: _Provider) -> AsyncIterator[tuple[httpx.AsyncClient
         yield client, mediator
 
 
-@pytest.mark.timing
 @pytest.mark.parametrize("shape", ["whole", "event", "pieces"])
-async def test_what_the_model_wrote_in_an_answer_as_large_as_is_read_is_read_while_the_event_loop_runs(shape):
+async def test_what_the_model_wrote_in_an_answer_as_large_as_is_read_is_read_on_the_engines_thread(shape, monkeypatch):
+    """An answer as large as Latet reads of it: a whole body, one event giving a tool call's input whole, or that input
+    in pieces joined at its end. Each step past a little (``RESTORED_ON_LOOP``) is parsed and recorded by
+    ``Mediator._write_down`` on the engine's thread, never on the event loop's, and what it wrote is known in its
+    conversation. Where the work runs is what this pins (minors after 0.11, item 17): how long the loop then waits for
+    Python's lock is the machine's, which a loaded one stretched past any bound (0.112 s against 0.104 s in the merge's
+    run); `scripts/request_coverage_bench.py written` measures it."""
     items = _items(WRITTEN_BYTES - 2**20, 15 if shape == "pieces" else 12)  # in pieces, each quote escaped again
     content_type, body = _answers(shape, items)
     assert len(body) < WRITTEN_BYTES
-    raw = json.dumps({"items": items})
-    started = time.perf_counter()
-    json.loads(raw)
-    loads = time.perf_counter() - started  # what Python's own parse of the input takes on this machine, alone
     provider = _Provider()
     provider.then = httpx.Response(200, headers={"content-type": content_type}, stream=httpx.ByteStream(body))
+    written_down = Mediator._write_down
+    threads: list[str] = []
+
+    def where(self: Mediator, *args: Any) -> Any:
+        threads.append(threading.current_thread().name)
+        return written_down(self, *args)
+
+    monkeypatch.setattr(Mediator, "_write_down", where)
+    loop = threading.current_thread().name
     async with _gateway(provider) as (client, mediator):
-        async with _ticking() as gaps:
-            started = time.perf_counter()
-            answered = await client.post("/anthropic/v1/messages", json=ASKED, headers=CLAUDE_CODE)
-            took = time.perf_counter() - started
+        answered = await client.post("/anthropic/v1/messages", json=ASKED, headers=CLAUDE_CODE)
         assert answered.status_code == 200 and answered.content == body  # passed on as it came
         # Each recorded (the newest are kept in this process's memory: ``WRITTEN_HERE``).
         assert all(mediator.verifier.written(f"cc:{SESSION}", item) for item in (items[-40_000], items[-1]))
-    held = min(HELD, max(HELD_HERE, 2 * loads), took / 4)
-    assert max(gaps) < held, f"the loop was held {max(gaps):.3f} s of {took:.3f} s (parse {loads:.3f} s)"
+    assert threads, "no step was large enough to be read on the engine's thread"
+    assert all(name.startswith("latet-engine") and name != loop for name in threads), threads
+
+
+async def test_while_the_engines_thread_reads_a_large_step_another_client_is_answered(monkeypatch):
+    """The plan's other half of item 17 (the fix round's Q-M2): the large step's wait for the engine's thread holds no
+    one else up. With that thread held inside ``_write_down``, another client's call the event loop answers alone
+    (a path with no route) is answered meanwhile: a wait that blocked the loop (``future.result()`` in place of
+    ``await``) would answer it only once the thread let go. Structural: the order of the two, never a time. What
+    decides is how the held thread let go, which it says itself: released once the other client was answered, or at
+    the end of its hold (the re-review's nit: the wait for it to be entered never races the hold)."""
+    items = _items(WRITTEN_BYTES - 2**20)
+    content_type, body = _answers("whole", items)
+    provider = _Provider()
+    provider.then = httpx.Response(200, headers={"content-type": content_type}, stream=httpx.ByteStream(body))
+    loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), threading.Event()
+    let_go: list[str] = []  # how the engine's thread left its hold, in its own words
+    written_down = Mediator._write_down
+
+    def held(self: Mediator, *args: Any) -> Any:
+        loop.call_soon_threadsafe(entered.set)
+        let_go.append("released" if release.wait(5) else "at the end of its hold")
+        return written_down(self, *args)
+
+    monkeypatch.setattr(Mediator, "_write_down", held)
+    async with _gateway(provider) as (client, _):
+        answering = asyncio.create_task(client.post("/anthropic/v1/messages", json=ASKED, headers=CLAUDE_CODE))
+        try:
+            await asyncio.wait_for(entered.wait(), 30)  # longer than the hold: a blocked loop gets here after it
+            other = await client.get("/nowhere/at/all")  # another client: answered by the loop alone
+        finally:
+            release.set()
+        answered = await asyncio.wait_for(answering, 30)
+    assert other.status_code == 404
+    assert let_go[:1] == ["released"], f"the other client waited for the engine's thread: it let go {let_go}"
+    assert answered.status_code == 200 and answered.content == body
 
 
 async def test_a_small_answer_is_read_on_the_event_loop_in_its_identitys_turn():

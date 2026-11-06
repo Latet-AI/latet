@@ -60,7 +60,9 @@ def test_rules_that_keep_moving_past_the_bound_still_refuse_it():
         _moving(mediator, forward._REDERIVE + 1)
         answer = client.post("/openai/v1/chat/completions", json=BODY, headers=BEARER)
         assert answer.status_code == 400 and counts(made) == (0, 0)
-        assert "could not account for every part" in answer.text
+        # Told that the settings changed and to send it again (minors after 0.11, item 2), never coverage's words.
+        assert "the settings changed while this request was prepared" in answer.text
+        assert "could not account for every part" not in answer.text
 
 
 @pytest.mark.parametrize("bound", [0])

@@ -104,7 +104,8 @@ Eso es lo que hace el daemon: el cuerpo de cada petición llega a Anthropic byte
 cabeceras tal como las escribió Claude Code, con tu token dentro, salvo dos tipos que Latet quita y
 cuenta en el panel: las cabeceras de telemetría y de trazado que añade su SDK (`x-stainless-*`,
 `traceparent`...), y las propias de Claude Code que pueden contener texto libre (los id de un
-subagente, que pueden contener su nombre, y valores que Claude Code copia de su entorno).
+subagente, que pueden contener su nombre, valores que Claude Code copia de su entorno y una indicación
+para las pasarelas que nombra las herramientas ejecutadas).
 [Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet) las enumera todas. El token nunca se guarda, ni se escribe en
 los registros, ni se muestra en el panel.
 

@@ -26,6 +26,7 @@ from starlette.testclient import TestClient
 
 from latet.engine.vault import MaskingError
 from latet.gateway import forward, outcome, request_policy, request_profiles, request_transport
+from latet.gateway import request_audit as request_audit_module
 from latet.gateway.app import GatewayConfig, create_app
 from latet.gateway.aws import AwsError, profile_tag
 from latet.gateway.cloud import BedrockUpstream
@@ -177,6 +178,7 @@ class _Gateway:
     transport: RecordingTransport
     provider: _Provider
     made: list[RecordingClient]
+    config: GatewayConfig | None = None  # its routes (``config.routes``), applied again as a settings change does
 
     def counts(self) -> tuple[int, int]:
         return sum(c.builds for c in self.made), sum(c.sends for c in self.made)
@@ -193,7 +195,8 @@ def _gateway(mediator: Mediator | None, provider: _Provider | None = None, **con
 
     upstreams = config.pop("upstreams", [OPENAI])
     settings = GatewayConfig(port=5283, upstreams=upstreams, mediator=mediator, client=client, **config)
-    return _Gateway(TestClient(create_app(settings), base_url="http://127.0.0.1:5283"), transport, provider, made)
+    app = create_app(settings)
+    return _Gateway(TestClient(app, base_url="http://127.0.0.1:5283"), transport, provider, made, settings)
 
 
 def _bedrock(mediator: Mediator | None, aws: _Aws, provider: _Provider | None = None, **config: Any) -> _Gateway:
@@ -569,6 +572,320 @@ def test_settings_unread_before_aws_second_attempt_say_the_first_may_have_arrive
     assert "may have occurred" in answered.text
 
 
+def test_a_route_gone_before_aws_second_attempt_says_the_first_may_have_arrived(turns):
+    """Minors after 0.11, item 7 (G2 review I-2's 404 path): settings read again before AWS's second attempt, after the
+    first reached Bedrock, remove its route (its destination deleted). Still 404, nothing more sent, but in Bedrock's
+    shape and in Latet's words: no further attempt was sent and the first may have arrived, never "Nothing was sent",
+    never the bare "no upstream for this path"."""
+    from datetime import UTC, datetime, timedelta
+
+    from latet.config import RequestException
+
+    now = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+    row = RequestException.model_validate(
+        {
+            **_BEDROCK_TEAM,
+            "id": "x0123456789",
+            "granted": now - timedelta(days=1),
+            "revision": request_profiles.REVISION,
+        }
+    )
+    aws = _Aws()
+    holder: dict[str, _Gateway] = {}
+
+    async def fresh() -> tuple[datetime, bool]:
+        if aws.reads == 2:  # its fresh credentials read: the read before the second attempt
+            config = holder["gateway"].config
+            assert config is not None and config.routes is not None
+            config.routes.use([])  # the destination gone meanwhile
+            return now, True
+        return now, False
+
+    gateway = holder["gateway"] = _bedrock(_mediator(), aws, request_exceptions=(row,), exception_fresh=fresh)
+    headers = {"content-type": "application/json", "x-team": "data-science"}
+    with gateway.client as client:
+        answered = client.post(_route(), content=_invoke(HELLO), headers=headers)
+    assert answered.status_code == 404 and len(gateway.transport.sent) == 1 and aws.reads == 2
+    assert type(turns[-1].decision) is Pass and turns[-1].execution == Attempted(1, 403)
+    assert "Nothing was sent" not in answered.text and "No further attempt was sent" in answered.text
+    assert "may have occurred" in answered.text and answered.json()["message"].startswith("Latet: ")
+
+
+# --- settings applied again while a request is prepared (minors after 0.11, item 2; G2 review M-2) ---------------------
+
+# What a request is told when the settings it was prepared under changed before it left: never a coverage fault.
+SETTINGS_MOVED = "the settings changed while this request was prepared"
+
+
+def _applied_again(gateway: _Gateway, monkeypatch, swap: Callable[[Any], None]) -> list[int]:
+    """While the first preparation of a request runs, its identity's settings applied again as ``apply_config`` applies
+    them: the engine's rules move and the route table is swapped (``swap``, given it). Each preparation counted."""
+    real = Mediator.prepare_http
+    prepared: list[int] = []
+
+    def prepare_http(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        found = real(self, *args, **kwargs)
+        prepared.append(1)
+        if len(prepared) == 1:
+            self.engine.rules_changed()
+            assert gateway.config is not None and gateway.config.routes is not None
+            swap(gateway.config.routes)
+        return found
+
+    monkeypatch.setattr(Mediator, "prepare_http", prepare_http)
+    return prepared
+
+
+def _openai_exception() -> Any:
+    from datetime import UTC, datetime
+
+    from latet.config import RequestException
+
+    return RequestException.model_validate(
+        {
+            "destination": "openai",
+            "profile": "openai.chat.1",
+            "components": [{"kind": "header", "name": "x-team"}],
+            "reason": "custom-header",
+            "id": "x0123456789",
+            "granted": datetime.now(UTC),
+            "revision": request_profiles.REVISION,
+        }
+    )
+
+
+def test_a_request_prepared_while_its_settings_are_applied_again_is_prepared_again_and_sent(monkeypatch):
+    """Every settings change applied again (a save, a shared change, another instance's write on a server) makes a new
+    ``Upstream`` object for each configured destination. A request prepared meanwhile, its route the same in all but
+    the object, is prepared again under the rules now in force and sent; before, its route authority compared the
+    route by identity, was never taken again, and the request was refused "could not account for every part"."""
+    gateway = _gateway(_mediator())
+    prepared = _applied_again(gateway, monkeypatch, lambda routes: routes.use([dataclasses.replace(OPENAI)]))
+    with gateway.client as client:
+        answered = client.post(CHAT, content=_chat("hello"), headers=HEADERS)
+    assert answered.status_code == 200, answered.text
+    assert len(gateway.transport.sent) == 1 and len(prepared) == 2
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        pytest.param(
+            lambda routes: routes.use([dataclasses.replace(OPENAI, base_url="http://127.0.0.1:2")]), id="address"
+        ),
+        pytest.param(lambda routes: routes.use([OPENAI], exceptions=(_openai_exception(),)), id="exception"),
+        pytest.param(
+            lambda routes: routes.use([OPENAI], resources=(("openai", OPENAI.base_url, "model", "m2"),)), id="resource"
+        ),
+    ],
+)
+def test_a_request_whose_route_changed_while_it_was_prepared_is_still_refused(monkeypatch, caplog, turns, changed):
+    """The negative controls: a route whose address, exceptions or request resources changed while a request was
+    prepared is not the route it was prepared for. Nothing is sent, and the agent is told why: the settings changed.
+    So are the history, the log and the audit (the fix round's Q-M1): the refusal's code is ``settings-changed``,
+    never ``proof-incomplete``'s, whose words blame coverage."""
+    import logging
+
+    recorder = _Recorder()
+    gateway = _gateway(_mediator(), recorder=recorder)
+    prepared = _applied_again(gateway, monkeypatch, changed)
+    with caplog.at_level(logging.WARNING, logger="latet.gateway.forward"), gateway.client as client:
+        answered = client.post(CHAT, content=_chat("hello"), headers=HEADERS)
+    assert answered.status_code == 400 and len(gateway.transport.sent) == 0 and len(prepared) == 1
+    assert SETTINGS_MOVED in answered.text and "could not account" not in answered.text
+    assert turns[-1].decision.code == "settings-changed"
+    assert [record.block_code for record in recorder.finished] == ["settings-changed"]
+    logged = [record.getMessage() for record in caplog.records if record.name == "latet.gateway.forward"]
+    assert any(SETTINGS_MOVED in line for line in logged) and not any("could not account" in line for line in logged)
+    assert request_audit_module.reason_code("settings-changed") not in (3, 31)  # its own, never coverage's or unknown
+
+
+@pytest.mark.parametrize("rules", ["kept", "moved"])
+def test_settings_read_again_while_its_exceptions_are_judged_never_blame_coverage(turns, rules):
+    """G2 review M-2, RC-REC-3 on a server: the read made while a request's exceptions are judged finds PostgreSQL's
+    counts ahead, and the settings are applied again (``spaces._reapply``). The same route and rules: it is sent. The
+    rules moved after it was prepared and reviewed: refused, nothing sent, with words that say the settings changed and
+    to send it again, never "could not account for every part of this request"."""
+    from datetime import UTC, datetime, timedelta
+
+    from latet.config import RequestException
+
+    now = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+    row = RequestException.model_validate(
+        {
+            **_BEDROCK_TEAM,
+            "id": "x0123456789",
+            "granted": now - timedelta(days=1),
+            "revision": request_profiles.REVISION,
+        }
+    )
+    calls: list[int] = []
+    mediator = _mediator()
+    holder: dict[str, _Gateway] = {}
+
+    async def fresh() -> tuple[Any, bool]:
+        calls.append(1)
+        if len(calls) != 2:  # the second read is the one made while its exceptions are judged
+            return now, False
+        config = holder["gateway"].config
+        assert config is not None and config.routes is not None
+        config.routes.use(config.routes.upstreams, exceptions=(row,))  # new Upstream objects, the same content
+        if rules == "moved":
+            mediator.engine.rules_changed()
+        return now, True
+
+    gateway = holder["gateway"] = _bedrock(mediator, _Aws(), request_exceptions=(row,), exception_fresh=fresh)
+    headers = {"content-type": "application/json", "x-team": "data-science"}
+    with gateway.client as client:
+        answered = client.post(_route(), content=_invoke(HELLO), headers=headers)
+    assert "could not account" not in answered.text
+    if rules == "kept":
+        assert answered.status_code == 200 and len(gateway.transport.sent) == 2  # AWS's expired token, then fresh
+    else:
+        assert answered.status_code == 400 and len(gateway.transport.sent) == 0
+        assert SETTINGS_MOVED in answered.text and "send it again" in answered.text
+        assert turns[-1].decision.code == "settings-changed"  # the fix round's Q-M1
+
+
+def test_a_request_prepared_while_settings_are_half_applied_is_prepared_again_under_the_whole(
+    tmp_path, monkeypatch, turns
+):
+    """Fix round S-M1 (item 2): ``Runtime.apply_config`` moves the rules version (``engine.use``), then sets the image,
+    dump guard and review settings, then swaps the route table. A request prepared again in between (its authority
+    taken again on the loop because the rules had moved) carried the new version and the old route, equal by value to
+    the new one. Its body's proof was refused at its decision all the same (``live_changed`` renews the content epoch
+    as the settings end), and its agent was told that Latet could not account for every part of it. The version now
+    moves once more when everything is in place: the authority taken in the window is never valid, and the request is
+    prepared again under the whole settings and sent."""
+    import base64
+    import threading
+
+    from latet import runtime as runtime_module
+    from latet.config import Config, Destination, IdentityConfig
+    from latet.runtime import make_runtime
+
+    from ..conftest import ROOT_KEY
+
+    monkeypatch.setenv("LATET_ROOT_KEY", base64.b64encode(ROOT_KEY).decode())
+    acme = Destination(name="acme", url="https://llm.acme.invalid")
+    settings = Config(identity=IdentityConfig(enabled=False), ner="off", upstreams=[acme])
+    stronger = settings.model_copy(update={"dump_guard": 3})
+    runtime = make_runtime(settings, data=tmp_path / "data", config_file=tmp_path / "config.yaml")
+    transport = RecordingTransport(_Provider())
+    runtime.gateway.client = lambda: RecordingClient(transport)
+    halfway, resume = threading.Event(), threading.Event()
+    applying: list[threading.Thread] = []
+    policy = runtime_module.image_policy
+
+    def held_halfway(config: Any) -> Any:
+        # Inside apply_config: the rules version moved and the masker is in use; the image, dump guard and review
+        # settings and the route table are not applied yet.
+        if applying and threading.current_thread() is applying[0]:
+            halfway.set()
+            assert resume.wait(10)
+        return policy(config)
+
+    prepare = Mediator.prepare_http
+    # Each preparation and the dump guard it read, in the order they ran: kept, so never told apart by an address a
+    # freed one could pass on (the re-review's nit).
+    preparations: list[tuple[Any, Any]] = []
+
+    def prepare_http(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        guard = self.dump_guard  # what this preparation read of the settings
+        prepared = prepare(self, *args, **kwargs)
+        preparations.append((prepared, guard))
+        if len(preparations) == 1:  # the settings applied again meanwhile, held after their version moved
+            applying.append(threading.Thread(target=runtime.apply_config, args=(stronger,), kwargs={"save": False}))
+            applying[0].start()
+            assert halfway.wait(10)
+        elif len(preparations) == 2:  # prepared again inside that window: now the rest of the settings lands
+            resume.set()
+            applying[0].join(10)
+        return prepared
+
+    monkeypatch.setattr(runtime_module, "image_policy", held_halfway)
+    monkeypatch.setattr(Mediator, "prepare_http", prepare_http)
+    body = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]}).encode()
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            answered = client.post("/acme/v1/chat/completions", content=body, headers=HEADERS)
+    finally:
+        resume.set()
+        for thread in applying:
+            thread.join(10)
+        runtime.close()
+    guards = [guard for _, guard in preparations]
+    assert runtime.mediator.dump_guard == 3 and len(preparations) == 3, guards  # before, in the window, after
+    assert answered.status_code == 200, answered.text
+    # Sent as last prepared, under the whole settings.
+    assert len(transport.sent) == 1 and turns[-1].prepared is preparations[-1][0] and guards[-1] == 3, guards
+
+
+def test_a_request_prepared_as_the_settings_end_is_prepared_again_once_they_have(tmp_path, monkeypatch, turns):
+    """The fix round's re-review (security, its wording point): ``Runtime.apply_config`` moved the rules version the
+    second time before its last steps, ``live_changed`` among them, which renews the content epoch. A request with a
+    body prepared in between carried the final version and the content epoch of before: its route authority stayed
+    valid and its body's proof did not, so it was refused with the coverage words, nothing sent. The second move now
+    comes after ``live_changed``: that request's authority is no longer valid once the apply has ended, and it is
+    prepared again and sent."""
+    import base64
+    import threading
+
+    from latet.config import Config, Destination, IdentityConfig
+    from latet.runtime import make_runtime
+
+    from ..conftest import ROOT_KEY
+
+    monkeypatch.setenv("LATET_ROOT_KEY", base64.b64encode(ROOT_KEY).decode())
+    acme = Destination(name="acme", url="https://llm.acme.invalid")
+    settings = Config(identity=IdentityConfig(enabled=False), ner="off", upstreams=[acme])
+    stronger = settings.model_copy(update={"dump_guard": 3})
+    runtime = make_runtime(settings, data=tmp_path / "data", config_file=tmp_path / "config.yaml")
+    transport = RecordingTransport(_Provider())
+    runtime.gateway.client = lambda: RecordingClient(transport)
+    ending, resume = threading.Event(), threading.Event()
+    applying: list[threading.Thread] = []
+    warm_up = runtime.warm_up
+
+    def held_as_they_end() -> None:
+        # Inside apply_config, among its last steps: every part of the settings is in place, and ``live_changed`` has
+        # not renewed the content epoch yet.
+        if applying and threading.current_thread() is applying[0]:
+            ending.set()
+            assert resume.wait(10)
+        warm_up()
+
+    prepare = Mediator.prepare_http
+    preparations: list[tuple[Any, Any]] = []  # each preparation and the dump guard it read, in the order they ran
+
+    def prepare_http(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        prepared = prepare(self, *args, **kwargs)
+        preparations.append((prepared, self.dump_guard))
+        if len(preparations) == 1:  # its authority taken and prepared in that window: now the apply ends
+            resume.set()
+            applying[0].join(10)
+        return prepared
+
+    monkeypatch.setattr(runtime, "warm_up", held_as_they_end)
+    monkeypatch.setattr(Mediator, "prepare_http", prepare_http)
+    body = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]}).encode()
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            # The settings applied again first, held as they end; the request comes in that window.
+            applying.append(threading.Thread(target=runtime.apply_config, args=(stronger,), kwargs={"save": False}))
+            applying[0].start()
+            assert ending.wait(10)
+            answered = client.post("/acme/v1/chat/completions", content=body, headers=HEADERS)
+    finally:
+        resume.set()
+        for thread in applying:
+            thread.join(10)
+        runtime.close()
+    assert "could not account" not in answered.text
+    assert answered.status_code == 200 and len(preparations) == 2, (answered.text, len(preparations))
+    assert len(transport.sent) == 1 and turns[-1].prepared is preparations[-1][0] and preparations[-1][1] == 3
+
+
 def test_an_absent_mediator_is_refused_before_transport(turns, monkeypatch):
     """Missing mediation cannot mint transport authority."""
     validated: list[tuple[Any, Any, int]] = []
@@ -894,6 +1211,25 @@ async def test_the_gateways_client_keeps_no_cookie_a_provider_sets(trust_env):
         cookie = "_cfuvid=rc-cookie; path=/; domain=.api.openai.com; HttpOnly; Secure"
         client.cookies.extract_cookies(httpx.Response(200, headers={"set-cookie": cookie}, request=request))
         assert not client.cookies
+
+
+def test_the_gateway_cookie_test_fails_when_latets_clients_keep_cookies(monkeypatch):
+    """G2 re-review N-1 (minors after 0.11, item 14): the gateway-level cookie test below runs on the tests' recording
+    clients, which built a jar of their own, so it passed whether or not Latet's clients kept cookies. They now take
+    their options from Latet's (``forward.client_options``): with the cookie jar taken out of those options, as a
+    regression of ``make_client`` would, the second request is refused as C-1 refused it."""
+    real = forward.client_options
+
+    def keeping(**kwargs: Any) -> dict[str, Any]:
+        options = real(**kwargs)
+        del options["cookies"]  # httpx's default jar: every answer's Set-Cookie kept
+        return options
+
+    monkeypatch.setattr(forward, "client_options", keeping)
+    gateway = _gateway(_mediator(), _Cookies())
+    with gateway.client as client:
+        answers = [client.post(CHAT, content=_chat("hello"), headers=HEADERS) for _ in range(2)]
+    assert [answer.status_code for answer in answers] == [200, 500] and len(gateway.transport.sent) == 1
 
 
 def test_a_provider_that_sets_a_cookie_never_stops_the_next_request():

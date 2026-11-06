@@ -2376,6 +2376,7 @@
       "parse": "Une partie ne pouvait pas être lue comme son protocole le prévoit : Latet ne pouvait donc pas en rendre compte en entier.",
       "limit": "Elle dépassait ce que Latet lit d'une requête, ou Latet était trop occupé.",
       "state": "Un état dont Latet a besoin pour décider n'a pas pu être lu.",
+      "settings": "Les réglages ont changé pendant qu'elle était préparée : elle n'a donc pas été envoyée.",
       "masking": "Le masquage a échoué.",
       "other": "Les règles de Latet ne la laissent pas sortir."
     },
@@ -2385,6 +2386,7 @@
       "exceptionDocsLink": "comment en approuver une",
       "renew": "La renouveler est une nouvelle approbation : modifiez l'exception dans vos réglages, puis approuvez la modification.",
       "resource": "Ajoutez la valeur sous request_resources dans vos réglages pour cette destination.",
+      "again": "Envoyée à nouveau, elle part selon les réglages en vigueur.",
       "websocket": "Dans cette version de Latet, un WebSocket ne prend aucune exception aux requêtes.",
       "none": "Aucune exception ne peut la laisser passer."
     },

@@ -498,7 +498,9 @@ la première instance qui construit son espace, une fois, une instance à la foi
 construit son propre index de ces empreintes, pour le coffre-fort d'une personne comme pour celui
 d'une clé d'API. Jusque-là, les requêtes et les appels de cette identité sont servis en cherchant
 leurs mots dans PostgreSQL, comme le faisait la 0.10, plus lentement, et aucun n'est refusé pour
-autant. Une instance dont l'index ne peut pas être construit (les empreintes pas encore toutes
+autant. Pendant qu'une instance calcule les empreintes d'un coffre-fort, les autres identités dont elle
+ouvre l'espace entre-temps peuvent elles aussi être servies par la recherche dans PostgreSQL, jusqu'à ce que
+leur index soit construit. Une instance dont l'index ne peut pas être construit (les empreintes pas encore toutes
 calculées, PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué) garde
 cette identité sur la recherche dans PostgreSQL et construit l'index de nouveau : aussitôt quand le
 calcul des empreintes d'une autre instance se termine, sinon 10, 20 et 30 secondes après chaque essai

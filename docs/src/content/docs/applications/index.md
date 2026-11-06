@@ -367,7 +367,9 @@ A vault kept by Latet 0.10 has no prints yet. After the restart, the first insta
 answers the key's calls at once, looking their words up in PostgreSQL as 0.10 did, and makes the vault's prints
 in the background, once, one instance at a time; each instance then builds its own index of them and uses it.
 Until then the key's calls mask the same values, more slowly ([how fast it is](#how-fast-it-is): 494 lines a
-second at 200,000 values with the prints turned off, in an earlier run), and none is refused for it. When the
+second at 200,000 values with the prints turned off, in an earlier run), and none is refused for it. While an
+instance makes a vault's prints, the other keys and people whose spaces it opens meanwhile may also be served
+from PostgreSQL's lookup until their index is built. When the
 prints are not all made or an index cannot be built (PostgreSQL or Valkey not answering, a catch-up that
 failed), the calls stay on PostgreSQL's lookup until the index is built again: at once when another instance has
 made the prints, otherwise 10, 20 and 30 seconds after each try and then once a minute. The log says once when

@@ -61,6 +61,9 @@ BLOCK_CODES: frozenset[str] = frozenset(ENVELOPE_STATUSES) | frozenset(
         "too-large",  # its body would decode past a server's max_request_mb (413)
         "masking-failed",  # its masking failed: a vault at its limit, no fake free (400)
         "proof-incomplete",  # a proof that leaves a part of it unaccounted for (Phase 2)
+        # Its settings changed after it was prepared (its route or rules moved), and it was not prepared again: never a
+        # fault of coverage, though ``finalize`` finds its route authority stale (minors after 0.11, Q-M1).
+        "settings-changed",
         "proof-foreign",  # a proof of another request than its own
         "evidence",  # evidence its rules do not admit
         # Refused before its content was read (404 or 400, as 0.10 answers), and nothing of it read: no route for its

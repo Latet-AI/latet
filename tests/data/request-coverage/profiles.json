@@ -3941,7 +3941,8 @@
             "x-claude-remote-session-id",
             "x-claude-remote-container-id",
             "x-claude-remote-session-origin",
-            "x-client-app"
+            "x-client-app",
+            "x-claude-code-prev-tool-durations"
           ]
         },
         "bedrock": {
@@ -3955,7 +3956,8 @@
             "x-claude-remote-session-id",
             "x-claude-remote-container-id",
             "x-claude-remote-session-origin",
-            "x-client-app"
+            "x-client-app",
+            "x-claude-code-prev-tool-durations"
           ]
         },
         "gemini": {
@@ -3982,6 +3984,7 @@
       "removable_from_environment": "Claude Code 2.1.316 copies x-claude-remote-session-id, x-claude-remote-container-id, x-claude-remote-session-origin and x-client-app from environment values (CLAUDE_CODE_REMOTE_SESSION_ID, CLAUDE_CODE_CONTAINER_ID, CLAUDE_CODE_SESSION_ORIGIN, CLAUDE_AGENT_SDK_CLIENT_APP): free text, removed on the anthropic and bedrock families",
       "removable_codex_free": "Codex c1382380 x-openai-subagent (a kind or SubAgentSource::Other's label): free, removed on the openai and chatgpt families",
       "removable_agent_ids": "x-claude-code-agent-id and x-claude-code-parent-agent-id (Claude Code 2.1.316 subagents): observed as 'a' + 16 lowercase hex, but the source's id function also makes a{label}-{16 hex} from an agent name hint, so free text: removed on the anthropic and bedrock families, never forwarded",
+      "removable_tool_names": "x-claude-code-prev-tool-durations (Claude Code's gateway hint header, its gateway compatibility guide read 2026-11-05): the tools whose results a request carries, <name>=<ms>;..., an MCP server's and tool's own names among them, which a user chooses; a hint the guide says a gateway need not forward: removed on the anthropic and bedrock families",
       "removable_never": "no family is a prefix holding a credential or signing material: never x-amz- (x-amz-security-token, x-amz-date, x-amz-content-sha256), never x-goog- (x-goog-api-key, x-goog-user-project)",
       "named_grammars": {
         "accept-encoding": "every profile: identity, gzip, deflate, br, zstd in any order, each at most once, optional q=0..1 with up to 3 decimals",
@@ -4001,7 +4004,9 @@
         "x-openai-internal-codex-responses-lite": "openai and chatgpt families: enum true (client.rs:2355-2362)",
         "x-claude-code-request-class": "anthropic family and Bedrock model calls: [a-z_]{1,32} (Claude Code 2.1.316 gateway hint headers: main, subagent, auxiliary, compaction, workflow)",
         "x-claude-code-agent-type": "anthropic family and Bedrock model calls: [A-Za-z][A-Za-z0-9-]{0,63} (a built-in agent's name, custom or teammate)",
-        "x-anthropic-additional-protection": "anthropic family and Bedrock model calls: enum true (CLAUDE_CODE_ADDITIONAL_PROTECTION)"
+        "x-anthropic-additional-protection": "anthropic family and Bedrock model calls: enum true (CLAUDE_CODE_ADDITIONAL_PROTECTION)",
+        "x-claude-code-compaction": "anthropic family and Bedrock model calls: enum auto, manual, reactive (Claude Code's gateway hint header on a compaction; its gateway compatibility guide, read 2026-11-05)",
+        "x-claude-code-context-compacted": "anthropic family and Bedrock model calls: enum auto, manual, reactive (the hint on the first request after a compaction)"
       },
       "id_grammars": {
         "x-claude-code-session-id": "UUID 8-4-4-4-12 hex, either case (Claude Code 2.1.312-2.1.316: --session-id 'Must be a valid UUID'; crypto.randomUUID())",

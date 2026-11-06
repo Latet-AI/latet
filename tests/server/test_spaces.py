@@ -381,7 +381,14 @@ async def test_a_space_is_weighed_again_as_its_vault_grows(instances, monkeypatc
         here = await a.spaces.runtime(emily)
         await b.spaces.runtime(emily)
         await b.spaces.runtime(daniel)
-        b.spaces.budget = sum(space_size(space.runtime) for space in b.spaces._spaces.values()) + 4096
+        # The budget from what each weighing compares (``_retained_total``: the spaces and the launch ledgers' standing
+        # bytes), once no index build weighs a space in the background: past it only by what Emily learns. Before, it
+        # was the spaces' sizes alone, past at once by the ledgers' 64 KiB, and whichever space was weighed first
+        # decided: Daniel's index build closed Emily's, used least recently (minors after 0.11, item 15).
+        await until(lambda: b.spaces._index_builds() == 0)
+        b.spaces.budget = b.spaces._retained_total() + 4096
+        b.spaces._weigh(b.spaces._spaces[daniel.id])  # another space weighed, as an index build does: nothing goes
+        assert b.spaces.count() == 2, "a weigh of another space closed one before the vault grew"
         for n in range(5):  # five addresses of one domain: six values, 12 KiB as a space weighs them
             await asyncio.to_thread(here.built.vault.intern, "EMAIL", EntityClass.PII, f"person{n}@acme.com")
         # Each value B learns weighs Emily's space again: past the budget, the space used least recently goes.

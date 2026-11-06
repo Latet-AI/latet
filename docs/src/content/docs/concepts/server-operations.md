@@ -454,7 +454,9 @@ lists what will stop.
 Then, in the background: the prints of each vault kept by 0.10 are made by the first instance that builds its
 space, once, one instance at a time, and each instance builds its own index of them, for a person's vault as for
 an API key's. Until then that identity's requests and calls are answered by looking their words up in
-PostgreSQL, as 0.10 did, more slowly, and none is refused for it. An instance whose index cannot be built (the
+PostgreSQL, as 0.10 did, more slowly, and none is refused for it. While an instance makes a vault's prints, the
+other identities whose spaces it opens meanwhile may also be answered from PostgreSQL's lookup until their index
+is built. An instance whose index cannot be built (the
 prints not all made yet, PostgreSQL or Valkey not answering, a catch-up that failed) keeps that identity on
 PostgreSQL's lookup and builds the index again: at once when another instance's fill of the prints ends,
 otherwise 10, 20 and 30 seconds after each try and then once a minute, two builds at a time on each instance,

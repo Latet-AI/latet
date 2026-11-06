@@ -408,7 +408,9 @@ faceva la 0.10, e calcola le impronte della cassaforte in background, una volta,
 istanza poi costruisce il proprio indice delle impronte e lo usa. Fino ad allora le chiamate della chiave
 mascherano gli stessi valori, più lentamente ([quanto è veloce](#quanto-è-veloce): 494 righe al secondo a
 200.000 valori con le impronte disattivate, in una misurazione precedente), e nessuna viene rifiutata per
-questo. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
+questo. Mentre un'istanza calcola le impronte di una cassaforte, anche le altre chiavi e persone di cui apre
+lo spazio nel frattempo possono essere servite dalla ricerca in PostgreSQL, finché il loro indice non è
+costruito. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
 che non rispondono, un aggiornamento dell'indice fallito), le chiamate restano sulla ricerca in PostgreSQL
 finché l'indice non viene costruito di nuovo: subito quando un'altra istanza ha calcolato le impronte,
 altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto. Il log dice una volta quando un

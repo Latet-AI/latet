@@ -274,26 +274,36 @@ class Runtime:
                     )
             self.gateway.personal_names = personal
             self.config = config
-            if save:
-                try:
-                    self.settings.save(config)
-                except (OSError, ValueError):  # not kept: the store failed, or refused what they hold
-                    if self.identity is not None:  # a server's: the refused settings never run
-                        self._ran_again(ran)
-                    raise
-            if self.exchanges is not None:  # kept: a save that fails leaves the history's retention as it was
-                self.exchanges.retention_days = config.retention_days
-            if self.projects is not None:
-                # Settings weighed as they applied (against those you approved and the repositories seen), and kept as
-                # approved: the ones from before the start are weighed against no longer.
-                self.projects.before = None
-            self._reviewed(config)
-            self.warm_up()
-            if shorter and self.recorder is not None:
-                # Last, once the settings are kept (the save can fail): what is older than the new retention goes now.
-                self.recorder.prune_now()
-            # The Live Reviewer's texts still waiting shown masked with the rules of now, as they will leave
-            self.mediator.live_changed()
+            try:
+                if save:
+                    try:
+                        self.settings.save(config)
+                    except (OSError, ValueError):  # not kept: the store failed, or refused what they hold
+                        if self.identity is not None:  # a server's: the refused settings never run
+                            self._ran_again(ran)
+                        raise
+                if self.exchanges is not None:  # kept: a save that fails leaves the history's retention as it was
+                    self.exchanges.retention_days = config.retention_days
+                if self.projects is not None:
+                    # Settings weighed as they applied (against those you approved and the repositories seen), and kept
+                    # as approved: the ones from before the start are weighed against no longer.
+                    self.projects.before = None
+                self._reviewed(config)
+                self.warm_up()
+                if shorter and self.recorder is not None:
+                    # Last, once the settings are kept (the save can fail): what is older than the new retention goes.
+                    self.recorder.prune_now()
+                # The Live Reviewer's texts still waiting shown masked with the rules of now, as they will leave; the
+                # content epoch renewed with them.
+                self.mediator.live_changed()
+            finally:
+                # Every part of these settings in place (the masker, the image, dump guard and review settings, the
+                # route table, the content epoch), or a save that failed: the rules version moves once more, so that a
+                # request's authority taken while they were applied, from ``engine.use`` to here, is never valid; its
+                # request is prepared again under the whole settings, or refused with the settings-changed words (fix
+                # round of the minors after 0.11, S-M1; after ``live_changed`` since its re-review, so that a request
+                # prepared before the content epoch was renewed is never refused with the coverage words).
+                engine.rules_changed()
             return engine.rules_version
 
     def _ran_again(self, ran: Config) -> None:

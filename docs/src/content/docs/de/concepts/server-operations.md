@@ -493,7 +493,9 @@ Danach, im Hintergrund: Die Fingerabdrücke jedes Tresors, den 0.10 gespeichert 
 Instanz, die seinen Bereich aufbaut, einmal, eine Instanz nach der anderen, und jede Instanz baut
 ihren eigenen Index daraus auf, für den Tresor einer Person wie für den eines API-Schlüssels. Bis
 dahin werden die Anfragen und Aufrufe dieser Identität beantwortet, indem ihre Wörter in PostgreSQL
-gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgewiesen. Eine Instanz, deren
+gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgewiesen. Während eine Instanz die
+Fingerabdrücke eines Tresors bildet, können auch die anderen Identitäten, deren Bereiche sie inzwischen
+aufbaut, über die Suche in PostgreSQL beantwortet werden, bis ihr Index aufgebaut ist. Eine Instanz, deren
 Index nicht aufgebaut werden kann (die Fingerabdrücke noch nicht alle gebildet, PostgreSQL oder
 Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), lässt diese Identität bei der
 Suche in PostgreSQL und baut den Index erneut auf: sofort, wenn das Bilden der Fingerabdrücke einer

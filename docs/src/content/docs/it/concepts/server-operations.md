@@ -476,7 +476,9 @@ Poi, in background: le impronte di ogni cassaforte conservata dalla 0.10 vengono
 prima istanza che ne costruisce lo spazio, una volta, un'istanza alla volta, e ogni istanza costruisce
 il proprio indice delle impronte, per la cassaforte di una persona come per quella di una chiave API.
 Fino ad allora le richieste e le chiamate di quell'identità ricevono risposta cercando le loro parole
-in PostgreSQL, come faceva la 0.10, più lentamente, e nessuna viene rifiutata per questo. Un'istanza
+in PostgreSQL, come faceva la 0.10, più lentamente, e nessuna viene rifiutata per questo. Mentre un'istanza
+calcola le impronte di una cassaforte, anche le altre identità di cui apre lo spazio nel frattempo possono
+ricevere risposta dalla ricerca in PostgreSQL, finché il loro indice non è costruito. Un'istanza
 il cui indice non si può costruire (le impronte non ancora tutte calcolate, PostgreSQL o Valkey che non
 rispondono, un aggiornamento dell'indice fallito) tiene quell'identità sulla ricerca in PostgreSQL e
 costruisce di nuovo l'indice: subito quando finisce il calcolo delle impronte di un'altra istanza,

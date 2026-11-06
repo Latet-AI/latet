@@ -679,6 +679,13 @@ SOURCE_ROWS = [
     ("anthropic", "x-claude-code-agent-type", "teammate", "named", "Bvi()"),
     ("bedrock", "x-claude-code-agent-type", "custom", "named", "Bvi()"),
     ("anthropic", "x-anthropic-additional-protection", "true", "named", "env CLAUDE_CODE_ADDITIONAL_PROTECTION"),
+    # Claude Code's gateway compatibility guide (code.claude.com/docs/en/llm-gateway-protocol, read 2026-11-05): the
+    # hint headers it sends with CLAUDE_CODE_GATEWAY_HINT_HEADERS=1 beside the three above.
+    ("anthropic", "x-claude-code-compaction", "auto", "named", "guide: auto, manual or reactive"),
+    ("anthropic", "x-claude-code-context-compacted", "reactive", "named", "guide: the compaction's values"),
+    ("bedrock", "x-claude-code-compaction", "manual", "named", "guide: Bedrock with the hint headers on"),
+    ("anthropic", "x-claude-code-prev-tool-durations", "Bash=742;Read=9", "removed", "guide: <name>=<ms>;..."),
+    ("bedrock", "x-claude-code-prev-tool-durations", "mcp__acme-payroll__get_salary=12", "removed", "MCP names"),
     ("openai", "x-openai-subagent", "review", "removed", "subagent_header_value(): kinds or Other(label)"),
     ("chatgpt", "x-openai-subagent", "codex-guardian-reviewer", "removed", "SubAgentSource::Other(label)"),
     ("openai", "x-codex-parent-thread-id", "019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a1f", "named", "ThreadId"),
@@ -705,6 +712,8 @@ NAMED_GRAMMARS = [
     ("anthropic", "x-claude-code-request-class", ["main", "auxiliary", "workflow"], ["Main", "a" * 33, "sub agent"]),
     ("anthropic", "x-claude-code-agent-type", ["Explore", "statusline-setup"], ["-x", "a" * 65, "Mario Rossi"]),
     ("anthropic", "x-anthropic-additional-protection", ["true"], ["false", "yes"]),
+    ("anthropic", "x-claude-code-compaction", ["auto", "manual", "reactive"], ["idle", "auto,manual", "Mario Rossi"]),
+    ("bedrock", "x-claude-code-context-compacted", ["auto", "manual", "reactive"], ["true", "yes"]),
     ("openai", "x-codex-parent-thread-id", ["019a4c2e-7d1b-7c3e-9f2a-6b5d4e3c2a1f"], ["019a4c2e", "guardian:x"]),
     ("chatgpt", "x-openai-memgen-request", ["true"], ["false"]),
     (
@@ -733,6 +742,8 @@ def test_each_new_named_header_refuses_free_text_naming_itself(target, header, a
     ("target", "header"),
     [
         ("openai", "x-claude-code-request-class"),  # Claude Code's on the Anthropic and Bedrock families only
+        ("openai", "x-claude-code-compaction"),
+        ("gemini", "x-claude-code-prev-tool-durations"),
         ("gemini", "x-claude-remote-session-id"),
         ("anthropic", "x-codex-routing-hint"),  # Codex's on the OpenAI and ChatGPT families only
         ("gemini", "x-openai-subagent"),
@@ -754,7 +765,8 @@ CODEX_SUBAGENT_NAMES = [
 CLAUDE_HINT_NAMES = [
     "accept", "content-type", "user-agent", "x-claude-code-session-id", "anthropic-version", "x-api-key", "x-app",
     "x-claude-code-agent-id", "x-claude-code-request-class", "x-claude-code-agent-type", "x-claude-code-prompt-id",
-    "x-claude-remote-session-id", "x-client-app", "x-anthropic-additional-protection",
+    "x-claude-remote-session-id", "x-client-app", "x-anthropic-additional-protection", "x-claude-code-compaction",
+    "x-claude-code-context-compacted", "x-claude-code-prev-tool-durations",
 ]  # fmt: skip
 
 
@@ -762,7 +774,16 @@ CLAUDE_HINT_NAMES = [
     ("target", "names", "removed"),
     [
         ("chatgpt", CODEX_SUBAGENT_NAMES, {"x-codex-turn-metadata", "x-openai-subagent"}),
-        ("anthropic", CLAUDE_HINT_NAMES, {"x-claude-code-agent-id", "x-claude-remote-session-id", "x-client-app"}),
+        (
+            "anthropic",
+            CLAUDE_HINT_NAMES,
+            {
+                "x-claude-code-agent-id",
+                "x-claude-remote-session-id",
+                "x-client-app",
+                "x-claude-code-prev-tool-durations",
+            },
+        ),
     ],
 )
 def test_source_shaped_agent_calls_pass_with_only_their_free_text_headers_removed(target, names, removed):

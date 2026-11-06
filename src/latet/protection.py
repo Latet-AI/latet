@@ -864,11 +864,12 @@ def stamp_exceptions(base: Config, approved: Config, now: datetime, revision: st
 
 
 def _earlier(was: Any, row: Any) -> bool:
-    """``row`` the same approval as ``was``, its time moved earlier and nothing else of Latet's changed: it ends sooner,
-    which applies at once."""
+    """``row`` the same approval as ``was``, its time moved earlier and nothing else of Latet's changed, who approved it
+    included (minors after 0.11, item 8: a relabelled approval waits again): it ends sooner, which applies at once."""
     return (
         was.revision == row.revision
         and was.body_revision == row.body_revision
+        and was.issuer == row.issuer
         and was.granted is not None
         and row.granted is not None
         and (row.granted < was.granted)

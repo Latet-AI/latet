@@ -86,6 +86,27 @@ describe('a request stopped', () => {
     }
   })
 
+  test('because its settings changed while it was prepared, says so, never a fault of coverage', async () => {
+    // The 0.11.1 fix round's Q-M1: its own code, never proof-incomplete's "could not be read as its protocol says".
+    expect(refusalCategory('settings-changed')).toBe('settings')
+    expect(remedyFor(refusalCategory('settings-changed'))).toBe('again')
+    try {
+      for (const lang of ['en', 'it', 'de', 'fr', 'es']) {
+        await i18n.changeLanguage(lang)
+        const shown = text(render(summary({ flags: ['blocked'], block_reason: 'settings-changed', overhead_ms: null })))
+        expect(shown).toContain(say('coverage.refusal.settings'))
+        expect(shown).toContain(say('coverage.remedy.again'))
+        expect(shown).not.toContain(say('coverage.refusal.parse'))
+        if (lang !== 'en') {
+          expect(i18n.t('coverage.refusal.settings')).not.toBe(i18n.getFixedT('en')('coverage.refusal.settings'))
+          expect(i18n.t('coverage.remedy.again')).not.toBe(i18n.getFixedT('en')('coverage.remedy.again'))
+        }
+      }
+    } finally {
+      await i18n.changeLanguage('en')
+    }
+  })
+
   test('offers an exact exception only for a header or a query parameter no profile names', () => {
     for (const code of ['envelope-header-unknown', 'envelope-query-unknown']) {
       expect(remedyFor(refusalCategory(code))).toBe('exception')

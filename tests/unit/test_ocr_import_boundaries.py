@@ -8,18 +8,40 @@ from pathlib import Path
 import pytest
 
 SOURCE = Path(__file__).resolve().parents[2] / "src"
+# What the child's own end decides is the test's verdict: its interpreter is the base one (a venv's launcher can take
+# seconds to start on a loaded Windows), the venv's packages added by the child itself, and the only bound is a hang's.
+# -S keeps the base interpreter's own site-packages out of its path, so those it holds never come before the venv's.
+# A child importing the application under a loaded suite took past the 20 s this bound was, and failed a test whose
+# checks it passed (minors after 0.11, item 19).
+HUNG = 600
+_PACKAGES = [folder for folder in sys.path if folder.endswith("site-packages")]
+_WITH_PACKAGES = f"import site\nfor _folder in {_PACKAGES!r}:\n    site.addsitedir(_folder)\n"
+# Which packages the child ran (the fix round's Q-M4): latet from this checkout's src, and every module of a
+# site-packages folder from the venv's, never one the base interpreter holds (anyio, click, httpx... on this computer).
+_WHICH = f"""
+import sys as _sys
+import latet as _latet
+assert _latet.__file__.startswith({str(SOURCE)!r}), _latet.__file__
+_foreign = sorted(
+    _name for _name, _module in list(_sys.modules.items())
+    if "site-packages" in (getattr(_module, "__file__", None) or "")
+    and not any(_module.__file__.startswith(_folder) for _folder in {_PACKAGES!r})
+)
+assert not _foreign, ("modules not from the venv", _foreign[:8])
+"""
 
 
 def _child(script, tmp_path):
     # The coordinator's runner supplies isolated homes, external TEMP, offline
     # dependencies and an inherited Windows process/job memory limit.
+    base = getattr(sys, "_base_executable", sys.executable)
     answer = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", script, str(SOURCE)],
+        [base, "-I", "-S", "-B", "-c", _WITH_PACKAGES + script + _WHICH, str(SOURCE)],
         cwd=tmp_path,
         env=os.environ.copy(),
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=HUNG,
         check=False,
     )
     assert answer.returncode == 0, answer.stdout + answer.stderr

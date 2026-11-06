@@ -661,3 +661,76 @@ def test_response_state_allocation_error_refunds_precharge(monkeypatch):
     assert mediator.echoes._reserved == 0 and rewriter._target is None
     rewriter.close()
     mediator.close()
+
+
+# --- a gateway with no request protection (minors after 0.11, item 12) ------------------------------------------------
+
+
+async def test_a_websocket_with_no_request_protection_is_closed_saying_so():
+    """A gateway with no mediator (the characterization's passthrough cell: 0.11 removed `--passthrough`, and every
+    runtime has one) sends nothing; its WebSocket is closed with the words the same request over HTTP gets, "request
+    protection is unavailable", never the generic "could not open this connection as it was decided"."""
+    async with socket_case(mediator=None) as case:
+        [closed] = case.client.sent
+        assert not case.handshakes and not case.sent  # nothing connected, nothing sent
+    assert closed["type"] == "websocket.close" and closed["code"] == 1008
+    assert closed["reason"] == "latet: request protection is unavailable: nothing was sent"
+
+
+# --- a handshake its provider answers without a socket (minors after 0.11, item 4) -------------------------------------
+
+
+class _Kept:
+    """A recorder that keeps what it is handed (``finish``)."""
+
+    enabled = True
+
+    def __init__(self) -> None:
+        self.finished: list[Any] = []
+
+    def finish(self, outcome: Any) -> None:
+        self.finished.append(outcome)
+
+
+@pytest.mark.parametrize("answer", ["refused", "redirect", "unreachable"])
+async def test_a_websocket_the_provider_refuses_redirects_or_cannot_be_reached_for_is_recorded_as_over_http(answer):
+    """Codex's WebSocket with a key its provider no longer takes is answered 401, one the provider redirects 502 (Latet
+    follows no redirect), one whose provider cannot be reached closed 1011. Each is in the history, as the same answer
+    over HTTP is: its status as its client got it, its route template and profile, never a header; before, none left a
+    record."""
+    import socket
+    from http import HTTPStatus
+
+    def process_request(connection, request):
+        if answer == "refused":
+            return connection.respond(HTTPStatus.UNAUTHORIZED, "no such key\n")
+        moved = connection.respond(HTTPStatus.FOUND, "elsewhere\n")
+        moved.headers["Location"] = "http://127.0.0.1:1/elsewhere"
+        return moved
+
+    async def handler(connection):
+        await connection.wait_closed()
+
+    mediator = _mediator()
+    recorder = _Kept()
+    try:
+        async with serve(handler, "127.0.0.1", 0, process_request=process_request) as server:
+            port = server.sockets[0].getsockname()[1]
+            if answer == "unreachable":
+                with socket.socket() as spare:  # a port nothing listens on once it is let go
+                    spare.bind(("127.0.0.1", 0))
+                    port = spare.getsockname()[1]
+            client = _Client()
+            client.socket.scope["extensions"] = {"websocket.http.response": {}}
+            route = Upstream(
+                "relay", "/relay", f"http://127.0.0.1:{port}", envelope_expected=frozenset({("model", "m")})
+            )
+            relayed = ws.relay(client.socket, RouteTable([route]), Capture(None), mediator, recorder=recorder)  # type: ignore[arg-type]
+            await asyncio.wait_for(relayed, 5)
+    finally:
+        mediator.close()
+    [record] = recorder.finished
+    expected = {"refused": (401, None), "redirect": (502, "redirect"), "unreachable": (502, "upstream-unreachable")}
+    assert (record.status, record.error) == expected[answer]
+    assert record.transport == "ws" and record.path == "/{destination}/v1/responses" and record.profile is not None
+    assert record.request_headers == [] and record.block_code is None

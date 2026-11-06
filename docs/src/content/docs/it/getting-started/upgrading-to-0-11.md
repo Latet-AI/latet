@@ -114,7 +114,7 @@ inviate:
 | Dove | Intestazioni |
 | --- | --- |
 | Ogni richiesta: telemetria e tracing degli SDK | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, nel formato di Anthropic (Anthropic, Bedrock, Vertex, un gateway aziendale) | `x-claude-code-agent-id` e `x-claude-code-parent-agent-id`, gli id di un subagente, che possono contenerne il nome; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` e `x-client-app`, che Claude Code copia dal suo ambiente |
+| Claude Code, nel formato di Anthropic (Anthropic, Bedrock, Vertex, un gateway aziendale) | `x-claude-code-agent-id` e `x-claude-code-parent-agent-id`, gli id di un subagente, che possono contenerne il nome; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` e `x-client-app`, che Claude Code copia dal suo ambiente; `x-claude-code-prev-tool-durations`, un suggerimento per i gateway che nomina gli strumenti eseguiti (tra cui i nomi propri di un server MCP) |
 | Bedrock: l'SDK di AWS | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: la libreria client di Google | `x-goog-api-client` |
 | Codex, nel formato di OpenAI e in quello di ChatGPT | `x-codex-turn-metadata`, che contiene il percorso, i remote e il commit del tuo repository; `x-openai-subagent`, il tipo o un'etichetta libera di un subagente |
@@ -359,7 +359,8 @@ La 0.10 non si avvia se è in `config.yaml`, e legge un `config.reviewed.json` c
 non ci fossero impostazioni approvate: una modifica a `config.yaml` si applicherebbe allora senza
 attendere la tua approvazione. Se ne hai scelto uno, rimetti la copia che l'aggiornamento alla 0.11 ha
 fatto, che contiene i due file com'erano prima: `latet upgrade --to` la propone mentre torna indietro
-(si trova nella cartella dei dati, in `backups/before-0.11.0-<ora>`). Senza quella copia (la 0.11
+(si trova nella cartella dei dati, in `backups/before-<versione>-<ora>`, dal nome della versione
+installata, per esempio `before-0.11.1-…`). Senza quella copia (la 0.11
 installata con l'installer, che non ne fa), togli la chiave da entrambi i file prima di tornare
 indietro: le righe `request_profile:` da `config.yaml`, e ogni membro `"request_profile": "…"` da
 `config.reviewed.json`, lasciandolo un JSON valido.

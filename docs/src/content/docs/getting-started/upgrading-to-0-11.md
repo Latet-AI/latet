@@ -105,7 +105,7 @@ Latet takes these headers off a request before it sends it, whichever agent sent
 | Where | Headers |
 | --- | --- |
 | Every request: the SDKs' telemetry and tracing | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, in Anthropic's format (Anthropic, Bedrock, Vertex, a company gateway) | `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`, a subagent's ids, which can carry its name; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` and `x-client-app`, which Claude Code copies from its environment |
+| Claude Code, in Anthropic's format (Anthropic, Bedrock, Vertex, a company gateway) | `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`, a subagent's ids, which can carry its name; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` and `x-client-app`, which Claude Code copies from its environment; `x-claude-code-prev-tool-durations`, a gateway hint that names the tools that ran (an MCP server's own names among them) |
 | Bedrock: the AWS SDK | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: Google's client library | `x-goog-api-client` |
 | Codex, in OpenAI's format and ChatGPT's | `x-codex-turn-metadata`, which holds your repository's path, remotes and commit; `x-openai-subagent`, a subagent's kind or free label |
@@ -344,7 +344,8 @@ with it in `config.yaml`, and reads a `config.reviewed.json` that holds it as no
 all: a change to `config.yaml` would then apply without waiting for your approval. If you chose one,
 put back the copy the upgrade to 0.11 took, which holds both files as they were before it:
 `latet upgrade --to` offers it as it goes back (it is in the data folder, in
-`backups/before-0.11.0-<time>`). Without that copy (0.11 installed by the installer, which takes
+`backups/before-<version>-<time>`, named after the version installed, for example
+`before-0.11.1-…`). Without that copy (0.11 installed by the installer, which takes
 none), take the key out of both files before you go back: the `request_profile:` lines in
 `config.yaml`, and each `"request_profile": "…"` member in `config.reviewed.json`, keeping it valid
 JSON.

@@ -489,14 +489,51 @@ class PgSettings(OwnSettings):
         raise refused
 
 
-def index_exceptions(conn: Connection[Any], identity_id: str, config: Config, *, permanent_allowed: bool) -> None:
+def index_owner(identity_id: str) -> str:
+    """Whose row of ``change_counters`` keeps the settings count the identity's index of request exceptions was last
+    written at (``index_exceptions``): a build that read older settings leaves an index written after them."""
+    return f"{identity_id}:exception-index"
+
+
+# The count an index was written at, never moved back (two writers take their turn under the index's lock).
+_INDEX_WRITTEN = (
+    "INSERT INTO change_counters (owner, counter) VALUES (%s, %s)"
+    " ON CONFLICT (owner) DO UPDATE SET counter = GREATEST(change_counters.counter, EXCLUDED.counter)"
+)
+
+
+def index_exceptions(
+    conn: Connection[Any], identity_id: str, config: Config, *, permanent_allowed: bool, read_at: int | None = None
+) -> None:
     """The identity's index of its approved request exceptions (root's ruling on F-3), replaced whole on ``conn``: in
     the transaction that keeps its approved settings, and as its space is built. Latet's id, the scope's category,
     whether it is permanent, its end and its state (``in-force``; ``suspended``: approved under a request profile this
     version revised, R-100; ``forbidden``: permanent where the edition allows none); never more. One revoked is gone
-    from it at once; one past its end is never listed (``listed_exceptions``)."""
+    from it at once; one past its end is never listed (``listed_exceptions``).
+
+    One writer at a time for an identity (an advisory lock held to the transaction's end), and only when its rows
+    differ from what is there: several workers or instances building one space at once write it once, never meeting
+    on its key (minors after 0.11, item 5; Task 13's M-7). ``read_at``: the settings count ``config`` was read at (a
+    space's build): an index written since at a later count (an approval's, in its own transaction) stands. What
+    count the index was last written at is kept beside the counts (``index_owner``): a save of the settings' own part
+    moves their count and writes no index, so the count alone never says that the index was written (fix round S-M2)."""
     from latet.gateway.request_policy import carried
 
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('latet-exception-index:' || current_schema() || ':' || %s, 0))",
+        (identity_id,),
+    )
+    if read_at is None:  # with the approved settings, in their transaction: the count it just took
+        found = conn.execute("SELECT counter FROM change_counters WHERE owner = %s", (settings_owner(identity_id),))
+        counted = found.fetchone()
+        written = int(counted[0]) if counted is not None else 0
+    else:
+        found = conn.execute("SELECT counter FROM change_counters WHERE owner = %s", (index_owner(identity_id),))
+        last = found.fetchone()
+        if last is not None and int(last[0]) > read_at:
+            return
+        written = read_at
+    conn.execute(_INDEX_WRITTEN, (index_owner(identity_id), written))
     rows = []
     for row in config.request_exceptions:
         if not row.approved:
@@ -506,6 +543,12 @@ def index_exceptions(conn: Connection[Any], identity_id: str, config: Config, *,
         )
         scope = "project" if row.project is not None else "identity"
         rows.append((identity_id, row.id, scope, row.permanent, row.expires(), state))
+    there = conn.execute(
+        "SELECT identity, exception, scope, permanent, expires, state FROM request_exception_index WHERE identity = %s",
+        (identity_id,),
+    ).fetchall()
+    if len(there) == len(rows) and {tuple(row) for row in there} == set(rows):
+        return  # as it is already: nothing written
     conn.execute("DELETE FROM request_exception_index WHERE identity = %s", (identity_id,))
     for found in rows:
         conn.execute(

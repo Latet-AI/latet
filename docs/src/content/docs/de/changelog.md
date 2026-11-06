@@ -17,6 +17,43 @@ Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehn
 Auto-Modus, ein signiertes Installationsprogramm für Windows, eigene Namensmodelle, weitere Agenten
 und die Dokumentation in weiteren Sprachen.
 
+## 0.11.1 (2026-11-06)
+
+- **Die Hinweis-Header von Claude Code.** Ist Claude Code so eingestellt, dass es seine Hinweis-Header
+  für Gateways sendet (`CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`), wird es nach einer Kompaktierung oder
+  einem Werkzeugaufruf nicht mehr abgelehnt: `x-claude-code-compaction` und
+  `x-claude-code-context-compacted` gehen durch, auf ihre drei Werte beschränkt, und
+  `x-claude-code-prev-tool-durations`, der die ausgeführten Werkzeuge nennt, wird entfernt und
+  gezählt, wie die IDs seiner Subagenten.
+- **Eine Anfrage, während sich die Einstellungen ändern.** Eine Anfrage, die vorbereitet wurde,
+  während ihre Einstellungen erneut angewendet wurden (ein Speichern, oder auf einem Server eine
+  gemeinsame Änderung), wird unter den neuen erneut vorbereitet, wie Latet es schon tat, wenn sich
+  nur die Regeln änderten, statt mit *could not account for every part of this request* abgelehnt zu
+  werden. Eine Anfrage, deren Route sich inzwischen geändert hat oder deren Einstellungen sich
+  geändert haben, nachdem sie vorbereitet wurde, wird weiterhin nicht gesendet, und ihr Agent
+  erfährt, dass sich die Einstellungen geändert haben und sie erneut zu senden ist; der Verlauf, das
+  Log und das Dashboard sagen dasselbe, mit einem eigenen Grund.
+- **Eine vollständig gestreamte Antwort wird vollständig aufgezeichnet.** Eine gestreamte Antwort, die
+  ihren Client vollständig erreicht hat, wird vollständig aufgezeichnet, auch wenn der Client die
+  Verbindung gleich danach schließt, wie es bei einem WebSocket-Turn schon war; vorher zeigte der
+  Verlauf sie als Fehler, ohne ihren Text.
+- **Ein WebSocket, den der Anbieter ablehnt, steht im Verlauf.** Ein WebSocket, dessen Handshake der
+  Anbieter ablehnt (`401`, `403`) oder umleitet, oder dessen Anbieter nicht erreichbar ist, wird im
+  Verlauf aufgezeichnet wie dieselbe Antwort über HTTP; vorher hinterließ er keinen Eintrag.
+- **Der Index der Anfrage-Ausnahmen auf dem Server.** Ein Bereich, der auf mehreren Workern oder
+  Instanzen zugleich aufgebaut wird, schreibt den Index der Anfrage-Ausnahmen der Identität nicht mehr
+  jedes Mal neu: Er wird nur geschrieben, wenn er sich geändert hat, von einem nach dem anderen, sodass
+  das Log nicht mehr warnt, er sei nicht geschrieben worden, und `latet server status` nie eine
+  inzwischen widerrufene Ausnahme auflistet.
+- **Eine Route, die zwischen zwei AWS-Versuchen wegfällt.** Wird eine Bedrock-Route zwischen den
+  zwei AWS-Versuchen einer Anfrage entfernt (der erste wurde mit einem abgelaufenen Token
+  beantwortet), erfährt der Agent, dass kein weiterer Versuch gesendet wurde und der erste
+  angekommen sein kann, statt nur *no upstream for this path*.
+- **Wer eine Anfrage-Ausnahme genehmigt hat.** Eine genehmigte Ausnahme, deren `issuer` (wer sie
+  genehmigt hat) von Hand geändert wurde, wartet erneut auf Genehmigung, auch wenn ihre
+  Genehmigungszeit zudem vorverlegt wurde; vorher hielt diese frühere Zeit sie mit dem neuen
+  `issuer` in Kraft.
+
 ## 0.11.0 (2026-11-05)
 
 Latet 0.11.0 blockiert Anfragen standardmäßig, wenn ein Teil des Pfads, der Abfrageparameter, der

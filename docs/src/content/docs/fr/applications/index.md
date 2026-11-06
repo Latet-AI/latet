@@ -415,7 +415,9 @@ comme le faisait la 0.10, et calcule les empreintes du coffre-fort en arrière-p
 fois ; chaque instance construit ensuite son propre index de ces empreintes et s'en sert. Jusque-là, les appels
 de la clé masquent les mêmes valeurs, plus lentement ([à quelle vitesse](#à-quelle-vitesse) : 494 lignes par
 seconde à 200 000 valeurs empreintes désactivées, lors d'une mesure antérieure), et aucun n'est refusé pour
-autant. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
+autant. Pendant qu'une instance calcule les empreintes d'un coffre-fort, les autres clés et personnes dont
+elle ouvre l'espace entre-temps peuvent elles aussi être servies par la recherche dans PostgreSQL, jusqu'à ce
+que leur index soit construit. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
 (PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué), les appels restent sur la
 recherche dans PostgreSQL jusqu'à ce que l'index soit construit de nouveau : aussitôt quand une autre instance a
 calculé les empreintes, sinon 10, 20 et 30 secondes après chaque essai puis une fois par minute. Le journal dit

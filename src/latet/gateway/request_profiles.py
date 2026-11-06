@@ -240,6 +240,13 @@ _CLAUDE_CODE_ENVIRONMENT = (
     "x-claude-remote-session-origin",
     "x-client-app",
 )
+# Claude Code's gateway hint headers (its gateway compatibility guide, code.claude.com/docs/en/llm-gateway-protocol,
+# read 2026-11-05): x-claude-code-prev-tool-durations names the tools whose results a request carries,
+# "<name>=<ms>;...", an MCP server's and tool's own names among them, which a user chooses; a hint the guide says a
+# gateway need not forward, so removed.
+_CLAUDE_CODE_TOOL_NAMES = ("x-claude-code-prev-tool-durations",)
+# Its compaction hints: what triggered a compaction (the guide's three values).
+_COMPACTIONS = frozenset({"auto", "manual", "reactive"})
 # Codex c1382380: x-openai-subagent is a subagent's kind or SubAgentSource::Other's free label (responses_metadata.rs:
 # 458-475), so removed.
 _CODEX_FREE = ("x-openai-subagent",)
@@ -249,9 +256,12 @@ _TURN_STATE = re.compile(r"[A-Za-z0-9_.=-]{1,1024}")
 FAMILY_REMOVABLE = {
     # Claude Code 2.1.316 on a subagent's calls: observed as "a" and 16 lowercase hex digits, but its id function
     # makes f"a{label}-{hex}" given a label, taken from an agent name hint ([\w-]{1,63}): free text, so removed.
-    "anthropic": ((), (*_CLAUDE_CODE_AGENT_IDS, *_CLAUDE_CODE_ENVIRONMENT)),
+    "anthropic": ((), (*_CLAUDE_CODE_AGENT_IDS, *_CLAUDE_CODE_ENVIRONMENT, *_CLAUDE_CODE_TOOL_NAMES)),
     # AWS SDK for JavaScript v3 client telemetry and retry metadata (Claude Code's Bedrock control-plane reads).
-    "bedrock": (("amz-sdk-",), ("x-amz-user-agent", *_CLAUDE_CODE_AGENT_IDS, *_CLAUDE_CODE_ENVIRONMENT)),
+    "bedrock": (
+        ("amz-sdk-",),
+        ("x-amz-user-agent", *_CLAUDE_CODE_AGENT_IDS, *_CLAUDE_CODE_ENVIRONMENT, *_CLAUDE_CODE_TOOL_NAMES),
+    ),
     # Google client library telemetry (google-genai-sdk/<v> gl-python/<v>, gl-node/<v>).
     "gemini": ((), ("x-goog-api-client",)),
     # Codex c1382380 responses_metadata.rs:377-405: a compatibility copy of the body's client_metadata, holding the
@@ -751,6 +761,9 @@ def _header(upstream: Upstream, profile: Profile, name: str, value: str) -> str:
             "x-app": {"cli", "cli-bg"},
             # Claude Code 2.1.316, when CLAUDE_CODE_ADDITIONAL_PROTECTION is set.
             "x-anthropic-additional-protection": {"true"},
+            # Claude Code's gateway hint headers on a compaction and on the request after it (its guide).
+            "x-claude-code-compaction": set(_COMPACTIONS),
+            "x-claude-code-context-compacted": set(_COMPACTIONS),
         }
         if name == "anthropic-beta":
             if not _tokens(value, _BETA, _BETAS, spaces=True):

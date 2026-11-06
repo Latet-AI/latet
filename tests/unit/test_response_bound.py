@@ -7,10 +7,12 @@ import asyncio
 import gzip
 import json
 import os
+import re
 import threading
 import time
 import tracemalloc
 import zlib
+from typing import Any
 
 import brotli
 import httpx
@@ -230,14 +232,132 @@ def test_what_follows_a_gzip_member_and_is_no_member_is_refused_never_dropped():
         StreamDecoder("gzip").feed(gzip.compress(b'{"text": "done"}') + b"trailing words")
 
 
-def test_a_piece_of_many_small_events_is_parsed_in_time_in_proportion_to_it():
+_SHIPPED_END = sse_module._EVENT_END
+
+
+class _Searched:
+    """``sse._EVENT_END`` read through: how many bytes its searches went through, counted."""
+
+    def __init__(self) -> None:
+        self.read = 0
+        self.searches = 0
+
+    def search(self, buffer: bytearray, at: int) -> re.Match[bytes] | None:
+        found = _SHIPPED_END.search(buffer, at)
+        self.searches += 1
+        self.read += (found.end() if found is not None else len(buffer)) - at
+        return found
+
+
+@pytest.mark.parametrize("parser", ["shipped", "from-the-start"])
+def test_a_piece_of_many_small_events_is_parsed_in_one_pass(monkeypatch, parser):
     """Each event's end is looked for once: a piece of tens of thousands of tiny events (the dashboard's capture is
-    handed a whole chunk, decoded) took time in proportion to its square (4 MiB: 33 s)."""
+    handed a whole chunk, decoded) took time in proportion to its square (4 MiB: 33 s). Counted, never timed (minors
+    after 0.11, item 21: 2 MiB took 1.07 s on a shared CI runner against a 1 s bound): the bytes the search for an
+    event's end reads are at most the piece and the three a boundary looks back. ``from-the-start``: a parser that
+    looks for each end from the buffer's start is caught by the count."""
     event = b'data: {"choices":[{"index":0,"delta":{"content":"a"}}]}\n\n'
-    piece = event * (2 * 2**20 // len(event))
-    started = time.perf_counter()
+    piece = event * ((2 * 2**20 if parser == "shipped" else 2**16) // len(event))
+    searched = _Searched()
+    monkeypatch.setattr(sse_module, "_EVENT_END", searched)
+    if parser == "from-the-start":
+
+        def from_the_start(self: SSEParser, start: int) -> tuple[int, bytes]:
+            at = 0
+            while (found := sse_module._EVENT_END.search(self._buf, at)) is not None:
+                if found.start() >= start:
+                    return found.start(), found.group()
+                at = found.end()
+            self._seen = len(self._buf)
+            return -1, b""
+
+        monkeypatch.setattr(SSEParser, "_boundary", from_the_start)
     events = SSEParser().feed(piece)
-    assert len(events) == len(piece) // len(event) and time.perf_counter() - started < 1.0
+    within = searched.read <= len(piece) + 3 * searched.searches
+    if parser == "shipped":
+        assert len(events) == len(piece) // len(event) and within, (searched.read, len(piece))
+    else:
+        assert not within, (searched.read, len(piece))
+
+
+class _Copies:
+    """What a parser's buffer copied out of itself and how often it was trimmed, counted."""
+
+    def __init__(self) -> None:
+        self.copied = 0  # bytes copied out of the buffer: a slice of it, or its bytes
+        self.trims = 0
+
+
+class _Buffer(bytearray):
+    """A parser's buffer whose copies and trims are counted in ``copies``; a slice of it is one too, and counts its own."""
+
+    copies: _Copies
+
+    def __getitem__(self, at: Any) -> Any:
+        got = super().__getitem__(at)
+        if not isinstance(at, slice):
+            return got
+        self.copies.copied += len(got)
+        sliced = _Buffer(got)
+        sliced.copies = self.copies
+        return sliced
+
+    def __bytes__(self) -> bytes:
+        self.copies.copied += len(self)
+        return bytes(memoryview(self))
+
+    def __delitem__(self, at: Any) -> None:
+        super().__delitem__(at)
+        self.copies.trims += 1
+
+
+def _trimmed_at_each_event(self: SSEParser, chunk: bytes) -> list[sse_module.SSEEvent]:
+    """A parser that trims its buffer after each event: what follows the event is moved each time, on an interpreter
+    that moves a cut's rest."""
+    self._buf += chunk
+    events = []
+    while (found := sse_module._EVENT_END.search(self._buf)) is not None:
+        events.append(sse_module._parse(bytes(self._buf[: found.end()]), b"\n"))
+        del self._buf[: found.end()]
+    return events
+
+
+def _rest_copied_at_each_event(self: SSEParser, chunk: bytes) -> list[sse_module.SSEEvent]:
+    """A parser that keeps, after each event, a copy of what follows it: the stream's square in bytes copied."""
+    self._buf += chunk
+    events = []
+    while (found := sse_module._EVENT_END.search(self._buf)) is not None:
+        events.append(sse_module._parse(bytes(self._buf[: found.end()]), b"\n"))
+        self._buf = self._buf[found.end() :]
+    return events
+
+
+@pytest.mark.parametrize("cut", ["whole", "pieces"])
+@pytest.mark.parametrize("parser", ["shipped", "trimmed-at-each-event", "rest-copied-at-each-event"])
+def test_a_piece_of_many_small_events_is_trimmed_once_and_each_event_copied_once(monkeypatch, parser, cut):
+    """The search is not the only work a piece of many events could take in proportion to its square (the fix round's
+    Q-M5): a trim of the buffer at each event, or a copy of what follows each event, would too. Counted, never timed:
+    the buffer is trimmed once per feed however many events the feed ends, and each event's bytes are copied at most
+    twice (its slice, and the slice's bytes), handed whole or in pieces cut inside events. The two twins are caught by
+    the same counts."""
+    event = b'data: {"choices":[{"index":0,"delta":{"content":"a"}}]}\n\n'
+    stream = event * ((2 * 2**20 if parser == "shipped" else 2**16) // len(event))
+    twins = {"trimmed-at-each-event": _trimmed_at_each_event, "rest-copied-at-each-event": _rest_copied_at_each_event}
+    if parser in twins:
+        monkeypatch.setattr(SSEParser, "feed", twins[parser])
+    reader = SSEParser()
+    copies = _Copies()
+    reader._buf = _Buffer()
+    reader._buf.copies = copies
+    size = len(stream) if cut == "whole" else 4096 + 7
+    feeds = range(0, len(stream), size)
+    events = [found for at in feeds for found in reader.feed(stream[at : at + size])]
+    assert b"".join(found.raw for found in events) == stream
+    within = copies.trims <= len(feeds) and copies.copied <= 2 * len(stream)
+    if parser == "shipped":
+        assert within, (copies.trims, len(feeds), copies.copied, len(stream))
+    else:
+        assert not within, (copies.trims, len(feeds), copies.copied, len(stream))
 
 
 def test_the_dashboards_capture_keeps_what_it_is_handed_and_reads_it_in_the_recorders_thread():
