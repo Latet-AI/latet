@@ -11,6 +11,37 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.11.1 (2026-11-06)
+
+- **Claude Code's hint headers.** Set to send its gateway hint headers
+  (`CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`), Claude Code is no longer refused after a compaction or a
+  tool call: `x-claude-code-compaction` and `x-claude-code-context-compacted` pass, held to their
+  three values, and `x-claude-code-prev-tool-durations`, which names the tools that ran, is taken off
+  and counted, as its subagent ids are.
+- **A request sent while the settings change.** A request prepared while its settings were applied
+  again (a save, or on a server a shared change) is prepared again under the new ones, as Latet
+  already did when only the rules moved, instead of being refused with *could not account for every
+  part of this request*. One whose route changed meanwhile, or whose settings changed after it was
+  prepared, is still not sent, and its agent is told that the settings changed and to send it
+  again; the history, the log and the dashboard say the same, under a reason of its own.
+- **An answer streamed whole is recorded whole.** A streamed answer that reached its client whole is
+  recorded whole even when the client closes the connection right after it, as a WebSocket turn
+  already was; before, the history showed it as an error, its text left out.
+- **A WebSocket the provider refuses is in the history.** A WebSocket whose handshake the provider
+  refuses (`401`, `403`) or redirects, or whose provider cannot be reached, is recorded in the history
+  as the same answer over HTTP is; before, it left no record.
+- **The server's index of request exceptions.** A space built on several workers or instances at
+  once no longer rewrites the index of the identity's request exceptions each time: it is written only
+  when it changed, by one at a time, so the log no longer warns that it was not written, and `latet
+  server status` never lists an exception revoked meanwhile.
+- **A route gone between two AWS attempts.** When a Bedrock route is removed between AWS's two
+  attempts of a request (the first answered with an expired token), the agent is told that no
+  further attempt was sent and that the first may have arrived, instead of *no upstream for this
+  path* alone.
+- **Who approved a request exception.** An approved exception whose `issuer` (who approved it) was
+  changed by hand waits for approval again, even when its approval time was also moved earlier;
+  before, that earlier time kept it in force with the new `issuer`.
+
 ## 0.11.0 (2026-11-05)
 
 Latet 0.11.0 blocks requests by default when a part of the path, query, headers or body is neither

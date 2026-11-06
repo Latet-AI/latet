@@ -47,7 +47,7 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
 from latet.bridge.api import Bridge
-from latet.config import Config, Destination, IdentityConfig, LiveReview, LlmReview, Profile
+from latet.config import Config, Destination, IdentityConfig, LiveReview, LlmReview, Profile, RequestResource
 from latet.engine.pipeline import Scope
 from latet.gateway import forward
 from latet.gateway.approvals import Decision
@@ -873,6 +873,16 @@ def _parts(ws: RecordingWSUpstream) -> tuple[Provider, RecordingTransport, Clien
     return provider, transport, Clients(transport), RenewClock()
 
 
+# The owner-listed Vertex project of every cell (minors after 0.11, item 13): a computer's settings list it, a server's
+# API key holds it among its own settings, as the administration's save keeps them; the read path's rows name it.
+VERTEX_PROJECT = {
+    "destination": "vertex",
+    "url": "https://us-east5-aiplatform.googleapis.com",
+    "role": "project",
+    "value": "rc-project",
+}
+
+
 def computer_config(ws_url: str) -> Config:
     """A computer's settings for the cases: the balanced profile, no name model, no local identity (whose user and host
     names are the machine's), and a destination ``llm`` at the recording WebSocket upstream."""
@@ -881,6 +891,7 @@ def computer_config(ws_url: str) -> Config:
         ner="off",
         identity=IdentityConfig(enabled=False),
         upstreams=[Destination(name="llm", url=ws_url)],
+        request_resources=[RequestResource.model_validate(VERTEX_PROJECT)],
     )
 
 
@@ -974,6 +985,7 @@ async def server_cell(servers: Sequence[Any], ws: RecordingWSUpstream) -> AsyncI
     from latet.gateway import app as gateway_app
     from latet.server import spaces
     from latet.server.app import create_server_app
+    from latet.server.space_settings import PgSettings
     from latet.server.tokens import route_key
 
     from .server.support import listening
@@ -995,6 +1007,12 @@ async def server_cell(servers: Sequence[Any], ws: RecordingWSUpstream) -> AsyncI
         made = getattr(first, "_rc_cells", 0) + 1
         first._rc_cells = made  # each cell an identity of its own: its vault and its conversations start empty
         identity, secret = first.identities.add_key(f"Request coverage {made}")
+        own = PgSettings(first.db, first.shared, identity.id, SEEDED_ROOT_KEY, kind="key")
+        listed = own.prepare(
+            own.load().model_copy(update={"request_resources": [RequestResource.model_validate(VERTEX_PROJECT)]})
+        )
+        own.save(listed)
+        own.save_reviewed(listed)  # the key's own settings, as the administration's save keeps them
         async with listening(*servers):
 
             async def runtime_of() -> Any:
@@ -1221,6 +1239,13 @@ def bedrock(text: str) -> bytes:
     ).encode()
 
 
+def vertex(text: str, *, stream: bool = False) -> bytes:
+    """A Claude call over Vertex, as Claude Code makes it (``anthropic_version`` Vertex's)."""
+    body: dict[str, Any] = {"anthropic_version": "vertex-2023-10-16", "max_tokens": 10}
+    body |= {"messages": [{"role": "user", "content": text}]} | ({"stream": True} if stream else {})
+    return json.dumps(body).encode()
+
+
 def gemini(text: str) -> bytes:
     return json.dumps({"contents": [{"role": "user", "parts": [{"text": text}]}]}).encode()
 
@@ -1432,6 +1457,28 @@ def _table(inputs: Inputs) -> tuple[Case, ...]:
             "/vertex/v1/projects/p/locations/us-east5/endpoints/e:predict",
             (("content-type", "application/json"),),
             b'{"instances": []}',
+        ),
+        # The Vertex read path (minors after 0.11, item 13): a project the cell lists (``VERTEX_PROJECT``), checked and
+        # sent as it came.
+        Case(
+            "i4-vertex-read",
+            ("I4", "H10"),
+            "POST",
+            f"/vertex/v1/projects/{VERTEX_PROJECT['value']}/locations/us-east5/publishers/anthropic/models/"
+            f"{inputs.vertex}:rawPredict",
+            (("authorization", "Bearer ya29.rc"), ("content-type", "application/json")),
+            vertex("hello vertex"),
+            describe="a Vertex call whose project the cell lists: checked, sent as it came",
+        ),
+        Case(
+            "i4-vertex-stream",
+            ("I4", "H10"),
+            "POST",
+            f"/vertex/v1/projects/{VERTEX_PROJECT['value']}/locations/us-east5/publishers/anthropic/models/"
+            f"{inputs.vertex}:streamRawPredict",
+            (("authorization", "Bearer ya29.rc"), ("content-type", "application/json")),
+            vertex("hello vertex", stream=True),
+            describe="the same, streamed",
         ),
         Case(
             "i4-gemini",
@@ -1995,7 +2042,10 @@ def _table(inputs: Inputs) -> tuple[Case, ...]:
 
 
 TABLE = _table(INPUTS)
-TABLE_0_10 = _table(INPUTS_0_10)
+# Rows added after 0.11 was released (minors after 0.11, item 13: the Vertex read path), characterized by the 0.11
+# baseline alone: 0.10's table never had them, so its golden, Phase 1's evidence, holds none.
+ADDED_AFTER_0_11 = frozenset({"i4-vertex-read", "i4-vertex-stream"})
+TABLE_0_10 = tuple(case for case in _table(INPUTS_0_10) if case.id not in ADDED_AFTER_0_11)
 # RC-REC-11's rows are every row marked ``leak`` (a, b, and c: every table row with a masked WebSocket turn), and in
 # the generated cells every WebSocket case (``phase_1_judge``): the only observations Phase 1 changes.
 TABLE_IDS = tuple(case.id for case in TABLE)

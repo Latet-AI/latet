@@ -1459,6 +1459,7 @@ _REASON_CODES = {
     "envelope-bodyless": 16,
     "body-unknown-member": 17,
     "body-unknown-member-no-exception": 18,
+    "settings-changed": 19,
 }
 
 

@@ -488,7 +488,9 @@ Después, en segundo plano: las huellas de cada caja fuerte guardada por la 0.10
 primera instancia que construye su espacio, una vez, una instancia cada vez, y cada instancia
 construye su propio índice de esas huellas, para la caja fuerte de una persona como para la de una
 clave de API. Hasta entonces, las peticiones y las llamadas de esa identidad se responden buscando
-sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Una
+sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Mientras
+una instancia calcula las huellas de una caja fuerte, las demás identidades cuyo espacio abre entretanto
+pueden responderse también con la búsqueda en PostgreSQL, hasta que su índice esté construido. Una
 instancia cuyo índice no puede construirse (las huellas aún no todas calculadas, PostgreSQL o Valkey
 que no responden, una actualización del índice que falló) deja esa identidad en la búsqueda en
 PostgreSQL y vuelve a construir el índice: enseguida cuando termina el cálculo de las huellas de otra

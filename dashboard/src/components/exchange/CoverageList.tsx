@@ -59,6 +59,7 @@ const REFUSAL: Record<RefusalCategory, string> = {
   parse: tk('coverage.refusal.parse'),
   limit: tk('coverage.refusal.limit'),
   state: tk('coverage.refusal.state'),
+  settings: tk('coverage.refusal.settings'),
   masking: tk('coverage.refusal.masking'),
   other: tk('coverage.refusal.other'),
 }
@@ -68,6 +69,7 @@ const REMEDY: Record<Remedy, string> = {
   'exception-docs': tk('coverage.remedy.exception-docs'),
   renew: tk('coverage.remedy.renew'),
   resource: tk('coverage.remedy.resource'),
+  again: tk('coverage.remedy.again'),
   websocket: tk('coverage.remedy.websocket'),
   none: tk('coverage.remedy.none'),
 }

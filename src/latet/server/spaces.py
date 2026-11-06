@@ -291,6 +291,12 @@ class _Counts:
             self._ahead = now
             return False
 
+    def highest(self) -> int:
+        """The highest count the space has applied or made itself: what settings read by its build were read at, at
+        least (a build's own writes included)."""
+        with self._lock:
+            return max(self.applied, *self._above) if self._above else self.applied
+
     def _advance(self) -> None:
         while self.applied + 1 in self._above:
             self.applied += 1
@@ -760,17 +766,18 @@ def _exception_logged(server: Server, identity_id: str, details: Mapping[str, An
     server.audit.record(identity_id, "exception.permanent", identity_id, dict(details))
 
 
-def _index_again(server: Server, identity_id: str, config: Any) -> None:
+def _index_again(server: Server, identity_id: str, config: Any, read_at: int | None = None) -> None:
     """The index of the identity's approved request exceptions written again as its space is built, by what this
     version and this edition make of them (one a new version suspends, R-100; a permanent one an edition forbids): kept
-    otherwise as its approved settings were last kept. Its failure is said by its type: the space runs, and `latet
-    server status` lists from what the index last held."""
+    otherwise as its approved settings were last kept. ``read_at``: the settings count its build read before
+    ``config``; an approval kept since wrote the index itself, which stands (``index_exceptions``). Its failure is said
+    by its type: the space runs, and `latet server status` lists from what the index last held."""
     from latet.server.space_settings import index_exceptions
 
     allowed = server.edition.permanent_exceptions()
     try:
         with server.db.transaction() as conn:
-            index_exceptions(conn, identity_id, config, permanent_allowed=allowed)
+            index_exceptions(conn, identity_id, config, permanent_allowed=allowed, read_at=read_at)
     except Exception as exc:
         log.warning(
             "the index of the request exceptions of %s was not written again: %s", identity_id, type(exc).__name__
@@ -1328,7 +1335,7 @@ class Spaces:
         # A request exception's approval time is PostgreSQL's, the same on every instance, never this one's clock (D3).
         runtime.exception_clock = functools.partial(database_now, server.db)
         runtime.exception_log = functools.partial(_exception_logged, server, found.id)
-        _index_again(server, found.id, runtime.config)
+        _index_again(server, found.id, runtime.config, read_at=settings_counts.highest())
         runtime.gateway.launch_prepare = server.launch_prepare
         if server.launch_authority is not None:
             from latet.server.launch_requests import ServerLaunchRequests

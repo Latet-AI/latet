@@ -99,8 +99,8 @@ requests unchanged and to inspect them without modifying them. That is what the 
 each request's body reaches Anthropic byte for byte, and its headers as Claude Code wrote them, with
 your token in them, less two kinds that Latet takes off and counts in the dashboard: the telemetry
 and tracing headers its SDK adds (`x-stainless-*`, `traceparent`...), and Claude Code's own headers
-that can carry free text (a subagent's ids, which can hold its name, and values Claude Code copies
-from its environment). [Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off) lists them all. The token is never saved,
+that can carry free text (a subagent's ids, which can hold its name, values Claude Code copies
+from its environment, and a gateway hint naming the tools that ran). [Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off) lists them all. The token is never saved,
 logged or shown in the dashboard.
 
 **Why nothing needs rewriting.** Claude Code adds to each request's system prompt an attribution

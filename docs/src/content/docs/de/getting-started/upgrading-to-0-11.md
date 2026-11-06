@@ -114,7 +114,7 @@ hat:
 | Wo | Header |
 | --- | --- |
 | Jede Anfrage: Telemetrie und Tracing der SDKs | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, im Format von Anthropic (Anthropic, Bedrock, Vertex, ein Unternehmens-Gateway) | `x-claude-code-agent-id` und `x-claude-code-parent-agent-id`, die IDs eines Subagenten, die seinen Namen enthalten können; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` und `x-client-app`, die Claude Code aus seiner Umgebung übernimmt |
+| Claude Code, im Format von Anthropic (Anthropic, Bedrock, Vertex, ein Unternehmens-Gateway) | `x-claude-code-agent-id` und `x-claude-code-parent-agent-id`, die IDs eines Subagenten, die seinen Namen enthalten können; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` und `x-client-app`, die Claude Code aus seiner Umgebung übernimmt; `x-claude-code-prev-tool-durations`, ein Hinweis für Gateways, der die ausgeführten Werkzeuge nennt (darunter die eigenen Namen eines MCP-Servers) |
 | Bedrock: das AWS SDK | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: die Clientbibliothek von Google | `x-goog-api-client` |
 | Codex, im Format von OpenAI und von ChatGPT | `x-codex-turn-metadata`, der Pfad, Remotes und Commit Ihres Repositorys enthält; `x-openai-subagent`, die Art oder eine freie Bezeichnung eines Subagenten |
@@ -363,7 +363,8 @@ nicht, wenn sie in `config.yaml` steht, und liest eine `config.reviewed.json`, d
 gäbe es keine genehmigten Einstellungen: Eine Änderung an `config.yaml` würde dann gelten, ohne auf
 Ihre Genehmigung zu warten. Wenn Sie eines gewählt haben, spielen Sie die Kopie zurück, die das Upgrade
 auf 0.11 angelegt hat und die beide Dateien so enthält, wie sie vorher waren: `latet upgrade --to`
-bietet sie beim Zurückgehen an (sie liegt im Datenordner unter `backups/before-0.11.0-<Zeit>`). Ohne
+bietet sie beim Zurückgehen an (sie liegt im Datenordner unter `backups/before-<Version>-<Zeit>`,
+benannt nach der installierten Version, zum Beispiel `before-0.11.1-…`). Ohne
 diese Kopie (0.11 mit dem Installationsskript installiert, das keine anlegt) entfernen Sie den
 Schlüssel vor dem Zurückgehen aus beiden Dateien: die Zeilen `request_profile:` aus `config.yaml` und
 jedes Element `"request_profile": "…"` aus `config.reviewed.json`, sodass es gültiges JSON bleibt.

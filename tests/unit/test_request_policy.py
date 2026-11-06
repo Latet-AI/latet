@@ -190,6 +190,16 @@ def test_the_approval_says_what_is_approved(before, after, words):
         pytest.param((_approved(),), (_approved(revision="http-envelope-0"),), id="revision-rewritten"),
         pytest.param((_approved(),), (_approved(id="x9999999999"),), id="id-rewritten"),
         pytest.param((_approved(),), (_approved(issuer="administration"),), id="issuer-rewritten"),
+        # Minors after 0.11, item 8 (the merge's security review, F4): who approved it changed by hand, its time moved
+        # earlier, so that it read as the same approval ending sooner.
+        pytest.param(
+            (_approved(),),
+            (_approved(issuer="administration", granted=NOW - timedelta(days=1)),),
+            id="issuer-rewritten-earlier",
+        ),
+        pytest.param(
+            (_approved(),), (_approved(issuer=None, granted=NOW - timedelta(days=1)),), id="issuer-dropped-earlier"
+        ),
     ],
 )
 def test_exception_add_widen_renew_requires_existing_owner_approval(before, after):
@@ -211,6 +221,7 @@ def test_exception_add_widen_renew_requires_existing_owner_approval(before, afte
         pytest.param((_approved(permanent=True),), (_approved(),), id="no-longer-permanent"),
         pytest.param((_approved(),), (_approved(project="/repo"),), id="identity-to-project"),
         pytest.param((_approved(),), (_approved(description="for the team's gateway"),), id="described"),
+        pytest.param((_approved(),), (_approved(granted=NOW - timedelta(days=1)),), id="shortened-by-its-time"),
     ],
 )
 def test_removing_narrowing_or_shortening_an_exception_applies_at_once(before, after):

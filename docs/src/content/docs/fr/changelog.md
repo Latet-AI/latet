@@ -17,6 +17,42 @@ Ce qui vient ensuite est dans la [feuille de route](../roadmap/) : un refus clai
 auto, un programme d'installation signé pour Windows, vos propres modèles de noms, d'autres agents, et
 la documentation dans d'autres langues.
 
+## 0.11.1 (2026-11-06)
+
+- **Les en-têtes d'indication de Claude Code.** Réglé pour envoyer ses en-têtes d'indication aux
+  passerelles (`CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`), Claude Code n'est plus refusé après une
+  compaction ou un appel d'outil : `x-claude-code-compaction` et `x-claude-code-context-compacted`
+  passent, limités à leurs trois valeurs, et `x-claude-code-prev-tool-durations`, qui nomme les outils
+  exécutés, est retiré et compté, comme les identifiants de ses sous-agents.
+- **Une requête envoyée pendant que les réglages changent.** Une requête préparée pendant que ses
+  réglages étaient appliqués à nouveau (un enregistrement, ou sur un serveur une modification
+  partagée) est préparée à nouveau selon les nouveaux, comme Latet le faisait déjà quand seules les
+  règles changeaient, au lieu d'être refusée avec *could not account for every part of this request*.
+  Une requête dont la route a changé entre-temps, ou dont les réglages ont changé après qu'elle a été
+  préparée, n'est toujours pas envoyée, et son agent apprend que les réglages ont changé et qu'il faut
+  l'envoyer à nouveau ; l'historique, le journal et le tableau de bord disent la même chose, sous une
+  raison qui lui est propre.
+- **Une réponse diffusée en entier est enregistrée en entier.** Une réponse diffusée qui a atteint son
+  client en entier est enregistrée en entier même quand le client ferme la connexion juste après,
+  comme l'était déjà un tour WebSocket ; avant, l'historique la montrait comme une erreur, sans son
+  texte.
+- **Un WebSocket que le fournisseur refuse figure dans l'historique.** Un WebSocket dont le
+  fournisseur refuse (`401`, `403`) ou redirige la poignée de main, ou dont le fournisseur est
+  injoignable, est enregistré dans l'historique comme la même réponse sur HTTP ; avant, il ne laissait
+  aucune trace.
+- **L'index des exceptions de requête du serveur.** Un espace construit sur plusieurs workers ou
+  instances à la fois ne réécrit plus à chaque fois l'index des exceptions de requête de l'identité : il
+  n'est écrit que s'il a changé, par un seul à la fois, si bien que le journal n'avertit plus qu'il n'a
+  pas été écrit, et `latet server status` ne liste jamais une exception révoquée entre-temps.
+- **Une route disparue entre deux tentatives AWS.** Quand une route Bedrock est retirée entre les deux
+  tentatives AWS d'une requête (la première ayant reçu un jeton expiré), l'agent apprend qu'aucune
+  autre tentative n'a été envoyée et que la première a pu arriver, au lieu du seul *no upstream for
+  this path*.
+- **Qui a approuvé une exception de requête.** Une exception approuvée dont l'`issuer` (qui l'a
+  approuvée) a été changé à la main attend à nouveau une approbation, même quand son heure
+  d'approbation a aussi été avancée ; avant, cette heure avancée la laissait en vigueur avec le
+  nouvel `issuer`.
+
 ## 0.11.0 (2026-11-05)
 
 Latet 0.11.0 bloque les requêtes par défaut lorsqu'une partie du chemin, des paramètres de requête,

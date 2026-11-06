@@ -72,16 +72,17 @@ class RecordingTransport(httpx.AsyncBaseTransport):
 
 
 class RecordingClient(httpx.AsyncClient):
-    """httpx's client over a ``RecordingTransport``, counting the requests built (``builds``) and sent (``sends``). As
-    ``latet.gateway.forward.make_client``'s, it follows no redirect, keeps no cookie an answer sets (its jar is
-    ``forward.cookieless()``) and keeps httpx's default headers (which the forwarder takes away again unless the client
-    sent them); unlike it, it takes no proxy of the environment, which would route around the recording transport (the
-    proxy's hop is transport, P1-0 D-10)."""
+    """httpx's client over a ``RecordingTransport``, counting the requests built (``builds``) and sent (``sends``). It
+    is made with ``latet.gateway.forward.client_options``, the options of Latet's own clients (``make_client``): it
+    follows no redirect and keeps no cookie an answer sets as theirs do, so that a test of what a client keeps tests
+    Latet's (G2 re-review N-1); and it keeps httpx's default headers (which the forwarder takes away again unless the
+    client sent them). Unlike them, it takes no proxy of the environment, which would route around the recording
+    transport (the proxy's hop is transport, P1-0 D-10)."""
 
     def __init__(self, transport: RecordingTransport) -> None:
-        from latet.gateway.forward import cookieless
+        from latet.gateway import forward
 
-        super().__init__(transport=transport, follow_redirects=False, trust_env=False, cookies=cookieless())
+        super().__init__(transport=transport, **forward.client_options(trust_env=False))
         self.recording = transport
         self.builds = 0
         self.sends = 0

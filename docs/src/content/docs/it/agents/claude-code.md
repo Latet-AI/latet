@@ -102,7 +102,8 @@ il corpo di ogni richiesta arriva ad Anthropic byte per byte, e i suoi header co
 Claude Code, con dentro il tuo token, tranne due tipi che Latet toglie e conta nella dashboard: gli
 header di telemetria e di tracing che aggiunge il suo SDK (`x-stainless-*`, `traceparent`...), e
 quelli di Claude Code stesso che possono contenere testo libero (gli id di un subagente, che possono
-contenerne il nome, e valori che Claude Code copia dal suo ambiente).
+contenerne il nome, valori che Claude Code copia dal suo ambiente e un suggerimento per i gateway che
+nomina gli strumenti eseguiti).
 [Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie) li elenca tutti. Il token non viene mai salvato, scritto nei
 log o mostrato nella dashboard.
 

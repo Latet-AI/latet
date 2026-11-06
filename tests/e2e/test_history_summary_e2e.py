@@ -108,7 +108,8 @@ def test_no_summary_carries_a_value_a_header_or_the_body(runtime):
 
 
 def _moving(runtime, times: int) -> None:
-    """The rules move ``times`` times, each while a preparation runs: past the bound, a part stays unaccounted for."""
+    """The rules move ``times`` times, each while a preparation runs: past the bound, it is refused because its settings
+    changed (``settings-changed``, minors after 0.11, item 2 and the fix round's Q-M1)."""
     prepare, left = runtime.mediator.prepare_http, [times]
 
     def prepared(*args, **kwargs):
@@ -133,7 +134,7 @@ def test_a_request_the_final_decision_refuses_without_words_is_stopped_by_its_ca
         refused = client.post("/openai/v1/chat/completions", json=body, headers={"authorization": KEY})
         assert refused.status_code >= 400
     codes = [row["block_reason"] for row, _ in _summaries(runtime)]
-    assert codes == ["coverage-limit", "proof-incomplete"]  # the newest first
+    assert codes == ["coverage-limit", "settings-changed"]  # the newest first
     for row, detail in _summaries(runtime):
         assert "blocked" in row["flags"] and row["verified"] is False and row["overhead_ms"] is None
         assert detail["summary"]["block_reason"] == row["block_reason"]

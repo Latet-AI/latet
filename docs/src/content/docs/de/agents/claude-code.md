@@ -104,8 +104,8 @@ das tut der Daemon: Der Inhalt jeder Anfrage erreicht Anthropic Byte für Byte, 
 wie Claude Code sie geschrieben hat, mit Ihrem Token darin, ohne zwei Arten, die Latet entfernt und im
 Dashboard zählt: die Telemetrie- und Tracing-Header, die sein SDK hinzufügt (`x-stainless-*`,
 `traceparent`...), und die eigenen Header von Claude Code, die freien Text enthalten können (die IDs
-eines Subagenten, die seinen Namen enthalten können, und Werte, die Claude Code aus seiner Umgebung
-übernimmt). [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie alle auf. Das Token wird nie gespeichert,
+eines Subagenten, die seinen Namen enthalten können, Werte, die Claude Code aus seiner Umgebung
+übernimmt, und ein Hinweis für Gateways, der die ausgeführten Werkzeuge nennt). [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie alle auf. Das Token wird nie gespeichert,
 protokolliert oder im Dashboard angezeigt.
 
 **Warum nichts umgeschrieben werden muss.** Claude Code fügt dem System-Prompt jeder Anfrage einen

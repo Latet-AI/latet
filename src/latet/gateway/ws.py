@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import itertools
 import json
 import logging
@@ -76,6 +77,8 @@ _LIVE_UNREAD = "latet: Latet does not read Google's Live API yet, so it does not
 _CANNOT_GO_ON = "latet: this connection could not go on: nothing more of it was sent"
 # A handshake the guarded transport would not open as it was decided (never in Phase 1).
 _NOT_CONNECTED = "latet: Latet could not open this connection as it was decided: nothing was sent"
+# A gateway with no mediator (no request protection): what the same request over HTTP is told, in a close's reason.
+_UNPROTECTED = "latet: request protection is unavailable: nothing was sent"
 # D5, in a close's reason (at most 123 bytes): Latet is off in the socket's project, so it opens nothing there.
 _OFF_CLOSED = "latet: Latet is off in this project: turn it on there, or reach the provider directly"
 # The events that end a turn's answer, as ``ResponseCapture`` judges a turn done.
@@ -142,6 +145,33 @@ def _refusal_recorded(
     outcome.block_code = shook.code
     outcome.profile = profile
     outcome.removed_headers = removed
+    recorder.finish(outcome)
+
+
+def _handshake_recorded(
+    recorder: Recorder | None,
+    upstream: Upstream,
+    template: str,
+    shook: Any,
+    status: int,
+    prepared: Prepared,
+    *,
+    profile: str,
+    removed: int,
+    error: str | None,
+) -> None:
+    """A handshake sent as it was decided that its provider answered without a socket, in the history as the same answer
+    over HTTP is (minors after 0.11, item 4): refused (``status`` its own), redirected (502, ``redirect``, never
+    followed) or not reached (502, ``upstream-unreachable``); its route template, profile and removed count, its
+    decision's coverage, no header kept."""
+    if recorder is None or not recorder.enabled:
+        return
+    outcome = Outcome({}, upstream.name, template, "ws", time.time(), status=status)
+    outcome.prepared = prepared
+    outcome.history_code = history_coverage(shook)
+    outcome.profile = profile
+    outcome.removed_headers = removed
+    outcome.error = error
     recorder.finish(outcome)
 
 
@@ -223,9 +253,9 @@ async def relay(
             await _closed(websocket, shook := refuse("ws-handshake", upstream.name, "unread", _LIVE_UNREAD, 4400))
             return
 
-        if mediator is None:
+        if mediator is None:  # as over HTTP: request protection is unavailable (minors after 0.11, item 12)
             await _closed(
-                websocket, shook := refuse("ws-handshake", upstream.name, "proof-incomplete", _NOT_CONNECTED, 1008)
+                websocket, shook := refuse("ws-handshake", upstream.name, "proof-incomplete", _UNPROTECTED, 1008)
             )
             return
         executor = mediator.executor
@@ -342,13 +372,25 @@ async def relay(
             _count_removed(mediator, admission.removed)  # the handshake reached its provider: what it removed left
             handshake_status = status
             # Following a redirect would take the frames there unmasked.
+            answered = functools.partial(
+                _handshake_recorded,
+                recorder,
+                upstream,
+                warning_path,
+                shook,
+                prepared=handshake_arena,
+                profile=profile_id,
+                removed=admission.removed,
+            )
             if redirected(status, exc.response.headers):
                 log.warning("not connected %s: the upstream answered a redirect, which is not followed", warning_path)
                 if exchange:
                     exchange.response_end(error="redirect")
+                answered(502, error="redirect")
                 refused = upstream_error(REDIRECTED.format(status=status), 502, shape=error_shape(upstream, None))
                 await websocket.send_denial_response(refused)
                 return
+            answered(status, error=None)
             # Relay the upstream's refusal (401, 426...) so the client reacts as it would directly.
             denial_headers = {k: v for k, v in exc.response.headers.raw_items() if k.lower() not in _ACCEPT_DROP}
             if exchange:
@@ -361,6 +403,17 @@ async def relay(
         except Exception as exc:
             if exchange:
                 exchange.response_end(error=repr(exc))
+            _handshake_recorded(
+                recorder,
+                upstream,
+                warning_path,
+                shook,
+                502,
+                handshake_arena,
+                profile=profile_id,
+                removed=admission.removed,
+                error="upstream-unreachable",
+            )
             await websocket.close(code=1011, reason="latet: upstream unreachable")
             return
         if isinstance(up, SendRefusal):  # refused at its decision (D5: an off project's), or not opened as decided

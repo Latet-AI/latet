@@ -1445,13 +1445,18 @@ def test_an_agent_cannot_forget(admin, computer, monkeypatch, marker):
 
 @pytest.mark.parametrize("given", ["missing", "empty", "not-utf8"])
 def test_a_file_that_names_no_value_is_refused_before_anything_is_sent(admin, computer, given):
-    path = computer / "values.txt"
+    # What made it fail now and then (minors after 0.11, item 16), kept: a temporary folder whose random name holds
+    # "caf", which the refusal quotes with the file's path. The value checked for is one no temporary folder's name
+    # holds (a "+": tempfile and pytest never write one), and the path is taken out of what is read.
+    (computer / "cafe").mkdir()
+    path = computer / "cafe" / "values.txt"
     if given == "empty":
         path.write_text("\n\n", "utf-8")
     elif given == "not-utf8":
-        path.write_bytes(b"caf\xe9@acme.it\n")
+        path.write_bytes(b"Zq+caf\xe9@acme.it\n")
     done = run_cli("server", "keys", "forget", "Billing CI", "--file", str(path), "--yes")
-    assert done.exit_code == 2 and not admin.calls and "caf" not in done.output
+    told = " ".join(done.output.split()).replace(" ".join(str(path).split()), "<the file>")
+    assert done.exit_code == 2 and not admin.calls and "Zq+" not in told and "acme.it" not in told
 
 
 def test_a_forget_that_fails_half_way_says_how_many_were_forgotten(admin, computer, monkeypatch):

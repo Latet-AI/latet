@@ -17,6 +17,19 @@ def test_counts_heard_out_of_order_add_up():
     assert counts.applied == 5
 
 
+def test_the_highest_count_is_what_a_build_read_its_settings_at_least_its_own_writes_included():
+    """``highest`` (the fix round's Q-M3): a build's ``read_at`` for the index of its request exceptions. Its own
+    writes count, past a gap too, so that a build that wrote settings itself still writes its index."""
+    counts = _Counts(3)
+    assert counts.highest() == 3
+    counts.done(6)  # its own write, 4 and 5 not heard
+    assert counts.applied == 3 and counts.highest() == 6
+    counts.done(4)
+    assert counts.highest() == 6
+    counts.done(5)
+    assert counts.applied == 6 and counts.highest() == 6
+
+
 def test_a_count_never_heard_holds_the_space_back_until_it_is_caught_up():
     counts = _Counts(10)
     for count in (12, 13, 14):

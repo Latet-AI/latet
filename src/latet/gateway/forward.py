@@ -150,6 +150,13 @@ def _used(admission: Any, prepared: Prepared, upstream: Upstream) -> tuple[tuple
     return (*admission.exceptions, *body)
 
 
+def _settings_moved(prepared: Prepared) -> bool:
+    """Whether a request's route authority went stale after it was prepared: its route or its rules moved (its settings
+    applied again), which is why ``finalize`` refused it, not a part left unaccounted for."""
+    authority = prepared.route_authority
+    return authority is not None and not authority.valid()
+
+
 def _unrouted(prepared: Prepared, upstream: Upstream) -> bool:
     """A rule of its body names an exception its route no longer holds: it is never sent under it."""
     rows = {row.id for row in upstream.envelope_exceptions}
@@ -201,6 +208,18 @@ def cookieless() -> http.cookiejar.CookieJar:
     return http.cookiejar.CookieJar(policy=_KeepsNone())
 
 
+def client_options(*, trust_env: bool = True) -> dict[str, Any]:
+    """What every client Latet sends with is made with (``make_client``), and the tests' recording clients too, so that
+    a test of what a client keeps tests Latet's own (G2 re-review N-1): it follows no redirect, keeps no cookie
+    (``cookieless``), with its timeouts, and ``trust_env`` as given."""
+    return {
+        "timeout": httpx.Timeout(connect=20.0, read=600.0, write=120.0, pool=60.0),
+        "follow_redirects": False,
+        "trust_env": trust_env,
+        "cookies": cookieless(),
+    }
+
+
 def make_client(*, trust_env: bool = True) -> httpx.AsyncClient:
     """One pooled client for every upstream, trusting the OS certificate store. It follows no redirect (httpx's default,
     kept on purpose): Latet never goes on to the address an answer names, inside a server's network say, and the agent
@@ -208,13 +227,7 @@ def make_client(*, trust_env: bool = True) -> httpx.AsyncClient:
     (``Forwarder._redirected``). ``trust_env`` False: no proxy and no credential of the environment's (a destination of
     an identity's own, which a server reaches at the address it checked). It keeps no cookie (``cookieless``)."""
     context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    return httpx.AsyncClient(
-        verify=context,
-        timeout=httpx.Timeout(connect=20.0, read=600.0, write=120.0, pool=60.0),
-        follow_redirects=False,
-        trust_env=trust_env,
-        cookies=cookieless(),
-    )
+    return httpx.AsyncClient(verify=context, **client_options(trust_env=trust_env))
 
 
 def _raw_headers(request: Request) -> list[tuple[str, str]]:
@@ -336,6 +349,11 @@ _NO_SUCH_ROUTE = "there is no such route"
 # A destination of the identity's own the server may not reach: its ``Block`` names no address (its agent is told the
 # address's words, which are never logged nor kept).
 _NOT_REACHED = "the server may not reach this destination for you"
+# A request whose settings changed after it was prepared, which is not taken again (its route changed, or it was
+# reviewed under the rules before): refused, its agent told so.
+_SETTINGS_MOVED = "the settings changed while this request was prepared: send it again"
+# A request whose route the settings removed between two attempts of it (AWS's expired token): its first one left.
+_ROUTE_GONE = "the route of this request was removed while it was sent"
 _SEE = ". Nothing was sent; run `latet dashboard` to see where it was"
 _SEE_IN_TUTORIAL = ". Nothing was sent; see where it was in Latet's pane"
 
@@ -524,6 +542,9 @@ class Forwarder:
             matched = self.routes.match(wire)
             if matched is None or matched.name != upstream.name:
                 turn.refused(refuse("http", None, "no-route", _NO_ROUTE, 404))
+                if attempted:  # its first attempt reached its provider: said, in its provider's shape (item 7)
+                    text = _after_an_attempt(stopped(_ROUTE_GONE, self.tutorial))
+                    return upstream_error(text, 404, shape=error_shape(upstream, prepared))
                 return JSONResponse({"error": _NO_ROUTE}, status_code=404)
             try:
                 again = request_profiles.admit(inventory(envelope), matched)
@@ -1080,6 +1101,10 @@ class Forwarder:
             response_plan(prepared),
             envelope_proof=proof,
         )
+        if isinstance(decision, Block) and decision.code == "proof-incomplete" and _settings_moved(prepared):
+            # Its route or rules moved after it was prepared (and reviewed): the settings changed, as its agent, the
+            # log, the history and the audit say, never a fault of coverage (G2 review M-2; minors after 0.11, Q-M1).
+            decision = turn.decision = refuse("http", upstream.name, "settings-changed", _SETTINGS_MOVED, 400)
         if outcome is not None:
             outcome.history_code = history_coverage(decision)
             outcome.passes = decision_passes(decision)
@@ -1345,6 +1370,10 @@ class Forwarder:
                 raise
             finally:
                 finalizer.seal(outcome, complete=completed, error=error)
+                if completed:
+                    # Every byte of it handed to its client: recorded whole whatever the client does next, its request
+                    # cancelled as it goes at once included (F2's HTTP counterpart; minors after 0.11, item 3).
+                    finalizer.relayed()
                 pending = []
                 previous = chunk = b""  # no yielded or queued pending reference survives its reservation
                 await _finish_response(

@@ -104,7 +104,8 @@ le corps de chaque requête arrive chez Anthropic octet pour octet, et ses en-t�
 les a écrits, votre jeton dedans, moins deux sortes que Latet retire et compte dans le tableau de bord :
 les en-têtes de télémétrie et de traçage qu'ajoute son SDK (`x-stainless-*`, `traceparent`...), et
 ceux de Claude Code lui-même qui peuvent contenir du texte libre (les identifiants d'un sous-agent,
-qui peuvent contenir son nom, et des valeurs que Claude Code copie de son environnement).
+qui peuvent contenir son nom, des valeurs que Claude Code copie de son environnement, et une
+indication pour les passerelles qui nomme les outils exécutés).
 [Les en-têtes que Latet retire](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire) les énumère tous. Le jeton n'est jamais enregistré, journalisé
 ni affiché dans le tableau de bord.
 

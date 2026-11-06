@@ -16,6 +16,42 @@ Cosa arriva dopo è nella [roadmap](../roadmap/): un rifiuto esplicito dalla mod
 installer firmato per Windows, i tuoi modelli dei nomi, altri agenti, e la documentazione in altre
 lingue.
 
+## 0.11.1 (2026-11-06)
+
+- **Le intestazioni di suggerimento di Claude Code.** Quando Claude Code è impostato per inviare le
+  sue intestazioni di suggerimento per i gateway (`CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`), non viene
+  più rifiutato dopo una compattazione o una chiamata a uno strumento: `x-claude-code-compaction` e
+  `x-claude-code-context-compacted` passano, limitate ai loro tre valori, e
+  `x-claude-code-prev-tool-durations`, che nomina gli strumenti eseguiti, viene tolta e contata, come
+  gli id dei suoi subagenti.
+- **Una richiesta inviata mentre le impostazioni cambiano.** Una richiesta preparata mentre le sue
+  impostazioni venivano applicate di nuovo (un salvataggio, o su un server una modifica condivisa)
+  viene preparata di nuovo con quelle nuove, come Latet faceva già quando cambiavano solo le regole,
+  invece di essere rifiutata con *could not account for every part of this request*. Una richiesta
+  la cui rotta è cambiata nel frattempo, o le cui impostazioni sono cambiate dopo che è stata
+  preparata, continua a non essere inviata, e al suo agente viene detto che le impostazioni sono
+  cambiate e di inviarla di nuovo; la cronologia, il log e la dashboard dicono lo stesso, con un
+  motivo tutto suo.
+- **Una risposta inviata per intero viene registrata per intero.** Una risposta in streaming arrivata
+  per intero al suo client viene registrata per intero anche quando il client chiude la connessione
+  subito dopo, come già accadeva per un turno WebSocket; prima la cronologia la mostrava come un
+  errore, senza il suo testo.
+- **Un WebSocket rifiutato dal provider è nella cronologia.** Un WebSocket il cui handshake il provider
+  rifiuta (`401`, `403`) o reindirizza, o il cui provider non si raggiunge, viene registrato nella
+  cronologia come la stessa risposta via HTTP; prima non lasciava traccia.
+- **L'indice delle eccezioni delle richieste sul server.** Uno spazio costruito su più worker o istanze
+  insieme non riscrive più ogni volta l'indice delle eccezioni delle richieste dell'identità: viene
+  scritto solo quando è cambiato, da uno alla volta, così il log non avverte più che non è stato
+  scritto e `latet server status` non elenca mai un'eccezione revocata nel frattempo.
+- **Una rotta scomparsa tra due tentativi AWS.** Quando una rotta di Bedrock viene tolta tra i due
+  tentativi AWS di una richiesta (al primo è stato risposto con un token scaduto), all'agente viene
+  detto che non è stato inviato nessun altro tentativo e che il primo potrebbe essere arrivato,
+  invece del solo *no upstream for this path*.
+- **Chi ha approvato un'eccezione di richiesta.** Un'eccezione approvata il cui `issuer` (chi l'ha
+  approvata) è stato cambiato a mano attende di nuovo l'approvazione, anche se è stata anticipata
+  pure la sua ora di approvazione; prima, quell'ora anticipata la lasciava in vigore con il nuovo
+  `issuer`.
+
 ## 0.11.0 (2026-11-05)
 
 Latet 0.11.0 blocca per impostazione predefinita le richieste quando una parte del percorso, dei

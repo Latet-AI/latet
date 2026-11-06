@@ -2302,6 +2302,7 @@
       "parse": "A part of it could not be read as its protocol says, so Latet could not account for all of it.",
       "limit": "It went past what Latet reads of one request, or Latet was too busy.",
       "state": "A state Latet needs to decide could not be read.",
+      "settings": "The settings changed while it was prepared, so it was not sent.",
       "masking": "Masking it failed.",
       "other": "Latet's rules do not let it leave."
     },
@@ -2311,6 +2312,7 @@
       "exceptionDocsLink": "how to approve one",
       "renew": "Renewing it is a new approval: change the exception in your settings, then approve the change.",
       "resource": "List the value under request_resources in your settings for this destination.",
+      "again": "Sent again, it goes under the settings now in force.",
       "websocket": "A WebSocket takes no request exception in this version of Latet.",
       "none": "No request exception can let this through."
     },

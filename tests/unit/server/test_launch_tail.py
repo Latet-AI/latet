@@ -230,8 +230,21 @@ async def test_resident_rearm_waits_for_tail_with_repeated_cancellation(monkeypa
         assert run[index].wait(3)
         cell.outcome = OpenOutcome("unavailable")
 
+    # What made it fail now and then (minors after 0.11, item 18), forced: the first invocation's tail is released from
+    # its ``__del__`` on the executor's thread (``_tail_done`` hands ``_tail_released`` to the loop), and that thread
+    # stays inside ``__del__``, its object's weak references not cleared yet, while the loop runs on.
+    tail_done = MutationAdmission._tail_done
+    dying, finished = threading.Event(), threading.Event()
+
+    def held_tail_done(self, loop, marker):
+        tail_done(self, loop, marker)
+        if threading.get_ident() != main_thread and not dying.is_set():
+            dying.set()
+            finished.wait(3)
+
     monkeypatch.setattr(machines, "submit_store", submit)
     monkeypatch.setattr(loop, "call_soon_threadsafe", schedule)
+    monkeypatch.setattr(MutationAdmission, "_tail_done", held_tail_done)
     try:
         async with asyncio.timeout(10):
             first = OpenResultCell()
@@ -252,7 +265,17 @@ async def test_resident_rearm_waits_for_tail_with_repeated_cancellation(monkeypa
                 assert not waiter.done() and ticket.pending and schedules == 1
             release[0].set()
             assert await asyncio.wait_for(waiter, 3) is ticket.outcome
-            assert not ticket.pending and old_marker() is None and work[0].done()
+            # The tail let go by the product as the invocation died; its object goes once the thread that runs its
+            # ``__del__`` returns, which this test holds there when it is the executor's (the main thread's is never
+            # held): waited for as a condition, never read at that moment.
+            assert not ticket.pending and ticket._tail is None
+            finished.set()
+            await _join(work[:1])
+            for _ in range(300):
+                if old_marker() is None:
+                    break
+                await asyncio.sleep(0.01)
+            assert old_marker() is None and work[0].done()
             ticket.outcome = None
             second = OpenResultCell()
             ticket.submit(worker, (second, 1), second, not_started=OpenOutcome("unavailable"))
@@ -269,7 +292,7 @@ async def test_resident_rearm_waits_for_tail_with_repeated_cancellation(monkeypa
             assert holds.count == 0 and ledger.retained_bytes == base and schedules == 2
             assert len(work) == 2 and all(actual.done() for actual in work)
     finally:
-        for event in (*run, *release):
+        for event in (*run, *release, finished):
             event.set()
         if waiter is not None:
             await asyncio.wait_for(asyncio.shield(waiter), 3)

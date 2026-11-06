@@ -645,3 +645,76 @@ async def test_an_answer_not_sealed_whole_is_never_marked_relayed(tmp_path):
         await asyncio.wait_for(finalizer.complete(propagate=False), _TIMEOUT)
         detail = _detail(recorder, store)
     assert (detail.get("response") or {}).get("omitted") == "response-incomplete"
+
+
+class _Halves(httpx.AsyncByteStream):
+    """A provider's streamed answer in two parts, its text's event then its end; ``between`` set, its end waits for
+    it."""
+
+    def __init__(self, between: asyncio.Event | None) -> None:
+        self.between = between
+
+    async def __aiter__(self):
+        yield _LARGE[: -len(_END)]
+        if self.between is not None:
+            await self.between.wait()
+        yield _END
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize("gone", ["after-its-last-chunk", "before-its-last-chunk"])
+async def test_a_streamed_answer_relayed_whole_is_recorded_whole_though_its_request_is_cancelled_at_once(
+    tmp_path, monkeypatch, gone
+):
+    """F2's HTTP counterpart (minors after 0.11, item 3): a client that reads a streamed answer to its end and goes at
+    once (``claude -p``, a script) has its request's task cancelled by the server while Latet settles the answer's
+    record. An answer its client was given whole is recorded whole, as a WebSocket turn is; one cut off before its end
+    keeps its record, its answer omitted. The engine's thread screens this answer (past RESTORED_ON_LOOP), held by a
+    gate, so that the client goes exactly while the record is settled."""
+    gate = _Gate()
+    _screen_gate(monkeypatch, gate)
+    after = gone == "after-its-last-chunk"
+    if not after:
+        gate.release.set()  # an answer cut off is omitted where it ends, never screened
+    with _sinks(tmp_path) as (mediator, recorder, store):
+        answer = _Halves(None if after else asyncio.Event())
+
+        def provider(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=answer)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+            forwarder = Forwarder(RouteTable([OPENAI]), Capture(None), client, mediator, recorder)
+            request = _request(_REQUEST)
+            response = await asyncio.wait_for(forwarder.handle(request), _TIMEOUT)
+            sent: list[bytes] = []
+            first = asyncio.Event()
+
+            async def send(message: Any) -> None:
+                if message.get("body"):
+                    sent.append(message["body"])
+                    first.set()
+
+            task = asyncio.create_task(response(dict(request.scope), request.receive, send))  # type: ignore[operator]
+            try:
+                # Relayed whole, its screening holding the engine's thread; or its text alone relayed, not its end.
+                await asyncio.wait_for((gate.entered if after else first).wait(), _TIMEOUT)
+                task.cancel()  # its client gone: the server cancels the request's task
+                gate.release.set()
+                await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), _TIMEOUT)
+                for _ in range(500):  # a settlement left to end alone ends once its screening does
+                    if mediator.executor not in lifecycle._ALONE:
+                        break
+                    await asyncio.sleep(0.01)
+            finally:
+                await _cleanup(task, gate)
+        detail = _detail(recorder, store)
+    response_ = detail.get("response") or {}
+    if after:
+        assert b"".join(sent) == _LARGE and not gate.expired
+        assert response_.get("text") == _LARGE_TEXT and "omitted" not in response_, response_.get("omitted")
+        assert "error" not in detail["summary"]["flags"]
+    else:
+        assert _END not in b"".join(sent)
+        assert response_.get("omitted") == "response-cancelled" and not response_.get("text")

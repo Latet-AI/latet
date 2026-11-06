@@ -2302,6 +2302,7 @@
       "parse": "Ein Teil ließ sich nicht so lesen, wie sein Protokoll es vorsieht, daher konnte Latet nicht für alles davon einstehen.",
       "limit": "Sie ging über das hinaus, was Latet von einer Anfrage liest, oder Latet war zu ausgelastet.",
       "state": "Ein Zustand, den Latet für die Entscheidung braucht, konnte nicht gelesen werden.",
+      "settings": "Die Einstellungen haben sich geändert, während sie vorbereitet wurde, daher wurde sie nicht gesendet.",
       "masking": "Das Maskieren ist fehlgeschlagen.",
       "other": "Die Regeln von Latet lassen sie nicht hinaus."
     },
@@ -2311,6 +2312,7 @@
       "exceptionDocsLink": "wie Sie eine genehmigen",
       "renew": "Eine Verlängerung ist eine neue Genehmigung: Ändern Sie die Ausnahme in Ihren Einstellungen und genehmigen Sie die Änderung.",
       "resource": "Tragen Sie den Wert unter request_resources in Ihren Einstellungen für dieses Ziel ein.",
+      "again": "Erneut gesendet, geht sie mit den jetzt geltenden Einstellungen hinaus.",
       "websocket": "Ein WebSocket nimmt in dieser Version von Latet keine Anfrage-Ausnahme an.",
       "none": "Keine Anfrage-Ausnahme kann dies durchlassen."
     },

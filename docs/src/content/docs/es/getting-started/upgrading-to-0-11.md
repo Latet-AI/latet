@@ -111,7 +111,7 @@ Latet quita estas cabeceras de una petición antes de enviarla, sea cual sea el 
 | Dónde | Cabeceras |
 | --- | --- |
 | Cada petición: telemetría y trazado de los SDK | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, en el formato de Anthropic (Anthropic, Bedrock, Vertex, una pasarela de empresa) | `x-claude-code-agent-id` y `x-claude-code-parent-agent-id`, los id de un subagente, que pueden contener su nombre; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` y `x-client-app`, que Claude Code copia de su entorno |
+| Claude Code, en el formato de Anthropic (Anthropic, Bedrock, Vertex, una pasarela de empresa) | `x-claude-code-agent-id` y `x-claude-code-parent-agent-id`, los id de un subagente, que pueden contener su nombre; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` y `x-client-app`, que Claude Code copia de su entorno; `x-claude-code-prev-tool-durations`, una indicación para las pasarelas que nombra las herramientas ejecutadas (entre ellas los nombres propios de un servidor MCP) |
 | Bedrock: el SDK de AWS | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: la biblioteca cliente de Google | `x-goog-api-client` |
 | Codex, en el formato de OpenAI y en el de ChatGPT | `x-codex-turn-metadata`, que contiene la ruta, los remotos y el commit de tu repositorio; `x-openai-subagent`, el tipo o una etiqueta libre de un subagente |
@@ -356,7 +356,8 @@ lo escribe para un destino en el que elegiste un perfil, en `config.yaml` y en
 hubiera ajustes aprobados: un cambio en `config.yaml` se aplicaría entonces sin esperar tu
 aprobación. Si elegiste uno, restaura la copia que hizo la actualización a la 0.11, que contiene los
 dos archivos tal como estaban antes: `latet upgrade --to` la ofrece al volver atrás (está en la
-carpeta de datos, en `backups/before-0.11.0-<hora>`). Sin esa copia (la 0.11 instalada con el
+carpeta de datos, en `backups/before-<versión>-<hora>`, con el nombre de la versión instalada, por
+ejemplo `before-0.11.1-…`). Sin esa copia (la 0.11 instalada con el
 instalador, que no hace ninguna), quita la clave de los dos archivos antes de volver atrás: las líneas
 `request_profile:` de `config.yaml`, y cada miembro `"request_profile": "…"` de
 `config.reviewed.json`, dejándolo como JSON válido.

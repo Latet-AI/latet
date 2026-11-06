@@ -423,7 +423,9 @@ PostgreSQL sucht, wie 0.10 es tat, und bildet die Fingerabdrücke des Tresors im
 Instanz nach der anderen; jede Instanz baut dann ihren eigenen Index daraus auf und nutzt ihn. Bis dahin
 maskieren die Aufrufe des Schlüssels dieselben Werte, langsamer ([Wie schnell es ist](#wie-schnell-es-ist): 494
 Zeilen pro Sekunde bei 200.000 Werten mit abgeschalteten Fingerabdrücken, in einer früheren Messung), und keiner
-wird deswegen abgewiesen. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
+wird deswegen abgewiesen. Während eine Instanz die Fingerabdrücke eines Tresors bildet, können auch die
+anderen Schlüssel und Personen, deren Bereiche sie inzwischen aufbaut, über die Suche in PostgreSQL bedient
+werden, bis ihr Index aufgebaut ist. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
 werden kann (PostgreSQL oder Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), bleiben die
 Aufrufe bei der Suche in PostgreSQL, bis der Index erneut aufgebaut ist: sofort, wenn eine andere Instanz die
 Fingerabdrücke gebildet hat, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann einmal pro Minute. Das Log

@@ -9,6 +9,7 @@ end-of-answer wait, the ledger a repeated key costs, RC-REC-3's settings read an
         [--warm 3] [--requests 20] [--values 1000] [--person-values 36000] [--workers 1|2] [--ocr-models DIR]
     uv run python scripts/request_coverage_bench.py compare --base TASK8.json --rc RC.json [--out VERDICT.json]
     uv run python scripts/request_coverage_bench.py finalizer --out FINALIZER.json [--rounds 20] [--source ...]
+    uv run python scripts/request_coverage_bench.py written --out WRITTEN.json [--rounds 5] [--source ...]
     uv run python scripts/request_coverage_bench.py ledger --out LEDGER.json [--source ...]
     uv run python scripts/request_coverage_bench.py micro --out MICRO.json [--calls 500] [--source ...]
     uv run python scripts/request_coverage_bench.py dry-run --out DIR      # every command with tiny counts, RC alone
@@ -995,6 +996,114 @@ async def child_finalizer(config: dict[str, Any]) -> dict[str, Any]:
     return {"machine": "computer", "finalizer": out}
 
 
+async def child_written(config: dict[str, Any]) -> dict[str, Any]:
+    """How long the event loop is held while the gateway reads what the model wrote in an answer it passes on as it came
+    (Claude Code's), an answer as large as it reads (``WRITTEN_BYTES``): a whole body, one event giving a tool call's
+    input whole, or that input in pieces. Each round: the longest turn of the loop (a task asks for one every 5 ms),
+    the answer's whole time, and what Python's own parse of the input alone takes on this machine. A measurement, never
+    a test's bound: the unit test pins that the parse runs on the engine's thread (minors after 0.11, item 17)."""
+    import httpx
+
+    from latet.config import Config
+    from latet.engine.build import build
+    from latet.engine.vault import Vault
+    from latet.gateway.app import GatewayConfig, create_app
+    from latet.gateway.mediate import Mediator
+    from latet.gateway.routes import Upstream
+    from latet.gateway.written import WRITTEN_BYTES
+
+    session = "4f6c1a52-0d1e-4b8e-9a37-2c5e8d0b7a11"
+    headers = {
+        "content-type": "application/json",
+        "user-agent": "claude-cli/2.1.291 (external, cli)",
+        "x-claude-code-session-id": session,
+    }
+    asked = {"model": "claude-sonnet-4-6", "max_tokens": 10, "messages": [{"role": "user", "content": "write"}]}
+    upstream = Upstream(
+        "anthropic",
+        "/anthropic",
+        "http://127.0.0.1:1",
+        envelope_expected=frozenset({("x-claude-code-session-id", session)}),
+    )
+
+    def event(found: dict[str, Any]) -> bytes:
+        return f"event: {found['type']}\ndata: {json.dumps(found)}\n\n".encode()
+
+    def answer(shape: str) -> tuple[str, bytes, str]:
+        items = [f"v{i:07d}" for i in range((WRITTEN_BYTES - 2**20) // (15 if shape == "pieces" else 12))]
+        given = {"items": items}
+        raw = json.dumps(given)
+        tool = {"type": "tool_use", "id": "t1", "name": "Write", "input": given}
+        if shape == "whole":
+            body = {"id": "msg_1", "type": "message", "role": "assistant", "content": [tool]}
+            return "application/json", json.dumps(body).encode(), raw
+        if shape == "event":
+            start = {"type": "content_block_start", "index": 0, "content_block": tool}
+            return "text/event-stream", event(start) + event({"type": "content_block_stop", "index": 0}), raw
+        start = {"type": "content_block_start", "index": 0, "content_block": {**tool, "input": {}}}
+        deltas = [
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": piece}}
+            for piece in (raw[at : at + 4096] for at in range(0, len(raw), 4096))
+        ]
+        stop = {"type": "content_block_stop", "index": 0}
+        return "text/event-stream", b"".join(event(found) for found in (start, *deltas, stop)), raw
+
+    out: dict[str, Any] = {}
+    for shape in ("whole", "event", "pieces"):
+        content_type, body, raw = answer(shape)
+        longest: list[float] = []
+        took: list[float] = []
+        parse: list[float] = []
+        for _ in range(config["rounds"]):
+            started = time.perf_counter()
+            json.loads(raw)
+            parse.append((time.perf_counter() - started) * 1000)
+            built = build(Config(), Vault(bytes(range(32))))
+            mediator = Mediator(built.engine, built.verifier)
+
+            def provider(_: httpx.Request, body: bytes = body, content_type: str = content_type) -> httpx.Response:
+                return httpx.Response(200, headers={"content-type": content_type}, stream=httpx.ByteStream(body))
+
+            settings = GatewayConfig(
+                port=5283,
+                upstreams=[upstream],
+                mediator=mediator,
+                client=lambda provider=provider: httpx.AsyncClient(transport=httpx.MockTransport(provider)),
+            )
+            app = create_app(settings)
+            gaps: list[float] = []
+            done = asyncio.Event()
+
+            async def tick(gaps: list[float] = gaps, done: asyncio.Event = done) -> None:
+                last = time.perf_counter()
+                while not done.is_set():
+                    await asyncio.sleep(0.005)
+                    now = time.perf_counter()
+                    gaps.append(now - last)
+                    last = now
+
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:5283") as client,
+            ):
+                ticking = asyncio.create_task(tick())
+                await asyncio.sleep(0.02)
+                started = time.perf_counter()
+                answered = await client.post("/anthropic/v1/messages", json=asked, headers=headers)
+                took.append((time.perf_counter() - started) * 1000)
+                done.set()
+                await ticking
+            if answered.status_code != 200:
+                raise SystemExit(f"the {shape} answer was answered {answered.status_code}")
+            longest.append(max(gaps) * 1000)
+        out[shape] = {
+            "longest_turn_ms": _summary(longest),
+            "answer_ms": _summary(took),
+            "parse_alone_ms": _summary(parse),
+        }
+    return {"machine": "computer", "written": out}
+
+
 async def child_ledger(config: dict[str, Any]) -> dict[str, Any]:
     """The coverage ledger a repeated key costs (the scattered round's note: about 14 KB for a 55-byte body with one):
     the ledger retained by bodies with 0 to 8 keys given twice, small and with a longer text."""
@@ -1119,6 +1228,7 @@ async def child_shared(config: dict[str, Any]) -> dict[str, Any]:
 CHILDREN = {
     "measure": child_measure,
     "finalizer": child_finalizer,
+    "written": child_written,
     "ledger": child_ledger,
     "micro": child_micro,
     "shared": child_shared,
@@ -1655,6 +1765,7 @@ def dry_run(args: argparse.Namespace) -> int:
     measure(again)
     compare(argparse.Namespace(base=out / "rc-again.json", rc=out / "rc.json", out=out / "verdict.json"))
     side_command(argparse.Namespace(out=out / "finalizer.json", rounds=2, **common), "finalizer")
+    side_command(argparse.Namespace(out=out / "written.json", rounds=1, **common), "written")
     side_command(argparse.Namespace(out=out / "ledger.json", **common), "ledger")
     if "server" in machines:
         side_command(argparse.Namespace(out=out / "micro.json", calls=5, **common), "micro")
@@ -1703,6 +1814,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     final = commands.add_parser("finalizer", help="the end-of-answer wait behind a masking request")
     common(final)
     final.add_argument("--rounds", type=int, default=20)
+    written = commands.add_parser("written", help="the event loop's longest turn while a large written answer is read")
+    common(written)
+    written.add_argument("--rounds", type=int, default=5)
     ledger = commands.add_parser("ledger", help="the ledger a repeated key costs")
     common(ledger)
     micro = commands.add_parser("micro", help="RC-REC-3's settings read, RC-REC-2's Valkey read and commit")
@@ -1727,7 +1841,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return measure(args)
     if args.command == "compare":
         return compare(args)
-    if args.command in ("finalizer", "ledger", "micro"):
+    if args.command in ("finalizer", "written", "ledger", "micro"):
         return side_command(args, args.command)
     if args.command == "dry-run":
         return dry_run(args)

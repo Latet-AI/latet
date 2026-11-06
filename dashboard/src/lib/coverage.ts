@@ -77,6 +77,7 @@ export type RefusalCategory =
   | 'parse' // a part Latet cannot read as its protocol says (an escape, an encoding, a duplicate)
   | 'limit' // past what Latet reads of one request, or too busy
   | 'state' // a state it needs could not be read
+  | 'settings' // its settings changed while it was prepared: sent again, it goes under the new ones
   | 'masking' // masking failed (a vault at its limit)
   | 'other'
 
@@ -117,6 +118,7 @@ const REFUSALS: Record<string, RefusalCategory> = {
   busy: 'limit',
   'conversation-unread': 'limit',
   'envelope-state-unavailable': 'state',
+  'settings-changed': 'settings',
   'masking-failed': 'masking',
 }
 
@@ -129,7 +131,7 @@ export function refusalCategory(code: string | null | undefined): RefusalCategor
  * refused (a header or a query parameter no profile names) or renew one that ended: never for a failure of
  * authorization, egress, reading or a work limit, nor for a route (an exception names components of a profile that
  * exists, F-4). */
-export type Remedy = 'exception' | 'exception-docs' | 'renew' | 'resource' | 'websocket' | 'none'
+export type Remedy = 'exception' | 'exception-docs' | 'renew' | 'resource' | 'again' | 'websocket' | 'none'
 
 /** A body member is let through by an exception named in your settings: the page says where that is explained, and
  * offers no action of its own (exceptions come from config.yaml or a command, and wait for your approval). */
@@ -138,6 +140,7 @@ export function remedyFor(category: RefusalCategory | null): Remedy {
   if (category === 'body-member') return 'exception-docs'
   if (category === 'expired') return 'renew'
   if (category === 'resource') return 'resource'
+  if (category === 'settings') return 'again'
   return 'none'
 }
 

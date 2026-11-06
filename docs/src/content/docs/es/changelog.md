@@ -16,6 +16,39 @@ Lo que viene después está en la [hoja de ruta](../roadmap/): un rechazo claro 
 un instalador firmado para Windows, tus propios modelos de nombres, más agentes, y la documentación en
 más idiomas.
 
+## 0.11.1 (2026-11-06)
+
+- **Las cabeceras de indicación de Claude Code.** Configurado para enviar sus cabeceras de indicación a
+  las pasarelas (`CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`), Claude Code ya no se rechaza tras una
+  compactación o una llamada a una herramienta: `x-claude-code-compaction` y
+  `x-claude-code-context-compacted` pasan, limitadas a sus tres valores, y
+  `x-claude-code-prev-tool-durations`, que nombra las herramientas ejecutadas, se quita y se cuenta,
+  como los id de sus subagentes.
+- **Una petición enviada mientras cambian los ajustes.** Una petición preparada mientras sus ajustes
+  se aplicaban de nuevo (un guardado, o en un servidor un cambio compartido) se prepara de nuevo con
+  los nuevos, como Latet ya hacía cuando solo cambiaban las reglas, en lugar de rechazarse con
+  *could not account for every part of this request*. Una petición cuya ruta cambió mientras tanto,
+  o cuyos ajustes cambiaron después de prepararla, sigue sin enviarse, y a su agente se le dice que
+  los ajustes cambiaron y que la envíe de nuevo; el historial, el registro y el panel dicen lo
+  mismo, con un motivo propio.
+- **Una respuesta transmitida entera se registra entera.** Una respuesta transmitida que llegó entera a
+  su cliente se registra entera aunque el cliente cierre la conexión justo después, como ya ocurría
+  con un turno de WebSocket; antes, el historial la mostraba como un error, sin su texto.
+- **Un WebSocket que el proveedor rechaza queda en el historial.** Un WebSocket cuyo handshake el
+  proveedor rechaza (`401`, `403`) o redirige, o cuyo proveedor no se alcanza, se registra en el
+  historial como la misma respuesta por HTTP; antes no dejaba registro.
+- **El índice de excepciones de peticiones del servidor.** Un espacio construido en varios workers o
+  instancias a la vez ya no reescribe cada vez el índice de excepciones de peticiones de la identidad:
+  se escribe solo cuando cambió, uno a la vez, así que el registro ya no avisa de que no se escribió,
+  y `latet server status` nunca lista una excepción revocada mientras tanto.
+- **Una ruta que desaparece entre dos intentos de AWS.** Cuando una ruta de Bedrock se quita entre los
+  dos intentos de AWS de una petición (al primero se respondió con un token caducado), al agente se le
+  dice que no se envió ningún otro intento y que el primero pudo llegar, en lugar de solo *no
+  upstream for this path*.
+- **Quién aprobó una excepción de petición.** Una excepción aprobada cuyo `issuer` (quién la aprobó)
+  se cambió a mano vuelve a esperar aprobación, aunque su hora de aprobación también se haya
+  adelantado; antes, esa hora adelantada la mantenía en vigor con el nuevo `issuer`.
+
 ## 0.11.0 (2026-11-05)
 
 Latet 0.11.0 bloquea las solicitudes de forma predeterminada cuando una parte de la ruta, los

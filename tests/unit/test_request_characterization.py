@@ -22,6 +22,7 @@ from latet.gateway import app as gateway_app
 
 from ..request_coverage import (
     _METHODS,
+    ADDED_AFTER_0_11,
     INPUTS,
     INPUTS_0_10,
     TABLE,
@@ -248,6 +249,16 @@ INTENDED: dict[str, Intended] = {
         "(0.10 checked the call and sent it)",
     ),
     "i4-vertex-unread": _refused("envelope-resource", "D4 notes: the unlisted Vertex project refuses first"),
+    "i4-vertex-read": Intended(
+        200,
+        sends=1,
+        as_sent=True,
+        records=SENT,
+        why="Minors after 0.11, item 13: the Vertex read path, its project the cell lists; checked, sent as it came",
+    ),
+    "i4-vertex-stream": Intended(
+        200, sends=1, as_sent=True, records=SENT, why="Minors after 0.11, item 13: the same, streamed"
+    ),
     "i4-gemini": _masked("I4/H12: generateContent masked; key, a destination-bound credential, kept"),
     # H1-H12: preparation
     "h1-bodyless": Intended(
@@ -365,8 +376,21 @@ INTENDED: dict[str, Intended] = {
         "envelope-query-unknown", "P2-1: x is in no profile, the handshake refused (0.10 connected and relayed)"
     ),
     "w0-no-route": Intended(None, close=4404, connects=0, records=(), why="W0: no route"),
-    "w0-refused": Intended(403, connects=1, frames_up=0, records=(), why="W0: the provider's denial relayed"),
-    "w0-redirect": Intended(502, said="redirect", connects=1, frames_up=0, records=(), why="W0: no redirect followed"),
+    "w0-refused": Intended(
+        403,
+        connects=1,
+        frames_up=0,
+        records=SENT,
+        why="W0: the provider's denial relayed, and recorded as over HTTP (minors after 0.11, item 4)",
+    ),
+    "w0-redirect": Intended(
+        502,
+        said="redirect",
+        connects=1,
+        frames_up=0,
+        records=SENT,
+        why="W0: no redirect followed, and recorded as over HTTP (minors after 0.11, item 4)",
+    ),
     "w1-binary": _turn_refused("binary frame", "P2-2: a binary frame refused unread (0.10's computer relayed it)"),
     "w2-contentless": Intended(
         None, connects=1, frames_up=1, as_sent=True, records=(), why="W2: response.cancel, no content, as it came"
@@ -431,7 +455,7 @@ WITH_NO_MEDIATOR: dict[str, Intended] = {
     "h0-passthrough-ws": Intended(
         None,
         close=1008,
-        said="nothing was sent",
+        said="request protection is unavailable",  # as over HTTP (minors after 0.11, item 12)
         connects=0,
         records=(),
         why="D5, P2-4: no unmediated WebSocket (0.10 relayed both frames as they came)",
@@ -600,8 +624,10 @@ def test_every_row_has_an_intended_outcome_on_each_of_its_machines():
 def test_the_p2_table_is_0_10s_with_valid_ids():
     """The P2 table's rows are 0.10's, in order, on the same machines, with the same setups and leak marks: only the
     ids 0.10 read none of (``Inputs``) are written otherwise, and none of 0.10's placeholders is left."""
-    assert [case.id for case in TABLE] == [case.id for case in TABLE_0_10]
-    for now, then in zip(TABLE, TABLE_0_10, strict=True):
+    kept = [case for case in TABLE if case.id not in ADDED_AFTER_0_11]  # the rows added since stand apart
+    assert {case.id for case in TABLE} - {case.id for case in kept} == ADDED_AFTER_0_11
+    assert [case.id for case in kept] == [case.id for case in TABLE_0_10]
+    for now, then in zip(kept, TABLE_0_10, strict=True):
         assert (now.ledger, now.method, now.transport, now.machines, now.setup, now.leak, now.after_phase_1) == (
             then.ledger,
             then.method,

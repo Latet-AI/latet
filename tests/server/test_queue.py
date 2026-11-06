@@ -18,6 +18,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import redis
@@ -897,40 +899,79 @@ async def test_the_keeper_and_a_wake_up_go_on_when_valkey_fails_them(db, queues,
 async def test_a_claim_renewed_by_hand_ends_the_wait_not_approved_and_a_real_claim_is_still_delivered(
     db, queues, monkeypatch
 ):
-    monkeypatch.setattr(queue_module, "KEEP_EVERY", 0.2)
-    monkeypatch.setattr(queue_module, "CLAIM_MS", 1_000)
+    """A claim's age is judged by the wait's own clock, here one the test moves (``queue.time.monotonic``), never by a
+    sleep; every claim lives in Valkey far longer than the test runs (``CLAIM_MS`` 30 s, each claim's own), so neither
+    Valkey's clock (Docker's VM's, stepped 3 s forward now and then) nor a loaded event loop decides; "the wait saw it
+    for two rounds" is two of the wait's reads of its place, counted (minors after 0.11, item 20: a 1 s claim expired
+    under the merge's run before the decision was written under it)."""
+    monkeypatch.setattr(queue_module, "KEEP_EVERY", 0.05)
+    monkeypatch.setattr(queue_module, "CLAIM_MS", 30_000)
+    clock = [1_000.0]
+    monkeypatch.setattr(
+        queue_module, "time", SimpleNamespace(time=time.time, monotonic=lambda: clock[0], sleep=time.sleep)
+    )
     a, b = queues
+    reads: dict[str, int] = {}
+    ended = a._end
+
+    def counted(batch_id: str, *found: Any) -> None:
+        reads[batch_id] = reads.get(batch_id, 0) + 1
+        ended(batch_id, *found)
+
+    monkeypatch.setattr(a, "_end", counted)
+
+    async def rounds(batch_id: str, more: int = 2) -> None:
+        wanted = reads.get(batch_id, 0) + more
+        await _until(lambda: reads.get(batch_id, 0) >= wanted)
+
+    def step(place: str) -> None:  # Valkey's clock stepped 3 s forward: a claim's life shortened, never ended here
+        b.bus.client.pexpire(place, max(1, b.bus.client.pttl(place) - 3_000))
+
+    # A claim renewed by hand (another instance's, never written): the wait goes on while its first sight is within
+    # CLAIM_MS and a round, and ends not approved at its first read past it.
     forged = _batch(polled=True)
     await a.store(forged)
+    place = a._key("decision", forged.id)
+    b.bus.client.set(place, b"claim:" + b"0" * 32, px=30_000)
     wait = asyncio.ensure_future(a.decision(forged, None))  # as the plugin's answer waits: with no time limit
-    place, started = a._key("decision", forged.id), time.monotonic()
-    while not wait.done() and time.monotonic() - started < 5:
-        b.bus.client.set(place, b"claim:" + b"0" * 32, px=1_000)  # Valkey's writer renews it before it ends
-        await asyncio.sleep(0.3)
-    decision = await asyncio.wait_for(wait, 1)
+    await rounds(forged.id)
+    clock[0] += 30.0  # within CLAIM_MS and a round of its first sight
+    b.bus.client.set(place, b"claim:" + b"0" * 32, px=30_000)  # renewed by hand before it ends
+    step(place)
+    await rounds(forged.id)
+    assert not wait.done()
+    clock[0] += 0.1  # past them
+    b.bus.client.set(place, b"claim:" + b"0" * 32, px=30_000)
+    decision = await asyncio.wait_for(wait, 5)
     assert decision is not None and not decision.approved and decision.state == "abandoned"
-    assert time.monotonic() - started < 2 * 1.0 + 0.2 + 0.5  # two claims' lives and a round, from the first seen
 
+    # Another instance claims the place, and writes its decision a moment later: delivered.
     real = _batch()
     await a.store(real)
     waiting = asyncio.ensure_future(a.decision(real, None))
-    claim = b._claimed(real.id)  # another instance claims the place, and writes its decision a moment later
+    claim = b._claimed(real.id)
     assert claim is not None
-    await asyncio.sleep(0.5)  # the wait sees the claim for two rounds
-    assert b._written(real.id, Decision(True), claim)
-    decision = await asyncio.wait_for(waiting, 1)
+    step(a._key("decision", real.id))
+    await rounds(real.id)  # the wait sees the claim for two rounds
+    assert not waiting.done() and b._written(real.id, Decision(True), claim)
+    decision = await asyncio.wait_for(waiting, 5)
     assert decision is not None and decision.approved
 
-    again = _batch()  # a claim whose instance stopped before writing, then another's, later: counted afresh
+    # A claim whose instance stopped before writing, then another's, later: counted afresh.
+    again = _batch()
     await a.store(again)
+    place = a._key("decision", again.id)
+    b.bus.client.set(place, b"claim:" + b"1" * 32, px=30_000)
     waiting = asyncio.ensure_future(a.decision(again, None))
-    b.bus.client.set(a._key("decision", again.id), b"claim:" + b"1" * 32, px=400)
-    await asyncio.sleep(1.5)  # seen, then gone for a round; the first claim was seen longer ago than its time
+    await rounds(again.id)
+    b.bus.client.delete(place)  # its instance stopped: gone
+    await rounds(again.id)
+    clock[0] += 60.0  # the first claim was seen longer ago than its time
     claim = b._claimed(again.id)
     assert claim is not None
-    await asyncio.sleep(0.3)
+    await rounds(again.id)
     assert not waiting.done() and b._written(again.id, Decision(True), claim)
-    decision = await asyncio.wait_for(waiting, 1)
+    decision = await asyncio.wait_for(waiting, 5)
     assert decision is not None and decision.approved
 
 
@@ -1187,8 +1228,11 @@ async def test_what_does_not_open_or_parse_counts_as_absent_and_is_said_once_for
     client.hset(a._key("polls", damaged_life.id), "b", "junk")
     client.set(a._key("batch", damaged.id), b"junk", px=60_000)
     client.zadd(a._key("batches"), {b"\xff\xfe": time.time() * 1000 + 60_000})
-    listed = b.waiting()
-    assert [x.id for x in listed] == [damaged_life.id, fine.id] and listed[0].waiting == 0
+    # By id, not by order: the queue lists by when each batch was made, and three made in a row can share one tick of
+    # the clock (about 15.6 ms on Windows with Python 3.12), their order then Valkey's member order of random ids
+    # (minors after 0.11, item 22).
+    listed = {x.id: x for x in b.waiting()}
+    assert set(listed) == {damaged_life.id, fine.id} and listed[damaged_life.id].waiting == 0
     assert b.get(damaged.id) is None
 
     client.hset(a._key("viewers"), "a", "junk")
