@@ -256,7 +256,8 @@ async def test_nothing_is_connected_to_but_the_addresses_the_lookup_checked(conn
     try:
         async with make_client(trust_env=False) as client:
             for addresses in (("127.0.0.1", "::1"), ("::1", "localhost"), ("::1",), None):
-                with pytest.raises(httpx.ConnectError):
+                # Refused, or on macOS, which drops a connection to a port bound but not listening, timed out.
+                with pytest.raises((httpx.ConnectError, httpx.ConnectTimeout)):
                     await client.send(_request(client, url, addresses, host=f"localhost:{server.port}"))
     finally:
         server.close()

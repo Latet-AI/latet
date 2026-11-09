@@ -60,8 +60,9 @@ class MemorySettings(OwnSettings):
 def refused_on_v6(start):
     """A server ``start()`` opens on 127.0.0.1, and beside it a socket bound to ``[::1]`` at the same port that does not
     listen: a connection there is refused, as a provider in Docker that listens on 127.0.0.1 alone refuses Windows's
-    ``localhost``, whose first address is ``::1``. The socket is None on a computer without IPv6's loopback, where a
-    connection to ``::1`` fails all the same."""
+    ``localhost``, whose first address is ``::1`` (macOS drops it instead: the connection times out, and fails all the
+    same). The socket is None on a computer without IPv6's loopback, where a connection to ``::1`` fails all the
+    same."""
     for _ in range(20):
         server = start()
         try:
