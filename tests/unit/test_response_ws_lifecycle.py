@@ -234,13 +234,24 @@ class _Fixture:
 
     async def join(self, *, disconnect: bool = True) -> None:
         """The relay ended, then the settlement of its last turn answered whole, which ends alone once its relay went
-        (``ResponseFinalizer.leave``), and what was left to it (its raw capture's end)."""
+        (``ResponseFinalizer.leave``), and what was left to it (its raw capture's end): the callbacks of that
+        settlement's end, each run in its turn after the ones before it. A settlement that ended just as its relay did
+        is done with its callbacks still queued, the capture's end not written yet; gathering it is done at once
+        (``asyncio.gather`` takes a done task as done), and a check right after read the capture without its end
+        (public CI on 3.14, 2026-11-09). A callback of the fixture's own, added after them, ends the wait."""
         assert self.task is not None
         if disconnect and not self.task.done():
             self.disconnect()
         await asyncio.wait_for(asyncio.shield(self.task), _TIMEOUT)
-        alone = response_finalizer._ALONE.get(self.executor, ()) if self.executor is not None else ()
-        await asyncio.wait_for(asyncio.gather(*alone), _TIMEOUT)
+        alone = list(response_finalizer._ALONE.get(self.executor, ()) if self.executor is not None else ())
+        await asyncio.wait_for(asyncio.gather(*(self._after(task) for task in alone)), _TIMEOUT)
+        await asyncio.gather(*alone)  # each done: what one raised is raised here, as before
+
+    def _after(self, task: asyncio.Task[None]) -> asyncio.Future[None]:
+        """Done once ``task``'s callbacks added before this one have run."""
+        after = self.loop.create_future()
+        task.add_done_callback(lambda _: after.done() or after.set_result(None))
+        return after
 
     async def cleanup(self) -> None:
         self.wire.send_release.set()

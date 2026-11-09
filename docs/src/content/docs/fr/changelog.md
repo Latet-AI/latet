@@ -17,6 +17,28 @@ Ce qui vient ensuite est dans la [feuille de route](../roadmap/) : un refus clai
 auto, un programme d'installation signé pour Windows, vos propres modèles de noms, d'autres agents, et
 la documentation dans d'autres langues.
 
+## 0.12.1 (2026-11-09)
+
+- **Une destination jointe à ses autres adresses.** Sur un serveur, une destination propre d'une
+  personne dont le nom a plusieurs adresses est jointe à la suivante, dans l'ordre donné par le
+  système, quand la connexion à la première est refusée ou ne se fait pas à temps, avant que rien de
+  la requête ne soit envoyé. Un système peut donner d'abord l'adresse IPv6 d'un nom (Windows le fait
+  pour `localhost`), et un fournisseur qui ne répond qu'à son adresse IPv4 est alors joint là ; une
+  connexion encore ouverte vers l'une d'elles sert en premier, si bien qu'une adresse qui refuse ne
+  coûte son temps qu'une fois tant que cette connexion reste ouverte. Seules les adresses vérifiées
+  lors de cette même résolution sont essayées, huit au plus, dans le temps dont dispose une
+  connexion ; une requête qui en a joint une n'est jamais envoyée à une autre, et un nom dont une
+  adresse quelconque est dans le réseau du serveur est toujours refusé.
+- **Une restauration refusée pendant un changement de réglages n'est plus journalisée.** Une
+  restauration par l'API des applications était refusée (`503`, *send it again*) quand les réglages
+  de la clé commençaient à être appliqués pendant qu'on y répondait. Elle ne renvoyait rien, mais
+  laissait quand même une entrée `apps.unmasked` dans le journal d'administration, et sa nouvelle
+  tentative une deuxième. Une restauration refusée dès son arrivée, parce que les réglages étaient
+  déjà en train d'être appliqués, n'en laissait aucune. L'entrée n'est maintenant écrite que pour
+  une restauration qui reçoit sa réponse, si bien que chaque entrée est une restauration qui a rendu
+  ses textes. Une analyse, un masquage ou une restauration refusés pendant qu'on y répondait ne sont
+  plus comptés non plus dans `latet_apps_texts_total` et `latet_apps_values_total`.
+
 ## 0.12.0 (2026-11-09)
 
 - **Une requête dont les réglages changent avant son envoi.** Une requête dont les réglages changent

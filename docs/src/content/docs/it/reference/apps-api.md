@@ -175,10 +175,10 @@ quando).
 
 ## Che cosa registra il server
 
-- **Il registro amministrativo** riceve una voce `apps.unmasked` per ogni chiamata di ripristino,
-  prima che parta la risposta: l'id del token, quanti testi e quanti valori sono stati ripristinati
-  (`{"token": "t_...", "texts": 3, "restored": 5}`), e l'indirizzo del client. Mai un testo o un
-  valore. Analisi e mascheramento non ci finiscono. Leggile con
+- **Il registro amministrativo** riceve una voce `apps.unmasked` per ogni chiamata di ripristino a
+  cui Latet risponde, prima che parta la risposta: l'id del token, quanti testi e quanti valori sono
+  stati ripristinati (`{"token": "t_...", "texts": 3, "restored": 5}`), e l'indirizzo del client.
+  Mai un testo o un valore. Analisi e mascheramento non ci finiscono. Leggile con
   `latet server log --action apps.unmasked`. Ogni chiamata di oblio è una voce `apps.forgotten`,
   scritta nella stessa transazione dell'oblio: l'id del token, quanti valori sono stati chiesti,
   dimenticati e non trovati (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), e

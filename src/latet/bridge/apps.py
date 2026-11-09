@@ -34,7 +34,10 @@ A scan, mask or unmask that comes while the space's settings are being applied (
 be all in place, as a request over HTTP does (``request_policy.settled``, the same bound), and is answered under them;
 one whose apply outlasts the wait, or that comes while the settings that ran before could not be put back
 (``Engine.stranded``), or whose answer an apply began over, is refused (503, ``SETTINGS_CHANGED``): nothing of a call is
-masked, scanned or restored under settings half applied, nor given (minors after 0.11, item 23's fix round)."""
+masked, scanned or restored under settings half applied, nor given (minors after 0.11, item 23's fix round). Nor is it
+recorded: a call refused so is counted in no metric, and an unmask refused so has no entry in the administration log,
+since the check comes before either; an unmask's entry, once written, is answered (the 0.12 merge's reviews, L2, L4).
+Each gated operation asks that check itself, and one that never asks is refused (503): the gate fails closed."""
 
 from __future__ import annotations
 
@@ -195,6 +198,7 @@ class Apps:
         self._failed = Paced()  # calls that failed otherwise, said once a minute by the error's type
         self._unlogged = Paced()  # unmasks and forgets refused because the administration log did not take them
         self._unsettled = Paced()  # calls refused because the space's settings were being applied, said once a minute
+        self._unasked = Paced()  # gated calls refused because their operation never asked ``overtaken``: a fault
 
     def routes(self) -> list[Route]:
         return [
@@ -222,9 +226,11 @@ class Apps:
     ) -> Callable[[Request], Awaitable[Response]]:
         """``work`` behind the checks of every call: the gate's grant (403), the method (405), the permission of
         ``operation`` (403), the body (400, read and checked in the bridge's thread by ``read``, ``_texts`` unless
-        another is given, whose parts ``work`` is given after the request and the grant); and its failures answered: a
-        full vault 507, another masking failure 500, a store that does not answer 503, anything else 500, each said in
-        the log by its words when they name no value (a masking failure's), else by the error's type."""
+        another is given, whose parts ``work`` is given after the request, the grant and ``overtaken``, which says
+        whether an apply of the settings came over the call: 503 then, nothing of it recorded; a gated operation that
+        answers without asking it is refused all the same, 503, the gate failing closed); and its failures
+        answered: a full vault 507, another masking failure 500, a store that does not answer 503, anything else 500,
+        each said in the log by its words when they name no value (a masking failure's), else by the error's type."""
         reader = read if read is not None else functools.partial(_texts, kinds=operation != "unmask")
         gated = operation in _UNDER_THE_SETTINGS
 
@@ -249,13 +255,24 @@ class Apps:
             begun = engine.applies
             if gated and engine.applying:
                 return self._settings_changed()
+
+            asked = [False]
+
+            def overtaken() -> bool:
+                """An apply under way, or begun since the call came: what the call made is not given. ``work`` asks it
+                once its texts are read and before anything records it (its count in the metrics, an unmask's entry
+                in the administration log), so that a call refused is recorded nowhere (the 0.12 merge's reviews,
+                L2 and L4). Forget is not gated, and never overtaken."""
+                asked[0] = True
+                return gated and bool(engine.applying or engine.applies != begun)
+
             try:
                 given = await self.mediator.run_bridge(reader, raw)
                 if isinstance(given, str):
                     return _error(400, given)
-                answer = await work(request, grant, *given)
-                if gated and (engine.applying or engine.applies != begun):  # an apply began over it: not given
-                    return self._settings_changed()
+                answer = await work(request, grant, overtaken, *given)
+                if gated and not asked[0]:  # fails closed: never answered across a save it did not ask about
+                    return self._never_asked(operation)
                 return answer
             except VaultFull as exc:  # nothing of the call is answered, nothing leaves in clear (R9)
                 full = f"its limit is {exc.limit} values" if exc.limit is not None else "it holds the most it may"
@@ -286,6 +303,21 @@ class Apps:
             log.warning("an applications API call was answered 503: the space's settings were being applied%s", many)
         return _error(503, SETTINGS_CHANGED)
 
+    def _never_asked(self, operation: str) -> Response:
+        """A gated operation that answered without asking whether an apply came over it (``overtaken``), a fault of
+        Latet's own: refused as one an apply came over (503, in the same fixed words), whether one did or not, so that
+        nothing is answered across a save unchecked; said in the log once a minute, with the operation's name (the
+        review of the 0.12.1 minors, L2)."""
+        if count := self._unasked.due():
+            many = f" ({count} since the line before)" if count > 1 else ""
+            log.error(
+                "an applications API call was refused: its operation (%s) never asked whether the space's settings "
+                "changed over it%s",
+                operation,
+                many,
+            )
+        return _error(503, SETTINGS_CHANGED)
+
     def _not_answering(self, exc: BaseException) -> Response:
         """A call a store did not answer: 503, said in the log once a minute by the error's type."""
         if count := self._unanswered.due():
@@ -300,9 +332,19 @@ class Apps:
             return _error(403, NOT_A_KEY)
         return _error(404, "there is no such route in the applications API")
 
-    async def scan(self, request: Request, grant: dict[str, Any], texts: list[str], kind: SlotKind) -> Response:
-        """``{texts, kind?}`` → ``{results: [{findings: [{type, class, start, end}], counts}]}``."""
+    async def scan(
+        self,
+        request: Request,
+        grant: dict[str, Any],
+        overtaken: Callable[[], bool],
+        texts: list[str],
+        kind: SlotKind,
+    ) -> Response:
+        """``{texts, kind?}`` → ``{results: [{findings: [{type, class, start, end}], counts}]}``: counted in the
+        metrics once it is given, never when an apply came over it (503)."""
         answer, found = await self.mediator.run_bridge(self._scan, texts, kind)
+        if overtaken():
+            return self._settings_changed()
         observe.apps("scan", len(texts), found)
         return answer
 
@@ -330,18 +372,28 @@ class Apps:
                     break  # one final counter boundary; continuous writers cannot make an unbounded retry
         return _rendered({"results": results}), found
 
-    async def mask(self, request: Request, grant: dict[str, Any], texts: list[str], kind: SlotKind) -> Response:
+    async def mask(
+        self,
+        request: Request,
+        grant: dict[str, Any],
+        overtaken: Callable[[], bool],
+        texts: list[str],
+        kind: SlotKind,
+    ) -> Response:
         """``{texts, kind?}`` → ``{results: [{text, replacements: [{type, class, start, end}], counts}], degraded?}``,
         a result ``{blocked}`` for a text the local reviewer or the dump guard stopped, and ``degraded`` the names of
         what ran weaker on the call (a detector that did not read a text, a review that did not end), when something
         did. The local reviewer reads every text, of either kind, within ``llm_review.budget_ms``, else
-        ``APPS_REVIEW_SECONDS`` (R8), and nothing of them later; the Live Reviewer never holds them."""
+        ``APPS_REVIEW_SECONDS`` (R8), and nothing of them later; the Live Reviewer never holds them. Counted in the
+        metrics once it is given, never when an apply came over it (503)."""
         session, out, reviews, degraded = await self.mediator.run_bridge(self._mask, texts, kind)
         if reviews:
             degraded = await inline_review(
                 self.mediator, session, reviews, out, degraded, budget_s=APPS_REVIEW_SECONDS, background=False
             )
         answer, replaced = await self.mediator.run_bridge(_masked_results, out, degraded)
+        if overtaken():
+            return self._settings_changed()
         observe.apps("mask", len(texts), replaced)
         return answer
 
@@ -383,7 +435,14 @@ class Apps:
                     reviews.append(review)
         return session, out, reviews, sorted(set(report.degraded))
 
-    async def unmask(self, request: Request, grant: dict[str, Any], texts: list[str], kind: SlotKind) -> Response:
+    async def unmask(
+        self,
+        request: Request,
+        grant: dict[str, Any],
+        overtaken: Callable[[], bool],
+        texts: list[str],
+        kind: SlotKind,
+    ) -> Response:
         """``{texts}`` → ``{results: [{text, restored}]}``: every fake of the space's vault in each text restored, and
         how many values; written in the administration log before the answer is made (``apps.unmasked``: the token, how
         many texts and values, the client's address; never a text or a value). A log that does not take it refuses the
@@ -391,10 +450,17 @@ class Apps:
 
         The texts are restored in the bridge's thread, the entry written in the server's log threads (``audit``),
         where it waits on the log's chain, one entry at a time for the whole server, with the bridge's thread free for
-        the space's other calls meanwhile; then the answer is rendered in the bridge's thread (Ruling T5a)."""
+        the space's other calls meanwhile; then the answer is rendered in the bridge's thread (Ruling T5a).
+
+        An apply that came over the texts as they were restored refuses the call (503) before its entry is written, so
+        the log holds only unmasks that were given, and a retry is written once (the 0.12 merge's reviews, L2). Once
+        the entry is written the call is answered, even when an apply begins meanwhile: its texts were restored under
+        settings whole, before that apply began."""
         client = request.scope.get("client")
         address = str(client[0]) if client else None
         results, restored = await self.mediator.run_bridge(self._unmask, texts)
+        if overtaken():  # restored as the settings were changing: not given, nor written in the log
+            return self._settings_changed()
         details = {"token": str(grant.get("token")), "texts": len(texts), "restored": restored}
         try:
             if self.on_server.audit is None:
@@ -430,7 +496,9 @@ class Apps:
                     break
         return results, restored
 
-    async def forget(self, request: Request, grant: dict[str, Any], values: list[str]) -> Response:
+    async def forget(
+        self, request: Request, grant: dict[str, Any], overtaken: Callable[[], bool], values: list[str]
+    ) -> Response:
         """``{values}`` → ``{forgotten, unknown}``: each value, found exactly as it is given (another case, another
         written form is another value, as the vault keeps it), taken out of the space's vault with everything that names
         it and the local reviewer's remembered answers that found it, and how many of the values (each counted once)
@@ -439,7 +507,7 @@ class Apps:
         never a value), in the server's log threads (``OnServer.forget``): a log that does not take it forgets nothing
         (503). Then out of the space's memory, in the bridge's thread: its working set (``StoredVault.forgotten``) and
         the texts its engine masked before, which may hold their fakes; the other instances drop them as they hear of
-        it (``spaces._forget``)."""
+        it (``spaces._forget``). An apply of the settings does not gate it: ``overtaken`` is never true here."""
         client = request.scope.get("client")
         address = str(client[0]) if client else None
         if self.on_server.forget is None:

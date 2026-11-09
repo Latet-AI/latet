@@ -253,8 +253,11 @@ def make_client(*, trust_env: bool = True) -> httpx.AsyncClient:
     kept on purpose): Latet never goes on to the address an answer names, inside a server's network say, and the agent
     is answered a clear error in place of the redirect, which it would follow with its request unmasked
     (``Forwarder._redirected``). ``trust_env`` False: no proxy and no credential of the environment's (a destination of
-    an identity's own, which a server reaches at the address it checked). It keeps no cookie (``cookieless``)."""
+    an identity's own, which a server reaches at the addresses it checked, the next tried only when the connection to
+    the one before failed: ``request_transport.reaching``). It keeps no cookie (``cookieless``)."""
     context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    if not trust_env:
+        return httpx.AsyncClient(transport=request_transport.reaching(context), **client_options(trust_env=False))
     return httpx.AsyncClient(verify=context, **client_options(trust_env=trust_env))
 
 

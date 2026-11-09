@@ -378,7 +378,7 @@ hubiera ajustes aprobados: un cambio en `config.yaml` se aplicaría entonces sin
 aprobación. Si elegiste uno, restaura la copia que hizo la actualización a la 0.11, que contiene los
 dos archivos tal como estaban antes: `latet upgrade --to` la ofrece al volver atrás (está en la
 carpeta de datos, en `backups/before-<versión>-<hora>`, con el nombre de la versión instalada, por
-ejemplo `before-0.12.0-…`). Sin esa copia (la 0.11 instalada con el
+ejemplo `before-0.12.1-…`). Sin esa copia (la 0.11 instalada con el
 instalador, que no hace ninguna), quita la clave de los dos archivos antes de volver atrás: las líneas
 `request_profile:` de `config.yaml`, y cada miembro `"request_profile": "…"` de
 `config.reviewed.json`, dejándolo como JSON válido.

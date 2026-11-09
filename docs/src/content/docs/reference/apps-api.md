@@ -170,13 +170,13 @@ counted as `unknown`. A failed mask call may have kept some of its new values
 
 ## What the server records
 
-- **The administration log** gets one `apps.unmasked` entry for each unmask call, before its answer
-  is sent: the token's id, how many texts and how many values were restored (`{"token": "t_...",
-  "texts": 3, "restored": 5}`), and the client's address. Never a text or a value. Scan and mask are
-  not in it. Read them with `latet server log --action apps.unmasked`. Each forget call is an
-  `apps.forgotten` entry, written in the same transaction as the forget: the token's id, how many
-  values were asked, forgotten and not held (`{"token": "t_...", "values": 2, "forgotten": 1,
-  "unknown": 1}`), and the client's address.
+- **The administration log** gets one `apps.unmasked` entry for each unmask that is answered, before
+  its answer is sent: the token's id, how many texts and how many values were restored
+  (`{"token": "t_...", "texts": 3, "restored": 5}`), and the client's address. Never a text or a
+  value. Scan and mask are not in it. Read them with `latet server log --action apps.unmasked`. Each
+  forget call is an `apps.forgotten` entry, written in the same transaction as the forget: the
+  token's id, how many values were asked, forgotten and not held
+  (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), and the client's address.
 - **The metrics** count the API's requests as `latet_http_requests_total{kind="apps"}`, by status, and
   its texts and values by operation: `latet_apps_texts_total{operation}` and
   `latet_apps_values_total{operation}` (the values scan found, mask replaced and unmask restored; for

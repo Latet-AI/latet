@@ -27,19 +27,24 @@ failure cannot erase an earlier attempt. No setting or credential loader is call
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextvars
+import hashlib
+import ipaddress
 import math
+import socket
 import ssl
 import threading
 import time
 import types
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 import truststore
 from websockets.asyncio.client import ClientConnection, connect
@@ -51,6 +56,7 @@ from latet.gateway.outcome import Forward, NotSendable, Pass, sendable, still_cu
 from latet.gateway.request_policy import PolicySnapshot, current
 from latet.gateway.sigv4 import AwsCredentials, sign
 from latet.protocols.sse import MAX_DECODED
+from latet.server import egress
 
 if TYPE_CHECKING:
     from latet.gateway.mediate import Prepared
@@ -101,7 +107,8 @@ class AuthorizedRequest:
 @dataclass(frozen=True, slots=True, eq=False, weakref_slot=True)
 class BuiltRequest:
     """A request built from an authorization: httpx's request, what it was frozen as, the body stream it carries and
-    the client that built it, which alone sends it. Printed without its target, headers or content."""
+    the client that built it, which alone sends it, and the addresses egress checked that it may be sent at in turn
+    (``egress.ADDRESSES``, a destination of an identity's own). Printed without its target, headers or content."""
 
     authorized: AuthorizedRequest
     request: httpx.Request = field(repr=False)
@@ -109,6 +116,7 @@ class BuiltRequest:
     stream: object = field(repr=False)
     client: object = field(default=None, repr=False)
     signer: AwsCredentials | None = field(default=None, repr=False)
+    addresses: object = field(default=None, repr=False)
 
 
 # A decision's attempts authorized so far, and with whose credentials.
@@ -297,7 +305,8 @@ def build(
             or final.tls_name != (extensions or {}).get("sni_hostname")
         ):
             return SendRefusal("envelope-final")
-    built = BuiltRequest(authorized, outgoing, final, outgoing.stream, client, signer[0] if signer else None)
+    addresses = outgoing.extensions.get(egress.ADDRESSES)
+    built = BuiltRequest(authorized, outgoing, final, outgoing.stream, client, signer[0] if signer else None, addresses)
     with _LOCK:
         _BUILT.add(built)
     return built
@@ -305,7 +314,8 @@ def build(
 
 def _as_built(built: BuiltRequest) -> bool:
     """Whether its request is still what was frozen: the same method, raw URL, header list, content and TLS name,
-    carried by the very stream it was built with, whose bytes are the decision's."""
+    carried by the very stream it was built with, whose bytes are the decision's, and the very addresses it may be sent
+    at."""
     request, final, payload = built.request, built.final, built.authorized.payload
     try:
         now = freeze(request)
@@ -315,6 +325,7 @@ def _as_built(built: BuiltRequest) -> bool:
         return False
     return (
         request.stream is built.stream
+        and request.extensions.get(egress.ADDRESSES) is built.addresses
         and chunks is not None
         and len(chunks) == 1
         and chunks[0] is payload
@@ -374,6 +385,160 @@ def sending() -> httpx.Request | None:
     """The request the transport is sending now, in this context (the token the send guard looks for); None
     elsewhere."""
     return _SENDING.get()
+
+
+# --- where a request to a destination of an identity's own connects, on a server --------------------------------------
+
+
+@dataclass(slots=True)
+class _Attempt:
+    """One address of a request's tried (``_Reaching``): its share of the connect time for its TCP connection, and
+    whether that connection itself failed."""
+
+    address: str
+    seconds: float
+    unconnected: bool = False
+
+
+_ATTEMPT: contextvars.ContextVar[_Attempt | None] = contextvars.ContextVar("latet_attempt", default=None)
+
+
+class _Shared(httpcore.AsyncNetworkBackend):
+    """httpcore's own backend (``AnyIOBackend``), connecting to the address of a host ``_keyed`` made (what comes before
+    its ``|``); a TCP connection to the address an attempt tries (``_ATTEMPT``) made within the attempt's time of the
+    connect timeout, and its failure kept for the attempt. TLS keeps the connect timeout whole, as before."""
+
+    def __init__(self) -> None:
+        # httpcore names a stand-in of its own when anyio is missing (it never is: httpx needs it)
+        self._backend = cast(httpcore.AsyncNetworkBackend, httpcore.AnyIOBackend())
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore's backend interface
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        address = host.partition("|")[0]
+        attempt = _ATTEMPT.get()
+        if attempt is None or address != attempt.address:
+            return await self._backend.connect_tcp(address, port, timeout, local_address, socket_options)
+        seconds = attempt.seconds if timeout is None else min(timeout, attempt.seconds)
+        try:
+            made = await self._backend.connect_tcp(address, port, seconds, local_address, socket_options)
+        except (httpcore.ConnectError, httpcore.ConnectTimeout):  # refused, unreachable, not made in time: no byte left
+            attempt.unconnected = True
+            raise
+        attempt.unconnected = False  # made: whatever fails after this tries no other address
+        return made
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore's backend interface
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._backend.connect_unix_socket(path, timeout, socket_options)
+
+    async def sleep(self, seconds: float) -> None:
+        await self._backend.sleep(seconds)
+
+
+LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)  # httpx's own (DEFAULT_LIMITS), one pool's
+
+
+def _keyed(address: str, name: object) -> bytes:
+    """The host a request is sent at in ``_Reaching``'s pool: ``address``, with the TLS name its connection checks
+    (``sni_hostname``) when it has one, as a digest after a ``|``, so that a connection kept is reused only by a
+    request at that address for that name; ``_Shared`` connects to the address alone."""
+    if not isinstance(name, str) or not name:
+        return address.encode("ascii")
+    return f"{address}|{hashlib.blake2s(name.encode('utf-8'), digest_size=16).hexdigest()}".encode("ascii")
+
+
+def _kept_first(
+    pool: httpcore.AsyncConnectionPool, url: httpcore.URL, addresses: tuple[str, ...], name: object
+) -> tuple[str, ...]:
+    """``addresses`` with the first of them at which ``pool`` keeps a connection for the TLS name ``name`` free for a
+    request put first, the others in their order: an address that refused costs its time once, not on every
+    request."""
+    for address in addresses:
+        origin = httpcore.URL(scheme=url.scheme, host=_keyed(address, name), port=url.port, target=b"/").origin
+        if any(c.can_handle_request(origin) and c.is_available() and not c.has_expired() for c in pool.connections):
+            return (address, *(other for other in addresses if other != address))
+    return addresses
+
+
+class _Reaching(httpcore.AsyncConnectionPool):
+    """The pool of the client a server reaches the destinations of an identity's own with (``reaching``), with httpx's
+    limits (``LIMITS``): the connections of all the identity's destinations together, as before they were kept for
+    their TLS name. Each is kept for the address it was made to and the TLS name it checked (``_keyed``), so that it
+    is reused only by a request at that address for that name. A request that carries the addresses egress checked
+    for its name (``egress.checked``: the first its URL's host, all written as numbers) is sent at the first of them
+    that answers, in their order, but at one where a connection for its name is free first (``_kept_first``): the
+    next is tried only when the TCP connection to the one before failed (refused, unreachable, not made in the time it
+    is given of the connect timeout, ``egress.tries``), so before any byte of the request was written; never once a
+    connection was made, its TLS failed or its request went unanswered, and so the body is never sent twice. A request
+    past the limit waits for a connection, within its pool timeout, as on httpx's own pool."""
+
+    def _at(self, request: httpcore.Request, address: str, extensions: Any) -> httpcore.Request:
+        """``request`` sent at ``address``, kept for its TLS name (``_keyed``), with ``extensions``."""
+        url = request.url
+        return httpcore.Request(
+            request.method,
+            httpcore.URL(
+                scheme=url.scheme,
+                host=_keyed(address, request.extensions.get("sni_hostname")),
+                port=url.port,
+                target=url.target,
+            ),
+            headers=request.headers,
+            content=request.stream,
+            extensions=extensions,
+        )
+
+    async def handle_async_request(self, request: httpcore.Request) -> httpcore.Response:
+        host = request.url.host.decode("ascii")
+        addresses = egress.checked(request.extensions, host)
+        if len(addresses) < 2:
+            return await super().handle_async_request(self._at(request, host, request.extensions))
+        timeouts = dict(request.extensions.get("timeout") or {})
+        failed: httpcore.ConnectError | httpcore.ConnectTimeout | None = None
+        connect = timeouts.get("connect") or egress.CONNECT_SECONDS
+        name = request.extensions.get("sni_hostname")
+        for index, (address, seconds) in enumerate(
+            egress.tries(_kept_first(self, request.url, addresses, name), connect)
+        ):
+            attempt = _Attempt(address, seconds)
+            # A later address waits for a connection of the pool's within its time, as it connects.
+            extensions = (
+                request.extensions if not index else {**request.extensions, "timeout": {**timeouts, "pool": seconds}}
+            )
+            token = _ATTEMPT.set(attempt)
+            try:
+                return await super().handle_async_request(self._at(request, address, extensions))
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as error:
+                if not attempt.unconnected:  # a connection was made (its TLS failed): no other address
+                    raise
+                failed = error
+            finally:
+                _ATTEMPT.reset(token)
+        raise failed or httpcore.ConnectError("no address was tried")
+
+
+def reaching(context: ssl.SSLContext) -> httpx.AsyncHTTPTransport:
+    """httpx's transport, verifying with ``context``, its pool ``_Reaching``: how a server's client for the destinations
+    of its identities' own connects (``forward.make_client``)."""
+    transport = httpx.AsyncHTTPTransport(verify=context, trust_env=False)
+    transport._pool = _Reaching(
+        ssl_context=context,
+        max_connections=LIMITS.max_connections,
+        max_keepalive_connections=LIMITS.max_keepalive_connections,
+        keepalive_expiry=LIMITS.keepalive_expiry,
+        network_backend=_Shared(),
+    )
+    return transport
 
 
 # --- the WebSocket adapter: S3 (the handshake) and S4 (each frame), RC-REC-9 -----------------------------------------
@@ -597,6 +762,9 @@ class _Checked(ClientConnection):
         await super().handshake(additional_headers, user_agent_header)
 
 
+OPEN_SECONDS = 30.0  # how long a WebSocket to its upstream takes to open at most, its connection included
+
+
 class _NoRedirect(connect):
     """websockets' ``connect``, following no redirect, on a computer as on a server, as Latet's HTTP requests follow
     none: whether it leads to another origin (into a server's own network) or to the same one (a path or a query the
@@ -607,15 +775,49 @@ class _NoRedirect(connect):
         return exc
 
 
+async def _connected_at(addresses: tuple[str, ...], port: int, seconds: float) -> socket.socket:
+    """A TCP connection to the first of ``addresses`` that answers, in their order (egress checked them for the
+    destination's name, all written as numbers): the next tried only when the connection to the one before failed
+    (refused, unreachable, not made in the time it is given of ``seconds``, ``egress.tries``), before anything of the
+    handshake was written. A name among them is never connected to (it would be looked up). Raises the last failure
+    (OSError) when none answered."""
+    loop = asyncio.get_running_loop()
+    failed: OSError | None = None
+    for address, given in egress.tries(addresses, seconds):
+        try:
+            version = ipaddress.ip_address(address).version
+            sock = socket.socket(socket.AF_INET6 if version == 6 else socket.AF_INET, socket.SOCK_STREAM)
+        except ValueError:
+            failed = OSError(f"{address} is no address written as a number")
+            continue
+        except OSError as error:  # no IPv6 on this computer, say
+            failed = error
+            continue
+        try:
+            sock.setblocking(False)
+            await asyncio.wait_for(loop.sock_connect(sock, (address, port)), given)
+        except OSError as error:  # refused, unreachable, not made in time (TimeoutError)
+            sock.close()
+            failed = error
+            continue
+        except BaseException:
+            sock.close()
+            raise
+        return sock
+    raise failed or OSError("no address was tried")
+
+
 async def connect_ws(
-    authorized: AuthorizedConnect, url: str, pinned: tuple[str, int] | None, max_size: int = MAX_DECODED
+    authorized: AuthorizedConnect, url: str, pinned: tuple[tuple[str, ...], int] | None, max_size: int = MAX_DECODED
 ) -> ClientConnection | SendRefusal:
     """S3: the upstream's WebSocket of an authorized handshake, opened once, following no redirect (``_NoRedirect``),
     its handshake checked as websockets builds it (``_Checked``); or why not. ``pinned``: on a Latet server, a
-    destination of the identity's own, reached at the address checked while the Host header and TLS's name stay the
-    destination's (``url``'s), taking no proxy of the server's environment. The upstream's refusal of the handshake, a
-    redirect included, is raised as websockets raises it (``InvalidStatus``), and so are the failures to reach it.
-    ``max_size``: the largest message of the upstream's it reads, inflated (the relay's bound)."""
+    destination of the identity's own, reached at the addresses checked, the first of them that answers
+    (``_connected_at``), while the Host header and TLS's name stay the destination's (``url``'s), taking no proxy of the
+    server's environment; the connection and websockets' opening handshake take ``OPEN_SECONDS`` together, as when
+    websockets made the connection itself. The upstream's refusal of the handshake, a redirect included, is raised as
+    websockets raises it (``InvalidStatus``), and so are the failures to reach it. ``max_size``: the largest message of
+    the upstream's it reads, inflated (the relay's bound)."""
     with _LOCK:
         if not isinstance(authorized, AuthorizedConnect) or authorized not in _CONNECTS:
             return SendRefusal("unauthorized")
@@ -630,18 +832,26 @@ async def connect_ws(
         "user_agent_header": None,
         "compression": "deflate",
         "max_size": max_size,  # one message of the upstream's, inflated: no more than Latet reads of an answer
-        "open_timeout": 30,
+        "open_timeout": OPEN_SECONDS,
         "ping_interval": 20,
         "ping_timeout": 60,
         "ssl": _WS_SSL if url.startswith("wss://") else None,
         "create_connection": _Checked,
     }
+    sock: socket.socket | None = None
     if pinned is not None:
-        options |= {"host": pinned[0], "port": pinned[1], "proxy": None}
+        loop = asyncio.get_running_loop()
+        opening = loop.time() + OPEN_SECONDS  # one deadline: the connection, then what is left for the handshake
+        sock = await _connected_at(*pinned, min(egress.CONNECT_SECONDS, OPEN_SECONDS))
+        options |= {"sock": sock, "proxy": None, "open_timeout": max(opening - loop.time(), 0.0)}
     token = _CONNECTING.set(authorized)
     try:
         opened = await _NoRedirect(url, **options)
-    except Exception:
+    except BaseException as error:
+        if sock is not None:  # websockets' transport closes it as it fails; one it never took is closed here
+            sock.close()
+        if not isinstance(error, Exception):
+            raise
         with _LOCK:
             code = _REFUSED.pop(authorized, None)
         if code is None:

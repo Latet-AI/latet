@@ -203,8 +203,10 @@ adresse privée, unique-local, de NAT carrier-grade, de bouclage, link-local, mu
 mènent à une passerelle (6to4, Teredo, préfixes NAT64). Sur un réseau avec NAT64, le serveur en découvre les
 préfixes comme le décrit la RFC 7050, et tant qu'il ne les connaît pas, il ne joint aucune adresse IPv6 qu'un NAT64
 pourrait traduire : un nom qui a aussi une adresse IPv4 va là. Un nom est résolu de nouveau quand le serveur se
-connecte, et la requête va à l'adresse qui a été vérifiée. Aucun proxy n'est utilisé pour ces destinations. Seul
-un administrateur, dans les réglages partagés, définit une destination à l'intérieur du réseau.
+connecte, et la requête va à une adresse qui a été vérifiée : la première qui répond, dans l'ordre donné par le
+système (d'abord celle vers laquelle une connexion est encore ouverte), la suivante n'étant essayée que si la
+connexion à la précédente a échoué, avant que rien de la requête ne soit envoyé. Aucun proxy n'est utilisé pour ces
+destinations. Seul un administrateur, dans les réglages partagés, définit une destination à l'intérieur du réseau.
 
 Un serveur uniquement IPv6 derrière un DNS64 sur le préfixe bien connu n'atteint donc aucune destination
 propre joignable seulement en IPv4.

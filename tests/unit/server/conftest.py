@@ -2,6 +2,7 @@
 shared ones kept in memory (what PgSettings keeps in PostgreSQL), and Emily's space as a server makes it, its app with
 her requests handed on as the server hands them."""
 
+import socket
 from dataclasses import replace
 
 import pytest
@@ -54,6 +55,27 @@ class MemorySettings(OwnSettings):
 
     def save_reviewed(self, config):
         self.approved = config
+
+
+def refused_on_v6(start):
+    """A server ``start()`` opens on 127.0.0.1, and beside it a socket bound to ``[::1]`` at the same port that does not
+    listen: a connection there is refused, as a provider in Docker that listens on 127.0.0.1 alone refuses Windows's
+    ``localhost``, whose first address is ``::1``. The socket is None on a computer without IPv6's loopback, where a
+    connection to ``::1`` fails all the same."""
+    for _ in range(20):
+        server = start()
+        try:
+            held = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        except OSError:  # no IPv6 here at all
+            return server, None
+        try:
+            held.bind(("::1", server.port))
+        except OSError:  # that port is another program's on ::1, or ::1 is not this computer's: another port
+            held.close()
+            server.close()
+            continue
+        return server, held
+    return start(), None  # ::1 is not this computer's address: nothing answers there
 
 
 def as_identity(app, identity_id):

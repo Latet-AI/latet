@@ -16,6 +16,28 @@ Cosa arriva dopo è nella [roadmap](../roadmap/): un rifiuto esplicito dalla mod
 installer firmato per Windows, i tuoi modelli dei nomi, altri agenti, e la documentazione in altre
 lingue.
 
+## 0.12.1 (2026-11-09)
+
+- **Una destinazione raggiunta ai suoi altri indirizzi.** Su un server, una destinazione propria di
+  una persona il cui nome ha più indirizzi viene raggiunta al successivo, nell'ordine dato dal
+  sistema, quando la connessione al primo viene rifiutata o non riesce in tempo, prima che parta
+  qualcosa della richiesta. Un sistema può dare per primo l'indirizzo IPv6 di un nome (Windows lo fa
+  per `localhost`), e un provider che risponde solo al suo indirizzo IPv4 viene allora raggiunto lì;
+  una connessione ancora aperta a uno di essi viene usata per prima, così, finché quella connessione
+  resta aperta, un indirizzo che rifiuta costa il suo tempo una volta sola. Si provano solo gli
+  indirizzi controllati in quella stessa risoluzione, otto al massimo, nel tempo che ha una
+  connessione; una richiesta che ne ha raggiunto uno non viene mai inviata a un altro, e un nome con
+  un qualsiasi indirizzo dentro la rete del server viene ancora rifiutato.
+- **Un ripristino rifiutato mentre cambiano le impostazioni non viene più registrato.** Un
+  ripristino tramite l'API delle applicazioni veniva rifiutato (`503`, *send it again*) quando le
+  impostazioni della chiave cominciavano a essere applicate mentre se ne preparava la risposta. Non
+  restituiva nulla, ma lasciava comunque una voce `apps.unmasked` nel registro amministrativo, e il
+  suo nuovo tentativo ne lasciava una seconda. Un ripristino rifiutato al suo arrivo, con le
+  impostazioni già in corso di applicazione, non ne lasciava. Ora la voce viene scritta solo per un
+  ripristino che riceve risposta, così ogni voce è un ripristino che ha restituito i suoi testi.
+  Un'analisi, un mascheramento o un ripristino rifiutati mentre se ne preparava la risposta non
+  vengono più contati nemmeno in `latet_apps_texts_total` e `latet_apps_values_total`.
+
 ## 0.12.0 (2026-11-09)
 
 - **Una richiesta le cui impostazioni cambiano prima che parta.** Una richiesta le cui impostazioni

@@ -167,7 +167,8 @@ def test_a_name_is_judged_by_what_it_resolves_to_when_a_resolver_is_given():
 async def test_a_connection_goes_to_the_address_that_was_checked(monkeypatch):
     monkeypatch.setattr(egress, "resolve", _resolving(PUBLIC))
     url, host, extensions = await egress.pin("https://gw.acme.com/v1/chat")
-    assert (url, host, extensions) == (f"https://{PUBLIC}/v1/chat", "gw.acme.com", {"sni_hostname": "gw.acme.com"})
+    checked = {"sni_hostname": "gw.acme.com", egress.ADDRESSES: (PUBLIC,)}  # TLS's name, and every address checked
+    assert (url, host, extensions) == (f"https://{PUBLIC}/v1/chat", "gw.acme.com", checked)
     assert (await egress.pin(f"https://{PUBLIC}:8443/v1"))[0] == f"https://{PUBLIC}:8443/v1"  # a literal: as is
     monkeypatch.setattr(egress, "resolve", _resolving(PUBLIC_V6))
     assert (await egress.pin("https://gw.acme.com:8443/v1"))[:2] == (
@@ -188,7 +189,7 @@ async def test_a_connection_goes_to_the_address_that_was_checked(monkeypatch):
     # The Host header is the host and port as written, TLS's name the host.
     assert (await egress.pin("https://GW.Acme.com:8443/v1"))[1:] == (
         "GW.Acme.com:8443",
-        {"sni_hostname": "gw.acme.com"},
+        {"sni_hostname": "gw.acme.com", egress.ADDRESSES: (PUBLIC,)},
     )
     for url in ("https://u:p@gw.acme.com/v1", "https://u@gw.acme.com/v1", "https://@gw.acme.com/v1"):
         with pytest.raises(EgressRefused, match="no user or password"):  # it would be sent in the Host header

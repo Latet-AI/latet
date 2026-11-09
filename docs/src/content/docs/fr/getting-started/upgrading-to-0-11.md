@@ -388,7 +388,7 @@ s'appliquerait alors sans attendre votre approbation. Si vous en avez choisi un,
 que la mise à jour vers la 0.11 a faite, qui contient les deux fichiers tels qu'ils étaient avant :
 `latet upgrade --to` la propose en revenant en arrière (elle se trouve dans le dossier de données,
 dans `backups/before-<version>-<heure>`, dont le nom reprend la version installée, par exemple
-`before-0.12.0-…`). Sans cette copie (la 0.11 installée par le script
+`before-0.12.1-…`). Sans cette copie (la 0.11 installée par le script
 d'installation, qui n'en fait aucune), retirez la clé des deux fichiers avant de revenir en arrière :
 les lignes `request_profile:` de `config.yaml`, et chaque membre `"request_profile": "…"` de
 `config.reviewed.json`, en le laissant en JSON valide.

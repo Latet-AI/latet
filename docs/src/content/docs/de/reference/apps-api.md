@@ -176,14 +176,14 @@ wann).
 
 ## Was der Server festhält
 
-- **Das Administrationsprotokoll** erhält für jeden Wiederherstellungsaufruf einen Eintrag
-  `apps.unmasked`, bevor die Antwort gesendet wird: die ID des Tokens, wie viele Texte und wie viele
-  Werte wiederhergestellt wurden (`{"token": "t_...", "texts": 3, "restored": 5}`), und die Adresse
-  des Clients. Nie ein Text oder ein Wert. Analysieren und Maskieren stehen nicht darin. Lesen Sie die
-  Einträge mit `latet server log --action apps.unmasked`. Jeder Aufruf zum Vergessen ist ein Eintrag
-  `apps.forgotten`, geschrieben in derselben Transaktion wie das Vergessen: die ID des Tokens, wie viele
-  Werte angefragt, vergessen und nicht gefunden wurden (`{"token": "t_...", "values": 2,
-  "forgotten": 1, "unknown": 1}`), und die Adresse des Clients.
+- **Das Administrationsprotokoll** erhält für jeden Wiederherstellungsaufruf, der beantwortet wird,
+  einen Eintrag `apps.unmasked`, bevor die Antwort gesendet wird: die ID des Tokens, wie viele Texte
+  und wie viele Werte wiederhergestellt wurden (`{"token": "t_...", "texts": 3, "restored": 5}`),
+  und die Adresse des Clients. Nie ein Text oder ein Wert. Analysieren und Maskieren stehen nicht
+  darin. Lesen Sie die Einträge mit `latet server log --action apps.unmasked`. Jeder Aufruf zum
+  Vergessen ist ein Eintrag `apps.forgotten`, geschrieben in derselben Transaktion wie das
+  Vergessen: die ID des Tokens, wie viele Werte angefragt, vergessen und nicht gefunden wurden
+  (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), und die Adresse des Clients.
 - **Die Metriken** zählen die Anfragen der API als `latet_http_requests_total{kind="apps"}`, nach
   Status, und ihre Texte und Werte nach Operation: `latet_apps_texts_total{operation}` und
   `latet_apps_values_total{operation}` (die Werte, die das Analysieren gefunden, das Maskieren ersetzt und

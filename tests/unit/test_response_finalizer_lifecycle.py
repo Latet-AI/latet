@@ -168,9 +168,14 @@ async def test_a_small_answer_ends_while_another_request_of_the_identity_masks(t
     answer = _Answer(_RESPONSE if stream else _WHOLE)
     with _sinks(tmp_path) as (mediator, recorder, store):
         other = _Masking(mediator.executor)
+        began: list[bool] = []
 
-        def provider(_: httpx.Request) -> httpx.Response:
+        async def provider(_: httpx.Request) -> httpx.Response:
             other.begin()  # this request was prepared: another one now holds the engine's thread
+            # Answered once that masking holds the engine's thread, which it does until the answer is read. Only
+            # submitted, it could begin after the answer had ended (public CI on 3.14, 2026-11-09: the end measured
+            # at 0.003 s, the masking not begun), and the test then measured an end behind no masking at all.
+            began.append(await asyncio.to_thread(other.started.wait, _TIMEOUT))
             kind = "text/event-stream" if stream else "application/json"
             return httpx.Response(200, headers={"content-type": kind}, stream=answer)
 
@@ -187,8 +192,10 @@ async def test_a_small_answer_ends_while_another_request_of_the_identity_masks(t
         finally:
             other.release()
         detail = _detail(recorder, store)
+    assert began == [True], "the other masking never held the engine's thread"
     assert status == 200 and wire == (_RESPONSE if stream else _WHOLE)
-    assert held_throughout and waited < 1.0, f"the answer's end waited {waited:.3f} s behind the masking"
+    assert held_throughout, "the other masking let the engine's thread go before the answer was read"
+    assert waited < 1.0, f"the answer's end waited {waited:.3f} s behind the masking"
     assert (detail.get("response") or {}).get("text") == _TEXT  # published, screened
 
 
