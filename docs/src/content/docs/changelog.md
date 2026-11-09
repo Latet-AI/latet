@@ -11,6 +11,26 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.12.1 (2026-11-09)
+
+- **A destination reached at its other addresses.** On a server, a destination of a person's own
+  whose name has several addresses is reached at the next one, in the order the system gives them,
+  when the connection to the first is refused or not made in time, before anything of the request is
+  sent. A system may give a name's IPv6 address first (Windows does for `localhost`), and a provider
+  that answers on its IPv4 address alone is then reached there; a connection still open at one of
+  them is used first, so an address that refuses costs its time once while that connection stays
+  open. Only the addresses checked in that same lookup are tried, eight at most, within the time a
+  connection has; a request that reached one is never sent to another, and a name with any address
+  inside the server's network is still refused.
+- **An unmask refused while settings change is no longer logged.** An unmask through the
+  applications API was refused (`503`, *send it again*) when the key's settings began to be applied
+  while it was being answered. It gave nothing back, yet it left an `apps.unmasked` entry in the
+  administration log, and its retry left a second one. An unmask refused as it came in, while
+  settings were already being applied, left none. The entry is now written only for an unmask that
+  is answered, so each entry is an unmask that gave its texts back. A scan, mask or unmask refused
+  while it was being answered is no longer counted in `latet_apps_texts_total` and
+  `latet_apps_values_total` either.
+
 ## 0.12.0 (2026-11-09)
 
 - **A request whose settings change before it leaves.** A request whose settings change between its

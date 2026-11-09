@@ -363,7 +363,7 @@ all: a change to `config.yaml` would then apply without waiting for your approva
 put back the copy the upgrade to 0.11 took, which holds both files as they were before it:
 `latet upgrade --to` offers it as it goes back (it is in the data folder, in
 `backups/before-<version>-<time>`, named after the version installed, for example
-`before-0.12.0-…`). Without that copy (0.11 installed by the installer, which takes
+`before-0.12.1-…`). Without that copy (0.11 installed by the installer, which takes
 none), take the key out of both files before you go back: the `request_profile:` lines in
 `config.yaml`, and each `"request_profile": "…"` member in `config.reviewed.json`, keeping it valid
 JSON.

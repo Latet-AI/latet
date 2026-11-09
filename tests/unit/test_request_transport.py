@@ -24,6 +24,7 @@ import pytest
 import zstandard
 from starlette.testclient import TestClient
 
+from latet.bridge.apps import _UNDER_THE_SETTINGS
 from latet.engine.vault import MaskingError
 from latet.gateway import forward, outcome, request_policy, request_profiles, request_transport
 from latet.gateway import request_audit as request_audit_module
@@ -1833,17 +1834,18 @@ def test_settings_that_cannot_be_applied_nor_put_back_refuse_every_request_until
 APPS_GRANT = {"token": "t_billing", "permissions": ["scan", "mask", "unmask"]}
 
 
-def _apps_client(runtime: Any, engine: Any = None) -> TestClient:
+def _apps_client(runtime: Any, engine: Any = None, entries: list[tuple[str, Any]] | None = None) -> TestClient:
     """The applications API over ``runtime``'s engine (``engine``: the same, as the calls read it), as an API key's
     space on a server mounts it, each call handed on as the server's gate hands it on (its identity, a grant of the
-    three permissions)."""
+    three permissions). The administration log takes every entry, each kept in ``entries`` when given."""
     from starlette.applications import Starlette
 
     from latet.bridge.apps import Apps
     from latet.gateway.app import OnServer
 
     async def audit(action: str, details: Any, address: str | None) -> None:
-        return None  # the administration log takes every entry
+        if entries is not None:
+            entries.append((action, details))
 
     on_server = OnServer("https://latet.acme.lan", "u_billingcix", audit=audit, kind="key")
     apps = Apps(runtime.mediator, on_server)
@@ -2028,6 +2030,161 @@ def test_an_application_call_reads_the_count_of_applies_before_its_mark(tmp_path
     assert held.started and runtime.built.engine.applying == 0
     assert answered.status_code == 503, answered.text
     assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+
+
+class _AppsHeard:
+    """The reports of the applications API's calls to the metrics (``observe.apps``), as a server's Metrics hears
+    them; the others are heard and dropped."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, int]] = []
+
+    def masked(self, found: Any) -> None:
+        return None
+
+    def exchange(self, agent: str, stopped: bool) -> None:
+        return None
+
+    def waiting(self, delta: int) -> None:
+        return None
+
+    def apps(self, operation: str, texts: int, values: int) -> None:
+        self.calls.append((operation, texts, values))
+
+
+def _a_fake_of_the_email(client: TestClient) -> str:
+    """``EMAIL`` masked through the applications API: a text holding its fake alone, for an unmask to restore."""
+    from latet.bridge.apps import APPS_API
+
+    masked = client.post(f"{APPS_API}/mask", json={"texts": [f"write to {EMAIL}"]})
+    assert masked.status_code == 200, masked.text
+    [result] = masked.json()["results"]
+    assert EMAIL not in result["text"] and result["counts"] == {"EMAIL": 1}, result
+    return result["text"]
+
+
+@pytest.mark.parametrize("operation", ["scan", "mask", "unmask"])
+def test_an_application_call_a_save_overtakes_records_nothing_and_its_retry_is_recorded_once(
+    tmp_path, monkeypatch, operation
+):
+    """The 0.12 merge's reviews (L2, L4): a call a save overtakes is refused (503), but what records an answer was made
+    before that check, in the work: the call's count in the metrics (``observe.apps``) and an unmask's
+    ``apps.unmasked`` entry in the administration log, which Enterprise sends on to the SIEM. An unmask never given
+    was logged as given, and its retry logged again. Now the call refused records nothing, and its retry, answered,
+    is recorded once."""
+    from latet import observe
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    entries: list[tuple[str, Any]] = []
+    heard = _AppsHeard()
+    unlisten = observe.listen(heard)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch)
+    real = getattr(apps_module.Apps, f"_{operation}")
+
+    def overtaken(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)
+        if not held.started:
+            held.start()  # the save starts as the first call's texts are read, and is held there
+        return done
+
+    try:
+        with _apps_client(runtime, entries=entries) as client:
+            text = _a_fake_of_the_email(client) if operation == "unmask" else f"write to {EMAIL}"
+            entries.clear()
+            heard.calls.clear()
+            monkeypatch.setattr(apps_module.Apps, f"_{operation}", overtaken)
+            refused = client.post(f"{APPS_API}/{operation}", json={"texts": [text]})
+            recorded_on_refusal = (list(entries), list(heard.calls))
+            held.end()  # the save ends: the call is sent again
+            retried = client.post(f"{APPS_API}/{operation}", json={"texts": [text]})
+    finally:
+        unlisten()
+        held.end()
+        runtime.close()
+    assert held.started and not held.raised
+    assert refused.status_code == 503, refused.text
+    assert refused.json() == {"error": apps_module.SETTINGS_CHANGED}
+    assert recorded_on_refusal == ([], [])
+    assert retried.status_code == 200, retried.text
+    logged = [("apps.unmasked", {"token": "t_billing", "texts": 1, "restored": 1})] if operation == "unmask" else []
+    assert entries == logged
+    assert heard.calls == [(operation, 1, 1)]
+    if operation == "unmask":
+        assert retried.json() == {"results": [{"text": f"write to {EMAIL}", "restored": 1}]}
+
+
+def test_an_unmask_a_save_begins_over_as_its_entry_is_written_is_answered(tmp_path, monkeypatch):
+    """An unmask whose texts were restored before any save began, a save beginning only while its entry is written in
+    the administration log: what it restored was restored under whole settings, and the entry says it was given. It is
+    answered, its entry written once and its call counted once. Before, the check that came after the entry refused
+    it (503), the entry written all the same."""
+    from latet import observe
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    heard = _AppsHeard()
+    unlisten = observe.listen(heard)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch)
+
+    class _StartingTheSave(list[tuple[str, Any]]):
+        """The administration log's entries; the first one written starts the save, held under way."""
+
+        def append(self, entry: tuple[str, Any]) -> None:
+            super().append(entry)
+            if not held.started:
+                held.start()
+
+    entries = _StartingTheSave()
+    try:
+        with _apps_client(runtime, entries=entries) as client:
+            fake = _a_fake_of_the_email(client)  # a mask: no entry
+            heard.calls.clear()
+            answered = client.post(f"{APPS_API}/unmask", json={"texts": [fake]})
+            applying = runtime.built.engine.applying
+    finally:
+        unlisten()
+        held.end()
+        runtime.close()
+    assert held.started and applying == 1 and not held.raised
+    assert answered.status_code == 200, answered.text
+    assert answered.json() == {"results": [{"text": f"write to {EMAIL}", "restored": 1}]}
+    assert entries == [("apps.unmasked", {"token": "t_billing", "texts": 1, "restored": 1})]
+    assert heard.calls == [("unmask", 1, 1)]
+
+
+@pytest.mark.parametrize("operation", sorted(_UNDER_THE_SETTINGS))
+def test_a_gated_operation_that_never_asks_whether_a_save_came_over_it_is_refused(
+    tmp_path, monkeypatch, caplog, operation
+):
+    """The review of the 0.12.1 minors (L2): each gated operation asks itself whether a save came over it
+    (``overtaken``), before it records anything. One that never asked, as a new operation could forget to, was answered
+    across a save, and nothing noticed. The gate fails closed now: a gated operation that did not ask is refused (503,
+    the fixed words, to send it again), with no save at all, and the log says which operation did not ask."""
+    import logging
+
+    from starlette.responses import JSONResponse
+
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, _ = _a_runtime(tmp_path, monkeypatch)
+
+    async def never_asks(self: Any, request: Any, grant: Any, overtaken: Any, *given: Any) -> Any:
+        return JSONResponse({"results": []})
+
+    monkeypatch.setattr(apps_module.Apps, operation, never_asks)
+    try:
+        with caplog.at_level(logging.ERROR, logger="latet.bridge.apps"), _apps_client(runtime) as client:
+            answered = client.post(f"{APPS_API}/{operation}", json={"texts": ["hello"]})
+    finally:
+        runtime.close()
+    assert runtime.built.engine.applying == 0 and runtime.built.engine.applies == 0  # no save at all
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+    said = [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
+    assert any(operation in line and "never asked" in line for line in said), said
 
 
 # --- the Claude Code plugin's bridge while a save is applied (item 23's second fix round, R3) ---------------------------

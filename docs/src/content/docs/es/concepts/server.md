@@ -197,8 +197,10 @@ dirección o como nombre que resuelve a ella; también las formas IPv6 que lleva
 pasarela (6to4, Teredo, prefijos NAT64). En una red con NAT64, el servidor descubre sus prefijos como describe la
 RFC 7050, y hasta que los conoce no alcanza ninguna dirección IPv6 que un NAT64 pudiera traducir: un nombre que
 también tiene una dirección IPv4 va allí. Un nombre se resuelve de nuevo cuando el servidor se conecta, y la petición
-va a la dirección que se comprobó. Para estos destinos no se usa ningún proxy. Solo un administrador, en los ajustes
-compartidos, define un destino dentro de la red.
+va a una dirección que se comprobó: la primera que responde, en el orden que dio el sistema (antes una con una
+conexión todavía abierta); la siguiente solo se intenta cuando la conexión a la anterior falló, antes de que saliera
+nada de la petición. Para estos destinos no se usa ningún proxy. Solo un administrador, en los ajustes compartidos,
+define un destino dentro de la red.
 
 Un servidor solo IPv6 detrás de un DNS64 con el prefijo conocido no alcanza, por tanto, ningún destino propio
 accesible solo por IPv4.

@@ -16,6 +16,28 @@ Lo que viene después está en la [hoja de ruta](../roadmap/): un rechazo claro 
 un instalador firmado para Windows, tus propios modelos de nombres, más agentes, y la documentación en
 más idiomas.
 
+## 0.12.1 (2026-11-09)
+
+- **Un destino alcanzado en sus otras direcciones.** En un servidor, un destino propio de una
+  persona cuyo nombre tiene varias direcciones se alcanza en la siguiente, en el orden que da el
+  sistema, cuando la conexión a la primera se rechaza o no se logra a tiempo, antes de que salga
+  nada de la petición. Un sistema puede dar primero la dirección IPv6 de un nombre (Windows lo hace
+  con `localhost`), y un proveedor que responde solo en su dirección IPv4 se alcanza entonces allí;
+  una conexión todavía abierta a una de ellas se usa primero, así que, mientras esa conexión siga
+  abierta, una dirección que rechaza cuesta su tiempo una sola vez. Solo se prueban las direcciones
+  comprobadas en esa misma resolución, ocho como máximo, en el tiempo que tiene una conexión; una
+  petición que alcanzó una nunca se envía a otra, y un nombre con cualquier dirección dentro de la
+  red del servidor se sigue rechazando.
+- **Una restauración rechazada mientras cambian los ajustes ya no se registra.** Una restauración
+  por la API de aplicaciones se rechazaba (`503`, *send it again*) cuando los ajustes de la clave
+  empezaban a aplicarse mientras se preparaba su respuesta. No devolvía nada, pero aun así dejaba
+  una entrada `apps.unmasked` en el registro de administración, y su nuevo intento una segunda. Una
+  restauración rechazada al llegar, porque los ajustes ya se estaban aplicando, no dejaba ninguna.
+  Ahora la entrada solo se escribe para una restauración que recibe respuesta, así que cada entrada
+  es una restauración que devolvió sus textos. Un análisis, un enmascaramiento o una restauración
+  rechazados mientras se preparaba su respuesta tampoco se cuentan ya en `latet_apps_texts_total` y
+  `latet_apps_values_total`.
+
 ## 0.12.0 (2026-11-09)
 
 - **Una petición cuyos ajustes cambian antes de salir.** Una petición cuyos ajustes cambian entre su

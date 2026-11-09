@@ -176,13 +176,13 @@ recibe otra vez uno. Un olvido también se puede repetir: un valor que ya no est
 ## Qué registra el servidor
 
 - **El registro de administración** recibe una entrada `apps.unmasked` por cada llamada de
-  restauración, antes de enviar su respuesta: el id del token, cuántos textos y cuántos valores se
-  restauraron (`{"token": "t_...", "texts": 3, "restored": 5}`), y la dirección del cliente. Nunca un
-  texto ni un valor. El análisis y el enmascaramiento no aparecen en él. Lee esas entradas con
-  `latet server log --action apps.unmasked`. Cada llamada de olvido es una entrada `apps.forgotten`,
-  escrita en la misma transacción que el olvido: el id del token, cuántos valores se pidieron, se
-  olvidaron y no estaban (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), y la
-  dirección del cliente.
+  restauración a la que se responde, antes de enviar la respuesta: el id del token, cuántos textos y
+  cuántos valores se restauraron (`{"token": "t_...", "texts": 3, "restored": 5}`), y la dirección
+  del cliente. Nunca un texto ni un valor. El análisis y el enmascaramiento no aparecen en él. Lee
+  esas entradas con `latet server log --action apps.unmasked`. Cada llamada de olvido es una entrada
+  `apps.forgotten`, escrita en la misma transacción que el olvido: el id del token, cuántos valores
+  se pidieron, se olvidaron y no estaban
+  (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), y la dirección del cliente.
 - **Las métricas** cuentan las solicitudes de la API como `latet_http_requests_total{kind="apps"}`,
   por estado, y sus textos y valores por operación: `latet_apps_texts_total{operation}` y
   `latet_apps_values_total{operation}` (los valores que encontró el análisis, que sustituyó el

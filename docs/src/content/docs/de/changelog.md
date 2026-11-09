@@ -17,6 +17,30 @@ Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehn
 Auto-Modus, ein signiertes Installationsprogramm für Windows, eigene Namensmodelle, weitere Agenten
 und die Dokumentation in weiteren Sprachen.
 
+## 0.12.1 (2026-11-09)
+
+- **Ein Ziel, erreicht unter seinen anderen Adressen.** Auf einem Server wird ein eigenes Ziel einer
+  Person, dessen Name mehrere Adressen hat, unter der nächsten erreicht, in der Reihenfolge, die das
+  System angibt, wenn die Verbindung zur ersten abgelehnt wird oder nicht rechtzeitig zustande
+  kommt, bevor etwas von der Anfrage gesendet ist. Ein System kann die IPv6-Adresse eines Namens
+  zuerst nennen (Windows tut es für `localhost`), und ein Anbieter, der nur unter seiner
+  IPv4-Adresse antwortet, wird dann dort erreicht; eine Verbindung, die zu einer von ihnen noch
+  offen ist, wird zuerst genutzt, sodass eine Adresse, die ablehnt, ihre Zeit nur einmal kostet,
+  solange diese Verbindung offen bleibt. Versucht werden nur die Adressen, die dieselbe Auflösung
+  geprüft hat, höchstens acht, in der Zeit, die eine Verbindung hat; eine Anfrage, die eine erreicht
+  hat, wird nie an eine andere gesendet, und ein Name mit irgendeiner Adresse im Netz des Servers
+  wird weiterhin abgelehnt.
+- **Ein während einer Einstellungsänderung abgelehntes Wiederherstellen wird nicht mehr
+  protokolliert.** Ein Wiederherstellen über die Anwendungs-API wurde abgelehnt (`503`, *send it
+  again*), wenn während seiner Beantwortung begonnen wurde, die Einstellungen des Schlüssels
+  anzuwenden. Es gab nichts zurück, hinterließ aber trotzdem einen Eintrag `apps.unmasked` im
+  Administrationsprotokoll, und sein erneuter Versuch einen zweiten. Ein Wiederherstellen, das schon
+  beim Eintreffen abgelehnt wurde, weil die Einstellungen gerade angewendet wurden, hinterließ
+  keinen. Der Eintrag wird jetzt nur für ein Wiederherstellen geschrieben, das beantwortet wird,
+  sodass jeder Eintrag ein Wiederherstellen ist, das seine Texte zurückgegeben hat. Ein Analysieren,
+  Maskieren oder Wiederherstellen, das während seiner Beantwortung abgelehnt wird, wird auch in
+  `latet_apps_texts_total` und `latet_apps_values_total` nicht mehr gezählt.
+
 ## 0.12.0 (2026-11-09)
 
 - **Eine Anfrage, deren Einstellungen sich vor dem Senden ändern.** Eine Anfrage, deren

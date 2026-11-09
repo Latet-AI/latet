@@ -193,7 +193,9 @@ rifiutato, scritto come indirizzo o come nome che vi si risolve; così le forme 
 conducono a un gateway (6to4, Teredo, prefissi NAT64). Su una rete con NAT64 il server ne scopre i prefissi come
 descrive l'RFC 7050, e finché non li conosce non raggiunge alcun indirizzo IPv6 che un NAT64 potrebbe tradurre: un
 nome che ha anche un indirizzo IPv4 va lì. Un nome viene risolto di nuovo quando il server si connette, e la
-richiesta va all'indirizzo che è stato controllato. Per queste destinazioni non si usa alcun proxy. Solo un
+richiesta va a un indirizzo che è stato controllato: il primo che risponde, nell'ordine dato dal sistema (prima
+quello con una connessione ancora aperta), il successivo provato solo quando la connessione al precedente non è
+riuscita, prima che partisse qualcosa della richiesta. Per queste destinazioni non si usa alcun proxy. Solo un
 amministratore, nelle impostazioni condivise, imposta una destinazione dentro la rete.
 
 Un server solo IPv6 dietro un DNS64 sul prefisso noto non raggiunge quindi alcuna destinazione propria

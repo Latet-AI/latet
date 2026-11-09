@@ -175,14 +175,14 @@ quand).
 
 ## Ce que le serveur enregistre
 
-- **Le journal d'administration** reçoit une entrée `apps.unmasked` par appel de restauration, avant
-  l'envoi de sa réponse : l'identifiant du jeton, le nombre de textes et de valeurs restaurés
-  (`{"token": "t_...", "texts": 3, "restored": 5}`), et l'adresse du client. Jamais un texte ni une
-  valeur. L'analyse et le masquage n'y figurent pas. Lisez ces entrées avec
+- **Le journal d'administration** reçoit une entrée `apps.unmasked` par appel de restauration qui
+  reçoit sa réponse, avant l'envoi de celle-ci : l'identifiant du jeton, le nombre de textes et de
+  valeurs restaurés (`{"token": "t_...", "texts": 3, "restored": 5}`), et l'adresse du client.
+  Jamais un texte ni une valeur. L'analyse et le masquage n'y figurent pas. Lisez ces entrées avec
   `latet server log --action apps.unmasked`. Chaque appel d'oubli est une entrée `apps.forgotten`,
-  écrite dans la même transaction que l'oubli : l'identifiant du jeton, le nombre de valeurs demandées,
-  oubliées et absentes (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), et l'adresse
-  du client.
+  écrite dans la même transaction que l'oubli : l'identifiant du jeton, le nombre de valeurs
+  demandées, oubliées et absentes (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`),
+  et l'adresse du client.
 - **Les métriques** comptent les requêtes de l'API comme `latet_http_requests_total{kind="apps"}`, par
   statut, et ses textes et valeurs par opération : `latet_apps_texts_total{operation}` et
   `latet_apps_values_total{operation}` (les valeurs que l'analyse a trouvées, que le masquage a

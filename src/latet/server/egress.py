@@ -13,8 +13,14 @@ turns into the IPv4 address it carries, is refused when that address is. The pre
 network changed to is unknown until then); until it has answered once, no IPv6 address a NAT64 could translate is
 reached (a name that has an IPv4 address too goes there).
 
-A name is resolved again when the server connects, and the request goes to the address that was checked (``pin``), so
-that a name pointed elsewhere after it was saved does not get through. Each lookup runs in a thread of this module's
+A name is resolved again when the server connects, and the request goes to an address that was checked (``pin``), so
+that a name pointed elsewhere after it was saved does not get through: the first of them that answers, in the order the
+system gave them, ``ADDRESSES_TRIED`` at most, a connection still kept open at one of them used first; the next one is
+tried only when the TCP connection to the one before failed (refused, unreachable, not made in the time it is given,
+``tries``), before any byte of the request left. A system may give a name's IPv6 address first (Windows does for
+``localhost``): a destination that answers on another of its addresses alone is reached there all the same. Nothing is
+looked up between the check and the connection, and no address but those that same lookup checked is ever connected to
+(``checked``), whatever the request's Host header names. Each lookup runs in a thread of this module's
 own, which ends with it, and is waited for ``RESOLVE_SECONDS`` at most: past that, the request is refused. A name whose
 server does not answer holds its thread until the system gives up on it, so a name asked for by several requests within
 that time is resolved once (one asked for later is resolved anew: the lookup under way may never answer), each holder
@@ -35,7 +41,7 @@ import itertools
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future
 from typing import Any
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -67,6 +73,15 @@ NAT64_UNKNOWN = (
     "not resolve): asked again within a minute"
 )
 RESOLVE_SECONDS = 5.0  # how long a connection waits for its name to resolve: past it, the request is not sent
+# The addresses checked for a name that a connection tries at most, in the order the system gave them (a name may
+# answer dozens: past these, none is tried, though each was checked), and how long it tries them together when its
+# client gives no connect timeout of its own (a WebSocket's).
+ADDRESSES_TRIED = 8
+CONNECT_SECONDS = 20.0
+# The least time an address but the last is given (``tries``) while that much is left: a TCP connection whose first
+# SYN is lost is made on its retransmission, about 1 s later on Linux and 3 s on Windows.
+ATTEMPT_SECONDS = 5.0
+ADDRESSES = "latet_addresses"  # the extension of httpx's that ``pin`` hands them in, the first the URL's host
 # The lookups under way at once, every holder's together, each in a thread of its own that ends with it: past it a name
 # is refused at once. The event loop's own threads (``asyncio.to_thread``) are every space's, and a name whose server
 # does not answer would hold one of them until the system gives up.
@@ -374,6 +389,44 @@ def literal(host: str) -> Address | None:
         return None
 
 
+def checked(extensions: Mapping[str, Any], host: str) -> tuple[str, ...]:
+    """The addresses a connection to ``host``, the address ``pin`` put in a URL, tries in turn: the ones ``pin`` handed
+    with it (``ADDRESSES``), all checked by the lookup that chose ``host``, when they are addresses written as numbers
+    and ``host`` is the first of them, ``ADDRESSES_TRIED`` at most; else ``host`` alone, and nothing when ``host`` is
+    no address written as a number (it would be looked up)."""
+    try:
+        first = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return ()
+    found = extensions.get(ADDRESSES)
+    if not isinstance(found, tuple) or not found or not all(isinstance(a, str) for a in found):
+        return (str(first),)
+    try:
+        addresses = [ipaddress.ip_address(a) for a in found]
+    except ValueError:
+        return (str(first),)
+    if addresses[0] != first:
+        return (str(first),)
+    return tuple(str(a) for a in addresses[:ADDRESSES_TRIED])
+
+
+def tries[T](addresses: Sequence[T], seconds: float) -> Iterator[tuple[T, float]]:
+    """The addresses a connection tries in turn, ``ADDRESSES_TRIED`` at most, each with the time it is given of the
+    ``seconds`` they have together: an address but the last half of what is left when it is tried, and at least
+    ``ATTEMPT_SECONDS`` (all that is left when less is), the last all of what is left. With 20 seconds: 10 for the
+    first, which the system prefers, then 5 and 5 when each waits out its time, three addresses in all; one refused at
+    once leaves its time to the next, so that refusals cost the others nothing. A name with one address keeps the whole
+    time, as before. Once the time is spent none is tried but the first, which always is. The next is asked for only
+    when the connection to the one before failed."""
+    chosen = list(addresses[:ADDRESSES_TRIED])
+    deadline = time.monotonic() + seconds
+    for index, address in enumerate(chosen):
+        left = max(deadline - time.monotonic(), 0.0)
+        if index and left <= 0:
+            return
+        yield address, left if index == len(chosen) - 1 else min(left, max(left / 2, ATTEMPT_SECONDS))
+
+
 def _target(url: str) -> tuple[SplitResult, str, int] | None:
     """``url`` taken apart, its host in small letters and its port (the scheme's when none is written); None when it
     names no host, a port that is not a number from 0 to 65535, a user or a password, or a bracket it does not close."""
@@ -405,10 +458,12 @@ def problem(url: str, resolver: Resolver | None = None) -> str | None:
 
 async def pin(url: str, *, holder: str | None = None) -> tuple[str, str, dict[str, Any]]:
     """``url`` with its host replaced by the address checked now, the ``Host`` header to send (the host and port as
-    written), and the httpx extensions that keep TLS's name (``sni_hostname``) the one in ``url``. A name is resolved in
-    this module's own threads, for ``RESOLVE_SECONDS`` at most, its lookup counted for ``holder``: whose request it is
-    (an identity's id). While the network has never said its NAT64 prefixes, an IPv6 address a NAT64 could translate
-    is not chosen. Raises EgressRefused: the request is not sent."""
+    written), and the httpx extensions that keep TLS's name (``sni_hostname``) the one in ``url`` and hand the addresses
+    the connection may try in turn (``ADDRESSES``: every address of the same lookup, in the order the system gave them,
+    the one in the URL first, ``ADDRESSES_TRIED`` at most). A name is resolved in this module's own threads, for
+    ``RESOLVE_SECONDS`` at most, its lookup counted for ``holder``: whose request it is (an identity's id). While the
+    network has never said its NAT64 prefixes, an IPv6 address a NAT64 could translate is not among them. Raises
+    EgressRefused: the request is not sent."""
     target = _target(url)
     if target is None:
         raise EgressRefused(UNREADABLE)
@@ -437,4 +492,6 @@ async def pin(url: str, *, holder: str | None = None) -> tuple[str, str, dict[st
     where = f"[{chosen}]" if chosen.version == 6 else str(chosen)
     netloc = f"{where}:{parts.port}" if parts.port else where
     pinned = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
-    return pinned, parts.netloc.rpartition("@")[2], {"sni_hostname": host} if parts.scheme == "https" else {}
+    extensions: dict[str, Any] = {"sni_hostname": host} if parts.scheme == "https" else {}
+    extensions[ADDRESSES] = tuple(str(a) for a in found[:ADDRESSES_TRIED])
+    return pinned, parts.netloc.rpartition("@")[2], extensions

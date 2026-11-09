@@ -195,8 +195,10 @@ Unique-Local-, Carrier-Grade-NAT-, Loopback-, Link-Local-, Multicast- oder reser
 Adresse geschrieben oder als Name, der dorthin auflöst; ebenso die IPv6-Formen, die eine IPv4-Adresse tragen oder zu
 einem Gateway führen (6to4, Teredo, NAT64-Präfixe). In einem Netz mit NAT64 erfährt der Server dessen Präfixe, wie
 RFC 7050 es beschreibt, und bis dahin erreicht er keine IPv6-Adresse, die ein NAT64 übersetzen könnte: Ein Name, der
-auch eine IPv4-Adresse hat, geht dorthin. Ein Name wird beim Verbinden erneut aufgelöst, und die Anfrage geht an die
-geprüfte Adresse. Für diese Ziele wird kein Proxy verwendet. Nur ein Administrator legt in den gemeinsamen
+auch eine IPv4-Adresse hat, geht dorthin. Ein Name wird beim Verbinden erneut aufgelöst, und die Anfrage geht an
+eine geprüfte Adresse: die erste, die antwortet, in der Reihenfolge, die das System angibt (eine mit noch offener
+Verbindung zuerst); die nächste wird nur versucht, wenn die Verbindung zur vorigen scheiterte, bevor etwas von der
+Anfrage gesendet wurde. Für diese Ziele wird kein Proxy verwendet. Nur ein Administrator legt in den gemeinsamen
 Einstellungen ein Ziel innerhalb des Netzes fest.
 
 Ein reiner IPv6-Server hinter DNS64 mit dem bekannten Präfix erreicht daher kein eigenes Ziel, das nur über

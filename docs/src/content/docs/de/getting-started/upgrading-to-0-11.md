@@ -385,7 +385,7 @@ gäbe es keine genehmigten Einstellungen: Eine Änderung an `config.yaml` würde
 Ihre Genehmigung zu warten. Wenn Sie eines gewählt haben, spielen Sie die Kopie zurück, die das Upgrade
 auf 0.11 angelegt hat und die beide Dateien so enthält, wie sie vorher waren: `latet upgrade --to`
 bietet sie beim Zurückgehen an (sie liegt im Datenordner unter `backups/before-<Version>-<Zeit>`,
-benannt nach der installierten Version, zum Beispiel `before-0.12.0-…`). Ohne
+benannt nach der installierten Version, zum Beispiel `before-0.12.1-…`). Ohne
 diese Kopie (0.11 mit dem Installationsskript installiert, das keine anlegt) entfernen Sie den
 Schlüssel vor dem Zurückgehen aus beiden Dateien: die Zeilen `request_profile:` aus `config.yaml` und
 jedes Element `"request_profile": "…"` aus `config.reviewed.json`, sodass es gültiges JSON bleibt.

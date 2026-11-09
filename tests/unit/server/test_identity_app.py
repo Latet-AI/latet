@@ -73,7 +73,7 @@ from latet.vision.pool import (
 from ...conftest import ROOT_KEY
 from ...fake_ocr import ModelSession, blank_image, lines_map, long_lines_map, nothing_read, stand_in_ocr
 from ..test_request_worker_freeze import _decided_handshake
-from .conftest import EMILY, SHARED, URL, MemorySettings, as_identity
+from .conftest import EMILY, SHARED, URL, MemorySettings, as_identity, refused_on_v6
 
 API = "/_latet/api/v1"
 UI = {"x-latet-ui": "1"}
@@ -986,7 +986,7 @@ def test_a_shared_destinations_redirect_reaches_the_agent_as_a_clear_error_on_a_
     assert [str(request.url) for request in seen] == ["https://llm.acme.com/v1/chat/completions"]
 
 
-async def _connected(url: str, pinned: tuple[str, int]) -> object:
+async def _connected(url: str, pinned: tuple[tuple[str, ...], int]) -> object:
     """The relay's S3, through the guarded transport's WebSocket adapter: an authorized handshake opened, decided as the
     relay decides it, with its arena and its admission's proof for ``url`` (855a0188)."""
     scope = {"type": "websocket", "path": "/v1/responses", "headers": [], "query_string": b""}
@@ -1008,12 +1008,127 @@ async def test_a_websocket_to_a_destination_of_ones_own_takes_no_proxy_and_follo
     monkeypatch.setenv("WS_PROXY", f"http://127.0.0.1:{elsewhere.port}")  # a proxy the server's environment names
     try:
         with pytest.raises(InvalidStatus) as refused:  # raised as the handshake's refusal: the relay answers it 502
-            await _connected("ws://gw.acme.com/v1/responses", ("127.0.0.1", moved.port))
+            await _connected("ws://gw.acme.com/v1/responses", (("127.0.0.1",), moved.port))
     finally:
         moved.close()
         elsewhere.close()
     assert refused.value.response.status_code == 302 and len(moved.heads) == 1 and elsewhere.heads == []
     assert b"\r\nhost: gw.acme.com\r\n" in moved.heads[0] and b" /v1/responses " in moved.heads[0]
+
+
+_MOVED = b"HTTP/1.1 302 Found\r\nLocation: /v2/responses\r\nContent-Length: 0\r\n\r\n"
+
+
+async def test_a_websocket_to_a_destination_of_ones_own_reaches_the_next_address_when_the_first_refuses():
+    """Its name's first address refuses the connection (Windows's ``::1`` for ``localhost``, a provider in Docker on
+    127.0.0.1 alone): the handshake goes to the next address its lookup checked, its Host header the destination's."""
+    moved, held = refused_on_v6(lambda: _Fixed(_MOVED))
+    try:
+        with pytest.raises(InvalidStatus) as refused:  # the handshake reached 127.0.0.1, whose answer is a redirect
+            await _connected("ws://gw.acme.com/v1/responses", (("::1", "127.0.0.1"), moved.port))
+    finally:
+        moved.close()
+        if held is not None:
+            held.close()
+    assert refused.value.response.status_code == 302 and len(moved.heads) == 1
+    assert b"\r\nhost: gw.acme.com\r\n" in moved.heads[0] and b" /v1/responses " in moved.heads[0]
+
+
+async def test_a_websocket_tries_no_other_address_once_its_connection_was_made(monkeypatch):
+    """The connection to the first address made, the handshake sent on it: whatever is answered, no other address is
+    connected to."""
+    moved = _Fixed(_MOVED)
+    loop = type(asyncio.get_running_loop())
+    connect, asked = loop.sock_connect, []
+
+    async def recorded(self, sock, address):
+        asked.append(address[0])
+        return await connect(self, sock, address)
+
+    monkeypatch.setattr(loop, "sock_connect", recorded)
+    try:
+        with pytest.raises(InvalidStatus):
+            await _connected("ws://gw.acme.com/v1/responses", (("127.0.0.1", "::1"), moved.port))
+    finally:
+        moved.close()
+    assert asked == ["127.0.0.1"] and len(moved.heads) == 1
+
+
+class _Silent:
+    """A server on 127.0.0.1 that takes every connection and never answers on it."""
+
+    def __init__(self) -> None:
+        self.held: list[socket.socket] = []
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(8)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                self.held.append(self.sock.accept()[0])
+            except OSError:
+                return
+
+    def close(self) -> None:
+        self.sock.close()
+        for conn in self.held:
+            conn.close()
+
+
+@pytest.mark.timing
+async def test_a_pinned_websocket_opens_within_one_deadline_its_connection_included(monkeypatch):
+    """L4: the TCP connection to the addresses checked and websockets' opening handshake share one deadline
+    (``OPEN_SECONDS``), as they did when websockets made the connection itself: an address slow to refuse leaves the
+    handshake only what is left of it."""
+    silent = _Silent()
+    loop = type(asyncio.get_running_loop())
+    connect = loop.sock_connect
+
+    async def slow(self, sock, address):
+        if address[0] == "::1":  # refused, after a second
+            await asyncio.sleep(1.0)
+            raise ConnectionRefusedError("refused")
+        return await connect(self, sock, address)
+
+    monkeypatch.setattr(loop, "sock_connect", slow)
+    monkeypatch.setattr(request_transport, "OPEN_SECONDS", 2.0)
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            await _connected("ws://gw.acme.com/v1/responses", (("::1", "127.0.0.1"), silent.port))
+    finally:
+        silent.close()
+    took = time.monotonic() - started
+    assert 1.9 <= took < 2.6 and len(silent.held) == 1
+
+
+def test_a_destination_of_ones_own_is_reached_at_the_next_address_checked_when_the_first_refuses(space, monkeypatch):
+    """The name of the identity's own destination resolves to ``::1`` first, where nothing listens, and to 127.0.0.1,
+    where the provider does: the server sends the request to 127.0.0.1, once, its Host header the destination's, and
+    the agent has the provider's answer."""
+    rt, _ = space
+    answer = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{"choices":[]}'
+    provider, held = refused_on_v6(lambda: _Fixed(answer))
+
+    async def pin(url):  # what egress checked: ::1, then 127.0.0.1
+        extensions = {"sni_hostname": "gw.acme.com", egress.ADDRESSES: ("::1", "127.0.0.1")}
+        return f"http://[::1]:{provider.port}/v1/chat/completions", "gw.acme.com", extensions
+
+    monkeypatch.setattr(egress, "resolve", outside)
+    rt.gateway.pin = pin
+    try:
+        with _client(rt) as c:
+            assert _put(c, "/config", MINE).status_code == 200
+            reached = c.post("/gw/v1/chat/completions", json=CHAT, headers=BEARER)
+    finally:
+        provider.close()
+        if held is not None:
+            held.close()
+    assert reached.status_code == 200 and reached.json() == {"choices": []}
+    assert len(provider.heads) == 1 and b"\r\nhost: gw.acme.com\r\n" in provider.heads[0]
 
 
 @pytest.mark.parametrize("where", ["the same host", "another origin"])

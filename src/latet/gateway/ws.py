@@ -61,6 +61,7 @@ from latet.gateway.response_finalizer import ResponseFinalizer, drain_task
 from latet.gateway.routes import RouteTable, Upstream, wire_path
 from latet.protocols import sse
 from latet.protocols.sse import MAX_DECODED, ResponseTooLarge, TooManyEvents, too_large, too_many
+from latet.server import egress
 from latet.server.egress import EgressRefused
 
 # Handshake response headers that belong to each leg's own negotiation.
@@ -195,15 +196,19 @@ async def _envelope_closed(
     await websocket.close(code=CloseCode.POLICY_VIOLATION, reason=error.close_reason())
 
 
-async def _pinned(pin: Callable[[str], Awaitable[tuple[str, str, dict[str, Any]]]], url: str) -> tuple[str, int]:
-    """The address a WebSocket to a destination of the identity's own connects to: checked now, as an HTTP request's
-    is (``pin``, given the destination's own form of ``url``). Raises EgressRefused: nothing is sent."""
+async def _pinned(
+    pin: Callable[[str], Awaitable[tuple[str, str, dict[str, Any]]]], url: str
+) -> tuple[tuple[str, ...], int]:
+    """The addresses a WebSocket to a destination of the identity's own connects to, the first of them that answers, and
+    its port: checked now, as an HTTP request's are (``pin``, given the destination's own form of ``url``;
+    ``egress.checked``). Raises EgressRefused: nothing is sent."""
     parts = urlsplit(url)
-    checked, _, _ = await pin(parts._replace(scheme="https" if parts.scheme == "wss" else "http").geturl())
+    checked, _, extensions = await pin(parts._replace(scheme="https" if parts.scheme == "wss" else "http").geturl())
     address = urlsplit(checked)
-    if address.hostname is None:
+    addresses = egress.checked(extensions, address.hostname or "")
+    if not addresses:
         raise EgressRefused("its address cannot be used")
-    return address.hostname, address.port or (443 if address.scheme == "https" else 80)
+    return addresses, address.port or (443 if address.scheme == "https" else 80)
 
 
 @dataclass(slots=True, repr=False)
@@ -358,7 +363,7 @@ async def relay(
         if isinstance(authorized, SendRefusal):
             handshake_attempts = handshake_answers = 0
             handshake_reason = reason_code(authorized.code)
-        pinned: tuple[str, int] | None = None
+        pinned: tuple[tuple[str, ...], int] | None = None
         if (
             not isinstance(authorized, SendRefusal)
             and pin is not None

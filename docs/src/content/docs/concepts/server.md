@@ -177,9 +177,10 @@ private, unique-local, carrier-grade NAT, loopback, link-local, multicast or res
 address or as a name that resolves to one; so are the IPv6 forms that carry an IPv4 address or lead to a gateway
 (6to4, Teredo, NAT64 prefixes). On a network with NAT64 the server learns its prefixes as RFC 7050 describes, and
 until it has, it reaches no IPv6 address a NAT64 could translate: a name that also has an IPv4 address goes there.
-A name is resolved again when the server connects, and the request goes to the address that was checked. No proxy
-is used for these destinations. Only an administrator, in the shared settings, sets a destination inside the
-network.
+A name is resolved again when the server connects, and the request goes to an address that was checked: the first
+that answers, in the order the system gave them (one with a connection still open first), the next tried only when
+the connection to the one before failed, before anything of the request was sent. No proxy is used for these
+destinations. Only an administrator, in the shared settings, sets a destination inside the network.
 
 An IPv6-only server behind DNS64 on the well-known prefix therefore reaches no IPv4-only destination of a
 person's own.
