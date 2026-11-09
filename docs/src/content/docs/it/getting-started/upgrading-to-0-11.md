@@ -48,6 +48,16 @@ rifiutata, e all'agente viene detto il suo nome, mai il suo valore:
 Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
 ```
 
+In una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex), le intestazioni che
+Claude Code aggiunge quando acquista nuove funzioni passano, come chiede la sua guida per i gateway:
+un'intestazione `anthropic-*` nuova, o un valore di `anthropic-beta` di forma nuova, passa una volta
+letta dal controllo finale, indicata come *solo controllato* nella dashboard, e un'intestazione
+`x-claude-code-*` nuova viene tolta. Passano fino a otto intestazioni `anthropic-*` di questo tipo,
+ciascuna con un nome di lettere minuscole, cifre e trattini, al massimo 48 dopo `anthropic-` e
+nessuna parola tra i suoi trattini più lunga di 16, e un valore da 1 a 1.024 caratteri stampabili;
+un segreto o un tuo valore in una di esse viene comunque rifiutato. In una richiesta che Latet riscrive, come quella di un SDK di
+Anthropic, vengono rifiutate come ogni altra intestazione che nessun profilo nomina.
+
 Alcune intestazioni vengono invece tolte: quelle di telemetria e di tracing degli SDK, e alcune
 degli agenti stessi che possono contenere testo libero.
 [Le intestazioni che Latet toglie](#le-intestazioni-che-latet-toglie) le elenca.
@@ -114,7 +124,7 @@ inviate:
 | Dove | Intestazioni |
 | --- | --- |
 | Ogni richiesta: telemetria e tracing degli SDK | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, nel formato di Anthropic (Anthropic, Bedrock, Vertex, un gateway aziendale) | `x-claude-code-agent-id` e `x-claude-code-parent-agent-id`, gli id di un subagente, che possono contenerne il nome; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` e `x-client-app`, che Claude Code copia dal suo ambiente; `x-claude-code-prev-tool-durations`, un suggerimento per i gateway che nomina gli strumenti eseguiti (tra cui i nomi propri di un server MCP) |
+| Claude Code, nel formato di Anthropic (Anthropic, Bedrock, Vertex, un gateway aziendale) | `x-claude-code-agent-id` e `x-claude-code-parent-agent-id`, gli id di un subagente, che possono contenerne il nome; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` e `x-client-app`, che Claude Code copia dal suo ambiente; `x-claude-code-prev-tool-durations`, un suggerimento per i gateway che nomina gli strumenti eseguiti (tra cui i nomi propri di un server MCP); ogni altra intestazione `x-claude-code-*`, che Latet non nomina ancora |
 | Bedrock: l'SDK di AWS | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: la libreria client di Google | `x-goog-api-client` |
 | Codex, nel formato di OpenAI e in quello di ChatGPT | `x-codex-turn-metadata`, che contiene il percorso, i remote e il commit del tuo repository; `x-openai-subagent`, il tipo o un'etichetta libera di un subagente |
@@ -171,6 +181,16 @@ una con un'eccezione esatta, come sotto, nominando la destinazione a cui vanno; 
 gateway aziendale in un'intestazione si nomina come credenziale, che Latet invia com'è arrivata e
 non legge mai. La chiave di avvio di Latet, che `latet claude` e gli altri aggiungono a queste
 impostazioni, non va nominata: Latet la toglie prima di inoltrare qualsiasi cosa.
+
+Un'intestazione che imposti per Claude Code il cui nome inizia con `anthropic-` non ha bisogno di
+eccezioni: passa una volta letta dal controllo finale, come un'intestazione nuova di Claude Code
+stesso ([Intestazioni](#cosa-rifiuta-la-011-che-la-010-inviava)); una il cui nome inizia con
+`x-claude-code-` viene tolta. Una credenziale di una destinazione in un'intestazione di questo tipo
+si nomina comunque con un'eccezione, così Latet la invia com'è arrivata e non la legge mai.
+Un'eccezione che nomina un'intestazione di questo tipo la decide anche dove non si applica: in una
+richiesta di un altro progetto, o quando l'eccezione è scaduta, l'intestazione viene rifiutata
+(nominandola, o nominando l'eccezione e il giorno in cui è scaduta), mai letta né inviata al posto
+dell'eccezione. Togli l'eccezione se l'intestazione deve passare controllata ovunque.
 
 ## Approvare un'eccezione esatta
 
@@ -360,7 +380,7 @@ non ci fossero impostazioni approvate: una modifica a `config.yaml` si applicher
 attendere la tua approvazione. Se ne hai scelto uno, rimetti la copia che l'aggiornamento alla 0.11 ha
 fatto, che contiene i due file com'erano prima: `latet upgrade --to` la propone mentre torna indietro
 (si trova nella cartella dei dati, in `backups/before-<versione>-<ora>`, dal nome della versione
-installata, per esempio `before-0.11.1-…`). Senza quella copia (la 0.11
+installata, per esempio `before-0.12.0-…`). Senza quella copia (la 0.11
 installata con l'installer, che non ne fa), togli la chiave da entrambi i file prima di tornare
 indietro: le righe `request_profile:` da `config.yaml`, e ogni membro `"request_profile": "…"` da
 `config.reviewed.json`, lasciandolo un JSON valido.

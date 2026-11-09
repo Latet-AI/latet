@@ -2,7 +2,7 @@
  "schema": "latet-request-coverage-phased-manifest/2",
  "status": "P2-1 strict HTTP envelope implementation; body/opaque/WS/absent-mediator transitions remain legacy. G2 and full agent qualification remain open.",
  "source_pin": "7568eec87606ccb6542e779bcfc4a6bb57c92c86",
- "rule": "No 'other fields safe': a path, query name, header or JSON member that no profile names is refused (D4 for headers: removed only where its family is declared removable).",
+ "rule": "No 'other fields safe': a path, query name, header or JSON member that no profile names is refused (D4 for headers: removed only where its family is declared removable). Two built-in rules, on a request Latet only checks alone, a selection input each: D6 (an unknown member holding text passes checked) and D4 (b)'s open list (envelope.header_policy.open_list: an anthropic-* header passes checked, an x-claude-code-* one is removed and counted, an anthropic-beta value of a new form passes checked, within its bounds).",
  "treatments": [
   "inspected",
   "checked",
@@ -15,22 +15,22 @@
  "selection_inputs": [
   {
    "input": "x-claude-code-session-id header",
-   "selects": "Claude Code verify-only; RC-REC-7 bridge binding; D6",
+   "selects": "Claude Code verify-only; RC-REC-7 bridge binding; D6; D4 (b) open list",
    "anchor": "src/latet/protocols/anthropic.py:62-63"
   },
   {
    "input": "system[0].text starts 'x-anthropic-billing-header:'",
-   "selects": "Claude Code verify-only",
+   "selects": "Claude Code verify-only; D4 (b) open list",
    "anchor": "src/latet/protocols/anthropic.py:64-66"
   },
   {
    "input": "'sk-ant-oat' in authorization",
-   "selects": "subscription verify-only",
+   "selects": "subscription verify-only; D4 (b) open list",
    "anchor": "src/latet/gateway/mediate.py:675-677"
   },
   {
    "input": "cloud suffix on a generic route (shape_of)",
-   "selects": "cloud verify-only",
+   "selects": "cloud verify-only; D4 (b) open list",
    "anchor": "src/latet/gateway/cloud.py:62-71"
   },
   {
@@ -3920,11 +3920,12 @@
         "x-datadog-",
         "x-b3-"
       ],
-      "sibling_rule": "same envelope policy for Anthropic rewrite/Claude/subscription/auto-review/cloud content selection; no marker widens permission",
+      "sibling_rule": "same envelope policy for Anthropic rewrite/Claude/subscription/auto-review/cloud content selection; one marker widens it: a request Latet only checks takes D4 (b)'s open list (open_list), a selection input as D6 is",
       "checked": [
         "user-agent <=1024characters",
         "accept-language <=256characters",
-        "an OpenAI or ChatGPT originator outside Codex's first-party set, within the product-id grammar"
+        "an OpenAI or ChatGPT originator outside Codex's first-party set, within the product-id grammar",
+        "on a request Latet only checks, an anthropic-* header no profile names or an anthropic-beta value of a new form (open_list)"
       ],
       "ambient_client": "cookies/custom default additions refuse before build",
       "removable_exact": [
@@ -3991,7 +3992,7 @@
         "anthropic-version": "anthropic family and Bedrock model calls: enum 2023-06-01",
         "anthropic-dangerous-direct-browser-access": "anthropic family and Bedrock model calls: enum true",
         "x-app": "anthropic family and Bedrock model calls: enum cli, cli-bg (Claude Code 2.1.316)",
-        "anthropic-beta": "anthropic family and Bedrock model calls: 1..32 comma-separated [a-z0-9-]{1,64} tokens, optional spaces around commas",
+        "anthropic-beta": "anthropic family and Bedrock model calls: 1..32 comma-separated [a-z0-9-]{1,64} tokens, optional spaces around commas, inspected; on a request Latet only checks, a value of a new form passes checked by the open list (open_list)",
         "x-initiator": "openai and anthropic families: enum user, agent (Copilot CLI BYOK; VS Code Copilot chatMLFetcher.ts:1527)",
         "x-interaction-type": "openai and anthropic families: [a-z0-9_-]{1,32} (Copilot CLI 1.0.103 api.schema.json: an open string)",
         "originator": "openai and chatgpt families: <=64 characters, one [A-Za-z0-9][A-Za-z0-9._-]* token, optionally after Codex's first-party 'Codex ' prefix, no other space; codex_cli_rs, codex-tui, codex_vscode, codex_atlas, codex_chatgpt_desktop inspected, any other checked (Codex c1382380 login/src/auth/default_client.rs:42-150)",
@@ -4020,9 +4021,32 @@
         "x-claude-code-prompt-id": "UUID (Claude Code 2.1.316 sends it only when /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i matches)"
       },
       "id_rule": "every profile; inspected by grammar, never an exact configured value, never selection, identity or exception authority (D7); outside its grammar refused naming the header",
-      "unknown": "refused; bounded printable name agent-only, shared category has no name/value",
+      "unknown": "refused; bounded printable name agent-only, each word of it longer than 16 characters told by its length (coverage.NAMED_WORD: x-custom-<20 characters>), shared category has no name/value; on a request Latet only checks, the open list (open_list) passes an anthropic-* one checked and removes an x-claude-code-* one",
       "value_refused": "envelope-header-value; the header name agent-only, never its value",
-      "user_configured": "a header the user configures for an agent (ANTHROPIC_CUSTOM_HEADERS, Codex http_headers/env_http_headers, COPILOT_PROVIDER_HEADERS) stays refused naming it until a destination names it through P2-6's approval",
+      "user_configured": "a header the user configures for an agent (ANTHROPIC_CUSTOM_HEADERS, Codex http_headers/env_http_headers, COPILOT_PROVIDER_HEADERS) stays refused naming it until a destination names it through P2-6's approval; one whose name starts anthropic- passes checked on a request Latet only checks, with no exception (open_list)",
+      "open_list": {
+        "decision": "D4 (b), option B (the owner, 2026-11-05; notes/minors-after-0.11-plan.md item 1): Claude Code's gateway compatibility guide asks a gateway to forward anthropic-* headers and anthropic-beta values as open lists",
+        "where": "a request Latet only checks (mediate.verify_only: Claude Code's markers, a subscription token, Bedrock's and Vertex's calls), on the families where Anthropic's headers are named; admitted at the envelope, then refused by the preparation of any request Latet rewrites (Codex, the SDKs), under the code admission had for it, before anything of it is masked or learnt; a bodyless call asks the same test of its headers alone",
+        "families": [
+          "anthropic (Vertex's Claude routes included)",
+          "bedrock model calls"
+        ],
+        "anthropic_name_grammar": "anthropic-[a-z0-9-]{1,48}",
+        "anthropic_name_word_most": 16,
+        "anthropic_value_grammar": "[ -~]{1,1024}",
+        "anthropic_most": 8,
+        "anthropic_treatment": "checked: its name arrives in lowercase, no word of it, between its dashes, longer than 16 characters (anthropic_name_word_most), and the final check reads it in lowercase, in capitals and with each word capitalised, and its value (a name no profile chose, read as D6 reads a member's key); a secret, a value the vault knows or a detected one in either refuses the request envelope-sensitive; a value written into the name in another mix of capitals is not found there (a value of yours, or a secret whose form mixes them, such as a Google API key, AIza and 35 characters): the name is refused only when it is past one of its bounds, a word longer than that bound, a longer name or a character outside the grammar (a key's, a token's or a long id's word usually runs past 16), envelope-header-unknown; the decision a Pass naming the built-in rule 'checked only', which the history records as checked-only",
+        "claude_code_prefix": "x-claude-code-",
+        "claude_code_treatment": "an x-claude-code-* header no profile names is removed and counted, as a removable family's; a removal alone is no Pass",
+        "beta_token_grammar": "[!-+\\--~]{1,64}",
+        "beta_most": 64,
+        "beta_treatment": "an anthropic-beta value the named grammar refuses passes checked when each of its 1..64 comma-separated tokens (optional spaces around commas) is any printable character but a comma or a space, 1..64 of them",
+        "rule": "checked only",
+        "exceptions": "an approved exception that names the header applies first, exactly as before the open list, and decides it even where it does not apply (another project's, one that ended): the header is then refused as before, never passed by the open list in its place; the settings in force are read first (RC-REC-3) for a header the open list let through, as for an unknown one; a header that falls to the open list only at the decision's second reading is refused as it was before the exception",
+        "past_bounds": "the refusal it had: envelope-header-unknown naming it (a ninth anthropic-* header, a longer name or value, a word of its name longer than 16 characters, a character outside the grammar), envelope-header-value for anthropic-beta",
+        "websocket": "never: a handshake is OpenAI's or ChatGPT's, and ws.relay refuses an admission that lists any",
+        "revision": "no profile revision: http-envelope-1, CARRIES_FROM empty, exceptions apply first"
+      },
       "resources": "exact identity-root request_resources expectations bound to destination+URL",
       "resources_exact": [
         "openai-organization",

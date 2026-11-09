@@ -96,6 +96,7 @@ from latet.server.settings import SERVER_API
 from latet.server.shared import SettingsSavedChangePending, SharedItemsError
 from latet.server.spaces import IdentityUnavailable, SpaceUnavailable
 from latet.server.tokens import KEY_PREFIX, TOKEN_PREFIX, bearer_token, route_key
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.server.app import Server
@@ -507,7 +508,7 @@ class OneAtATime:
             running = loop.create_task(lookup(), name=f"latet-{kind}-lookup")
             self._running[key] = (generation, running)
             running.add_done_callback(functools.partial(self._done, key))
-        return await asyncio.shield(running)
+        return await shielded(running)
 
     def _done(self, key: tuple[str, bytes], task: asyncio.Task[Any]) -> None:
         """A lookup ended: the next request of its credential looks it up afresh (its error read here, so that a lookup

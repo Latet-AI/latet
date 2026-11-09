@@ -9,7 +9,6 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import replace
-from itertools import islice
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
@@ -39,7 +38,7 @@ from latet.server.space_settings import PgSettings
 from latet.server.tokens import route_key
 
 from .conftest import identity_in
-from .support import DATABASE, URL, VALKEY
+from .support import DATABASE, URL, VALKEY, scanned_once
 
 pytestmark = pytest.mark.server
 _KEY_LIMIT = 32
@@ -64,7 +63,7 @@ def _prove_owned_launch_namespaces(request):
 
 def _clean_owned_namespaces(schema, prefix, *, key_limit=_KEY_LIMIT):
     with redis.Redis.from_url(redis_url(VALKEY), socket_timeout=5, socket_connect_timeout=5) as client:
-        keys = list(islice(client.scan_iter(match=prefix + "*", count=100), key_limit + 1))
+        keys = scanned_once(client.scan_iter(match=prefix + "*", count=100), key_limit + 1)
         if len(keys) > key_limit or any(not key.startswith(prefix.encode("ascii")) for key in keys):
             raise RuntimeError("unexpected owned Server prefix inventory")
         if keys:
@@ -893,8 +892,8 @@ async def test_real_server_launch_control(owned_launch_namespaces, settings, tmp
                             assert unchanged
                             sealed_unchanged = _sealed_fingerprint(server, before[0]) == fingerprint
                             assert sealed_unchanged
-                            keys = list(islice(server.bus.client.scan_iter(match=server.bus.key("launch:*")), 2))
-                            one_stable_key = keys == [before[0]]
+                            keys = scanned_once(server.bus.client.scan_iter(match=server.bus.key("launch:*")), 2)
+                            one_stable_key = keys == {before[0]}
                             assert one_stable_key
                             assert response_charges == [MUTATION_BYTES] * 4
                     else:
@@ -1080,7 +1079,7 @@ async def test_real_beat_cleans_expired_launch_binding(
                     beat_drained = True
             assert rounds == 3 and beat_calls == [server_app._alive, server_app._alive]
             assert len(work) == 4 + len(store_slots)
-            key_count = sum(1 for _ in islice(server.bus.client.scan_iter(match=prefix + "*", count=100), 6))
+            key_count = len(scanned_once(server.bus.client.scan_iter(match=prefix + "*", count=100), 6))
             assert key_count <= 5
             assert not server.spaces._spaces and not server.spaces._building and not server.spaces._closing
             assert not server.spaces._index_tasks and not server._cleanups and server._cleaning is None

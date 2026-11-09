@@ -50,7 +50,7 @@ datos dentro:
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin latet
 install -d -m 0750 -o root -g latet /etc/latet
 (umask 077 && openssl rand -base64 32 > /etc/latet/master.key)
@@ -488,27 +488,28 @@ Después, en segundo plano: las huellas de cada caja fuerte guardada por la 0.10
 primera instancia que construye su espacio, una vez, una instancia cada vez, y cada instancia
 construye su propio índice de esas huellas, para la caja fuerte de una persona como para la de una
 clave de API. Hasta entonces, las peticiones y las llamadas de esa identidad se responden buscando
-sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Mientras
-una instancia calcula las huellas de una caja fuerte, las demás identidades cuyo espacio abre entretanto
-pueden responderse también con la búsqueda en PostgreSQL, hasta que su índice esté construido. Una
+sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Una
 instancia cuyo índice no puede construirse (las huellas aún no todas calculadas, PostgreSQL o Valkey
 que no responden, una actualización del índice que falló) deja esa identidad en la búsqueda en
-PostgreSQL y vuelve a construir el índice: enseguida cuando termina el cálculo de las huellas de otra
-instancia, y si no 10, 20 y 30 segundos después de cada intento y luego una vez por minuto, dos
-construcciones a la vez en cada instancia, la siguiente en cuanto termina una. El registro dice una
-vez cuando el índice de un espacio deja de usarse (`the vault index of <id> is not used (<why>): its
-lookups go to PostgreSQL until it is built again`) y una vez cuando vuelve a usarse. Una caja fuerte
-por encima de 16.777.216 huellas, unos ocho millones de valores, no tiene índice mientras dura su
-espacio: sus búsquedas van a PostgreSQL, y un espacio nuevo lo intenta una vez más. La caja fuerte de
-una persona guardada antes de Latet 0.10.0, cuyos valores aún no tienen palabras, se guarda entera en
-memoria, como antes, hasta que sus palabras y sus huellas se crean, una vez, en una instancia; el
+PostgreSQL y vuelve a construir el índice: enseguida cuando termina el cálculo de las huellas, en esa
+instancia o en otra, y si no 10, 20 y 30 segundos después de cada intento y luego una vez por minuto,
+dos construcciones a la vez en cada instancia, la siguiente en cuanto termina una. El registro dice
+una vez cuando el índice de un espacio deja de usarse (`the vault index of <id> is not used (<why>):
+its lookups go to PostgreSQL until it is built again`) y una vez cuando vuelve a usarse. Una caja
+fuerte por encima de 16.777.216 huellas, unos ocho millones de valores, no tiene índice mientras dura
+su espacio: sus búsquedas van a PostgreSQL, y un espacio nuevo lo intenta una vez más. La caja fuerte
+de una persona guardada antes de Latet 0.10.0, cuyos valores aún no tienen palabras, se guarda entera
+en memoria, como antes, hasta que sus palabras y sus huellas se crean, una vez, en una instancia; el
 espacio de la persona construido después trabaja con PostgreSQL. La 0.11 no vuelve a hacer las
 palabras de ninguna clave ([actualizar un servidor](../../applications/#actualizar-un-servidor)).
 
 Latet lee cada petición según el perfil de su ruta, que nombra cada campo, cabecera y parámetro de
 consulta que lleva. En cada versión de Latet, y al menos cada dos semanas, las versiones más recientes
-de los agentes que Latet admite pasan por las peticiones que estos perfiles describen. Cuando la
-actualización de un agente envía algo que ningún perfil nombra, la nueva revisión del perfil sale en
+de los agentes que Latet admite pasan por las peticiones que estos perfiles describen. En una
+petición que Latet solo comprueba (Claude Code, Bedrock, Vertex), pasan, leídos por la comprobación
+final, un miembro nuevo del cuerpo que contiene texto, una cabecera `anthropic-*` nueva o un valor
+nuevo de `anthropic-beta`, y se quita una cabecera `x-claude-code-*` nueva. Cuando la actualización
+de un agente envía cualquier otra cosa que ningún perfil nombra, la nueva revisión del perfil sale en
 una versión de corrección; hasta que la instales, esa petición se rechaza, nombrando su categoría, y no
 sale nada de ella. Mantén las instancias en la última versión de corrección de su versión.
 
@@ -652,7 +653,7 @@ extras (`server`, con `ner` y `ocr` si los tiene):
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 ```
 
 Después pregunta a la nueva versión si cambia las tablas, como arriba (`latet server migrate --check`),

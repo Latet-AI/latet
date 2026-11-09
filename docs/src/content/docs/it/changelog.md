@@ -16,6 +16,34 @@ Cosa arriva dopo è nella [roadmap](../roadmap/): un rifiuto esplicito dalla mod
 installer firmato per Windows, i tuoi modelli dei nomi, altri agenti, e la documentazione in altre
 lingue.
 
+## 0.12.0 (2026-11-09)
+
+- **Una richiesta le cui impostazioni cambiano prima che parta.** Una richiesta le cui impostazioni
+  cambiano tra la sua decisione e il suo invio viene rifiutata come una le cui impostazioni sono
+  cambiate mentre veniva preparata: al suo agente viene detto di inviarla di nuovo e la cronologia
+  registra un rifiuto, dove prima riceveva un `500` *Latet could not send this request as it was
+  decided* ed era registrata come uno scambio. Una richiesta preparata e inviata mentre un salvataggio
+  è ancora in corso di applicazione non parte più con le impostazioni applicate a metà: viene
+  preparata di nuovo quando sono tutte al loro posto, o rifiutata allo stesso modo. Un salvataggio
+  che non riesce a metà rimette le impostazioni che c'erano prima; se nemmeno quelle tornano, ogni
+  richiesta viene rifiutata allo stesso modo finché un salvataggio successivo non riesce o Latet non
+  riparte.
+- **Nuove intestazioni di Claude Code.** In una richiesta che Latet si limita a verificare (Claude
+  Code, Bedrock, Vertex), un'intestazione `anthropic-*` che nessun profilo nomina ancora, o un valore
+  di `anthropic-beta` di forma nuova, passa una volta letta dal controllo finale, indicata come *solo
+  controllato*, come già accade per un membro nuovo del corpo che contiene testo; una nuova
+  intestazione `x-claude-code-*` viene tolta e contata. Claude Code continua a funzionare con una
+  versione che ne aggiunge una prima che Latet la nomini. Un segreto o un tuo valore in una di queste
+  intestazioni viene ancora rifiutato.
+- **Aggiornare un server dalla 0.10.** Calcolare le impronte di una cassaforte conservata dalla 0.10
+  non occupa più una delle due costruzioni di indice di un'istanza: gli indici delle altre identità
+  vengono costruiti nel frattempo, e solo le identità le cui impronte non sono ancora tutte
+  calcolate ricevono risposta dalla ricerca in PostgreSQL, come dicono i passaggi
+  dell'aggiornamento.
+- **Python 3.14.** Latet funziona anche con Python 3.14, su cui è testato come sulla 3.12 e sulla
+  3.13. Una nuova installazione su un computer senza Python riceve la 3.14; `latet upgrade` porta alla
+  3.14 un Latet già installato solo dove una 3.14 c'è già.
+
 ## 0.11.1 (2026-11-06)
 
 - **Le intestazioni di suggerimento di Claude Code.** Quando Claude Code è impostato per inviare le

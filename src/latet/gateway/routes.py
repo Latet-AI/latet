@@ -166,3 +166,13 @@ class RouteTable:
     @property
     def upstreams(self) -> list[Upstream]:
         return list(self._upstreams)
+
+    @property
+    def table(self) -> tuple[Upstream, ...]:
+        """The routes in use, the very objects: what an apply of settings that raises puts back (``put``)."""
+        return self._upstreams
+
+    def put(self, table: tuple[Upstream, ...]) -> None:
+        """``table`` (``table``, read before) in use again as it was, in one swap: the very routes, built again never
+        (``Runtime._put_back``)."""
+        self._upstreams = table

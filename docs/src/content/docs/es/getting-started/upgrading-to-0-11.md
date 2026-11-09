@@ -47,6 +47,17 @@ su nombre, nunca su valor:
 Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
 ```
 
+En una petición que Latet solo comprueba (Claude Code, Bedrock, Vertex), las cabeceras que Claude
+Code añade al ganar funciones nuevas pasan, como pide su guía para pasarelas: una cabecera
+`anthropic-*` nueva, o un valor de `anthropic-beta` de forma nueva, pasa una vez leída por la
+comprobación final, mostrada como *solo comprobada* en el panel, y una cabecera `x-claude-code-*`
+nueva se quita. Pasan hasta ocho cabeceras `anthropic-*` de este tipo, cada una con un nombre de
+letras minúsculas, cifras y guiones, 48 como mucho después de `anthropic-` y ninguna palabra de más
+de 16 entre sus guiones, y un valor de 1 a 1.024 caracteres imprimibles; un secreto o un valor
+tuyo en una de ellas se sigue rechazando.
+En una petición que Latet reescribe, como la de un SDK de Anthropic, se rechazan como cualquier otra
+cabecera que ningún perfil nombra.
+
 Algunas cabeceras se quitan en su lugar: las de telemetría y de trazado de los SDK, y algunas
 propias de los agentes que pueden contener texto libre.
 [Las cabeceras que quita Latet](#las-cabeceras-que-quita-latet) las enumera.
@@ -111,7 +122,7 @@ Latet quita estas cabeceras de una petición antes de enviarla, sea cual sea el 
 | Dónde | Cabeceras |
 | --- | --- |
 | Cada petición: telemetría y trazado de los SDK | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, en el formato de Anthropic (Anthropic, Bedrock, Vertex, una pasarela de empresa) | `x-claude-code-agent-id` y `x-claude-code-parent-agent-id`, los id de un subagente, que pueden contener su nombre; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` y `x-client-app`, que Claude Code copia de su entorno; `x-claude-code-prev-tool-durations`, una indicación para las pasarelas que nombra las herramientas ejecutadas (entre ellas los nombres propios de un servidor MCP) |
+| Claude Code, en el formato de Anthropic (Anthropic, Bedrock, Vertex, una pasarela de empresa) | `x-claude-code-agent-id` y `x-claude-code-parent-agent-id`, los id de un subagente, que pueden contener su nombre; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` y `x-client-app`, que Claude Code copia de su entorno; `x-claude-code-prev-tool-durations`, una indicación para las pasarelas que nombra las herramientas ejecutadas (entre ellas los nombres propios de un servidor MCP); cualquier otra cabecera `x-claude-code-*`, que Latet todavía no nombra |
 | Bedrock: el SDK de AWS | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: la biblioteca cliente de Google | `x-goog-api-client` |
 | Codex, en el formato de OpenAI y en el de ChatGPT | `x-codex-turn-metadata`, que contiene la ruta, los remotos y el commit de tu repositorio; `x-openai-subagent`, el tipo o una etiqueta libre de un subagente |
@@ -168,6 +179,16 @@ excepción exacta, como abajo, nombrando el destino al que va; la clave de una p
 una cabecera se nombra como credencial, que Latet envía tal como llegó y nunca lee. La clave de
 lanzamiento de Latet, que `latet claude` y los demás añaden a estos ajustes, no se nombra: Latet la
 quita antes de reenviar nada.
+
+Una cabecera que defines para Claude Code cuyo nombre empieza por `anthropic-` no necesita ninguna
+excepción: pasa una vez leída por la comprobación final, como una cabecera nueva del propio Claude
+Code ([Cabeceras](#lo-que-la-011-rechaza-y-la-010-enviaba)); una cuyo nombre empieza por
+`x-claude-code-` se quita. Una credencial de un destino en una cabecera de este tipo se nombra de
+todos modos con una excepción, para que Latet la envíe tal como llegó y nunca la lea. Una excepción
+que nombra una cabecera de este tipo decide sobre ella incluso donde no se aplica: en una petición
+de otro proyecto, o cuando la excepción ha caducado, la cabecera se rechaza (nombrándola, o
+nombrando la excepción y el día en que caducó), y nunca se lee ni se envía en lugar de la excepción.
+Quita la excepción si la cabecera debe pasar comprobada en todas partes.
 
 ## Aprobar una excepción exacta
 
@@ -357,7 +378,7 @@ hubiera ajustes aprobados: un cambio en `config.yaml` se aplicaría entonces sin
 aprobación. Si elegiste uno, restaura la copia que hizo la actualización a la 0.11, que contiene los
 dos archivos tal como estaban antes: `latet upgrade --to` la ofrece al volver atrás (está en la
 carpeta de datos, en `backups/before-<versión>-<hora>`, con el nombre de la versión instalada, por
-ejemplo `before-0.11.1-…`). Sin esa copia (la 0.11 instalada con el
+ejemplo `before-0.12.0-…`). Sin esa copia (la 0.11 instalada con el
 instalador, que no hace ninguna), quita la clave de los dos archivos antes de volver atrás: las líneas
 `request_profile:` de `config.yaml`, y cada miembro `"request_profile": "…"` de
 `config.reviewed.json`, dejándolo como JSON válido.

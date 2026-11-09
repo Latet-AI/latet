@@ -27,8 +27,14 @@ Unicode code points: in the text sent for ``scan``, in the text answered for ``m
 An error is ``{"error": words}``, and its words never quote a text: 400 a body that is not one, 403 a permission the
 token lacks, 404 another path under the prefix, 405 another method, 422 texts whose words name more of the vault's
 values or fakes than one call may weigh (nothing of it masked or restored), 507 a vault that is full, 500 another
-masking failure (by its words, which name no value), 503 a store that does not answer, or an unmask or a forget the log
-did not take."""
+masking failure (by its words, which name no value), 503 a store that does not answer, an unmask or a forget the log
+did not take, or a scan, mask or unmask while the space's settings are being applied.
+
+A scan, mask or unmask that comes while the space's settings are being applied (``Engine.applying``) waits for them to
+be all in place, as a request over HTTP does (``request_policy.settled``, the same bound), and is answered under them;
+one whose apply outlasts the wait, or that comes while the settings that ran before could not be put back
+(``Engine.stranded``), or whose answer an apply began over, is refused (503, ``SETTINGS_CHANGED``): nothing of a call is
+masked, scanned or restored under settings half applied, nor given (minors after 0.11, item 23's fix round)."""
 
 from __future__ import annotations
 
@@ -52,6 +58,7 @@ from latet.engine.pipeline import WITHHELD_DUMP, Session
 from latet.engine.stored import StoredVault
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import MaskingError
+from latet.gateway import request_policy
 from latet.gateway.mediate import Masked, Mediator, ReviewItem
 from latet.gateway.recorder import replacement_dicts
 from latet.logline import Paced, described
@@ -61,7 +68,7 @@ from latet.server.vault import NotRecorded, TooManyCandidates, VaultFull
 if TYPE_CHECKING:
     from latet.gateway.app import OnServer
 
-__all__ = ["APPS_API", "APPS_REVIEW_SECONDS", "MOST_TEXTS", "Apps", "values_asked"]
+__all__ = ["APPS_API", "APPS_REVIEW_SECONDS", "MOST_TEXTS", "SETTINGS_CHANGED", "Apps", "values_asked"]
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +86,10 @@ NOT_A_KEY = "the applications API takes an API key's token"
 NO_LOG = "the unmask could not be written in the administration log, so nothing was restored: try again"
 NO_FORGET_LOG = "the forget could not be written in the administration log, so nothing was forgotten: try again"
 FAILED = "the applications API could not answer this call: try again"
+# A scan, mask or unmask refused because the space's settings were being applied as it came or as it was answered.
+SETTINGS_CHANGED = "the settings of this space changed while the call was answered: send it again"
+# The operations that read texts by the space's settings, gated by the mark of an apply under way (forget is not).
+_UNDER_THE_SETTINGS = frozenset({"scan", "mask", "unmask"})
 _WITHHELD = "[withheld by Latet: "
 
 
@@ -183,6 +194,7 @@ class Apps:
         self._unanswered = Paced()  # calls answered 503 because a store did not answer, said once a minute
         self._failed = Paced()  # calls that failed otherwise, said once a minute by the error's type
         self._unlogged = Paced()  # unmasks and forgets refused because the administration log did not take them
+        self._unsettled = Paced()  # calls refused because the space's settings were being applied, said once a minute
 
     def routes(self) -> list[Route]:
         return [
@@ -214,6 +226,7 @@ class Apps:
         full vault 507, another masking failure 500, a store that does not answer 503, anything else 500, each said in
         the log by its words when they name no value (a masking failure's), else by the error's type."""
         reader = read if read is not None else functools.partial(_texts, kinds=operation != "unmask")
+        gated = operation in _UNDER_THE_SETTINGS
 
         async def endpoint(request: Request) -> Response:
             grant = self._through_the_gate(request)
@@ -228,11 +241,22 @@ class Apps:
                 raw = await request.body()
             except ClientDisconnect:  # gone, or its body past the server's limit (answered 413 there): nothing to say
                 return Response(status_code=400)
+            engine = self.engine
+            if gated:  # settings being applied waited for first; refused while they are, or cannot be put back
+                await request_policy.settled(engine)
+            # The applies begun counted before the mark is looked at: one that begins between the two is under way
+            # as the mark is read, or counted over the answer (the second fix round, R4).
+            begun = engine.applies
+            if gated and engine.applying:
+                return self._settings_changed()
             try:
                 given = await self.mediator.run_bridge(reader, raw)
                 if isinstance(given, str):
                     return _error(400, given)
-                return await work(request, grant, *given)
+                answer = await work(request, grant, *given)
+                if gated and (engine.applying or engine.applies != begun):  # an apply began over it: not given
+                    return self._settings_changed()
+                return answer
             except VaultFull as exc:  # nothing of the call is answered, nothing leaves in clear (R9)
                 full = f"its limit is {exc.limit} values" if exc.limit is not None else "it holds the most it may"
                 return _error(507, f"this API key's vault is full: {full}; latet server keys limit raises it")
@@ -253,6 +277,14 @@ class Apps:
                 return _error(500, FAILED)
 
         return endpoint
+
+    def _settings_changed(self) -> Response:
+        """A call refused because the space's settings were being applied (or could not be put back): 503, in fixed
+        words, said in the log once a minute."""
+        if count := self._unsettled.due():
+            many = f" ({count} since the line before)" if count > 1 else ""
+            log.warning("an applications API call was answered 503: the space's settings were being applied%s", many)
+        return _error(503, SETTINGS_CHANGED)
 
     def _not_answering(self, exc: BaseException) -> Response:
         """A call a store did not answer: 503, said in the log once a minute by the error's type."""

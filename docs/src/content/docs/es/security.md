@@ -277,8 +277,21 @@ en un único archivo:
   salida de una herramienta o en un mensaje, se enmascara; donde no se puede enmascarar, la petición se
   rechaza.
 - Una cabecera que ningún perfil nombra se rechaza: su nombre solo se le dice al agente, y los
-  registros y el historial solo guardan su tipo. Las cabeceras que un perfil declara eliminables se
-  quitan y se cuentan en el panel: la telemetría y el trazado de los SDK (`x-stainless-*`,
+  registros y el historial solo guardan su tipo. En una petición que Latet solo comprueba (Claude
+  Code, Bedrock, Vertex), una cabecera `anthropic-*` nueva o un valor nuevo de `anthropic-beta` pasa
+  una vez leído por la comprobación final, el nombre de una cabecera nueva igual que su valor (un
+  secreto, un valor que la caja fuerte conoce o uno que la comprobación detecta en cualquiera de los
+  dos hace rechazar la petición), y una cabecera `x-claude-code-*` nueva se quita. Ninguna palabra
+  del nombre de una cabecera nueva, entre sus guiones, puede pasar de 16 caracteres. El nombre de
+  una cabecera llega en minúsculas: la comprobación final lo lee en minúsculas, en mayúsculas y con
+  la inicial de cada palabra en mayúscula. Un valor escrito en el nombre de una cabecera con otra
+  mezcla de mayúsculas y minúsculas, ya sea un valor tuyo como `ACME-Payroll-7731` o un secreto
+  cuya forma las mezcla, como una clave de API de Google (`AIza…`), no se encuentra ahí: el nombre
+  solo se rechaza cuando sale de uno de los límites de una cabecera nueva, una palabra de más de 16
+  caracteres (como suele ocurrir con una clave o un token), más de 48 caracteres después de
+  `anthropic-` o un carácter que no sea una letra minúscula, una cifra o un guion. En una petición
+  que Latet reescribe se rechazan antes de que se enmascare nada de ella.
+  Las cabeceras que un perfil declara eliminables se quitan y se cuentan en el panel: la telemetría y el trazado de los SDK (`x-stainless-*`,
   `traceparent`...), y las propias de los agentes que pueden contener texto libre, como los id de un
   subagente de Claude Code o los metadatos del turno de Codex, que contienen la ruta y los remotos de
   tu repositorio ([Las cabeceras que quita Latet](../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet)). En una petición que Latet solo comprueba,

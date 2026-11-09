@@ -32,6 +32,7 @@ from latet.fileio import own_file  # the list below is read by it; ``projects`` 
 from latet.logline import described
 from latet.state.protocols import Left, StateBackends, Timing
 from latet.storage.folders import make_private_folder
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.gateway.approvals import Batch, Change, Decision
@@ -259,7 +260,7 @@ class LocalApprovals:
 
     async def decision(self, batch: Batch, hold: float | None) -> Decision | None:
         try:
-            return await asyncio.wait_for(asyncio.shield(batch.future), hold)
+            return await asyncio.wait_for(shielded(batch.future), hold)
         except TimeoutError:
             return None
 
@@ -292,7 +293,7 @@ class LocalApprovals:
         future, batch = slot
         self.polled(batch, 1)
         try:
-            answer = await asyncio.wait_for(asyncio.shield(future), hold)
+            answer = await asyncio.wait_for(shielded(future), hold)
         except TimeoutError:
             return None
         finally:

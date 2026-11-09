@@ -67,6 +67,7 @@ from latet.server.db import Database
 from latet.server.sealing import Sealer
 from latet.server.shared import _settings
 from latet.state.protocols import Timing
+from latet.waiting import shielded
 
 log = logging.getLogger(__name__)
 # The one thread where every space of this process makes its batches' records and writes them (``store``): the JSON of
@@ -769,7 +770,7 @@ class ValkeyApprovals:
         self._decided(batch.id)  # decided already, maybe, or with no decision to come
         self._keep_going()  # read again until it ends
         try:
-            return await asyncio.wait_for(asyncio.shield(future), hold)
+            return await asyncio.wait_for(shielded(future), hold)
         except TimeoutError:
             return None
 
@@ -911,7 +912,7 @@ class ValkeyApprovals:
             future = self._answers[batch_id] = asyncio.get_running_loop().create_future()
         try:
             self._answered(batch_id)  # given already, maybe
-            return await asyncio.wait_for(asyncio.shield(future), hold)
+            return await asyncio.wait_for(shielded(future), hold)
         except TimeoutError:
             return None
         finally:

@@ -42,7 +42,7 @@ _UV_PYTHON = re.compile(r"(?:cpython|pypy|graalpy)-\d", re.IGNORECASE)  # the fo
 _ONLY_EXTRA = re.compile(r"\s*extra\s*==\s*(['\"])([^'\"]+)\1\s*")  # a Requires-Dist's marker: an extra, alone
 # The Pythons Latet is tested on, as the installers ask: uv takes the newest Python it finds or can download, and on a
 # newer one Latet's dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
-PYTHONS = ">=3.12,<3.14"
+PYTHONS = ">=3.12,<3.15"
 
 
 class ReleaseError(Exception):

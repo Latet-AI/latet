@@ -172,7 +172,9 @@ Wenn `ANTHROPIC_BASE_URL` auf den Daemon zeigt, läuft jede Anfrage über ihn. D
 - liest jeden anderen Teil davon: Ein Header, ein Abfrageparameter oder ein Element des Inhalts, das
   kein Profil nennt, wird abgelehnt
   ([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)), außer einem
-  neuen Element des Inhalts mit Text, das durchgeht, sobald die abschließende Prüfung es gelesen hat;
+  neuen Element des Inhalts mit Text, einem neuen `anthropic-*`-Header oder einem neuen
+  `anthropic-beta`-Wert, die durchgehen, sobald die abschließende Prüfung sie gelesen hat, und einem
+  neuen `x-claude-code-*`-Header, den er entfernt und zählt;
 - leitet sonst den Inhalt Byte für Byte weiter, und die Header ohne jene, die er entfernt und zählt
   ([Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt));
 - zeichnet den Austausch für das [Dashboard](../../dashboard/) auf, ohne seine Zugangsdaten.
@@ -223,6 +225,9 @@ Header, die Sie in `ANTHROPIC_CUSTOM_HEADERS` setzen, werden abgelehnt, jeder be
 eine genaue Ausnahme ihn durchlässt, eine für jede Art von Aufruf, die ihn sendet
 (`anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`): siehe
 [Umstieg auf 0.11](../../getting-started/upgrading-to-0-11/#header-die-sie-für-ihre-agenten-setzen).
+Einer, dessen Name mit `anthropic-` beginnt, braucht keine: Er geht durch, sobald die abschließende
+Prüfung ihn gelesen hat, wie ein neuer Header von Claude Code selbst; einer, dessen Name mit
+`x-claude-code-` beginnt, wird entfernt.
 
 ## Was global-install ändert
 

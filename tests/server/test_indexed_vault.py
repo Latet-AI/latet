@@ -738,6 +738,190 @@ async def test_an_instance_that_found_the_prints_being_made_elsewhere_uses_its_i
         release.set()
 
 
+def _legacy_person(server, name, count=30):
+    """A person whose vault 0.10.0 kept: ``count`` values, and no word row yet (their words and prints are made in the
+    background, ``spaces._make_words``, the space serving the vault whole from memory meanwhile)."""
+    person, _ = server.identities.add_person(name)
+    writer = pg.PgVaultStore(server.db, person.id, root_key(server.db, server.master, person.id))
+    for number in range(count):
+        writer.save_entity(
+            replace(
+                LAURA,
+                id=f"e{number:019d}",
+                original=f"Customer Number{number:05d}",
+                surrogate=f"Alternate Client{number:05d}",
+            )
+        )
+    with server.db.connection() as conn:
+        conn.execute("DELETE FROM vault_words WHERE identity_id = %s", (person.id,))  # as 0.10.0 left them
+    return person
+
+
+async def _a_key_is_indexed_meanwhile(server, client):
+    """A key whose prints are all made opens its space now: its index is built and used, whatever the background work
+    of the vaults kept by 0.10 is doing."""
+    identity, secret = server.identities.add_key("Prints all made")
+    runtime = await server.spaces.runtime(identity)
+    await _wait_ready(runtime.store)
+    [done] = await _masked(client, secret, ["password=" + TOKEN])
+    assert TOKEN not in done
+
+
+async def test_a_legacy_vaults_fill_holds_no_build_turn_of_another_space(server, monkeypatch):
+    """Item 6 of the minors after 0.11 (Task 13's final review, M-1): on a server upgraded from 0.10, two keys whose
+    vaults 0.10 kept open their spaces first and have their prints made, each fill held on an event of its own; a third
+    key, its prints all made, opens its space meanwhile: its index is built and used while both fills still wait, for a
+    fill holds none of the instance's two index builds (``INDEX_BUILDS_AT_ONCE``). Each legacy key's index is ready
+    once its own fill is released, with no beat's check: the fill that made the prints asks for its own space's build,
+    since its ``prints`` message reaches the other instances' spaces alone. The third key opens once the second key's
+    build has begun (``build_index`` entered), so that it never comes first."""
+    _working(server, values=0)
+    legacy = [_legacy_key(server, f"Legacy key {number}") for number in range(indexes.INDEX_BUILDS_AT_ONCE)]
+    building = {identity.id: threading.Event() for identity, _ in legacy}
+    entered = {identity.id: threading.Event() for identity, _ in legacy}
+    release = {identity.id: threading.Event() for identity, _ in legacy}
+    build, fill = pg.PgVaultStore.build_index, pg.PgVaultStore.fill_prints
+
+    def begun(store):
+        if store.identity in building:
+            building[store.identity].set()
+        return build(store)
+
+    def held(store):
+        if store.identity in release:
+            entered[store.identity].set()
+            assert release[store.identity].wait(30), "the test did not release the fill"
+        return fill(store)
+
+    monkeypatch.setattr(pg.PgVaultStore, "build_index", begun)
+    monkeypatch.setattr(pg.PgVaultStore, "fill_prints", held)
+    try:
+        async with _calling(server) as client:
+            first = await server.spaces.runtime(legacy[0][0])
+            assert await asyncio.to_thread(entered[legacy[0][0].id].wait, 5), "the first key's prints were never made"
+            second = await server.spaces.runtime(legacy[1][0])
+            assert await asyncio.to_thread(building[legacy[1][0].id].wait, 5), "the second key's build never began"
+            await _a_key_is_indexed_meanwhile(server, client)
+            for runtime in (first, second):
+                assert not runtime.store.index.ready and not runtime.store.prints_complete()
+            for (identity, secret), runtime in zip(legacy, (first, second), strict=True):
+                release[identity.id].set()
+                await _wait_ready(runtime.store)
+                assert runtime.store.prints_complete()
+                assert await _masked(client, secret, ["Customer Number00029"], "data") == ["Alternate Client00029"]
+    finally:
+        for event in release.values():
+            event.set()
+
+
+async def test_a_persons_words_job_holds_no_build_turn_of_another_space(server, monkeypatch):
+    """Item 6's twin: two people whose vaults 0.10.0 kept, with no words yet, open their spaces first and have their
+    words and prints made (``spaces._make_words``), each job held on an event of its own; a key whose prints are all
+    made opens its space meanwhile: its index is built and used while both jobs still wait. Each person's words and
+    prints are made once their job is released, the space serving the vault whole from memory until then. The key
+    opens once the second person's job has been handed to its thread (``Spaces._words_space`` entered: it hands it on
+    before it first waits), so that it never comes first."""
+    _working(server, values=0)
+    people = [_legacy_person(server, f"Person of 0.10 {number}") for number in range(indexes.INDEX_BUILDS_AT_ONCE)]
+    asked = {person.id: asyncio.Event() for person in people}
+    entered = {person.id: threading.Event() for person in people}
+    release = {person.id: threading.Event() for person in people}
+    done = {person.id: threading.Event() for person in people}
+    words_space, make = spaces.Spaces._words_space, spaces._make_words
+
+    async def begun(self, space):
+        if space.identity.id in asked:
+            asked[space.identity.id].set()
+        return await words_space(self, space)
+
+    def held(store, jobs):
+        entered[store.identity].set()
+        try:
+            assert release[store.identity].wait(30), "the test did not release the words job"
+            return make(store, jobs)
+        finally:
+            done[store.identity].set()
+
+    monkeypatch.setattr(spaces.Spaces, "_words_space", begun)
+    monkeypatch.setattr(spaces, "_make_words", held)
+    try:
+        async with _calling(server) as client:
+            first = await server.spaces.runtime(people[0])
+            assert await asyncio.to_thread(entered[people[0].id].wait, 5), "the first person's words were never made"
+            second = await server.spaces.runtime(people[1])
+            await asyncio.wait_for(asked[people[1].id].wait(), 5)  # its job handed on before the key's build
+            await _a_key_is_indexed_meanwhile(server, client)
+            for person, runtime in zip(people, (first, second), strict=True):
+                assert type(runtime.built.vault) is Vault  # served whole from memory meanwhile
+                release[person.id].set()
+                assert await asyncio.to_thread(done[person.id].wait, 30), "the words job never ended"
+                store = runtime.store
+                assert await asyncio.to_thread(lambda store=store: store.words_complete() and store.prints_complete())
+    finally:
+        for event in release.values():
+            event.set()
+
+
+async def test_a_fill_that_ends_while_its_space_is_built_has_its_index_built_at_once(server, monkeypatch):
+    """Task 6's review, M-1: a fill of a space's prints that ends while a build of that space is under way, after the
+    build found them not all made (another instance's, heard by its ``prints`` message; or the space's own), has the
+    index built again as soon as that build ends, not at the next paced try (10, 20, 30 or 60 seconds after it). Here
+    the fills' thread is busy with another vault's fill, so that no fill of the space's own makes up for it. The test
+    waits for the third build's answer as it is recorded, never for the index to be ready: a build publishes it before
+    it returns its answer."""
+    _working(server, values=0)
+    busy, _ = _legacy_key(server, "Legacy key whose fill holds the thread")
+    target, _ = _legacy_key(server, "Legacy key made elsewhere")
+    busy_entered, busy_release = threading.Event(), threading.Event()
+    target_held, target_release, built_again = threading.Event(), threading.Event(), threading.Event()
+    build, fill = pg.PgVaultStore.build_index, pg.PgVaultStore.fill_prints
+    builds: list[bool] = []
+
+    def held_fill(store):
+        if store.identity == busy.id:
+            busy_entered.set()
+            assert busy_release.wait(30), "the test did not release the busy fill"
+        return fill(store)
+
+    def held_build(store):
+        built = build(store)
+        if store.identity == target.id:
+            builds.append(built)
+            if len(builds) == 2:  # its paced try, which found the prints not all made, held as it ends
+                target_held.set()
+                assert target_release.wait(30), "the test did not release the build"
+            elif len(builds) == 3:  # the build the fill's end asked for, its answer recorded
+                built_again.set()
+        return built
+
+    monkeypatch.setattr(pg.PgVaultStore, "fill_prints", held_fill)
+    monkeypatch.setattr(pg.PgVaultStore, "build_index", held_build)
+    try:
+        async with _calling(server):
+            await server.spaces.runtime(busy)
+            assert await asyncio.to_thread(busy_entered.wait, 5), "the busy key's prints were never made"
+            runtime = await server.spaces.runtime(target)
+            space = server.spaces._spaces[target.id]
+            assert space.index_build is not None
+            await asyncio.wait({space.index_build})  # its first build: the prints not all made
+            assert space.prints_fill is not None and not space.prints_fill.done()  # its fill waits for the thread
+            space.index_tried = 0.0  # its paced try due now, as the beat's check starts it
+            server.spaces._build_index_again()
+            assert await asyncio.to_thread(target_held.wait, 5), "its paced try never began"
+            other = pg.PgVaultStore(server.db, target.id, root_key(server.db, server.master, target.id))
+            await asyncio.to_thread(other._fill_prints)  # another instance makes the prints meanwhile
+            assert await asyncio.to_thread(runtime.store.prints_complete)
+            server.spaces._index_soon(space)  # as its ``prints`` message has it
+            assert space.index_wanted
+            target_release.set()
+            # Ten seconds: at once, not at the paced try's twenty.
+            assert await asyncio.to_thread(built_again.wait, 10), "the index was not built again at once"
+            assert builds == [False, False, True] and runtime.store.index.ready
+    finally:
+        busy_release.set()
+        target_release.set()
+
+
 async def test_an_index_whose_catch_up_failed_once_is_ready_again_after_the_beats_check(server, monkeypatch):
     """The final review's I-1, its second scenario (PostgreSQL restarted or failed over, a pool's wait past its
     bound): a catch-up of a ready index fails once, and from then on PostgreSQL's lookup answers, never the index. The
@@ -871,6 +1055,74 @@ async def test_indexes_lost_together_are_all_built_again_without_waiting_a_beat_
             assert not runtime.store.index.ready
         await server.check()  # one beat's
         await until(lambda: all(runtime.store.index.ready for runtime in runtimes), seconds=BEAT_SECONDS / 2)
+
+
+async def test_an_index_lost_right_after_each_build_is_built_again_at_the_pace_of_a_failed_one(server, monkeypatch):
+    """Item 9 of the minors after 0.11 (Task 13's re-review round 2), as the 0.12 plan rules it: an index whose
+    catch-up fails right after each build (a PostgreSQL pool short of connections for a while) is not built again at
+    every check. Its first loss is built again at the next check, as I-1's and R-3's are; each later loss within a
+    minute (``INDEX_AGAIN_SECONDS[-1]``) of the build that made it ready waits as a failed build's try does, 10, 20,
+    then 30 seconds, then a minute and never longer; an index that lived a minute before its loss is built again at
+    once, and one lost right after that build waits 10 seconds again. The spaces' clock is the test's, moved by hand: no
+    sleep, and each check's builds are counted once they end. It starts at a whole number of seconds, so that each
+    whole step it is moved by adds up exactly (a fraction is rounded once a sum crosses a power of two)."""
+    clock = [float(int(time.monotonic()))]
+    monkeypatch.setattr(spaces, "time", type("Clock", (), {"monotonic": lambda: clock[0], "sleep": time.sleep}))
+    identity, _ = server.identities.add_key("Index lost after each build")
+    build = pg.PgVaultStore.build_index
+    builds: list[bool] = []
+
+    def failed(*args, **kwargs):
+        raise psycopg.OperationalError("synthetic catch-up failure")
+
+    def lost_after(store):
+        built = build(store)
+        if store.identity == identity.id:
+            builds.append(built)
+            if built:  # this index alone: its next catch-up fails, a fresh one's build catches up
+                store.index.catch_up = failed
+        return built
+
+    monkeypatch.setattr(pg.PgVaultStore, "build_index", lost_after)
+    async with _calling(server):
+        runtime = await server.spaces.runtime(identity)
+        space = server.spaces._spaces[identity.id]
+        assert space.index_build is not None
+        await asyncio.wait({space.index_build})  # its first build, judged
+        assert builds == [True] and runtime.store.index.ready
+
+        async def lost(lived=0.0):
+            """The index lost to its failed catch-up, ``lived`` seconds after the build that made it ready."""
+            clock[0] += lived
+            await asyncio.to_thread(runtime.store.current)
+            assert not runtime.store.index.ready
+
+        async def checked(later=0.0):
+            """The beat's check ``later`` seconds on: the builds it made, once they ended."""
+            clock[0] += later
+            before, count = space.index_build, len(builds)
+            await server.check()
+            if space.index_build is not before:
+                await asyncio.wait({space.index_build})
+            return len(builds) - count
+
+        again = spaces.INDEX_AGAIN_SECONDS
+        assert again == (10.0, 20.0, 30.0, 60.0)  # as shipped, as the server operations page says
+        await lost()
+        assert await checked() == 1  # the first loss: built again at the next check
+        assert runtime.store.index.ready
+        for wait in (*again, again[-1]):  # lost again right after each build: 10, 20, 30 seconds, then a minute twice
+            await lost()
+            assert await checked() == 0, f"built again at once, not {wait} seconds later"
+            assert space.index_off and not runtime.store.index.ready
+            assert await checked(wait - 1) == 0 and not runtime.store.index.ready
+            assert await checked(1) == 1 and runtime.store.index.ready
+        await lost(again[-1])  # it lived a minute: built again at once
+        assert await checked() == 1 and runtime.store.index.ready
+        await lost()  # and lost right after that build: 10 seconds again
+        assert await checked() == 0
+        assert await checked(again[0]) == 1 and runtime.store.index.ready
+        assert builds == [True] * 9
 
 
 def test_empty_cached_print_and_evicted_collision_group_are_fetched_completely(stores):

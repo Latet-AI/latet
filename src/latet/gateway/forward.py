@@ -103,6 +103,19 @@ def history_coverage(decision: SendDecision) -> int:
         return 21
     if type(decision) is Pass and type(decision.evidence) is PolicyEvidence and type(decision.body_proof) is BodyProof:
         return 25
+    if (
+        type(decision) is Pass
+        and type(decision.evidence) is PolicyEvidence
+        and decision.body_proof is None
+        and type(decision.envelope_proof) is EnvelopeProof
+        and decision.envelope.transport == "http"
+        and decision.envelope.body == b""
+        and decision.payload == b""
+    ):
+        # A call with no body (a model list) let through by a rule or an exception of its envelope's: every part of it
+        # accounted for, as the same call with nothing to name is (a Forward, 21), so the history shows what it passed
+        # by (D4 (b)'s "checked only", an exception), never an unknown coverage (the review of Task 3, M-1).
+        return 25
     return 28 if type(decision) is Block else 0
 
 
@@ -150,6 +163,15 @@ def _used(admission: Any, prepared: Prepared, upstream: Upstream) -> tuple[tuple
     return (*admission.exceptions, *body)
 
 
+def _newly_open(admission: Any, prepared: Prepared) -> EnvelopeRefused | None:
+    """D4 (b): a header the open list lets through at a later reading of the request's envelope (``_judged``) that it
+    was not prepared with: one an exception let through at its admission, the exception revoked meanwhile. Its value
+    was not read as the open list reads it (a destination credential's never is), so it is refused as it was refused
+    before the exception, by that refusal. None: each was there at its preparation, which let it through."""
+    kept = set(prepared.envelope_open)
+    return next((error for name, error in admission.open if name not in kept), None)
+
+
 def _settings_moved(prepared: Prepared) -> bool:
     """Whether a request's route authority went stale after it was prepared: its route or its rules moved (its settings
     applied again), which is why ``finalize`` refused it, not a part left unaccounted for."""
@@ -164,13 +186,19 @@ def _unrouted(prepared: Prepared, upstream: Upstream) -> bool:
 
 
 def _visible(audit: RequestAudit | None, turn: _Turn, sent_under: tuple[Any, ...]) -> bool:
-    """Each exception a request is sent under made visible first (M1): its status reserved, kept on ``turn`` until the
-    request ends. False, with what was reserved abandoned, when one cannot be: the request is not sent. Without an
-    audit owner (a test's gateway) there is nothing to reserve."""
+    """Each exception a request is sent under made visible first (M1): its status reserved under the reference its
+    identity's audit keeps for it (``RequestAudit.reference_for``), kept on ``turn`` until the request ends. False, with
+    what was reserved abandoned, when one cannot be (no reference made or no status reserved, the audit full): the
+    request is not sent. Without an audit owner (a test's gateway) there is nothing to reserve."""
     if not sent_under or audit is None:
         return True
     for row in {row.id: row for row in sent_under}.values():
-        reservation = audit.reserve_exception(request_policy.reference_of(row))
+        # The two calls stay back to back, with no await or hand-off to a thread between them: a reference with no
+        # status row yet is let go when a reservation of it fails, so another request of the same exception taking
+        # its turn in between could reserve under a reference its audit no longer keeps, splitting its status in two
+        # (item 10 of the minors after 0.11; the review of Task 4, M-3).
+        reference = audit.reference_for(row.id, request_policy.EXCEPTION_SCOPES[row.reason])
+        reservation = None if reference is None else audit.reserve_exception(reference)
         if reservation is None:
             for held in turn.reservations:
                 audit.abandon(held)
@@ -552,6 +580,10 @@ class Forwarder:
                 return self._envelope_refused(
                     turn, matched, prepared, error, method, wire, body=body, attempted=attempted
                 )
+            if (opened := _newly_open(again, prepared)) is not None:
+                return self._envelope_refused(
+                    turn, matched, prepared, opened, method, wire, body=body, attempted=attempted
+                )
             if _unrouted(prepared, matched):
                 binding = EnvelopeRefused("envelope-binding")
                 return self._envelope_refused(
@@ -700,11 +732,14 @@ class Forwarder:
         query: str = "",
         launch: RequestLaunch = ABSENT,
         body_grants: Any = None,
+        envelope_open: tuple[tuple[str, EnvelopeRefused], ...] = (),
+        envelope_family: str | None = None,
     ) -> Prepared | Response:
         """The request masked (``Mediator.prepare``); or the answer that stops it, when the vault is at its limit or no
         fake is free and ``prepare`` lets it through, or when its body would decode past a server's ``max_request_mb``:
         never sent unmasked, nor decoded further, and refused (``turn.decision``). A request stopped so is recorded as
-        one Latet stopped, with its reason (``_refused``)."""
+        one Latet stopped, with its reason (``_refused``). ``envelope_open``: what D4 (b)'s open list let through at its
+        envelope (its profile's ``envelope_family``), which its preparation refuses unless Latet only checks it."""
         assert self.mediator is not None
         try:
             # Given up while it masks: what the masking holds is released as the executor ends (RC-REC-11 (b)).
@@ -720,6 +755,8 @@ class Forwarder:
                 query,
                 launch=launch,  # always a launch decision: never the preparation seam (G2 review M-3)
                 **({"body_grants": body_grants} if body_grants is not None else {}),
+                envelope_open=envelope_open,
+                envelope_family=envelope_family,
             )
         except DecodedTooLarge as error:  # a few KiB that would inflate past the limit: stopped (its words, the limit)
             log.warning("stopped %s %s: %s", request.method, path, type(error).__name__)
@@ -802,19 +839,30 @@ class Forwarder:
         upstream: Upstream,
         outcome: Outcome | None,
         exchange: Exchange | None,
+        *,
+        received: int,
     ) -> Response:
         """A decision the transport did not send (``SendRefusal``: it changed, or was never one it may send): nothing
         more of the request is sent, and its client is told so (500: Latet's own failure). No attempt is recorded for a
-        first attempt refused; a retry refused keeps the first attempt's."""
+        first attempt refused; a retry refused keeps the first attempt's.
+
+        A stale decision its route authority refused (``settings_moved``: its rules or its route moved after its
+        decision, its settings applied again meanwhile) is refused as a request whose settings changed while it was
+        prepared is (``settings-changed``, 400: send it again), never as Latet's own failure (after 0.11, item 3); any
+        other stale decision (its launch no longer current, its arena changed, its opaque evidence) keeps its 500, even
+        while settings are applied (item 23's fix round, M2). Nothing of it sent, its history row is the row of that
+        refusal at its decision: no error, no passes, no header kept, its size as it came (``received``)."""
         turn.refusal = reason_code(refusal.code)  # numeric category only, never raw reason
-        if refusal.code in {"coverage-limit", "opaque-expired"}:
-            reason = (
-                "request envelope refused (coverage-limit)"
-                if refusal.code == "coverage-limit"
-                else "opaque evidence expired; send the request again"
-            )
-            status = envelope_status(refusal.code) if refusal.code == "coverage-limit" else 400
-            code = refusal.code if refusal.code == "coverage-limit" else "evidence"
+        moved = refusal.code == "stale" and refusal.settings_moved
+        if moved or refusal.code in {"coverage-limit", "opaque-expired"}:
+            if moved:
+                code, reason, status = "settings-changed", _SETTINGS_MOVED, 400
+                turn.refusal = reason_code(code)
+            elif refusal.code == "coverage-limit":
+                code, reason = refusal.code, "request envelope refused (coverage-limit)"
+                status = envelope_status(refusal.code)
+            else:
+                code, reason, status = "evidence", "opaque evidence expired; send the request again", 400
             block = refuse("http", upstream.name, code, reason, status)
             attempted = isinstance(turn.execution, Attempted)
             if attempted:
@@ -825,8 +873,15 @@ class Forwarder:
                 outcome.history_code = 28
                 if not attempted:  # stopped by its code, nothing sent; a retry refused keeps its first attempt's record
                     outcome.block_code, outcome.forwarded = code, None
-            log.warning("blocked HTTP request: %s", refusal.code)
-            self._record(outcome, status=status, error=refusal.code)
+            said = code if moved else refusal.code  # what the log and the record name: never "stale" for moved settings
+            log.warning("blocked HTTP request: %s", said)
+            error: str | None = said
+            if moved and not attempted and outcome is not None:
+                # Recorded as a request refused at its decision because its settings changed is (the fix round's M1):
+                # no error, no passes of the decision it was not sent under, no header kept, its size as it came.
+                outcome.passes, outcome.request_headers, outcome.body_bytes = (), [], received
+                error = None
+            self._record(outcome, status=status, error=error)
             text = stopped(reason, self.tutorial)
             if attempted:
                 text = _after_an_attempt(text)
@@ -964,10 +1019,11 @@ class Forwarder:
         body = bytes(gathered)
         envelope = envelope_of(request.scope, "http", upstream.name, body)
         # RC-REC-3: a request that may be decided by a stored exception (one its envelope's admission consulted, one its
-        # profile's body selectors could, or a component no profile names, which a new exception may now name) reads
-        # the settings' counts and the decision's clock first, in one statement; settings behind what PostgreSQL holds
-        # are read again before deciding, so that an exception revoked or added on another instance or worker counts
-        # at once. A computer's own settings are always the ones in force: its clock alone.
+        # profile's body selectors could, or a component no profile names, which a new exception may now name: the open
+        # list's, D4 (b), as a refused one's, since an exception applies first) reads the settings' counts and the
+        # decision's clock first, in one statement; settings behind what PostgreSQL holds are read again before
+        # deciding, so that an exception revoked or added on another instance or worker counts at once. A computer's
+        # own settings are always the ones in force: its clock alone.
         for again in (False, True):
             refused_by: EnvelopeRefused | None = None
             try:
@@ -977,7 +1033,11 @@ class Forwarder:
             if refused_by is not None or admission is None:
                 may_except = refused_by is not None and refused_by.code in _MAY_BE_EXCEPTED
             else:
-                may_except = bool(admission.exceptions) or admission.profile.id in dict(upstream.envelope_body_grants)
+                may_except = (
+                    bool(admission.exceptions)
+                    or admission.profile.id in dict(upstream.envelope_body_grants)
+                    or any(error.code in _MAY_BE_EXCEPTED for _, error in admission.open)
+                )
             if not may_except or again:
                 break
             try:
@@ -1020,7 +1080,18 @@ class Forwarder:
                 outcome.signed = f"aws-profile:{signing.profile}" if signing.profile else "aws-session"
 
         read = readable_path(wire)  # what a server would make of it: `complet%69ons` is `completions`
+        if self.mediator.engine.stranded:
+            # Settings that raised midway, and those that ran before raising as well as they were put back: what runs
+            # is a mix of both, and nothing is prepared under it, nor sent, until settings are applied whole (minors
+            # after 0.11, item 23's fix round, I1). Refused as settings that changed, its agent told to send it again.
+            log.warning("blocked %s %s: %s", request.method, path, _SETTINGS_MOVED)
+            turn.refused(refuse("http", upstream.name, "settings-changed", _SETTINGS_MOVED, 400))
+            if outcome is not None:
+                outcome.history_code = 28
+            self._refused(outcome, upstream, request.method, read, body, _SETTINGS_MOVED, 400, "settings-changed")
+            return upstream_error(stopped(_SETTINGS_MOVED, self.tutorial), 400, shape=error_shape(upstream, None))
         attempt = 0
+        outlasted = False  # an apply under way outlasted the wait for it: refused as it is
         while True:
             masked = await self._prepared(
                 upstream,
@@ -1036,14 +1107,33 @@ class Forwarder:
                 query,
                 launch,
                 dict(upstream.envelope_body_grants).get(admission.profile.id) if admission is not None else None,
+                admission.open if admission is not None else (),
+                admission.profile.family if admission is not None else None,
             )
             if isinstance(masked, Response):
                 return masked
+            if masked.open_refusal is not None:
+                # D4 (b): a request Latet rewrites, with what the open list alone let through at its envelope: refused
+                # as its admission refused it before the open list, nothing of it masked or learnt (its preparation
+                # stopped before it read a text), recorded as such a refusal is.
+                turn.prepared = masked
+                return self._envelope_refused(
+                    turn, upstream, masked, masked.open_refusal, request.method, wire, body=body
+                )
             # Never refused only because the rules moved while it was prepared (on a server, a settings change another
             # instance announced, applied meanwhile): its authority is taken again under the rules now in force, on the
             # same route, and it is prepared again by them; stricter rules may refuse it, looser ones still ask what
-            # they ask (the reviewers' approvals below). A route changed meanwhile keeps its refusal.
+            # they ask (the reviewers' approvals below). A route changed meanwhile keeps its refusal. Settings still
+            # being applied are waited for first (``request_policy.settled``), the preparation in hand kept meanwhile,
+            # so that it is never taken again while they are half applied (item 23 of the minors after 0.11). Past the
+            # wait's bound, or with the mark held for settings that could not be put back, no authority taken now
+            # could pass: it is refused as it is, at once, because its settings changed, neither prepared again nor
+            # read by a reviewer (its fix round, M3).
             if attempt >= _REDERIVE or authority.valid() or not authority.rederivable():
+                break
+            await request_policy.settled(self.mediator.engine)
+            if self.mediator.engine.applying:
+                outlasted = True
                 break
             attempt += 1
             self._answered(masked)  # the first preparation's hold goes; the next one holds its own
@@ -1056,9 +1146,9 @@ class Forwarder:
         prepared.route_authority = authority
         if prepared.lease is not None and turn.renewer is not None:
             prepared.lease.own_renewer(turn.renewer)  # it renews while the lease holds, and ends with it
-        if prepared.reviews and not prepared.block_reason:  # the local reviewer reads it first
+        if prepared.reviews and not prepared.block_reason and not outlasted:  # the local reviewer reads it first
             prepared = await self.mediator.review_prepared(prepared)
-        if not prepared.block_reason:  # then you, when the Live Reviewer is on
+        if not prepared.block_reason and not outlasted:  # then you, when the Live Reviewer is on
             agent = agent_of(lowered, request.url.path)[0]
             prepared = await self.mediator.live_prepared(prepared, agent, request.is_disconnected)
         # Its decision, once: nothing changes its arena from here (a change made later means it sends nothing).
@@ -1093,6 +1183,7 @@ class Forwarder:
             admission.inventory.limits.header_occurrences,
             admission.inventory.limits.header_bytes,
             tuple(dict.fromkeys(row.id for row in sent_under[:envelope_count])),
+            admission.rules,  # D4 (b): "checked only" when the open list let a header or a beta value through
         )
         decision = turn.decision = finalize(
             prepared,
@@ -1129,6 +1220,7 @@ class Forwarder:
             log.warning("not sent %s: %s", path, reason)
             turn.refused(refuse("http", upstream.name, "envelope-state-unavailable", reason, 503))
             return upstream_error(stopped(reason, self.tutorial), 503, shape=error_shape(upstream, prepared))
+        received = len(body)  # its size as it came, which a refusal's history row keeps
         body = prepared.body
 
         # DNS/pin/connect only after every raw occurrence and checked envelope text was admitted.
@@ -1190,7 +1282,9 @@ class Forwarder:
         try:
             response = await self._sent(turn, envelope, attempt, target, signer, to)
             if isinstance(response, SendRefusal):
-                return self._not_sent(turn, response, request.method, path, upstream, outcome, exchange)
+                return self._not_sent(
+                    turn, response, request.method, path, upstream, outcome, exchange, received=received
+                )
             turn.replies += 1
             turn.reply_status = response.status_code if 100 <= response.status_code <= 599 else None
             turn.execution = Attempted(attempt, response.status_code)
@@ -1214,7 +1308,9 @@ class Forwarder:
                 attempt = 2
                 response = await self._sent(turn, envelope, attempt, target, signer, to)
                 if isinstance(response, SendRefusal):
-                    return self._not_sent(turn, response, request.method, path, upstream, outcome, exchange)
+                    return self._not_sent(
+                        turn, response, request.method, path, upstream, outcome, exchange, received=received
+                    )
                 turn.replies += 1
                 turn.reply_status = response.status_code if 100 <= response.status_code <= 599 else None
                 turn.execution = Attempted(attempt, response.status_code)

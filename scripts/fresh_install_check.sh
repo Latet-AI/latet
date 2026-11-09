@@ -25,6 +25,16 @@ LATET_SOURCE="latet[ner,ocr] @ file://$wheel" LATET_NO_MODIFY_PATH=1 UV_NO_MODIF
 PATH="$HOME/.local/bin:$PATH"
 export PATH
 latet --help >/dev/null
+# The Python uv brought where there was none: the newest the installer asks for, the one below PYTHONS' bound.
+bound="$(sed -n 's/^PYTHONS=">=3\.[0-9]*,<3\.\([0-9]*\)"$/\1/p' "$(dirname "$0")/install.sh")"
+[ -n "$bound" ] || { echo "install.sh names no bound of the Pythons it asks for." >&2; exit 1; }
+newest="3.$((bound - 1))"
+brought="$(uv tool list --show-python | sed -n 's/^latet v[^ ]* \[CPython \(3\.[0-9]*\)\.[0-9]*\]$/\1/p')"
+if [ "$brought" != "$newest" ]; then
+    echo "Latet runs on Python ${brought:-unnamed by uv}, not $newest, the newest the installer asks for." >&2
+    exit 1
+fi
+echo "Latet runs on Python $brought, the newest the installer asks for."
 if ! latet start; then
     find "$HOME" \( -name daemon.log -o -name daemon.out \) -type f 2>/dev/null | while read -r log; do
         echo "== $log"

@@ -17,6 +17,34 @@ Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehn
 Auto-Modus, ein signiertes Installationsprogramm für Windows, eigene Namensmodelle, weitere Agenten
 und die Dokumentation in weiteren Sprachen.
 
+## 0.12.0 (2026-11-09)
+
+- **Eine Anfrage, deren Einstellungen sich vor dem Senden ändern.** Eine Anfrage, deren
+  Einstellungen sich zwischen ihrer Entscheidung und ihrem Senden ändern, wird abgelehnt wie eine,
+  deren Einstellungen sich während ihrer Vorbereitung geändert haben: Ihr Agent erfährt, dass sie
+  erneut zu senden ist, und der Verlauf zeichnet eine Ablehnung auf, wo sie vorher mit `500` *Latet
+  could not send this request as it was decided* beantwortet und als Austausch aufgezeichnet wurde.
+  Eine Anfrage, die vorbereitet und gesendet wird, während ein Speichern noch angewendet wird, geht
+  nicht mehr mit halb angewendeten Einstellungen hinaus: Sie wird erneut vorbereitet, sobald alle an
+  ihrem Platz sind, oder ebenso abgelehnt. Ein Speichern, das mittendrin scheitert, stellt die
+  Einstellungen von vorher wieder her; lassen sich auch diese nicht wiederherstellen, wird jede
+  Anfrage ebenso abgelehnt, bis ein späteres Speichern gelingt oder Latet neu startet.
+- **Neue Header von Claude Code.** Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock,
+  Vertex), geht ein `anthropic-*`-Header, den noch kein Profil nennt, oder ein `anthropic-beta`-Wert
+  einer neuen Form durch, sobald die abschließende Prüfung ihn gelesen hat, angezeigt als *nur
+  geprüft*, wie es ein neues Element des Inhalts mit Text schon tut; ein neuer `x-claude-code-*`-Header
+  wird entfernt und gezählt. Claude Code arbeitet weiter, wenn eine Version einen solchen Header
+  hinzufügt, bevor Latet ihn nennt. Ein Geheimnis oder einer Ihrer Werte in einem solchen Header wird
+  weiterhin abgelehnt.
+- **Einen Server von 0.10 aktualisieren.** Das Bilden der Fingerabdrücke eines von 0.10 gehaltenen
+  Tresors belegt nicht mehr einen der zwei Indexaufbauten einer Instanz: Die Indizes der anderen
+  Identitäten werden währenddessen aufgebaut, und nur die Identitäten, deren Fingerabdrücke noch
+  nicht alle gebildet sind, werden über die Suche in PostgreSQL bedient, wie die Schritte der
+  Aktualisierung sagen.
+- **Python 3.14.** Latet läuft auch unter Python 3.14 und wird neben 3.12 und 3.13 auch damit
+  getestet. Eine neue Installation auf einem Computer ohne Python erhält 3.14; `latet upgrade`
+  stellt ein installiertes Latet nur dort auf 3.14 um, wo 3.14 schon vorhanden ist.
+
 ## 0.11.1 (2026-11-06)
 
 - **Die Hinweis-Header von Claude Code.** Ist Claude Code so eingestellt, dass es seine Hinweis-Header

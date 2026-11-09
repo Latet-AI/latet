@@ -77,6 +77,41 @@ if TYPE_CHECKING:
     from latet.vision.pool import ServerReading  # NumPy: the ocr extra
 
 log = logging.getLogger(__name__)
+# Settings that raised before they were all in place, and those that ran before raising too as they were put back
+# (``Runtime._put_back``): what runs is a mix of both, and no request is sent until settings are applied whole. Fixed
+# words, said once as it happens; and once when settings are applied whole again.
+_STRANDED = (
+    "the settings could not be applied, nor those that ran before put back: no request is sent until settings are"
+    " applied whole"
+)
+_UNSTRANDED = "settings are applied whole again: requests are sent again"
+# What ``Runtime.apply_config`` changes on the mediator and the gateway, each kept as it was before its first change
+# (``_InForce``) and put back so if the apply raises before its settings are whole.
+_MEDIATOR_SETTINGS = ("images", "ocr", "vision", "dump_guard", "review", "live_review", "llm_review", "on_review")
+_GATEWAY_SETTINGS = ("personal_names", "destinations", "request_resources", "request_exceptions")
+
+
+@dataclass(frozen=True, slots=True)
+class _InForce:
+    """What ``Runtime.apply_config`` changes, as it ran before its first change: the very objects, put back as they
+    were (``Runtime._put_back``), never built again from the settings that ran, so that a failure that persists (image
+    models unreadable, the reviewer's key) fails no put-back (minors after 0.11, item 23's second fix round, R1)."""
+
+    config: Config
+    built: Built
+    projects: tuple[Config, IdentityConfig | None] | None
+    masker: Any
+    rules_tag: str
+    verifier: Any
+    mediator: tuple[tuple[str, Any], ...]
+    reviewer: Reviewer | None
+    reviewer_config: LlmReview | None
+    history: Any
+    gateway: tuple[tuple[str, Any], ...]
+    routes: tuple[Upstream, ...] | None
+    stranded: bool
+
+
 _REPROPOSAL_FAILED = Paced()
 
 
@@ -131,6 +166,9 @@ class Runtime:
     config_file: Path | None = None
     projects: Projects | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock)  # one change to the settings at a time
+    # Whether the settings that ran before could not be put back was said (``_put_back``): said once, until settings
+    # are applied whole again.
+    _stranded_said: bool = field(default=False, repr=False)
     # The destinations the agents' wrappers registered since the daemon started (a session of theirs may still use
     # them, and no file of the agent says so): they stay in use until it restarts.
     wrapped: set[str] = field(default_factory=set)
@@ -226,9 +264,13 @@ class Runtime:
         On a server, settings their store refuses to keep (another instance wrote them since, they weigh too much, the
         store does not answer: an OSError; or what they hold, a SettingsRefused) never run: what ran before runs again,
         as it ran, before the refusal is raised (the store has the space read what it holds when another instance's
-        write refused them). A computer runs them, as before, keeping the history's retention as it was."""
+        write refused them). A computer runs them, as before, keeping the history's retention as it was.
+
+        Settings that raise before they are all in place (their image models cannot be read, the reviewer's
+        certificate, a route), on either machine, never run half applied: what ran before runs again, the very
+        objects that ran, before the error is raised (``_put_back``); when that raises too, no request is sent until
+        settings are applied whole (``Engine.stranded``)."""
         with self._lock:
-            ran = self.config
             if not as_is:
                 config = self.settings.prepare(config)
             # Read before anything changes: a store that does not answer leaves the settings in use as they are.
@@ -237,56 +279,72 @@ class Runtime:
             # The rules' masker alone: the engine, its conversations and the final check stay the ones that run.
             masker, recognizers = build_masker(config, self.built.vault, identity)
             engine = self.built.engine
-            if self.projects is not None:
-                self.projects.use(config, identity)
-            engine.use(masker)
-            engine.rules_tag = digest(config)
-            self.mediator.verifier.use(masker)
-            self.built = Built(self.built.vault, masker, engine, self.mediator.verifier, recognizers)
-            self.mediator.images = image_policy(config)
-            self.mediator.ocr = config.ocr == "auto"
-            installed = self.mediator.vision or image_masking(
-                self.data, self.store, space=self.identity is not None, reading=self.reading, ocr_unread=self.ocr_unread
-            )
-            self.mediator.vision = installed  # the models may have been installed since
-            self.mediator.dump_guard = config.dump_guard
-            self.mediator.review = review_policy(config)
-            self.mediator.live_review = config.live_review
-            self.use_reviewer(config)
-            if self.recorder is not None:
-                self.recorder.history = config.history
-            # Weighed against the settings running; the history takes the new retention once the settings are kept.
-            shorter = self.exchanges is not None and config.retention_days < self.config.retention_days
-            if self.gateway.fixed_routes is None:  # the tutorial's sandbox routes to its pretend model only
-                # A destination of the identity's own is judged at connect from the moment its route exists: its route
-                # says so (``Upstream.own``), and the names of both settings are its own until the routes are swapped.
-                self.gateway.personal_names = self.gateway.personal_names | personal
-                self.gateway.destinations = routes_of(config, personal)
-                self.gateway.request_resources = tuple(
-                    (row.destination, row.url, row.role, row.value) for row in config.request_resources
-                )
-                self.gateway.request_exceptions = approved_exceptions(config, self.permanent_allowed())
-                if self.gateway.routes is not None:
-                    self.gateway.routes.use(
-                        [*self.gateway.upstreams, *self.gateway.destinations],
-                        self.gateway.request_resources,
-                        self.gateway.request_exceptions,
-                    )
-            self.gateway.personal_names = personal
-            self.config = config
+            was = self._in_force()  # what runs, as it is before the first change: put back so if these raise midway
+            # From its first change of state to its last move, no request's authority is valid (``Engine.applying``):
+            # a request taken or sent meanwhile never leaves with these settings half applied (minors after 0.11, item
+            # 23). Reading the settings and building the masker change nothing, and stay outside it.
+            engine.applying += 1
+            engine.applies += 1  # one more begun: an application's call answered across it is not given
+            whole = False
             try:
+                if self.projects is not None:
+                    self.projects.use(config, identity)
+                engine.use(masker)
+                engine.rules_tag = digest(config)
+                self.mediator.verifier.use(masker)
+                self.built = Built(self.built.vault, masker, engine, self.mediator.verifier, recognizers)
+                self.mediator.images = image_policy(config)
+                self.mediator.ocr = config.ocr == "auto"
+                installed = self.mediator.vision or image_masking(
+                    self.data,
+                    self.store,
+                    space=self.identity is not None,
+                    reading=self.reading,
+                    ocr_unread=self.ocr_unread,
+                )
+                self.mediator.vision = installed  # the models may have been installed since
+                self.mediator.dump_guard = config.dump_guard
+                self.mediator.review = review_policy(config)
+                self.mediator.live_review = config.live_review
+                self.use_reviewer(config)
+                if self.recorder is not None:
+                    self.recorder.history = config.history
+                # Weighed against the settings running; the history takes the new retention once they are kept.
+                shorter = self.exchanges is not None and config.retention_days < self.config.retention_days
+                if self.gateway.fixed_routes is None:  # the tutorial's sandbox routes to its pretend model only
+                    # A destination of the identity's own is judged at connect from the moment its route exists: its
+                    # route says so (``Upstream.own``), and the names of both settings are its own until the routes are
+                    # swapped.
+                    self.gateway.personal_names = self.gateway.personal_names | personal
+                    self.gateway.destinations = routes_of(config, personal)
+                    self.gateway.request_resources = tuple(
+                        (row.destination, row.url, row.role, row.value) for row in config.request_resources
+                    )
+                    self.gateway.request_exceptions = approved_exceptions(config, self.permanent_allowed())
+                    if self.gateway.routes is not None:
+                        self.gateway.routes.use(
+                            [*self.gateway.upstreams, *self.gateway.destinations],
+                            self.gateway.request_resources,
+                            self.gateway.request_exceptions,
+                        )
+                self.gateway.personal_names = personal
+                self.config = config
+                whole = True
+                if engine.stranded:  # settings whole again: the mark held while what ran before was put back goes
+                    engine.stranded = False
+                    engine.applying -= 1
                 if save:
                     try:
                         self.settings.save(config)
                     except (OSError, ValueError):  # not kept: the store failed, or refused what they hold
                         if self.identity is not None:  # a server's: the refused settings never run
-                            self._ran_again(ran)
+                            self._put_back(was)
                         raise
                 if self.exchanges is not None:  # kept: a save that fails leaves the history's retention as it was
                     self.exchanges.retention_days = config.retention_days
                 if self.projects is not None:
-                    # Settings weighed as they applied (against those you approved and the repositories seen), and kept
-                    # as approved: the ones from before the start are weighed against no longer.
+                    # Settings weighed as they applied (against those you approved and the repositories seen), and
+                    # kept as approved: the ones from before the start are weighed against no longer.
                     self.projects.before = None
                 self._reviewed(config)
                 self.warm_up()
@@ -296,24 +354,108 @@ class Runtime:
                 # The Live Reviewer's texts still waiting shown masked with the rules of now, as they will leave; the
                 # content epoch renewed with them.
                 self.mediator.live_changed()
+            except BaseException:
+                if not whole:  # raised midway: what ran before runs again, as it ran (fix rounds I1 and R1)
+                    self._put_back(was)
+                raise
             finally:
                 # Every part of these settings in place (the masker, the image, dump guard and review settings, the
-                # route table, the content epoch), or a save that failed: the rules version moves once more, so that a
-                # request's authority taken while they were applied, from ``engine.use`` to here, is never valid; its
-                # request is prepared again under the whole settings, or refused with the settings-changed words (fix
-                # round of the minors after 0.11, S-M1; after ``live_changed`` since its re-review, so that a request
-                # prepared before the content epoch was renewed is never refused with the coverage words).
+                # route table, the content epoch), or an apply that raised (a save refused, or midway: what ran before
+                # put back, or a mark held as it could not be): the rules version moves once more, so that a request's
+                # authority taken while they were applied is never valid; its request is prepared again under the
+                # settings in force, whole, or refused with the settings-changed words (fix round of the minors after
+                # 0.11, S-M1; after ``live_changed`` since its re-review, so that a request prepared before the content
+                # epoch was renewed is never refused with the coverage words; on any exit since item 23). Then this
+                # apply's mark is lowered, after the move: a check that finds it lowered finds the move too
+                # (``LocalAuthority.valid`` reads the mark first).
                 engine.rules_changed()
+                engine.applying -= 1
+                # Said over once the apply is past its save, never as its settings are whole: a server's store that
+                # then refuses them has the mix that ran before put back, held again and not said again (the
+                # whole-branch review of 0.12, Minor 2). A computer runs settings it could not write: said over too.
+                if self._stranded_said and not engine.stranded:
+                    self._stranded_said = False
+                    log.warning(_UNSTRANDED)
             return engine.rules_version
 
-    def _ran_again(self, ran: Config) -> None:
-        """``ran``, the settings that ran before a save their store refused, applied again as they ran (under the lock).
-        Its own failure is said in the log by its type, never raised over the refusal: the refused settings then run
-        until the space applies its settings again."""
+    def _in_force(self) -> _InForce:
+        """What runs, as it is: read before an apply's first change, and nothing of it changed by the reading."""
+        mediator, engine, gateway = self.mediator, self.built.engine, self.gateway
+        reviewer = mediator.reviewer
+        return _InForce(
+            config=self.config,
+            built=self.built,
+            projects=self.projects.in_use() if self.projects is not None else None,
+            masker=engine.masker,
+            rules_tag=engine.rules_tag,
+            verifier=mediator.verifier.masker,
+            mediator=tuple((name, getattr(mediator, name)) for name in _MEDIATOR_SETTINGS),
+            reviewer=reviewer,
+            reviewer_config=reviewer.config if reviewer is not None else None,
+            history=self.recorder.history if self.recorder is not None else None,
+            gateway=tuple((name, getattr(gateway, name)) for name in _GATEWAY_SETTINGS),
+            routes=gateway.routes.table if gateway.routes is not None else None,
+            stranded=engine.stranded,
+        )
+
+    def _restore(self, was: _InForce) -> None:
+        """``was`` in use again, as it ran: each object put back, nothing built nor read again (the image masking, the
+        reviewer and its key, the masker, the route table). A reviewer this apply made is retired, the one put back
+        taken out of the retired ones."""
+        mediator, engine, gateway = self.mediator, was.built.engine, self.gateway
+        if self.projects is not None and was.projects is not None:
+            self.projects.use(*was.projects)
+        engine.masker = was.masker
+        engine.rules_tag = was.rules_tag
+        mediator.verifier.use(was.verifier)  # what it found clean under the apply's masker is checked again
+        self.built = was.built
+        for name, value in was.mediator:
+            setattr(mediator, name, value)
+        made, reviewer = mediator.reviewer, was.reviewer
+        mediator.reviewer = reviewer
+        if reviewer is not None:
+            if was.reviewer_config is not None:  # a reviewer of the same server took the apply's settings in place
+                reviewer.config = was.reviewer_config
+            if reviewer in mediator.retired:
+                mediator.retired.remove(reviewer)
+        if made is not None and made is not reviewer and made not in mediator.retired:
+            mediator.retired.append(made)  # closed on the event loop, as a reviewer of earlier settings is
+        if self.recorder is not None:
+            self.recorder.history = was.history
+        for name, value in was.gateway:
+            setattr(gateway, name, value)
+        if gateway.routes is not None and was.routes is not None:
+            gateway.routes.put(was.routes)
+        self.config = was.config
+
+    def _put_back(self, was: _InForce) -> None:
+        """What ran before (``was``) put back as it ran (under the lock): after a save a server's store refused, or
+        settings that raised before they were all in place. Meanwhile the apply's own mark is up, as for any apply: a
+        request waits for it (``request_policy.settled``) and is answered under what ran before (the second fix round,
+        R2). When putting it back raises (fix round I1), what runs is a mix of both, and a mark is held for it
+        (``Engine.stranded``), past the apply's own: every request is refused because its settings changed, none
+        prepared under the mix, until settings are applied whole; said once, in fixed words, as it happens. Its own
+        failure is said in the log by its type, never raised over the first. What was put back while a mix ran is that
+        mix again: held so too."""
         try:
-            self.apply_config(ran, save=False, as_is=True)
+            self._restore(was)
         except Exception as exc:
-            log.warning("the settings that ran before a refused save could not run again: %s", described(exc))
+            log.warning("the settings that ran before could not be put back: %s", described(exc))
+            self._strand()
+            return
+        if was.stranded:
+            self._strand()
+
+    def _strand(self) -> None:
+        """A mark held for a mix of settings in force (``Engine.stranded``), past every apply's own, until an apply has
+        its settings whole; said once, in fixed words."""
+        engine = self.built.engine
+        if not engine.stranded:
+            engine.stranded = True
+            engine.applying += 1
+        if not self._stranded_said:
+            self._stranded_said = True
+            log.error(_STRANDED)
 
     def update_config(
         self, change: Callable[[Config], Config | None], *, save: bool = True, approving: bool = False

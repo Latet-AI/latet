@@ -23,6 +23,8 @@ from latet.gateway.mediate import VERIFY, Mediator, Prepared
 from latet.gateway.outbound import server_calls, stand_ins
 from latet.server.logs import RequestLog
 
+from .. import thread_pools
+
 ROOT_KEY = b"\x07" * 32
 TOOL = "P25_PRIVATE_REMOTE_TOOL_61937"
 FAKE = "Niccol\N{LATIN SMALL LETTER O WITH GRAVE} Ferri"
@@ -1450,6 +1452,7 @@ def _owned_audit_shape(owner, *queued_inputs):
         _StatusTerminal,
     )
     from latet.gateway.request_audit import (
+        ExceptionReference,
         RequestAudit,
         Reservation,
         SafeDecisionRecord,
@@ -1466,6 +1469,7 @@ def _owned_audit_shape(owner, *queued_inputs):
     from latet.server.spaces import _AuditFence, _StatusSweep
 
     owned_types = (
+        ExceptionReference,  # the references an audit keeps (minors after 0.11, item 10)
         RequestAudit,
         Reservation,
         SafeDecisionRecord,
@@ -1625,6 +1629,235 @@ def test_active_reservations_survive_capacity_close_and_cancel_until_actual_fina
     assert audit.active == 0 and audit.retained_bytes == 0
     assert all(reservation._owner is None for reservation in reservations)
     assert not audit.finalize(reservations[-1], _audit_record())
+
+
+# --- an exception's status reference is its identity's own (minors after 0.11, item 10; G2 M-4) -------------------------
+
+
+def _exception_row(row_id, reason="custom-header"):
+    """What ``forward._visible`` reads of a request exception a request is sent under: its id and its reason."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(id=row_id, reason=reason)
+
+
+def _used_under(audit, row):
+    """One request sent under ``row``'s exception, as the forwarder makes it visible (``_visible``) and lets its
+    reservation go as it ends (``_settle``, not sent): the status key its use was reserved under, which carries the
+    exception's reference."""
+    from latet.gateway import forward
+
+    turn = forward._Turn()
+    assert forward._visible(audit, turn, (row,))
+    [reservation] = turn.reservations
+    key = audit._events[reservation._sequence].status
+    forward._settle(audit, turn, None, None)
+    assert turn.reservations == [] and audit.active == 0
+    return key
+
+
+def test_an_exceptions_status_reference_is_its_identitys_own_and_never_evicted_while_its_audit_lives():
+    """An exception's uses are counted under a reference its identity's audit keeps, never under one of a list the
+    whole process shares, keyed by the exception's id alone and holding 4,096. Two identities whose exceptions have the
+    same id (40 random bits) never share a reference, and other identities' exceptions, however many, never take one
+    away: an exception's status never splits into a new row while its audit lives."""
+    from latet.gateway.request_audit import EXCEPTION_SLOTS, RequestAudit
+
+    first, second, others = RequestAudit(), RequestAudit(), RequestAudit()
+    same = "x0123456789"  # the same exception id in both identities
+    try:
+        before = (_used_under(first, _exception_row(same)), _used_under(second, _exception_row(same)))
+        for n in range(4097):  # 4,097 other exceptions, a third identity's, used in between
+            _used_under(others, _exception_row(f"x{n + 1:010x}"))
+        after = (_used_under(first, _exception_row(same)), _used_under(second, _exception_row(same)))
+        facts = {
+            "the first identity's reference is the same at each use": after[0] == before[0],
+            "the second identity's reference is the same at each use": after[1] == before[1],
+            "the two identities' references differ": before[0][0] != before[1][0],
+        }
+        assert all(facts.values()), facts
+        assert len(others._references) == len(others._statuses) == EXCEPTION_SLOTS  # each went with its status row
+    finally:
+        for audit in (first, second, others):
+            audit.close()
+    assert first.retained_bytes == second.retained_bytes == others.retained_bytes == 0
+
+
+def test_an_exceptions_status_reference_is_charged_to_its_audit_and_let_go_with_its_status(tmp_path, monkeypatch):
+    """The reference is charged to its audit's retained bytes when it is made, inside the audit's own budget (no other
+    memory manager, RC-R1), and freed when its status row goes. With the audit's budget full no reference is made and
+    the request is not sent: 503, as when its status cannot be reserved."""
+    import base64
+
+    import httpx
+    from starlette.testclient import TestClient
+
+    from latet.config import Config, IdentityConfig
+    from latet.gateway import forward
+    from latet.gateway.app import create_app
+    from latet.gateway.request_audit import (
+        EXCEPTION_SLOTS,
+        MAX_BYTES,
+        REFERENCE_BYTES,
+        STATUS_BYTES,
+        RequestAudit,
+        new_exception_reference,
+    )
+    from latet.gateway.routes import Upstream
+    from latet.runtime import make_runtime
+
+    from .test_request_project_binding import _acme, _acme_chat, _Provider, _team
+
+    audit = RequestAudit()
+    base = audit.retained_bytes
+    same = _exception_row("x0123456789")
+    key = _used_under(audit, same)
+    charged = audit.retained_bytes - base - STATUS_BYTES  # what its audit keeps beyond the status row: its reference
+    assert charged > 0, "the exception's reference is not charged to its audit"
+    assert _owned_audit_shape(audit) <= audit.retained_bytes
+    assert _used_under(audit, same) == key and audit.retained_bytes == base + STATUS_BYTES + charged  # charged once
+    for n in range(EXCEPTION_SLOTS):  # as many other exceptions as the audit has status rows: its row goes first
+        _used_under(audit, _exception_row(f"x{n + 1:010x}"))
+    assert key not in audit._statuses
+    assert audit.retained_bytes == base + EXCEPTION_SLOTS * (STATUS_BYTES + charged)  # its reference went with it
+    assert _owned_audit_shape(audit) <= audit.retained_bytes
+    assert _used_under(audit, same) != key  # its next use is counted under a reference made again
+    audit.close()
+    assert audit.retained_bytes == 0
+
+    def reserved(owner):
+        """``owner``'s budget held by reservations, until no other is made."""
+        leases, filler = [], new_exception_reference(1, 1)
+        while (lease := owner.reserve_exception(filler)) is not None:
+            leases.append(lease)
+        return leases
+
+    def filled(owner):
+        """``owner``'s budget held whole: reservations first, then references until none is made."""
+        leases, made = reserved(owner), 0
+        while made < 64 and owner.reference_for(f"x{made + 1:010x}", 2) is not None:
+            made += 1
+        assert made < 64 and owner.retained_bytes <= MAX_BYTES
+        return leases
+
+    full = RequestAudit()
+    leases = reserved(full)
+    held = full.retained_bytes
+    # The room this step is about: a reference fits, its status does not (review M-2). Without it, a reference that
+    # cannot be made would pass the two checks below as well, and they would check nothing.
+    assert MAX_BYTES - held >= REFERENCE_BYTES
+    turn = forward._Turn()
+    assert not forward._visible(full, turn, (same,)) and turn.reservations == []  # no room left for its status
+    assert same.id not in full._references and full.retained_bytes == held  # a reference made for it is let go
+    leases += filled(full)
+    held = full.retained_bytes
+    assert full.reference_for(same.id, 2) is None and full.retained_bytes == held  # no room left for its reference
+    assert not forward._visible(full, turn, (same,)) and turn.reservations == [] and full.retained_bytes == held
+    for lease in leases:
+        full.abandon(lease)
+    full.close()
+    assert full.retained_bytes == 0
+
+    # Requests sent under two exceptions of one identity: the first sent while its audit has room, the second (its
+    # reference not made yet) refused once the audit is full, 503, nothing of it sent.
+    monkeypatch.setenv("LATET_ROOT_KEY", base64.b64encode(ROOT_KEY).decode())
+    provider = _Provider()
+    runtime = make_runtime(
+        Config(identity=IdentityConfig(enabled=False), ner="off"),
+        data=tmp_path / "data",
+        config_file=tmp_path / "config.yaml",
+    )
+    try:
+        runtime.gateway.upstreams = [Upstream("openai", "/openai", "https://api.openai.com")]
+        runtime.gateway.client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(provider), trust_env=False)
+        team, cost = _acme(runtime, _team(), _team("x-cost"))
+        audit = runtime.request_audit
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            assert _acme_chat(client, **{"x-team": "data-science"}).status_code == 200
+            assert len(provider.received) == 1 and team.id in audit._references
+            leases = filled(audit)
+            refused = _acme_chat(client, **{"x-cost": "research"})
+            assert refused.status_code == 503 and "kept visible" in refused.text
+            assert len(provider.received) == 1 and cost.id not in audit._references  # none made, nothing sent
+            assert team.id in audit._references
+            for lease in leases:
+                audit.abandon(lease)
+    finally:
+        runtime.close()
+
+
+def test_request_policy_keeps_no_exception_reference_of_its_own():
+    """The process-wide references are gone: ``request_policy`` keeps none, and no module asks it for one."""
+    import re
+    from pathlib import Path
+
+    from latet.gateway import request_policy
+
+    gone = ("_REFERENCES", "_REFERENCES_KEPT", "reference_of")
+    assert [name for name in gone if hasattr(request_policy, name)] == []
+    source = Path(request_policy.__file__).resolve().parents[1]
+    named = re.compile(r"\b(?:_REFERENCES|_REFERENCES_KEPT|reference_of)\b")
+    assert [path.name for path in sorted(source.rglob("*.py")) if named.search(path.read_text("utf-8"))] == []
+
+
+def test_only_the_audit_makes_an_exception_reference():
+    """Review M-4: a reference is made by the identity's audit alone (``RequestAudit.reference_for``). A module that
+    made its own and reserved under it would bring item 10's shared or split references back, unseen: no module of
+    Latet's but ``request_audit`` calls ``ExceptionReference`` or ``new_exception_reference`` (the tests do)."""
+    import re
+    from pathlib import Path
+
+    from latet.gateway import request_audit
+
+    own = Path(request_audit.__file__).resolve()
+    source = own.parents[1]
+    made = re.compile(r"\b(?:ExceptionReference|new_exception_reference)\s*\(")
+    found = [
+        path.relative_to(source).as_posix()
+        for path in sorted(source.rglob("*.py"))
+        if path.resolve() != own and made.search(path.read_text("utf-8"))
+    ]
+    assert found == []
+
+
+def test_a_reference_that_cannot_be_allocated_is_refunded_and_not_kept(monkeypatch):
+    """Review M-1: ``reference_for``'s allocation fails (MemoryError making the reference): it answers None, counts one
+    miss, keeps nothing and gives its 512 bytes back."""
+    from latet.gateway import request_audit as module
+
+    audit = module.RequestAudit()
+    before, missed = audit.retained_bytes, audit.overflow
+
+    def failed(*args):
+        raise MemoryError
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "ExceptionReference", failed)
+        assert audit.reference_for("x0123456789", 2) is None
+    assert audit.retained_bytes == before and audit._references == {} and audit.overflow == missed + 1
+    assert audit.partial and not audit.protects_idle
+    assert audit.reference_for("x0123456789", 2) is not None
+    assert audit.retained_bytes == before + module.REFERENCE_BYTES
+    audit.close()
+    assert audit.retained_bytes == 0
+
+
+def test_a_closed_audit_frees_at_once_a_reference_whose_row_never_came():
+    """Review M-1: an audit closed while one exception's lease is active and another's reference has no row yet (made,
+    not reserved): that reference goes at the close, its 512 bytes with it, while the lease and its own reference wait
+    for the lease to end."""
+    from latet.gateway.request_audit import REFERENCE_BYTES, RequestAudit
+
+    audit = RequestAudit()
+    lease = audit.reserve_exception(audit.reference_for("x000000000a", 2))
+    assert lease is not None and audit.reference_for("x000000000b", 2) is not None
+    before = audit.retained_bytes
+    audit.close()
+    assert set(audit._references) == {"x000000000a"} and audit.active == 1
+    assert audit.retained_bytes == before - REFERENCE_BYTES
+    assert audit.reference_for("x000000000b", 2) is None  # closed: none is made any more
+    assert audit.abandon(lease)
+    assert audit.retained_bytes == 0 and audit._references == {}
 
 
 def test_audit_prepublishes_whole_delta_rolls_back_denial_and_allocation_failure(monkeypatch):
@@ -2043,7 +2276,8 @@ def test_failed_reservation_allocation_and_failed_finalization_preserve_ownershi
     from latet.gateway import request_audit as module
 
     audit = module.RequestAudit()
-    reference = module.new_exception_reference(1, 1)
+    reference = audit.reference_for("x0123456789", 1)
+    assert reference is not None
     entry = module._Entry
 
     def failed_entry(*args):
@@ -2054,7 +2288,8 @@ def test_failed_reservation_allocation_and_failed_finalization_preserve_ownershi
         assert audit.reserve_exception(reference) is None
     assert audit.retained_bytes == 4096 and audit.active == 0
     assert not audit._statuses and not audit._events
-    reservation = audit.reserve_exception(reference)
+    assert not audit._references  # no row was made for it: its reference went too (review M-1)
+    reservation = audit.reserve_exception(audit.reference_for("x0123456789", 1))
     assert reservation is not None
     before = audit.retained_bytes
 
@@ -4065,8 +4300,9 @@ async def test_actual_submit_start_failure_keeps_genuinely_enqueued_work_charged
             item = pool._work_queue.get_nowait()  # bounded exact identity observation
             pool._work_queue.put(item)  # restore SAME actual queued WorkItem
             work = audit._snapshot
-            assert type(item) is native._WorkItem and type(item.fn) is _StatusInput and item.fn._work is work
-            assert item.args == () and item.kwargs == {}
+            fn, args, kwargs = thread_pools.call(item)
+            assert type(item) is native._WorkItem and type(fn) is _StatusInput and fn._work is work
+            assert args == () and kwargs == {}
             assert work is not None and work._worker and work._owner is audit
             captured.append((item, work))
             raise RuntimeError("owned actual worker start fault")
@@ -4098,13 +4334,12 @@ async def test_actual_submit_start_failure_keeps_genuinely_enqueued_work_charged
         item, work = captured[0]
         assert messages[0]["status"] == 200
         assert json.loads(b"".join(message.get("body", b"") for message in messages))["request_status"] is None
+        fn, args, kwargs = thread_pools.call(item)
         assert (
-            pool._work_queue.qsize() == 1
-            and not item.future.done()
-            and type(item.fn) is _StatusInput
-            and item.fn._work is work
+            pool._work_queue.qsize() == 1 and not item.future.done() and type(fn) is _StatusInput and fn._work is work
         )
-        assert item.args == () and item.kwargs == {}
+        assert args == () and kwargs == {}
+        fn = args = kwargs = None
         audit.close()
         assert pool._work_queue.qsize() == 1 and not item.future.done()  # actual queued owner still live
         assert work._owner is audit and work._worker and audit.retained_bytes > 0
@@ -4277,7 +4512,7 @@ async def test_actual_initializer_failure_keeps_input_until_real_drain_disposal(
         assert fail.wait(5)
         raise RuntimeError("owned fixed initializer failure")
 
-    monkeypatch.setattr(pool, "_initializer", initializer)
+    thread_pools.initialize_with(pool, initializer, monkeypatch)
     created, captured = _observe_status_lease(monkeypatch, audit)
     original = Future.set_exception
 
@@ -6221,7 +6456,7 @@ async def test_publication_initializer_failure_refunds_only_actual_drained_input
         assert release.wait(5)
         raise RuntimeError("owned initializer failure")
 
-    pool._initializer = initializing
+    thread_pools.initialize_with(pool, initializing)
     original = pool.submit
 
     def submitting(carrier):

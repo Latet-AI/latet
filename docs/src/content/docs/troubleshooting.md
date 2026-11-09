@@ -172,9 +172,27 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 The part in parentheses says which kind:
 
 - `envelope-header-unknown`: a header no profile names, often one you set for the agent
-  (`ANTHROPIC_CUSTOM_HEADERS`, Codex's `http_headers`, `COPILOT_PROVIDER_HEADERS`). Take it out of
-  the agent's settings, or let it through with an exact exception.
-- `envelope-header-value`: a header Latet knows, with a value outside its form.
+  (`ANTHROPIC_CUSTOM_HEADERS`, Codex's `http_headers`, `COPILOT_PROVIDER_HEADERS`), named with each
+  word of its name longer than 16 characters shown by its length (`x-custom-<20 characters>`), so
+  that a key in a name never comes back to the agent. Take it out of the agent's settings, or let
+  it through with an exact exception. On Claude Code, Bedrock and Vertex, a new `anthropic-*`
+  header passes once checked and a new `x-claude-code-*` header is taken off. One refused there is
+  outside those bounds: a name more than 48 characters long after `anthropic-`, with a word between
+  its dashes longer than 16 characters (a key or a long id in the name), or with a character other
+  than a lowercase letter, a digit or a dash (`_`, `.`; capitals are read as lowercase); an empty
+  value, one over 1,024 characters, or one with a character outside printable ASCII (a tab, an
+  accented letter); more than eight such headers in one request. Or it was sent by a client Latet
+  rewrites, such as an Anthropic SDK. An exception that names the header decides it even where it
+  does not apply: a request of another project that carries it is refused here, and once the
+  exception has ended such a request is refused `envelope-exception-expired`. Remove the exception
+  to let the header pass checked.
+- `envelope-header-value`: a header Latet knows, with a value outside its form. On Claude Code,
+  Bedrock and Vertex, an `anthropic-beta` value of a new form passes once checked; it is refused
+  past 64 values, or with a value that is empty (`a,,b`, `a,`), over 64 characters long or has a
+  space, a tab or a character outside printable ASCII inside it (spaces around the commas are
+  fine). On Bedrock it passes on the model calls alone, as a new `anthropic-*` header does: a call
+  to Bedrock's control plane, such as reading the inference profiles, takes no `anthropic-*` header
+  at all and is refused `envelope-header-unknown`, as before.
 - `envelope-query-unknown`: a query parameter no profile names.
 - `envelope-route`: a call Latet does not read, such as files, batches or audio. The agent is told
   that this version of Latet does not support the call. No exception names a route: change the

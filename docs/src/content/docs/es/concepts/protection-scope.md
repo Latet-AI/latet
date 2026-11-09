@@ -64,7 +64,10 @@ envía nada de lo que no haya dado cuenta:
   (`x-stainless-*`, `traceparent`...), y las propias de los agentes que pueden contener texto libre
   (los id de un subagente de Claude Code, los metadatos del turno de Codex...), se quitan y se cuentan
   en el panel: [Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet) las enumera por agente. Cualquier otra cabecera
-  se rechaza, y su nombre solo se le dice al agente.
+  se rechaza, y su nombre solo se le dice al agente, salvo en una petición que Latet solo comprueba
+  (Claude Code, Bedrock, Vertex): ahí pasan, leídos por la comprobación final, una cabecera
+  `anthropic-*` nueva o un valor nuevo de `anthropic-beta`, y se quita una cabecera
+  `x-claude-code-*` nueva.
 - **El cuerpo.** Sus textos se enmascaran, o se comprueban donde Latet solo comprueba la petición.
   Cualquier otro miembro debe tener su forma (el id de un modelo, el nombre de una herramienta, un
   ajuste) y lo lee la comprobación final donde contiene texto. Un miembro que ningún perfil nombra se

@@ -334,7 +334,7 @@ function route(method: Method, path: string, body: unknown): unknown {
 
   if (method === 'GET' && p === '/me') {
     return {
-      version: '0.11.1',
+      version: '0.12.0',
       profile: config.profile,
       port: 5283,
       data_dir: 'C:\\Users\\dhayes\\AppData\\Local\\latet',

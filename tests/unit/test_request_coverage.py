@@ -122,6 +122,59 @@ def test_a_refused_header_name_reaches_the_agent_only(caplog):
 
 
 @pytest.mark.parametrize(
+    ("name", "told"),
+    [
+        (b"x-team", "x-team"),
+        (b"x-custom-" + b"a" * 16, "x-custom-" + "a" * 16),  # a word of 16: told as it is
+        (b"x-custom-" + b"a" * 17, "x-custom-<17 characters>"),
+        (b"anthropic-new-" + b"b" * 20 + b"-x", "anthropic-new-<20 characters>-x"),
+        (b"x-" + b"c" * 200, "x-<200 characters>"),  # its length told whole, though the name is cut at 64 after
+        (b"x--" + b"d" * 17 + b"-", "x--<17 characters>-"),  # dashes kept where they are
+        (b"x-" + b"\x01" * 17, "x-<17 characters>"),  # a word of what is not printable is told by its length too
+        (b"x-" + b"-".join([b"e" * 16] * 7), "x-" + "-".join(["e" * 16] * 7)[:62]),  # short words, cut at 64
+    ],
+)
+def test_a_refused_header_is_named_with_each_long_word_told_by_its_length(name, told):
+    """The scoped check of N-1, P-1: the words that name a header no profile names to the agent (its answer, a
+    WebSocket's close reason) tell each word of the name longer than 16 characters by its length, so that a key's form
+    in a name never comes back to the agent, nor through it in a later body; the name is cut at 64 after that. A
+    known header's value refused keeps its name as it is: Latet names it, and its words are short."""
+    from latet.gateway.coverage import EnvelopeRefused
+
+    refused = EnvelopeRefused("envelope-header-unknown", header=name)
+    assert refused.agent_message() == f"request envelope refused (envelope-header-unknown): header {told}"
+    assert refused.close_reason() == f"latet: refused envelope-header-unknown: header {told}"
+    known = EnvelopeRefused("envelope-header-value", header=b"x-session-id").agent_message()
+    assert known == "request envelope refused (envelope-header-value): header x-session-id"
+
+
+@pytest.mark.parametrize(
+    ("name", "told"),
+    [
+        (b"drift", "drift"),
+        (b"a" * 16, "a" * 16),  # a word of 16: told as it is
+        (b"AKIA" + b"IOSFODNN7EXAMPLE", "<20 characters>"),  # an AWS key id's form, in two pieces
+        (b"api_key_" + b"b" * 12, "<20 characters>"),  # an underscore does not end a word: only a dash does
+        (b"page-" + b"c" * 17 + b"-x", "page-<17 characters>-x"),  # dashes kept where they are
+        (b"x " + b"\xc3\xa9" * 8, "<18 characters>"),  # what is not printable ASCII is counted by its bytes
+        (b"-".join([b"e" * 16] * 7), "-".join(["e" * 16] * 7)[:64]),  # short words, cut at 64
+    ],
+)
+def test_a_refused_query_parameter_is_named_with_each_long_word_told_by_its_length(name, told):
+    """Task 8 of the 0.12 plan, after the scoped check's P-1: a query parameter no profile names is named to the agent
+    as a header no profile names is, each word of the name longer than 16 characters told by its length, so that a
+    key's form put in the name never comes back to the agent; the name is cut at 64 after that. A known query
+    parameter's value refused keeps its name as it is: Latet names it."""
+    from latet.gateway.coverage import EnvelopeRefused
+
+    refused = EnvelopeRefused("envelope-query-unknown", query=name)
+    assert refused.agent_message() == f"request envelope refused (envelope-query-unknown): query parameter {told}"
+    assert refused.close_reason() == f"latet: refused envelope-query-unknown: query parameter {told}"
+    known = EnvelopeRefused("envelope-query-value", query=b"pageToken").agent_message()
+    assert known == "request envelope refused (envelope-query-value): query parameter pageToken"
+
+
+@pytest.mark.parametrize(
     ("upstream", "target"),
     [
         (BedrockUpstream(), "/bedrock/us-mariorossi-acme-1/inference-profiles"),

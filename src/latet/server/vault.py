@@ -838,12 +838,14 @@ class PgVaultStore:
     def build_index(self) -> bool:
         """Build a fresh index, then catch up and publish it while the store is still open.
 
-        Masking keeps the published index or authoritative SQL throughout. An occupied lease, incomplete fill,
-        allocation/aggregate limit or database failure never makes a partial index ready: why is kept in
+        Masking keeps the published index or authoritative SQL throughout. Prints not all made, an
+        allocation/aggregate limit or a database failure never makes a partial index ready: why is kept in
         ``index_failure`` (``PRINTS_UNMADE``, ``INDEX_TOO_LARGE``, or the error's type), which the space says once and
-        builds it again for, but for its size
-        (``spaces.Spaces._index_judged``). Once published, and its build's turn handed on, whether a fake has a reading
-        is read (``PrintIndex.check_readings``): until then, and when that read fails, every fake is looked up exactly.
+        builds it again for, but for its size (``spaces.Spaces._index_judged``). A build makes no print: one that finds
+        them not all made (a vault kept by 0.10) ends at once, its turn handed on, and its space has them made apart
+        (``fill_prints``, in ``spaces.Spaces._prints_space``), so that a fill of minutes holds no build of another
+        vault's index. Once published, and its build's turn handed on, whether a fake has a reading is read
+        (``PrintIndex.check_readings``): until then, and when that read fails, every fake is looked up exactly.
         """
         if self.index is None or self._closed.is_set() or not self._index_build.acquire(blocking=False):
             return False
@@ -856,12 +858,8 @@ class PgVaultStore:
         try:
             if self._closed.is_set():
                 return False
-            if not self.prints_complete():
-                self.fill_prints()
-            if self._closed.is_set():
-                return False
             if not self.prints_complete() or not fresh.build():
-                self.index_failure = PRINTS_UNMADE  # their lease held by another instance, or a fill cut short
+                self.index_failure = PRINTS_UNMADE  # their fill not over, here or on another instance, or not begun
                 return False
             with self._index_lock:
                 if self._closed.is_set():

@@ -115,11 +115,15 @@ class NotSendable(Exception):
     """What ``sendable`` refuses, by code: ``not-a-decision``, ``unknown``, ``unminted``, ``tampered``, ``block``,
     ``proof-incomplete``, ``evidence``, ``foreign`` (another request's or arena's decision, or one given an arena it had
     not), ``payload`` (a payload that is not what its request or arena leaves with),
-    ``stale`` (its arena changed after it)."""
+    ``stale`` (its arena changed after it, or what it was decided under is no longer in force). ``settings_moved``:
+    a ``stale`` refusal its route authority made (its route or its rules moved since its decision: its settings
+    applied again, or being applied), the one its sender tells as settings that changed (minors after 0.11, item 23's
+    fix round, M2); every other refusal, ``stale`` ones included, has it False."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, settings_moved: bool = False) -> None:
         super().__init__(code)
         self.code = code
+        self.settings_moved = settings_moved
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,9 +461,14 @@ def finalize(
     if arena.off:  # D5: a project where Latet is off sends nothing (its arena refuses already: never sent unread)
         return _mint(Block(envelope.transport, envelope.destination, "refused", _OFF, 400), seal)
     exceptions = envelope_proof.exceptions if envelope_proof is not None else ()
+    # What its envelope let through by a built-in rule (D4 (b)'s open list: "checked only"), named beside its body's.
+    envelope_rules = envelope_proof.rules if envelope_proof is not None else ()
     if authority.empty and payload == b"" and envelope.body == b"":
-        if exceptions:  # what no profile names let through by an exception: visibly, never a Forward
-            evidence = PolicyEvidence((), envelope_proof.profile if envelope_proof is not None else "", exceptions)
+        if exceptions or envelope_rules:  # what no profile names let through: visibly, never a Forward
+            profile = envelope_proof.profile if envelope_proof is not None else ""
+            evidence = PolicyEvidence(envelope_rules, profile, exceptions)
+            if not _admitted(evidence, policy):
+                return _mint(Block(envelope.transport, envelope.destination, "evidence", _NOT_ADMITTED, 400), seal)
             return _mint(Pass(envelope, payload, texts, evidence, policy, response, envelope_proof), seal)
         return _mint(
             Forward(envelope, payload, texts, EmptyBodyProof(envelope), policy, response, envelope_proof), seal
@@ -480,8 +489,9 @@ def finalize(
         # The exceptions its body's rules name (its admitted members), beside its envelope's: vetted by the sender
         # before this (their project, their lifetime, their visibility), named here so that the Pass says each.
         exceptions = tuple(dict.fromkeys((*exceptions, *body_exception_ids(body.rules))))
-        if body.rules or exceptions:
-            evidence = PolicyEvidence(body.rules, body.profile, exceptions)
+        rules = tuple(sorted({*body.rules, *envelope_rules})) if envelope_rules else body.rules
+        if rules or exceptions:
+            evidence = PolicyEvidence(rules, body.profile, exceptions)
             if not _admitted(evidence, policy):
                 return _mint(Block(envelope.transport, envelope.destination, "evidence", _NOT_ADMITTED, 400), seal)
             return _mint(Pass(envelope, payload, texts, evidence, policy, response, envelope_proof, body), seal)
@@ -621,15 +631,25 @@ def sendable(decision: object, arena: Prepared | None, envelope: Envelope) -> Fo
         raise NotSendable("payload")
     if not _unchanged(arena, seal) or decision.response != response_plan(arena):
         raise NotSendable("stale")
+    _in_force(arena)
+    return decision
+
+
+def _in_force(arena: Prepared) -> None:
+    """What ``arena`` was decided under still in force, or ``stale``: its own causes first (no authority, its control
+    or opaque evidence no longer current), then its route authority (``settings_moved``: its settings moved since),
+    then its own authority (its conversation's facts, or rules that moved as it was looked at)."""
+    authority = arena.authority
     if (
-        arena.authority is None
-        or not arena.authority.valid()
-        or (arena.route_authority is not None and not arena.route_authority.valid())
+        authority is None
         or (arena.control_current is not None and not arena.control_current())
         or not arena.opaque_current()
     ):
         raise NotSendable("stale")
-    return decision
+    if arena.route_authority is not None and not arena.route_authority.valid():
+        raise NotSendable("stale", settings_moved=True)
+    if not authority.valid():
+        raise NotSendable("stale")
 
 
 def still_current(decision: Forward | Pass, arena: Prepared) -> None:
@@ -659,10 +679,6 @@ def still_current(decision: Forward | Pass, arena: Prepared) -> None:
         or arena.freeze_generation is not seal.generation
         or any(now is not was for now, was in zip(_state(arena), seal.state, strict=True))
         or decision.response != response_plan(arena)
-        or arena.authority is None
-        or not arena.authority.valid()
-        or (arena.route_authority is not None and not arena.route_authority.valid())
-        or (arena.control_current is not None and not arena.control_current())
-        or not arena.opaque_current()
     ):
         raise NotSendable("stale")
+    _in_force(arena)

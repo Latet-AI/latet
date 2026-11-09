@@ -149,6 +149,7 @@ from latet.server.start_errors import SettingRefused, ValkeyUnavailable
 from latet.server.tokens import is_route_key
 from latet.server.workers import INSTANCE_ID, TELEMETRY, beat_checked
 from latet.state.local import CODE_TTL, SESSION_TTL
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.server.grants import Grant
@@ -1726,7 +1727,7 @@ def create_server_app(server: Server) -> Starlette:
                     raise
                 server._redeeming_tasks.add(task)
                 task.add_done_callback(redeem_done)
-                sid, limited = await asyncio.shield(task)
+                sid, limited = await shielded(task)  # not asyncio.shield: see latet.waiting
             else:
                 sid, limited = await pre_auth(signed_in, code, key, known)
         except StoresUnavailable:  # a store that did not answer, or the credentials' threads busy

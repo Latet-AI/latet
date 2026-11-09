@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Latet-AI/latet/blob/main/SECURITY.md
+    about: Please do not open a public issue for a vulnerability. SECURITY.md says how to report one privately.
+  - name: Documentation
+    url: https://docs.latet.ai/
+    about: Installation, the agents and tools Latet goes in front of, the concepts, and the CLI reference.
+  - name: Troubleshooting
+    url: https://docs.latet.ai/troubleshooting/
+    about: What `latet doctor` reports, and the problems that come up most often. Worth a look before you open an issue.
+  - name: A commercial licence, or Latet Enterprise
+    url: https://latet.ai/
+    about: Selling Latet, offering it as a service or building it into a product you sell needs a commercial licence. Write to info@latet.ai.

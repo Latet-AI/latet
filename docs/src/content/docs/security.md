@@ -254,9 +254,21 @@ to one file:
   token: checked, taken off, never logged or recorded. Found in a tool's output or a message, it is
   masked; where it cannot be masked, the request is refused.
 - A header no profile names is refused: its name is told to the agent alone, and logs and the
-  history keep only its kind. The headers a profile declares removable are taken off and counted in
-  the dashboard: the SDKs' telemetry and tracing (`x-stainless-*`, `traceparent`...), and the agents'
-  own that can carry free text, such as a Claude Code subagent's ids or Codex's turn metadata, which
+  history keep only its kind. On a request Latet only checks (Claude Code, Bedrock, Vertex), a new
+  `anthropic-*` header or `anthropic-beta` value passes once the final check has read it, a new
+  header's name as well as its value (a secret, a value the vault knows or one the check detects in
+  either refuses the request), and a new `x-claude-code-*` header is taken off. No word of a new
+  header's name, between its dashes, may be longer than 16 characters. A header's name arrives in
+  lowercase: the final check reads it in lowercase, in capitals and with each word capitalised. A
+  value written into a header's name in another mix of capitals is not found there, whether a value
+  of yours such as `ACME-Payroll-7731` or a secret whose form mixes them, such as a Google API key
+  (`AIza…`): the name is refused only when it breaks one of a new header's bounds, a word longer than
+  16 characters (as is usual for a key or a token), more than 48 characters after `anthropic-`, or a
+  character other than a lowercase letter, a digit or a dash. A request Latet rewrites has them
+  refused before anything of it is masked. The
+  headers a profile declares removable are taken off and counted in the dashboard: the SDKs'
+  telemetry and tracing (`x-stainless-*`, `traceparent`...), and the agents' own that can carry free
+  text, such as a Claude Code subagent's ids or Codex's turn metadata, which
   holds your repository's path and remotes ([Headers Latet takes off](../getting-started/upgrading-to-0-11/#headers-latet-takes-off)). On a request Latet only
   checks, they are the only change: its body leaves byte for byte.
 - One exception, when you use Amazon Bedrock with your AWS login: Claude Code sends no credentials,

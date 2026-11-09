@@ -20,7 +20,7 @@ from latet.engine import escapes
 from latet.engine.detectors.base import DetectContext
 from latet.engine.detectors.latet import LatetCredentialDetector
 from latet.engine.response_guard import safe_text
-from latet.engine.types import EntityClass
+from latet.engine.types import EntityClass, Span
 from latet.engine.vault import Vault
 from latet.gateway.capture import Capture
 from latet.gateway.forward import Forwarder
@@ -166,7 +166,10 @@ async def test_no_text_holding_a_key_reaches_the_vaults_store_lookup(tmp_path: P
 def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words():
     """N-2 (P2-6a's re-review, root's ruling): masking a text that holds a live launch key, a stored vault (a server's)
     never asks its store about that text's words, not even by their keyed prints; an ordinary text's words are asked
-    for as before. The key is masked all the same, by its own detector."""
+    for as before. The key is masked all the same, by its own detector. (The key is never looked up as a fake nor
+    remembered as no fake; masked, it is kept as a value like any other, by its own keyed hash. Where the masking
+    keeps fakes, each other value found is asked whether it is a fake by its own keyed hash alone:
+    ``test_a_stored_vault_never_looks_up_a_live_key_by_its_keyed_hash``.)"""
     from latet.engine.pipeline import Session
     from latet.engine.types import SlotKind
 
@@ -184,14 +187,59 @@ def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words():
     assert [call for call in store.calls if call.startswith("with_words")], "an ordinary text is asked for, as before"
 
 
+class _FoundStill:
+    """A masker whose detectors of fakes find ``fakes`` too, wherever ``text`` holds one: as they find a fake memory held
+    when they read the text and let go before ``Engine.adopt`` asks for it (outside a call nothing holds it, and another
+    thread's call may let it go meanwhile), so that adopt asks its vault for a fake memory no longer holds."""
+
+    def __init__(self, masker: Any, fakes: list[str]) -> None:
+        self._masker, self._fakes = masker, fakes
+
+    def surrogates_in(self, text: str) -> list[Span]:
+        found = list(self._masker.surrogates_in(text))
+        places = {(span.start, span.end) for span in found}
+        for fake in self._fakes:
+            start = text.find(fake)
+            while start >= 0:
+                if (start, start + len(fake)) not in places:
+                    found.append(Span(start, start + len(fake), "EMAIL", EntityClass.PII, "fake"))
+                start = text.find(fake, start + 1)
+        return found
+
+
+def _adopting(engine: Any, store: Any, monkeypatch, found_still: list[str]) -> list[str]:
+    """The calls ``store`` is asked while ``engine.adopt`` runs, told apart from those of the masking around it (which
+    asks whether each value it finds is a fake, ``Masker._found``), its detectors of fakes finding ``found_still``
+    too (``_FoundStill``)."""
+    calls: list[str] = []
+    adopt = engine.adopt
+
+    def recorded(session, text: str, masker) -> None:
+        before = len(store.calls)
+        adopt(session, text, _FoundStill(masker, found_still))
+        calls.extend(store.calls[before:])
+
+    monkeypatch.setattr(engine, "adopt", recorded)
+    return calls
+
+
 @pytest.mark.parametrize("path", ["unmask", "unmask in a call", "adopt"])
-def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words_to_restore_or_adopt(path: str):
+def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words_to_restore_or_adopt(
+    path: str, monkeypatch
+):
     """The security review's M-1 (N-2, the ruling's words held literally): restoring a text that holds a live launch key
     (``/unmask``: ``Engine.unmask``, ``StoredVault.candidates_in``, alone or in the call that asked for the fakes of
     every text first) and adopting the fakes a resent conversation holds (``keep_surrogates``: ``Engine.adopt``,
-    ``StoredVault.fakes_out_of_memory``), a stored vault never asks its store about that text's words, as masking it
-    never does: what memory holds is restored or adopted all the same, and an ordinary text's words are asked for as
-    before."""
+    ``StoredVault.fakes_out_of_memory``), a stored vault never asks its store about that text's words (``with_words``),
+    as masking it never does: what memory holds is restored or adopted all the same, and an ordinary text's words are
+    asked for as before. (Masking it, the key is never looked up as a fake nor remembered as no fake, and it is kept
+    as a value like any other, by its own keyed hash; where the masking keeps fakes, ``keep_surrogates`` or from the
+    model, each other value found is asked whether it is a fake by its own keyed hash alone, which keeps a resumed
+    conversation's old fakes as fakes: ``test_a_stored_vault_never_looks_up_a_live_key_by_its_keyed_hash``.)
+    Adopting, ``Engine.adopt`` asks the store nothing at all for that text, not even by the keyed hash of each whole
+    fake its detectors of fakes find (``by_surrogate``, ``by_reading``), one memory let go meanwhile included: it looks
+    them up in memory alone (``Vault.memory_alone``), as ``fakes_out_of_memory`` does (the minors after 0.11, item
+    11)."""
     from latet.engine.pipeline import Session
     from latet.engine.types import SlotKind
 
@@ -208,12 +256,22 @@ def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words_to_
     ordinary = f"owner {gone.surrogate}"
     store.calls.clear()
     if path == "adopt":
+        other, lost = (next(e for e in store.rows.values() if e.original == _email(n)) for n in (4, 5))
+        assert not _held(vault, other) and not _held(vault, lost)
+        store.forget_entity(lost.id)  # forgotten meanwhile: its fake, still found, is the store's no more
+        adopting = _adopting(engine, store, monkeypatch, found_still=[gone.surrogate, other.surrogate, lost.surrogate])
         session = Session("t", kept=False)
-        engine.mask_text(text, SlotKind.ASSISTANT_TEXT, session, keep_surrogates=True)
+        first = engine.mask_text(f"{text} and {lost.surrogate}", SlotKind.ASSISTANT_TEXT, session, keep_surrogates=True)
+        assert adopting == []  # adopt asked nothing at all: by_surrogate and by_reading included
         assert not [call for call in store.calls if call.startswith("with_words")], store.calls
         assert kept.id in session.entity_ids and gone.id not in session.entity_ids  # memory's adopted alone
+        # Adopt's lookup in memory alone remembers no miss: the masking then asks the store whether gone's fake is one,
+        # and it leaves as the fake the model saw, never kept as a value of its own.
+        assert gone.surrogate in first.text and not [e for e in store.rows.values() if e.original == gone.surrogate]
+        engine.mask_text(f"owner {other.surrogate}", SlotKind.ASSISTANT_TEXT, session, keep_surrogates=True)
+        assert other.id in session.entity_ids and "by_surrogate" in adopting  # an ordinary text's: asked, as before
         engine.mask_text(ordinary, SlotKind.ASSISTANT_TEXT, session, keep_surrogates=True)
-        assert gone.id in session.entity_ids  # an ordinary text's fake is adopted from the store, as before
+        assert gone.id in session.entity_ids  # an ordinary text's fake is adopted, as before
     else:
         with vault.holding():
             if path == "unmask in a call":  # as the applications' /unmask asks: every text's fakes first
@@ -224,6 +282,53 @@ def test_a_stored_vault_never_asks_its_store_about_a_key_holding_texts_words_to_
         assert kept.original in restored and gone.surrogate in restored  # memory's restored alone
         assert engine.unmask(ordinary)[0] == f"owner {gone.original}"  # asked for, as before
     assert [call for call in store.calls if call.startswith("with_words")], "an ordinary text is asked for, as before"
+
+
+@pytest.mark.parametrize(
+    "path", ["masked with keep_surrogates", "masked from the model", "checked for values in clear"]
+)
+def test_a_stored_vault_never_looks_up_a_live_key_by_its_keyed_hash(path: str):
+    """Root's ruling on Task 5's review (its question 2, option c): a stored vault looks up a string that holds a live
+    launch key in memory alone, whoever asks (``StoredVault.by_surrogate``). The masking's check of whether each value
+    it finds is a fake (``Masker._found``: with ``keep_surrogates``, ``Engine.adopt`` included, or from the model) and
+    the check of a text for values in clear (``known_outside``, ``fake_or_let_through``: a conversation's document that
+    leaves as it left) never look the key up in the store as a fake, not even by its keyed hash, and the key is never
+    remembered as a string that is no fake (``_misses``); masked, it is kept as a value like any other, by its own
+    keyed hash. No fake that ever left Latet has a key's shape (a stand-in has 32 characters after the prefix, never
+    43), so nothing is lost: an old fake out of memory in the same text is still asked for by its own keyed hash,
+    leaves as the fake the model saw and is restored to its value."""
+    from latet.engine.pipeline import Session
+    from latet.engine.types import SlotKind
+
+    from .test_stored_vault import _email, _engine, _held, _many, _Store, _vault
+
+    store = _Store()
+    vault = _vault(store)
+    engine = _engine(vault)
+    _many(vault)
+    gone = next(e for e in store.rows.values() if e.original == _email(3))
+    assert not _held(vault, gone)
+    asked: list[str] = []
+    for name in ("by_surrogate", "by_reading", "by_original"):
+        real = getattr(store, name)
+        setattr(store, name, lambda value, real=real: (asked.append(value), real(value))[1])
+    session = Session("t", kept=False)
+    first = engine.mask_text(f"{_ENV}owner {_email(7)}", SlotKind.TOOL_RESULT, session)  # the key kept as a value
+    assert _KEY not in first.text
+    text = f"{_ENV}owners {gone.surrogate}"
+    if path == "checked for values in clear":
+        with vault.holding():
+            assert engine.masker.known_outside(f"{_ENV}owner {_email(7)}", ())  # the key and the address, in clear
+    else:
+        if path == "masked with keep_surrogates":
+            out = engine.mask_text(text, SlotKind.TOOL_RESULT, session, keep_surrogates=True).text
+        else:
+            out = engine.mask_text(text, SlotKind.ASSISTANT_TEXT, session, from_model=True).text
+        assert _KEY not in out
+        assert gone.surrogate in out and engine.unmask(out)[0].endswith(gone.original)  # an old fake stays a fake
+        assert gone.surrogate in asked  # the text's other values are still asked whether they are fakes
+    assert not [value for value in asked if _KEY in value], asked  # never by the key's keyed hash
+    assert not [miss for miss in vault._misses if _KEY in miss]  # never kept as a string that is no fake
 
 
 def test_the_verify_only_test_is_written_once():

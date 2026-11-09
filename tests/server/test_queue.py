@@ -1028,7 +1028,7 @@ def _pictured(images: dict[int, _Image]):
 
 def _strings(bus, prefix: str) -> int:
     """What the test's prefix holds in strings (records, images, decisions, answers), in bytes."""
-    found = [key for key in bus.client.scan_iter(match=prefix + "*", count=1000) if bus.client.type(key) == b"string"]
+    found = {key for key in bus.client.scan_iter(match=prefix + "*", count=1000) if bus.client.type(key) == b"string"}
     return sum(bus.client.strlen(key) for key in found)
 
 

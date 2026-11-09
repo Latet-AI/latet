@@ -9,7 +9,8 @@ repository file, no header (``current`` takes no argument). Phase 1's internal r
 
 from __future__ import annotations
 
-from collections import OrderedDict
+import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -287,14 +288,21 @@ class LocalAuthority:
         return cls(current(), engine, engine.rules_version, upstream, routes, path)
 
     def rederivable(self) -> bool:
-        """Invalid only because the settings moved (a newer policy or rules version) while its route still selects the
-        same destination: it may be taken again under the rules now in force. Its launch is the launch authority's one
-        freshness check, awaited where it is sent (``RequestScope.protected_current``)."""
-        return (self.policy is not current() or self.rules != self.engine.rules_version) and self._same_route()
+        """Invalid only because the settings moved (a newer policy or rules version, or settings being applied) while
+        its route still selects the same destination: it may be taken again under the rules in force once they are all
+        in place. Its launch is the launch authority's one freshness check, awaited where it is sent
+        (``RequestScope.protected_current``)."""
+        moving = self.policy is not current() or self.rules != self.engine.rules_version or self.engine.applying
+        return bool(moving) and self._same_route()
 
     def valid(self) -> bool:
+        """Whether what it was taken under is still in force. Never while settings are being applied
+        (``Engine.applying``, minors after 0.11, item 23): an authority taken in that window, or checked in it, would
+        let a request leave with them half applied. The mark is read before the rules version: an apply lowers it after
+        its last move, so a check that finds it lowered finds that move too."""
         return (
-            self.policy is current()
+            not self.engine.applying
+            and self.policy is current()
             and self.rules == self.engine.rules_version
             and self._same_route()
             and (self.session is None or self.facts == session_facts(self.session))
@@ -309,6 +317,27 @@ class LocalAuthority:
             return True
         found = self.routes.match(self.path)
         return found is self.upstream or (found is not None and found == self.upstream)
+
+
+# How long a request, a WebSocket's handshake or an application's call made while settings are being applied waits at
+# most for them to be all in place (``settled``), and how often it looks: one whose apply outlasts it is refused because
+# its settings changed (minors after 0.11, item 23).
+SETTLE_SECONDS = 5.0
+SETTLE_POLL = 0.01
+
+
+async def settled(engine: Any) -> None:
+    """Back once no settings are being applied (``Engine.applying``: from ``Runtime.apply_config``'s first change to
+    its last move), or after ``SETTLE_SECONDS`` at most: looked at every ``SETTLE_POLL`` on the event loop, holding no
+    thread (a wait in a worker would hold one for each caller during a slow apply, its image models' load). At once when
+    the mark is held for settings that could not be put back (``Engine.stranded``): no apply is under way. What waits
+    on it: a request over HTTP (``Forwarder``), a WebSocket's handshake (``ws.relay``), an application's call
+    (``bridge.apps``); each looks at the mark again once it is back."""
+    began = time.monotonic()
+    while (  # noqa: ASYNC110 - raised and lowered in a worker thread
+        engine.applying and not engine.stranded and time.monotonic() - began < SETTLE_SECONDS
+    ):
+        await asyncio.sleep(SETTLE_POLL)
 
 
 def session_facts(session: Any) -> tuple[object, ...]:
@@ -361,21 +390,6 @@ def _within(row: Any, now: datetime) -> bool:
     return ends is None or now < ends
 
 
-_REFERENCES: OrderedDict[str, Any] = OrderedDict()
-_REFERENCES_KEPT = 4096
-_SCOPES = {"destination-credential": 1, "custom-header": 2, "query-parameter": 3, "other": 4}
-
-
-def reference_of(row: Any) -> Any:
-    """The status reference an exception's uses are counted under in this process (M1, ``request_audit``): one per
-    exception, made once, its scope its reason's fixed category; never its description or what it names."""
-    from latet.gateway.request_audit import new_exception_reference
-
-    found = _REFERENCES.get(row.id)
-    if found is None:
-        found = _REFERENCES[row.id] = new_exception_reference(1, _SCOPES[row.reason])
-        while len(_REFERENCES) > _REFERENCES_KEPT:
-            _REFERENCES.popitem(last=False)
-    else:
-        _REFERENCES.move_to_end(row.id)
-    return found
+# The scope of an exception's status reference (M1, ``RequestAudit.reference_for``): its reason's fixed category, never
+# its description or what it names. The reference itself is its identity's audit's (minors after 0.11, item 10).
+EXCEPTION_SCOPES = {"destination-credential": 1, "custom-header": 2, "query-parameter": 3, "other": 4}

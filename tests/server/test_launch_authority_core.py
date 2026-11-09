@@ -4,7 +4,6 @@ import base64
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
-from itertools import islice
 
 import psycopg
 import pytest
@@ -29,7 +28,7 @@ from latet.server.settings import ServerSettings
 
 from . import test_launch_bootstrap
 from .conftest import dump, identity_in, valkey_dump
-from .support import DATABASE, URL, VALKEY
+from .support import DATABASE, URL, VALKEY, scanned_once
 
 launch_bootstrap_db = test_launch_bootstrap.launch_bootstrap_db
 owned_launch_namespaces = test_launch_bootstrap.owned_launch_namespaces
@@ -142,7 +141,7 @@ def protected_core(launch_bootstrap_db, owned_launch_namespaces):
             yield db, bus, LaunchAuthority(db, bus, master), BindingCodec(b"r" * 32), master
     finally:
         with redis.Redis.from_url(redis_url(VALKEY), socket_timeout=5, socket_connect_timeout=5) as client:
-            keys = list(islice(client.scan_iter(match=prefix + "*", count=100), 3))
+            keys = scanned_once(client.scan_iter(match=prefix + "*", count=100), 3)
             if len(keys) > 2:
                 raise RuntimeError("the owned launch prefix exceeded its admitted key count")
             if keys:
@@ -269,7 +268,7 @@ def test_two_authority_owners_read_current_generation_end_and_foreign_refusal(pr
         )
         assert expected_records_present
         assert storage_canaries_absent
-        assert list(bus.client.scan_iter(match=bus.prefix + "*", count=100)) == [key]
+        assert set(bus.client.scan_iter(match=bus.prefix + "*", count=100)) == {key}  # SCAN may return a key twice
         assert first.terminal(_ISSUER, locator, 3, exit_confirmed=True)
         assert _decision(other, codec).state == "refused"
         cleanup = first.reserve_cleanup(_ISSUER, locator)

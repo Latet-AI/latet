@@ -28,7 +28,8 @@ come:
   on the event loop, finds them there.
 - Lookups (``by_original``, ``by_surrogate``, ``get``, ``is_surrogate``): memory first, then the store; what they find
   joins the working set. A string the store says is no fake is remembered as such (``MISSES_KEPT`` at most), until the
-  vault issues or learns it as one.
+  vault issues or learns it as one. A string that holds a live launch key is looked up as a fake in memory alone,
+  never asked of the store nor remembered (``by_surrogate``): no fake has a key's shape.
 
 Past ``working`` values, the least recently used ``EVICT_SHARE`` of them leave memory (as ``forget`` takes a value out
 of it, the store left as it is): never a value held for good, nor one that a call still under way found or kept, nor
@@ -1571,8 +1572,13 @@ class StoredVault(Vault):
         in a call begun with every value in memory (``_alone``): memory found them already. None for a text that holds
         a live launch key (N-2): the store is never asked about its words, not even by their keyed prints, as
         ``prefetch`` never hands it on; it is masked by what memory holds, the key by its own detector
-        (``_memory_alone``)."""
-        if call.alone or self._memory_alone(text):
+        (``memory_alone``). The key is never looked up as a fake (``by_surrogate``, ``by_reading``: memory alone) nor
+        remembered as no fake; masked, it is kept as a value like any other (R-103), and its keep, like any value's,
+        writes and finds it by its own keyed hash (``original_key``). Where the masking keeps fakes
+        (``keep_surrogates``, from the model) and where a text is checked for values in clear, each other value found
+        is asked whether it is a fake by its own keyed hash alone (``is_surrogate``), as in any text, which keeps a
+        resumed conversation's old fakes as fakes."""
+        if call.alone or self.memory_alone(text):
             return
         fakes = self._fake_words
         unasked = words - call.asked
@@ -1736,20 +1742,29 @@ class StoredVault(Vault):
                 call.fakes.setdefault(word, []).append(kept)
         call.fakes_asked |= answered
 
-    def _memory_alone(self, text: str) -> bool:
+    def memory_alone(self, text: str) -> bool:
         """Whether what ``text`` holds is read from memory alone, the store asked nothing of its words: on the event
         loop, where nothing waits on a store, and for a text that holds a live launch key (N-2, P2-6a's re-review: the
         store is never asked about its words, not even by their keyed prints, as ``Vault.prefetch`` and
         ``prefetch_fakes`` never hand one on), whatever reads it: masking (``_asked_now``), restoring
-        (``candidates_in``) and adopting its fakes (``fakes_out_of_memory``) alike."""
+        (``candidates_in``) and adopting its fakes alike, those memory does not hold (``fakes_out_of_memory``) and
+        each whole one its detectors of fakes find (``Engine.adopt``'s ``by_surrogate``, ``memory_only``: the minors
+        after 0.11, item 11). The one test of the rule (``Vault.memory_alone``), of a string as of a text: a string
+        that holds a key is never looked up as a fake, not even by its keyed hash (``by_surrogate``, ``by_reading``:
+        memory alone), nor remembered as no fake. Masked, the key is kept as a value like any other (R-103): its keep,
+        like any value's, writes and finds it by its own keyed hash (``original_key``). Where the masking of such a text
+        keeps fakes (``keep_surrogates``, from the model) and where it is checked for values in clear, each other value
+        found is asked whether it is a fake, by that value's keyed hash alone (``is_surrogate``), as in any text, so
+        that a resumed conversation's old fake stays the fake the model saw; a value it then keeps in the store, with
+        keyed hashes of its own."""
         return on_a_loop() or not safe_text(text)
 
     def fakes_out_of_memory(self, text: str) -> list[Entity]:
         """The entities whose fake ``text`` holds, as its detectors of fakes would find them, among those of the store
         (from what this thread's call asked for, ``prefetch_fakes``, else in one call): brought into memory, so that a
         conversation resumed with fakes of any age adopts them (``Engine.adopt``). Memory's alone on the event loop and
-        for a text that holds a live launch key (``_memory_alone``): none."""
-        if self._memory_alone(text):
+        for a text that holds a live launch key (``memory_alone``): none."""
+        if self.memory_alone(text):
             return []
         call = self._call()
         budget = call.lookup if call is not None else LookupBudget()
@@ -1779,12 +1794,12 @@ class StoredVault(Vault):
         into memory: a restore reads them once), from what this thread's call asked for already (``prefetch_fakes``),
         else in one call to the store. In a call that asked, memory is not read for its fakes (Task 10b): every fake
         memory holds is the store's too, found by its words as the store's are. On the event loop, and for a text that
-        holds a live launch key (``_memory_alone``), memory's alone, read whatever the call asked. Raises VaultUnread
+        holds a live launch key (``memory_alone``), memory's alone, read whatever the call asked. Raises VaultUnread
         when the store does not answer."""
         found: dict[str, Entity] = {}
         call = self._call()
         budget = call.lookup if call is not None else LookupBudget()
-        alone = self._memory_alone(text)
+        alone = self.memory_alone(text)
         words = self._words(text, call, budget)
         if call is None or not call.fakes_asked or alone:
             echo = self._read_for(text, self.matchers.current(), call, budget, ask=False).echo
@@ -1821,17 +1836,25 @@ class StoredVault(Vault):
 
     # --- lookups -----------------------------------------------------------------------------------
 
-    def by_surrogate(self, surrogate: str, as_read: bool = True) -> Entity | None:
+    def by_surrogate(self, surrogate: str, as_read: bool = True, memory_only: bool = False) -> Entity | None:
         """``Vault.by_surrogate``'s: memory first, then the store, which keeps each fake as written and how each fake
         written in escapes reads (``fake_reading``), each found by the string's keyed hash: two probes at most, whatever
-        shares a word with it. A string the store says is neither is remembered so, apart for the two questions."""
+        shares a word with it. A string the store says is neither is remembered so, apart for the two questions.
+        ``memory_only`` (a string of a text ``memory_alone`` reads from memory alone, ``Engine.adopt``'s), and a string
+        that holds a live launch key whoever asks (``memory_alone`` of the string: the masking's check of each value it
+        finds, ``is_surrogate``, and of a text for values in clear, ``fake_or_let_through``; Task 5's review, root's
+        ruling): memory's answer, the string never looked up in the store, not even by its keyed hash, and no miss
+        remembered, so the key is never remembered as no fake. No fake that ever left Latet has a key's shape (a
+        stand-in has 32 characters after the prefix, never 43, and every text that leaves is screened for one), so the
+        store's answer could name none. Memory is made current first as for any string (``refresh``, which asks the
+        store what changed, nothing of the string)."""
         if self._call() is None and not on_a_loop():
             self.refresh()
         found = self._held(self._by_surrogate.get(surrogate))
         if found is None and as_read:
             found = self._held(self._by_reading.get(surrogate))
         miss = _miss(surrogate, as_read)
-        if found is not None or on_a_loop() or self._missed(miss):
+        if found is not None or memory_only or self._missed(miss) or self.memory_alone(surrogate):
             return found
         may_be_fake = getattr(self._store, "may_be_fake", None)
         if may_be_fake is not None and not self._asked(lambda: may_be_fake(surrogate)):

@@ -43,6 +43,8 @@ TURN = json.dumps(
     }
 )
 CANARY = "private-value-canary"
+# A query parameter's name of one word longer than 16 characters (Task 8 of the 0.12 plan): told by its length alone.
+LONG_QUERY = "querycanary" + "x" * 9
 
 
 @pytest.fixture
@@ -113,6 +115,8 @@ def _closed(observation):
     [
         ((("x-drift-header", CANARY),), "", "envelope-header-unknown", "header x-drift-header"),
         ((), f"?drift={CANARY}", "envelope-query-unknown", "query parameter drift"),
+        # Task 8 of the 0.12 plan: a long word of an unknown query parameter's name is told by its length.
+        ((), f"?{LONG_QUERY}-x={CANARY}", "envelope-query-unknown", "query parameter <20 characters>-x"),
     ],
 )
 async def test_a_refused_handshake_names_what_it_refused_and_is_recorded(cell, extra, query, code, name):
@@ -121,7 +125,7 @@ async def test_a_refused_handshake_names_what_it_refused_and_is_recorded(cell, e
     observation = await run_case(cell, case)
     reason = _closed(observation)
     assert code in reason and name in reason, reason
-    assert CANARY not in reason
+    assert CANARY not in reason and LONG_QUERY not in reason
     [record] = observation["records"]
     assert record["transport"] == "ws" and record["block_reason"] == code
     assert record["request_headers"] == []
@@ -131,13 +135,21 @@ async def test_a_refused_handshake_names_what_it_refused_and_is_recorded(cell, e
     assert CANARY not in repr(raw.summary)
 
 
-async def test_a_long_header_name_still_fits_the_close_reason(cell):
-    long = "x-" + "a" * 120
+@pytest.mark.parametrize(
+    ("long", "told"),
+    [
+        # The scoped check of N-1, P-1: a word longer than 16 characters is told by its length, never as it is.
+        ("x-" + "a" * 120, "header x-<120 characters>"),
+        ("x-" + "-".join(["a" * 16] * 7), "header x-" + "a" * 16 + "-"),  # short words, the name cut at 64
+    ],
+)
+async def test_a_long_header_name_still_fits_the_close_reason(cell, long, told):
     case = Case(
         "ws", (), "GET", "/backend-api/codex/responses", (*CODEX_WS, (long, "1")), transport="ws", frames=(TURN,)
     )
     reason = _closed(await run_case(cell, case))
-    assert "envelope-header-unknown" in reason and "x-aaaa" in reason
+    assert "envelope-header-unknown" in reason and told in reason and "a" * 17 not in reason
+    assert len(reason.encode()) <= 123
 
 
 # --- 5. a request refused over HTTP for its envelope -------------------------------------------------------------------
@@ -157,6 +169,12 @@ def _chat() -> bytes:
             "header x-drift-header",
         ),
         (f"/openai/v1/chat/completions?drift={CANARY}", (), "envelope-query-unknown", "query parameter drift"),
+        (
+            f"/openai/v1/chat/completions?{LONG_QUERY}={CANARY}",
+            (),
+            "envelope-query-unknown",
+            "query parameter <20 characters>",
+        ),
         (f"/openai/v1/files?purpose={CANARY}", (), "envelope-route", "route /{destination}/{unsupported-route}"),
     ],
 )
@@ -167,7 +185,7 @@ async def test_an_envelope_refusal_over_http_is_recorded_with_its_category(cell,
     observation = await run_case(cell, Case("envelope", (), "POST", target, (*OPENAI_KEY, *extra), _chat()))
     _refused(observation, code)
     words = observation["client"]["body"]["error"]
-    assert named in words and CANARY not in words
+    assert named in words and CANARY not in words and LONG_QUERY not in words
     [record] = observation["records"]
     assert record["transport"] == "http" and "blocked" in record["flags"]
     assert record["path"].startswith("/{destination}/") and "drift" not in record["path"]

@@ -5,10 +5,11 @@ description: Instala Latet con el instalador de una línea, o ejecútalo desde u
 
 ## Requisitos
 
-- Windows, macOS o Linux. No necesitas permisos de administrador: todo se instala en tu cuenta de
-  usuario.
-- Python 3.12 o 3.13, las versiones con las que se prueba Latet. No tienes que instalarlo tú:
-  [uv](https://docs.astral.sh/uv/) descarga uno cuando hace falta.
+- Windows, Linux o macOS en un Mac con chip de Apple. Un Mac con Intel no es compatible:
+  cryptography, que Latet necesita, no publica un paquete listo para los Mac con Intel. No necesitas
+  permisos de administrador: todo se instala en tu cuenta de usuario.
+- Python 3.12, 3.13 o 3.14, las versiones con las que se prueba Latet. No tienes que instalarlo
+  tú: [uv](https://docs.astral.sh/uv/) descarga uno cuando hace falta.
 - Al menos un agente admitido: [Claude Code](../../agents/claude-code/),
   [Codex](../../agents/codex/), [OpenCode](../../agents/opencode/),
   [Gemini CLI](../../agents/gemini/), o una herramienta que acepte una dirección compatible con

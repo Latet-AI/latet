@@ -195,6 +195,25 @@ async def test_a_websocket_handshake_takes_no_request_exception(monkeypatch):
         assert case.client.sent[-1]["code"] == 1008
 
 
+async def test_a_websocket_handshake_never_takes_the_open_list(monkeypatch):
+    """D4 (b), option B (minors after 0.11, item 1): the open list is HTTP's, on Anthropic's families alone, which no
+    handshake has (a handshake is OpenAI's or ChatGPT's). Should an admission of one ever list a header in it, the relay
+    refuses the handshake before anything connects, as admission would have without the open list (fail closed): here
+    the rule made to take a handshake's header."""
+    from latet.gateway import request_profiles
+
+    real = request_profiles._open
+
+    def opened(profile, name, value, error, named):
+        return "checked" if name == "x-team" else real(profile, name, value, error, named)
+
+    monkeypatch.setattr(request_profiles, "_open", opened)
+    async with socket_case(extra=((b"x-team", b"data-science"),)) as case:
+        assert case.handshakes == [], "a handshake admitted by the open list reached the provider"
+        assert case.client.sent[-1]["code"] == 1008
+        assert "envelope-header-unknown" in case.client.sent[-1]["reason"]
+
+
 async def test_no_mediator_cannot_open_a_provider_socket():
     async with socket_case(mediator=None) as case:
         assert case.handshakes == [], "unmediated handshake reached provider"
@@ -452,6 +471,31 @@ async def test_revoked_socket_sends_no_next_frame(change):
         event = await case.frame(create("second"))
         assert len(case.sent) == 1, "revoked connection sent another frame"
         assert event["type"] == "websocket.close" and event["code"] == 1008
+
+
+async def test_a_handshake_during_a_save_waits_for_it_and_connects(monkeypatch):
+    """Minors after 0.11, item 23's fix round, M4: a handshake that comes while settings are being applied
+    (``Engine.applying``) waits for them to be all in place before its authority is taken, as a request over HTTP does
+    (``request_policy.settled``), and connects under them. Before, its authority was taken under the mark, never valid: it
+    was refused 1008 ("could not open this connection as it was decided"), recorded proof-incomplete, and nothing
+    reached the provider."""
+    med = _mediator()
+    engine = med.engine
+    engine.applying = 1  # a save under way as the handshake comes
+    settled = request_policy.settled
+    waits: list[int] = []
+
+    async def waited(engine: Any) -> None:
+        waits.append(engine.applying)
+        engine.rules_changed()  # the apply's last move, then its mark lowered, as it ends
+        engine.applying -= 1
+        await settled(engine)
+
+    monkeypatch.setattr(request_policy, "settled", waited)
+    async with socket_case(mediator=med) as case:
+        assert waits == [1] and len(case.handshakes) == 1, (waits, case.client.sent)
+        assert (await case.frame(create()))["type"] == "response.created"
+        assert len(case.sent) == 1
 
 
 def test_current_response_metadata_fits_existing_echo_entry():

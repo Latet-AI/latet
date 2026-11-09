@@ -64,7 +64,10 @@ sendet nichts, worüber es nicht Rechenschaft ablegen kann:
   hinzufügen (`x-stainless-*`, `traceparent`...), und die eigenen Header der Agenten, die freien Text
   enthalten können (die IDs eines Subagenten von Claude Code, die Turn-Metadaten von Codex...),
   werden entfernt und im Dashboard gezählt: [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie nach Agent
-  auf. Jeder andere Header wird abgelehnt, und sein Name wird nur dem Agenten genannt.
+  auf. Jeder andere Header wird abgelehnt, und sein Name wird nur dem Agenten genannt, außer bei
+  einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex): Dort wird ein neuer
+  `anthropic-*`-Header oder ein neuer `anthropic-beta`-Wert von der abschließenden Prüfung gelesen und
+  geht durch, und ein neuer `x-claude-code-*`-Header wird entfernt.
 - **Der Inhalt.** Seine Texte werden maskiert, oder geprüft, wo Latet die Anfrage nur prüft. Jedes
   andere Element muss seine Form haben (die ID eines Modells, der Name eines Tools, eine Einstellung)
   und wird von der abschließenden Prüfung gelesen, wo es Text enthält. Ein Element, das kein Profil

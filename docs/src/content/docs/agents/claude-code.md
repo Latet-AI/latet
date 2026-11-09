@@ -158,7 +158,9 @@ With `ANTHROPIC_BASE_URL` pointing at it, every request passes through the daemo
   Code then shows an API error with the message `Latet: sensitive values would leave in clear`;
 - reads every other part of it: a header, a query parameter or a member of the body that no profile
   names is refused ([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)),
-  except a new body member that holds text, which passes once the final check has read it;
+  except a new body member that holds text, a new `anthropic-*` header or a new `anthropic-beta`
+  value, which pass once the final check has read them, and a new `x-claude-code-*` header, which it
+  takes off and counts;
 - otherwise forwards the body byte for byte, and the headers less those it takes off and counts
   ([Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off));
 - records the exchange for the [dashboard](../../dashboard/), without its credentials.
@@ -208,7 +210,9 @@ Latet applies a project's settings in full only to a session whose project it tr
 Headers you set in `ANTHROPIC_CUSTOM_HEADERS` are refused, naming each one, until an exact exception
 lets it through, one for each kind of call that sends it (`anthropic.messages.1`,
 `anthropic.count_tokens.1`, `anthropic.models.1`): see
-[Upgrading to 0.11](../../getting-started/upgrading-to-0-11/#headers-you-set-for-your-agents).
+[Upgrading to 0.11](../../getting-started/upgrading-to-0-11/#headers-you-set-for-your-agents). One
+whose name starts with `anthropic-` needs none: it passes once the final check has read it, as a new
+header of Claude Code's own does; one whose name starts with `x-claude-code-` is taken off.
 
 ## What global-install changes
 

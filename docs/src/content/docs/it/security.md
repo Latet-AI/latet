@@ -277,7 +277,21 @@ impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Lat
   strumento o in un messaggio, viene mascherata; dove non può essere mascherata, la richiesta viene
   rifiutata.
 - Un'intestazione che nessun profilo nomina viene rifiutata: il suo nome viene detto solo all'agente,
-  e i log e la cronologia ne conservano solo il tipo. Le intestazioni che un profilo dichiara
+  e i log e la cronologia ne conservano solo il tipo. In una richiesta che Latet si limita a
+  verificare (Claude Code, Bedrock, Vertex), un'intestazione `anthropic-*` nuova o un valore nuovo di
+  `anthropic-beta` passa una volta letto dal controllo finale, il nome di un'intestazione nuova come
+  il suo valore (un segreto, un valore che la cassaforte conosce o uno che il controllo rileva
+  nell'uno o nell'altro fa rifiutare la richiesta), e un'intestazione `x-claude-code-*` nuova viene
+  tolta. Nessuna parola del nome di un'intestazione nuova, tra i suoi trattini, può superare i 16
+  caratteri. Il nome di un'intestazione arriva in minuscolo: il controllo finale lo legge in
+  minuscolo, in maiuscolo e con l'iniziale di ogni parola maiuscola. Un valore scritto nel nome di
+  un'intestazione con un'altra combinazione di maiuscole e minuscole, che sia un tuo valore come
+  `ACME-Payroll-7731` o un segreto la cui forma le mescola, come una chiave API di Google
+  (`AIza…`), lì non viene trovato: il nome viene rifiutato solo quando esce da uno dei limiti di
+  un'intestazione nuova, cioè con una parola di oltre 16 caratteri (come di solito accade per una
+  chiave o un token), con oltre 48 caratteri dopo `anthropic-` o con un carattere che non sia una
+  lettera minuscola, una cifra o un trattino. In una richiesta che Latet riscrive
+  vengono rifiutate prima che se ne mascheri qualcosa. Le intestazioni che un profilo dichiara
   rimovibili vengono tolte e contate nella dashboard: la telemetria e il tracing degli SDK
   (`x-stainless-*`, `traceparent`...), e quelle degli agenti stessi che possono contenere testo
   libero, come gli id di un subagente di Claude Code o i metadati del turno di Codex, che contengono

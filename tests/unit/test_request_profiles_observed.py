@@ -325,8 +325,9 @@ TARGETS = {
 }
 
 
-def _one(target: str, headers: list[tuple[str, str]], query: str = ""):
-    upstream, method, path = TARGETS[target]
+def _one(target: str, headers: list[tuple[str, str]], query: str = "", upstream: Upstream | None = None):
+    targeted, method, path = TARGETS[target]
+    upstream = targeted if upstream is None else upstream
     from latet.gateway.coverage import Envelope
 
     body = b"" if method == "GET" else b"{}"
@@ -374,17 +375,10 @@ GRAMMARS = [
     ),
     ("chatgpt", "x-codex-beta-features", ["remote_compaction_v2"], ["mario.rossi@acme.com"]),
     ("openai", "version", ["0.162.0"], ["0.162", "latest", "0.162.0 (mario)", "1" * 7 + ".0.0"]),
-    (
-        "anthropic",
-        "anthropic-beta",
-        ["claude-code-20250219", "a,b", "a, b", "x" * 64, ",".join(["t"] * 32), "prompt-caching-scope-2026-01-05"],
-        [*BAD_COMMON, "x" * 65, ",".join(["t"] * 33), "a,,b", "UPPER-2025", "a_b"],
-    ),
-    ("bedrock", "anthropic-beta", ["interleaved-thinking-2025-05-14"], ["mario.rossi@acme.com", "x" * 65]),
+    # anthropic-beta's own test is below (D4 (b): a value of a new form passes checked, on a request Latet only checks).
     ("bedrock", "anthropic-version", ["2023-06-01"], ["bedrock-2023-05-31", "2023-06-01 mario"]),
     ("bedrock", "x-app", ["cli", "cli-bg"], ["mario", "cli bg"]),
     ("bedrock", "anthropic-dangerous-direct-browser-access", ["true"], ["false", "mario"]),
-    ("vertex", "anthropic-beta", ["context-1m-2025-08-07"], ["mario.rossi@acme.com"]),
     (
         "openai",
         "accept-encoding",
@@ -570,6 +564,16 @@ def test_the_manifest_declares_the_code_s_header_families():
     }
     assert set(policy["id_grammars"]) == set(rp.ID_HEADERS)
     assert set(policy["resources_exact"]) == set(rp._RESOURCE_HEADERS)
+    # D4 (b), option B: the rule says the open list, the Anthropic family's policy holds it, and it is a selection input
+    # (as D6 is): any client presenting Claude Code's markers, a subscription token or a cloud's call reaches it.
+    assert "D4 (b)" in manifest["rule"] and "open_list" in manifest["rule"]
+    assert "open_list" in policy["unknown"] and "open_list" in policy["sibling_rule"]
+    assert "anthropic-" in policy["user_configured"] and "open_list" in policy["user_configured"]
+    assert "open list" in policy["named_grammars"]["anthropic-beta"]
+    verify_only = [row for row in manifest["selection_inputs"] if "verify-only" in row["selects"]]
+    assert len(verify_only) == 4 and all("D4 (b) open list" in row["selects"] for row in verify_only)
+    [session] = [row for row in manifest["selection_inputs"] if row["input"] == "x-claude-code-session-id header"]
+    assert "D6" in session["selects"] and "D4 (b) open list" in session["selects"]
 
 
 # Claude Code 2.1.316's calls with one subagent and one nested subagent, against a fake Messages API (scratchpad
@@ -815,3 +819,186 @@ def test_vertex_express_takes_model_ids_by_grammar_and_its_key_as_a_credential()
     with pytest.raises(EnvelopeRefused) as refused:
         admit("/gemini/v1beta1/publishers/anthropic/models/claude-sonnet-4-5:rawPredict")
     assert refused.value.code == "envelope-route"
+
+
+# --- D4 (b), option B: the open list (minors after 0.11, item 1; the owner, 2026-11-05) -----------------------------
+#
+# Claude Code's gateway guide asks a gateway to forward anthropic-* headers and anthropic-beta values as open lists. At
+# admission, on the families where Anthropic's headers are named (the Anthropic family, Vertex's Claude routes, Bedrock's
+# model calls), within the bounds below, an anthropic-* header no profile names passes checked, its value read by the
+# final check; an x-claude-code-* one is removed and counted; an anthropic-beta value of a new form passes checked. Each
+# is listed in ``Admission.open`` with the refusal it had before, which the preparation answers on a request Latet
+# rewrites (``mediate.verify_only`` decides that once the body is read): test_request_transport.py's open-list tests.
+
+OPEN_TARGETS = ["anthropic", "vertex", "bedrock"]
+PUNCTUATION = " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # every printable ASCII punctuation, and a space
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+@pytest.mark.parametrize(
+    ("header", "value"),
+    [
+        ("anthropic-x", "on"),
+        # The Claude Platform on AWS: the guide says Claude Code sends it for that upstream, and a gateway forwards it.
+        ("anthropic-workspace-id", "wrkspc_01AbCdEfGh"),
+        # The longest name the rule takes: 48 characters after anthropic-, no word of them longer than 16 (the scoped
+        # check of Task 3's second fix round, N-1: a key, a token or a long id runs longer without a dash).
+        ("anthropic-" + "a" * 16 + "-" + "b" * 16 + "-" + "c" * 14, "1"),
+        ("anthropic-" + "a" * 16, "1"),  # a word of 16 characters, the longest the rule takes
+        ("anthropic-new-capability", "x" * 1024),  # the longest value
+        ("anthropic-x", PUNCTUATION),
+    ],
+)
+def test_an_anthropic_header_no_profile_names_is_admitted_checked_and_listed_open(target, header, value):
+    admission = _one(target, [(header, value)])
+    assert (header, value) in admission.headers and admission.removed == 0
+    # Its name and its value are read by the final check, as a D6 member's key and strings are (R-81): a name is the
+    # client's own text here, which no profile chose. The name arrives in lowercase, so the check reads it in capitals
+    # and with each word capitalised too (the re-review of Task 3, I-A); nothing of those forms is sent.
+    title = "-".join(word.capitalize() for word in header.split("-"))
+    assert admission.checked == (header, header.upper(), title, value), "its name in three forms, and its value"
+    if header == "anthropic-workspace-id":
+        assert admission.checked[:3] == ("anthropic-workspace-id", "ANTHROPIC-WORKSPACE-ID", "Anthropic-Workspace-Id")
+    assert [name for name, _ in admission.open] == [header]
+    [(_, refusal)] = admission.open
+    assert refusal.code == "envelope-header-unknown" and refusal.agent_message().endswith(f": header {header}")
+    assert admission.rules == ("checked only",) and admission.treatments[-1] == "checked"
+    assert not admission.exceptions and not admission.unread
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+@pytest.mark.parametrize(
+    ("header", "value"),
+    [
+        ("anthropic-" + "a" * 16 + "-" + "b" * 16 + "-" + "c" * 15, "1"),  # a 49-character suffix, no word over 16
+        ("anthropic-" + "a" * 17, "on"),  # a word of 17 characters (told "<17 characters>", so no value of 1)
+        ("anthropic-new-" + "a" * 17 + "-x", "on"),  # a word of 17 characters between two others
+        ("anthropic-x", "x" * 1025),  # a 1,025-character value
+        ("anthropic-x", "caf\xe9"),  # a byte past 0x7E
+        ("anthropic-x", "a\tb"),  # a tab: not printable
+        ("anthropic-x", ""),  # an empty value
+        ("anthropic-x_y", "1"),  # a name outside anthropic-[a-z0-9-]
+        ("anthropic-", "1"),  # no suffix
+    ],
+)
+def test_an_anthropic_header_past_the_open_lists_bounds_is_refused_as_before(target, header, value):
+    with pytest.raises(EnvelopeRefused) as refused:
+        _one(target, [(header, value)])
+    assert refused.value.code == "envelope-header-unknown"
+    message = refused.value.agent_message()
+    # The scoped check of N-1, P-1: a word longer than 16 characters is told by its length, never as it is.
+    told = header.replace("a" * 17, "<17 characters>")
+    assert message.endswith(f": header {told}") and (not value or value not in message)
+    assert "a" * 17 not in message
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+def test_a_ninth_anthropic_header_no_profile_names_is_refused_naming_it(target):
+    headers = [(f"anthropic-x{n}", "1") for n in range(9)]
+    admission = _one(target, headers[:8])
+    assert len(admission.open) == 8 and len(admission.checked) == 32  # each one's name in three forms, and its value
+    with pytest.raises(EnvelopeRefused) as refused:
+        _one(target, headers)
+    assert refused.value.code == "envelope-header-unknown"
+    assert refused.value.agent_message().endswith(": header anthropic-x8")
+    # anthropic-beta and the removed x-claude-code-* headers are not among the eight.
+    more = [*headers[:8], ("anthropic-beta", "oauth_2025.04"), ("x-claude-code-new", "1")]
+    assert len(_one(target, more).open) == 10
+
+
+@pytest.mark.parametrize("target", ["bedrock-list", "openai", "gemini", "chatgpt", "openai-models"])
+@pytest.mark.parametrize("header", ["anthropic-x", "anthropic-workspace-id", "x-claude-code-new"])
+def test_the_open_list_holds_on_the_families_where_anthropic_s_headers_are_named_alone(target, header):
+    """Bedrock's control-plane reads, OpenAI's, ChatGPT's and Gemini's families keep the refusal they had."""
+    with pytest.raises(EnvelopeRefused) as refused:
+        _one(target, [(header, "1")])
+    assert refused.value.code == "envelope-header-unknown"
+    assert refused.value.agent_message().endswith(f": header {header}")
+
+
+@pytest.mark.parametrize("role", ["credential", "checked"])
+def test_an_exception_naming_an_open_header_gives_its_own_treatment_and_no_open_entry(role):
+    """An approved exception that names the header applies first, exactly as before the open list."""
+    from datetime import UTC, datetime
+
+    from latet.config import RequestException
+
+    row = RequestException.model_validate(
+        {
+            "destination": "anthropic",
+            "profile": "anthropic.messages.1",
+            "components": [{"kind": "header", "name": "anthropic-workspace-id", "role": role}],
+            "reason": "destination-credential" if role == "credential" else "custom-header",
+            "id": "x0123456789",
+            "granted": datetime(2026, 11, 4, tzinfo=UTC),
+            "revision": rp.REVISION,
+        }
+    )
+    upstream = replace(ANTHROPIC, envelope_exceptions=(row,))
+    admission = _one("anthropic", [("anthropic-workspace-id", "wrkspc_01AbCdEfGh")], upstream=upstream)
+    assert not admission.open and admission.rules == ()
+    assert [rows[0].id for rows, _ in admission.exceptions] == ["x0123456789"]
+    assert admission.treatments[-1] == ("authorized" if role == "credential" else "checked")
+    assert admission.checked == (() if role == "credential" else ("wrkspc_01AbCdEfGh",))
+    assert admission.unread == (frozenset({"anthropic-workspace-id"}) if role == "credential" else frozenset())
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+@pytest.mark.parametrize("value", ["1", "Mario Rossi, C:\\Users\\mario.rossi\\acme", "caf\xe9"])
+def test_an_x_claude_code_header_no_profile_names_is_removed_counted_and_listed_open(target, value):
+    admission = _one(target, [("x-claude-code-new", value), ("x-claude-code-session-id", UUID)])
+    assert admission.removed == 1 and admission.checked == ()
+    assert [name.lower() for name, _ in admission.headers] == ["x-claude-code-session-id"]
+    assert [name for name, _ in admission.open] == ["x-claude-code-new"]
+    assert admission.open[0][1].code == "envelope-header-unknown"
+    assert admission.rules == (), "a removal alone is no Pass"
+
+
+NAMED_BETAS = ["claude-code-20250219", "a,b", "a, b", "x" * 64, ",".join(["t"] * 32), "prompt-caching-scope-2026-01-05"]
+OPEN_BETAS = ["oauth_2025.04", "a+b", "Context-1M", "a, oauth_2025.04", ",".join(["t"] * 64), "x" * 64 + ",a_b"]
+REFUSED_BETAS = [",".join(["t"] * 65), "x" * 65, "a b", "oauth 2025", "a,,b", "", "a,", "caf\xe9", "a\tb,c"]
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+def test_anthropic_beta_keeps_its_tokens_inspected_and_passes_a_new_form_checked(target):
+    """Its named form (1 to 32 ``[a-z0-9-]{1,64}`` tokens) stays inspected; a new form (1 to 64 tokens, each any
+    printable character but a comma or a space, 1 to 64 of them) passes checked, in the open list; past those bounds it
+    is refused ``envelope-header-value`` as before, naming the header and never its value."""
+    for value in NAMED_BETAS:
+        admission = _one(target, [("anthropic-beta", value)])
+        assert ("anthropic-beta", value) in admission.headers and admission.treatments[-1] == "inspected"
+        assert not admission.open and admission.checked == () and admission.rules == ()
+    for value in OPEN_BETAS:
+        admission = _one(target, [("anthropic-beta", value)])
+        assert ("anthropic-beta", value) in admission.headers and admission.treatments[-1] == "checked", value
+        assert admission.checked == (value,) and admission.rules == ("checked only",)
+        [(name, refusal)] = admission.open
+        assert name == "anthropic-beta" and refusal.code == "envelope-header-value"
+    for value in REFUSED_BETAS:
+        with pytest.raises(EnvelopeRefused) as refused:
+            _one(target, [("anthropic-beta", value)])
+        assert refused.value.code == "envelope-header-value", value
+        message = refused.value.agent_message()
+        assert message.endswith(": header anthropic-beta") and (not value or value not in message)
+
+
+@pytest.mark.parametrize("target", OPEN_TARGETS)
+@pytest.mark.parametrize(
+    ("header", "value"),
+    [
+        ("anthropic-version", "2024-01-01"),
+        ("anthropic-dangerous-direct-browser-access", "false"),
+        ("x-claude-code-compaction", "idle"),
+        ("x-claude-code-context-compacted", "yes"),
+        ("x-claude-code-session-id", "cc-mario-rossi"),
+        ("x-claude-code-prompt-id", "prompt-1"),
+        ("x-claude-code-request-class", "Main"),
+        ("x-claude-code-agent-type", "Mario Rossi"),
+    ],
+)
+def test_a_named_anthropic_or_claude_code_header_outside_its_form_is_still_refused(target, header, value):
+    """The open list is for names no profile has: a named header keeps its own grammar."""
+    with pytest.raises(EnvelopeRefused) as refused:
+        _one(target, [(header, value)])
+    assert refused.value.code == "envelope-header-value"
+    assert refused.value.agent_message().endswith(f": header {header}")

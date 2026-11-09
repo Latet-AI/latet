@@ -16,6 +16,33 @@ Lo que viene después está en la [hoja de ruta](../roadmap/): un rechazo claro 
 un instalador firmado para Windows, tus propios modelos de nombres, más agentes, y la documentación en
 más idiomas.
 
+## 0.12.0 (2026-11-09)
+
+- **Una petición cuyos ajustes cambian antes de salir.** Una petición cuyos ajustes cambian entre su
+  decisión y su envío se rechaza como una cuyos ajustes cambiaron mientras se preparaba: a su agente
+  se le dice que la envíe de nuevo y el historial registra un rechazo, donde antes recibía un `500`
+  *Latet could not send this request as it was decided* y se registraba como un intercambio. Una
+  petición preparada y enviada mientras un guardado todavía se está aplicando ya no sale con los
+  ajustes aplicados a medias: se prepara de nuevo cuando están todos en su sitio, o se rechaza del
+  mismo modo. Un guardado que falla a medio camino vuelve a poner los ajustes de antes; si ni siquiera
+  esos pueden volver, cada petición se rechaza del mismo modo hasta que un guardado posterior salga
+  bien o Latet vuelva a arrancar.
+- **Cabeceras nuevas de Claude Code.** En una petición que Latet solo comprueba (Claude Code,
+  Bedrock, Vertex), una cabecera `anthropic-*` que ningún perfil nombra todavía, o un valor de
+  `anthropic-beta` de forma nueva, pasa una vez leída por la comprobación final, mostrada como *solo
+  comprobada*, como ya ocurre con un miembro nuevo del cuerpo que contiene texto; una cabecera
+  `x-claude-code-*` nueva se quita y se cuenta. Claude Code sigue funcionando con una versión que
+  añade una antes de que Latet la nombre. Un secreto o un valor tuyo en una de estas cabeceras se
+  sigue rechazando.
+- **Actualizar un servidor desde la 0.10.** Calcular las huellas de una caja fuerte guardada por la
+  0.10 ya no ocupa una de las dos construcciones de índice de una instancia: los índices de las
+  demás identidades se construyen mientras tanto, y solo a las identidades cuyas huellas aún no
+  están todas calculadas se les responde con la búsqueda en PostgreSQL, como dicen los pasos de la
+  actualización.
+- **Python 3.14.** Latet funciona también con Python 3.14, con el que se prueba igual que con 3.12 y
+  3.13. Una instalación nueva en un ordenador sin Python recibe 3.14; `latet upgrade` pasa un Latet
+  ya instalado a 3.14 solo donde ya hay un 3.14.
+
 ## 0.11.1 (2026-11-06)
 
 - **Las cabeceras de indicación de Claude Code.** Configurado para enviar sus cabeceras de indicación a

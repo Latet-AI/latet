@@ -45,7 +45,7 @@ and the secrets, with the master key and the database's password in it:
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin latet
 install -d -m 0750 -o root -g latet /etc/latet
 (umask 077 && openssl rand -base64 32 > /etc/latet/master.key)
@@ -454,26 +454,26 @@ lists what will stop.
 Then, in the background: the prints of each vault kept by 0.10 are made by the first instance that builds its
 space, once, one instance at a time, and each instance builds its own index of them, for a person's vault as for
 an API key's. Until then that identity's requests and calls are answered by looking their words up in
-PostgreSQL, as 0.10 did, more slowly, and none is refused for it. While an instance makes a vault's prints, the
-other identities whose spaces it opens meanwhile may also be answered from PostgreSQL's lookup until their index
-is built. An instance whose index cannot be built (the
+PostgreSQL, as 0.10 did, more slowly, and none is refused for it. An instance whose index cannot be built (the
 prints not all made yet, PostgreSQL or Valkey not answering, a catch-up that failed) keeps that identity on
-PostgreSQL's lookup and builds the index again: at once when another instance's fill of the prints ends,
-otherwise 10, 20 and 30 seconds after each try and then once a minute, two builds at a time on each instance,
-the next starting as one ends. The log says once when a space's index stops being used (`the vault index of <id>
-is not used (<why>): its lookups go to PostgreSQL until it is built again`) and once when it is used again. A
-vault past 16,777,216 prints, about eight million values, gets no index while its space lasts: its lookups go to
-PostgreSQL, and a new space of it tries once again. A person's vault kept before Latet 0.10.0, whose values have
-no words yet, is held whole in memory, as before, until its words and prints are made, once, on one instance;
-the person's space built after that works from PostgreSQL. 0.11 does not make any key's words again ([upgrading
-a server](../../applications/#upgrading-a-server)).
+PostgreSQL's lookup and builds the index again: at once when the fill of the prints ends, on that instance or
+another, otherwise 10, 20 and 30 seconds after each try and then once a minute, two builds at a time on each
+instance, the next starting as one ends. The log says once when a space's index stops being used (`the vault
+index of <id> is not used (<why>): its lookups go to PostgreSQL until it is built again`) and once when it is
+used again. A vault past 16,777,216 prints, about eight million values, gets no index while its space lasts: its
+lookups go to PostgreSQL, and a new space of it tries once again. A person's vault kept before Latet 0.10.0,
+whose values have no words yet, is held whole in memory, as before, until its words and prints are made, once,
+on one instance; the person's space built after that works from PostgreSQL. 0.11 does not make any key's words
+again ([upgrading a server](../../applications/#upgrading-a-server)).
 
 Latet reads each request by the profile of its route, which names every field, header and query
 parameter it carries. At each Latet release, and at least every two weeks, the newest versions of the
-agents Latet supports run through the requests these profiles describe. When an agent's update sends
-something no profile names, the profile's new revision ships in a patch release; until you install it,
-that request is refused, naming its category, and nothing of it is sent. Keep the instances on the
-newest patch release of their version.
+agents Latet supports run through the requests these profiles describe. On a request Latet only
+checks (Claude Code, Bedrock, Vertex), a new body member that holds text, a new `anthropic-*` header
+or a new `anthropic-beta` value passes once the final check has read it, and a new `x-claude-code-*`
+header is taken off. When an agent's update sends anything else no profile names, the profile's new
+revision ships in a patch release; until you install it, that request is refused, naming its
+category, and nothing of it is sent. Keep the instances on the newest patch release of their version.
 
 The instances share one set of tables, and an instance starts only on tables of its own version. The
 database is yours to keep: Latet copies nothing of it. Before you pull a new image and run
@@ -605,7 +605,7 @@ run again with the new release's wheel, the same `UV_*` folders and the same ext
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 ```
 
 Then ask the new version whether it changes the tables, as above (`latet server migrate --check`),

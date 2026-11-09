@@ -647,8 +647,8 @@ async def test_a_persons_words_job_stops_when_its_space_closes(server, monkeypat
 
     def paused(self, cut):
         real(self, cut)
-        # In the words job alone (the index's threads), after its first part: never in the space's build (n1).
-        if threading.current_thread().name.startswith("latet-vault-index") and not parted.is_set():
+        # In the words job alone (the fills' thread), after its first part: never in the space's build (n1).
+        if threading.current_thread().name.startswith("latet-vault-prints") and not parted.is_set():
             parted.set()
             go.wait(30)
 

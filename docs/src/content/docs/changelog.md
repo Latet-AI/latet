@@ -11,6 +11,30 @@ under **Unreleased**; each release lists its changes newest first.
 What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
 for Windows, your own name models, more agents, and the documentation in more languages.
 
+## 0.12.0 (2026-11-09)
+
+- **A request whose settings change before it leaves.** A request whose settings change between its
+  decision and its send is refused as one whose settings changed while it was prepared: its agent is
+  told to send it again and the history records a refusal, where before it was answered `500`
+  *Latet could not send this request as it was decided* and recorded as an exchange. A request
+  prepared and sent while a save is still being applied no longer leaves with the settings half
+  applied: it is prepared again once they are all in place, or refused the same way. A save that
+  fails partway puts back the settings that ran before it; should even those fail to run again,
+  every request is refused the same way until a later save succeeds or Latet starts again.
+- **New Claude Code headers.** On a request Latet only checks (Claude Code, Bedrock, Vertex), an
+  `anthropic-*` header no profile names yet, or an `anthropic-beta` value of a new form, passes once
+  the final check has read it, shown as *checked only*, as a new body member that holds text already
+  does; a new `x-claude-code-*` header is taken off and counted. Claude Code keeps working on a
+  release that adds one before Latet names it. A secret or a value of yours in such a header is still
+  refused.
+- **Upgrading a server from 0.10.** Making the prints of a vault kept by 0.10 no longer holds one of
+  an instance's two index builds: the other identities' indexes are built meanwhile, and only the
+  identities whose prints are not all made yet are served from PostgreSQL's lookup, as the upgrade
+  steps say.
+- **Python 3.14.** Latet runs on Python 3.14 too, and is tested on it beside 3.12 and 3.13. A new
+  install on a computer without Python gets 3.14; `latet upgrade` moves an installed Latet to 3.14
+  only where a 3.14 is already there.
+
 ## 0.11.1 (2026-11-06)
 
 - **Claude Code's hint headers.** Set to send its gateway hint headers
@@ -508,7 +532,7 @@ the agent is told that no further attempt was sent and that the first may have a
   parallel (it allows five seconds between two of its steps), is a timing test, as the others that
   measure time are.
 
-## 0.9.9 (2026-10-24)
+## 0.9.9 (2026-10-25)
 
 - Fixed: two values Latet already knew, or two of your terms, that overlap in a text left the end of
   the second in clear: with *Anna Maria* and *Maria Rossi* both known, *Anna Maria Rossi* went out

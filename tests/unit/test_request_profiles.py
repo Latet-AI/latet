@@ -184,6 +184,53 @@ def test_the_manifest_says_each_cursors_grammar():
     assert "exact configured value" not in {grammars[name] for name in ("after_id", "before_id", "pageToken")}
 
 
+def test_the_manifest_states_the_open_list_its_grammars_and_bounds():
+    """D4 (b), option B (minors after 0.11, item 1): the manifest's header policy states the open list as the code holds
+    it, each grammar and bound the very one admission reads, its families, its treatments and where it holds."""
+    import json
+    from pathlib import Path
+
+    from latet.gateway import request_policy, request_profiles
+
+    manifest = json.loads((Path(__file__).parents[1] / "data/request-coverage/profiles.json").read_text("utf-8"))
+    policy = manifest["envelope"]["header_policy"]
+    rule = policy["open_list"]
+    assert rule["anthropic_name_grammar"] == request_profiles._OPEN_NAME.pattern == "anthropic-[a-z0-9-]{1,48}"
+    assert rule["anthropic_name_word_most"] == request_profiles._OPEN_WORD == 16
+    assert rule["anthropic_value_grammar"] == request_profiles._OPEN_VALUE.pattern == "[ -~]{1,1024}"
+    assert rule["anthropic_most"] == request_profiles._OPEN_MOST == 8
+    assert rule["beta_token_grammar"] == request_profiles._OPEN_BETA.pattern
+    assert rule["beta_most"] == request_profiles._OPEN_BETAS == 64
+    assert rule["claude_code_prefix"] == request_profiles._HINT_PREFIX == "x-claude-code-"
+    assert rule["families"] == ["anthropic (Vertex's Claude routes included)", "bedrock model calls"]
+    assert rule["rule"] == request_profiles.OPEN_RULE and request_profiles.OPEN_RULE in request_policy.BUILT_IN
+    assert "verify_only" in rule["where"] and "rewrites" in rule["where"]
+    assert (
+        "envelope-sensitive" in rule["anthropic_treatment"] and "removed and counted" in rule["claude_code_treatment"]
+    )
+    # The review of Task 3, I-1, and its re-review, I-A: the name, which arrives in lowercase, read in three forms, and
+    # what is not found there said.
+    assert "in lowercase, in capitals and with each word capitalised, and its value" in rule["anthropic_treatment"]
+    assert "in another mix of capitals is not found there" in rule["anthropic_treatment"]
+    # The scoped check of Task 3's second fix round, N-1: no word of the name longer than 16 characters, and what is not
+    # found said of every value, a secret whose form mixes capitals as well as a value of yours.
+    assert "no word of it, between its dashes, longer than 16 characters" in rule["anthropic_treatment"]
+    assert "a value of yours, or a secret whose form mixes them" in rule["anthropic_treatment"]
+    assert "the name is refused only when it is past one of its bounds" in rule["anthropic_treatment"]
+    assert (
+        "a word longer than that bound, a longer name or a character outside the grammar" in rule["anthropic_treatment"]
+    )
+    assert "a word of its name longer than 16 characters" in rule["past_bounds"]
+    # Its scoped check, P-1: a refused header's name is told with each word longer than 16 characters by its length.
+    from latet.gateway import coverage
+
+    assert coverage.NAMED_WORD == request_profiles._OPEN_WORD == 16
+    assert "each word of it longer than 16 characters told by its length" in policy["unknown"]
+    assert "exception" in rule["exceptions"] and "first" in rule["exceptions"]
+    assert manifest["envelope"]["revision"] == request_profiles.REVISION == "http-envelope-1"
+    assert not request_profiles.CARRIES_FROM, "no profile revision: exceptions apply first"
+
+
 def test_codex_0162_chatgpt_models_source_derived_fixture():
     """Pinned c1382380 source, not a captured client or real ChatGPT sign-in qualification."""
     upstream = Upstream("chatgpt", "/backend-api/codex", "https://chatgpt.com", keep_prefix=True)

@@ -311,8 +311,10 @@ que ninguna restauración posterior devolverá.
   textos cuyas palabras nombran más de 100.000 valores o valores ficticios de la caja fuerte se
   rechazan enteros con 422, con palabras fijas que no nombran ningún valor: no se enmascara ni se
   restaura nada de la llamada, así que envía menos textos por llamada. Un 503 es otra cosa: un
-  almacén del servidor (PostgreSQL, Valkey) no respondió, y la misma llamada puede volver a enviarse
-  más tarde ([referencia HTTP](../reference/apps-api/)).
+  almacén del servidor (PostgreSQL, Valkey) no respondió, o los ajustes de la clave se estaban
+  aplicando al llegar la llamada o mientras se preparaba su respuesta
+  (`the settings of this space changed while the call was answered: send it again`), y la misma
+  llamada puede volver a enviarse más tarde ([referencia HTTP](../reference/apps-api/)).
 - **Llamadas simultáneas.** Una clave tiene como mucho `requests_in_flight` solicitudes de
   aplicaciones en una instancia (16 si los ajustes no dicen otra cosa); por encima, 429 con
   `Retry-After`.
@@ -413,15 +415,13 @@ PostgreSQL como hacía la 0.10, y calcula las huellas de la caja fuerte en segun
 cada vez; después cada instancia construye su propio índice de esas huellas y lo usa. Hasta entonces las
 llamadas de la clave enmascaran los mismos valores, más despacio ([velocidad](#velocidad): 494 líneas por
 segundo con 200.000 valores y las huellas desactivadas, en una medición anterior), y ninguna se rechaza por
-ello. Mientras una instancia calcula las huellas de una caja fuerte, las demás claves y personas cuyo
-espacio abre entretanto pueden servirse también con la búsqueda en PostgreSQL, hasta que su índice esté
-construido. Cuando las huellas aún no están todas calculadas o no puede construirse un índice (PostgreSQL o Valkey que
+ello. Cuando las huellas aún no están todas calculadas o no puede construirse un índice (PostgreSQL o Valkey que
 no responden, una actualización del índice que falló), las llamadas siguen con la búsqueda en PostgreSQL hasta
-que el índice se construye de nuevo: enseguida cuando otra instancia ha calculado las huellas, y si no 10, 20 y
-30 segundos después de cada intento y luego una vez por minuto. El registro dice una vez cuando un índice deja
-de usarse y una vez cuando vuelve a usarse. Una caja fuerte por encima del tamaño para el que se construye un
-índice ([límites](#límites)) sigue con la búsqueda en PostgreSQL mientras dura su espacio. Las palabras mismas
-quedan como las hizo la 0.10: la 0.11 no las vuelve a hacer.
+que el índice se construye de nuevo: enseguida cuando las huellas están calculadas, por esa instancia o por
+otra, y si no 10, 20 y 30 segundos después de cada intento y luego una vez por minuto. El registro dice una vez
+cuando un índice deja de usarse y una vez cuando vuelve a usarse. Una caja fuerte por encima del tamaño para el
+que se construye un índice ([límites](#límites)) sigue con la búsqueda en PostgreSQL mientras dura su espacio.
+Las palabras mismas quedan como las hizo la 0.10: la 0.11 no las vuelve a hacer.
 
 Una versión que cambia cómo se hacen las palabras de una caja fuerte (el registro de cambios lo dice)
 vuelve a hacer las palabras de una clave en la primera instancia que construye su espacio, antes de

@@ -170,7 +170,9 @@ Quand `ANTHROPIC_BASE_URL` pointe vers lui, chaque requête passe par le daemon,
 - lit chacune de ses autres parties : un en-tête, un paramètre de requête ou un membre du corps
   qu'aucun profil ne nomme est refusé
   ([Chaque partie d'une requête](../../concepts/protection-scope/#chaque-partie-dune-requête)), sauf un
-  nouveau membre du corps qui contient du texte, qui passe une fois lu par la vérification finale ;
+  nouveau membre du corps qui contient du texte, un nouvel en-tête `anthropic-*` ou une nouvelle
+  valeur d'`anthropic-beta`, qui passent une fois lus par la vérification finale, et un nouvel en-tête
+  `x-claude-code-*`, qu'il retire et compte ;
 - sinon, transmet le corps octet pour octet, et les en-têtes moins ceux qu'il retire et compte
   ([Les en-têtes que Latet retire](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire)) ;
 - enregistre l'échange pour le [tableau de bord](../../dashboard/), sans ses identifiants.
@@ -222,6 +224,9 @@ Les en-têtes que vous définissez dans `ANTHROPIC_CUSTOM_HEADERS` sont refusés
 qu'une exception exacte ne le laisse pas passer, une pour chaque type d'appel qui l'envoie
 (`anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`) : voir
 [Passer à la 0.11](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-vous-définissez-pour-vos-agents).
+Un en-tête dont le nom commence par `anthropic-` n'en a pas besoin : il passe une fois lu par la
+vérification finale, comme un nouvel en-tête de Claude Code lui-même ; un en-tête dont le nom
+commence par `x-claude-code-` est retiré.
 
 ## Ce que modifie global-install
 

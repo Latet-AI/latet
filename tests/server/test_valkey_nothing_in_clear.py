@@ -59,7 +59,7 @@ from latet.server.vault import PgVaultStore
 from latet.server.workers import BEAT_BYTES, INSTANCE_ID, TELEMETRY, _Link, beat_checked
 
 from .conftest import valkey_dump
-from .support import URL, captured_logs, until
+from .support import URL, captured_logs, scanned_once, until
 from .test_key_vault import upstream  # noqa: F401 - the stub model every space of a test reaches
 from .test_launch_authority_core import _ISSUER, _sent
 from .test_launch_authority_core import (
@@ -882,8 +882,8 @@ def test_launch_binding_valkey_keeps_only_one_sealed_string(protected_core, monk
     def snapshot(receipt: Receipt) -> None:
         key = binding_key(bus, receipt.address.epoch, locator)
         expected = f"{bus.prefix}launch:{receipt.address.epoch.hex()}:{locator.hex()}".encode("ascii")
-        keys = list(itertools.islice(bus.client.scan_iter(match=bus.prefix + "*", count=100), 2))
-        exact_inventory = key == expected and keys == [key]
+        keys = scanned_once(bus.client.scan_iter(match=bus.prefix + "*", count=100), 2)
+        exact_inventory = key == expected and keys == {key}
         assert exact_inventory
         assert bus.client.type(key) == b"string" and 0 < bus.client.pttl(key) <= 60_000
         blob = bus.client.getrange(key, 0, BINDING_BYTES)

@@ -23,6 +23,7 @@ from latet.vision.masking import CLEAN, MASKED, WITHHELD
 
 from ..conftest import ROOT_KEY
 from ..fake_ocr import FakeOcr
+from ..thread_pools import frame_locals
 from .test_request_observations import _bare_recorder
 from .test_request_outcomes import OPENAI, _chat, _mediator, _strict, _until
 
@@ -89,7 +90,7 @@ async def test_pending_live_review_image_cache_uses_an_already_charged_payload(f
         await _until(lambda: bool(mediator.approvals.batches) and bool(mediator._held_live))
         batch = next(iter(mediator.approvals.batches.values()))
         work = arena.images[0]
-        assert not task.done() and task.get_stack()[0].f_locals["prepared"] is arena
+        assert not task.done() and frame_locals(task.get_stack()[0])["prepared"] is arena
         assert any(image is work for image in batch.images.values())
         # Exercise the real admission and held-byte algorithms without any database/Valkey writes.
         queue = object.__new__(ValkeyApprovals)

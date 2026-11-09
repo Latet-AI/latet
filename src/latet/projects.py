@@ -1054,6 +1054,12 @@ class Projects:
         # worked out again once its masker may fit.
         self.past_share: Callable[[int], str | None] = lambda _weight: None
 
+    def in_use(self) -> tuple[Config, IdentityConfig | None]:
+        """The global rules in use and the identity they were worked out with (``use``): what an apply of settings
+        that raises puts back as it was (``Runtime._put_back``)."""
+        with self._lock:
+            return self._config, self._identity
+
     def use(self, config: Config, identity: IdentityConfig | None) -> None:
         """New global rules: every project's rules are worked out again when next used."""
         with self._lock:

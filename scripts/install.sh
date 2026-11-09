@@ -179,7 +179,7 @@ MODELS=""  # set: name detection and the text in images are in, their models are
 OFF=""  # set: installed without them, as uv could not install them here
 # The Pythons Latet is tested on. uv takes the newest Python it finds or can download, and on a newer one Latet's
 # dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
-PYTHONS=">=3.12,<3.14"
+PYTHONS=">=3.12,<3.15"
 echo "Installing Latet ($SOURCE)..."
 if [ -n "${LATET_SOURCE:-}" ]; then
     set -- --reinstall-package latet  # a clone keeps its version while its code changes: built again, every time

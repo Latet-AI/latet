@@ -180,9 +180,29 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 La parte entre paréntesis dice de qué tipo es:
 
 - `envelope-header-unknown`: una cabecera que ningún perfil nombra, a menudo una que definiste para el
-  agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` de Codex, `COPILOT_PROVIDER_HEADERS`). Quítala de
-  los ajustes del agente, o déjala pasar con una excepción exacta.
-- `envelope-header-value`: una cabecera que Latet conoce, con un valor fuera de su forma.
+  agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` de Codex, `COPILOT_PROVIDER_HEADERS`), nombrada
+  con cada palabra de su nombre de más de 16 caracteres sustituida por su longitud
+  (`x-custom-<20 characters>`), para que una clave en un nombre nunca vuelva al agente. Quítala de
+  los ajustes del agente, o déjala pasar con una excepción exacta. Con Claude Code, Bedrock y Vertex,
+  una cabecera `anthropic-*` nueva pasa una vez comprobada y una `x-claude-code-*` nueva se quita.
+  Una rechazada ahí queda fuera de esos límites: un nombre de más de 48 caracteres después de
+  `anthropic-`, con una palabra de más de 16 caracteres entre sus guiones (una clave o un id largo en
+  el nombre), o con un carácter que no sea una letra minúscula, una cifra o un guion (`_`, `.`; las
+  mayúsculas se leen como minúsculas); un valor vacío, de más de 1.024 caracteres o con un carácter
+  fuera del ASCII imprimible (un tabulador, una letra con tilde); más de ocho cabeceras de este tipo
+  en una petición. O la envió un cliente cuyas peticiones Latet reescribe, como un SDK de Anthropic.
+  Una excepción que nombra la cabecera decide sobre ella incluso donde no se aplica: una petición de
+  otro proyecto que la lleva se rechaza aquí, y cuando la excepción ha caducado una petición así se
+  rechaza con `envelope-exception-expired`. Quita la excepción para dejar pasar la cabecera
+  comprobada.
+- `envelope-header-value`: una cabecera que Latet conoce, con un valor fuera de su forma. Con Claude
+  Code, Bedrock y Vertex, un valor de `anthropic-beta` de forma nueva pasa una vez comprobado; se
+  rechaza más allá de 64 valores, o con un valor vacío (`a,,b`, `a,`), de más de 64 caracteres o con
+  un espacio, un tabulador o un carácter fuera del ASCII imprimible en su interior (los espacios
+  alrededor de las comas valen). Con Bedrock solo pasa en las llamadas a los modelos, como una cabecera
+  `anthropic-*` nueva: una llamada al plano de control de Bedrock, como la lectura de los perfiles
+  de inferencia, no admite ninguna cabecera `anthropic-*` y se rechaza con
+  `envelope-header-unknown`, como antes.
 - `envelope-query-unknown`: un parámetro de consulta que ningún perfil nombra.
 - `envelope-route`: una llamada que Latet no lee, como archivos, lotes o audio. Al agente se le dice
   que esta versión de Latet no admite la llamada. Ninguna excepción nombra una ruta: cambia los

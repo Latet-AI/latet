@@ -50,7 +50,7 @@ und dem Passwort der Datenbank darin:
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin latet
 install -d -m 0750 -o root -g latet /etc/latet
 (umask 077 && openssl rand -base64 32 > /etc/latet/master.key)
@@ -493,31 +493,32 @@ Danach, im Hintergrund: Die Fingerabdrücke jedes Tresors, den 0.10 gespeichert 
 Instanz, die seinen Bereich aufbaut, einmal, eine Instanz nach der anderen, und jede Instanz baut
 ihren eigenen Index daraus auf, für den Tresor einer Person wie für den eines API-Schlüssels. Bis
 dahin werden die Anfragen und Aufrufe dieser Identität beantwortet, indem ihre Wörter in PostgreSQL
-gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgewiesen. Während eine Instanz die
-Fingerabdrücke eines Tresors bildet, können auch die anderen Identitäten, deren Bereiche sie inzwischen
-aufbaut, über die Suche in PostgreSQL beantwortet werden, bis ihr Index aufgebaut ist. Eine Instanz, deren
+gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgewiesen. Eine Instanz, deren
 Index nicht aufgebaut werden kann (die Fingerabdrücke noch nicht alle gebildet, PostgreSQL oder
 Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), lässt diese Identität bei der
-Suche in PostgreSQL und baut den Index erneut auf: sofort, wenn das Bilden der Fingerabdrücke einer
-anderen Instanz endet, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann einmal pro Minute,
-zwei Aufbauten gleichzeitig auf jeder Instanz, der nächste, sobald einer endet. Das Protokoll sagt
-einmal, wenn der Index eines Bereichs nicht mehr genutzt wird (`the vault index of <id> is not used
-(<why>): its lookups go to PostgreSQL until it is built again`), und einmal, wenn er wieder genutzt
-wird. Ein Tresor über 16.777.216 Fingerabdrücken, etwa acht Millionen Werten, bekommt keinen Index,
-solange sein Bereich besteht: Seine Suchen gehen an PostgreSQL, und ein neuer Bereich versucht es
-einmal erneut. Der Tresor einer Person, der vor Latet 0.10.0 angelegt wurde und dessen Werte noch
-keine Wörter haben, wird wie bisher ganz im Speicher gehalten, bis seine Wörter und Fingerabdrücke
-einmal auf einer Instanz erzeugt sind; der danach aufgebaute Bereich der Person arbeitet mit
-PostgreSQL. 0.11 bildet die Wörter keines Schlüssels neu
-([einen Server aktualisieren](../../applications/#einen-server-aktualisieren)).
+Suche in PostgreSQL und baut den Index erneut auf: sofort, wenn das Bilden der Fingerabdrücke endet,
+auf dieser oder einer anderen Instanz, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann
+einmal pro Minute, zwei Aufbauten gleichzeitig auf jeder Instanz, der nächste, sobald einer endet.
+Das Protokoll sagt einmal, wenn der Index eines Bereichs nicht mehr genutzt wird (`the vault index
+of <id> is not used (<why>): its lookups go to PostgreSQL until it is built again`), und einmal,
+wenn er wieder genutzt wird. Ein Tresor über 16.777.216 Fingerabdrücken, etwa acht Millionen Werten,
+bekommt keinen Index, solange sein Bereich besteht: Seine Suchen gehen an PostgreSQL, und ein neuer
+Bereich versucht es einmal erneut. Der Tresor einer Person, der vor Latet 0.10.0 angelegt wurde und
+dessen Werte noch keine Wörter haben, wird wie bisher ganz im Speicher gehalten, bis seine Wörter
+und Fingerabdrücke einmal auf einer Instanz erzeugt sind; der danach aufgebaute Bereich der Person
+arbeitet mit PostgreSQL. 0.11 bildet die Wörter keines Schlüssels neu ([einen Server
+aktualisieren](../../applications/#einen-server-aktualisieren)).
 
 Latet liest jede Anfrage nach dem Profil ihrer Route, das jedes Feld, jeden Header und jeden
 Query-Parameter nennt, den sie trägt. Bei jedem Release von Latet, und mindestens alle zwei Wochen,
 laufen die neuesten Versionen der Agenten, die Latet unterstützt, durch die Anfragen, die diese Profile
-beschreiben. Wenn das Update eines Agenten etwas sendet, das kein Profil nennt, erscheint die neue
-Revision des Profils in einem Patch-Release; bis Sie es installieren, wird diese Anfrage abgelehnt, mit
-ihrer Kategorie, und nichts davon wird gesendet. Halten Sie die Instanzen auf dem neuesten
-Patch-Release ihrer Version.
+beschreiben. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), gehen ein neues
+Element des Inhalts mit Text, ein neuer `anthropic-*`-Header und ein neuer `anthropic-beta`-Wert
+durch, sobald die abschließende Prüfung sie gelesen hat, und ein neuer `x-claude-code-*`-Header wird
+entfernt. Wenn das Update eines Agenten etwas anderes sendet, das kein Profil nennt, erscheint die
+neue Revision des Profils in einem Patch-Release; bis Sie es installieren, wird diese Anfrage
+abgelehnt, mit ihrer Kategorie, und nichts davon wird gesendet. Halten Sie die Instanzen auf dem
+neuesten Patch-Release ihrer Version.
 
 Die Instanzen teilen sich dieselben Tabellen, und eine Instanz startet nur auf Tabellen ihrer eigenen Version.
 Die Datenbank zu sichern ist Ihre Sache: Latet kopiert nichts davon. Bevor Sie ein neues Image laden und
@@ -664,7 +665,7 @@ mit dem es installiert wurde: erneut ausgeführt, mit dem Wheel der neuen Versio
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 ```
 
 Fragen Sie dann die neue Version wie oben, ob sie die Tabellen ändert (`latet server migrate --check`),

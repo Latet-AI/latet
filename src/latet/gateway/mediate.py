@@ -64,6 +64,7 @@ from latet.gateway.body_coverage import (
     inspect_body,
 )
 from latet.gateway.cloud import model_of, shape_of
+from latet.gateway.coverage import EnvelopeRefused
 from latet.gateway.frozen import FrozenText, freeze_text
 from latet.gateway.image_coverage import NO_OCR, UnreadImage, inspect_image
 from latet.gateway.launch_authority import RequestLaunch
@@ -239,6 +240,26 @@ def verify_only(protocol: str | None, shape: str | None, headers: dict[str, str]
     return protocol == "anthropic" and (
         shape is not None or anthropic.is_claude_code(headers, body) or "sk-ant-oat" in headers.get("authorization", "")
     )
+
+
+def _bodyless_checked_only(family: str | None, headers: dict[str, str]) -> bool:
+    """Whether a call with no body (a model list) is one Latet only checks: ``verify_only`` asked of its headers alone,
+    its profile's family as its protocol, the same test as a call with a body is decided by."""
+    return verify_only(family, None, headers, None)
+
+
+def _open_refused(
+    envelope_open: Sequence[tuple[str, EnvelopeRefused]], protocol: str | None, shape: str | None
+) -> Prepared:
+    """D4 (b), option B: what the open list let through at the envelope (``request_profiles.Admission.open``) passes on
+    a request Latet only checks alone. Any other is refused, before anything of it is masked or learnt, as its admission
+    refused it before the open list: the first of them, by name to its agent alone (``open_refusal``), by category in
+    its decision, its log line and its history."""
+    refusal = envelope_open[0][1]
+    reason = f"request envelope refused ({refusal.code})"
+    prepared = Prepared(VERIFY, protocol, b"", shape=shape, block_reason=reason, envelope_refusal=refusal.code)
+    prepared.open_refusal = refusal
+    return prepared
 
 
 def _json_document(value: str) -> bool:
@@ -525,6 +546,11 @@ class Prepared:
     frame_verified_payload: str | None = field(default=None, repr=False)
     body_proof: BodyProof | None = field(default=None, init=False, repr=False)
     envelope_refusal: str | None = None  # explicit safe category, independent of agent-facing wording
+    # D4 (b)'s open list (``request_profiles.Admission.open``): the headers it let through at the envelope that this
+    # request was prepared with, by name; and, on a request Latet rewrites, the refusal the first of them had without
+    # it, which its forwarder answers (its name to the agent alone), nothing of the request masked or learnt.
+    envelope_open: tuple[str, ...] = field(default=(), repr=False)
+    open_refusal: EnvelopeRefused | None = field(default=None, repr=False)
     # Declared removable body members taken out before the send (Codex's client_metadata), by name.
     body_removed: tuple[str, ...] = ()
     # A worker construction index for selected occurrence ordinals. Discarded once immutable blocks/images own
@@ -1150,18 +1176,24 @@ class Mediator:
         query: str = "",
         launch: RequestLaunch | None = None,
         body_grants: ProfileGrants | None = None,
+        *,
+        envelope_open: Sequence[tuple[str, EnvelopeRefused]] = (),
+        envelope_family: str | None = None,
     ) -> Prepared:
         """One HTTP worker call and lookup allowance for body preparation and envelope verification together.
         ``body_grants``: the body selectors of the exceptions of the request's profile (``request_policy.body_grants``),
         of which it takes those its project allows. A request with neither a body nor an envelope text to check (a
         bodyless GET) has nothing a value could be found in: it holds no vault call, whose outermost hold asks an API
-        key's store what other instances learnt since (P2-8); any text to check takes it, on both machines."""
+        key's store what other instances learnt since (P2-8); any text to check takes it, on both machines.
+        ``envelope_open``: what D4 (b)'s open list let through at the envelope, its profile's ``envelope_family``,
+        refused unless the request is one Latet only checks (``_prepare``)."""
         if not raw and not envelope_checked:
             prepared = self.prepare(
                 upstream, method, path, headers, raw, envelope_occurrences=envelope_occurrences, query=query,
-                launch=launch, body_grants=body_grants,
+                launch=launch, body_grants=body_grants, envelope_open=envelope_open, envelope_family=envelope_family,
             )  # fmt: skip
             prepared.envelope_checked = envelope_checked
+            prepared.envelope_open = tuple(name for name, _ in envelope_open)
             if prepared.block_reason:
                 prepared.close_receipt()
             return prepared
@@ -1176,9 +1208,12 @@ class Mediator:
                 query=query,
                 launch=launch,
                 body_grants=body_grants,
+                envelope_open=envelope_open,
+                envelope_family=envelope_family,
             )
             try:
                 prepared.envelope_checked = envelope_checked
+                prepared.envelope_open = tuple(name for name, _ in envelope_open)
                 if not prepared.block_reason:
                     key = prepared.session.key if prepared.session is not None else f"route|{upstream.name}|{method}"
                     scope = self.engine.scope(prepared.session) if prepared.session is not None else None
@@ -1212,6 +1247,8 @@ class Mediator:
         query: str = "",
         launch: RequestLaunch | None = None,
         body_grants: ProfileGrants | None = None,
+        envelope_open: Sequence[tuple[str, EnvelopeRefused]] = (),
+        envelope_family: str | None = None,
     ) -> Prepared:
         from latet.gateway.request_policy import LocalAuthority, session_facts
 
@@ -1233,6 +1270,8 @@ class Mediator:
                 receipts=receipts,
                 launch=launch,
                 body_grants=body_grants,
+                envelope_open=envelope_open,
+                envelope_family=envelope_family,
             )
             if selection is not None and selection.protected_current is not None:
                 prepared.protected_current = selection.protected_current
@@ -1269,6 +1308,8 @@ class Mediator:
         receipts: list[EchoCheck],
         launch: RequestLaunch | None = None,
         body_grants: ProfileGrants | None = None,
+        envelope_open: Sequence[tuple[str, EnvelopeRefused]] = (),
+        envelope_family: str | None = None,
     ) -> Prepared:
         protocol = protocol_for(upstream, method, path)
         shape = shape_of(method, path)
@@ -1276,6 +1317,8 @@ class Mediator:
             raise codec.DecodedTooLarge(self.body_limit)
         if not raw:
             reason = "a model request requires a JSON body" if protocol is not None else None
+            if reason is None and envelope_open and not _bodyless_checked_only(envelope_family, headers):
+                return _open_refused(envelope_open, protocol, shape)  # D4 (b): a call with no body Latet rewrites
             prepared = Prepared(PASSTHROUGH, protocol, raw, block_reason=reason)
             if launch is not None and launch.presented is not None and reason is None:
                 prepared.block_reason, prepared.protected_unavailable = self._launch_scope(launch, None, None)
@@ -1344,6 +1387,8 @@ class Mediator:
         # A request Latet rewrites masks its texts, a key in them as a known secret (R-103), screened again as it
         # leaves; one it only checks (Claude Code's, Bedrock's and Vertex's, a subscription's) masks none of them.
         checked_only = verify_only(protocol, shape, headers, body)
+        if envelope_open and not checked_only:  # D4 (b): what the open list alone let through, on a request rewritten
+            return _open_refused(envelope_open, protocol, shape)
         if checked_only and codec.coded(encoding):
             return Prepared(
                 VERIFY, protocol, b"", shape=shape, block_reason=_CODED, envelope_refusal=_CODED_CODE
