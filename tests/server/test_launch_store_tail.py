@@ -12,7 +12,6 @@ from concurrent.futures import _base as futures_base
 from concurrent.futures import thread as futures_thread
 from contextlib import suppress
 from functools import partial
-from itertools import islice
 from types import CodeType, CoroutineType, FrameType, FunctionType
 from urllib.parse import urlsplit
 
@@ -34,8 +33,9 @@ from latet.server.master import MasterKey, root_key
 from latet.server.space_settings import PgSettings
 from latet.server.tokens import route_key
 
+from .. import thread_pools
 from ..unit.test_launch_keys import _LaunchGraph
-from .support import DATABASE, URL
+from .support import DATABASE, URL, scanned_once
 from .test_launch_server_adapter import _DRAIN_SECONDS, _WORK_LIMIT, _clean_owned_namespaces, _wait_tasks
 from .test_launch_server_adapter import _prove_owned_launch_namespaces as _prove_owned_launch_namespaces
 from .test_launch_short_graph import _PRIVATE_TYPES, _SHARED_MODULES, _app_boundaries, _registration
@@ -72,7 +72,7 @@ _CALLBACK_CODES = (
     vars(Future)["_invoke_callbacks"].__code__,
     Future.set_result.__code__,
 )
-_WORK_CODES = (_WorkItem.run.__code__, _worker.__code__)
+_WORK_CODES = (*thread_pools.RUN_CODES, _WorkItem.run.__code__, _worker.__code__)
 _CHECKPOINTS = ("running", "finished-before-consume", "consumed-tail")
 
 
@@ -101,22 +101,26 @@ def _worker_boundary(frame, codes, item, thread_id, boundary):
     for code in codes:
         assert frame is not None and frame.f_code is code
         frame = frame.f_back
-    assert frame is not None and frame.f_code is _WorkItem.run.__code__ and frame.f_locals["self"] is item
+    # The call itself runs in the pool's own frames on 3.14 (thread_pools.RUN_CODES); its future's callbacks do not.
+    frame = thread_pools.item_frame(frame, item, called=codes[-1] is not Future.set_result.__code__)
     frame = frame.f_back
-    assert frame is not None and frame.f_code is _worker.__code__ and frame.f_locals["work_item"] is item
-    queue = frame.f_locals["work_queue"]
-    executor_ref = frame.f_locals["executor_reference"]
+    assert frame is not None and frame.f_code is _worker.__code__
+    held = thread_pools.frame_locals(frame)  # the worker's frame outlives this read: nothing may stay on it
+    assert held["work_item"] is item
+    queue, executor_ref = held["work_queue"], held["executor_reference"]
+    del held
     assert queue is vars(server_machines._STORE)["_work_queue"] and executor_ref() is server_machines._STORE
     frame = frame.f_back
     assert frame is not None and frame.f_code is threading.Thread.run.__code__
-    thread = frame.f_locals["self"]
+    thread = thread_pools.frame_locals(frame)["self"]
     assert type(thread) is threading.Thread and thread.ident == thread_id
     assert vars(thread)["_target"] is _worker and not vars(thread)["_kwargs"]
-    args = vars(thread)["_args"]
-    assert len(args) == 4 and args[0] is executor_ref and args[1] is queue and args[2:] == (None, ())
+    context = thread_pools.worker_context(vars(thread)["_args"], executor_ref, queue)
     boundary[id(frame)] = "exact selected Thread.run bootstrap parent"
     boundary[id(queue)] = "pre-existing STORE queue"
     boundary[id(executor_ref)] = "exact STORE worker bootstrap executor weakref"
+    if context is not None:
+        boundary[id(context)] = "exact STORE worker context, made with the worker"
 
 
 async def test_real_server_open_store_running_and_callback_tail(
@@ -160,9 +164,8 @@ async def test_real_server_open_store_running_and_callback_tail(
                 work.append(actual)
             return actual
 
-    def capture_item(item, future, fn, args, kwargs):
+    def seen_item(item, future, fn, args, kwargs):
         nonlocal handoff_id, item_ref, future_ref
-        original_item(item, future, fn, args, kwargs)
         if fn is launch_mutations._invoke:
             assert item_ref is None and future_ref is None and type(future) is Future
             assert len(args) == 1 and type(args[0]) is launch_mutations._Invocation and not kwargs
@@ -330,8 +333,9 @@ async def test_real_server_open_store_running_and_callback_tail(
                 assert item_ref is not None and future_ref is not None
                 item, actual = item_ref(), future_ref()
                 assert item is not None and actual is not None and item.future is actual
-                assert vars(item)["fn"] is launch_mutations._invoke
-                (invocation,) = vars(item)["args"]
+                fn, (invocation,), _ = thread_pools.call(item)
+                assert fn is launch_mutations._invoke
+                fn = None
                 assert type(invocation) is launch_mutations._Invocation
                 assert invocation.fn is invocation.argument is invocation.result is None
                 assert request_task is not None and not request_task.done()
@@ -346,11 +350,12 @@ async def test_real_server_open_store_running_and_callback_tail(
                     raise AssertionError("pending request has no protected OPEN coroutine")
                 open_frame = coroutine.cr_frame
                 assert open_frame is not None
-                handoff = open_frame.f_locals["handoff"]
+                opening = thread_pools.frame_locals(open_frame)
+                handoff = opening["handoff"]
                 assert type(handoff) is launch_open._OpenHandoff and id(handoff) == handoff_id
                 assert handoff.payload is None
                 result = handoff.result
-                assert type(result) is OpenResultCell and result.started and open_frame.f_locals["result"] is result
+                assert type(result) is OpenResultCell and result.started and opening["result"] is result
                 (callback,) = vars(actual)["_done_callbacks"]
                 assert type(callback) is partial and len(callback.args) == 1 and callback.args[0] is loop
                 assert getattr(callback.func, "__func__", None) is MutationAdmission._completed
@@ -364,7 +369,8 @@ async def test_real_server_open_store_running_and_callback_tail(
                 assert type(notifier) is partial and notifier.args == (loop,)
                 assert getattr(notifier.func, "__self__", None) is ticket
                 assert getattr(notifier.func, "__func__", None) is MutationAdmission._tail_done
-                assert open_frame.f_locals["ticket"] is ticket and ticket.pending
+                assert opening["ticket"] is ticket and ticket.pending
+                del opening
                 if ticket_id is None:
                     ticket_id = id(ticket)
                     ticket_slot = ticket.slot
@@ -376,14 +382,18 @@ async def test_real_server_open_store_running_and_callback_tail(
                 _worker_boundary(gate.frame, codes, item, gate.thread_id, boundary)
                 if gate is running:
                     (publication,) = gate.roots
-                    assert type(publication) is Publication and gate.frame.f_locals["publication"] is publication
+                    assert type(publication) is Publication
+                    assert thread_pools.frame_locals(gate.frame)["publication"] is publication
                     assert publication._confirmed and not publication.attempted
                     assert actual.running() and result.outcome is None
                     run_frame = gate.frame.f_back
-                    assert run_frame is not None and run_frame.f_locals["handoff"] is handoff
+                    assert run_frame is not None and thread_pools.frame_locals(run_frame)["handoff"] is handoff
                     invoke_frame = run_frame.f_back
-                    assert invoke_frame is not None and invoke_frame.f_locals["argument"] is handoff
-                    assert invoke_frame.f_locals["result"] is result and "invocation" not in invoke_frame.f_locals
+                    assert invoke_frame is not None
+                    invoking = thread_pools.frame_locals(invoke_frame)
+                    assert invoking["argument"] is handoff
+                    assert invoking["result"] is result and "invocation" not in invoking
+                    del invoking
                 else:
                     consume_callback, scheduled, context = gate.roots
                     assert consume_callback.__self__ is ticket
@@ -449,7 +459,7 @@ async def test_real_server_open_store_running_and_callback_tail(
                     )
 
             with monkeypatch.context() as hooks:
-                hooks.setattr(_WorkItem, "__init__", capture_item)
+                hooks.setattr(_WorkItem, "__init__", thread_pools.item_init(original_item, seen_item))
                 hooks.setattr(LaunchAuthority, "submit", publication_submit)
                 hooks.setattr(loop, "call_soon_threadsafe", call_soon_threadsafe)
                 request_task = asyncio.create_task(app(scope, receive, send), name="p26a-store-open")
@@ -477,7 +487,7 @@ async def test_real_server_open_store_running_and_callback_tail(
                 ).fetchone()
             assert counts == (1, 1)
             keys = server.bus.client.scan_iter(match=server.bus.key("launch:*"), count=100)
-            assert sum(1 for _ in islice(keys, 2)) == 1
+            assert len(scanned_once(keys, 2)) == 1
             assert selected_schedules == store_submissions == 1
             assert not any(gate.expired for gate in (running, finished, consumed))
             with capsys.disabled():

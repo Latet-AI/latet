@@ -276,8 +276,10 @@ gateway meanwhile has already sent that value's fake, which no unmask restores l
   and `latet-client` splits a longer list into calls of 8 MiB at most. Texts whose words name more
   than 100,000 values or fakes of the vault are refused whole with 422, in fixed words that name no
   value: nothing of the call is masked or restored, so send fewer texts in a call. A 503 is another
-  matter: a store of the server (PostgreSQL, Valkey) did not answer, and the same call can be sent
-  again later ([HTTP reference](../reference/apps-api/)).
+  matter: a store of the server (PostgreSQL, Valkey) did not answer, or the key's settings were being
+  applied as the call came or as it was answered
+  (`the settings of this space changed while the call was answered: send it again`), and the same
+  call can be sent again later ([HTTP reference](../reference/apps-api/)).
 - **Calls at once.** A key has at most `requests_in_flight` application requests on an instance (16
   unless the settings say otherwise); past it, 429 with `Retry-After`.
 
@@ -367,13 +369,11 @@ A vault kept by Latet 0.10 has no prints yet. After the restart, the first insta
 answers the key's calls at once, looking their words up in PostgreSQL as 0.10 did, and makes the vault's prints
 in the background, once, one instance at a time; each instance then builds its own index of them and uses it.
 Until then the key's calls mask the same values, more slowly ([how fast it is](#how-fast-it-is): 494 lines a
-second at 200,000 values with the prints turned off, in an earlier run), and none is refused for it. While an
-instance makes a vault's prints, the other keys and people whose spaces it opens meanwhile may also be served
-from PostgreSQL's lookup until their index is built. When the
+second at 200,000 values with the prints turned off, in an earlier run), and none is refused for it. When the
 prints are not all made or an index cannot be built (PostgreSQL or Valkey not answering, a catch-up that
-failed), the calls stay on PostgreSQL's lookup until the index is built again: at once when another instance has
-made the prints, otherwise 10, 20 and 30 seconds after each try and then once a minute. The log says once when
-an index stops being used and once when it is used again. A vault past the size an index is built for
+failed), the calls stay on PostgreSQL's lookup until the index is built again: at once when the prints are made,
+on that instance or another, otherwise 10, 20 and 30 seconds after each try and then once a minute. The log says
+once when an index stops being used and once when it is used again. A vault past the size an index is built for
 ([limits](#limits)) stays on PostgreSQL's lookup while its space lasts. The words themselves stay as 0.10 made
 them: 0.11 does not make them again.
 

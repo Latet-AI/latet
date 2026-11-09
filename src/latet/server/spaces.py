@@ -85,6 +85,7 @@ from latet.server.master import root_key
 from latet.server.shared import OwnSettings
 from latet.server.space_settings import settings_owner
 from latet.server.vault import INDEX_TOO_LARGE, PRINTS_UNMADE, Forgotten, NotRecorded, UnreadableEntry
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.engine.vault import Entity
@@ -177,13 +178,17 @@ DETECTORS_SHARE = 1 / 8
 # How long the vaults' index bytes counted last are said again (``Spaces.index_bytes``, which the beat and the metrics
 # ask): each print cache's count walks its entries, five thousand at most a space.
 INDEX_BYTES_SECONDS = 60.0
-# A space whose vault's index is not ready (its build found the vault's prints not all made, their lease held by
-# another instance, or failed; or a catch-up of the ready one failed since) is answered through PostgreSQL's lookup, and
-# its index is built again: at once when another instance's fill of the prints ends (its ``prints`` message), and from
-# the beat's check ``INDEX_AGAIN_SECONDS`` after each build that left it so, the last of them from then on, with
+# A space whose vault's index is not ready (its build found the vault's prints not all made, their fill under way here
+# or on another instance, or failed; or a catch-up of the ready one failed since) is answered through PostgreSQL's
+# lookup, and its index is built again: at once when a fill of the prints ends, its own space's
+# (``Spaces._prints_space``) or another instance's (its ``prints`` message), and from the beat's check
+# ``INDEX_AGAIN_SECONDS`` after each build that left it so, the last of them from then on, with
 # ``INDEX_BUILDS_AT_ONCE`` builds under way at most and each under its turn (``index.BUILD_TURNS``), as the first.
-# One refused for its size (``index.IndexTooLarge``) is not built again while its space lasts: a vault's size only
-# grows, and each try counts its print rows under a turn; a new space of the identity tries once again.
+# A ready index lost to a catch-up that failed is built again at the beat's next check; lost again within the last of
+# them of the build that made it ready, it waits as a failed build does, each such loss in a row one more try
+# (``Spaces._build_index_again``). One refused for its size (``index.IndexTooLarge``) is not built again while its
+# space lasts: a vault's size only grows, and each try counts its print rows under a turn; a new space of the identity
+# tries once again.
 INDEX_AGAIN_SECONDS = (10.0, 20.0, 30.0, 60.0)
 PAST_SHARE = (
     "this identity's space holds its share of the memory this instance of the server gives the spaces: it learns no "
@@ -376,10 +381,16 @@ class Space:
     # Its vault's index (``Spaces._index_space``): the build under way, the builds since it was last ready that left it
     # not ready and when the last of them ended (``time.monotonic``), whether one more is wanted once the one under way
     # ends (a fill of its prints ended meanwhile), whether it is said not to be used (``Spaces._index_off``), and
-    # whether it was refused for its size, never built again while the space lasts.
+    # whether it was refused for its size, never built again while the space lasts. When a build last made it ready,
+    # and how many of its losses (a catch-up that failed) came in a row, each after the first within
+    # ``INDEX_AGAIN_SECONDS[-1]`` of the build that made it ready (``Spaces._build_index_again``). The fill of its
+    # vault's prints under way here (``Spaces._prints_space``), when its build found them not all made.
     index_build: asyncio.Task[None] | None = None
+    prints_fill: asyncio.Task[None] | None = None
     index_tries: int = 0
     index_tried: float = 0.0
+    index_ready_at: float = 0.0
+    index_losses: int = 0
     index_wanted: bool = False
     index_off: bool = False
     index_refused: bool = False
@@ -894,8 +905,18 @@ def _resync(space: Space, db: Database) -> int:
     return count
 
 
+def _made_prints(store: PgVaultStore) -> bool:
+    """In the fills' thread: the prints of a vault kept by 0.10 made (``fill_prints``, on one instance at a time, none
+    while another holds their lease), stopped at the next part once its space closes (``PgVaultStore.closed``); whether
+    they are all made now. False when the fill found their lease held by another instance, which makes them."""
+    if store.closed:
+        return False
+    store.fill_prints()
+    return not store.closed and store.prints_complete()
+
+
 def _make_words(store: PgVaultStore, jobs: Any) -> int:
-    """In the index's threads: the words of a person's vault kept before they were (0.10.0's, or an older version of
+    """In the fills' thread: the words of a person's vault kept before they were (0.10.0's, or an older version of
     the anchors), then their prints, on one instance at a time (``words:<identity>``), none while another makes them;
     stopped at the next part once the space closes (``PgVaultStore.closed``). Its space keeps its whole vault in memory
     meanwhile, as before; the space built after them is on its store. How many values got their words."""
@@ -1152,6 +1173,10 @@ class Spaces:
         self._closing: set[asyncio.Task[None]] = set()
         self._executor = ThreadPoolExecutor(SPACE_THREADS, thread_name_prefix="latet-space")
         self._index_executor = ThreadPoolExecutor(INDEX_BUILDS_AT_ONCE, thread_name_prefix="latet-vault-index")
+        # The background work of the vaults kept by 0.10, minutes for a large one, apart from the index builds' threads
+        # and turns: the fills of an API key's prints (``_prints_space``) and a person's words (``_words_space``), one
+        # at a time, since one instance makes each anyway (its lease).
+        self._prints_executor = ThreadPoolExecutor(1, thread_name_prefix="latet-vault-prints")
         self._index_tasks: set[asyncio.Task[None]] = set()
         # The builds under way, each its turn: made for the event loop that runs them (one on a server).
         self._builds: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
@@ -1160,6 +1185,7 @@ class Spaces:
         self._index_off_said = Paced()  # a space's index no longer used, said once a minute
         self._index_on_said = Paced()  # a space's index used again, said once a minute
         self._index_unjudged = Paced()  # a space the index pass could not judge, said once a minute
+        self._prints_unmade = Paced()  # a fill of a vault's prints that failed, said once a minute
         self._index_bytes: tuple[float, int] | None = None  # the vaults' index bytes counted last, and when
 
     def count(self) -> int:
@@ -1276,7 +1302,7 @@ class Spaces:
             building = asyncio.create_task(self._open(identity), name="latet-space-build")
             building.add_done_callback(_retrieved)
             self._building[identity.id] = building
-        return await asyncio.shield(building)
+        return await shielded(building)
 
     def _build(self, identity: Identity) -> _Built:
         """In a worker thread: the identity as PostgreSQL has it now (IdentityUnavailable for one gone or disabled), the
@@ -1450,12 +1476,17 @@ class Spaces:
 
     def _index_judged(self, space: Space) -> None:
         """What a build of ``space``'s index left. Ready: used, and said used again when it was said not to be (once a
-        minute at most, by the identity's id alone). Not ready: said not to be used (``_index_off``), and built again,
-        at once when a fill of its prints ended while it was built, else by the beat's check once due
-        (``_build_index_again``); but never again while the space lasts when it was refused for its size
-        (``INDEX_TOO_LARGE``)."""
+        minute at most, by the identity's id alone); when it was made ready is kept, and its losses in a row are not
+        cleared (``_build_index_again`` paces a loss right after this build). Not ready: said not to be used
+        (``_index_off``), and built again, at once when a fill of its prints ended while it was built (due now: this
+        build's own task is not done yet, so its end starts the next, ``_index_ended``, within
+        ``INDEX_BUILDS_AT_ONCE``), else by the beat's check once due (``_build_index_again``), at the pace of a failed
+        build; but never again while the space lasts when it was refused for its size (``INDEX_TOO_LARGE``). Its prints
+        not all made (``PRINTS_UNMADE``): their fill started in the fills' thread (``_prints_space``), unless one is
+        under way for the space already."""
         if _index_ready(space):
-            space.index_tries, space.index_wanted = 0, False
+            space.index_tries, space.index_wanted = 0, False  # ``tries == 0``: ready, until it is found lost
+            space.index_ready_at = time.monotonic()
             if space.index_off:
                 space.index_off = False
                 if count := self._index_on_said.due():
@@ -1463,11 +1494,14 @@ class Spaces:
             return
         space.index_tries += 1
         space.index_tried = time.monotonic()
-        space.index_refused = space.parts.vault.index_failure == INDEX_TOO_LARGE
+        failure = space.parts.vault.index_failure
+        space.index_refused = failure == INDEX_TOO_LARGE
         self._index_off(space)
+        if failure == PRINTS_UNMADE:
+            self._fill_prints(space)
         if space.index_wanted and not space.index_refused:
             space.index_wanted = False
-            self._build_index(space)
+            space.index_tried = 0.0  # due at once: ``_build_index`` would find this very build under way
 
     def _index_off(self, space: Space) -> None:
         """``space``'s index not used from now on: said once, until it is used again, once a minute at most whatever
@@ -1487,10 +1521,48 @@ class Spaces:
                 _since(count),
             )
 
+    def _fill_prints(self, space: Space) -> None:
+        """``space``'s vault's prints made in the background (``_prints_space``), unless a fill of them is under way
+        here already."""
+        if space.closed or (space.prints_fill is not None and not space.prints_fill.done()):
+            return
+        task = asyncio.create_task(self._prints_space(space), name="latet-space-prints")
+        space.prints_fill = task
+        self._index_tasks.add(task)
+        task.add_done_callback(self._index_tasks.discard)
+
+    async def _prints_space(self, space: Space) -> None:
+        """The prints of ``space``'s vault, one kept by 0.10, made in the fills' thread (``_made_prints``), never under
+        an index build's turn or in its threads. A fill that ends with them all made has the space's index built again
+        at once (``_index_soon``): the ``prints`` message it tells reaches the other instances' spaces, never its own. A
+        fill that found their lease held by another instance asks for nothing: that instance's ``prints`` message, or
+        the space's next paced build, which starts a fill again, does. A failure is said by its type alone, once a
+        minute at most, and the next build of the space's index starts a fill again."""
+        if space.closed:
+            return
+        store = space.parts.vault
+        try:
+            made = await asyncio.get_running_loop().run_in_executor(self._prints_executor, _made_prints, store)
+        except asyncio.CancelledError:
+            store.revoke_index()
+            raise
+        except Exception as exc:  # by its type alone: a driver's words can quote what it was sent
+            if count := self._prints_unmade.due():
+                log.warning(
+                    "the prints of the vault of %s were not made (%s): its lookups go to PostgreSQL, and the next "
+                    "build of its index starts their fill again%s",
+                    space.identity.id,
+                    type(exc).__name__,
+                    _since(count),
+                )
+            return
+        if made:
+            self._index_soon(space)
+
     def _index_soon(self, space: Space) -> None:
-        """A fill of ``space``'s prints ended (another instance's ``prints``): its index built again now when it is not
-        ready (once the build under way ends, when one is), within ``INDEX_BUILDS_AT_ONCE`` builds under way; past
-        them, at the beat's next check."""
+        """A fill of ``space``'s prints ended (its own, ``_prints_space``, or another instance's ``prints``): its index
+        built again now when it is not ready (once the build under way ends, when one is), within
+        ``INDEX_BUILDS_AT_ONCE`` builds under way; past them, at the beat's next check."""
         if space.closed or space.index_refused or not _indexed(space) or _index_ready(space):
             return
         if space.index_build is not None and not space.index_build.done():
@@ -1508,12 +1580,15 @@ class Spaces:
 
     def _build_index_again(self) -> None:
         """In the beat's check, and as a build ends (``_index_ended``): each space whose index is not ready and is not
-        being built has it built again, once due
-        (``INDEX_AGAIN_SECONDS`` after the last build that left it so), ``INDEX_BUILDS_AT_ONCE`` under way at most. One
-        that was ready (no build left it so since) lost it to a catch-up that failed (``PgVaultStore.current``): said
-        not to be used now, and built again at once. One refused for its size is not built again. Each space is judged
-        alone: one that raises is said by its error's type (once a minute at most) and the others, and the beat's check
-        that called this, go on."""
+        being built has it built again, once due (``INDEX_AGAIN_SECONDS`` after the last build that left it so),
+        ``INDEX_BUILDS_AT_ONCE`` under way at most. One that was ready (no build left it so since) lost it to a
+        catch-up that failed (``PgVaultStore.current``): said not to be used now, and built again at once when it is
+        its first loss in a row; a loss within ``INDEX_AGAIN_SECONDS[-1]`` of the build that made it ready is one more
+        in a row, any other the first again. Lost again so (the pool of connections to PostgreSQL exhausted for a
+        while, each catch-up failing right after each build), it waits as a failed build's try does, each loss in a row
+        past the first counted as one: 10, 20, 30 seconds, then a minute, never built again at every check. One
+        refused for its size is not built again. Each space is judged alone: one that raises is said by its error's
+        type (once a minute at most) and the others, and the beat's check that called this, go on."""
         now, building = time.monotonic(), self._index_builds()
         for space in list(self._spaces.values()):
             if building >= INDEX_BUILDS_AT_ONCE:
@@ -1524,8 +1599,13 @@ class Spaces:
                 if space.index_build is not None and not space.index_build.done():
                     continue
                 tries = space.index_tries
-                if tries == 0:
+                if tries == 0:  # it was ready: lost since
                     self._index_off(space)
+                    quick = now - space.index_ready_at < INDEX_AGAIN_SECONDS[-1]
+                    space.index_losses = space.index_losses + 1 if quick else 1
+                    if space.index_losses > 1:
+                        space.index_tries, space.index_tried = space.index_losses - 1, now
+                        continue
                 elif now - space.index_tried < INDEX_AGAIN_SECONDS[min(tries, len(INDEX_AGAIN_SECONDS)) - 1]:
                     continue
                 self._build_index(space)
@@ -1541,13 +1621,14 @@ class Spaces:
             building += 1
 
     async def _words_space(self, space: Space) -> None:
-        """The words and prints of a person's vault made in the background (``_make_words``): a failure is said by its
-        type alone, and the space goes on from memory; they are made at a later build."""
+        """The words and prints of a person's vault made in the background (``_make_words``), in the fills' thread,
+        never in the index builds' threads: a failure is said by its type alone, and the space goes on from memory;
+        they are made at a later build."""
         if space.closed:
             return
         store = space.parts.vault
         try:
-            await asyncio.get_running_loop().run_in_executor(self._index_executor, _make_words, store, self.server.bus)
+            await asyncio.get_running_loop().run_in_executor(self._prints_executor, _make_words, store, self.server.bus)
         except asyncio.CancelledError:
             store.revoke_index()
             raise
@@ -1867,6 +1948,7 @@ class Spaces:
             sweep.stop()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self._index_executor.shutdown(wait=False, cancel_futures=True)
+        self._prints_executor.shutdown(wait=False, cancel_futures=True)
 
     def _discard(self, space: Space, words: str | None = None) -> None:
         """Close ``space`` in the background, while it is still the identity's here (its long connections ended with

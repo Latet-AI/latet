@@ -58,7 +58,9 @@ nothing it did not account for:
   (`user-agent`). The headers SDKs and tracing add (`x-stainless-*`, `traceparent`...), and the
   agents' own that can carry free text (a Claude Code subagent's ids, Codex's turn metadata...), are
   taken off and counted in the dashboard: [Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off) lists them by agent. Any
-  other header is refused, its name told to the agent alone.
+  other header is refused, its name told to the agent alone, except on a request Latet only checks
+  (Claude Code, Bedrock, Vertex): there a new `anthropic-*` header, or a new `anthropic-beta` value,
+  is read by the final check and passes, and a new `x-claude-code-*` header is taken off.
 - **The body.** Its texts are masked, or checked where Latet only checks the request. Every other
   member is held to its form (a model's id, a tool's name, a setting) and read by the final check
   where it holds text. A member no profile names is refused, the agent told where it was, never its

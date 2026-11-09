@@ -1,0 +1,73 @@
+name: Feature request
+description: Something Latet does not do yet, and that you need.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A concrete case says more than a general description: the value that should be masked, the
+        agent you use, the moment it goes wrong for you.
+
+        **Use invented values here, never a real key, password or someone's data.** An issue is
+        public, and so is everything you paste into it.
+
+        For a new feature, this issue comes first, so that what it does is agreed before the code:
+        see [CONTRIBUTING.md](https://github.com/Latet-AI/latet/blob/main/CONTRIBUTING.md).
+
+  - type: textarea
+    id: what-you-are-trying-to-do
+    attributes:
+      label: What you are trying to do
+      description: The work, not the feature. What are you asking the agent to do when this comes up?
+      placeholder: >-
+        I run an autonomous agent overnight on a support mailbox, and it reads our customers'
+        attachments.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-latet-does-today
+    attributes:
+      label: What Latet does today
+      description: What happens now, and why it is not enough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: a-concrete-case
+    attributes:
+      label: A concrete case
+      description: >-
+        The value that should be masked and the shape it has, or the agent and the setting that
+        should work. Invented values only.
+      placeholder: |
+        Our badge numbers are written `AB-123456`, and they appear in PDF attachments. Today a
+        request carrying a PDF is not sent at all, so the agent cannot read the attachment.
+    validations:
+      required: true
+
+  - type: input
+    id: agent
+    attributes:
+      label: Your agent
+      placeholder: OpenHands through the gateway, with an OpenRouter key
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead, for now
+      description: >-
+        A workaround, a custom recognizer, your guidance to the local reviewer, or keeping that
+        work away from the agent.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before you send it
+      options:
+        - label: Every value in this issue is invented. There is no real key, password or personal data in it.
+          required: true

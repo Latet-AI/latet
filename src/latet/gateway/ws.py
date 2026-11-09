@@ -35,7 +35,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.frames import CloseCode
 
 from latet.engine.pipeline import RequestScope, request_scope
-from latet.gateway import request_profiles, request_transport
+from latet.gateway import request_policy, request_profiles, request_transport
 from latet.gateway.capture import Capture
 from latet.gateway.coverage import EnvelopeProof, EnvelopeRefused, envelope_of, frame_envelope, inventory
 from latet.gateway.forward import (
@@ -259,6 +259,10 @@ async def relay(
             )
             return
         executor = mediator.executor
+        # Settings being applied are waited for first, as over HTTP (``request_policy.settled``): its authority is
+        # taken once they are all in place, never under the mark, where no handshake could pass (minors after 0.11,
+        # item 23's fix round, M4). One whose apply outlasts the wait is refused as before.
+        await request_policy.settled(mediator.engine)
         authority = LocalAuthority.capture(mediator.engine, upstream, routes, wire)
         url = upstream.ws_target(wire, websocket.url.query)
         # The handshake as it came, before any change: each frame's envelope is the socket's route with the frame.
@@ -276,6 +280,13 @@ async def relay(
             excepted = admission.exceptions[0][1]
             shook = _envelope_refusal(upstream, excepted.code)
             await _envelope_closed(websocket, recorder, upstream, wire, excepted, shook)
+            return
+        if admission.open:
+            # D4 (b)'s open list is HTTP's, on Anthropic's families alone, which no handshake has (OpenAI's or
+            # ChatGPT's): one it would admit is refused as it would be without it (fail closed, never loosened).
+            opened = admission.open[0][1]
+            shook = _envelope_refusal(upstream, opened.code)
+            await _envelope_closed(websocket, recorder, upstream, wire, opened, shook)
             return
         warning_path = admission.profile.template
         profile_id = admission.profile.id  # what each turn's history names its profile by, as a request over HTTP

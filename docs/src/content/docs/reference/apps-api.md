@@ -144,7 +144,7 @@ status.
 | 422 | Scan, mask and unmask: the texts name more than 100,000 values or fakes of the vault, more than one call may weigh. Nothing was masked or restored. | Send fewer texts in a call. |
 | 429 | Too many refused tokens from this address, or the key has `requests_in_flight` application requests on this instance (16 unless the settings say otherwise). | Wait for `Retry-After`, then try again. |
 | 500 | Another failure; its words name no value. | Try again; tell the administrator if it lasts. |
-| 503 | A store of the server did not answer, the key's space is not available on this instance now, or the administration log did not take the entry: for unmask nothing was restored, for forget nothing was forgotten. | Wait (`Retry-After` when given), then try again. |
+| 503 | A store of the server did not answer, the key's space is not available on this instance now, or the administration log did not take the entry: for unmask nothing was restored, for forget nothing was forgotten. Scan, mask and unmask also answer it when the key's settings were being applied as the call came or as it was answered (`the settings of this space changed while the call was answered: send it again`): nothing of the call was answered. | Wait (`Retry-After` when given), then try again. |
 | 507 | Mask only: the key's vault holds the most values it may. Nothing of the call was answered, and nothing left in clear. | An administrator raises the limit with `latet server keys limit`. |
 
 A mask or an unmask is safe to repeat: a value the vault kept has the same fake again, and a value a

@@ -102,7 +102,7 @@ The server's refusal is a `LatetError(status, message)`, with the server's words
 | 403 | `Forbidden` | the token lacks the permission, or it is a person's token |
 | 413 | `TooLarge` | the call is larger than the server takes |
 | 429 | `RateLimited` | too many calls or refused tokens; `retry_after` is the seconds the server asked |
-| 503 | `Unavailable` | a store of the server does not answer, or its log did not take an unmask or a forget |
+| 503 | `Unavailable` | a store of the server does not answer, its log did not take an unmask or a forget, or the key's settings were being applied as the call came or was answered |
 | 507 | `VaultFull` | the key's vault holds the most values it may; nothing was masked |
 | 0 | `ConnectionFailed` | the call did not go through: no connection, a broken one, a timeout |
 

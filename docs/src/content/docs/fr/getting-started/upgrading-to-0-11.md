@@ -50,6 +50,16 @@ refusé, et l'agent apprend son nom, jamais sa valeur :
 Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
 ```
 
+Sur une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), les en-têtes que
+Claude Code ajoute en gagnant de nouvelles fonctions passent, comme le demande son guide pour les
+passerelles : un nouvel en-tête `anthropic-*`, ou une valeur d'`anthropic-beta` d'une forme nouvelle,
+passe une fois lu par la vérification finale, signalé par *seulement vérifiée* dans le tableau de bord,
+et un nouvel en-tête `x-claude-code-*` est retiré. Jusqu'à huit de ces en-têtes `anthropic-*`
+passent, chacun avec un nom fait de lettres minuscules, de chiffres et de tirets, au plus 48 après
+`anthropic-` et aucun mot de plus de 16 entre ses tirets, et une valeur de 1 à 1 024 caractères
+imprimables ; un secret ou l'une de vos valeurs dans l'un d'eux est toujours refusé. Sur une requête que Latet réécrit, comme celle d'un SDK
+d'Anthropic, ils sont refusés comme tout autre en-tête qu'aucun profil ne nomme.
+
 Certains en-têtes sont retirés à la place : ceux de télémétrie et de traçage des SDK, et quelques
 en-têtes propres aux agents qui peuvent contenir du texte libre.
 [Les en-têtes que Latet retire](#les-en-têtes-que-latet-retire) les liste.
@@ -115,7 +125,7 @@ Latet retire ces en-têtes d'une requête avant de l'envoyer, quel que soit l'ag
 | Où | En-têtes |
 | --- | --- |
 | Chaque requête : télémétrie et traçage des SDK | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, au format d'Anthropic (Anthropic, Bedrock, Vertex, une passerelle d'entreprise) | `x-claude-code-agent-id` et `x-claude-code-parent-agent-id`, les identifiants d'un sous-agent, qui peuvent contenir son nom ; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` et `x-client-app`, que Claude Code copie de son environnement ; `x-claude-code-prev-tool-durations`, une indication pour les passerelles qui nomme les outils exécutés (dont les noms propres d'un serveur MCP) |
+| Claude Code, au format d'Anthropic (Anthropic, Bedrock, Vertex, une passerelle d'entreprise) | `x-claude-code-agent-id` et `x-claude-code-parent-agent-id`, les identifiants d'un sous-agent, qui peuvent contenir son nom ; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` et `x-client-app`, que Claude Code copie de son environnement ; `x-claude-code-prev-tool-durations`, une indication pour les passerelles qui nomme les outils exécutés (dont les noms propres d'un serveur MCP) ; tout autre en-tête `x-claude-code-*`, que Latet ne nomme pas encore |
 | Bedrock : le SDK d'AWS | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini : la bibliothèque cliente de Google | `x-goog-api-client` |
 | Codex, au format d'OpenAI et à celui de ChatGPT | `x-codex-turn-metadata`, qui contient le chemin, les remotes et le commit de votre dépôt ; `x-openai-subagent`, le type ou une étiquette libre d'un sous-agent |
@@ -173,6 +183,17 @@ chacun par une exception exacte, comme ci-dessous, en nommant la destination où
 passerelle d'entreprise dans un en-tête se nomme comme un identifiant, que Latet envoie tel qu'il est
 arrivé et ne lit jamais. La clé de lancement de Latet, que `latet claude` et les autres ajoutent à ces
 réglages, ne se nomme pas : Latet la retire avant de transmettre quoi que ce soit.
+
+Un en-tête que vous définissez pour Claude Code et dont le nom commence par `anthropic-` n'a besoin
+d'aucune exception : il passe une fois lu par la vérification finale, comme un nouvel en-tête de
+Claude Code lui-même ([Les en-têtes](#ce-que-la-011-refuse-que-la-010-envoyait)) ; un en-tête dont le
+nom commence par `x-claude-code-` est retiré. Un identifiant d'une destination dans un tel en-tête se
+nomme quand même par une exception, pour que Latet l'envoie tel qu'il est arrivé et ne le lise
+jamais. Une exception qui nomme un tel en-tête en décide même là où elle ne s'applique pas : sur une
+requête d'un autre projet, ou une fois l'exception expirée, l'en-tête est refusé (en le nommant, ou
+en nommant l'exception et le jour où elle a expiré), et il n'est jamais lu ni envoyé à la place de
+l'exception.
+Retirez l'exception si l'en-tête doit passer vérifié partout.
 
 ## Approuver une exception exacte
 
@@ -367,7 +388,7 @@ s'appliquerait alors sans attendre votre approbation. Si vous en avez choisi un,
 que la mise à jour vers la 0.11 a faite, qui contient les deux fichiers tels qu'ils étaient avant :
 `latet upgrade --to` la propose en revenant en arrière (elle se trouve dans le dossier de données,
 dans `backups/before-<version>-<heure>`, dont le nom reprend la version installée, par exemple
-`before-0.11.1-…`). Sans cette copie (la 0.11 installée par le script
+`before-0.12.0-…`). Sans cette copie (la 0.11 installée par le script
 d'installation, qui n'en fait aucune), retirez la clé des deux fichiers avant de revenir en arrière :
 les lignes `request_profile:` de `config.yaml`, et chaque membre `"request_profile": "…"` de
 `config.reviewed.json`, en le laissant en JSON valide.

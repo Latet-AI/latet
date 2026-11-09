@@ -38,7 +38,8 @@ from GitHub, with what local name detection and text in images run on. Their mod
 later, only if the user said yes.
 
 - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | iex"`
-- macOS and Linux: `curl -LsSf https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.sh | sh`
+- macOS on a Mac with Apple silicon, and Linux: `curl -LsSf https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.sh | sh`
+- An Intel Mac is not supported: cryptography, which Latet needs, has no ready-made package for it.
 
 The installer is the supported way; the same release is also on PyPI as `latet`. Never install it
 from the repository's address (`git+https://...`, which has no dashboard).

@@ -47,7 +47,7 @@ contiene le impostazioni e i segreti, con dentro la chiave principale e la passw
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin latet
 install -d -m 0750 -o root -g latet /etc/latet
 (umask 077 && openssl rand -base64 32 > /etc/latet/master.key)
@@ -476,15 +476,13 @@ Poi, in background: le impronte di ogni cassaforte conservata dalla 0.10 vengono
 prima istanza che ne costruisce lo spazio, una volta, un'istanza alla volta, e ogni istanza costruisce
 il proprio indice delle impronte, per la cassaforte di una persona come per quella di una chiave API.
 Fino ad allora le richieste e le chiamate di quell'identità ricevono risposta cercando le loro parole
-in PostgreSQL, come faceva la 0.10, più lentamente, e nessuna viene rifiutata per questo. Mentre un'istanza
-calcola le impronte di una cassaforte, anche le altre identità di cui apre lo spazio nel frattempo possono
-ricevere risposta dalla ricerca in PostgreSQL, finché il loro indice non è costruito. Un'istanza
+in PostgreSQL, come faceva la 0.10, più lentamente, e nessuna viene rifiutata per questo. Un'istanza
 il cui indice non si può costruire (le impronte non ancora tutte calcolate, PostgreSQL o Valkey che non
 rispondono, un aggiornamento dell'indice fallito) tiene quell'identità sulla ricerca in PostgreSQL e
-costruisce di nuovo l'indice: subito quando finisce il calcolo delle impronte di un'altra istanza,
-altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto, due costruzioni alla
-volta su ogni istanza, la successiva appena una finisce. Il log dice una volta quando l'indice di uno
-spazio smette di essere usato (`the vault index of <id> is not used (<why>): its lookups go to
+costruisce di nuovo l'indice: subito quando finisce il calcolo delle impronte, su quell'istanza o su
+un'altra, altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto, due costruzioni
+alla volta su ogni istanza, la successiva appena una finisce. Il log dice una volta quando l'indice di
+uno spazio smette di essere usato (`the vault index of <id> is not used (<why>): its lookups go to
 PostgreSQL until it is built again`) e una volta quando viene usato di nuovo. Una cassaforte oltre
 16.777.216 impronte, circa otto milioni di valori, non ha indice finché il suo spazio dura: le sue
 ricerche vanno a PostgreSQL, e un nuovo spazio ci riprova una volta. La cassaforte di una persona
@@ -495,11 +493,14 @@ di nessuna chiave ([aggiornare un server](../../applications/#aggiornare-un-serv
 
 Latet legge ogni richiesta secondo il profilo del suo percorso, che nomina ogni campo, intestazione e
 parametro di query che porta. A ogni rilascio di Latet, e almeno ogni due settimane, le versioni più
-recenti degli agenti che Latet supporta passano per le richieste che questi profili descrivono. Quando
-l'aggiornamento di un agente invia qualcosa che nessun profilo nomina, la nuova revisione del profilo
-esce in una versione di correzione; finché non la installi, quella richiesta viene rifiutata, nominando
-la sua categoria, e non ne parte nulla. Tieni le istanze sull'ultima versione di correzione della loro
-versione.
+recenti degli agenti che Latet supporta passano per le richieste che questi profili descrivono. In
+una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex), un membro nuovo del
+corpo che contiene testo, un'intestazione `anthropic-*` nuova o un valore nuovo di `anthropic-beta`
+passa una volta letto dal controllo finale, e un'intestazione `x-claude-code-*` nuova viene tolta.
+Quando l'aggiornamento di un agente invia qualsiasi altra cosa che nessun profilo nomina, la nuova
+revisione del profilo esce in una versione di correzione; finché non la installi, quella richiesta
+viene rifiutata, nominando la sua categoria, e non ne parte nulla. Tieni le istanze sull'ultima
+versione di correzione della loro versione.
 
 Le istanze condividono le stesse tabelle, e un'istanza parte solo su tabelle della sua versione. Il
 database è tuo da custodire: Latet non ne copia nulla. Prima di scaricare una nuova immagine e di
@@ -638,7 +639,7 @@ extra (`server`, con `ner` e `ocr` se li ha):
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 ```
 
 Poi chiedi alla nuova versione se cambia le tabelle, come sopra (`latet server migrate --check`), e

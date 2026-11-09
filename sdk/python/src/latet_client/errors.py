@@ -66,8 +66,9 @@ class RateLimited(LatetError):
 
 
 class Unavailable(LatetError):
-    """503: a store of the server does not answer, or its administration log did not take an unmask (nothing was
-    restored). The client has waited and tried again ``retries`` times before it raises this."""
+    """503: a store of the server does not answer, its administration log did not take an unmask (nothing was
+    restored), or the key's settings were being applied as a scan, mask or unmask came or was answered (nothing
+    of it was answered). The client has waited and tried again ``retries`` times before it raises this."""
 
 
 class VaultFull(LatetError):

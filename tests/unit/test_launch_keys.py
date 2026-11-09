@@ -9,6 +9,8 @@ from latet.gateway.capture import Capture
 from latet.logline import redacted
 from latet.server.logs import JsonFormatter, TextFormatter
 
+from ..thread_pools import frame_locals
+
 # Synthetic canonical base64url encodings of 32 bytes, never issued credentials.
 KEY_BODY = "Ab3_" * 10 + "XYw"
 LAUNCH_KEY = "latet_lk_" + KEY_BODY
@@ -1219,7 +1221,10 @@ def _program_code(function, referents):
     15): its docstring, ``__name__``, ``__qualname__`` and ``__module__``, its annotations (found as the one referent
     left, never read through ``__annotations__``), and a shared definition's defaults when they are module constants.
     Its code object is checked by the walker and never counted either. Its ``__dict__``, its closure and the defaults
-    of a per-request function stay counted, and the same objects reached from retained data are counted."""
+    of a per-request function stay counted, and the same objects reached from retained data are counted. On Python
+    3.14 the annotations are a function of their own until read (``__annotate__``, PEP 649), whose closure holds the
+    namespace of the class it was defined in: that function is the annotations, recorded and not followed."""
+    annotate = getattr(function, "__annotate__", None)  # never called: calling it would make the annotations
     known = (
         function.__code__,
         function.__globals__,
@@ -1232,7 +1237,9 @@ def _program_code(function, referents):
     )
     names = (function.__doc__, function.__name__, function.__qualname__, function.__module__)
     found = [part for part in referents if part is not None and any(part is name for name in names)]
-    left = [part for part in referents if not any(part is other for other in (*known, *names))]
+    if annotate is not None and any(part is annotate for part in referents):
+        found.append(annotate)
+    left = [part for part in referents if not any(part is other for other in (*known, *names, annotate))]
     if len(left) == 1 and type(left[0]) in (dict, tuple):
         found.append(left[0])
     if _shared_definition(function):
@@ -1297,10 +1304,10 @@ class _LaunchGraph:
                 assert len(frames) < 64, "observer stack exceeds the pinned profile"
                 frames.append(frame)
                 if frame.f_code in scheduler_codes:
-                    assert frame.f_locals.get("self") is loop
+                    assert frame_locals(frame).get("self") is loop
                     live[id(frame)] = "active scheduler frame"
                 elif frame.f_code is asyncio.Handle._run.__code__:
-                    assert getattr(frame.f_locals.get("self"), "_loop", None) is loop
+                    assert getattr(frame_locals(frame).get("self"), "_loop", None) is loop
                     live[id(frame)] = "active scheduler frame"
                 elif self.observer_codes is None or frame.f_code in self.observer_codes:
                     live[id(frame)] = "active observer frame"
@@ -1327,6 +1334,7 @@ class _LaunchGraph:
         import asyncio
         import contextvars
         import gc
+        import inspect
         import sys
         import types
         import weakref
@@ -1362,7 +1370,8 @@ class _LaunchGraph:
         }
         allowed_globals.update(self.shared_modules)
         boundaries = dict(self.shared)
-        for definition in (*atoms, *containers, *python_objects, *async_types):
+        # functools.partial among them: Python 3.14's partial object names its own class among its referents.
+        for definition in (*atoms, *containers, *python_objects, *async_types, partial):
             boundaries[id(definition)] = f"shared class definition {definition.__module__}.{definition.__name__}"
         for name in allowed_globals:
             module = sys.modules.get(name)
@@ -1430,7 +1439,11 @@ class _LaunchGraph:
                 else:
                     # CPython 3.12: f_locals is a dict this very read makes (and leaves on the frame), the walker's own
                     # artifact as 3.13's proxy is: its keys that are the code's own names are program code, recorded
-                    # and not counted; any other key, and every value, is followed and counted.
+                    # and not counted; any other key, and every value, is followed and counted. Then it is emptied:
+                    # left on a frame that outlives the walk (a pool worker's _worker, which ends with its thread), it
+                    # would keep what the frame has deleted since, a finished work item and the call it held among them.
+                    # On 3.12 that dict is also the frame's own locals(), so the clear would take names from a frame that
+                    # keeps it or execs into it; the frames this walk reads do neither.
                     snapshot = item.f_locals
                     code_names = {
                         id(local): local
@@ -1447,6 +1460,8 @@ class _LaunchGraph:
                         *snapshot.values(),
                         *(part for part in gc.get_referents(item) if part is not snapshot),
                     ]
+                    if item.f_code.co_flags & inspect.CO_OPTIMIZED:  # a module's or class body's is its namespace
+                        snapshot.clear()
                     del snapshot, code_names
             elif (kind.__module__, kind.__name__) == ("builtins", "FrameLocalsProxy"):
                 # CPython 3.13 exposes fast locals through a proxy with an owning frame reference. The keys that are
@@ -1637,6 +1652,37 @@ def test_application_graph_counts_private_context_and_rejects_unknown_edges():
 
     with pytest.raises(AssertionError, match="unknown private edge"):
         _LaunchGraph({}).measure([UnknownPrivate()])
+
+
+def test_the_graph_walk_leaves_nothing_on_a_frame_it_reads():
+    """Python 3.12's ``f_locals`` of a function's frame is a dict that the read makes and keeps on the frame, each value
+    in it, until the frame ends or is read again (3.13's is a view, PEP 667). Read by the walk on a frame that outlives
+    it, a pool worker's ``_worker`` (it ends with its thread), it kept the work item the worker had since deleted, and
+    the STORE call's argument with it: the launch tail never settled, and a HOLD drain never ended."""
+    import weakref
+
+    class Payload:
+        __slots__ = ("__weakref__",)
+
+    def holder(payload):
+        yield
+        del payload
+        yield
+
+    payload = Payload()
+    gone = weakref.ref(payload)
+    suspended = holder(payload)
+    del payload
+    try:
+        next(suspended)
+        frame = suspended.gi_frame
+        assert frame is not None
+        _LaunchGraph({}, private_frame_codes=(holder.__code__,), private_types=(Payload,)).measure([frame])
+        del frame
+        next(suspended)  # the frame deletes its argument and lives on
+        assert gone() is None, "the walk kept what the frame it read has deleted since"
+    finally:
+        suspended.close()
 
 
 def test_await_chain_rule_names_only_a_latet_coroutines_own_module_function(monkeypatch):
@@ -2035,7 +2081,7 @@ async def test_full_local_asgi_hold_graph_stays_bounded_through_replacement_and_
                 coroutine = task.get_coro()
                 assert isinstance(coroutine, CoroutineType)
                 frame = coroutine.cr_frame
-                if frame is not None and frame.f_locals.get("lease") in owner._holds:
+                if frame is not None and frame_locals(frame).get("lease") in owner._holds:
                     found.append(task)
         assert len(found) <= 2
         return found
@@ -2388,8 +2434,11 @@ async def test_held_drain_does_not_retain_fired_timer_from_old_heap(local_launch
         coroutine = drain.get_coro()
         assert isinstance(coroutine, CoroutineType)
         frame = coroutine.cr_frame
-        assert frame is not None and frame.f_locals["lease"] is lease
-        children = frame.f_locals["tasks"]
+        assert frame is not None
+        held = frame_locals(frame)
+        assert held["lease"] is lease
+        children = held["tasks"]
+        del held
         assert len(children) == 2
         (helper,) = (
             task for task in children if not getattr(task.get_coro(), "__qualname__", "").endswith(".disconnected")

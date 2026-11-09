@@ -63,7 +63,10 @@ invia niente di cui non abbia reso conto:
   gli SDK e il tracing (`x-stainless-*`, `traceparent`...), e quelle degli agenti stessi che possono
   contenere testo libero (gli id di un subagente di Claude Code, i metadati del turno di Codex...),
   vengono tolte e contate nella dashboard: [Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie) le elenca per
-  agente. Ogni altra intestazione viene rifiutata, e il suo nome viene detto solo all'agente.
+  agente. Ogni altra intestazione viene rifiutata, e il suo nome viene detto solo all'agente, tranne
+  in una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex): lì
+  un'intestazione `anthropic-*` nuova, o un valore nuovo di `anthropic-beta`, viene letto dal
+  controllo finale e passa, e un'intestazione `x-claude-code-*` nuova viene tolta.
 - **Il corpo.** I suoi testi vengono mascherati, o verificati dove Latet si limita a verificare la
   richiesta. Ogni altro membro deve avere la sua forma (l'id di un modello, il nome di uno strumento,
   un'impostazione) e viene letto dal controllo finale dove contiene testo. Un membro che nessun

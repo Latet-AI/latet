@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.12", "3.13"]
+        python: ["3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.13"]
+        python: ["3.10", "3.14"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +85,13 @@ jobs:
     # The tests of a Latet server's backends, against PostgreSQL and Valkey as service containers, Valkey asking for a
     # password as a server's does, and a PostgreSQL that speaks TLS, which the services script starts with a
     # certificate it makes. A server's test skipped here for want of its services fails the job
-    # (LATET_TEST_REQUIRE_SERVICES); one skipped by a platform's mark stays a skip.
+    # (LATET_TEST_REQUIRE_SERVICES); one skipped by a platform's mark stays a skip. On 3.12, the oldest Python Latet
+    # takes, and on 3.13 and 3.14, which the server's install commands bring to a machine without Python: the test job
+    # has no services, so its server tests skip.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -112,6 +118,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - name: A PostgreSQL that speaks TLS
         run: |

@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 EXTRA = (
     "the `server` extra: install Latet again as it was installed, with the same UV_* folders (Server operations), "
     "naming `server` beside the extras it has, such as "
-    'uv tool install --upgrade --python ">=3.12,<3.14" "latet[ner,ocr,server] @ <the release\'s wheel>"'
+    'uv tool install --upgrade --python ">=3.12,<3.15" "latet[ner,ocr,server] @ <the release\'s wheel>"'
 )
 # How long a stop waits for what is under way (a rolling restart): a stream that lasts longer is cut.
 GRACEFUL_SECONDS = 30

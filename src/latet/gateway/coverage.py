@@ -40,6 +40,11 @@ class CoverageLimits:
 
 
 LIMITS = CoverageLimits()
+# Characters of a word (between dashes) of an unknown header's or query parameter's name that a refusal tells as they
+# are; a longer word is told by its length (``EnvelopeRefused._named``). The open list's bound on a word of a new
+# anthropic-* name is the same (``request_profiles._OPEN_WORD``): a word it refuses for its length is one the refusal
+# never shows.
+NAMED_WORD = 16
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -244,13 +249,21 @@ class EnvelopeRefused(ValueError):
         return envelope_status(self.code)
 
     def _named(self, limits: CoverageLimits) -> str | None:
-        """The header's or the query parameter's name as the agent is told it: printable ASCII, cut to the limit."""
+        """The header's or the query parameter's name as the agent is told it: printable ASCII, cut to the limit. An
+        unknown header's name has each word (between its dashes) longer than ``NAMED_WORD`` told by its length before
+        the cut (the scoped check of Task 3's third fix round, P-1): a client may put the answer into its conversation,
+        and a key's form in the name would come back, lowercased, in a later request's body. An unknown query
+        parameter's name is told the same way (Task 8 of the 0.12 plan); a known one's, which Latet names, as it is."""
         if self._header is not None:
             kind, raw = "header", self._header
         elif self._query is not None:
             kind, raw = "query parameter", self._query
         else:
             return None
+        if self._code in {"envelope-header-unknown", "envelope-query-unknown"}:
+            words = "".join(chr(c) if 32 <= c <= 126 else "?" for c in raw).split("-")
+            told = "-".join(word if len(word) <= NAMED_WORD else f"<{len(word)} characters>" for word in words)
+            return f"{kind} " + told[: limits.header_name]
         return f"{kind} " + "".join(chr(c) if 32 <= c <= 126 else "?" for c in raw[: limits.header_name])
 
     def agent_message(self, limits: CoverageLimits = LIMITS) -> str:
@@ -390,6 +403,9 @@ class EnvelopeProof:
     header_bytes: int = LIMITS.header_bytes
     # The request exceptions whose components it let through, by Latet's id: the decision is then a visible ``Pass``.
     exceptions: tuple[str, ...] = ()
+    # The built-in rules what it let through rests on (``request_profiles.Admission.rules``: "checked only" for D4 (b)'s
+    # open list), named in the ``Pass`` beside its body's.
+    rules: tuple[str, ...] = ()
 
     def proves(self, envelope: Envelope) -> bool:
         query = envelope.query.count(b"&") + 1 if envelope.query else 0

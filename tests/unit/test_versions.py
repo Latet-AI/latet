@@ -1,5 +1,6 @@
 """Every place that says Latet's version says the same one: the release checks the package's and the plugin's against
-the tag (release.yml), and the dashboard's mock shows it in every screenshot of the documentation."""
+the tag (release.yml), the dashboard's mock shows it in every screenshot of the documentation, and the newest release
+in the repository's CHANGELOG.md is it, so a version is never published with that file a release behind."""
 
 import json
 import re
@@ -21,5 +22,6 @@ def test_every_place_says_the_same_version():
     market = json.loads(_read(".claude-plugin/marketplace.json"))["plugins"][0]["version"]
     hook = re.search(r"^const PLUGIN_VERSION = '(.*)'$", _read("src/latet/claude_plugin/hooks/register.ts"), re.M)
     mock = re.findall(r"version: '([^']*)'", _read("dashboard/src/mock/index.ts"))
-    assert hook is not None and mock
-    assert {package, __version__, plugin, market, hook.group(1), *mock} == {package}
+    newest = re.search(r"^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$", _read("CHANGELOG.md"), re.M)
+    assert hook is not None and mock and newest
+    assert {package, __version__, plugin, market, hook.group(1), *mock, newest.group(1)} == {package}

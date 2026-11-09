@@ -51,7 +51,7 @@ principale et le mot de passe de la base de données :
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin latet
 install -d -m 0750 -o root -g latet /etc/latet
 (umask 077 && openssl rand -base64 32 > /etc/latet/master.key)
@@ -498,27 +498,28 @@ la première instance qui construit son espace, une fois, une instance à la foi
 construit son propre index de ces empreintes, pour le coffre-fort d'une personne comme pour celui
 d'une clé d'API. Jusque-là, les requêtes et les appels de cette identité sont servis en cherchant
 leurs mots dans PostgreSQL, comme le faisait la 0.10, plus lentement, et aucun n'est refusé pour
-autant. Pendant qu'une instance calcule les empreintes d'un coffre-fort, les autres identités dont elle
-ouvre l'espace entre-temps peuvent elles aussi être servies par la recherche dans PostgreSQL, jusqu'à ce que
-leur index soit construit. Une instance dont l'index ne peut pas être construit (les empreintes pas encore toutes
+autant. Une instance dont l'index ne peut pas être construit (les empreintes pas encore toutes
 calculées, PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué) garde
 cette identité sur la recherche dans PostgreSQL et construit l'index de nouveau : aussitôt quand le
-calcul des empreintes d'une autre instance se termine, sinon 10, 20 et 30 secondes après chaque essai
-puis une fois par minute, deux constructions à la fois sur chaque instance, la suivante dès qu'une se
-termine. Le journal dit une fois quand l'index d'un espace cesse d'être utilisé (`the vault index of
-<id> is not used (<why>): its lookups go to PostgreSQL until it is built again`) et une fois quand il
-l'est de nouveau. Un coffre-fort au-delà de 16 777 216 empreintes, environ huit millions de valeurs,
-n'a pas d'index tant que son espace dure : ses recherches vont à PostgreSQL, et un nouvel espace
-essaie une fois de nouveau. Le coffre-fort d'une personne gardé avant Latet 0.10.0, dont les valeurs
-n'ont pas encore de mots, est gardé entier en mémoire, comme avant, jusqu'à ce que ses mots et ses
-empreintes soient faits, une fois, sur une instance ; l'espace de la personne construit ensuite
-travaille avec PostgreSQL. La 0.11 ne refait les mots d'aucune clé
-([mettre à jour un serveur](../../applications/#mettre-à-jour-un-serveur)).
+calcul des empreintes se termine, sur cette instance ou une autre, sinon 10, 20 et 30 secondes après
+chaque essai puis une fois par minute, deux constructions à la fois sur chaque instance, la suivante
+dès qu'une se termine. Le journal dit une fois quand l'index d'un espace cesse d'être utilisé (`the
+vault index of <id> is not used (<why>): its lookups go to PostgreSQL until it is built again`) et
+une fois quand il l'est de nouveau. Un coffre-fort au-delà de 16 777 216 empreintes, environ huit
+millions de valeurs, n'a pas d'index tant que son espace dure : ses recherches vont à PostgreSQL, et
+un nouvel espace essaie une fois de nouveau. Le coffre-fort d'une personne gardé avant Latet 0.10.0,
+dont les valeurs n'ont pas encore de mots, est gardé entier en mémoire, comme avant, jusqu'à ce que
+ses mots et ses empreintes soient faits, une fois, sur une instance ; l'espace de la personne
+construit ensuite travaille avec PostgreSQL. La 0.11 ne refait les mots d'aucune clé ([mettre à jour
+un serveur](../../applications/#mettre-à-jour-un-serveur)).
 
 Latet lit chaque requête selon le profil de sa route, qui nomme chaque champ, en-tête et paramètre de
 requête qu'elle porte. À chaque version de Latet, et au moins toutes les deux semaines, les versions les
 plus récentes des agents que Latet prend en charge passent par les requêtes que ces profils décrivent.
-Quand la mise à jour d'un agent envoie quelque chose qu'aucun profil ne nomme, la nouvelle révision du
+Sur une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), un nouveau membre du
+corps qui contient du texte, un nouvel en-tête `anthropic-*` ou une nouvelle valeur d'`anthropic-beta`
+passe une fois lu par la vérification finale, et un nouvel en-tête `x-claude-code-*` est retiré.
+Quand la mise à jour d'un agent envoie autre chose qu'aucun profil ne nomme, la nouvelle révision du
 profil sort dans une version corrective ; tant que vous ne l'avez pas installée, cette requête est
 refusée, en nommant sa catégorie, et rien n'en part. Gardez les instances sur la dernière version
 corrective de leur version.
@@ -666,7 +667,7 @@ extras (`server`, avec `ner` et `ocr` s'il les a) :
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
-  uv tool install --upgrade --python ">=3.12,<3.14" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[server] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
 ```
 
 Demandez ensuite à la nouvelle version si elle change les tables, comme ci-dessus

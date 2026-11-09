@@ -189,10 +189,31 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 Der Teil in Klammern nennt die Art:
 
 - `envelope-header-unknown`: ein Header, den kein Profil nennt, oft einer, den Sie für den Agenten
-  gesetzt haben (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` von Codex, `COPILOT_PROVIDER_HEADERS`).
+  gesetzt haben (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` von Codex, `COPILOT_PROVIDER_HEADERS`),
+  genannt, wobei jedes Wort seines Namens, das länger als 16 Zeichen ist, durch seine Länge ersetzt
+  wird (`x-custom-<20 characters>`), damit ein Schlüssel in einem Namen nie zum Agenten zurückkommt.
   Nehmen Sie ihn aus den Einstellungen des Agenten heraus, oder lassen Sie ihn mit einer genauen
-  Ausnahme durch.
-- `envelope-header-value`: ein Header, den Latet kennt, mit einem Wert außerhalb seiner Form.
+  Ausnahme durch. Bei Claude Code, Bedrock und Vertex geht ein neuer `anthropic-*`-Header durch,
+  sobald er geprüft ist, und ein neuer `x-claude-code-*`-Header wird entfernt. Einer, der dort
+  abgelehnt wird, liegt außerhalb dieser Grenzen: ein Name mit mehr als 48 Zeichen nach
+  `anthropic-`, mit einem Wort zwischen seinen Bindestrichen, das länger als 16 Zeichen ist (ein
+  Schlüssel oder eine lange ID im Namen), oder mit einem Zeichen, das kein Kleinbuchstabe, keine
+  Ziffer und kein Bindestrich ist (`_`, `.`; Großbuchstaben werden als Kleinbuchstaben gelesen);
+  ein leerer Wert, einer über 1.024 Zeichen oder einer mit einem Zeichen außerhalb des druckbaren
+  ASCII (ein Tabulator, ein Buchstabe mit Akzent); mehr als acht solcher Header in einer Anfrage.
+  Oder ihn hat ein Client gesendet, dessen Anfragen Latet umschreibt, etwa ein Anthropic-SDK. Eine
+  Ausnahme, die den Header nennt, entscheidet über ihn auch dort, wo sie nicht gilt: Eine Anfrage
+  eines anderen Projekts, die ihn enthält, wird hier abgelehnt, und ist die Ausnahme abgelaufen,
+  wird eine solche Anfrage mit `envelope-exception-expired` abgelehnt. Entfernen Sie die Ausnahme,
+  damit der Header geprüft durchgeht.
+- `envelope-header-value`: ein Header, den Latet kennt, mit einem Wert außerhalb seiner Form. Bei
+  Claude Code, Bedrock und Vertex geht ein `anthropic-beta`-Wert einer neuen Form durch, sobald er
+  geprüft ist; abgelehnt wird er bei mehr als 64 Werten oder mit einem Wert, der leer ist (`a,,b`,
+  `a,`), über 64 Zeichen lang ist oder ein Leerzeichen, einen Tabulator oder ein Zeichen außerhalb
+  des druckbaren ASCII enthält (Leerzeichen um die Kommas sind in Ordnung). Bei Bedrock geht er nur
+  bei den Modellaufrufen durch, wie ein neuer `anthropic-*`-Header: Ein Aufruf der Steuerungsebene
+  von Bedrock, etwa das Lesen der Inferenzprofile, nimmt keinen `anthropic-*`-Header an und wird wie
+  bisher mit `envelope-header-unknown` abgelehnt.
 - `envelope-query-unknown`: ein Abfrageparameter, den kein Profil nennt.
 - `envelope-route`: ein Aufruf, den Latet nicht liest, etwa Dateien, Batches oder Audio. Der Agent
   erfährt, dass diese Version von Latet den Aufruf nicht unterstützt. Keine Ausnahme nennt eine

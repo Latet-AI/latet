@@ -36,7 +36,7 @@ from latet.engine.response_guard import safe_text
 from latet.engine.types import SlotKind
 from latet.engine.vault import MaskingError
 from latet.engine.verifier import VerifyResult
-from latet.gateway import local_launch, outbound
+from latet.gateway import local_launch, outbound, request_policy
 from latet.gateway.approvals import HOLD, Batch, Decision
 from latet.gateway.aws import AwsCredentialStore
 from latet.gateway.body_coverage import PROTECTED_LAUNCH, declared_string_safe
@@ -69,6 +69,10 @@ GIVE_PAUSE = 0.5
 
 # What a plugin call is answered when a store does not answer: the plugin tries again.
 STORE_UNAVAILABLE = "Latet's store did not answer: try again in a moment"
+# A plugin call refused because Latet's settings were being applied as it came or as it was answered (``mask``,
+# ``outbound``, ``approvals/wait``), or could not be put back: nothing of it is read under settings half applied, nor
+# given (minors after 0.11, item 23's second fix round, R3).
+SETTINGS_CHANGED = "Latet's settings changed while this call was answered: send it again"
 
 
 class _ProtectedRequest(ValueError):
@@ -211,7 +215,7 @@ class _LaunchHold(Response):
                 self.lease.stop()
 
             tasks = [asyncio.create_task(disconnected()), asyncio.create_task(_launch_hold_wait(self.lease))]
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            await _first_done(tasks)
             await send({"type": "http.response.body", "body": b"", "more_body": False})
         except LaunchRefused:
             await send({"type": "http.response.body", "body": b"", "more_body": False})
@@ -227,6 +231,26 @@ class _LaunchHold(Response):
             else:
                 await self.lease.drain()
                 self.lease.close()
+
+
+async def _first_done(tasks: list[asyncio.Task[Any]]) -> None:
+    """Until one of ``tasks`` is done: ``asyncio.wait(tasks, return_when=FIRST_COMPLETED)`` without its hold on the task
+    that waits. Python 3.14's keeps that task in a callback's closure, which the traceback of a cancelled wait keeps in
+    turn, and the task keeps that traceback: a hold cancelled while it waited outlived its drain, its request with it,
+    until the collector found the cycle."""
+    first = asyncio.get_running_loop().create_future()
+
+    def end(_: asyncio.Task[Any]) -> None:
+        if not first.done():
+            first.set_result(None)
+
+    for task in tasks:
+        task.add_done_callback(end)
+    try:
+        await first
+    finally:
+        for task in tasks:
+            task.remove_done_callback(end)
 
 
 async def _launch_hold_wait(lease: HeldLaunch) -> None:
@@ -344,6 +368,7 @@ class Bridge:
             partial(mediator.verifier.wrote, reported=True) if on_server is None else _no_model_report
         )
         self._unanswered = Paced()  # the calls answered 503 because a store did not answer, said once a minute
+        self._unsettled = Paced()  # the calls answered 503 because Latet's settings were being applied, likewise
 
     def _authorized(self, request: Request) -> bool:
         if "origin" in request.headers or request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
@@ -379,6 +404,29 @@ class Bridge:
                 return JSONResponse({"error": STORE_UNAVAILABLE}, status_code=503)
 
         return endpoint
+
+    async def _begun(self) -> int | None:
+        """Settings being applied waited for first, as a request over HTTP waits (``request_policy.settled``, its
+        bound); then the applies begun, counted before the mark is looked at. None while the mark is still up (past the
+        wait, or held for settings that could not be put back): the call is refused, nothing of it read."""
+        engine = self.engine
+        await request_policy.settled(engine)
+        begun = engine.applies
+        return None if engine.applying else begun
+
+    def _overtaken(self, begun: int) -> bool:
+        """Whether an apply began since ``begun`` (``_begun``), or is under way: what was worked out meanwhile is not
+        given."""
+        engine = self.engine
+        return bool(engine.applying) or engine.applies != begun
+
+    def _settings_changed(self) -> Response:
+        """A call refused because Latet's settings were being applied (or could not be put back): 503, in fixed
+        words (the plugin withholds what it asked for), said in the log once a minute."""
+        if count := self._unsettled.due():
+            many = f" ({count} since the line before)" if count > 1 else ""
+            log.warning("a plugin call was answered 503: Latet's settings were being applied%s", many)
+        return JSONResponse({"error": SETTINGS_CHANGED}, status_code=503)
 
     def routes(self) -> list[Route]:
         base, or_503 = "/_latet/engine/v1", self._or_503
@@ -614,15 +662,25 @@ class Bridge:
         stopped says why in ``blocked``, and its text is a notice instead.
 
         With the Live Reviewer on, new texts wait for you: the answer is ``{pending, viewers}`` at once,
-        and the plugin asks ``approvals/wait`` for the items until you decide."""
+        and the plugin asks ``approvals/wait`` for the items until you decide.
+
+        While Latet's settings are being applied, it waits for them, and is masked under them once they are all in
+        place; one whose apply outlasts the wait, that comes while settings could not be put back, or whose answer an
+        apply began over, is refused (503, ``SETTINGS_CHANGED``): nothing is given, nor held for you, that was masked
+        under settings half applied (item 23's second fix round, R3)."""
         data, error = await self._guard(request, session_fields=True)
         if error is not None:
             return error
         assert data is not None
+        begun = await self._begun()
+        if begun is None:
+            return self._settings_changed()
         try:
             session, out, degraded, reviews, live = await self.mediator.run_bridge(self._mask, data)
             if reviews:
                 degraded = await self._review(session, reviews, out, degraded)
+            if self._overtaken(begun):  # before anything of it waits for you
+                return self._settings_changed()
             if live:
                 waiting = await self._live(session, live, reviews, out, degraded)
                 if waiting is not None:
@@ -632,20 +690,28 @@ class Bridge:
         except MaskingError as exc:  # a vault at its limit says so: a MaskingError's words name no value
             log.error("bridge masking failed: %s", exc)
             return JSONResponse({"error": f"masking failed: {exc}"}, status_code=500)
+        if self._overtaken(begun):
+            return self._settings_changed()
         return await self.mediator.run_bridge(_items_rendered, out, degraded)
 
     async def outbound(self, request: Request) -> Response:
         """``{session, tool, values: [str]}`` → ``{found: [type], reason}``: whether a tool that runs outside
         this computer (WebSearch, WebFetch, a claude.ai connector) would get stand-ins Latet put in place
-        of real values. Then the plugin stops it, the model is told ``reason``, and the dashboard shows it."""
+        of real values. Then the plugin stops it, the model is told ``reason``, and the dashboard shows it. Gated by
+        Latet's settings being applied as ``mask`` is: the stand-ins are looked for under the settings all in place."""
         data, error = await self._guard(request, session_fields=True)
         if error is not None:
             return error
         assert data is not None
+        begun = await self._begun()
+        if begun is None:
+            return self._settings_changed()
         try:
             found, reason = await self.mediator.run_bridge(self._outbound, data)
         except _ProtectedRequest:
             return _protected_request()
+        if self._overtaken(begun):
+            return self._settings_changed()
         return JSONResponse({"found": found, "reason": reason})
 
     def _outbound(self, data: dict[str, Any]) -> tuple[list[str], str | None]:
@@ -669,11 +735,15 @@ class Bridge:
     async def wait(self, request: Request) -> Response:
         """``{id}`` → ``{pending, viewers}`` while you have not decided (held up to 20 s), then what
         ``mask`` answers: the items as you approved them, or each withheld when you stopped them. Any process that
-        serves you answers it: the answer is worked out where the call waits, and handed over by the queue."""
+        serves you answers it: the answer is worked out where the call waits, and handed over by the queue. Refused,
+        as ``mask`` is, while Latet's settings are being applied past the wait for them or could not be put back; an
+        answer worked out under settings half applied is refused where it is worked out (``_answer``)."""
         data, error = await self._guard(request)
         if error is not None:
             return error
         assert data is not None
+        if await self._begun() is None:
+            return self._settings_changed()
         batch_id = str(data.get("id"))
         approvals = self.mediator.approvals
         try:
@@ -686,7 +756,8 @@ class Bridge:
         if answer is None:
             return JSONResponse({"pending": batch_id, "viewers": approvals.viewers})
         if "error" in answer:
-            return JSONResponse({"error": answer["error"]}, status_code=500)
+            status = 503 if answer["error"] == SETTINGS_CHANGED else 500
+            return JSONResponse({"error": answer["error"]}, status_code=status)
         return await self.mediator.run_bridge(_rendered, answer)
 
     async def _live(
@@ -717,13 +788,21 @@ class Bridge:
 
     async def _answer(self, waiting: _Waiting) -> None:
         """Once you decide on a call's texts: what the plugin gets, worked out here (its images are here), and given
-        to the queue for whichever process the plugin asks; given again when the queue did not take it, a few times."""
+        to the queue for whichever process the plugin asks; given again when the queue did not take it, a few times.
+        Worked out once Latet's settings being applied are all in place, as ``mask`` is: one worked out while they
+        were half applied, or while they could not be put back, is the refusal ``SETTINGS_CHANGED`` instead."""
         approvals = self.mediator.approvals
         try:
             decision = await approvals.decided(waiting.batch)
             self.mediator.release_live(waiting.batch.id)  # decided: its texts are masked as they leave
-            out = await self.mediator.run_bridge(self._decided, waiting, decision)
-            answer = {"items": await self.mediator.run_bridge(_answered, out), "degraded": waiting.degraded}
+            begun = await self._begun()
+            if begun is None:
+                answer: dict[str, Any] = {"error": SETTINGS_CHANGED}
+            else:
+                out = await self.mediator.run_bridge(self._decided, waiting, decision)
+                answer = {"items": await self.mediator.run_bridge(_answered, out), "degraded": waiting.degraded}
+                if self._overtaken(begun):
+                    answer = {"error": SETTINGS_CHANGED}
         except MaskingError as exc:  # logged by its own words, which name no value, as `mask` does: no traceback
             log.error("bridge masking failed: %s", exc)
             answer = {"error": f"masking failed: {exc}"}

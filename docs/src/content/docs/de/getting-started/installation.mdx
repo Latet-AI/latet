@@ -5,10 +5,11 @@ description: Installieren Sie Latet mit einem einzigen Befehl, oder führen Sie 
 
 ## Voraussetzungen
 
-- Windows, macOS oder Linux. Keine Administratorrechte nötig: Alles wird in Ihr Benutzerkonto
-  installiert.
-- Python 3.12 oder 3.13, die Versionen, mit denen Latet getestet wird. Sie müssen es nicht selbst
-  installieren: [uv](https://docs.astral.sh/uv/) holt bei Bedarf eines.
+- Windows, Linux oder macOS auf einem Mac mit Apple Chip. Ein Intel-Mac wird nicht unterstützt: Für
+  cryptography, das Latet braucht, gibt es für Intel-Macs kein fertiges Paket. Keine
+  Administratorrechte nötig: Alles wird in Ihr Benutzerkonto installiert.
+- Python 3.12, 3.13 oder 3.14, die Versionen, mit denen Latet getestet wird. Sie müssen es nicht
+  selbst installieren: [uv](https://docs.astral.sh/uv/) holt bei Bedarf eines.
 - Mindestens ein unterstützter Agent: [Claude Code](../../agents/claude-code/),
   [Codex](../../agents/codex/), [OpenCode](../../agents/opencode/),
   [Gemini CLI](../../agents/gemini/) oder ein Tool, das eine OpenAI-, Anthropic- oder

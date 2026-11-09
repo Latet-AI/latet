@@ -8,7 +8,6 @@ from array import array
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures.thread import _WorkItem
-from itertools import islice
 from pathlib import PurePosixPath, PureWindowsPath
 from types import CodeType, FrameType, GeneratorType
 from urllib.parse import urlsplit
@@ -37,8 +36,9 @@ from latet.server.master import MasterKey, root_key
 from latet.server.space_settings import PgSettings
 from latet.server.tokens import route_key
 
+from .. import thread_pools
 from ..unit.test_launch_keys import _LaunchGraph
-from .support import DATABASE, URL
+from .support import DATABASE, URL, scanned_once
 from .test_launch_server_adapter import (
     _DRAIN_SECONDS,
     _WORK_LIMIT,
@@ -438,10 +438,16 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                     assert ancestor is not None and ancestor.f_code is launch_open._run_open.__code__
                     invocation_frame = ancestor.f_back
                     assert invocation_frame is not None and invocation_frame.f_code is launch_mutations._invoke.__code__
-                    assert "invocation" not in invocation_frame.f_locals
-                    assert invocation_frame.f_locals["argument"] is ancestor.f_locals["handoff"]
+                    assert "invocation" not in thread_pools.frame_locals(invocation_frame)
+                    assert (
+                        thread_pools.frame_locals(invocation_frame)["argument"]
+                        is thread_pools.frame_locals(ancestor)["handoff"]
+                    )
+                    # The pool's first frame above the call: the work item's own, or on 3.14 the frame its worker's
+                    # context runs the call in (thread_pools.RUN_CODES).
                     worker_frame = invocation_frame.f_back
-                    assert worker_frame is not None and worker_frame.f_code is _WorkItem.run.__code__
+                    assert worker_frame is not None
+                    assert thread_pools.item_frame(worker_frame).f_code is _WorkItem.run.__code__
                     boundary[id(worker_frame)] = "exact selected STORE WorkItem.run frame; later tail slice"
                 roots = [frame, *extra]
                 if not label.startswith("seal-"):
@@ -467,7 +473,7 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                 caller = sys._getframe(1)
                 if caller.f_code is server_app.ServerGate._authenticated_address.__code__:
                     # No launch-control slot is held while the token is checked (the review's Minor 4).
-                    assert caller.f_locals["scope"].get(LAUNCH_MUTATION) is None
+                    assert thread_pools.frame_locals(caller)["scope"].get(LAUNCH_MUTATION) is None
                     walk("preauth", caller)
                 del caller
                 return await original_auth(*args, **kwargs)
@@ -484,7 +490,7 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                 result = original_read(text)
                 caller = sys._getframe(1)
                 if caller.f_code is Bridge._launch_json.__code__:
-                    assert "raw" not in caller.f_locals and not result.mended and not result.repeated
+                    assert "raw" not in thread_pools.frame_locals(caller) and not result.mended and not result.repeated
                     walk("decoded", caller, result)
                 return result
 
@@ -494,18 +500,21 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                 if (
                     duplicate
                     and caller.f_code is launch_open._binding.__code__
-                    and caller.f_locals.get("index") == 199
-                    and caller.f_locals.get("previous") == 198
+                    and thread_pools.frame_locals(caller).get("index") == 199
+                    and thread_pools.frame_locals(caller).get("previous") == 198
                 ):
-                    assert path is caller.f_locals["other"] and type(result) is PureWindowsPath
+                    assert path is thread_pools.frame_locals(caller)["other"] and type(result) is PureWindowsPath
                     walk("collision-previous", caller, result)
                 return result
 
             def depth(path, flavor):
                 result = original_depth(path, flavor)
                 caller = sys._getframe(1)
-                if caller.f_code is launch_open._binding.__code__ and caller.f_locals.get("index") == 199:
-                    assert path is caller.f_locals["path"] and type(result) is int
+                if (
+                    caller.f_code is launch_open._binding.__code__
+                    and thread_pools.frame_locals(caller).get("index") == 199
+                ):
+                    assert path is thread_pools.frame_locals(caller)["path"] and type(result) is int
                     if segmented:
                         assert result == 1012
                     walk("selection-last", caller, result)
@@ -518,7 +527,7 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                         caller.f_code is original_component.__code__
                         and type(values) is GeneratorType
                         and values.gi_code is validation_code
-                        and caller.f_locals["segment"] == "😀İ"
+                        and thread_pools.frame_locals(caller)["segment"] == "😀İ"
                     ):
                         validator = caller.f_back
                         assert validator is not None and validator.f_code is original_depth.__code__
@@ -528,17 +537,18 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                         if (
                             parent is not None
                             and parent.f_code is launch_open._binding.__code__
-                            and parent.f_locals.get("index") == 199
-                            and validator.f_locals["path"] is parent.f_locals.get("path")
+                            and thread_pools.frame_locals(parent).get("index") == 199
+                            and thread_pools.frame_locals(validator)["path"]
+                            is thread_pools.frame_locals(parent).get("path")
                         ):
-                            local = validator.f_locals
+                            local = thread_pools.frame_locals(validator)
                             assert local["flavor"] == "windows" and local["windows"] is True and "encoded" not in local
                             assert local["depth"] == 1010 and local["end"] == len(local["path"]) - 6
                             assert local["start"] == local["end"] - 2
                             assert local["path"].startswith(local["separator"] + "CHILD", local["end"])
                             assert values.gi_frame is not None and not values.gi_running and values.gi_yieldfrom is None
                             assert values.gi_frame.f_code is validation_code
-                            assert type(values.gi_frame.f_locals[".0"]) is segment_iterator_type
+                            assert type(thread_pools.frame_locals(values.gi_frame)[".0"]) is segment_iterator_type
                             assert caller.f_trace is None and validator.f_trace is None
                             walk("text-segments-last", caller, validator, parent, values, values.gi_frame)
                     return original_any(values)
@@ -548,8 +558,14 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
             def selection_relative(path, parent):
                 result = original_selection_relative(path, parent)
                 caller = sys._getframe(1)
-                if caller.f_code is launch_open._binding.__code__ and caller.f_locals.get("index") == 199:
-                    assert path is caller.f_locals["child"] and parent is caller.f_locals["normalized"]
+                if (
+                    caller.f_code is launch_open._binding.__code__
+                    and thread_pools.frame_locals(caller).get("index") == 199
+                ):
+                    assert (
+                        path is thread_pools.frame_locals(caller)["child"]
+                        and parent is thread_pools.frame_locals(caller)["normalized"]
+                    )
                     assert type(path) is bytes and type(parent) is bytes and result is True
                     walk("selection-compare", caller, path, parent, result)
                 return result
@@ -558,7 +574,7 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                 result = original_project(path)
                 caller = sys._getframe(1)
                 if caller.f_code is launch_open._binding.__code__:
-                    assert len(caller.f_locals["seen"]) == 200
+                    assert len(thread_pools.frame_locals(caller)["seen"]) == 200
                     walk("selection-final", caller, result)
                 return result
 
@@ -566,8 +582,11 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                 result = original_relative(path, parent, separator)
                 caller = sys._getframe(1)
                 if caller.f_code is Binding.__init__.__code__:
-                    if caller.f_locals["flavor"] == "posix":
-                        assert path is caller.f_locals["folder"] and parent is caller.f_locals["root"]
+                    if thread_pools.frame_locals(caller)["flavor"] == "posix":
+                        assert (
+                            path is thread_pools.frame_locals(caller)["folder"]
+                            and parent is thread_pools.frame_locals(caller)["root"]
+                        )
                     walk("binding-construction", caller, path, parent, separator, result)
                 return result
 
@@ -582,14 +601,20 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
             def bound(version, aad):
                 result = original_bound(version, aad)
                 caller = sys._getframe(1)
-                if caller.f_code is sealing.Sealer.seal.__code__ and caller.f_locals["self"] is codec._sealer:
+                if (
+                    caller.f_code is sealing.Sealer.seal.__code__
+                    and thread_pools.frame_locals(caller)["self"] is codec._sealer
+                ):
                     walk("seal-aad", caller, result)
                 return result
 
             def frame(version, nonce, ciphertext):
                 result = original_frame(version, nonce, ciphertext)
                 caller = sys._getframe(1)
-                if caller.f_code is sealing.Sealer.seal.__code__ and caller.f_locals["self"] is codec._sealer:
+                if (
+                    caller.f_code is sealing.Sealer.seal.__code__
+                    and thread_pools.frame_locals(caller)["self"] is codec._sealer
+                ):
                     walk("seal-output", caller, result)
                 return result
 
@@ -671,7 +696,7 @@ async def _exercise_short_graph(owned_launch_namespaces, settings, tmp_path, req
                     ).fetchone()
                 assert counts == (expected_bindings, expected_bindings)
                 keys = server.bus.client.scan_iter(match=server.bus.key("launch:*"), count=100)
-                assert sum(1 for _ in islice(keys, 2)) == expected_bindings
+                assert len(scanned_once(keys, 2)) == expected_bindings
             else:
                 assert statuses == [200] and receives == 1
                 assert stores >= 1 and stores <= _WORK_LIMIT

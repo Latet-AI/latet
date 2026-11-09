@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl, unquote_to_bytes, urlencode, urlsplit
 
 from latet.engine.response_guard import safe_text
 from latet.gateway.cloud import BedrockUpstream, VertexUpstream, vertex_host
-from latet.gateway.coverage import EnvelopeRefused, Inventory
+from latet.gateway.coverage import NAMED_WORD, EnvelopeRefused, Inventory
 from latet.gateway.headers import DROP_PREFIXES, REQUEST_DROP, WS_HANDSHAKE_DROP
 from latet.gateway.model_ids import OPENAI, path_model
 from latet.gateway.routes import Upstream, readable_path
@@ -275,6 +275,29 @@ _REQUEST_CLASS = re.compile(r"[a-z_]{1,32}")
 _AGENT_TYPE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,63}")
 # Codex c1382380 core/src/client.rs:1164-1180 (Codex backend only): model={model}[;tier={service tier}].
 _ROUTING_HINT = re.compile(rf"model=(?:{OPENAI.pattern})(?:;tier=(?:auto|default|flex|priority))?")
+# D4 (b), option B (minors after 0.11, item 1; the owner, 2026-11-05): Claude Code's gateway compatibility guide asks a
+# gateway to forward anthropic-* headers and anthropic-beta values as open lists, new capabilities arriving as new ones.
+# On the families where Anthropic's headers are named, within these bounds, an anthropic-* header no profile names
+# passes checked (the final check reads its name and value), an x-claude-code-* one is removed and counted, and an
+# anthropic-beta value of a new form passes checked; each is listed in ``Admission.open`` with the refusal it had
+# before. Only on a request Latet only checks, which is known once its body is read (``mediate.verify_only``): the
+# preparation of any other answers that refusal before anything of it is masked or learnt. The bounds count inside the
+# envelope's own.
+_OPEN_NAME = re.compile(r"anthropic-[a-z0-9-]{1,48}")
+# No word of such a name (between its dashes) longer than this (the scoped check of Task 3's second fix round, N-1).
+# The final check reads the name in three mixes of capitals alone (``_name_forms``), so a secret whose form mixes them
+# (a Google API key, AIza and 35 characters) would leave in it unfound; a key, a token, an IBAN or a long id runs
+# longer than 16 without a dash, and the longest word Anthropic's headers use is 12 (organization).
+_OPEN_WORD = NAMED_WORD  # 16; the refusal of a name past it tells that word by its length (P-1)
+_OPEN_VALUE = re.compile(r"[ -~]{1,1024}")  # printable ASCII, a space included
+_OPEN_MOST = 8  # such anthropic-* headers a request; past them, the refusal they had
+# A beta token of a new form: any printable character but a comma or a space; tokens as many as 64, each 1 to 64 long.
+_OPEN_BETA = re.compile(r"[!-+\--~]{1,64}")
+_OPEN_BETAS = 64
+_HINT_PREFIX = "x-claude-code-"
+# The built-in rule what passed by the open list rests on (``request_policy.BUILT_IN``), as a new body member's does
+# (D6): the decision is a ``Pass`` naming it. A removal alone rests on none.
+OPEN_RULE = "checked only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,6 +331,15 @@ class Admission:
     # The headers sent as they came, never read (``authorized``: a destination's credential, a profile's or one an
     # exception names, D4), by their lowered names: never recorded in clear, whatever their names (I-3).
     unread: frozenset[str] = frozenset()
+    # Each header the open list let through (D4 (b), ``_open``), by its lowered name, in wire order, with the refusal
+    # it had without it: passed checked or removed here, refused by the preparation of a request Latet rewrites.
+    open: tuple[tuple[str, EnvelopeRefused], ...] = ()
+
+    @property
+    def rules(self) -> tuple[str, ...]:
+        """The built-in rules what its envelope let through rests on: ``checked only`` when the open list passed an
+        anthropic-* header or an anthropic-beta value (checked); none for a removal alone."""
+        return (OPEN_RULE,) if any(not name.startswith(_HINT_PREFIX) for name, _ in self.open) else ()
 
 
 def _excepted(upstream: Upstream, profile: Profile, kind: str, name: str) -> tuple[tuple[Any, ...], str] | None:
@@ -825,6 +857,43 @@ def _header(upstream: Upstream, profile: Profile, name: str, value: str) -> str:
     raise EnvelopeRefused("envelope-header-unknown", header=name.encode("latin-1"))
 
 
+def _open(profile: Profile, name: str, value: str, error: EnvelopeRefused, named: int) -> str | None:
+    """The treatment D4 (b)'s open list gives a header ``_header`` refused with ``error``, no exception naming it: on
+    the families where Anthropic's headers are named (Anthropic's, Vertex's Claude routes included, and Bedrock's model
+    calls, never its control plane), an x-claude-code-* header no profile names ``removed``; an anthropic-* one
+    ``checked``, within its name's and value's grammars, no word of its name longer than ``_OPEN_WORD``, and while
+    fewer than ``_OPEN_MOST`` (``named``: those the request carries before it) passed so; an anthropic-beta value of a
+    new form ``checked``. None: the refusal stands."""
+    if not (profile.family == "anthropic" or (profile.family == "bedrock" and not profile.bodyless)):
+        return None
+    if error.code == "envelope-header-unknown":
+        if name.startswith(_HINT_PREFIX) and len(name) > len(_HINT_PREFIX):
+            return "removed"
+        if (
+            _OPEN_NAME.fullmatch(name)
+            and max(map(len, name.split("-"))) <= _OPEN_WORD  # "anthropic", of 9, among them
+            and _OPEN_VALUE.fullmatch(value)
+            and named < _OPEN_MOST
+        ):
+            return "checked"
+    elif error.code == "envelope-header-value" and name == "anthropic-beta":
+        if _tokens(value, _OPEN_BETA, _OPEN_BETAS, spaces=True):
+            return "checked"
+    return None
+
+
+def _name_forms(name: str) -> tuple[str, str, str]:
+    """The texts the final check reads for an open anthropic-* header's name (the re-review of Task 3, I-A). A name
+    arrives in lowercase (the server lowers it, whatever the client wrote), and an IBAN or a value the vault learnt
+    with capitals is found only with them: so the name as it arrives, in capitals, and with each dash-separated word
+    capitalised. Only texts for the check to read: what is sent does not change. A value written into a name in another
+    mix of capitals (a value of yours, or a secret whose form mixes them) is not found there (no case-insensitive
+    matcher of the vault's values: a second RE2 set for each vault would cost its memory twice); the name is refused
+    only when it is past one of the open list's bounds (a word longer than ``_OPEN_WORD`` among them), by ``_open``,
+    before the check reads it."""
+    return name, name.upper(), "-".join(word.capitalize() for word in name.split("-"))
+
+
 def admit(raw: Inventory, upstream: Upstream) -> Admission:
     envelope = raw.envelope
     websocket = envelope.transport == "ws-handshake"
@@ -884,6 +953,8 @@ def admit(raw: Inventory, upstream: Upstream) -> Admission:
     removed = 0
     granted: list[tuple[tuple[Any, ...], EnvelopeRefused]] = []
     unread: set[str] = set()
+    opened: list[tuple[str, EnvelopeRefused]] = []
+    named = 0  # anthropic-* headers the open list passed
     query_names = {
         part.index: _decoded(envelope.query[part.start : part.end], plus=True)
         for part in raw.entries
@@ -911,6 +982,7 @@ def admit(raw: Inventory, upstream: Upstream) -> Admission:
             if not safe_text(name) or not safe_text(value):
                 raise EnvelopeRefused("envelope-sensitive")
         elif part.region == "header-value":
+            named_by_client = False  # an anthropic-* header the open list passed: its name is the client's own text
             key, value = envelope.headers[part.index]
             if not _TOKEN.fullmatch(key) or any((c < 32 and c != 9) or c == 127 for c in value):
                 raise EnvelopeRefused("envelope-header-syntax")
@@ -931,10 +1003,19 @@ def admit(raw: Inventory, upstream: Upstream) -> Admission:
                 excepted = (
                     _excepted(upstream, profile, "header", name) if error.code == "envelope-header-unknown" else None
                 )
-                if excepted is None or not text or len(text) > 8192:
+                if excepted is not None:  # an exception that names it applies first, as it did before the open list
+                    if not text or len(text) > 8192:
+                        raise
+                    treatment = header_treatments[part.index] = excepted[1]
+                    granted.append((excepted[0], error))
+                elif (given := _open(profile, name, text, error, named)) is not None:
+                    treatment = header_treatments[part.index] = given
+                    opened.append((name, error))
+                    if given == "checked" and name != "anthropic-beta":
+                        named += 1
+                        named_by_client = True
+                else:
                     raise
-                treatment = header_treatments[part.index] = excepted[1]
-                granted.append((excepted[0], error))
             if not safe_text(name) or not safe_text(text):
                 raise EnvelopeRefused("envelope-sensitive")
             if treatment == "removed":
@@ -943,6 +1024,10 @@ def admit(raw: Inventory, upstream: Upstream) -> Admission:
             else:
                 headers.append((key.decode("ascii"), text))
                 if treatment == "checked":
+                    # The open list's anthropic-* header leaves under a name no profile chose: the final check reads
+                    # its name beside its value, as D6 reads a new member's key (R-81; review of Task 3, I-1).
+                    if named_by_client:
+                        checked.extend(_name_forms(name))
                     checked.append(text)
                 elif treatment == "authorized":
                     unread.add(name)
@@ -968,5 +1053,13 @@ def admit(raw: Inventory, upstream: Upstream) -> Admission:
         else:
             treatments.append("inspected")
     return Admission(
-        raw, profile, tuple(headers), tuple(checked), tuple(treatments), removed, tuple(granted), frozenset(unread)
+        raw,
+        profile,
+        tuple(headers),
+        tuple(checked),
+        tuple(treatments),
+        removed,
+        tuple(granted),
+        frozenset(unread),
+        tuple(opened),
     )

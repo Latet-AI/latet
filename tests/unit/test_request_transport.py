@@ -756,7 +756,9 @@ def test_a_request_prepared_while_settings_are_half_applied_is_prepared_again_un
     the new one. Its body's proof was refused at its decision all the same (``live_changed`` renews the content epoch
     as the settings end), and its agent was told that Latet could not account for every part of it. The version now
     moves once more when everything is in place: the authority taken in the window is never valid, and the request is
-    prepared again under the whole settings and sent."""
+    prepared again under the whole settings and sent. Since item 23 its authority is not even taken again in the
+    window: the gateway waits for the apply to end first (``request_policy.settled``, which lets the apply go on here as it starts
+    waiting), so the request is prepared twice, before the apply and after the whole of it, never in between."""
     import base64
     import threading
 
@@ -798,13 +800,19 @@ def test_a_request_prepared_while_settings_are_half_applied_is_prepared_again_un
             applying.append(threading.Thread(target=runtime.apply_config, args=(stronger,), kwargs={"save": False}))
             applying[0].start()
             assert halfway.wait(10)
-        elif len(preparations) == 2:  # prepared again inside that window: now the rest of the settings lands
-            resume.set()
-            applying[0].join(10)
         return prepared
+
+    settled = request_policy.settled
+    waits: list[int] = []
+
+    async def waited(engine: Any) -> None:
+        waits.append(len(preparations))
+        resume.set()  # the gateway waits for the apply: now the rest of the settings lands
+        await settled(engine)
 
     monkeypatch.setattr(runtime_module, "image_policy", held_halfway)
     monkeypatch.setattr(Mediator, "prepare_http", prepare_http)
+    monkeypatch.setattr(request_policy, "settled", waited)
     body = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]}).encode()
     try:
         with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
@@ -815,7 +823,7 @@ def test_a_request_prepared_while_settings_are_half_applied_is_prepared_again_un
             thread.join(10)
         runtime.close()
     guards = [guard for _, guard in preparations]
-    assert runtime.mediator.dump_guard == 3 and len(preparations) == 3, guards  # before, in the window, after
+    assert runtime.mediator.dump_guard == 3 and len(preparations) == 2 and waits == [1], guards  # before, after
     assert answered.status_code == 200, answered.text
     # Sent as last prepared, under the whole settings.
     assert len(transport.sent) == 1 and turns[-1].prepared is preparations[-1][0] and guards[-1] == 3, guards
@@ -884,6 +892,1326 @@ def test_a_request_prepared_as_the_settings_end_is_prepared_again_once_they_have
     assert "could not account" not in answered.text
     assert answered.status_code == 200 and len(preparations) == 2, (answered.text, len(preparations))
     assert len(transport.sent) == 1 and turns[-1].prepared is preparations[-1][0] and preparations[-1][1] == 3
+
+
+def _row(record: Any) -> dict[str, Any]:
+    """What a request's history row is made of, its times left out."""
+    kept = ("upstream", "path", "transport", "status", "forwarded", "request_headers", "body_bytes", "error", "host")
+    kept += ("signed", "history_code", "block_code", "passes", "profile", "removed_headers")
+    return {name: getattr(record, name) for name in kept}
+
+
+@pytest.mark.parametrize("decided", ["forward", "pass"])
+@pytest.mark.parametrize("moved", ["rules", "route"])
+def test_a_request_whose_settings_change_between_its_decision_and_its_send_is_refused_as_settings_changed(
+    monkeypatch, caplog, turns, moved, decided
+):
+    """After 0.11, item 3 (the review of 0.11.1's merge into enterprise): the rules move after a request's final
+    decision and before its send (its address looked up meanwhile), or its route is swapped for one of other content.
+    The transport refuses it as stale, nothing sent. It is told, recorded and audited as a request whose settings
+    changed while it was prepared (400, send it again, a refusal in the history), where before it was answered 500
+    "could not send this request as it was decided" and recorded as an exchange, with no block code. Its history row is
+    the row of the same request refused at its decision because its settings changed (the fix round's M1): no error,
+    no passes of the decision it was not sent under (``decided``: a ``Forward``, or a ``Pass`` by a built-in rule), no
+    request headers, its size as it came."""
+    import logging
+
+    recorder = _Recorder()
+    mediator, body = _rule_pass("hello") if decided == "pass" else (_mediator(), _chat("hello"))
+    gateway = _gateway(mediator, recorder=recorder)
+    routed = forward.Forwarder._route
+
+    async def moving(self: Any, *args: Any, **kwargs: Any) -> Any:
+        found = await routed(self, *args, **kwargs)
+        if moved == "rules":
+            self.mediator.engine.rules_changed()
+        else:
+            assert gateway.config is not None and gateway.config.routes is not None
+            gateway.config.routes.use([dataclasses.replace(OPENAI, base_url="http://127.0.0.1:2")])
+        return found
+
+    monkeypatch.setattr(forward.Forwarder, "_route", moving)
+    with caplog.at_level(logging.WARNING, logger="latet.gateway.forward"), gateway.client as client:
+        answered = client.post(CHAT, content=body, headers=HEADERS)
+    monkeypatch.setattr(forward.Forwarder, "_route", routed)
+    turn = turns[-1]
+    assert type(turn.decision) is Block and turn.prepared is not None
+    # The same request, its route changed while it was prepared: refused at its decision because its settings changed.
+    at_decision = _Recorder()
+    twin = _gateway(_rule_pass("hello")[0] if decided == "pass" else _mediator(), recorder=at_decision)
+    _applied_again(
+        twin, monkeypatch, lambda routes: routes.use([dataclasses.replace(OPENAI, base_url="http://127.0.0.1:2")])
+    )
+    with twin.client as client:
+        assert client.post(CHAT, content=body, headers=HEADERS).status_code == 400
+    assert turns[-1].decision.code == "settings-changed"
+    assert answered.status_code == 400, answered.text
+    words = answered.json()["error"]["message"]
+    assert SETTINGS_MOVED in words and "send it again" in words and "as it was decided" not in words
+    assert "Nothing was sent" in words
+    assert gateway.transport.sent == [] and gateway.counts() == (0, 0)
+    assert turn.decision.code == "settings-changed" and turn.execution == NotAttempted("settings-changed")
+    assert turn.refusal == request_audit_module.reason_code("settings-changed") == 19
+    [record] = recorder.finished
+    assert record.block_code == "settings-changed" and record.history_code == 28 and record.forwarded is None
+    assert record.error is None and record.passes == () and record.request_headers == []
+    [refused] = at_decision.finished
+    assert _row(record) == _row(refused)
+    logged = [record.getMessage() for record in caplog.records if record.name == "latet.gateway.forward"]
+    assert "blocked HTTP request: settings-changed" in logged and not any("not sent" in line for line in logged)
+
+
+def test_a_request_whose_settings_change_before_aws_second_attempt_is_refused_as_settings_changed(turns):
+    """The Bedrock twin of the test above: the rules move as AWS's fresh credentials are read, after the first attempt
+    reached Bedrock and was answered ExpiredToken. No second attempt; the refusal is settings-changed's, and its agent
+    is told that no further attempt was sent and that the first may have arrived, never "Nothing was sent". The first
+    attempt's record stands: it left (``forwarded``), so it carries no block code of a request never sent."""
+    recorder = _Recorder()
+    mediator = _mediator()
+    aws = _Aws(on_read=lambda read: mediator.engine.rules_changed() if read == 2 else None)
+    gateway = _bedrock(mediator, aws, recorder=recorder)
+    with gateway.client as client:
+        answered = client.post(_route(), content=_invoke(HELLO), headers={"content-type": "application/json"})
+    assert answered.status_code == 400, answered.text
+    words = answered.json()["message"]
+    assert SETTINGS_MOVED in words and "send it again" in words and "as it was decided" not in words
+    assert "No further attempt was sent" in words and "may have occurred" in words and "Nothing was sent" not in words
+    assert len(gateway.transport.sent) == 1 and aws.reads == 2 and gateway.provider.answers[0].closed
+    turn = turns[-1]
+    assert turn.decision.code == "settings-changed" and turn.execution == Attempted(1, 403)
+    assert turn.refusal == request_audit_module.reason_code("settings-changed")
+    [record] = recorder.finished
+    assert record.history_code == 28 and record.block_code is None and record.forwarded is not None
+
+
+# --- a request taken and sent while a save is applied (minors after 0.11, item 23) ------------------------------------
+
+ACME_CHAT = "/acme/v1/chat/completions"
+ACME_BODY = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]}).encode()
+
+
+def _a_runtime(tmp_path, monkeypatch) -> tuple[Any, RecordingTransport, Any]:
+    """A computer's runtime whose requests reach a recording provider, and stronger settings to apply while one of them
+    is handled (its dump guard 3)."""
+    import base64
+
+    from latet.config import Config, Destination, IdentityConfig
+    from latet.runtime import make_runtime
+
+    from ..conftest import ROOT_KEY
+
+    monkeypatch.setenv("LATET_ROOT_KEY", base64.b64encode(ROOT_KEY).decode())
+    acme = Destination(name="acme", url="https://llm.acme.invalid")
+    settings = Config(identity=IdentityConfig(enabled=False), ner="off", upstreams=[acme])
+    runtime = make_runtime(settings, data=tmp_path / "data", config_file=tmp_path / "config.yaml")
+    transport = RecordingTransport(_Provider())
+    runtime.gateway.client = lambda: RecordingClient(transport)
+    return runtime, transport, settings.model_copy(update={"dump_guard": 3})
+
+
+class _HeldApply:
+    """A save applied in a thread of its own, as the dashboard's runs in a worker (``Runtime.apply_config``), held
+    inside it until ``resume`` is set: at ``image_policy`` (``where="first-move"``: after ``engine.use``, the rules'
+    first move, the masker in use, the image, dump guard and review settings and the route table not yet), or at
+    ``projects.use`` (``"first-change"``: its first change, the rules not moved yet). What it raised, if it did, is
+    kept in ``raised``."""
+
+    def __init__(self, runtime: Any, config: Any, monkeypatch: Any, where: str = "first-move") -> None:
+        import threading
+
+        from latet import runtime as runtime_module
+
+        self.halfway, self.resume = threading.Event(), threading.Event()
+        self.raised: list[BaseException] = []
+
+        def applying() -> None:
+            try:
+                runtime.apply_config(config, save=False)
+            except Exception as exc:
+                self.raised.append(exc)
+
+        self.thread = threading.Thread(target=applying)
+        self.started = False
+        if where == "first-move":
+            policy = runtime_module.image_policy
+
+            def at_image_policy(config: Any) -> Any:
+                self._hold()
+                return policy(config)
+
+            monkeypatch.setattr(runtime_module, "image_policy", at_image_policy)
+        else:
+            use = runtime.projects.use
+
+            def at_projects(*args: Any, **kwargs: Any) -> Any:
+                self._hold()
+                return use(*args, **kwargs)
+
+            monkeypatch.setattr(runtime.projects, "use", at_projects)
+
+    def _hold(self) -> None:
+        import threading
+
+        if threading.current_thread() is self.thread:
+            self.halfway.set()
+            assert self.resume.wait(10)
+
+    def start(self) -> None:
+        """The apply started, and under way: held where it was asked to be."""
+        self.started = True
+        self.thread.start()
+        assert self.halfway.wait(10)
+
+    def end(self) -> None:
+        self.resume.set()
+        if self.started:
+            self.thread.join(10)
+
+
+def _preparations(monkeypatch) -> list[tuple[Any, Any, int]]:
+    """Each preparation of a request with the dump guard and the rules version it was made under, in the order they ran
+    (kept, so never told apart by an address a freed one could pass on)."""
+    prepare = Mediator.prepare_http
+    made: list[tuple[Any, Any, int]] = []
+
+    def prepare_http(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        guard, version = self.dump_guard, self.engine.rules_version
+        made.append((prepare(self, *args, **kwargs), guard, version))
+        return made[-1][0]
+
+    monkeypatch.setattr(Mediator, "prepare_http", prepare_http)
+    return made
+
+
+def test_a_request_taken_and_sent_while_a_save_is_applied_never_leaves_with_it_half_applied(
+    tmp_path, monkeypatch, turns
+):
+    """Item 23 (the security re-review of 0.11.1's fix round, R1): a request whose authority was taken and which was
+    sent entirely while ``Runtime.apply_config`` ran, after its first rules move and before its last, passed its send
+    check: its authority carried the first move's version, and it left with the new masker and the old dump guard,
+    image, review settings and route. An apply under way now marks the engine (``Engine.applying``), and no authority
+    is valid while it does: the request, prepared once in the window, waits for the apply to end (``request_policy.settled``), is
+    prepared again under the whole settings and sent as last prepared; nothing is sent before."""
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, stronger, monkeypatch)
+    preparations = _preparations(monkeypatch)
+    sent_at_wait: list[int] = []
+    settled = request_policy.settled
+
+    async def waited(engine: Any) -> None:
+        sent_at_wait.append(len(transport.sent))
+        held.resume.set()  # the apply goes on as the gateway starts waiting for it
+        await settled(engine)
+
+    monkeypatch.setattr(request_policy, "settled", waited)
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            held.start()
+            answered = client.post(ACME_CHAT, content=ACME_BODY, headers=HEADERS)
+    finally:
+        held.end()
+        runtime.close()
+    final = runtime.built.engine.rules_version
+    made = [(guard, version) for _, guard, version in preparations]
+    assert len(preparations) == 2 and sent_at_wait == [0], (made, final, sent_at_wait, len(transport.sent))
+    assert answered.status_code == 200, answered.text
+    # The second after the apply's last move, under the whole settings; the first in the window, under part of them.
+    assert made[1] == (3, final) and made[0][0] != 3 and made[0][1] < final, made
+    last = preparations[-1][0]
+    assert turns[-1].prepared is last and last.route_authority.rules == final and last.route_authority.valid()
+    assert len(transport.sent) == 1
+
+
+def test_a_request_caught_by_an_apply_that_outlasts_its_wait_is_refused_as_settings_changed(
+    tmp_path, monkeypatch, turns
+):
+    """The same, with the apply held until the request is answered, past the gateway's wait for it
+    (``request_policy.SETTLE_SECONDS``): the request is never sent with the settings half applied. It is refused because its settings
+    changed while it was prepared (400, send it again), never with the coverage words; and at once once the wait is
+    over (the fix round's M3): prepared once, in the window, never again under the mark, which no authority then taken
+    could pass, nor read by a reviewer. Before, it was prepared twice more and waited twice, about twice the bound."""
+    import time
+
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, stronger, monkeypatch)
+    preparations = _preparations(monkeypatch)
+    asked: list[int] = []
+    live = Mediator.live_prepared
+
+    async def live_prepared(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        asked.append(1)
+        return await live(self, *args, **kwargs)
+
+    monkeypatch.setattr(Mediator, "live_prepared", live_prepared)
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            held.start()
+            began = time.monotonic()
+            answered = client.post(ACME_CHAT, content=ACME_BODY, headers=HEADERS)
+            took = time.monotonic() - began
+            assert held.thread.is_alive()  # still held as it was answered
+    finally:
+        held.end()
+        runtime.close()
+    assert len(preparations) == 1 and asked == [], (len(preparations), asked, took)
+    assert request_policy.SETTLE_SECONDS <= took < 2 * request_policy.SETTLE_SECONDS, took  # one wait, its bound
+    assert answered.status_code == 400, answered.text
+    assert SETTINGS_MOVED in answered.text and "send it again" in answered.text
+    assert "could not account" not in answered.text
+    assert transport.sent == [] and turns[-1].decision.code == "settings-changed"
+
+
+@pytest.mark.parametrize("where", ["first-change", "first-move"])
+def test_a_request_decided_before_a_save_and_sent_while_it_is_applied_is_refused_as_settings_changed(
+    tmp_path, monkeypatch, turns, where
+):
+    """A request decided before a save, and sent while the save is applied (its address looked up meanwhile,
+    ``Forwarder._route``): its route authority is not valid while the apply runs, held at its first change (the rules
+    not moved yet, where before it was sent) or after the rules' first move. The transport refuses it as stale, and it
+    is told that its settings changed (400, Task 1's mapping), nothing sent."""
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, stronger, monkeypatch, where)
+    routed = forward.Forwarder._route
+
+    async def routing(self: Any, *args: Any, **kwargs: Any) -> Any:
+        found = await routed(self, *args, **kwargs)
+        held.start()  # its decision made: the save starts, and is held under way
+        return found
+
+    monkeypatch.setattr(forward.Forwarder, "_route", routing)
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            answered = client.post(ACME_CHAT, content=ACME_BODY, headers=HEADERS)
+    finally:
+        held.end()
+        runtime.close()
+    assert answered.status_code == 400, answered.text
+    assert SETTINGS_MOVED in answered.text and "send it again" in answered.text
+    assert transport.sent == [] and turns[-1].decision.code == "settings-changed"
+    assert turns[-1].execution == NotAttempted("settings-changed")
+
+
+@pytest.mark.parametrize("cause", ["launch", "arena"])
+def test_a_stale_refusal_for_another_reason_while_a_save_is_applied_keeps_its_500(tmp_path, monkeypatch, turns, cause):
+    """Item 23's fix round, M2: only the stale refusal its route authority makes (its settings moved since its
+    decision) is told that the settings changed. One for another reason keeps its 500 and its code, even while a save
+    is applied: its launch no longer current, found by the transport's awaited check while the save starts
+    (``launch``), or its arena changed after its decision while a save is under way (``arena``, the Latet fault the
+    500 is kept for). Before, either was answered settings-changed whenever the route authority was invalid as it was
+    refused."""
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, stronger, monkeypatch)
+
+    async def ended() -> bool:
+        held.start()  # the save starts while its launch is looked at, as it is sent
+        return False  # and its launch is no longer current
+
+    if cause == "launch":  # a launch Latet protects, as `latet claude` starts it: looked at again where it is sent
+        prepare = Mediator.prepare_http
+
+        def protected(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+            prepared = prepare(self, *args, **kwargs)
+            prepared.protected_current = ended
+            return prepared
+
+        monkeypatch.setattr(Mediator, "prepare_http", protected)
+    else:
+        routed = forward.Forwarder._route
+
+        async def routing(self: Any, *args: Any, **kwargs: Any) -> Any:
+            found = await routed(self, *args, **kwargs)
+            held.start()
+            turns[-1].prepared.body = turns[-1].prepared.body + b" "  # its arena changed after its decision
+            return found
+
+        monkeypatch.setattr(forward.Forwarder, "_route", routing)
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            answered = client.post(ACME_CHAT, content=ACME_BODY, headers=HEADERS)
+    finally:
+        held.end()
+        runtime.close()
+    assert held.started  # refused while the save was under way
+    assert answered.status_code == 500, answered.text
+    assert "could not send this request as it was decided (stale)" in answered.text
+    assert SETTINGS_MOVED not in answered.text
+    assert transport.sent == [] and turns[-1].execution == NotAttempted("stale")
+
+
+def _a_server_space(tmp_path) -> tuple[Any, Any]:
+    """A server's space, a person's settings over shared ones, and its settings' store: kept in memory, it does not
+    answer once its ``refuse`` is set."""
+    from dataclasses import replace
+
+    from latet.config import Config, Destination
+    from latet.runtime import make_runtime
+    from latet.server.shared import OwnSettings
+    from latet.state import IdentityRef, local_backends
+
+    from ..conftest import ROOT_KEY
+
+    shared = Config(upstreams=[Destination(name="llm", url="https://llm.acme.com")])
+
+    class Refusing(OwnSettings):
+        """An identity's settings over ``shared``, kept in memory, whose store does not answer once ``refuse`` is set."""
+
+        def __init__(self) -> None:
+            super().__init__(lambda: shared)
+            self.own: dict[str, Any] = {}
+            self.refuse = False
+
+        def _own(self) -> dict[str, Any]:
+            return self.own
+
+        def _keep_own(self, own: dict[str, Any]) -> None:
+            if self.refuse:
+                raise OSError("the settings could not be kept (PoolTimeout)")
+            self.own = own
+
+        def reviewed(self) -> Any:
+            return None
+
+        def save_reviewed(self, config: Any) -> None:
+            return None
+
+    settings = Refusing()
+    backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
+    emily = IdentityRef("u_emilycarte", "Emily Carter", "person")
+    runtime = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=emily)
+    return runtime, settings
+
+
+def _unrestorable_while(monkeypatch, runtime: Any, unrestorable: list[bool]) -> None:
+    """What ran before raises as it is put back (``Runtime._restore``) while ``unrestorable[0]`` is set; then it is put
+    back as it is."""
+    restore = runtime._restore
+
+    def restoring(was: Any) -> None:
+        if unrestorable[0]:
+            raise RuntimeError("what ran before could not be put back")
+        restore(was)
+
+    monkeypatch.setattr(runtime, "_restore", restoring)
+
+
+def _said(caplog: Any) -> list[tuple[str, str]]:
+    """What the runtime said in the log, by level and words, in order."""
+    return [(record.levelname, record.getMessage()) for record in caplog.records if record.name == "latet.runtime"]
+
+
+# What a put-back that raised says, by the error's type (``Runtime._put_back``).
+_PUT_BACK_FAILED = ("WARNING", "the settings that ran before could not be put back: RuntimeError")
+
+
+def test_a_save_applied_again_inside_a_refused_one_is_counted_by_the_mark(tmp_path, monkeypatch):
+    """Item 23's count: a server's space whose save its store refuses applies what ran before inside that save
+    (``Runtime._put_back``, under the same lock): the very objects that ran before its first change (fix round R1),
+    never applied again. The mark is held while they are put back, and every mark is lowered: it is 0 after, and the
+    rules moved twice, the apply's first move and its last."""
+    from latet import runtime as runtime_module
+
+    runtime, settings = _a_server_space(tmp_path)
+    engine = runtime.built.engine
+    marks: list[int] = []
+    policy = runtime_module.image_policy
+
+    def marked(config: Any) -> Any:
+        marks.append(engine.applying)
+        return policy(config)
+
+    monkeypatch.setattr(runtime_module, "image_policy", marked)
+    try:
+        version, before = engine.rules_version, runtime.config
+        settings.refuse = True
+        with pytest.raises(OSError, match="PoolTimeout"):
+            runtime.apply_config(runtime.config.model_copy(update={"dump_guard": 3}))
+        assert runtime.config == before  # what ran before runs again
+        assert marks == [1] and engine.applying == 0 and not engine.stranded, marks  # no apply of what ran before
+        assert engine.rules_version == version + 2  # the apply's first move and its last
+    finally:
+        runtime.close()
+
+
+def test_a_stranded_space_whose_whole_save_its_store_refuses_says_nothing_new(tmp_path, monkeypatch, caplog):
+    """The whole-branch review of 0.12, Minor 2: a server's space is stranded (a save its store refused, and what ran
+    before raised as it was put back). Its next save had its settings whole and was refused by its store too: it said
+    that requests were sent again, then that the settings could not be put back, again. Neither was so: no request was
+    sent, and what ran before, the mix, was put back. The space is stranded still, its mark held, and says nothing new;
+    a save its store then keeps says once that requests are sent again."""
+    import logging
+
+    from latet import runtime as runtime_module
+
+    runtime, settings = _a_server_space(tmp_path)
+    engine = runtime.built.engine
+    unrestorable = [True]
+    _unrestorable_while(monkeypatch, runtime, unrestorable)
+    try:
+        with caplog.at_level(logging.WARNING, logger="latet.runtime"):
+            settings.refuse = True
+            with pytest.raises(OSError, match="PoolTimeout"):
+                runtime.apply_config(runtime.config.model_copy(update={"dump_guard": 3}))  # stranded
+            unrestorable[0] = False
+            with pytest.raises(OSError, match="PoolTimeout"):
+                runtime.apply_config(runtime.config.model_copy(update={"dump_guard": 4}))  # whole, then refused
+            refused = (_said(caplog), engine.stranded, engine.applying)
+            settings.refuse = False
+            runtime.apply_config(runtime.config.model_copy(update={"dump_guard": 5}))  # whole, and kept
+            kept = (_said(caplog)[len(refused[0]) :], engine.stranded, engine.applying)
+    finally:
+        runtime.close()
+    assert refused == ([_PUT_BACK_FAILED, ("ERROR", runtime_module._STRANDED)], True, 1), refused
+    assert kept == ([("WARNING", runtime_module._UNSTRANDED)], False, 0), kept
+    assert runtime.config.dump_guard == 5
+
+
+def test_a_stranded_computer_whose_whole_save_is_not_written_says_requests_are_sent_again(
+    tmp_path, monkeypatch, caplog
+):
+    """A computer runs the settings it could not write to config.yaml, as before: a stranded computer whose next save
+    has its settings whole runs them, and says once that requests are sent again, although its save raised. A later
+    strand is said again."""
+    import logging
+
+    from latet import runtime as runtime_module
+    from latet.state.local import LocalSettings
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    engine = runtime.built.engine
+    failing = [1]  # the apply's image masking
+    _image_masking_failing(monkeypatch, runtime, failing)
+    unrestorable = [True]
+    _unrestorable_while(monkeypatch, runtime, unrestorable)
+
+    def unwritten(self: Any, config: Any) -> None:
+        raise OSError("config.yaml could not be written")
+
+    monkeypatch.setattr(LocalSettings, "save", unwritten)
+    try:
+        with caplog.at_level(logging.WARNING, logger="latet.runtime"):
+            with pytest.raises(RuntimeError, match="image models"):
+                runtime.apply_config(stronger, save=False)  # stranded
+            failing[0], unrestorable[0] = 0, False
+            with pytest.raises(OSError, match="could not be written"):
+                runtime.apply_config(stronger)  # whole, and not written: it runs
+            ran = (_said(caplog), engine.stranded, engine.applying, runtime.config.dump_guard)
+            failing[0], unrestorable[0] = 1, True
+            runtime.mediator.vision = None  # built again by the next apply, and raising there
+            with pytest.raises(RuntimeError, match="image models"):
+                runtime.apply_config(stronger, save=False)  # stranded again
+            again = (_said(caplog)[len(ran[0]) :], engine.stranded, engine.applying)
+    finally:
+        runtime.close()
+    stranded = [_PUT_BACK_FAILED, ("ERROR", runtime_module._STRANDED)]
+    assert ran == ([*stranded, ("WARNING", runtime_module._UNSTRANDED)], False, 0, 3), ran
+    assert again == (stranded, True, 1), again
+
+
+# A term the stronger settings mask, in a request's text: it leaves as written under the settings that ran before them.
+ORION = "Orion"
+ORION_BODY = json.dumps({"model": "gpt-4o", "messages": [{"role": "user", "content": f"hello from {ORION}"}]}).encode()
+
+
+def _with_a_term(config: Any) -> Any:
+    from latet.config import TermConfig
+
+    return config.model_copy(update={"terms": [TermConfig(value=ORION, type="PROJECT")]})
+
+
+def _image_masking_failing(monkeypatch, runtime: Any, times: list[int]) -> None:
+    """The image masking an apply builds raises (its models cannot be read) while ``times[0]`` is above 0, once each
+    time; then it is built as it is."""
+    from latet import runtime as runtime_module
+
+    read = runtime_module.image_masking
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        if times[0] > 0:
+            times[0] -= 1
+            raise RuntimeError("the image models could not be read")
+        return read(*args, **kwargs)
+
+    runtime.mediator.vision = None  # built again by each apply: models may have been installed since
+    monkeypatch.setattr(runtime_module, "image_masking", failing)
+
+
+def test_an_apply_that_raises_midway_still_makes_its_last_move_and_lowers_its_mark(tmp_path, monkeypatch):
+    """Item 23, ruled: an apply that raises after its first rules move (its image masking cannot be built) left the
+    settings half applied with no last move, so that an authority taken meanwhile stayed valid. Its last move is made
+    however it ends, what ran before is put back as it ran (the very objects, never built again: fix rounds I1 and
+    R1), and every mark is lowered."""
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    engine = runtime.built.engine
+    _image_masking_failing(monkeypatch, runtime, [1])
+    try:
+        version, masker, built = engine.rules_version, engine.masker, runtime.built
+        with pytest.raises(RuntimeError, match="image models"):
+            runtime.apply_config(stronger, save=False)
+        assert engine.rules_version == version + 2  # ``engine.use``, then its last move, raised midway
+        assert engine.applying == 0 and engine.masker is masker and runtime.built is built
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("before", ["off", "the same server"])
+def test_an_apply_that_raises_after_its_reviewer_puts_back_the_reviewer_that_ran(tmp_path, monkeypatch, before):
+    """R1's put-back of the local reviewer (a control): a save that raises after its reviewer was set (its routes
+    cannot be made) puts back the reviewer that ran, as it ran: none when it was off, the one the save made retired
+    (closed as a reviewer of earlier settings is); or, on the same server, the very one, its own settings again (the
+    save had changed them in place), never among the retired ones."""
+    from types import SimpleNamespace
+
+    from latet import runtime as runtime_module
+    from latet.config import LlmReview
+    from latet.engine.reviewer import Reviewer
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    runtime.review_client = lambda review: cast(Any, SimpleNamespace(key_id=None))
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("the routes could not be made")
+
+    try:
+        if before == "the same server":
+            runtime.apply_config(runtime.config.model_copy(update={"llm_review": LlmReview(enabled=True)}), save=False)
+        ran, reviewer = runtime.mediator.llm_review, runtime.mediator.reviewer
+        kept = reviewer.config if reviewer is not None else None
+        monkeypatch.setattr(runtime_module, "routes_of", failing)
+        saved = stronger.model_copy(update={"llm_review": LlmReview(enabled=True, budget_ms=1234)})
+        with pytest.raises(RuntimeError, match="routes"):
+            runtime.apply_config(saved, save=False)
+        retired = list(runtime.mediator.retired)
+        assert runtime.mediator.llm_review == ran and runtime.mediator.reviewer is reviewer
+        if reviewer is None:
+            assert len(retired) == 1 and isinstance(retired[0], Reviewer)  # the one the save made
+        else:
+            assert reviewer.config is kept and reviewer not in retired
+        assert not runtime.built.engine.stranded and runtime.built.engine.applying == 0
+    finally:
+        runtime.close()
+
+
+def test_a_request_during_a_put_back_waits_for_it_and_is_answered_under_what_ran_before(tmp_path, monkeypatch, turns):
+    """Item 23's second fix round, R2: while what ran before is put back (a save raised midway, or a server's store
+    refused it), a request was refused at once, the mark held as for settings that could not be put back, where it
+    used to wait for the apply under way. The put-back now runs under the apply's own mark: a request waits for it, as
+    for any apply, and is answered under what ran before; the space is stranded only once a put-back has raised."""
+    import threading
+
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    stronger = _with_a_term(stronger)
+    engine = runtime.built.engine
+    _image_masking_failing(monkeypatch, runtime, [1])
+    halfway, resume = threading.Event(), threading.Event()
+    uses = runtime.projects.use
+    calls: list[int] = []
+
+    def use(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 2:  # the put-back's, after the save raised: held there
+            halfway.set()
+            assert resume.wait(10)
+        return uses(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.projects, "use", use)
+    raised: list[BaseException] = []
+
+    def applying() -> None:
+        try:
+            runtime.apply_config(stronger, save=False)
+        except Exception as exc:
+            raised.append(exc)
+
+    thread = threading.Thread(target=applying)
+    settled = request_policy.settled
+    waits: list[tuple[int, bool]] = []
+
+    async def waited(engine: Any) -> None:
+        waits.append((engine.applying, engine.stranded))
+        resume.set()  # the put-back goes on as the request waits for it
+        await settled(engine)
+
+    monkeypatch.setattr(request_policy, "settled", waited)
+    preparations = _preparations(monkeypatch)
+    maskers: list[Any] = []
+    prepare = Mediator.prepare_http
+
+    def noting(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        maskers.append(self.engine.masker)
+        return prepare(self, *args, **kwargs)
+
+    monkeypatch.setattr(Mediator, "prepare_http", noting)
+    first = engine.masker
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            thread.start()
+            assert halfway.wait(10)
+            answered = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+    finally:
+        resume.set()
+        thread.join(10)
+        runtime.close()
+    assert [type(error) for error in raised] == [RuntimeError]
+    assert answered.status_code == 200, answered.text
+    assert waits == [(1, False)], waits  # it waited, under the apply's own mark
+    assert maskers[-1] is first and preparations[-1][1] is None and turns[-1].prepared is preparations[-1][0]
+    assert len(transport.sent) == 1 and not engine.stranded and engine.applying == 0
+
+
+def test_an_apply_whose_failure_persists_puts_back_what_ran_and_serves_it(tmp_path, monkeypatch, turns):
+    """Item 23's second fix round, R1: the image models cannot be read, and stay so. A save raises at its image masking;
+    its put-back applied the old settings again, built them again, reached the same image masking, raised there too and
+    stranded the space, every request refused until a save succeeded, which none could while the models failed. The
+    put-back now restores the very objects that ran before the save's first change, read nothing again: the space
+    serves its old settings, not stranded, each later save that fails the same leaving it so."""
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    stronger = _with_a_term(stronger)
+    engine = runtime.built.engine
+    _image_masking_failing(monkeypatch, runtime, [99])  # unreadable for good
+    preparations = _preparations(monkeypatch)
+    try:
+        first = engine.masker
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            for _ in range(2):
+                with pytest.raises(RuntimeError, match="image models"):
+                    runtime.apply_config(stronger, save=False)
+            answered = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+    finally:
+        runtime.close()
+    assert not engine.stranded and engine.applying == 0
+    assert answered.status_code == 200, answered.text
+    [sent] = transport.sent
+    assert ORION.encode() in sent.content and preparations[-1][1] is None  # the old masker and dump guard
+    assert engine.masker is first and runtime.config.terms == []
+
+
+# The apply's own mark (item 23), which ``apply_config`` sets before its save and its ``finally`` settles, never put
+# back as a setting.
+_THE_APPLYS_MARK = frozenset({"self.built.engine.applying", "self.built.engine.stranded", "self._stranded_said"})
+
+
+def _set_before_the_save() -> tuple[set[str], set[str]]:
+    """What ``Runtime.apply_config`` changes before its save, read from its code and from the runtime's own methods it
+    calls there (``use_reviewer``): each attribute it assigns, by its path from the runtime (``self.mediator.images``),
+    and each ``use`` it calls (``self.gateway.routes.use``). A local name that stands for such a path (``engine``,
+    ``mediator``, ``old``) is read as that path. What it changes after its save is kept with the settings it saved."""
+    import ast
+    import inspect
+    import textwrap
+
+    from latet.runtime import Runtime
+
+    assigned: set[str] = set()
+    used: set[str] = set()
+
+    def parsed(name: str) -> ast.FunctionDef:
+        [node] = ast.parse(textwrap.dedent(inspect.getsource(vars(Runtime)[name]))).body
+        assert isinstance(node, ast.FunctionDef)
+        return node
+
+    def path(node: ast.expr, aliases: dict[str, str]) -> str | None:
+        parts: list[str] = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        return ".".join([aliases.get(node.id, node.id), *reversed(parts)]) if isinstance(node, ast.Name) else None
+
+    def method(name: str) -> bool:
+        function = vars(Runtime).get(name)
+        return inspect.isfunction(function) and function.__qualname__ == f"Runtime.{name}"
+
+    def read(function: ast.FunctionDef, statements: list[ast.stmt]) -> None:
+        aliases: dict[str, str] = {}
+        named_once = [node for node in ast.walk(function) if isinstance(node, ast.Assign)]
+        for node in sorted(named_once, key=lambda node: (node.lineno, node.col_offset)):  # in the order they are set
+            named = path(node.value, aliases) if [type(target) for target in node.targets] == [ast.Name] else None
+            if named is not None and named.startswith("self."):
+                aliases[cast(ast.Name, node.targets[0]).id] = named  # a local name that stands for a path
+        for statement in statements:
+            for node in ast.walk(statement):
+                targets = node.targets if isinstance(node, ast.Assign) else []
+                targets = [node.target] if isinstance(node, ast.AugAssign) else targets
+                assigned.update(
+                    named
+                    for target in targets
+                    if isinstance(target, ast.Attribute) and (named := path(target, aliases)) is not None
+                )
+                if isinstance(node, ast.Call) and (called := path(node.func, aliases)) is not None:
+                    if called.endswith(".use"):
+                        used.add(called)
+                    elif called.count(".") == 1 and called.startswith("self.") and method(called[5:]):
+                        callee = parsed(called[5:])
+                        read(callee, callee.body)
+
+    apply = parsed("apply_config")
+    [attempt] = [node for node in ast.walk(apply) if isinstance(node, ast.Try) and node.finalbody]
+    [save] = [i for i, node in enumerate(attempt.body) if isinstance(node, ast.If) and ast.unparse(node.test) == "save"]
+    read(apply, attempt.body[:save])
+    return assigned, used
+
+
+def test_every_setting_an_apply_changes_is_put_back_as_it_ran(tmp_path, monkeypatch):
+    """Task 8 of the 0.12 plan (item 23's put-back, R1): each attribute ``apply_config`` sets before its save, and each
+    ``use`` it calls there, is read by ``_in_force`` and put back by ``_restore``, the very object, so that a setting
+    added to an apply is never applied and then left in force when the apply raises midway or a server's store
+    refuses it. The fields are found in the code by name; each is then changed as an apply would and put back."""
+    from types import SimpleNamespace
+
+    from latet.config import Config, LlmReview
+
+    assigned, used = _set_before_the_save()
+    assert {"self.mediator.dump_guard", "self.gateway.destinations", "self.config", "self.built"} <= assigned
+    assert "self.mediator.reviewer.config" in assigned  # read through ``use_reviewer``'s ``old``
+    # How the test reads what each ``use`` changes (the objects in use), and changes it as an apply would; a new one is
+    # added here.
+    uses: dict[str, tuple[Callable[[Any], tuple[Any, ...]], Callable[[Any], None]]] = {
+        "self.projects.use": (lambda r: r.projects.in_use(), lambda r: r.projects.use(Config(), None)),
+        "self.built.engine.use": (lambda r: (r.built.engine.masker,), lambda r: r.built.engine.use(object())),
+        "self.mediator.verifier.use": (
+            lambda r: (r.mediator.verifier.masker,),
+            lambda r: r.mediator.verifier.use(object()),
+        ),
+        "self.gateway.routes.use": (lambda r: (r.gateway.routes.table,), lambda r: r.gateway.routes.use([])),
+    }
+    assert used == set(uses), "a use that apply_config calls: say here how it is read and changed"
+    runtime, _, _ = _a_runtime(tmp_path, monkeypatch)
+    runtime.review_client = lambda review: cast(Any, SimpleNamespace(key_id=None))
+    create_app(runtime.gateway)  # its route table, as a gateway that runs has
+    try:
+        # A reviewer runs, so that its settings are there to put back; every owner below is there.
+        runtime.apply_config(runtime.config.model_copy(update={"llm_review": LlmReview(enabled=True)}), save=False)
+        settings = sorted(assigned - _THE_APPLYS_MARK)
+        owners = {}
+        for named in settings:
+            owner: Any = runtime
+            for part in named.split(".")[1:-1]:
+                owner = getattr(owner, part)
+            assert owner is not None, named
+            owners[named] = owner
+        ran = {named: getattr(owners[named], named.rsplit(".", 1)[1]) for named in settings}
+        ran_uses = {named: read(runtime) for named, (read, _) in uses.items()}
+        was = runtime._in_force()
+        for _, change in uses.values():
+            change(runtime)
+        made = {named: object() for named in settings}  # what an apply leaves, each its own
+        for named in settings:
+            setattr(owners[named], named.rsplit(".", 1)[1], made[named])
+        runtime._restore(was)
+        moved = [named for named in settings if getattr(owners[named], named.rsplit(".", 1)[1]) is not ran[named]]
+        moved += [
+            named
+            for named, (read, _) in uses.items()
+            if len(now := read(runtime)) != len(ran_uses[named])
+            or any(a is not b for a, b in zip(now, ran_uses[named], strict=True))
+        ]
+        assert moved == [], "applied by apply_config and not put back by _in_force and _restore"
+        # The reviewer the apply made is retired, as _restore retires one: taken out, it was never a reviewer.
+        assert runtime.mediator.retired[-1] is made["self.mediator.reviewer"]
+        runtime.mediator.retired.pop()
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize("when", ["after", "across"])
+def test_a_request_after_an_apply_that_raised_midway_is_prepared_under_the_settings_that_ran_before(
+    tmp_path, monkeypatch, turns, when
+):
+    """Item 23's fix round, I1: an apply that raises after its first rules move (its image models cannot be read) left
+    its new masker and image policy in force beside the dump guard and route table of before, and lowered its mark: a
+    request sent after it (``after``), or one that waited for it in the gateway (``across``), was prepared under that
+    mix and sent. What ran before is now put back as it ran: such a request is prepared under it alone, its masker
+    and dump guard. Sent after, the term the new settings mask leaves as it was written. Across, its first preparation,
+    made in the apply's window under the new masker (never sent), taught its conversation a fake for that term, which
+    a value once shown it keeps (only ever more masking): what is checked is the masker it was sent from."""
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    stronger = _with_a_term(stronger)
+    engine = runtime.built.engine
+    _image_masking_failing(monkeypatch, runtime, [1])
+    preparations = _preparations(monkeypatch)
+    maskers: list[Any] = []  # the masker each preparation was made under, in order
+    prepare = Mediator.prepare_http
+
+    def noting(self: Mediator, *args: Any, **kwargs: Any) -> Any:
+        maskers.append(self.engine.masker)
+        return prepare(self, *args, **kwargs)
+
+    monkeypatch.setattr(Mediator, "prepare_http", noting)
+    first = engine.masker
+    held = _HeldApply(runtime, stronger, monkeypatch) if when == "across" else None
+    if held is not None:
+        settled = request_policy.settled
+
+        async def waited(engine: Any) -> None:
+            held.resume.set()  # the apply goes on as the gateway waits for it, and raises midway
+            await settled(engine)
+
+        monkeypatch.setattr(request_policy, "settled", waited)
+    try:
+        with TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client:
+            if held is None:
+                with pytest.raises(RuntimeError, match="image models"):
+                    runtime.apply_config(stronger, save=False)
+            else:
+                held.start()
+            answered = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+    finally:
+        if held is not None:
+            held.end()
+        runtime.close()
+    assert held is None or [type(error) for error in held.raised] == [RuntimeError]
+    assert answered.status_code == 200, answered.text
+    [sent] = transport.sent
+    if held is None:
+        assert ORION.encode() in sent.content, sent.content  # never masked by settings that did not apply
+        assert maskers == [first] and engine.masker is first  # what ran before, the very masker
+    else:  # in the window, under the new masker; then under what ran before, the very masker
+        assert len(maskers) == 2 and maskers[0] is not first and maskers[-1] is first, maskers
+        assert engine.masker is first
+    assert preparations[-1][1] is None and turns[-1].prepared is preparations[-1][0]  # the dump guard of before
+    assert runtime.mediator.dump_guard is None and runtime.config.terms == []
+    assert engine.applying == 0 and not engine.stranded
+
+
+def test_settings_that_cannot_be_applied_nor_put_back_refuse_every_request_until_an_apply_ends_whole(
+    tmp_path, monkeypatch, turns, caplog
+):
+    """I1, failing closed: settings that raise midway, and what ran before raising as well as it is put back, leave a
+    mix of both in force. The mark then stays up: every request is refused because its settings changed, none of it
+    prepared under that mix, nothing sent; it is said once, in fixed words, however many applies fail meanwhile. A
+    later apply that ends whole lowers it, and requests are served again, under it."""
+    import logging
+
+    from latet import runtime as runtime_module
+
+    runtime, transport, stronger = _a_runtime(tmp_path, monkeypatch)
+    stronger = _with_a_term(stronger)
+    engine = runtime.built.engine
+    failing = [1]  # the apply's image masking
+    _image_masking_failing(monkeypatch, runtime, failing)
+    preparations = _preparations(monkeypatch)
+    restore = runtime._restore
+    unrestorable = [True]
+
+    def restoring(was: Any) -> None:
+        if unrestorable[0]:
+            raise RuntimeError("what ran before could not be put back")
+        restore(was)
+
+    monkeypatch.setattr(runtime, "_restore", restoring)
+    try:
+        with (
+            caplog.at_level(logging.WARNING, logger="latet.runtime"),
+            TestClient(create_app(runtime.gateway), base_url="http://127.0.0.1:5283") as client,
+        ):
+            with pytest.raises(RuntimeError, match="image models"):
+                runtime.apply_config(stronger, save=False)
+            first = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+            failing[0] = 1  # another apply fails meanwhile, and what ran before cannot be put back again
+            with pytest.raises(RuntimeError, match="image models"):
+                runtime.apply_config(stronger, save=False)
+            second = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+            refused = (len(preparations), len(transport.sent), [getattr(turn.decision, "code", None) for turn in turns])
+            failing[0], unrestorable[0] = 0, False
+            runtime.apply_config(stronger, save=False)  # a later apply that ends whole
+            served = client.post(ACME_CHAT, content=ORION_BODY, headers=HEADERS)
+    finally:
+        runtime.close()
+    for answer in (first, second):
+        assert answer.status_code == 400 and SETTINGS_MOVED in answer.text, answer.text
+    assert refused == (0, 0, ["settings-changed", "settings-changed"]), refused  # none prepared under the mix
+    errors = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+    assert errors == [runtime_module._STRANDED], errors  # said once, in fixed words
+    assert _said(caplog).count(("WARNING", runtime_module._UNSTRANDED)) == 1  # and said over once, applied whole
+    assert served.status_code == 200, served.text
+    [sent] = transport.sent
+    assert ORION.encode() not in sent.content and preparations[-1][1] == 3  # under the settings applied whole
+    assert engine.applying == 0 and not engine.stranded
+
+
+# --- the applications API while a save is applied (item 23's fix round, root's ruling on concern 2) -------------------
+
+APPS_GRANT = {"token": "t_billing", "permissions": ["scan", "mask", "unmask"]}
+
+
+def _apps_client(runtime: Any, engine: Any = None) -> TestClient:
+    """The applications API over ``runtime``'s engine (``engine``: the same, as the calls read it), as an API key's
+    space on a server mounts it, each call handed on as the server's gate hands it on (its identity, a grant of the
+    three permissions)."""
+    from starlette.applications import Starlette
+
+    from latet.bridge.apps import Apps
+    from latet.gateway.app import OnServer
+
+    async def audit(action: str, details: Any, address: str | None) -> None:
+        return None  # the administration log takes every entry
+
+    on_server = OnServer("https://latet.acme.lan", "u_billingcix", audit=audit, kind="key")
+    apps = Apps(runtime.mediator, on_server)
+    if engine is not None:
+        apps.engine = engine
+    inner = Starlette(routes=apps.routes())
+
+    async def gated(scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http":
+            scope = {**scope, "latet.identity": on_server.identity, "latet.grant": APPS_GRANT}
+        await inner(scope, receive, send)
+
+    return TestClient(gated, base_url="http://127.0.0.1:5283")
+
+
+def test_an_application_call_during_a_save_waits_for_it_and_is_answered_under_the_new_settings(tmp_path, monkeypatch):
+    """An application's call (``bridge.apps``) that comes while a save is applied waits for it, as a request over HTTP
+    does (``request_policy.settled``), and is masked under the settings once they are all in place. Before, it was
+    masked at once under what the apply had reached: here, its first change, the masker of before, which leaves the
+    new settings' term in clear."""
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch, "first-change")
+    settled = request_policy.settled
+    waits: list[int] = []
+
+    async def waited(engine: Any) -> None:
+        waits.append(engine.applying)
+        held.resume.set()  # the apply goes on as the call waits for it
+        await settled(engine)
+
+    monkeypatch.setattr(request_policy, "settled", waited)
+    try:
+        with _apps_client(runtime) as client:
+            held.start()
+            answered = client.post(f"{APPS_API}/mask", json={"texts": [f"hello from {ORION}"]})
+    finally:
+        held.end()
+        runtime.close()
+    assert answered.status_code == 200, answered.text
+    [result] = answered.json()["results"]
+    assert ORION not in result["text"] and result["counts"] == {"PROJECT": 1}, (result, waits)
+    assert waits == [1]
+
+
+@pytest.mark.parametrize("operation", ["scan", "mask", "unmask"])
+def test_an_application_call_while_settings_cannot_be_put_back_is_refused_and_nothing_is_read(
+    tmp_path, monkeypatch, operation
+):
+    """With the mark held for settings that could neither be applied nor put back (``Engine.stranded``), what runs is
+    a mix of both: an application's call is refused at once, 503, in fixed words that say the settings changed and to
+    send it again; nothing of it is masked, scanned or restored under the mix."""
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    _image_masking_failing(monkeypatch, runtime, [1])
+
+    def unrestorable(was: Any) -> None:
+        raise RuntimeError("what ran before could not be put back")
+
+    monkeypatch.setattr(runtime, "_restore", unrestorable)
+    read: list[str] = []
+    for name in ("_scan", "_mask", "_unmask"):
+        real = getattr(apps_module.Apps, name)
+
+        def reading(self: Any, *args: Any, _name: str = name, _real: Any = real, **kwargs: Any) -> Any:
+            read.append(_name)
+            return _real(self, *args, **kwargs)
+
+        monkeypatch.setattr(apps_module.Apps, name, reading)
+    try:
+        with pytest.raises(RuntimeError, match="image models"):
+            runtime.apply_config(_with_a_term(stronger), save=False)
+        assert runtime.built.engine.stranded
+        with _apps_client(runtime) as client:
+            answered = client.post(f"{APPS_API}/{operation}", json={"texts": [f"write to {EMAIL} from {ORION}"]})
+    finally:
+        runtime.close()
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": apps_module.SETTINGS_CHANGED} and "send it again" in answered.text
+    assert read == []
+
+
+def test_an_application_call_a_save_overtakes_is_refused(tmp_path, monkeypatch):
+    """A save that starts while an application's call is masked (after its wait): its answer, made as the settings
+    began to change, is not given; the call is refused in the same fixed words, to send it again."""
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch)
+    real = apps_module.Apps._mask
+
+    def overtaken(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)
+        held.start()  # the save starts as the call's texts are masked
+        return done
+
+    monkeypatch.setattr(apps_module.Apps, "_mask", overtaken)
+    try:
+        with _apps_client(runtime) as client:
+            answered = client.post(f"{APPS_API}/mask", json={"texts": [f"hello from {ORION}"]})
+    finally:
+        held.end()
+        runtime.close()
+    assert held.started
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+
+
+def test_an_application_call_a_save_begins_and_ends_within_is_refused(tmp_path, monkeypatch):
+    """Item 23's second fix round, R4: a whole save, begun and ended while an application's call is answered, leaves no
+    mark up as the answer is checked; only the count of applies begun (``Engine.applies``) tells that the settings
+    changed under the call. Its answer is not given (503, the fixed words)."""
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    real = apps_module.Apps._mask
+
+    def across(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)
+        runtime.apply_config(_with_a_term(stronger), save=False)  # begun and ended as the texts are masked
+        return done
+
+    monkeypatch.setattr(apps_module.Apps, "_mask", across)
+    try:
+        with _apps_client(runtime) as client:
+            answered = client.post(f"{APPS_API}/mask", json={"texts": [f"hello from {ORION}"]})
+    finally:
+        runtime.close()
+    assert runtime.built.engine.applying == 0 and runtime.built.engine.applies == 1  # no mark left: the count alone
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+
+
+class _Watched:
+    """An engine as an application's call reads it: its mark, then the count of applies begun. ``at_mark`` runs right
+    after the call's own check of the mark read it (its second read: the wait made the first)."""
+
+    def __init__(self, engine: Any, at_mark: Callable[[], None]) -> None:
+        self._engine, self._at_mark, self._reads = engine, at_mark, 0
+
+    @property
+    def applying(self) -> int:
+        value = self._engine.applying
+        self._reads += 1
+        if self._reads == 2:
+            self._at_mark()
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._engine, name)
+
+
+def test_an_application_call_reads_the_count_of_applies_before_its_mark(tmp_path, monkeypatch):
+    """R4: the call read the count of applies begun after its check of the mark. A save that began between the two,
+    and ended while the call's texts were masked (under what that save had reached), was counted as begun before the
+    call: both checks of the answer passed, and it was given, masked half way (the new term in clear). The count is
+    read first now: the answer is not given."""
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch, "first-change")
+    real = apps_module.Apps._mask
+
+    def masked_then_ended(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)  # while the save is held at its first change
+        held.end()  # then it ends, before the answer is checked
+        return done
+
+    monkeypatch.setattr(apps_module.Apps, "_mask", masked_then_ended)
+    try:
+        with _apps_client(runtime, _Watched(runtime.built.engine, held.start)) as client:
+            answered = client.post(f"{APPS_API}/mask", json={"texts": [f"hello from {ORION}"]})
+    finally:
+        held.end()
+        runtime.close()
+    assert held.started and runtime.built.engine.applying == 0
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+
+
+# --- the Claude Code plugin's bridge while a save is applied (item 23's second fix round, R3) ---------------------------
+
+BRIDGE = "/_latet/engine/v1"
+_NEW_TERM = {"session": "s1", "items": [{"text": f"hello from {ORION}", "kind": "user_text"}]}
+
+
+def _bridge_client(runtime: Any) -> TestClient:
+    """The plugin's bridge over ``runtime``'s engine, as a computer serves it, each call carrying the bridge's token."""
+    from starlette.applications import Starlette
+
+    from latet.bridge.api import Bridge
+
+    token = runtime.gateway.bridge_token
+    assert token is not None
+    app = Starlette(routes=Bridge(runtime.mediator, token).routes())
+    return TestClient(app, base_url="http://127.0.0.1:5283", headers={"x-latet-token": token})
+
+
+def test_a_plugin_mask_during_a_save_waits_for_it_and_is_answered_under_the_new_settings(tmp_path, monkeypatch):
+    """Item 23's second fix round, R3: the plugin's ``mask`` (in client mode, what Claude Code then sends) was answered
+    under whatever a save under way had reached. It now waits for the save as a request over HTTP does
+    (``request_policy.settled``), and is masked under the settings once they are all in place: the new term masked."""
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    held = _HeldApply(runtime, _with_a_term(stronger), monkeypatch, "first-change")
+    settled = request_policy.settled
+    waits: list[int] = []
+
+    async def waited(engine: Any) -> None:
+        waits.append(engine.applying)
+        held.resume.set()  # the save goes on as the call waits for it
+        await settled(engine)
+
+    monkeypatch.setattr(request_policy, "settled", waited)
+    try:
+        with _bridge_client(runtime) as client:
+            held.start()
+            answered = client.post(f"{BRIDGE}/mask", json=_NEW_TERM)
+    finally:
+        held.end()
+        runtime.close()
+    assert answered.status_code == 200, answered.text
+    [item] = answered.json()["items"]
+    assert ORION not in item["text"] and item["count"] == 1 and waits == [1], (item, waits)
+
+
+@pytest.mark.parametrize(
+    ("route", "body"),
+    [
+        ("mask", _NEW_TERM),
+        ("outbound", {"session": "s1", "tool": "WebSearch", "values": [f"news of {ORION}"]}),
+        ("approvals/wait", {"id": "b_nothing"}),
+    ],
+)
+def test_a_plugin_call_while_settings_cannot_be_put_back_is_refused_and_nothing_is_read(
+    tmp_path, monkeypatch, route, body
+):
+    """R3: while the mark is held for settings that could not be put back (a mix in force), the plugin's ``mask``,
+    ``outbound`` and ``approvals/wait`` are refused at once, 503, in fixed words that say the settings changed and to
+    send it again; nothing of them is masked, looked at for stand-ins or asked of the Live Reviewer's queue."""
+    from latet.bridge import api as bridge_module
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    _image_masking_failing(monkeypatch, runtime, [1])
+
+    def unrestorable(was: Any) -> None:
+        raise RuntimeError("what ran before could not be put back")
+
+    monkeypatch.setattr(runtime, "_restore", unrestorable)
+    read: list[str] = []
+    for name in ("_mask", "_outbound"):
+        real = getattr(bridge_module.Bridge, name)
+
+        def reading(self: Any, *args: Any, _name: str = name, _real: Any = real, **kwargs: Any) -> Any:
+            read.append(_name)
+            return _real(self, *args, **kwargs)
+
+        monkeypatch.setattr(bridge_module.Bridge, name, reading)
+    answer = runtime.mediator.approvals.answer
+
+    async def asked(*args: Any, **kwargs: Any) -> Any:
+        read.append("answer")
+        return await answer(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.mediator.approvals, "answer", asked)
+    try:
+        with pytest.raises(RuntimeError, match="image models"):
+            runtime.apply_config(_with_a_term(stronger), save=False)
+        assert runtime.built.engine.stranded
+        with _bridge_client(runtime) as client:
+            answered = client.post(f"{BRIDGE}/{route}", json=body)
+    finally:
+        runtime.close()
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": bridge_module.SETTINGS_CHANGED}, answered.text
+    assert read == []
+
+
+@pytest.mark.parametrize(
+    ("route", "body", "work"),
+    [
+        ("mask", _NEW_TERM, "_mask"),
+        ("outbound", {"session": "s1", "tool": "WebSearch", "values": [f"news of {ORION}"]}, "_outbound"),
+    ],
+)
+def test_a_plugin_call_a_save_begins_and_ends_within_is_refused(tmp_path, monkeypatch, route, body, work):
+    """R3: a whole save begun and ended while the plugin's ``mask`` or ``outbound`` is answered: the answer, made as
+    the settings changed under it, is not given (503, the fixed words); the count of applies begun tells it."""
+    from latet.bridge import api as bridge_module
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    real = getattr(bridge_module.Bridge, work)
+
+    def across(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)
+        runtime.apply_config(_with_a_term(stronger), save=False)  # begun and ended as the call is answered
+        return done
+
+    monkeypatch.setattr(bridge_module.Bridge, work, across)
+    try:
+        with _bridge_client(runtime) as client:
+            answered = client.post(f"{BRIDGE}/{route}", json=body)
+    finally:
+        runtime.close()
+    assert runtime.built.engine.applying == 0 and runtime.built.engine.applies == 1
+    assert answered.status_code == 503, answered.text
+    assert answered.json() == {"error": bridge_module.SETTINGS_CHANGED}
+
+
+async def test_a_plugin_answer_decided_during_a_save_waits_for_it_and_is_masked_under_the_new_settings(
+    tmp_path, monkeypatch
+):
+    """R3, ``approvals/wait``: with the Live Reviewer on, the plugin's texts wait for you, and the answer it polls for
+    is worked out once you decide, masked again with your values (``Bridge._answer``). Decided while a save is applied,
+    it was worked out at once under what the save had reached (here its first change: the masker of before, the new
+    term left in clear). It now waits for the save first, as ``mask`` does, and is masked under the new settings."""
+    import asyncio
+    import base64
+
+    import httpx
+    from starlette.applications import Starlette
+
+    from latet.bridge import api as bridge_module
+    from latet.bridge.api import Bridge
+    from latet.config import Config, Destination, IdentityConfig, LiveReview
+    from latet.runtime import make_runtime
+
+    from ..conftest import ROOT_KEY
+
+    monkeypatch.setenv("LATET_ROOT_KEY", base64.b64encode(ROOT_KEY).decode())
+    monkeypatch.setattr(bridge_module, "HOLD", 10.0)
+    acme = Destination(name="acme", url="https://llm.acme.invalid")
+    settings = Config(
+        identity=IdentityConfig(enabled=False), ner="off", upstreams=[acme], live_review=LiveReview(enabled=True)
+    )
+    runtime = make_runtime(settings, data=tmp_path / "data", config_file=tmp_path / "config.yaml")
+    held = _HeldApply(runtime, _with_a_term(settings), monkeypatch, "first-change")
+    token = runtime.gateway.bridge_token
+    assert token is not None
+    bridge = Bridge(runtime.mediator, token)
+    transport = httpx.ASGITransport(app=Starlette(routes=bridge.routes()))
+    headers = {"x-latet-token": token}
+    settled = request_policy.settled
+
+    async def waited(engine: Any) -> None:
+        task = asyncio.current_task()
+        if task is not None and task.get_coro().__qualname__.endswith("Bridge._answer"):  # type: ignore[union-attr]
+            held.resume.set()  # the save goes on as the answer waits for it
+        await settled(engine)
+
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:5283", trust_env=False) as client:
+            pending = (await client.post(f"{BRIDGE}/mask", json=_NEW_TERM, headers=headers)).json()["pending"]
+            monkeypatch.setattr(request_policy, "settled", waited)
+            await asyncio.to_thread(held.start)  # a save under way, held at its first change
+            assert await runtime.mediator.approvals.decide(pending, True)  # you decide meanwhile
+            answered = await client.post(f"{BRIDGE}/approvals/wait", json={"id": pending}, headers=headers)
+    finally:
+        held.end()
+        runtime.close()
+    assert answered.status_code == 200, answered.text
+    [item] = answered.json()["items"]
+    assert ORION not in item["text"], item
 
 
 def test_an_absent_mediator_is_refused_before_transport(turns, monkeypatch):
@@ -1453,3 +2781,529 @@ async def test_a_forwarder_with_no_launch_ingress_decides_each_request_as_a_clai
     [sent] = transport.sent
     assert EMAIL.encode() not in sent.content  # the claimed project's loosening never applied: masked as everywhere
     assert request_scope.get() is None  # the selection it made for the request is its own, gone with it
+
+
+# --- D4 (b), option B: the open list on a request Latet only checks (minors after 0.11, item 1) ----------------------
+#
+# On a request Latet only checks (Claude Code's, a subscription's, Bedrock's and Vertex's calls), an anthropic-* header
+# no profile names passes once the final check has read it, its decision a Pass naming "checked only"; an
+# x-claude-code-* one is taken off and counted. A request Latet rewrites (an Anthropic SDK call) is refused exactly as
+# in 0.11.1, before anything of it is masked or learnt.
+
+# The headers a Claude Code release could add before Latet names them: two to pass checked, one to take off.
+_OPEN = {"anthropic-new-capability": "on", "anthropic-workspace-id": "wrkspc_01AbCdEfGh", "x-claude-code-new-hint": "1"}
+_VERTEX = "/vertex/v1/projects/p/locations/us-east5/publishers/anthropic/models/m:rawPredict"
+
+
+def _message(request: httpx.Request) -> httpx.Response:
+    """An Anthropic message carrying the first text the request did, or an empty model list for a model list."""
+    answer: dict[str, Any] = {"data": [], "has_more": False}
+    if request.method != "GET":
+        content = json.loads(request.content)["messages"][0]["content"]
+        answer = {
+            "id": "msg_rc", "type": "message", "role": "assistant", "model": "m", "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": content}], "usage": {"input_tokens": 1, "output_tokens": 1},
+        }  # fmt: skip
+    stream = _Answer(json.dumps(answer).encode())
+    return httpx.Response(200, headers={"content-type": "application/json"}, stream=stream)
+
+
+def _checked_call(route: str, mediator: Mediator, recorder: Any, text: str = HELLO) -> tuple[Any, ...]:
+    """(gateway, target, headers, body) of a request Latet only checks: Claude Code's on Anthropic's route (its session
+    header), a Bedrock call (signed, on its profile's route) or a Vertex Claude call; each body one its profile names
+    whole, so that nothing of it passes by a rule."""
+    from latet.gateway.cloud import VertexUpstream
+
+    messages = [{"role": "user", "content": text}]
+    if route == "bedrock":
+        return (
+            _bedrock(mediator, _Aws(), _message, recorder=recorder),
+            _route(),
+            {"content-type": "application/json"},
+            (_invoke(text)),
+        )
+    if route == "vertex":
+        vertex = VertexUpstream(envelope_expected=frozenset({("model", "m"), ("project", "p")}))
+        body = {"anthropic_version": "vertex-2023-10-16", "max_tokens": 5, "messages": messages}
+        gateway = _gateway(mediator, _message, upstreams=[vertex], recorder=recorder)
+        return (
+            gateway,
+            _VERTEX,
+            {"content-type": "application/json", "authorization": "Bearer ya29.fake"},
+            (json.dumps(body).encode()),
+        )
+    body = {"model": "m", "max_tokens": 5, "messages": messages}
+    gateway = _gateway(mediator, _message, upstreams=[_ANTHROPIC], recorder=recorder)
+    return gateway, "/anthropic/v1/messages", dict(_CLAUDE_CODE), json.dumps(body).encode()
+
+
+def _lowered(sent: Any) -> list[tuple[bytes, bytes]]:
+    return [(name.lower(), value) for name, value in sent.headers]
+
+
+def _checked_sender(route: str, mediator: Mediator, recorder: Any = None) -> tuple[Any, Any]:
+    """(gateway, send) of a request Latet only checks: ``_checked_call``'s three routes, or Claude Code's model list
+    (bodyless, its session header). ``send(client, headers)`` sends it with those headers added."""
+    if route == "a model list":
+        gateway = _gateway(mediator, _message, upstreams=[_ANTHROPIC], recorder=recorder)
+        listed = {k: v for k, v in _CLAUDE_CODE.items() if k != "content-type"}
+        return gateway, lambda client, more: client.get("/anthropic/v1/models", headers={**listed, **more})
+    gateway, target, headers, body = _checked_call(route, mediator, recorder)
+    return gateway, lambda client, more: client.post(target, content=body, headers={**headers, **more})
+
+
+@pytest.mark.parametrize("route", ["claude-code", "bedrock", "vertex"])
+def test_a_new_anthropic_header_passes_checked_on_a_request_latet_only_checks(route, turns):
+    """Claude Code keeps working on a release that adds a header before Latet names it: the provider gets each new
+    anthropic-* header byte for byte, never the new x-claude-code-* one; the body leaves as it came; the decision is a
+    Pass naming "checked only" and the history says so, its removed header counted. The same request without them is a
+    Forward that names no rule."""
+    recorder = _Recorder()
+    gateway, target, headers, body = _checked_call(route, _mediator(), recorder)
+    with gateway.client as client:
+        control = client.post(target, content=body, headers=headers)
+        answered = client.post(target, content=body, headers={**headers, **_OPEN})
+    assert control.status_code == 200 and type(turns[0].decision) is Forward, control.text
+    assert answered.status_code == 200, answered.text
+    _, sent = gateway.transport.sent
+    assert (b"anthropic-new-capability", b"on") in _lowered(sent)
+    assert (b"anthropic-workspace-id", b"wrkspc_01AbCdEfGh") in _lowered(sent)
+    assert b"x-claude-code-new-hint" not in {name for name, _ in _lowered(sent)}
+    assert sent.content == body
+    decision = turns[-1].decision
+    assert type(decision) is Pass and decision.evidence.rules == ("checked only",)
+    assert forward.decision_passes(decision) == ("checked-only",)
+    first, record = recorder.finished
+    assert first.passes == () and first.removed_headers == 0
+    assert record.passes == ("checked-only",) and record.removed_headers == 1 and record.block_code is None
+
+
+def test_a_new_anthropic_header_on_a_request_latet_rewrites_is_refused_as_in_0_11_1(turns):
+    """An Anthropic SDK call (no Claude Code marker, an API key) is one Latet rewrites: the open list never reaches it.
+    It is refused naming the first new header, nothing sent and nothing of it masked or learnt (the vault knows no more
+    values than before), recorded as 0.11.1 recorded it: as the same request refused at its envelope's admission."""
+    mediator = _mediator()
+    recorder = _Recorder()
+    gateway = _gateway(mediator, _message, upstreams=[_ANTHROPIC], recorder=recorder)
+    headers = {k: v for k, v in _CLAUDE_CODE.items() if k != "x-claude-code-session-id"}
+    body = json.dumps({"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": f"to {EMAIL}"}]})
+    values = mediator.engine.vault.count
+    with gateway.client as client:
+        answered = client.post("/anthropic/v1/messages", content=body.encode(), headers={**headers, **_OPEN})
+    assert answered.status_code == 400, answered.text
+    words = answered.json()["error"]["message"]
+    assert "request envelope refused (envelope-header-unknown): header anthropic-new-capability" in words
+    assert "Nothing was sent" in words and "wrkspc_01AbCdEfGh" not in words
+    assert gateway.transport.sent == [] and gateway.counts() == (0, 0)
+    assert mediator.engine.vault.count == values, "nothing of it masked or learnt"
+    block = turns[-1].decision
+    assert type(block) is Block and (block.code, block.status) == ("envelope-header-unknown", 400)
+    assert turns[-1].execution == NotAttempted("envelope-header-unknown")
+    # 0.11.1's record of it: the same request refused at its envelope's admission, for a header no rule names.
+    twin_recorder = _Recorder()
+    twin = _gateway(_mediator(), _message, upstreams=[_ANTHROPIC], recorder=twin_recorder)
+    with twin.client as client:
+        refused = client.post("/anthropic/v1/messages", content=body.encode(), headers={**headers, "x-team": "on"})
+    assert refused.status_code == 400 and "header x-team" in refused.text
+    [record], [admitted] = recorder.finished, twin_recorder.finished
+    assert record.block_code == "envelope-header-unknown" and record.history_code == 28 and record.forwarded is None
+    assert _row(record) == _row(admitted)
+
+
+@pytest.mark.parametrize("held", ["a key", "a value the vault knows", "a card number", "an email"])
+@pytest.mark.parametrize("route", ["claude-code", "bedrock"])
+def test_a_sensitive_value_in_a_new_anthropic_header_is_still_refused(route, held, turns):
+    """The final check reads what the open list lets through: a secret (a fake key, written in two pieces), a value the
+    vault knows (learnt, never detected on its own) or a detected personal value in a new anthropic-* header refuses
+    the request, envelope-sensitive, nothing sent, the value nowhere in the answer."""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Entity
+
+    mediator = _mediator()
+    known = "acme-payroll-" + "7731"
+    vault = mediator.engine.vault
+    vault.learn(
+        Entity(vault.entity_id("API_KEY", known), "API_KEY", EntityClass.SECRET, known, "fk-" + "1" * 32, 0, 0.0)
+    )
+    value = {
+        "a key": "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+        "a value the vault knows": known,
+        "a card number": "4111 1111 1111 1111",
+        "an email": EMAIL,
+    }[held]
+    gateway, target, headers, body = _checked_call(route, mediator, None)
+    with gateway.client as client:
+        answered = client.post(target, content=body, headers={**headers, "anthropic-workspace-id": value})
+    assert answered.status_code == 400, answered.text
+    assert "request envelope refused (envelope-sensitive)" in answered.text and value not in answered.text
+    assert gateway.transport.sent == []
+    assert type(turns[-1].decision) is Block and turns[-1].decision.code == "envelope-sensitive"
+
+
+@pytest.mark.parametrize("held", ["a value the vault knows", "a card number", "a key's form"])
+@pytest.mark.parametrize("route", ["claude-code", "bedrock", "vertex", "a model list"])
+def test_a_sensitive_value_in_a_new_anthropic_header_s_name_is_refused(route, held, turns):
+    """The review of Task 3, I-1: a new anthropic-* header's name is the client's own text, which no profile chose, so
+    the final check reads it beside its value, as D6 reads a new member's key (R-81). A value the vault knows, a card
+    number or a key's form in the name refuses the request, envelope-sensitive, nothing sent, on Claude Code's model
+    list (bodyless) as on a call with a body; before, the name left unread, the decision a Pass naming "checked only".
+    A name that holds nothing still passes. (The re-review of Task 3, M-a: the model list was refused already, and is
+    pinned here. Its first key's form, a Databricks key of 36 characters without a dash, is refused by the name's bound
+    before the check reads it since N-1, and is pinned by the test of that bound; the key's form here, a Slack bot
+    token's, has words of 12 at most, so the final check is what finds it: the scoped check of N-1, P-2.)"""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Entity
+
+    mediator = _mediator()
+    known = "acme-payroll-" + "7731"
+    vault = mediator.engine.vault
+    vault.learn(
+        Entity(vault.entity_id("API_KEY", known), "API_KEY", EntityClass.SECRET, known, "fk-" + "1" * 32, 0, 0.0)
+    )
+    held_value = {
+        "a value the vault knows": known,
+        "a card number": "4111" + "1" * 12,
+        "a key's form": "xoxb-" + "1234567890-" + "1234567890-" + "abcdefghijkl",  # gitleaks slack-bot-token
+    }[held]
+    name = "anthropic-" + held_value
+    gateway, send = _checked_sender(route, mediator)
+    with gateway.client as client:
+        answered = send(client, {name: "1"})
+        clean = send(client, {"anthropic-new-capability": "1"})
+    assert answered.status_code == 400, answered.text
+    assert "request envelope refused (envelope-sensitive)" in answered.text and name not in answered.text
+    assert type(turns[0].decision) is Block and turns[0].decision.code == "envelope-sensitive"
+    assert clean.status_code == 200, clean.text
+    [sent] = gateway.transport.sent  # the clean one alone
+    assert name.encode() not in {header for header, _ in _lowered(sent)}
+
+
+@pytest.mark.parametrize("held", ["an IBAN", "a vault value in capitals", "a vault value with each word capitalised"])
+@pytest.mark.parametrize("route", ["claude-code", "bedrock", "vertex", "a model list"])
+def test_a_value_with_capitals_in_a_new_anthropic_header_s_name_is_refused(route, held, turns):
+    """The re-review of Task 3, I-A: a header's name arrives in lowercase (the server lowers it, whatever the client
+    wrote), and an IBAN or a value the vault learnt with capitals is found only with its capitals. The final check reads
+    an open header's name in lowercase, in capitals and with each word capitalised, so each of them in the name refuses
+    the request, envelope-sensitive, nothing sent, on a model list as on a call with a body; before, the name was read
+    in lowercase alone and the request passed, the value sent in the name. Those forms are only texts for the check to
+    read: a name with capitals that holds nothing passes, sent in lowercase as it arrived. (Since N-1 no word of such a
+    name is longer than 16 characters, so the IBAN here is Belgium's, of 16; an IBAN of 27 and an AWS key id's form, of
+    20, are refused by that bound before the check reads them, pinned by the test of that bound.)"""
+    from latet.engine.types import EntityClass
+    from latet.engine.vault import Entity
+
+    mediator = _mediator()
+    upper, title = "CUST-PAYROLL-" + "7731", "Acme-Payroll-" + "7731"
+    vault = mediator.engine.vault
+    for known, etype, eclass, fake in (
+        (upper, "API_KEY", EntityClass.SECRET, "fk-" + "2" * 32),
+        (title, "CUSTOM_TERM", EntityClass.CUSTOM, "Term-Fake-3333"),  # a customer's code, learnt as it is written
+    ):
+        vault.learn(Entity(vault.entity_id(etype, known), etype, eclass, known, fake, 0, 0.0))
+    held_value = {
+        "an IBAN": "BE68" + "539007547034",  # found only in capitals (pii:iban)
+        "a vault value in capitals": upper,
+        "a vault value with each word capitalised": title,
+    }[held]
+    name = "anthropic-" + held_value
+    gateway, send = _checked_sender(route, mediator)
+    with gateway.client as client:
+        answered = send(client, {name: "1"})
+        clean = send(client, {"Anthropic-New-Capability": "1"})
+    assert answered.status_code == 400, answered.text
+    assert "request envelope refused (envelope-sensitive)" in answered.text
+    assert held_value not in answered.text and held_value.lower() not in answered.text
+    assert type(turns[0].decision) is Block and turns[0].decision.code == "envelope-sensitive"
+    assert clean.status_code == 200, clean.text
+    [sent] = gateway.transport.sent  # the clean one alone
+    assert (b"anthropic-new-capability", b"1") in _lowered(sent)
+    assert name.lower().encode() not in {header for header, _ in _lowered(sent)}
+
+
+@pytest.mark.parametrize(
+    "held",
+    [
+        "a Google API key's form",
+        "a word of 17 characters",
+        "an IBAN of 27 characters",
+        "an AWS key id's form",
+        "a Databricks key's form",
+    ],
+)
+@pytest.mark.parametrize("route", ["claude-code", "bedrock", "vertex", "a model list"])
+def test_a_word_longer_than_16_characters_in_a_new_anthropic_header_s_name_is_refused_as_in_0_11_1(route, held, turns):
+    """The scoped check of Task 3's second fix round, N-1: the final check reads a new anthropic-* header's name in
+    lowercase, in capitals and with each word capitalised, so a secret whose form mixes capitals (a Google API key,
+    AIza and 35 characters, written in pieces) left in the lowered name, where the same text as a value is refused. No
+    word of such a name, between its dashes, is longer than 16 characters now (the longest word Anthropic's headers
+    use is organization, 12): a name with a longer word is not in the open list, refused as in 0.11.1,
+    envelope-header-unknown naming the header to the agent alone, nothing sent and its record that of any header no
+    profile names, on a model list as on a call with a body. A key, a token, an IBAN or a long id runs longer than 16
+    without a dash: the IBAN, the AWS key id's form and the Databricks key's form I-1's and I-A's tests held in a name
+    are refused so now, before the check reads them. A name whose words have 16 characters still passes checked. (The
+    scoped check of N-1, P-1: the agent is told the header with each word longer than 16 characters given by its
+    length, so the key's form it held never comes back in the answer.)"""
+    value, shown = {
+        "a Google API key's form": ("AIza" + "SyQ7k2Lm9Np4Rs6Tv8Wx0Yz3Ab5Cd7Ef9G1", "anthropic-<39 characters>"),
+        "a word of 17 characters": ("new-" + "capability" + "1234567", "anthropic-new-<17 characters>"),
+        "an IBAN of 27 characters": ("IT60X0542811101000000123456", "anthropic-<27 characters>"),
+        "an AWS key id's form": ("AKIA" + "ZQ7XK2MV4PL3NB6W", "anthropic-<20 characters>"),
+        "a Databricks key's form": ("dapi" + "3f9a1c7e5b2d8046" + "a1b2c3d4e5f60718", "anthropic-<36 characters>"),
+    }[held]
+    name, fits = "anthropic-" + value, "anthropic-" + "a" * 16 + "-" + "b" * 16
+    recorder, twin_recorder = _Recorder(), _Recorder()
+    gateway, send = _checked_sender(route, _mediator(), recorder)
+    twin, twin_send = _checked_sender(route, _mediator(), twin_recorder)
+    with gateway.client as client:
+        answered = send(client, {name: "1"})
+        passed = send(client, {fits: "1"})
+    with twin.client as client:
+        refused = twin_send(client, {"x-team": "1"})  # 0.11.1's refusal of a header no profile names
+    assert answered.status_code == 400, answered.text
+    assert f"request envelope refused (envelope-header-unknown): header {shown}." in answered.text
+    long = max(value.split("-"), key=len)
+    assert long not in answered.text and long.lower() not in answered.text
+    assert "Nothing was sent" in answered.text
+    block = turns[0].decision
+    assert type(block) is Block and (block.code, block.status) == ("envelope-header-unknown", 400)
+    assert turns[0].execution == NotAttempted("envelope-header-unknown")
+    assert refused.status_code == 400 and "(envelope-header-unknown): header x-team" in refused.text
+    assert _row(recorder.finished[0]) == _row(twin_recorder.finished[0]), "recorded as 0.11.1 recorded it"
+    assert passed.status_code == 200, passed.text
+    [sent] = gateway.transport.sent  # the name that fits alone
+    assert (fits.encode(), b"1") in _lowered(sent)
+    decision = turns[1].decision
+    assert type(decision) is Pass and decision.evidence.rules == ("checked only",)
+
+
+@pytest.mark.parametrize("route", ["claude-code", "bedrock", "vertex", "a model list", "an SDK"])
+def test_a_refused_header_s_word_longer_than_16_characters_is_named_by_its_length(route, turns, caplog):
+    """The scoped check of N-1, P-1 (root's ruling, wider than the check proposed): a header no profile names is told to
+    the agent alone, by name, and a client may put that answer into its conversation, so that a key's form in the name
+    would come back, lowercased, in a later request's body, where the check cannot find it. Every word of a refused
+    header's name (between its dashes) longer than 16 characters is told by its length, on any unknown header, not only
+    a new anthropic-* one: x-custom-<20 characters>. A name whose words are 16 or shorter is told as before. Nothing
+    else changes: nothing sent, the log keeps the category alone, and the history's row is the one a short name has."""
+    import logging
+
+    token = "tk" + "7Qx2Lm9Np4Rs6Tv8Wx"  # 20 characters
+    long, short = "x-custom-" + token, "x-custom-" + "a" * 16
+    recorder, twin_recorder = _Recorder(), _Recorder()
+    if route == "an SDK":  # a request Latet rewrites: an Anthropic SDK call, no Claude Code marker
+        sdk = {k: v for k, v in _CLAUDE_CODE.items() if k != "x-claude-code-session-id"}
+        body = json.dumps({"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": HELLO}]}).encode()
+
+        def sender(recorder: Any) -> tuple[Any, Any]:
+            gateway = _gateway(_mediator(), _message, upstreams=[_ANTHROPIC], recorder=recorder)
+            return gateway, lambda client, more: client.post(
+                "/anthropic/v1/messages", content=body, headers={**sdk, **more}
+            )
+
+        (gateway, send), (twin, twin_send) = sender(recorder), sender(twin_recorder)
+    else:
+        gateway, send = _checked_sender(route, _mediator(), recorder)
+        twin, twin_send = _checked_sender(route, _mediator(), twin_recorder)
+    with caplog.at_level(logging.DEBUG), gateway.client as client:
+        answered = send(client, {long: "1"})
+    with twin.client as client:
+        named = twin_send(client, {short: "1"})
+    assert answered.status_code == 400, answered.text
+    assert "request envelope refused (envelope-header-unknown): header x-custom-<20 characters>." in answered.text
+    assert token not in answered.text and token.lower() not in answered.text
+    assert named.status_code == 400 and f"(envelope-header-unknown): header {short}." in named.text
+    assert gateway.transport.sent == [] and twin.transport.sent == []
+    assert token.lower() not in caplog.text and "envelope-header-unknown" in caplog.text
+    assert turns[0].decision.code == "envelope-header-unknown" == turns[1].decision.code
+    assert _row(recorder.finished[0]) == _row(twin_recorder.finished[0]), "the history holds no name"
+
+
+@pytest.mark.parametrize(("client", "passes"), [("claude-code", True), ("subscription", True), ("an SDK", False)])
+def test_a_model_list_takes_the_open_list_by_the_same_test_as_a_call_with_a_body(client, passes, turns):
+    """A bodyless call (a model list) is one Latet only checks by its headers alone: Claude Code's (its session header)
+    or a subscription's passes a new anthropic-* header checked, a Pass naming "checked only"; an SDK's is refused
+    naming it, nothing sent."""
+    recorder = _Recorder()
+    gateway = _gateway(_mediator(), _message, upstreams=[_ANTHROPIC], recorder=recorder)
+    headers = {
+        "claude-code": {"x-api-key": "sk-ant-test", "x-claude-code-session-id": "7e57a000-0000-4000-8000-000000000002"},
+        "subscription": {"authorization": "Bearer sk-ant-oat01-" + "fixture"},
+        "an SDK": {"x-api-key": "sk-ant-test"},
+    }[client]
+    with gateway.client as http:
+        answered = http.get("/anthropic/v1/models", headers={**headers, "anthropic-version": "2023-06-01", **_OPEN})
+    if not passes:
+        assert answered.status_code == 400, answered.text
+        assert "(envelope-header-unknown): header anthropic-new-capability" in answered.text
+        assert gateway.transport.sent == [] and turns[-1].decision.code == "envelope-header-unknown"
+        return
+    assert answered.status_code == 200, answered.text
+    [sent] = gateway.transport.sent
+    assert (b"anthropic-workspace-id", b"wrkspc_01AbCdEfGh") in _lowered(sent)
+    assert b"x-claude-code-new-hint" not in {name for name, _ in _lowered(sent)}
+    decision = turns[-1].decision
+    assert type(decision) is Pass and decision.evidence.rules == ("checked only",) and not decision.evidence.exceptions
+    [record] = recorder.finished
+    assert record.passes == ("checked-only",) and record.removed_headers == 1
+    # The review of Task 3, M-1: every part of it accounted for, as the same list with no new header is (a Forward,
+    # 21): the history's coverage capsule of a Pass (25), so that the dashboard says "checked only", never "unknown".
+    assert record.history_code == 25 == forward.history_coverage(decision)
+    from latet.storage.exchanges import history_coverage_summary
+
+    assert (
+        history_coverage_summary({"id": "e" * 32}, record.history_code, "e" * 32)["coverage"] == "complete-accounting"
+    )
+
+
+def test_a_model_list_let_through_by_an_exception_alone_has_the_coverage_capsule_of_a_pass(turns):
+    """The review of Task 3, M-1, its other case (the re-review's M-b): Claude Code's model list carrying a header an
+    approved exception names, and nothing the open list passes, is a Pass naming the exception alone, its envelope
+    proved and its body empty. Its history code is the coverage capsule of a Pass (25, complete-accounting), which the
+    dashboard shows as passed by an exception; in 0.11.1, before M-1, the same call was coded 0 and read as unknown."""
+    from latet.storage.exchanges import history_coverage_summary
+
+    exception = _anthropic_exception("x-team", role="checked", profile="anthropic.models.1")
+    recorder = _Recorder()
+    gateway = _gateway(
+        _mediator(), _message, upstreams=[_ANTHROPIC], recorder=recorder, request_exceptions=(exception,)
+    )
+    headers = {k: v for k, v in _CLAUDE_CODE.items() if k != "content-type"}
+    with gateway.client as http:
+        answered = http.get("/anthropic/v1/models", headers={**headers, "x-team": "blue"})
+    assert answered.status_code == 200, answered.text
+    [sent] = gateway.transport.sent
+    assert (b"x-team", b"blue") in _lowered(sent)
+    decision = turns[-1].decision
+    assert type(decision) is Pass and decision.evidence.exceptions and decision.evidence.rules == ()
+    [record] = recorder.finished
+    assert record.passes == ("exception",) and record.removed_headers == 0
+    assert record.history_code == 25 == forward.history_coverage(decision)
+    assert (
+        history_coverage_summary({"id": "e" * 32}, record.history_code, "e" * 32)["coverage"] == "complete-accounting"
+    )
+
+
+def _anthropic_exception(name: str, role: str = "credential", **extra: Any) -> Any:
+    from datetime import UTC, datetime, timedelta
+
+    from latet.config import RequestException
+
+    return RequestException.model_validate(
+        {
+            "destination": "anthropic",
+            "profile": "anthropic.messages.1",
+            "components": [{"kind": "header", "name": name, "role": role}],
+            "reason": "destination-credential" if role == "credential" else "custom-header",
+            "id": "x0123456789",
+            "granted": datetime.now(UTC) - timedelta(days=1),
+            "revision": request_profiles.REVISION,
+            **extra,
+        }
+    )
+
+
+@pytest.mark.parametrize("row", ["another project's", "one that ended"])
+def test_an_exception_naming_a_new_header_decides_it_even_where_it_does_not_apply(row, turns, tmp_path):
+    """The review of Task 3, M-2 (root's ruling: kept, failing closed): an approved exception that names a new
+    anthropic-* header takes it out of the open list wherever the exception is, even where it does not apply. On a
+    request of no project of its, or once it has ended, the header is refused as it was before the open list
+    (``envelope-header-unknown`` naming it; ``envelope-exception-expired`` naming the exception and the day it ended),
+    nothing sent: never read and sent by the open list in the exception's place, as a credential's value would then be.
+    With no exception at all, the same request passes checked."""
+    from datetime import UTC, datetime, timedelta
+
+    extra = (
+        {"project": str(tmp_path)}
+        if row == "another project's"
+        else {"granted": datetime.now(UTC) - timedelta(days=31), "days": 30}
+    )
+    exception = _anthropic_exception("anthropic-workspace-id", **extra)
+    body = json.dumps({"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": HELLO}]}).encode()
+    headers = {**_CLAUDE_CODE, "anthropic-workspace-id": "wrkspc_01AbCdEfGh"}
+    gateway = _gateway(_mediator(), _message, upstreams=[_ANTHROPIC], request_exceptions=(exception,))
+    with gateway.client as client:
+        answered = client.post("/anthropic/v1/messages", content=body, headers=headers)
+    assert answered.status_code == 400, answered.text
+    if row == "another project's":
+        assert "(envelope-header-unknown): header anthropic-workspace-id" in answered.text
+        assert turns[-1].decision.code == "envelope-header-unknown"
+    else:
+        assert "(envelope-exception-expired): exception x0123456789 expired on" in answered.text
+        assert turns[-1].decision.code == "envelope-exception-expired"
+    assert gateway.transport.sent == [] and "wrkspc_01AbCdEfGh" not in answered.text
+    bare = _gateway(_mediator(), _message, upstreams=[_ANTHROPIC])
+    with bare.client as client:
+        assert client.post("/anthropic/v1/messages", content=body, headers=headers).status_code == 200
+    assert type(turns[-1].decision) is Pass and turns[-1].decision.evidence.rules == ("checked only",)
+
+
+def test_an_exception_added_on_another_instance_applies_to_a_header_the_open_list_would_pass(turns):
+    """RC-REC-3: a request whose envelope lets a new anthropic-* header through by the open list reads the settings in
+    force first, as one refused for an unknown header does, so that an exception added on another instance meanwhile
+    applies (exceptions apply first): here a destination credential, sent unread, the Pass naming the exception."""
+    from datetime import UTC, datetime
+
+    holder: dict[str, _Gateway] = {}
+    reads: list[int] = []
+
+    async def fresh() -> tuple[datetime, bool]:
+        reads.append(1)
+        if len(reads) == 1:  # another instance approved the exception: these settings are behind PostgreSQL's
+            config = holder["gateway"].config
+            assert config is not None and config.routes is not None
+            config.routes.use([_ANTHROPIC], exceptions=(_anthropic_exception("anthropic-workspace-id"),))
+            return datetime.now(UTC), True
+        return datetime.now(UTC), False
+
+    recorder = _Recorder()
+    gateway = holder["gateway"] = _gateway(
+        _mediator(), _message, upstreams=[_ANTHROPIC], recorder=recorder, exception_fresh=fresh
+    )
+    body = json.dumps({"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": HELLO}]}).encode()
+    headers = {**_CLAUDE_CODE, "anthropic-workspace-id": "wrkspc_01AbCdEfGh"}
+    with gateway.client as client:
+        answered = client.post("/anthropic/v1/messages", content=body, headers=headers)
+    assert answered.status_code == 200, answered.text
+    assert reads, "the settings were never read again"
+    decision = turns[-1].decision
+    assert type(decision) is Pass and decision.evidence.exceptions == ("x0123456789",)
+    assert decision.evidence.rules == (), "the exception applied, never the open list"
+    [record] = recorder.finished
+    assert record.passes == ("exception",)
+    assert (b"anthropic-workspace-id", b"wrkspc_01AbCdEfGh") in _lowered(gateway.transport.sent[0])
+
+
+@pytest.mark.parametrize("client", ["claude-code", "an SDK"])
+def test_a_header_left_to_the_open_list_by_an_exception_revoked_before_its_decision_is_refused_naming_it(client, turns):
+    """``Forwarder._judged``'s second reading is held to the open list's terms: a header an exception let through at
+    admission, the exception revoked on another instance before the decision, is never sent by the open list instead
+    (its value was not read as the open list reads it: a credential's never is). It is refused as it was before the
+    exception, naming it, nothing sent; on a request Latet rewrites as on one it only checks."""
+    from datetime import UTC, datetime
+
+    holder: dict[str, _Gateway] = {}
+    reads: list[int] = []
+
+    async def fresh() -> tuple[datetime, bool]:
+        reads.append(1)
+        if len(reads) == 2:  # the reading at the decision: another instance revoked the exception
+            config = holder["gateway"].config
+            assert config is not None and config.routes is not None
+            config.routes.use([_ANTHROPIC])
+            return datetime.now(UTC), True
+        return datetime.now(UTC), False
+
+    exception = _anthropic_exception("anthropic-workspace-id")
+    gateway = holder["gateway"] = _gateway(
+        _mediator(), _message, upstreams=[_ANTHROPIC], request_exceptions=(exception,), exception_fresh=fresh
+    )
+    headers = {**_CLAUDE_CODE, "anthropic-workspace-id": "wrkspc_01AbCdEfGh"}
+    if client == "an SDK":
+        del headers["x-claude-code-session-id"]
+    body = json.dumps({"model": "m", "max_tokens": 5, "messages": [{"role": "user", "content": HELLO}]}).encode()
+    with gateway.client as http:
+        answered = http.post("/anthropic/v1/messages", content=body, headers=headers)
+    assert len(reads) == 2
+    assert answered.status_code == 400, answered.text
+    assert "(envelope-header-unknown): header anthropic-workspace-id" in answered.text
+    assert gateway.transport.sent == [] and gateway.counts() == (0, 0)
+    assert turns[-1].decision.code == "envelope-header-unknown"

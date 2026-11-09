@@ -2,8 +2,8 @@ name: Fresh install
 
 # Latet installed on computers with neither uv nor Python, as a person meets the installer there: Linux in clean
 # containers, macOS and Windows with only the system's own folders on the PATH and an empty home. The installer brings
-# uv, uv brings a Python Latet is tested on, Latet installs with name detection and the text in images, starts and
-# masks. On each pull request and push to main, and by hand (Run workflow).
+# uv, uv brings the newest Python Latet is tested on (3.14, which the check names), Latet installs with name detection
+# and the text in images, starts and masks. On each pull request and push to main, and by hand (Run workflow).
 on:
   push:
     branches: [main]

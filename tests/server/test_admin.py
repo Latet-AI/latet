@@ -1214,7 +1214,7 @@ def test_a_credential_found_valid_on_one_instance_skips_the_limit_on_another(ser
     here.keep(secret)
     assert there.holds(secret)  # found valid here, known there from its first try
     assert not Known(server.bus, key, kind="secret").holds(secret)  # each kind of credential apart
-    [name] = [n.decode() for n in server.bus.client.scan_iter(match=server.bus.key("known:*"))]
+    [name] = {n.decode() for n in server.bus.client.scan_iter(match=server.bus.key("known:*"))}  # SCAN may repeat one
     assert "xxxx" not in name and server.bus.client.get(name) == b"1"  # a keyed hash, never the credential
     assert KNOWN_SECONDS * 1000 - 10_000 < server.bus.client.pttl(name) <= KNOWN_SECONDS * 1000  # an hour's life
     there.forget(secret)

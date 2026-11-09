@@ -17,6 +17,34 @@ Ce qui vient ensuite est dans la [feuille de route](../roadmap/) : un refus clai
 auto, un programme d'installation signé pour Windows, vos propres modèles de noms, d'autres agents, et
 la documentation dans d'autres langues.
 
+## 0.12.0 (2026-11-09)
+
+- **Une requête dont les réglages changent avant son envoi.** Une requête dont les réglages changent
+  entre sa décision et son envoi est refusée comme une requête dont les réglages ont changé pendant
+  sa préparation : son agent apprend qu'il faut l'envoyer à nouveau et l'historique enregistre un
+  refus, là où elle recevait avant un `500` *Latet could not send this request as it was decided* et
+  était enregistrée comme un échange. Une requête préparée et envoyée pendant qu'un enregistrement est
+  encore en train d'être appliqué ne part plus avec des réglages à moitié appliqués : elle est
+  préparée à nouveau une fois qu'ils sont tous en place, ou refusée de la même façon. Un
+  enregistrement qui échoue en cours de route remet les réglages d'avant ; si même ceux-ci ne peuvent
+  pas être remis, chaque requête est refusée de la même façon jusqu'à ce qu'un enregistrement suivant
+  réussisse ou que Latet redémarre.
+- **Nouveaux en-têtes de Claude Code.** Sur une requête que Latet ne fait que vérifier (Claude Code,
+  Bedrock, Vertex), un en-tête `anthropic-*` qu'aucun profil ne nomme encore, ou une valeur
+  d'`anthropic-beta` d'une forme nouvelle, passe une fois lu par la vérification finale, signalé par
+  *seulement vérifiée*, comme le fait déjà un nouveau membre du corps qui contient du texte ; un nouvel
+  en-tête `x-claude-code-*` est retiré et compté. Claude Code continue de fonctionner avec une version
+  qui en ajoute un avant que Latet ne le nomme. Un secret ou l'une de vos valeurs dans un tel en-tête
+  est toujours refusé.
+- **Mettre à jour un serveur depuis la 0.10.** Calculer les empreintes d'un coffre-fort conservé par
+  la 0.10 n'occupe plus l'une des deux constructions d'index d'une instance : les index des autres
+  identités sont construits pendant ce temps, et seules les identités dont les empreintes ne sont
+  pas encore toutes calculées sont servies par la recherche dans PostgreSQL, comme le disent les
+  étapes de la mise à jour.
+- **Python 3.14.** Latet fonctionne aussi sous Python 3.14, sur lequel il est testé comme sur 3.12
+  et 3.13. Une nouvelle installation sur un ordinateur sans Python reçoit 3.14 ; `latet upgrade` ne
+  fait passer un Latet déjà installé à 3.14 que là où un 3.14 est déjà présent.
+
 ## 0.11.1 (2026-11-06)
 
 - **Les en-têtes d'indication de Claude Code.** Réglé pour envoyer ses en-têtes d'indication aux

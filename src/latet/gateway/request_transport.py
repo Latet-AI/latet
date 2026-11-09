@@ -75,9 +75,12 @@ class SendRefusal:
     ``unauthorized`` (built from nothing ``validate_send`` issued), ``method``, ``credentials`` (a signature it was not
     authorized for, or none it was; an attempt with other credentials than the first's), ``redirects`` (a client that
     follows them), ``userinfo`` (credentials in the URL), ``unbuilt`` (sent from nothing ``build`` made), ``client``
-    (sent by another client than the one that built it), ``changed`` (changed after it was built)."""
+    (sent by another client than the one that built it), ``changed`` (changed after it was built).
+    ``settings_moved``: a ``stale`` refusal of the request's route authority (``outcome.NotSendable``), the one its
+    forwarder tells as settings that changed; never the launch's ``stale`` below, nor any other."""
 
     code: str
+    settings_moved: bool = False
 
 
 @dataclass(frozen=True, slots=True, eq=False, weakref_slot=True)
@@ -141,7 +144,7 @@ def validate_send(
     try:
         decided = sendable(decision, arena, envelope)
     except NotSendable as refused:
-        return SendRefusal(refused.code)
+        return SendRefusal(refused.code, refused.settings_moved)
     if decided.policy != policy:
         return SendRefusal("policy")
     ceiling = ATTEMPTS[credentials]
@@ -363,7 +366,7 @@ def _fresh(decision: Forward | Pass, arena: Prepared) -> SendRefusal | None:
     try:
         still_current(decision, arena)
     except NotSendable as error:
-        return SendRefusal(error.code)
+        return SendRefusal(error.code, error.settings_moved)
     return None
 
 
@@ -427,7 +430,7 @@ def _authorized(
     try:
         decided = sendable(decision, arena, envelope)
     except NotSendable as refused:
-        return SendRefusal(refused.code)
+        return SendRefusal(refused.code, refused.settings_moved)
     if decided.policy != policy:
         return SendRefusal("policy")
     with _LOCK:

@@ -39,6 +39,7 @@ from latet.server.master import MasterKey, root_key
 from latet.server.space_settings import PgSettings
 from latet.server.tokens import route_key
 
+from .. import thread_pools
 from ..unit.test_launch_keys import _LaunchGraph
 from .support import DATABASE, URL
 from .test_launch_server_adapter import (
@@ -149,9 +150,9 @@ def _start_hold(app, path, token, generation):
 def _physical_owner(task, *, drained=False):
     if drained:
         frame = _frame(task, bridge_api._launch_hold_drained.__code__)
-        lease = frame.f_locals["lease"]
+        lease = thread_pools.frame_locals(frame)["lease"]
         assert type(lease) is launch_lifecycle._ProtectedHold
-        assert not frame.f_locals["tasks"] and "settled" not in frame.f_locals
+        assert not thread_pools.frame_locals(frame)["tasks"] and "settled" not in thread_pools.frame_locals(frame)
         waiter = getattr(task, "_fut_waiter", None)
         assert waiter is not None and any(waiter is found for found in lease._ticket._ready._waiters)
         callbacks = getattr(waiter, "_callbacks", ())
@@ -162,19 +163,19 @@ def _physical_owner(task, *, drained=False):
     bridged = _frame(task, server_app.ServerGate._bridge_call.__code__)  # its slot taken once authenticated (Minor 4)
     served = _frame(task, server_app.ServerGate._serve.__code__)
     assert (
-        address.f_locals["scope"]
-        is authenticated.f_locals["scope"]
-        is bridged.f_locals["scope"]
-        is served.f_locals["scope"]
+        thread_pools.frame_locals(address)["scope"]
+        is thread_pools.frame_locals(authenticated)["scope"]
+        is thread_pools.frame_locals(bridged)["scope"]
+        is thread_pools.frame_locals(served)["scope"]
     )
     outer = _frame(task, bridge_api._LaunchHold.__call__.__code__)
-    response = outer.f_locals["self"]
+    response = thread_pools.frame_locals(outer)["self"]
     assert type(response) is bridge_api._LaunchHold
     lease = response.lease
     assert type(lease) is launch_lifecycle._ProtectedHold
-    assert served.f_locals["ticket"] is lease._physical
-    assert bridged.f_locals["mutation"] is lease._ticket
-    helpers = tuple(outer.f_locals["tasks"])
+    assert thread_pools.frame_locals(served)["ticket"] is lease._physical
+    assert thread_pools.frame_locals(bridged)["mutation"] is lease._ticket
+    helpers = tuple(thread_pools.frame_locals(outer)["tasks"])
     assert len(helpers) == 2 and all(type(helper) is asyncio.Task and not helper.done() for helper in helpers)
     assert response.drain_task is None
     return lease, (task, response, lease._physical, *helpers)
@@ -191,8 +192,15 @@ def _paired(owners, space, shared, driver_codes, observer_code, counted_code, ga
             counted_frame = _frame(task, counted_code)
             served = _frame(task, server_app.ServerGate._serve.__code__)
             held_frame = _frame(task, server_spaces._held.__code__)
-            assert counted_frame.f_locals["scope"] is served.f_locals["inner"] is held_frame.f_locals["scope"]
-            assert held_frame.f_locals["space"] is space and space.long_scopes[task] is served.f_locals["inner"]
+            assert (
+                thread_pools.frame_locals(counted_frame)["scope"]
+                is thread_pools.frame_locals(served)["inner"]
+                is thread_pools.frame_locals(held_frame)["scope"]
+            )
+            assert (
+                thread_pools.frame_locals(held_frame)["space"] is space
+                and space.long_scopes[task] is thread_pools.frame_locals(served)["inner"]
+            )
             live_tasks.add(task)
         assert type(lease) is launch_lifecycle._ProtectedHold
         ticket = lease._ticket
@@ -211,20 +219,21 @@ def _paired(owners, space, shared, driver_codes, observer_code, counted_code, ga
         caller = gate.frame
         assert caller is not None and gate.thread_id is not None and gate.thread_id != threading.get_ident()
         assert caller.f_code is launch_lifecycle._terminal.__code__
-        assert caller.f_locals["intent"] is gate.roots[0]
+        assert thread_pools.frame_locals(caller)["intent"] is gate.roots[0]
         worker = caller
         for _ in _TERMINAL_CODES:
             assert worker is not None
             worker = worker.f_back
-        assert worker is not None
-        item = worker.f_locals["self"]
+        worker = thread_pools.item_frame(worker)
+        item = thread_pools.frame_locals(worker)["self"]
         assert type(item) is futures_thread._WorkItem
         _worker_boundary(caller, _TERMINAL_CODES, item, gate.thread_id, boundary)
         actual = item.future
         assert retired is charges[0] and retired.actual is actual and actual.running()
         assert retired.pending and not retired.ingress
-        (invocation,) = item.args
-        assert item.fn is launch_mutations._invoke and type(invocation) is launch_mutations._Invocation
+        fn, (invocation,), _ = thread_pools.call(item)
+        assert fn is launch_mutations._invoke and type(invocation) is launch_mutations._Invocation
+        fn = None
         assert invocation.fn is invocation.argument is invocation.result is None
         marker = retired._tail
         assert marker is not None and marker is invocation.marker and marker() is invocation
@@ -360,7 +369,7 @@ async def test_protected_hold_partitions_replacement_and_actual_drain(
         if authority is server.launch_authority and target == launch_id and options.get("generation") == 1:
             caller = sys._getframe(1)
             assert caller.f_code is launch_lifecycle._terminal.__code__
-            gate.pause(caller, caller.f_locals["intent"])
+            gate.pause(caller, thread_pools.frame_locals(caller)["intent"])
         return original_terminal(authority, issuer, target, **options)
 
     monkeypatch.setattr(ThreadPoolExecutor, "submit", submit)
@@ -498,7 +507,7 @@ async def test_protected_hold_partitions_replacement_and_actual_drain(
                 old_disconnect.set()
                 await asyncio.wait_for(gate.entered.wait(), 3)
                 old_response_frame = _frame(old, bridge_api._LaunchHold.__call__.__code__)
-                detached_task = old_response_frame.f_locals["self"].drain_task
+                detached_task = thread_pools.frame_locals(old_response_frame)["self"].drain_task
                 assert type(detached_task) is asyncio.Task and not detached_task.done()
                 drain_ref = weakref.ref(detached_task)
                 del detached_task, old_response_frame

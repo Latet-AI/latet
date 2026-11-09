@@ -48,6 +48,16 @@ abgelehnt, und dem Agenten wird sein Name genannt, nie sein Wert:
 Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
 ```
 
+Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), werden die Header
+durchgelassen, die Claude Code mit neuen Funktionen hinzufügt, wie es sein Leitfaden für Gateways
+verlangt: Ein neuer `anthropic-*`-Header oder ein `anthropic-beta`-Wert einer neuen Form geht durch,
+sobald die abschließende Prüfung ihn gelesen hat, im Dashboard angezeigt als *nur geprüft*, und ein
+neuer `x-claude-code-*`-Header wird entfernt. Bis zu acht solcher `anthropic-*`-Header gehen durch,
+jeder mit einem Namen aus Kleinbuchstaben, Ziffern und Bindestrichen, höchstens 48 nach
+`anthropic-` und kein Wort zwischen seinen Bindestrichen länger als 16, und einem Wert von 1 bis
+1.024 druckbaren Zeichen; ein Geheimnis oder einer Ihrer Werte darin wird weiterhin abgelehnt. Bei einer Anfrage, die Latet umschreibt, etwa der eines
+Anthropic-SDKs, werden sie abgelehnt wie jeder andere Header, den kein Profil nennt.
+
 Manche Header werden stattdessen entfernt: die Telemetrie- und Tracing-Header der SDKs und einige
 eigene Header der Agenten, die freien Text enthalten können.
 [Header, die Latet entfernt](#header-die-latet-entfernt) listet sie auf.
@@ -114,7 +124,7 @@ hat:
 | Wo | Header |
 | --- | --- |
 | Jede Anfrage: Telemetrie und Tracing der SDKs | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, im Format von Anthropic (Anthropic, Bedrock, Vertex, ein Unternehmens-Gateway) | `x-claude-code-agent-id` und `x-claude-code-parent-agent-id`, die IDs eines Subagenten, die seinen Namen enthalten können; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` und `x-client-app`, die Claude Code aus seiner Umgebung übernimmt; `x-claude-code-prev-tool-durations`, ein Hinweis für Gateways, der die ausgeführten Werkzeuge nennt (darunter die eigenen Namen eines MCP-Servers) |
+| Claude Code, im Format von Anthropic (Anthropic, Bedrock, Vertex, ein Unternehmens-Gateway) | `x-claude-code-agent-id` und `x-claude-code-parent-agent-id`, die IDs eines Subagenten, die seinen Namen enthalten können; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` und `x-client-app`, die Claude Code aus seiner Umgebung übernimmt; `x-claude-code-prev-tool-durations`, ein Hinweis für Gateways, der die ausgeführten Werkzeuge nennt (darunter die eigenen Namen eines MCP-Servers); jeder andere `x-claude-code-*`-Header, den Latet noch nicht nennt |
 | Bedrock: das AWS SDK | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: die Clientbibliothek von Google | `x-goog-api-client` |
 | Codex, im Format von OpenAI und von ChatGPT | `x-codex-turn-metadata`, der Pfad, Remotes und Commit Ihres Repositorys enthält; `x-openai-subagent`, die Art oder eine freie Bezeichnung eines Subagenten |
@@ -171,6 +181,17 @@ mit einer genauen Ausnahme durch, wie unten, unter Angabe des Ziels, an das er g
 eines Unternehmens-Gateways in einem Header wird als Zugangsdaten genannt, die Latet sendet, wie sie
 kamen, und nie liest. Den Startschlüssel von Latet, den `latet claude` und die anderen diesen
 Einstellungen hinzufügen, nennen Sie nicht: Latet entfernt ihn, bevor etwas weitergesendet wird.
+
+Ein Header, den Sie für Claude Code setzen und dessen Name mit `anthropic-` beginnt, braucht keine
+Ausnahme: Er geht durch, sobald die abschließende Prüfung ihn gelesen hat, wie ein neuer Header von
+Claude Code selbst ([Header](#was-011-ablehnt-das-010-gesendet-hat)); einer, dessen Name mit
+`x-claude-code-` beginnt, wird entfernt. Zugangsdaten eines Ziels in einem solchen Header nennen Sie
+dennoch mit einer Ausnahme, damit Latet sie sendet, wie sie kamen, und nie liest. Eine Ausnahme, die
+einen solchen Header nennt, entscheidet über ihn auch dort, wo sie nicht gilt: Bei einer Anfrage
+eines anderen Projekts oder wenn die Ausnahme abgelaufen ist, wird der Header abgelehnt (mit seinem
+Namen oder mit der Ausnahme und dem Tag, an dem sie ablief), weder gelesen noch an ihrer Stelle
+gesendet.
+Entfernen Sie die Ausnahme, wenn der Header überall geprüft durchgehen soll.
 
 ## Eine genaue Ausnahme genehmigen
 
@@ -364,7 +385,7 @@ gäbe es keine genehmigten Einstellungen: Eine Änderung an `config.yaml` würde
 Ihre Genehmigung zu warten. Wenn Sie eines gewählt haben, spielen Sie die Kopie zurück, die das Upgrade
 auf 0.11 angelegt hat und die beide Dateien so enthält, wie sie vorher waren: `latet upgrade --to`
 bietet sie beim Zurückgehen an (sie liegt im Datenordner unter `backups/before-<Version>-<Zeit>`,
-benannt nach der installierten Version, zum Beispiel `before-0.11.1-…`). Ohne
+benannt nach der installierten Version, zum Beispiel `before-0.12.0-…`). Ohne
 diese Kopie (0.11 mit dem Installationsskript installiert, das keine anlegt) entfernen Sie den
 Schlüssel vor dem Zurückgehen aus beiden Dateien: die Zeilen `request_profile:` aus `config.yaml` und
 jedes Element `"request_profile": "…"` aus `config.reviewed.json`, sodass es gültiges JSON bleibt.

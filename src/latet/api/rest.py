@@ -110,6 +110,7 @@ from latet.server.shared import (
     reviewer_key_named,
 )
 from latet.state.local import CODE_TTL, SESSION_TTL, LocalSignIns  # noqa: F401 - CODE_TTL: its old name here
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.columns import Column
@@ -1360,7 +1361,7 @@ class Dashboard:
                 done.exception()  # a cancelled requester may no longer await a failed job
 
         running.add_done_callback(finished)
-        return await asyncio.shield(running)
+        return await shielded(running)
 
     async def _computer_user_name(self, request: Request) -> Response:
         """On a server: ``{name}``, the user name of the computer that asks, read no further than ``USER_NAME_BYTES``

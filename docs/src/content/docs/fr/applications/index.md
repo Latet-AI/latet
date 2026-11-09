@@ -313,8 +313,10 @@ restauration ultérieure ne remplacera.
   de la clé, et `latet-client` découpe une liste plus longue en appels de 8 Mio au plus. Les textes dont les mots nomment plus de 100 000 valeurs ou valeurs factices
   du coffre-fort sont refusés en entier avec 422, en mots fixes qui ne nomment aucune valeur : rien
   de l'appel n'est masqué ni restauré, envoyez donc moins de textes par appel. Un 503 est autre
-  chose : un stockage du serveur (PostgreSQL, Valkey) n'a pas répondu, et le même appel peut être
-  renvoyé plus tard ([référence HTTP](../reference/apps-api/)).
+  chose : un stockage du serveur (PostgreSQL, Valkey) n'a pas répondu, ou les réglages de la clé
+  étaient en train d'être appliqués à l'arrivée de l'appel ou pendant qu'on y répondait
+  (`the settings of this space changed while the call was answered: send it again`), et le même
+  appel peut être renvoyé plus tard ([référence HTTP](../reference/apps-api/)).
 - **Appels simultanés.** Une clé a au plus `requests_in_flight` requêtes d'applications sur une
   instance (16 si les réglages ne disent pas autre chose) ; au-delà, 429 avec `Retry-After`.
 
@@ -415,15 +417,14 @@ comme le faisait la 0.10, et calcule les empreintes du coffre-fort en arrière-p
 fois ; chaque instance construit ensuite son propre index de ces empreintes et s'en sert. Jusque-là, les appels
 de la clé masquent les mêmes valeurs, plus lentement ([à quelle vitesse](#à-quelle-vitesse) : 494 lignes par
 seconde à 200 000 valeurs empreintes désactivées, lors d'une mesure antérieure), et aucun n'est refusé pour
-autant. Pendant qu'une instance calcule les empreintes d'un coffre-fort, les autres clés et personnes dont
-elle ouvre l'espace entre-temps peuvent elles aussi être servies par la recherche dans PostgreSQL, jusqu'à ce
-que leur index soit construit. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
+autant. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
 (PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué), les appels restent sur la
-recherche dans PostgreSQL jusqu'à ce que l'index soit construit de nouveau : aussitôt quand une autre instance a
-calculé les empreintes, sinon 10, 20 et 30 secondes après chaque essai puis une fois par minute. Le journal dit
-une fois quand un index cesse d'être utilisé et une fois quand il l'est de nouveau. Un coffre-fort au-delà de la
-taille pour laquelle un index est construit ([limites](#limites)) reste sur la recherche dans PostgreSQL tant
-que son espace dure. Les mots eux-mêmes restent tels que la 0.10 les a faits : la 0.11 ne les refait pas.
+recherche dans PostgreSQL jusqu'à ce que l'index soit construit de nouveau : aussitôt quand les empreintes sont
+calculées, par cette instance ou une autre, sinon 10, 20 et 30 secondes après chaque essai puis une fois par
+minute. Le journal dit une fois quand un index cesse d'être utilisé et une fois quand il l'est de nouveau. Un
+coffre-fort au-delà de la taille pour laquelle un index est construit ([limites](#limites)) reste sur la
+recherche dans PostgreSQL tant que son espace dure. Les mots eux-mêmes restent tels que la 0.10 les a faits : la
+0.11 ne les refait pas.
 
 Une version qui change la façon dont les mots d'un coffre-fort sont faits (le journal des
 modifications le dit) refait les mots d'une clé dans la première instance qui construit son espace,

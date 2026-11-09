@@ -309,8 +309,10 @@ che nessun ripristino rimetterà a posto.
   testi le cui parole nominano più di 100.000 valori o valori fittizi della cassaforte vengono
   rifiutati per intero con 422, con parole fisse che non nominano alcun valore: della chiamata non
   viene mascherato né ripristinato nulla, quindi invia meno testi per chiamata. Un 503 è un'altra
-  cosa: un archivio del server (PostgreSQL, Valkey) non ha risposto, e la stessa chiamata si può
-  inviare di nuovo più tardi ([riferimento HTTP](../reference/apps-api/)).
+  cosa: un archivio del server (PostgreSQL, Valkey) non ha risposto, oppure le impostazioni della
+  chiave venivano applicate all'arrivo della chiamata o mentre se ne preparava la risposta
+  (`the settings of this space changed while the call was answered: send it again`), e la stessa
+  chiamata si può inviare di nuovo più tardi ([riferimento HTTP](../reference/apps-api/)).
 - **Chiamate contemporanee.** Una chiave ha al massimo `requests_in_flight` richieste di applicazioni
   su un'istanza (16 se le impostazioni non dicono altro); oltre, 429 con `Retry-After`.
 
@@ -408,15 +410,13 @@ faceva la 0.10, e calcola le impronte della cassaforte in background, una volta,
 istanza poi costruisce il proprio indice delle impronte e lo usa. Fino ad allora le chiamate della chiave
 mascherano gli stessi valori, più lentamente ([quanto è veloce](#quanto-è-veloce): 494 righe al secondo a
 200.000 valori con le impronte disattivate, in una misurazione precedente), e nessuna viene rifiutata per
-questo. Mentre un'istanza calcola le impronte di una cassaforte, anche le altre chiavi e persone di cui apre
-lo spazio nel frattempo possono essere servite dalla ricerca in PostgreSQL, finché il loro indice non è
-costruito. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
+questo. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
 che non rispondono, un aggiornamento dell'indice fallito), le chiamate restano sulla ricerca in PostgreSQL
-finché l'indice non viene costruito di nuovo: subito quando un'altra istanza ha calcolato le impronte,
-altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto. Il log dice una volta quando un
-indice smette di essere usato e una volta quando viene usato di nuovo. Una cassaforte oltre la dimensione per
-cui si costruisce un indice ([limiti](#limiti)) resta sulla ricerca in PostgreSQL finché il suo spazio dura. Le
-parole stesse restano come le ha fatte la 0.10: la 0.11 non le rifà.
+finché l'indice non viene costruito di nuovo: subito quando le impronte sono calcolate, da quell'istanza o da
+un'altra, altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto. Il log dice una volta
+quando un indice smette di essere usato e una volta quando viene usato di nuovo. Una cassaforte oltre la
+dimensione per cui si costruisce un indice ([limiti](#limiti)) resta sulla ricerca in PostgreSQL finché il suo
+spazio dura. Le parole stesse restano come le ha fatte la 0.10: la 0.11 non le rifà.
 
 Una versione che cambia il modo in cui sono fatte le parole di una cassaforte (il changelog lo dice)
 rifà le parole di una chiave nella prima istanza che ne costruisce lo spazio, prima che quello spazio

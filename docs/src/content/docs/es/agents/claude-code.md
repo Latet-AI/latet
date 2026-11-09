@@ -172,7 +172,9 @@ Con `ANTHROPIC_BASE_URL` apuntando a él, cada petición pasa por el daemon, que
 - lee cada una de sus demás partes: una cabecera, un parámetro de consulta o un miembro del cuerpo que
   ningún perfil nombra se rechaza
   ([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)), salvo un
-  miembro nuevo del cuerpo que contiene texto, que pasa una vez que la comprobación final lo ha leído;
+  miembro nuevo del cuerpo que contiene texto, una cabecera `anthropic-*` nueva o un valor nuevo de
+  `anthropic-beta`, que pasan una vez que la comprobación final los ha leído, y una cabecera
+  `x-claude-code-*` nueva, que quita y cuenta;
 - si no, reenvía el cuerpo byte a byte, y las cabeceras salvo las que quita y cuenta
   ([Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet));
 - registra el intercambio para el [panel](../../dashboard/), sin sus credenciales.
@@ -223,6 +225,9 @@ Las cabeceras que defines en `ANTHROPIC_CUSTOM_HEADERS` se rechazan, nombrando c
 excepción exacta la deje pasar, una por cada tipo de llamada que la envía (`anthropic.messages.1`,
 `anthropic.count_tokens.1`, `anthropic.models.1`): consulta
 [Pasar a la 0.11](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-defines-para-tus-agentes).
+Una cuyo nombre empieza por `anthropic-` no la necesita: pasa una vez que la comprobación final la ha
+leído, como una cabecera nueva del propio Claude Code; una cuyo nombre empieza por `x-claude-code-`
+se quita.
 
 ## Qué cambia global-install
 

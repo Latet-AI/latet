@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from latet.gateway.mediate import RESTORED_ON_LOOP
 from latet.gateway.recorder import Outcome, Recorder, ResponseCapture, _RequestSnapshot
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     import httpx
@@ -24,7 +25,7 @@ async def drain_task[T](task: asyncio.Task[T], stopped: Callable[[], None], *, p
     cancelled = False
     while not task.done():
         try:
-            await asyncio.shield(task)
+            await shielded(task)
         except asyncio.CancelledError:
             stopped()
             cancelled = True
@@ -254,7 +255,7 @@ class ResponseFinalizer:
         cancelled = False
         while not task.done():
             try:
-                await asyncio.shield(task)
+                await shielded(task)
             except asyncio.CancelledError:
                 cancelled = True
                 if self.leave():

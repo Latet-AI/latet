@@ -1,0 +1,99 @@
+name: Bug report
+description: Something Latet does that it should not, or does not do that it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report.
+
+        **Use invented values here, never a real key, password or someone's data.** An issue is
+        public, and so is everything you paste into it. If what you need to show holds a real
+        value, replace it with one of the same shape.
+
+        **A security problem is not an issue.** Please do not describe a vulnerability here:
+        report it privately, as [SECURITY.md](https://github.com/Latet-AI/latet/blob/main/SECURITY.md)
+        explains.
+
+  - type: textarea
+    id: what-you-did
+    attributes:
+      label: What you did
+      description: The steps that lead to it, as short as you can make them.
+      placeholder: |
+        1. Put `API_KEY=pk_3a8d1f6b0e9c2a7d4b5e` in a `.env` file in an empty folder.
+        2. Ran `latet claude` there.
+        3. Asked the agent to copy the key into `config.py`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-you-expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened instead
+      description: What you saw, with the error or the output if there was one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Output of `latet version`
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `latet doctor`
+      description: >-
+        It checks the daemon, the plugin, masking and every agent integration. Read it before you
+        paste it, and replace anything of yours it names.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: agent
+    attributes:
+      label: Your agent
+      description: Which agent, and how it goes through Latet.
+      placeholder: Claude Code 2.1.4, CLI, started with `latet claude`
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Your operating system
+      placeholder: macOS 15.2 on Apple silicon, or Ubuntu 24.04, or Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >-
+        Your profile, a `latet.yaml`, the local reviewer, the dashboard's entry for the request:
+        whatever you think matters.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before you send it
+      options:
+        - label: Every value in this issue is invented. There is no real key, password or personal data in it.
+          required: true
+        - label: This is not a security vulnerability. If it were, I would report it as SECURITY.md says.
+          required: true

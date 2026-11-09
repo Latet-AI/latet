@@ -64,7 +64,10 @@ n'envoie rien dont il n'a pas rendu compte :
   traçage (`x-stainless-*`, `traceparent`...), et ceux des agents eux-mêmes qui peuvent contenir du
   texte libre (les identifiants d'un sous-agent de Claude Code, les métadonnées de tour de Codex...),
   sont retirés et comptés dans le tableau de bord : [Les en-têtes que Latet retire](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire) les énumère
-  par agent. Tout autre en-tête est refusé, et son nom n'est donné qu'à l'agent.
+  par agent. Tout autre en-tête est refusé, et son nom n'est donné qu'à l'agent, sauf sur une requête
+  que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex) : là, la vérification finale lit un
+  nouvel en-tête `anthropic-*` ou une nouvelle valeur d'`anthropic-beta`, qui passe ensuite, et un
+  nouvel en-tête `x-claude-code-*` est retiré.
 - **Le corps.** Ses textes sont masqués, ou vérifiés là où Latet ne fait que vérifier la requête. Tout
   autre membre doit avoir sa forme (l'identifiant d'un modèle, le nom d'un outil, un réglage) et il est
   lu par la vérification finale là où il contient du texte. Un membre qu'aucun profil ne nomme est

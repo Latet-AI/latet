@@ -601,8 +601,11 @@ def _bench_store(folder: Path, pool: int = 4, *, index: bool = False, build: boo
         migrate(db, master=master)
         root = root_key(db, master, state.key)
         store = PgVaultStore(db, state.key, root, limit=bas.KEY_LIMIT, index=index)
-        if index and build and not store.build_index():
-            raise RuntimeError("the benchmark's indexed store did not become ready")
+        if index and build:
+            if not store.prints_complete():  # a bench vault built before 0.11.0: a build no longer makes them
+                store.fill_prints()
+            if not store.build_index():
+                raise RuntimeError("the benchmark's indexed store did not become ready")
         try:
             yield state, root, store
         finally:

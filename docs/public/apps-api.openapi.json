@@ -533,7 +533,7 @@
         }
       },
       "Unavailable": {
-        "description": "A store of the server (PostgreSQL, Valkey) did not answer, the key's space is not available on this instance now, or, for unmask, the administration log did not take the entry, so nothing was restored, or, for forget, it did not take it, so nothing was forgotten. Safe to try again.",
+        "description": "A store of the server (PostgreSQL, Valkey) did not answer, the key's space is not available on this instance now, or, for unmask, the administration log did not take the entry, so nothing was restored, or, for forget, it did not take it, so nothing was forgotten. Scan, mask and unmask also answer it when the key's settings were being applied as the call came or as it was answered (the settings of this space changed while the call was answered: send it again), and nothing of the call was answered. Safe to try again.",
         "headers": {
           "Retry-After": {"$ref": "#/components/headers/RetryAfter"}
         },

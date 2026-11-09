@@ -294,8 +294,9 @@ goes through it (`latet run python summarize.py`). A program that does not read 
 
 ## Install
 
-Requirements: Windows, macOS or Linux. The installers set up [uv](https://docs.astral.sh/uv/), which
-also provides a Python Latet is tested on (3.12 or 3.13).
+Requirements: Windows, Linux, or macOS on a Mac with Apple silicon (an Intel Mac has no ready-made
+package of cryptography, which Latet needs). The installers set up [uv](https://docs.astral.sh/uv/),
+which also provides a Python Latet is tested on (3.12, 3.13 or 3.14).
 
 On macOS and Linux:
 
@@ -308,6 +309,11 @@ On Windows (PowerShell):
 ```powershell
 irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | iex
 ```
+
+**On macOS and Linux, then open a new terminal.** The installer puts `latet` in `~/.local/bin`, where
+uv keeps its tools, a folder the terminal you ran it in does not know yet: until you open a new one,
+`latet` answers `command not found`, as the installer says when it finishes. On Windows the installer
+adds that folder to the terminal it ran in as well.
 
 Both install the latest [release](https://github.com/Latet-AI/latet/releases) from GitHub with uv,
 local name detection and text in images included, and change nothing else: start your agent with
@@ -566,7 +572,7 @@ lower protection, single sign-on, audit reports and events for a SIEM. It is com
 
 ## Bugs and feature requests
 
-Found a bug, or missing a feature? [Open an issue](https://github.com/Latet-AI/latet/issues/new):
+Found a bug, or missing a feature? [Open an issue](https://github.com/Latet-AI/latet/issues/new/choose):
 bugs and feature requests are tracked there, and that is where you get an answer.
 
 - **A bug:** what you did, what you expected and what happened instead, with the output of

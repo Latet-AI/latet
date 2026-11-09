@@ -91,8 +91,9 @@ def first_lines_said(monkeypatch):
 
 
 def _keys(bus, pattern: str) -> list[bytes]:
-    """The keys of this test's prefix that match ``pattern`` (written after the prefix)."""
-    return sorted(bus.client.scan_iter(match=bus.key(pattern), count=1000))
+    """The keys of this test's prefix that match ``pattern`` (written after the prefix), each once: Valkey's SCAN may
+    return a key more than once, as its documentation says, and does when other tests write to Valkey meanwhile."""
+    return sorted(set(bus.client.scan_iter(match=bus.key(pattern), count=1000)))
 
 
 def _instance(vault, given, config=None, conversations=None):
@@ -836,7 +837,7 @@ def test_sign_ins_keep_hashes_of_their_secrets_only_under_names_of_one_form(buse
     sids = [sign_ins.open(EMILY) for _ in range(3)] + [sign_ins.open(DANIEL)]
     assert {len(code) for code in codes} == {32} and {len(sid) for sid in sids} == {43}
     form = re.compile(re.escape(prefix) + r"signin:(code|session|subject):[0-9a-f]{32}")
-    keys = [key.decode() for key in a.client.scan_iter(match=prefix + "*")]
+    keys = {key.decode() for key in a.client.scan_iter(match=prefix + "*")}  # each once: SCAN may repeat a key
     assert len(keys) == 9 and all(form.fullmatch(key) for key in keys)
     seen = valkey_dump(a, prefix)
     assert not any(secret.encode() in seen for secret in codes + sids)
@@ -1148,7 +1149,7 @@ async def test_an_event_too_large_for_a_message_goes_by_reference_within_its_ide
     ]  # fmt: skip
     assert heard[0][1]["guidance"] == guidance and viewer.empty()
     assert len(wires) == 3 and max(len(wire) for wire in wires) < 1024  # the third reached no viewer, and no wire
-    kept = [key for key in a.client.scan_iter(match=a.key(f"event:{EMILY}:*"), count=1000)]
+    kept = set(a.client.scan_iter(match=a.key(f"event:{EMILY}:*"), count=1000))  # each once: SCAN may repeat a key
     assert len(kept) == 2 and sum(a.client.strlen(key) for key in kept) <= 350_000
     assert b"CANARY-GUIDANCE" not in valkey_dump(a, prefix)
     [line] = [record.getMessage() for record in caplog.records if record.name == "latet.server.live"]

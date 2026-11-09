@@ -182,13 +182,16 @@ async def test_an_ear_the_beat_finds_silent_listens_again_with_its_spaces_closed
 
 
 async def test_an_instance_notes_when_it_last_heard_its_own_beat(instances):
+    """Decided by the beat's being heard, not by two readings of the clock: on Windows, Python 3.12's monotonic() moves
+    in steps of about 15.6 ms, and a beat heard within the step its subscription began on left the time as it was. So
+    each instance's time is one no reading of the clock gives, once both listen."""
     a, b = instances
     async with listening(a, b):
-        mine, theirs = a.beat_heard, b.beat_heard
+        a.beat_heard = b.beat_heard = -1.0
         a.bus.publish("beat", {"instance": a.instance})
-        await until(lambda: a.beat_heard > mine)
+        await until(lambda: a.beat_heard != -1.0)
         await asyncio.sleep(0.2)
-        assert b.beat_heard == theirs  # another instance's beat is not its own
+        assert b.beat_heard == -1.0  # another instance's beat is not its own
 
 
 async def test_an_ear_cancelled_leaves_the_instance_not_listening(server):
@@ -319,14 +322,14 @@ async def test_a_revocation_whose_announcement_was_lost_closes_the_space_at_the_
 
 
 def _keys_of(server, prefix, identity_id) -> list[str]:
-    """The raw keys of Valkey that a family of ``FAMILIES`` keeps for ``identity_id``."""
-    found = []
+    """The raw keys of Valkey that a family of ``FAMILIES`` keeps for ``identity_id``, each once (SCAN may repeat one)."""
+    found = set()
     for raw in server.bus.client.scan_iter(match=prefix + "*", count=1000):
         name = raw.decode().removeprefix(prefix)
         family, _, rest = name.partition(":")
         if family in FAMILIES and (rest == identity_id or rest.startswith(identity_id + ":")):
-            found.append(name)
-    return found
+            found.add(name)
+    return sorted(found)
 
 
 async def test_removing_an_identity_leaves_nothing_of_it_in_valkey(instances, prefix, monkeypatch):
@@ -512,7 +515,7 @@ def test_purging_an_owners_families_reaches_no_other_owner(bus, prefix):
     ):
         bus.set(name, b"1", 600)  # fmt: skip
     assert bus.purge_families("u_abcdefghij", ("conv", "batch", "convs-size")) == 4
-    left = sorted(raw.decode().removeprefix(prefix) for raw in bus.client.scan_iter(match=prefix + "*"))
+    left = sorted({raw.decode().removeprefix(prefix) for raw in bus.client.scan_iter(match=prefix + "*")})  # each once
     assert left == ["conv:u_abcdefghij2", "conv:u_abcdefghijk:1", "lock:x:u_abcdefghij", "other:u_abcdefghij"]
     for owner in ("", "u_a:b"):
         with pytest.raises(ValueError, match="owner"):

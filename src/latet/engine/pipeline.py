@@ -278,6 +278,18 @@ class Engine:
         self.vault = vault
         self.masker = masker
         self.rules_version = 0
+        # How many applies of settings are under way (``Runtime.apply_config``, from its first change to its last move;
+        # a count, as an apply refused on a server applies what ran before inside it): while one is, no request's
+        # authority is valid (``LocalAuthority.valid``), so none leaves with the settings half applied (minors after
+        # 0.11, item 23). Raised and lowered under the runtime's lock; read on the event loop.
+        self.applying = 0
+        # How many applies began, ever: a call that finds it moved over its answer was answered while settings changed
+        # (the applications API's, ``bridge.apps``), whatever else moved the rules version meanwhile (a forget).
+        self.applies = 0
+        # Whether one more is held past every apply's own, because putting back what ran before settings that raised
+        # midway raised too (``Runtime._put_back``): what runs is then a mix, and no request is prepared nor sent until
+        # settings are applied whole, which lowers it (its fix rounds, I1 and R2).
+        self.stranded = False
         # A digest of the rules in use, which ``Runtime.apply_config`` sets: the same on every instance of a Latet
         # server, where ``rules_version`` is this process's own count. It names the rules a text left under
         # (``Mediator._given_key``).
@@ -538,8 +550,14 @@ class Engine:
 
     def adopt(self, session: Session, text: str, masker: Masker) -> None:
         """Surrogates already in ``text`` (a resumed conversation) belong to ``session`` too, those its vault keeps out
-        of memory as well (``Vault.fakes_out_of_memory``)."""
-        found = [e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(s.of(text)))]
+        of memory as well (``Vault.fakes_out_of_memory``). For a text its vault reads from memory alone
+        (``Vault.memory_alone``: one that holds a live launch key, the minors after 0.11, item 11), memory's alone: its
+        store is asked nothing about the text's fakes, not even by the keyed hash of each whole one (``by_surrogate``),
+        as ``fakes_out_of_memory`` asks it nothing for that text."""
+        alone = self.vault.memory_alone(text)
+        found = [
+            e.id for s in masker.surrogates_in(text) if (e := self.vault.by_surrogate(s.of(text), memory_only=alone))
+        ]
         self.show(session, [*found, *(e.id for e in self.vault.fakes_out_of_memory(text))])
 
     def remember_model_output(self, masked: str, restored: str) -> None:

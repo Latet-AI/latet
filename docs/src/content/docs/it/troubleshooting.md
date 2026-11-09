@@ -182,9 +182,29 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 La parte tra parentesi dice di che tipo si tratta:
 
 - `envelope-header-unknown`: un'intestazione che nessun profilo nomina, spesso una che hai impostato
-  per l'agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` di Codex, `COPILOT_PROVIDER_HEADERS`).
-  Toglila dalle impostazioni dell'agente, o lasciala passare con un'eccezione esatta.
-- `envelope-header-value`: un'intestazione che Latet conosce, con un valore fuori dalla sua forma.
+  per l'agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` di Codex, `COPILOT_PROVIDER_HEADERS`),
+  nominata con ogni parola del nome più lunga di 16 caratteri indicata dalla sua lunghezza
+  (`x-custom-<20 characters>`), così che una chiave in un nome non torni mai all'agente. Toglila
+  dalle impostazioni dell'agente, o lasciala passare con un'eccezione esatta. Con Claude Code,
+  Bedrock e Vertex, un'intestazione `anthropic-*` nuova passa una volta controllata e una
+  `x-claude-code-*` nuova viene tolta. Una rifiutata lì è fuori da questi limiti: un nome di oltre
+  48 caratteri dopo `anthropic-`, con una parola tra i suoi trattini di oltre 16 caratteri (una
+  chiave o un id lungo nel nome), o con un carattere che non sia una lettera minuscola, una cifra o
+  un trattino (`_`, `.`; le maiuscole vengono lette come minuscole); un valore vuoto, di oltre 1.024
+  caratteri o con un carattere fuori dall'ASCII stampabile (una tabulazione, una lettera accentata);
+  più di otto intestazioni di questo tipo in una richiesta. Oppure l'ha inviata un client che Latet
+  riscrive, come un SDK di Anthropic. Un'eccezione che nomina l'intestazione la decide anche dove
+  non si applica: una richiesta di un altro progetto che la contiene viene rifiutata qui, e quando
+  l'eccezione è scaduta una richiesta del genere viene rifiutata con `envelope-exception-expired`.
+  Togli l'eccezione per lasciar passare l'intestazione controllata.
+- `envelope-header-value`: un'intestazione che Latet conosce, con un valore fuori dalla sua forma. Con
+  Claude Code, Bedrock e Vertex, un valore di `anthropic-beta` di forma nuova passa una volta
+  controllato; viene rifiutato oltre i 64 valori, o con un valore vuoto (`a,,b`, `a,`), di oltre 64
+  caratteri o con al suo interno uno spazio, una tabulazione o un carattere fuori dall'ASCII
+  stampabile (gli spazi attorno alle virgole vanno bene). Con Bedrock passa solo nelle chiamate ai
+  modelli, come un'intestazione `anthropic-*` nuova: una chiamata al piano di controllo di Bedrock,
+  come la lettura dei profili di inferenza, non accetta alcuna intestazione `anthropic-*` e viene
+  rifiutata con `envelope-header-unknown`, come prima.
 - `envelope-query-unknown`: un parametro di query che nessun profilo nomina.
 - `envelope-route`: una chiamata che Latet non legge, come file, batch o audio. All'agente viene
   detto che questa versione di Latet non supporta la chiamata. Nessuna eccezione nomina una rotta:

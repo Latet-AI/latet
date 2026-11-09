@@ -276,9 +276,11 @@ class Vault:
         named = f"\x00generation\x00{generation}\x00{etype}\x00{original}" if generation else f"{etype}\x00{original}"
         return hmac.new(self._k_id, named.encode(), hashlib.sha256).hexdigest()[:20]
 
-    def by_surrogate(self, surrogate: str, as_read: bool = True) -> Entity | None:
+    def by_surrogate(self, surrogate: str, as_read: bool = True, memory_only: bool = False) -> Entity | None:
         """The entity of a fake, or (``as_read``) of how a fake written in escapes reads (`Nicola Greco` for
-        `Nicola%20Greco`). A store keeps one value per fake as written: what another process kept is compared so."""
+        `Nicola%20Greco`). A store keeps one value per fake as written: what another process kept is compared so.
+        ``memory_only``: memory's answer, no store asked about the string (for a text ``memory_alone`` reads from
+        memory alone, ``Engine.adopt``): here memory's anyway."""
         found = self._by_surrogate.get(surrogate)
         return found if found is not None or not as_read else self._by_reading.get(surrogate)
 
@@ -342,6 +344,14 @@ class Vault:
         """The entities whose fake ``text`` holds and that its memory does not (its detectors of fakes cannot find
         them): here none, as every fake is in memory."""
         return []
+
+    def memory_alone(self, text: str) -> bool:
+        """Whether what ``text`` holds is read from memory alone, a store asked nothing of its words (``Engine.adopt``
+        asks ``by_surrogate`` so): never here, as no store is read and every value is in memory. A vault that keeps most
+        of its values elsewhere says so on the event loop and for a text that holds a live launch key, and never looks
+        up a string that holds one as a fake in its store, nor remembers it as no fake
+        (``engine.stored.StoredVault``)."""
+        return False
 
     def prefetch_fakes(self, texts: Sequence[str]) -> None:
         """Ask once, for all of ``texts``, for the fakes they may hold, which ``candidates_in`` then gives for each of

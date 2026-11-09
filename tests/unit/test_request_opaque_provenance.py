@@ -31,6 +31,7 @@ from latet.gateway.request_profiles import opaque_scope
 from latet.gateway.routes import DEFAULT_UPSTREAMS, Upstream
 
 from ..request_coverage import RecordingClient, RecordingTransport
+from ..thread_pools import frame_locals
 from .test_request_coverage import counts, gateway
 from .test_request_outcomes import _mediator
 from .test_request_transport import _Answer
@@ -1345,7 +1346,7 @@ async def test_fix1_raw_pending_bytes_stay_charged_while_consumer_is_suspended(r
     iterator = response.body_iterator
     try:
         first = await anext(iterator)
-        pending = iterator.ag_frame.f_locals["pending"]
+        pending = frame_locals(iterator.ag_frame)["pending"]
         measured = sys.getsizeof(pending) + sum(sys.getsizeof(part) for part in {id(x): x for x in pending}.values())
         assert pending and store._reserved >= measured, "live raw pending chunks became uncharged at yield"
         assert first in pending and (not store._items if refused else bool(store._items))

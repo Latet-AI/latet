@@ -288,7 +288,22 @@ dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
   sortie d'un outil ou dans un message, elle est masquée ; là où elle ne peut pas l'être, la requête
   est refusée.
 - Un en-tête qu'aucun profil ne nomme est refusé : son nom n'est donné qu'à l'agent, et les journaux
-  et l'historique n'en gardent que le type. Les en-têtes qu'un profil déclare amovibles sont retirés
+  et l'historique n'en gardent que le type. Sur une requête que Latet ne fait que vérifier (Claude
+  Code, Bedrock, Vertex), un nouvel en-tête `anthropic-*` ou une nouvelle valeur d'`anthropic-beta`
+  passe une fois lu par la vérification finale, le nom d'un nouvel en-tête comme sa valeur (un
+  secret, une valeur que le coffre-fort connaît ou une valeur que la vérification détecte dans l'un
+  ou dans l'autre fait refuser la requête), et un nouvel en-tête `x-claude-code-*` est retiré.
+  Aucun mot du nom d'un nouvel en-tête, entre ses tirets, ne peut dépasser 16 caractères. Le nom
+  d'un en-tête arrive en minuscules : la vérification finale le lit en minuscules, en majuscules et
+  avec une majuscule au début de chaque mot. Une valeur écrite dans le nom d'un en-tête avec un
+  autre mélange de majuscules et de minuscules, que ce soit l'une de vos valeurs comme
+  `ACME-Payroll-7731` ou un secret dont la forme les mélange, comme une clé d'API Google
+  (`AIza…`), n'y est pas trouvée : le nom n'est refusé que s'il sort de l'une des limites d'un
+  nouvel en-tête, un mot de plus de 16 caractères (comme c'est en général le cas d'une clé ou d'un
+  jeton), plus de 48 caractères après `anthropic-` ou un caractère qui n'est ni une lettre
+  minuscule, ni un chiffre, ni un tiret. Sur une requête que Latet
+  réécrit, ils sont refusés avant que rien n'en soit masqué. Les en-têtes qu'un profil déclare
+  amovibles sont retirés
   et comptés dans le tableau de bord : la télémétrie et le traçage des SDK (`x-stainless-*`,
   `traceparent`...), et ceux des agents eux-mêmes qui peuvent contenir du texte libre, comme les
   identifiants d'un sous-agent de Claude Code ou les métadonnées de tour de Codex, qui contiennent le

@@ -8,7 +8,6 @@ import secrets
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack, asynccontextmanager
-from itertools import islice
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
@@ -50,7 +49,7 @@ from latet.server.spaces import Space, Spaces, _AuditFence, space_size
 from latet.state.protocols import VaultStore
 
 from ..conftest import ROOT_KEY
-from .support import DATABASE, VALKEY, listening, open_test_server, until
+from .support import DATABASE, VALKEY, listening, open_test_server, scanned_once, until
 
 if TYPE_CHECKING:
     from latet.server.app import Server
@@ -273,7 +272,7 @@ async def _observed_budget_server(namespaces, tmp_path, request, monkeypatch, na
                 raise RuntimeError("budget Server still owns live work after drain")
             server.close()
             with redis.Redis.from_url(redis_url(VALKEY), socket_connect_timeout=5, socket_timeout=5) as client:
-                keys = list(islice(client.scan_iter(match=prefix + "*", count=100), 65))
+                keys = scanned_once(client.scan_iter(match=prefix + "*", count=100), 65)
                 if len(keys) > 64 or any(not key.startswith(prefix.encode("ascii")) for key in keys):
                     raise RuntimeError("unexpected budget prefix inventory")
                 if keys:

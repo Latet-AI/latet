@@ -50,6 +50,10 @@ SWEEP_BYTES = 2048
 EXCEPTION_SLOTS = 128
 BUCKETS = 8
 RESERVATION_BYTES = 512
+# An exception's status reference an audit keeps (``reference_for``): the key of its id, the reference, its generated
+# id and its table slot, about 250 bytes on CPython 3.13 at most; charged twice that.
+REFERENCE_BYTES = 512
+_HEX = frozenset("0123456789abcdef")
 _RLOCK_TYPE = type(threading.RLock())
 
 
@@ -190,6 +194,17 @@ class ExceptionReference:
 
 def new_exception_reference(revision: int, scope: int) -> ExceptionReference:
     return ExceptionReference(revision, scope)
+
+
+def _reference_key(reference: ExceptionReference) -> tuple[str, int, int]:
+    """The status row a reference's uses are counted in: its immutable scalar members, copied."""
+    return (reference._id, reference._revision, reference._scope)
+
+
+def _exception_id(value: object) -> bool:
+    """An exception's id as Latet stamps it (``RequestException.id``: ``x`` and 10 hexadecimal digits), so that the
+    key an audit keeps for it has a known size."""
+    return type(value) is str and len(value) == 11 and value[0] == "x" and all(c in _HEX for c in value[1:])
 
 
 @dataclass(slots=True)
@@ -344,6 +359,7 @@ class RequestAudit:
         "_partial",
         "_pending",
         "_projection",
+        "_references",
         "_retained",
         "_retired",
         "_saturated",
@@ -361,6 +377,8 @@ class RequestAudit:
         self._lock = threading.RLock()
         self._events: OrderedDict[int, _Entry] = OrderedDict()
         self._statuses: OrderedDict[int | tuple[str, int, int], _Status] = OrderedDict()
+        # Each exception's status reference, by the exception's id (``reference_for``): kept while its status row is.
+        self._references: dict[str, ExceptionReference] = {}
         self._sequence = self._overflow = self._active = self._cursor = self._retired = 0
         self._partial = self._saturated = self._closed = self._pending = False
         self._ceiling: Callable[[int], str | None] | None = None
@@ -486,17 +504,29 @@ class RequestAudit:
         # A sparse OrderedDict keeps old table capacity. Keep the retired full
         # charge until both new compact containers exist and old capacity ends.
         self._retired += retired
-        events = statuses = None
+        events = statuses = references = None
         try:
             events = OrderedDict(self._events)
             statuses = OrderedDict(self._statuses)
+            references = dict(self._references)
         except MemoryError:
-            events = statuses = None
+            events = statuses = references = None
             self._partial = True
             return
-        self._events, self._statuses = events, statuses
+        self._events, self._statuses, self._references = events, statuses, references
         self._retained -= self._retired
         self._retired = 0
+
+    def _forget(self, key: int | tuple[str, int, int]) -> int:
+        """The reference whose status row ``key`` is, let go with that row: its charge, to end with the row's (0: no
+        reference of this audit is counted there)."""
+        if type(key) is not tuple:
+            return 0
+        found = next((one for one, held in self._references.items() if _reference_key(held) == key), None)
+        if found is None:
+            return 0
+        del self._references[found]
+        return REFERENCE_BYTES
 
     def _discard(self, slot: int) -> None:
         entry = self._events.pop(slot)
@@ -512,8 +542,9 @@ class RequestAudit:
         self._cursor = (slot + 1) % MAX_EVENTS
         return slot
 
-    def _room(self, charge: int, status: int | tuple[str, int, int]) -> bool:
-        if status not in self._statuses:
+    def _room(self, charge: int, status: int | tuple[str, int, int] | None) -> bool:
+        # ``status`` None: a charge that makes no status row (an exception's reference, ``reference_for``).
+        if status is not None and status not in self._statuses:
             exceptions = sum(type(key) is tuple for key in self._statuses)
             if type(status) is tuple and exceptions >= EXCEPTION_SLOTS:
                 victim = next(
@@ -522,9 +553,10 @@ class RequestAudit:
                 if victim is None:
                     return False
                 # Completed events retain their own bounded copies of the key;
-                # they do not keep the retired mutable status row.
+                # they do not keep the retired mutable status row. The row's
+                # reference goes with it: the exception's next use makes one.
                 del self._statuses[victim]
-                self._compact(STATUS_BYTES)
+                self._compact(STATUS_BYTES + self._forget(victim))
                 self._partial = True
         while len(self._events) >= MAX_EVENTS or self._retained + charge > MAX_BYTES:
             victim = next((seq for seq, entry in self._events.items() if entry.reservation is None), None)
@@ -660,6 +692,38 @@ class RequestAudit:
             finally:
                 self._pending = False
 
+    def reference_for(self, row_id: str, scope: int) -> ExceptionReference | None:
+        """The status reference the uses of the exception ``row_id`` are counted under in this audit (M1; minors after
+        0.11, item 10): its identity's own, made at its first use with ``scope`` (its reason's fixed category), never
+        its description or what it names. It is kept while its status row is and let go with it (``_forget``), charged
+        to this audit's budget meanwhile; one whose first reservation made no row is let go then. None, nothing kept,
+        when it cannot be made (closed, the budget full): the request is not sent, as when its status cannot be
+        reserved."""
+        with self._lock:
+            if self._closed or not _exception_id(row_id) or not _integer(scope, 7, 1):
+                return None
+            held = self._references.get(row_id)
+            if held is not None:
+                return held
+            self._pending = True
+            try:
+                if not self._room(REFERENCE_BYTES, None) or not self._precharge(REFERENCE_BYTES):
+                    self._missed()
+                    return None
+                reference = None
+                try:
+                    reference = ExceptionReference(1, scope)
+                    self._references[row_id] = reference
+                except MemoryError:
+                    self._references.pop(row_id, None)
+                    reference = None
+                    self._retained -= REFERENCE_BYTES
+                    self._missed()
+                    return None
+                return reference
+            finally:
+                self._pending = False
+
     def reserve_exception(self, reference: ExceptionReference) -> Reservation | None:
         with self._lock:
             if self._closed or type(reference) is not ExceptionReference:
@@ -668,10 +732,12 @@ class RequestAudit:
             try:
                 # Reference was generated internally, never converted from a client
                 # label. Its immutable scalar members are copied into owned status.
-                key = (reference._id, reference._revision, reference._scope)
+                key = _reference_key(reference)
                 new = key not in self._statuses
                 charge = EVENT_RESERVE_BYTES + RESERVATION_BYTES + (STATUS_BYTES if new else 0)
                 if not self._room(charge, key) or not self._precharge(charge):
+                    if new and (gone := self._forget(key)):  # no row made for it: the reference kept for it goes
+                        self._compact(gone)
                     self._missed()
                     return None
                 sequence = self._sum(self._sequence, 1)
@@ -692,6 +758,8 @@ class RequestAudit:
                         handle._owner = None
                     handle = entry = row = None
                     self._retained -= charge
+                    if new and (gone := self._forget(key)):
+                        self._compact(gone)
                     self._missed()
                     return None
                 row.active += 1
@@ -794,11 +862,20 @@ class RequestAudit:
             )
         ) is not None:
             del self._statuses[key]
-            self._compact(STATUS_BYTES)
+            self._compact(STATUS_BYTES + self._forget(key))
+        # A reference whose row never came (its reservation not made yet, or failed) ends too: none is made any more.
+        while (
+            one := next(
+                (one for one, held in self._references.items() if _reference_key(held) not in self._statuses), None
+            )
+        ) is not None:
+            del self._references[one]
+            self._compact(REFERENCE_BYTES)
         if not self._active and self._snapshot is None and self._projection is None and not self._sweep:
             self._ceiling = None
             self._status_owner = None
             # Drop actual empty container capacity before ending the base.
+            self._references = {}
             self._events = OrderedDict()
             self._statuses = OrderedDict()
             self._retired = 0

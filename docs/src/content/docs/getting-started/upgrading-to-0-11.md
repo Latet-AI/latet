@@ -46,6 +46,15 @@ no profile names is refused, naming it to the agent, never its value:
 Latet: request envelope refused (envelope-header-unknown): header x-team. Nothing was sent; run `latet dashboard` to see where it was
 ```
 
+On a request Latet only checks (Claude Code, Bedrock, Vertex), the headers Claude Code adds as it
+gains new capabilities are let through, as its gateway guide asks: a new `anthropic-*` header, or an
+`anthropic-beta` value of a new form, passes once the final check has read it, shown as *checked
+only* in the dashboard, and a new `x-claude-code-*` header is taken off. Up to eight such
+`anthropic-*` headers pass, each named with lowercase letters, digits and dashes, at most 48 after
+`anthropic-` and no word between its dashes longer than 16, its value 1 to 1,024 printable
+characters; a secret or a value of yours in one is still refused. On a request Latet rewrites,
+such as an Anthropic SDK's, they are refused as any other header no profile names.
+
 Some headers are taken off instead: the SDKs' telemetry and tracing headers, and a few of the
 agents' own that can carry free text. [Headers Latet takes off](#headers-latet-takes-off) lists
 them.
@@ -105,7 +114,7 @@ Latet takes these headers off a request before it sends it, whichever agent sent
 | Where | Headers |
 | --- | --- |
 | Every request: the SDKs' telemetry and tracing | `x-stainless-*`, `x-datadog-*`, `x-b3-*`, `traceparent`, `tracestate`, `baggage` |
-| Claude Code, in Anthropic's format (Anthropic, Bedrock, Vertex, a company gateway) | `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`, a subagent's ids, which can carry its name; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` and `x-client-app`, which Claude Code copies from its environment; `x-claude-code-prev-tool-durations`, a gateway hint that names the tools that ran (an MCP server's own names among them) |
+| Claude Code, in Anthropic's format (Anthropic, Bedrock, Vertex, a company gateway) | `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`, a subagent's ids, which can carry its name; `x-claude-remote-session-id`, `x-claude-remote-container-id`, `x-claude-remote-session-origin` and `x-client-app`, which Claude Code copies from its environment; `x-claude-code-prev-tool-durations`, a gateway hint that names the tools that ran (an MCP server's own names among them); any other `x-claude-code-*` header, one Latet does not name yet |
 | Bedrock: the AWS SDK | `amz-sdk-*`, `x-amz-user-agent` |
 | Gemini: Google's client library | `x-goog-api-client` |
 | Codex, in OpenAI's format and ChatGPT's | `x-codex-turn-metadata`, which holds your repository's path, remotes and commit; `x-openai-subagent`, a subagent's kind or free label |
@@ -161,6 +170,15 @@ exception, as below, naming the destination it goes to; a company gateway's own 
 named as a credential, which Latet sends as it came and never reads. Latet's own launch key, which
 `latet claude` and the others add to these settings, is not yours to name: Latet takes it off before
 anything is sent on.
+
+One you set for Claude Code whose name starts with `anthropic-` needs no exception: it passes once
+the final check has read it, as a new header of Claude Code's own does
+([Headers](#what-011-refuses-that-010-sent)); one whose name starts with `x-claude-code-` is taken
+off. A destination credential in such a header is still named with an exception, so that Latet
+sends it as it came and never reads it. An exception that names such a header decides it even where
+it does not apply: on a request of another project, or once the exception has ended, the header is
+refused (naming it, or the exception and the day it ended), never read and sent in the exception's
+place. Remove the exception if the header should pass checked everywhere.
 
 ## Approving an exact exception
 
@@ -345,7 +363,7 @@ all: a change to `config.yaml` would then apply without waiting for your approva
 put back the copy the upgrade to 0.11 took, which holds both files as they were before it:
 `latet upgrade --to` offers it as it goes back (it is in the data folder, in
 `backups/before-<version>-<time>`, named after the version installed, for example
-`before-0.11.1-…`). Without that copy (0.11 installed by the installer, which takes
+`before-0.12.0-…`). Without that copy (0.11 installed by the installer, which takes
 none), take the key out of both files before you go back: the `request_profile:` lines in
 `config.yaml`, and each `"request_profile": "…"` member in `config.reviewed.json`, keeping it valid
 JSON.

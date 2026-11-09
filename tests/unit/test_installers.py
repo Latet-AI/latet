@@ -4,6 +4,7 @@ system folders only: nothing is downloaded or installed, and no Latet of yours i
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
+from latet import releases
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 WHEEL = "https://github.com/Latet-AI/latet/releases/download/v1.2.0/latet-1.2.0-py3-none-any.whl"
@@ -28,7 +31,7 @@ ELSEWHERE = {
 TUTORIAL = "New to Latet? 'latet tutorial' shows it at work in about 30 minutes."
 # The Pythons CI tests Latet on. uv takes the newest Python it finds or can download, and on a newer one (3.15 on
 # GitHub's macOS runner) dependencies such as google-re2 have no wheel yet and cannot be built.
-PYTHONS = "--python >=3.12,<3.14"
+PYTHONS = "--python >=3.12,<3.15"
 
 
 def _tutorial_first(said: str) -> bool:
@@ -756,6 +759,29 @@ def test_install_ps1_asks_uv_for_a_python_latet_is_tested_on(ps_stand):
     assert done.returncode == 0, done.stdout + done.stderr
     assert len(stand.install_arguments()) == 2  # with names and images, then without
     assert all(PYTHONS in line for line in stand.install_arguments()), stand.install_arguments()
+
+
+def _asked(script: str, pattern: str) -> str:
+    """The Pythons an installer asks uv for, from the one line of ``script`` that sets them."""
+    found = re.findall(pattern, (SCRIPTS / script).read_text(encoding="utf-8"), re.MULTILINE)
+    assert len(found) == 1, (script, found)
+    return found[0]
+
+
+def test_both_installers_ask_for_the_pythons_latet_upgrade_and_the_docs_ask_for():
+    """install.sh and install.ps1 carry the same bound, which `latet upgrade` asks for too and the server pages'
+    commands name: where they differ, the same computer gets Latet on one Python or another by how it was installed."""
+    sh = _asked("install.sh", r'^PYTHONS="([^"\n]*)"$')
+    ps = _asked("install.ps1", r'^\$pythons = "([^"\n]*)"$')
+    assert sh == ps == releases.PYTHONS == PYTHONS.removeprefix("--python "), (sh, ps, releases.PYTHONS)
+    docs = SCRIPTS.parent / "docs" / "src" / "content" / "docs"
+    named = {
+        found
+        for page in sorted(docs.rglob("*.md*"))
+        if page.name != "changelog.md"
+        for found in re.findall(r'--python "([^"\n]*)"', page.read_text(encoding="utf-8"))
+    }
+    assert named == {sh}, named
 
 
 def test_install_ps1_installs_what_latet_source_names_and_asks_github_nothing(ps_stand):

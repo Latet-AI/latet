@@ -18,6 +18,14 @@ $env:UV_NO_MODIFY_PATH = '1'
 
 $latet = Join-Path $HOME '.local\bin\latet.exe'
 & $latet --help | Out-Null
+# The Python uv brought where there was none: the newest the installer asks for, the one below $pythons' bound.
+$bound = Select-String -Path (Join-Path $PSScriptRoot 'install.ps1') -Pattern '^\$pythons = ">=3\.\d+,<3\.(\d+)"$'
+if (-not $bound) { throw 'install.ps1 names no bound of the Pythons it asks for.' }
+$newest = "3.$([int]$bound.Matches[0].Groups[1].Value - 1)"
+$listed = & (Join-Path $HOME '.local\bin\uv.exe') tool list --show-python | Select-String '^latet v\S+ \[CPython (3\.\d+)\.\d+\]$'
+$brought = if ($listed) { $listed.Matches[0].Groups[1].Value } else { 'unnamed by uv' }
+if ($brought -ne $newest) { throw "Latet runs on Python $brought, not $newest, the newest the installer asks for." }
+"Latet runs on Python $brought, the newest the installer asks for."
 & $latet start
 if ($LASTEXITCODE -ne 0) {
     Get-ChildItem $HOME -Recurse -Include daemon.log, daemon.out -ErrorAction SilentlyContinue | ForEach-Object { "== $_"; Get-Content $_ -Tail 60 }

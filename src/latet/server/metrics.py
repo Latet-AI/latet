@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Literal
 
 from latet import __version__, observe
 from latet.logline import Paced, described
+from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.server.app import Server
@@ -686,7 +687,7 @@ class Metrics:
             running = loop.create_task(self._rendered(), name="latet-metrics-render")
             running.add_done_callback(_read_out)
             self._render = running
-        return await asyncio.shield(running)  # a scrape that goes leaves the render to the others
+        return await shielded(running)  # a scrape that goes leaves the render to the others
 
     async def _rendered(self) -> str:
         text = await asyncio.get_running_loop().run_in_executor(self._rendering, self.render)

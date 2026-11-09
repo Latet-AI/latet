@@ -13,7 +13,7 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
 
 import psycopg
@@ -108,3 +108,16 @@ async def until(check: Callable[[], object], seconds: float = 5.0) -> None:
             return
         await asyncio.sleep(0.02)
     raise AssertionError("not within the time")
+
+
+def scanned_once(keys: Iterable[bytes], most: int) -> set[bytes]:
+    """The keys a Valkey SCAN returns (``scan_iter``), each once, ``most`` of them at most: SCAN may return a key more
+    than once, as its documentation says, and does when other tests write to Valkey meanwhile. Read as they come, the
+    read stops once ``most`` keys are found, each counted once, so that a key returned twice within the bound hides no
+    key past it, as a bound over the keys as returned (``islice``) would."""
+    found: set[bytes] = set()
+    for key in keys:
+        found.add(key)
+        if len(found) >= most:
+            break
+    return found

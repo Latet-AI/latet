@@ -150,7 +150,7 @@ if ($existing) {
 Write-Host "Installing Latet ($($sources[0]))..."
 # The Pythons Latet is tested on. uv takes the newest Python it finds or can download, and on a newer one Latet's
 # dependencies may have no wheel yet (google-re2 then has to be built, and cannot be).
-$pythons = ">=3.12,<3.14"
+$pythons = ">=3.12,<3.15"
 # A clone keeps its version while its code changes: what LATET_SOURCE names is built again, every time.
 $rebuild = if ($Source) { @("--reinstall-package", "latet") } else { @() }
 & $uv tool install --upgrade --python $pythons @rebuild $sources[0]

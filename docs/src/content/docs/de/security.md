@@ -294,7 +294,22 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
   Ausgabe eines Tools oder in einer Nachricht wird er maskiert; wo er sich nicht maskieren lässt, wird
   die Anfrage abgelehnt.
 - Ein Header, den kein Profil nennt, wird abgelehnt: Sein Name wird nur dem Agenten genannt, und Logs
-  und Verlauf behalten nur seine Art. Die Header, die ein Profil als entfernbar ausweist, werden
+  und Verlauf behalten nur seine Art. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock,
+  Vertex), geht ein neuer `anthropic-*`-Header oder `anthropic-beta`-Wert durch, sobald die
+  abschließende Prüfung ihn gelesen hat, bei einem neuen Header seinen Namen ebenso wie seinen Wert
+  (ein Geheimnis, ein Wert, den der Tresor kennt, oder einer, den die Prüfung in einem von beiden
+  erkennt, führt zur Ablehnung der Anfrage), und ein neuer `x-claude-code-*`-Header wird entfernt.
+  Kein Wort im Namen eines neuen Headers, zwischen seinen Bindestrichen, darf länger als 16 Zeichen
+  sein. Der Name eines Headers kommt in Kleinbuchstaben an: Die abschließende Prüfung liest ihn in
+  Kleinbuchstaben, in Großbuchstaben und mit großem Anfangsbuchstaben jedes Wortes. Ein Wert, der
+  mit einer anderen Mischung aus Groß- und Kleinbuchstaben in den Namen eines Headers geschrieben
+  ist, ob einer Ihrer Werte wie `ACME-Payroll-7731` oder ein Geheimnis, dessen Form Groß- und
+  Kleinbuchstaben mischt, wie ein Google-API-Schlüssel (`AIza…`), wird dort nicht gefunden:
+  Abgelehnt wird der Name nur, wenn er eine der Grenzen eines neuen Headers überschreitet: ein Wort
+  mit mehr als 16 Zeichen (wie es bei einem Schlüssel oder Token meist der Fall ist), mehr als 48
+  Zeichen nach `anthropic-` oder ein Zeichen, das kein Kleinbuchstabe, keine Ziffer und kein
+  Bindestrich ist. Bei einer Anfrage, die Latet
+  umschreibt, werden sie abgelehnt, bevor etwas davon maskiert wird. Die Header, die ein Profil als entfernbar ausweist, werden
   entfernt und im Dashboard gezählt: Telemetrie und Tracing der SDKs (`x-stainless-*`,
   `traceparent`...) und die eigenen Header der Agenten, die freien Text enthalten können, etwa die
   IDs eines Subagenten von Claude Code oder die Turn-Metadaten von Codex, die Pfad und Remotes Ihres

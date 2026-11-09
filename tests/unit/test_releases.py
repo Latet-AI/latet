@@ -306,7 +306,7 @@ def upgrade(monkeypatch, tmp_path):
 
 
 # The Pythons CI tests Latet on: on a newer one, dependencies such as google-re2 may have no wheel yet.
-INSTALL = ["/tools/uv", "tool", "install", "--upgrade", "--python", ">=3.12,<3.14"]
+INSTALL = ["/tools/uv", "tool", "install", "--upgrade", "--python", ">=3.12,<3.15"]
 
 
 def test_upgrade_installs_the_latest_release_with_names_and_images(upgrade):
@@ -528,7 +528,7 @@ def test_the_command_to_run_instead_names_each_folder_as_a_posix_shell_takes_it(
     )  # type: ignore[arg-type]
     assert admin._install_command(folders, f"latet[server] @ {WHEEL}", windows=False) == (
         "UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR='/opt/my latet/python' "
-        f"uv tool install --upgrade --python '>=3.12,<3.14' 'latet[server] @ {WHEEL}'"
+        f"uv tool install --upgrade --python '>=3.12,<3.15' 'latet[server] @ {WHEEL}'"
     )
 
 
@@ -538,7 +538,7 @@ def test_the_command_to_run_instead_names_each_folder_as_powershell_takes_it():
     folders = releases.Folders(PureWindowsPath("C:/ProgramData/O'Brien/tools"), None, None)  # type: ignore[arg-type]
     assert admin._install_command(folders, f"latet[server] @ {WHEEL}", windows=True) == (
         r"$env:UV_TOOL_DIR = 'C:\ProgramData\O''Brien\tools'; "
-        f"uv tool install --upgrade --python '>=3.12,<3.14' 'latet[server] @ {WHEEL}'"
+        f"uv tool install --upgrade --python '>=3.12,<3.15' 'latet[server] @ {WHEEL}'"
     )
 
 

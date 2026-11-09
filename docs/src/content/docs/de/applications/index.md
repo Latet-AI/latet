@@ -319,8 +319,10 @@ gesendet, den keine spätere Wiederherstellung zurückverwandelt.
   höchstens 8 MiB auf. Texte, deren Wörter mehr als 100.000 Werte oder Ersatzwerte des
   Tresors nennen, werden ganz mit 422 abgewiesen, in festen Worten, die keinen Wert nennen: Vom
   Aufruf wird nichts maskiert oder wiederhergestellt, senden Sie also weniger Texte pro Aufruf. Ein
-  503 ist etwas anderes: Ein Speicher des Servers (PostgreSQL, Valkey) hat nicht geantwortet, und
-  derselbe Aufruf kann später erneut gesendet werden ([HTTP-Referenz](../reference/apps-api/)).
+  503 ist etwas anderes: Ein Speicher des Servers (PostgreSQL, Valkey) hat nicht geantwortet, oder die
+  Einstellungen des Schlüssels wurden noch angewendet, als der Aufruf kam oder beantwortet wurde
+  (`the settings of this space changed while the call was answered: send it again`), und derselbe
+  Aufruf kann später erneut gesendet werden ([HTTP-Referenz](../reference/apps-api/)).
 - **Gleichzeitige Aufrufe.** Ein Schlüssel hat höchstens `requests_in_flight` Anwendungsanfragen auf
   einer Instanz (16, wenn die Einstellungen nichts anderes sagen); darüber hinaus 429 mit
   `Retry-After`.
@@ -423,15 +425,14 @@ PostgreSQL sucht, wie 0.10 es tat, und bildet die Fingerabdrücke des Tresors im
 Instanz nach der anderen; jede Instanz baut dann ihren eigenen Index daraus auf und nutzt ihn. Bis dahin
 maskieren die Aufrufe des Schlüssels dieselben Werte, langsamer ([Wie schnell es ist](#wie-schnell-es-ist): 494
 Zeilen pro Sekunde bei 200.000 Werten mit abgeschalteten Fingerabdrücken, in einer früheren Messung), und keiner
-wird deswegen abgewiesen. Während eine Instanz die Fingerabdrücke eines Tresors bildet, können auch die
-anderen Schlüssel und Personen, deren Bereiche sie inzwischen aufbaut, über die Suche in PostgreSQL bedient
-werden, bis ihr Index aufgebaut ist. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
+wird deswegen abgewiesen. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
 werden kann (PostgreSQL oder Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), bleiben die
-Aufrufe bei der Suche in PostgreSQL, bis der Index erneut aufgebaut ist: sofort, wenn eine andere Instanz die
-Fingerabdrücke gebildet hat, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann einmal pro Minute. Das Log
-sagt einmal, wenn ein Index nicht mehr genutzt wird, und einmal, wenn er wieder genutzt wird. Ein Tresor über
-der Größe, für die ein Index aufgebaut wird ([Grenzen](#grenzen)), bleibt bei der Suche in PostgreSQL, solange
-sein Bereich besteht. Die Wörter selbst bleiben, wie 0.10 sie gebildet hat: 0.11 bildet sie nicht neu.
+Aufrufe bei der Suche in PostgreSQL, bis der Index erneut aufgebaut ist: sofort, wenn die Fingerabdrücke
+gebildet sind, von dieser oder einer anderen Instanz, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann
+einmal pro Minute. Das Log sagt einmal, wenn ein Index nicht mehr genutzt wird, und einmal, wenn er wieder
+genutzt wird. Ein Tresor über der Größe, für die ein Index aufgebaut wird ([Grenzen](#grenzen)), bleibt bei der
+Suche in PostgreSQL, solange sein Bereich besteht. Die Wörter selbst bleiben, wie 0.10 sie gebildet hat: 0.11
+bildet sie nicht neu.
 
 Eine Version, die ändert, wie die Wörter eines Tresors gebildet werden (das Changelog sagt es),
 bildet die Wörter eines Schlüssels in der ersten Instanz neu, die seinen Bereich aufbaut, bevor dieser

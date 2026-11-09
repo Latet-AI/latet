@@ -186,9 +186,29 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 La partie entre parenthèses dit de quel type il s'agit :
 
 - `envelope-header-unknown` : un en-tête qu'aucun profil ne nomme, souvent un en-tête que vous avez
-  défini pour l'agent (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` de Codex, `COPILOT_PROVIDER_HEADERS`).
-  Retirez-le des réglages de l'agent, ou laissez-le passer par une exception exacte.
-- `envelope-header-value` : un en-tête que Latet connaît, avec une valeur hors de sa forme.
+  défini pour l'agent (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` de Codex, `COPILOT_PROVIDER_HEADERS`),
+  nommé avec chaque mot de son nom de plus de 16 caractères remplacé par sa longueur
+  (`x-custom-<20 characters>`), pour qu'une clé dans un nom ne revienne jamais à l'agent.
+  Retirez-le des réglages de l'agent, ou laissez-le passer par une exception exacte. Avec Claude
+  Code, Bedrock et Vertex, un nouvel en-tête `anthropic-*` passe une fois vérifié et un nouvel
+  en-tête `x-claude-code-*` est retiré. Un en-tête refusé là sort de ces limites : un nom de plus de
+  48 caractères après `anthropic-`, avec un mot de plus de 16 caractères entre ses tirets (une clé
+  ou un long identifiant dans le nom), ou avec un caractère qui n'est ni une lettre minuscule, ni un
+  chiffre, ni un tiret (`_`, `.` ; les majuscules sont lues comme des minuscules) ; une valeur vide,
+  de plus de 1 024 caractères ou avec un caractère hors de l'ASCII imprimable (une tabulation, une
+  lettre accentuée) ; plus de huit de ces en-têtes dans une requête. Ou il a été envoyé par un
+  client dont Latet réécrit les requêtes, comme un SDK d'Anthropic. Une exception qui nomme l'en-tête
+  en décide même là où elle ne s'applique pas : une requête d'un autre projet qui le contient est
+  refusée ici, et une fois l'exception expirée, une telle requête est refusée avec
+  `envelope-exception-expired`. Retirez l'exception pour laisser passer l'en-tête vérifié.
+- `envelope-header-value` : un en-tête que Latet connaît, avec une valeur hors de sa forme. Avec
+  Claude Code, Bedrock et Vertex, une valeur d'`anthropic-beta` d'une forme nouvelle passe une fois
+  vérifiée ; elle est refusée au-delà de 64 valeurs, ou avec une valeur vide (`a,,b`, `a,`), de plus
+  de 64 caractères ou qui contient une espace, une tabulation ou un caractère hors de l'ASCII
+  imprimable (les espaces autour des virgules sont admises). Avec Bedrock, elle ne passe que sur les
+  appels aux modèles, comme un nouvel en-tête `anthropic-*` : un appel au plan de contrôle de
+  Bedrock, comme la lecture des profils d'inférence, n'accepte aucun en-tête `anthropic-*` et est
+  refusé avec `envelope-header-unknown`, comme avant.
 - `envelope-query-unknown` : un paramètre de requête qu'aucun profil ne nomme.
 - `envelope-route` : un appel que Latet ne lit pas, comme des fichiers, des lots ou de l'audio.
   L'agent apprend que cette version de Latet ne prend pas en charge l'appel. Aucune exception ne
