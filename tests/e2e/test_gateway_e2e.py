@@ -183,6 +183,54 @@ def test_responses_streaming_keeps_sequence_numbers(client, upstream):
     _assert_no_leak(upstream)
 
 
+def test_hermes_codex_http_replay_masks_and_restores(client, upstream):
+    """A gateway-created Hermes session replays phase, tool output and the next user turn."""
+    body = {
+        "model": "x",
+        "stream": True,
+        "store": False,
+        "input": [
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Start"}]},
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "phase": "commentary",
+                "content": [{"type": "output_text", "text": "Checking synthetic tool output"}],
+            },
+            {"type": "function_call", "call_id": "call_1", "name": "read", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "call_1", "output": f"Contact {EMAIL}"},
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "Ready"}],
+            },
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": PROMPT}]},
+        ],
+    }
+    before = len(upstream.requests)
+    response = client.post(
+        "/backend-api/codex/responses",
+        json=body,
+        headers={
+            "authorization": "Bearer synthetic-token",
+            "session_id": "local-" + "a" * 64,
+            "x-openai-internal-codex-residency": "no_constraint",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(upstream.requests) == before + 1
+    assert upstream.requests[-1]["headers"]["x-openai-internal-codex-residency"] == "no_constraint"
+    events = _sse_data(response.text)
+    text = "".join(e["delta"] for e in events if e["type"] == "response.output_text.delta")
+    args = "".join(e["delta"] for e in events if e["type"] == "response.function_call_arguments.delta")
+    assert text == "You said: " + PROMPT
+    assert json.loads(args) == {"content": PROMPT}
+    _assert_no_leak(upstream)
+
+
 def test_codex_websocket(client, upstream):
     frame = {
         "type": "response.create",

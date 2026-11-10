@@ -118,6 +118,7 @@ class FakeUpstream:
                 Route("/v1/messages", self.anthropic, methods=["POST"]),
                 Route("/v1/chat/completions", self.chat, methods=["POST"]),
                 Route("/v1/responses", self.responses, methods=["POST"]),
+                Route("/backend-api/codex/responses", self.responses, methods=["POST"]),
                 WebSocketRoute("/backend-api/codex/responses", self.responses_ws),
                 WebSocketRoute("/v1/responses", self.responses_ws),  # a company gateway's Responses over a WebSocket
                 Route("/{path:path}", self.anything, methods=["GET", "POST", "PUT", "DELETE", "HEAD"]),

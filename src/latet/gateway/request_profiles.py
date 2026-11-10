@@ -181,6 +181,9 @@ _UUID = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 # Hermes Agent 25ce7ccf: its session id, new_session_id() = f"{now:%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
 # (hermes_state_ids.py:53-60), and its content cache key "pck_" + sha256[:24] (agent/transports/codex.py:428-449).
 HERMES_SESSION = "[0-9]{8}_[0-9]{6}_[0-9a-f]{6}"
+# The local gateway's CLI sessions use an opaque digest, not the dated physical id.
+# It is fixed-length lowercase hex, with no free-text label to carry outward.
+HERMES_LOCAL_SESSION = "local-[0-9a-f]{64}"
 HERMES_CACHE_KEY = "pck_[0-9a-f]{24}"
 # Correlation ids, fresh per session or request, each with a closed grammar taken from its agent's source. A grammar of
 # hex and fixed punctuation carries no free text; the id never selects a project, an identity or an exception (D7).
@@ -198,7 +201,7 @@ ID_HEADERS = {
     # its bounded cache scope, the session id (codex.py:31-55, 798-806, 869).
     "x-client-request-id": re.compile(f"{_UUID}|{HERMES_CACHE_KEY}|{HERMES_SESSION}"),
     # Hermes Agent: ChatGPT's session_id header is its session id (codex.py:864-872); a cron job's free name is not.
-    "session_id": re.compile(HERMES_SESSION),
+    "session_id": re.compile(f"{HERMES_SESSION}|{HERMES_LOCAL_SESSION}"),
     # Codex c1382380: "{thread_id}:{window_number}", a u64 (core/src/session/mod.rs:4523-4533).
     "x-codex-window-id": re.compile(f"{_UUID}:[0-9]{{1,20}}"),
     # Codex c1382380: the ChatGPT id token's chatgpt_account_id (login/src/token_data.rs:85-120), a workspace UUID
@@ -845,6 +848,12 @@ def _header(upstream: Upstream, profile: Profile, name: str, value: str) -> str:
         }
     if family == "chatgpt":
         enums |= {"x-openai-fedramp": {"true"}}
+        # Hermes derives this routing hint from its ChatGPT OAuth claims. Keep the
+        # observed values closed; unrecognized region names still fail closed.
+        if name == "x-openai-internal-codex-residency":
+            if value not in {"us", "eu", "no_constraint"}:
+                raise _value_refused(name)
+            return "inspected"
     if family == "bedrock" and name in {"x-amz-date", "x-amz-content-sha256"}:
         grammar = r"[0-9]{8}T[0-9]{6}Z" if name == "x-amz-date" else r"[a-f0-9]{64}"
         if not re.fullmatch(grammar, value):
