@@ -81,6 +81,33 @@ def test_hermes_s_headers_pass_by_their_forms(request_id):
     assert ("session_id", SESSION) in admission.headers
 
 
+def test_hermes_local_gateway_session_id_is_admitted():
+    local_id = "local-" + "a" * 64
+    headers = [(k, local_id if k == "session_id" else v) for k, v in HEADERS]
+    admission = _admitted(headers)
+    assert isinstance(admission, rp.Admission), admission.agent_message()
+    assert ("session_id", local_id) in admission.headers
+
+
+@pytest.mark.parametrize("invalid", ["local-" + "a" * 63, "local-" + "A" * 64, "local-mario.rossi@example.com"])
+def test_hermes_local_gateway_session_id_refuses_other_values(invalid):
+    refused = _admitted([(k, invalid if k == "session_id" else v) for k, v in HEADERS])
+    assert isinstance(refused, EnvelopeRefused) and refused.code == "envelope-header-value"
+
+
+@pytest.mark.parametrize("region", ["us", "eu", "no_constraint"])
+def test_hermes_codex_residency_header_is_admitted_on_chatgpt(region):
+    admission = _admitted([*HEADERS, ("x-openai-internal-codex-residency", region)])
+    assert isinstance(admission, rp.Admission), admission.agent_message()
+    assert ("x-openai-internal-codex-residency", region) in admission.headers
+
+
+@pytest.mark.parametrize("region", ["us; token=secret", "mario.rossi@example.com", "", "US"])
+def test_hermes_codex_residency_header_refuses_non_regions(region):
+    refused = _admitted([*HEADERS, ("x-openai-internal-codex-residency", region)])
+    assert isinstance(refused, EnvelopeRefused) and refused.code == "envelope-header-value"
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     [
@@ -121,3 +148,27 @@ def test_a_member_outside_its_shape_is_refused(member, value):
     except BodyRefused as error:
         said = str(error)
     assert said is not None and "mario.rossi" not in said
+
+
+@pytest.mark.parametrize("phase", ["final_answer", "commentary"])
+def test_hermes_replayed_assistant_phase_is_admitted(phase):
+    message = {
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "phase": phase,
+        "content": [{"type": "output_text", "text": "Synthetic answer"}],
+    }
+    assert _inspect(hermes_body(input=[message])).problem is None
+
+
+@pytest.mark.parametrize(("role", "phase"), [("user", "final_answer"), ("assistant", "private free text")])
+def test_hermes_replayed_phase_refuses_invalid_role_or_value(role, phase):
+    message = {
+        "type": "message",
+        "role": role,
+        "phase": phase,
+        "content": [{"type": "input_text", "text": "synthetic"}],
+    }
+    with pytest.raises(BodyRefused):
+        _inspect(hermes_body(input=[message]))

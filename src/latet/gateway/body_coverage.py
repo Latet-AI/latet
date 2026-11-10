@@ -1353,6 +1353,10 @@ class _Body:
         }
         if kind == "message":
             fields |= {"role": frozenset({"system", "developer", "user", "assistant"}), "content": self.content}
+            if "phase" in value:
+                if value.get("role") != "assistant":
+                    raise BodyRefused("input item")
+                fields["phase"] = frozenset({"final_answer", "commentary"})
         elif kind in {"function_call", "custom_tool_call"}:
             fields |= {"call_id": "id", "name": "name", "arguments": "text", "input": "text"}
         elif kind in {
