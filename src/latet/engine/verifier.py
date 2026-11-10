@@ -225,6 +225,15 @@ class Verifier:
             fakes = masker.surrogates_in(text) if fakes is None else fakes
             if any(f.start <= span.start and span.end <= f.end for f in fakes):
                 continue  # a word of a fake (a drawn name holding one of your terms): nothing of yours
+            if (
+                span.etype == "BEARER_TOKEN"
+                and not any(
+                    entity.eclass == EntityClass.SECRET and entity.original == value
+                    for entity in masker.vault.entities()
+                )
+                and any(f.start <= span.start < f.end < span.end and text[f.end : span.end] == "..." for f in fakes)
+            ):
+                continue  # an entire known fake plus documentation punctuation, no extra credential bytes
             preview = f"{span.etype}[{len(value)}]"
             leak = Leak(
                 span.etype, span.eclass, span.rule, kind, preview, new, detail, allowed, slot, span.start, span.end

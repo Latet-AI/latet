@@ -2200,7 +2200,15 @@ class Mediator:
             shown = shows_known(masker, original, left.text, left.replacements)
         else:  # a JSON document masked value by value: its replacements place no value in ``original``
             shown = masker.known_outside(original, ())
-        if shown and not self.verifier.sent(session.key, left.text):
+        # Secret values newly learned from a later turn must not be replayed
+        # in clear. Retain the existing history contract for non-secret data.
+        from latet.engine.detectors.base import DetectContext
+        from latet.engine.types import EntityClass
+        secret_shown = shown and any(
+            span.eclass == EntityClass.SECRET and not masker.fake_or_let_through(left.text, span)
+            for span in masker.detect(left.text, DetectContext())
+        )
+        if shown and (secret_shown or not self.verifier.sent(session.key, left.text)):
             return None
         entry = (version, bool(shown))
         self._as_it_left.put(mark, entry)
