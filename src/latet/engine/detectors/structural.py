@@ -334,11 +334,27 @@ def _pair_span(text: str, key: str, kind: str, raw: str, raw_start: int, raw_end
     concatenation (``"API_KEY=" + GH_PAT``) is a piece of a text."""
     quoted = raw[:1] in ("'", '"')
     value = raw[1:-1] if quoted else raw
+    # In serialized tool output an unquoted assignment ends at an escaped
+    # string delimiter. Its backslashes encode that delimiter, not the value.
+    # The decoded reading still inspects genuine escaped credential content.
+    if not quoted and value.endswith("\\") and text[raw_end : raw_end + 1] in ("'", '"'):
+        value = value.rstrip("\\")
     if len(value) < (3 if kind == "password" else 6):
         return None
     if _code_like(value, key, quoted) or (_NUMBER.match(value) and kind != "password"):
         return None
     after = text[raw_end : raw_end + 2]
+    if (
+        not quoted
+        and _IDENTIFIER.fullmatch(value)
+        and not key.isupper()
+        and re.match(r"[ \t]+(?:or|and)[ \t]+", text[raw_end:])
+        and re.search(
+            r"(?:^|\n)[ \t]*(?:return[ \t]+)?[A-Za-z_][A-Za-z0-9_.]*\([^()'\"#\n;]*\Z",
+            text[:raw_start],
+        )
+    ):
+        return None  # Python call argument expression, not an unquoted literal.
     if quoted:
         if value.startswith((" +", "<", "{")) or value.endswith("+ ") or after == " +" or _FORMAT.search(value):
             return None
