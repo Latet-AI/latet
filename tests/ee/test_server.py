@@ -340,9 +340,9 @@ def test_a_removal_holding_the_license_row_and_a_look_that_keeps_the_users_grace
     edition, held = server.edition, threading.Event()
     edition.install_license(licensed.make(users=1, **LASTING), actor="admin:t1")
     server.identities.add_person("Emily Carter")
-    server.identities.add_key("Billing CI")  # over the users bought, which nobody has looked at yet
-    with server.db.connection() as conn:
-        assert conn.execute("SELECT over_since FROM ee_license").fetchone() == (None,)
+    server.identities.add_key("Billing CI")  # over the users bought
+    with server.db.transaction() as conn:  # as nobody had looked yet: the server's own look (its license job, its
+        conn.execute("UPDATE ee_license SET over_since = NULL")  # listener hearing the install) may have kept it
 
     def removing():
         with server.db.transaction() as conn:

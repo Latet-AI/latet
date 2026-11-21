@@ -5,6 +5,14 @@ from pathlib import Path
 
 from latet.config import Config, Profile, TermConfig
 from latet.edition import Community
+from latet.projects import norm_path
+
+
+def _named(path: str) -> str:
+    """A folder as ``protection`` names it, the real floor's words: a Windows folder (``C:/work/jazz``, kept with
+    backslashes) by its last part on Linux and macOS too, where ``Path`` reads all of it as one name."""
+    folder = norm_path(path)
+    return Path(folder.rstrip("/\\")).name or folder
 
 
 class CompanyFloor:
@@ -17,7 +25,7 @@ class CompanyFloor:
         out = [] if config.profile == Profile.MAX else [f"profile: from max to {config.profile.value}"]
         if config.allow_values:
             out.append(f"values never to mask: {len(config.allow_values)} added")
-        out += [f"project {Path(e.path).name}: Latet turned off" for e in config.projects if not e.enabled]
+        out += [f"project {_named(e.path)}: Latet turned off" for e in config.projects if not e.enabled]
         return out
 
     def raise_to(self, config: Config) -> Config:

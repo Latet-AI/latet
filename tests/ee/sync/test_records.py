@@ -77,8 +77,11 @@ def test_more_terms_than_the_limit_from_one_source_are_refused(monkeypatch):
 
 @pytest.mark.parametrize("fmt", ["json", "yaml"])
 def test_a_document_nested_deeper_than_python_reads_is_unreadable_never_another_error(fmt):
+    # JSON 10 MB deep: Python 3.14 bounds its parser by the C stack itself, and on Linux and macOS 100,000 lists fit in
+    # it (the document then ends unfinished, a JSONDecodeError); a YAML document past 5 MB is not read at all.
+    depth = 10_000_000 if fmt == "json" else 100_000
     with pytest.raises(SourceError, match="nested deeper") as caught:
-        parse_records(b"[" * 100_000, fmt)
+        parse_records(b"[" * depth, fmt)
     assert caught.value.code == "unreadable"
 
 

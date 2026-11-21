@@ -3,6 +3,7 @@ marker ``server``): the same answers from both, each person shown only what they
 a folder's name in the database unsealed."""
 
 import contextlib
+import threading
 import time
 
 import pytest
@@ -191,6 +192,8 @@ def test_a_text_withheld_where_it_was_sent_is_said_so_and_names_who_approved_whi
     assert records.get("b_rejected").state == "rejected"
 
 
+@pytest.mark.server
+@services
 def test_the_database_holds_no_reason_unsealed(server):
     """R40 (the plan review's M1): a change's reasons name folders and destinations the person chose: sealed."""
     records = PostgresRecords(server.db, server.master.sealer(b"approvals"))
@@ -304,10 +307,11 @@ def test_a_prune_goes_in_bounded_runs_each_in_a_transaction_of_its_own(server, u
     records.add(_change("waiting", 7.0))
     monkeypatch.setattr(approvals, "PRUNE_RUN", 2)
     statements: list[str] = []
-    transaction = server.db.transaction
+    transaction, mine = server.db.transaction, threading.get_ident()
 
     def watched():
-        statements.append("transaction")
+        if threading.get_ident() == mine:  # the prune's own: the server's other threads take transactions meanwhile
+            statements.append("transaction")
         return transaction()
 
     monkeypatch.setattr(server.db, "transaction", watched)
