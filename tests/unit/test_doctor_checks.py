@@ -19,6 +19,44 @@ def stopped(computer, monkeypatch):
     return computer
 
 
+@pytest.mark.parametrize(
+    ("reason", "finding", "level", "named"),
+    [
+        ("reserved by Windows (5241-5340)", "held", checks.FAIL, True),
+        ("free", "at-risk", checks.WARN, True),
+        ("latet", "at-risk", checks.WARN, True),
+        ("free", "reserved", checks.OK, False),
+        ("free", "safe", checks.OK, False),
+        ("in use by another program", "safe", checks.FAIL, False),
+    ],
+)
+def test_doctor_fails_on_a_held_port_and_warns_on_one_at_risk(computer, monkeypatch, reason, finding, level, named):
+    from latet.service import ports
+
+    monkeypatch.delenv("LATET_PORT", raising=False)
+    usable = reason in ("free", "latet")
+    monkeypatch.setattr(ports, "probe", lambda port: ports.PortState(port, usable, reason))
+    monkeypatch.setattr(ports, "reservation", lambda port: finding)
+    (check,) = checks.check_port()
+    assert check.status == level
+    assert ("latet reserve-port" in check.detail) is named
+    if reason == "in use by another program":
+        assert "latet global-install" in check.detail
+
+
+def test_doctor_names_latet_port_where_it_sets_a_port_windows_holds(computer, monkeypatch):
+    """`latet reserve-port` never moves a port that LATET_PORT sets: the advice is to choose another one there."""
+    from latet.service import ports
+
+    monkeypatch.setenv("LATET_PORT", "5283")
+    monkeypatch.setattr(ports, "probe", lambda port: ports.PortState(port, False, "reserved by Windows (5241-5340)"))
+    monkeypatch.setattr(ports, "reservation", lambda port: "held")
+    (check,) = checks.check_port()
+    assert check.status == checks.FAIL
+    assert "LATET_PORT" in check.detail
+    assert "latet reserve-port" not in check.detail
+
+
 def _daemon(found):
     return next(check for check in found if check.title == "Daemon")
 

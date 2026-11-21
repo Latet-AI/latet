@@ -47,6 +47,22 @@ def test_render_carries_psycopg_lgpl_and_gpl_companion_texts(monkeypatch):
     assert "How to Apply These Terms to Your New Programs" in rendered
 
 
+def test_render_says_how_each_lgpl_package_of_the_image_is_used_and_replaced(monkeypatch):
+    """psycopg (`latet[server]`) and ldap3 (`latet[ldap]`, pure Python) are in the image, each used as a separate,
+    unmodified package: the notices say so of each, and how to replace either (the LGPL's section 4)."""
+    monkeypatch.setattr(gen, "python_sections", lambda: [])
+    monkeypatch.setattr(gen, "npm_sections", lambda: [])
+    rendered = gen.render()
+
+    section = rendered.split("### Replacing psycopg or ldap3 in the image", 1)[1]
+    words, recipe = section.split("```dockerfile", 1)
+    assert "psycopg-pool" in words and "ldap3" in words and "pure Python" in words
+    assert "pip install --no-index --no-deps --force-reinstall" in recipe
+    for name in ("psycopg", "psycopg-binary", "psycopg-pool"):
+        assert "`latet[server]`" in gen._USAGE[name] and "separate, unmodified package" in gen._USAGE[name]
+    assert "`latet[ldap]`" in gen._USAGE["ldap3"] and "separate, unmodified package" in gen._USAGE["ldap3"]
+
+
 def test_render_carries_tzdata_apache_text_without_platform_metadata(monkeypatch):
     # tzdata's Windows-only lock edge must not discard license text needed in the image notice.
     monkeypatch.setattr(gen, "python_sections", lambda: [])

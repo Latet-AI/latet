@@ -37,6 +37,7 @@ from latet.server.master import MasterKey, root_key
 from latet.server.space_settings import PgSettings
 from latet.server.tokens import route_key
 
+from ..owned import owned
 from .conftest import identity_in
 from .support import DATABASE, URL, VALKEY, scanned_once
 
@@ -49,8 +50,8 @@ _FAULT_REGISTRATION = {"folder": "/client/work/child", "root": "/client/work", "
 
 @pytest.fixture(name="owned_launch_namespaces")
 def _prove_owned_launch_namespaces(request):
-    schema = "latet_t_" + secrets.token_hex(5)
-    prefix = "latet_t_" + secrets.token_hex(5) + ":"
+    schema = owned("latet_t_" + secrets.token_hex(5), "schema", DATABASE)
+    prefix = owned("latet_t_" + secrets.token_hex(5) + ":", "prefix", VALKEY)
     with psycopg.connect(DATABASE, connect_timeout=5) as connection:
         if connection.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is not None:
             raise RuntimeError("schema must be absent before ownership")

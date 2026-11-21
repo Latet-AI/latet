@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ExchangeDetail, Leak, Slot } from '../api/types'
-import { explainBlock, outboundTools, outboundValues, stoppedValues } from './blocks'
+import { explainBlock, outboundTools, outboundValues, stoppedValues, waitedForTeam } from './blocks'
 
 function detail(
   flags: string[],
@@ -44,6 +44,15 @@ describe('why a request was stopped', () => {
     expect(explainBlock(detail(['blocked', 'leak'], { leaks: [leak('EMAIL')] }))?.kind).toBe('leak')
   })
 
+  it("tells a value in what a tool takes by the reason given (gateway/mediate.py: TOOL_INPUT_WORDS)", () => {
+    const reason =
+      'sensitive values would leave in clear: EMAIL[21]; it is in the parameter schema of the tool mcp__crm__find, which Latet checks but cannot mask in this request: if it is not sensitive, choose Not sensitive in the dashboard (latet dashboard); otherwise turn off the MCP server or plugin that gives this tool'
+    const why = explainBlock(detail(['blocked', 'leak'], { reason, leaks: [leak('EMAIL', { kind: 'tool_description' })] }))
+    expect(why).toMatchObject({ kind: 'toolInput', given: reason })
+    const plain = 'sensitive values would leave in clear: EMAIL[21]'
+    expect(explainBlock(detail(['blocked', 'leak'], { reason: plain, leaks: [leak('EMAIL', { kind: 'tool_description' })] }))?.kind).toBe('leak')
+  })
+
   it('tells what the max profile does not send', () => {
     expect(explainBlock(detail(['blocked', 'uninspected:image'])) ).toMatchObject({ kind: 'uninspected', uninspected: ['image'] })
   })
@@ -62,6 +71,39 @@ describe('why a request was stopped', () => {
     expect(live('Latet did not send this request: the agent stopped waiting for it')).toMatchObject({ live: 'abandoned' })
     expect(live('the local reviewer could not read the user text (timeout), so it was not sent')?.kind).toBe('localReviewer')
     expect(live('masking failed')).toMatchObject({ kind: 'other', given: 'masking failed' })
+  })
+
+  it('tells a text your company’s security team stopped, or waited for, by the reason given (Latet Enterprise)', () => {
+    // The daemon's words for a text the team decided on (gateway/approvals.py: REJECTED_BY_SECURITY,
+    // EXPIRED_FOR_SECURITY); an abandoned one says nothing of who decided.
+    const live = (reason: string) => explainBlock(detail(['blocked'], { reason }))
+    const rejected = live("Latet did not send this request: your company's security team did not approve it in the Live Reviewer")
+    expect(rejected).toMatchObject({ kind: 'live', live: 'rejected', team: true })
+    const expired = live("Latet did not send this request: it waited for your company's security team longer than live_review.timeout_s")
+    expect(expired).toMatchObject({ kind: 'live', live: 'expired', team: true })
+    expect(live('Latet did not send this request: you did not approve it in the Live Reviewer')).toMatchObject({ team: false })
+    expect(live('Latet did not send this request: the agent stopped waiting for it')).toMatchObject({ live: 'abandoned', team: false })
+    expect(live('masking failed')).toMatchObject({ team: false })
+  })
+
+  it('says the team waited on an abandoned text when your texts go to them now, the reason saying nothing of it', () => {
+    const live = (reason: string) => explainBlock(detail(['blocked'], { reason }))!
+    const abandoned = live('Latet did not send this request: the agent stopped waiting for it')
+    expect(waitedForTeam(abandoned, true)).toBe(true)
+    expect(waitedForTeam(abandoned, false)).toBe(false)
+    // A reason that names who decided wins over where texts go now.
+    expect(waitedForTeam(live('Latet did not send this request: you did not approve it in the Live Reviewer'), true)).toBe(false)
+    const team = live("Latet did not send this request: your company's security team did not approve it in the Live Reviewer")
+    expect(waitedForTeam(team, false)).toBe(true)
+  })
+
+  it('tells a text the team approved that changed before it left, by the reason given (Latet Enterprise)', () => {
+    // The daemon's words (gateway/approvals.py: APPROVED_CHANGED), after the gateway's "Latet did not send this request:".
+    const reason =
+      "Latet did not send this request: it would leave masked otherwise than your company's decider approved it (the rules changed meanwhile): it was not sent, and waits for them again when the agent sends it again"
+    const changed = explainBlock(detail(['blocked'], { reason }))!
+    expect(changed).toMatchObject({ kind: 'live', live: 'changed', team: true, given: reason })
+    expect(waitedForTeam(changed, false)).toBe(true)
   })
 })
 

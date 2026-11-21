@@ -1,0 +1,156 @@
+---
+title: Events to your SIEM
+description: Configure SIEM outputs, protect their secrets, understand delivery and gaps, and verify retained evidence.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+Latet Enterprise forwards server events and administration-log entries to your security systems. Start with [Reports and administration log](../reports/) for counting, people, roles and license conditions. SIEM needs the `siem` feature; it does not grant access to Reports or Audit, which require `reports`.
+
+## Configure outputs
+
+The Security role configures and tests outputs on **Events to your SIEM**; the Auditor role reads them. Dashboard access needs `roles`. Company-wide changes and tests require the company-account session when `company_changes: sso`. Readers see destination origins, not secret-bearing paths, queries or headers. A conflicting save returns 409 and reloads current settings; review them before trying again.
+
+<Screenshot name="siem" alt="SIEM outputs with delivery, queue, dropped-event and failure status, and test controls" caption="Events to your SIEM, viewed with the Security role." />
+
+Up to 50 outputs are supported. Names contain lowercase letters, digits and hyphens, at most 40 characters. An existing name cannot be edited: renaming removes the old output and adds another, with the removal's queue and secret consequences below. The administration-token [CLI](../../reference/cli/) also configures outputs:
+
+```yaml
+# outputs.yaml: latet server siem set outputs.yaml
+- name: splunk
+  kind: splunk
+  url: https://splunk.acme.com:8088/services/collector/event
+  secret: siem-splunk
+- name: collector
+  kind: webhook
+  url: https://collector.acme.com/latet
+  headers:
+    Authorization: "Bearer {secret}"
+  secret: siem-collector
+  format: ndjson
+- name: syslog
+  kind: syslog
+  url: tls://siem.acme.com:6514
+```
+
+`latet server siem set outputs.yaml` accepts a YAML/JSON list or a `siem: [...]` wrapper, at most 64 KiB both before and after JSON encoding. Aliases, non-JSON values/keys, excessive nesting and oversized structures are refused. It replaces the output list: preserve outputs you intend to keep. `latet server siem show` reads configuration/status; `latet server siem secret splunk` asks for the secret with hidden input, with no secret-value flag.
+
+| Kind | Wire format |
+| --- | --- |
+| `webhook` | HTTPS POST, a JSON array (`json`) or one event per line (`ndjson`), with configured headers |
+| `splunk` | HTTP Event Collector envelopes, `sourcetype: latet:event`, server hostname as `host` |
+| `syslog` | [RFC 5424](https://www.rfc-editor.org/rfc/rfc5424.html) messages over [RFC 5425 TLS](https://www.rfc-editor.org/rfc/rfc5425.html), facility 13, hostname and event JSON |
+
+Use a receiver or intermediary that accepts these formats and manages its downstream authentication. Direct Google SecOps webhook feeds and Azure Logs Ingestion are unsupported by this implementation's address/credential rules. A successful HTTP transport test does not establish downstream indexing.
+
+## Secrets and destination binding
+
+Each output uses only `siem-<output-name>`. Its secret is sealed in PostgreSQL under the server's master key; the dashboard accepts it once and never displays it again. Instances periodically rebuild outputs and reread secrets (normally every 60 seconds).
+
+- Write `{secret}` where a credential belongs in a path, query value or header, never in a hostname/port. URL insertion percent-encodes the secret. Secret/header inputs use visible ASCII.
+- Credential-like query/header names require the placeholder. Decoded path segments **and query names/values** are checked for embedded token shapes: long mixed-case or lowercase alphanumeric strings, 32-or-more hex digits and GUIDs. Encoding or embedding the token does not exempt it. Narrow exceptions are the workflow ID after `/workflows/` on `*.logic.azure.com`, and one exactly spelled `channel` query parameter with a GUID on a `splunk` output.
+- Binding covers output name, kind, normalized destination, path/query and secret-carrying header names/values. Host case, trailing dots, default ports and harmless header case/order normalize; these spelling changes alone do not break binding. Changing the bound destination or a secret-carrying header requires setting the secret again before it can be sent there.
+- Removing an output removes its secret. A rename does not transfer it. A missing or differently bound secret holds delivery with an explanatory status.
+- Webhooks with a secret add `x-latet-signature: sha256=…`, an HMAC-SHA256 over the body. There is no signature timestamp: receivers must deduplicate and reject replays using event IDs.
+- Headers such as `Host`, `Content-Length`, forwarding headers, `Cookie`, `Origin`, proxy/browser-controlled headers and `x-latet-*` are refused. Limits are 32 unique case-insensitive header names, 64 characters per name and 4,096 per value. URLs are visible ASCII without spaces, at most 2,048 characters, with no user/password or fragment; use an `xn--` hostname for international names. Syslog accepts no query or meaningful path.
+
+## Where outputs connect
+
+The server checks the destination on saving and checks resolved addresses again at each connection, pinning the connection to a checked address: the first that takes it, the next only when the connection to the one before is refused or not made in time, before anything of a batch is sent. Company-private networks are allowed. Link-local (including cloud metadata), reserved, unspecified and multicast addresses, IPv6 forms carrying IPv4, and IPv6 zones are refused. DNS names cannot bypass this. IPv4 must use canonical dotted decimal; hostnames containing underscores are refused, so use a valid service alias.
+
+Only explicit `localhost`, `127.0.0.1` or `[::1]` may name the server itself; HTTP is allowed only there. Over HTTPS or TLS, `localhost` works as `127.0.0.1` does, since the receiver's certificate is checked at every address; over HTTP, write the address the receiver listens on (`127.0.0.1` or `[::1]`), never `localhost`: `localhost` is tried at `::1` first, and any program on the server that listens there would be sent the events and the output's secret. Local outputs, even HTTPS/TLS ones, can be **edited and tested only through the CLI**, not the dashboard. So is their secret: `latet server siem secret` sets it. In the dashboard they remain visible and removable. Examples for an administrator to run:
+
+```sh
+latet server siem test syslog
+latet server siem show
+latet server status
+```
+
+Tests are limited to one per output per 10 seconds, 30 per output per hour and 30 per dashboard person or administration token per hour. Dashboard additions or moves to a different scheme/host/port allow ten destinations per person per hour, then 429. Refused saves and 409 retries can consume that allowance. CLI output saves have no such destination allowance. Every save/test is audited.
+
+Environment proxies such as `HTTPS_PROXY` are ignored. TLS checks the destination name against the server's certificate trust store; install your private CA there when needed. On Windows/macOS, the OS truststore may fetch certificate AIA URLs outside these egress checks. Each send has a 20-second deadline. Uncompressed response bodies are bounded to 64 KiB; compressed bodies are neither read nor inflated, but HTTP 2xx still counts as transport acceptance. Syslog's TLS `close_notify` can wait up to two seconds within the send deadline.
+
+## Delivery and held batches
+
+Requests do not wait for SIEM delivery. Each output has a PostgreSQL queue; instances lease it in turn and send ordered batches of up to 500. A lease expires in 60 seconds, which is **not** a takeover or delivery SLA: output turns are serial and a ten-second round budget is checked between turns.
+
+HTTP 2xx means transport acceptance, not indexed delivery or Splunk indexer acknowledgment. Syslog has no application acknowledgment. Delivery uses at-least-once retries where events remain queued: an acknowledgment lost after acceptance, a crash or an expired lease can produce duplicates. Deduplicate by `id`; a forwarded administration entry has a stable ID. Retention, queue bounds and deliberate skips prevent a universal lossless or exactly-once guarantee.
+
+- Network failures, redirects (never followed), HTTP 401, 403, 404, 405, 408, 409, 410, 411, 415, 425, 429 and 5xx retain/retry the batch after 5, 10, 30, 60, then 300 seconds.
+- Other receiver refusals split the batch to isolate refused events. In a mixed result, individually refused non-admin events can be dropped and counted; an administration entry is held.
+- A run entirely refused stays held and backed off, including an event-only run with `held: true` and `blocked: false`. A later network failure clears the refusal hold until another receiver attempt. Investigate the receiver's logs before skipping.
+- Only the administration-token CLI can release a held run: `latet server siem skip <output>`. Active leases/state checks can refuse it; expiry alone does not guarantee success a minute later. A skip includes rows committed late inside that held span. For event-only skips, `from`/`to` are null, administration `count` is 0 and `dropped` can be positive; no event-only gap marker is made. Administration ranges are attested as described below.
+- When an output's total queue exceeds 200,000 events, trimming drops oldest `apps` first, then other ordinary events. It never trims administration entries, so the total can remain above that threshold. The per-instance pipeline holds at most 10,000 waiting events, with `apps` at most half; database, shutdown and schema failures can lose events before counts are stored.
+
+**Send a test event** sends a `test` event outside the event log. It reports the transport result, not proof that an index contains it. The dashboard, CLI and status show last success, failure/since, queued/dropped/collapsed counts, held state and secret problems.
+
+## Gaps and verification
+
+Administration forwarding starts once SIEM is licensed, near the retained last hour, not at the beginning of all history. `siem.forwarding` records its start. The authenticated forwarder note records progress. An unreadable note stops forwarding; deleting it while the retained start record exists also stops it. Restoring an older authentic note can resend entries, re-mark real gaps and later forward entries from a formerly paused period. Once retention removes `siem.forwarding`, deletion can look like an initial run again. Preserve external copies and retained chain anchors.
+
+The SIEM copy can have these administration gaps:
+
+- **No output or no SIEM production:** forwarding notes the unsent range. Its marker accompanies the next forwarded administration entry; resumption itself normally makes an entry. Previously queued events can resume delivery. This is not a promise that paused entries can never be replayed.
+- **Output removal:** once an instance observes removal, that copy ends without a closing marker. A stale instance may send another batch. The queue and secret are removed; status counts abandoned administration entries. Other outputs receive the removal action.
+- **Long backlog:** above 1,000,000 waiting administration entries per output, the oldest collapse into an attested marker down to 990,000. This is not a strict disk cap. Rough estimates are 400 MB per output and 20 GB for 50 such backlogs. Status warns at 100,000; a collapse causes FAIL until the next successful delivery.
+- **Administrative skip:** skipped administration ranges gain a marker and a chained `siem.skipped` attestation. Skipping a refused marker itself removes it from the receiver's copy; `siem.skipped` retains its range on the server.
+
+A range marker has `type: admin`, `outcome: siem.gap`, `reason: audit:<first>-<last>`, integer `stopped` equal to its entry count, null identity/target, and `chain.prev` from the first entry with `chain.hash` from the last. It carries no entry details. Marker and chained `siem.gap`/`siem.skipped` attestation commit together. A marker alone proves nothing; a matching authenticated retained entry must attest its range. It proves nonsending, not the cause: correlate license/settings entries. The log's own `siem.gap` event has its own chain position and `reason: server`, not `audit:…`.
+
+```sh
+latet server log verify
+latet server log verify --siem siem-export.ndjson
+```
+
+Verification walks the keyed server chain, reports its head, and checks queued markers. With `--siem`, it also inspects every extracted `outcome: siem.gap` object, even a malformed event envelope. It accepts a **regular, non-link file up to 256 MiB**: event JSON arrays or NDJSON, HEC envelopes, Splunk `result._raw` exports and Elastic hits' `_source`. A file with no recognized Latet event is refused.
+
+Retained attestations are checked before age. Only old ranges without a retained attestation are reported unchecked after their entries pass retention; these old ranges alone do not cause failure. A broken or unwalkable chain, malformed/unattested current marker, or missing/malformed server verification information fails with exit 1; Community `--siem`, unreadable input and no-event files exit 2. Malformed marker/server responses never become a pass.
+
+`--siem` checks markers, not completeness or authenticity of every ordinary exported event. A database writer can still suppress delivery or copy chain fields into a forged ordinary event. The server chain and external retained anchors remain necessary evidence. At a worst measured backlog, verification can retain a read-only snapshot for roughly 1.5 minutes, delaying vacuum; it can fail closed on timeouts rather than certify an incomplete scan.
+
+## Event fields
+
+| Field | Meaning |
+| --- | --- |
+| `v` | Schema version, 1 |
+| `id` | Event identifier, 32 hexadecimal digits; deduplication key |
+| `ts` | Event time in UTC |
+| `type` | Current producers: `exchange`, `stopped`, `apps`, `policy`, `approval`, `change`, `sign-in`, `sync`, `license`, `admin`; `test` is sent only by tests |
+| `identity` | Person as the people setting keeps them, or API-key ID; admin actor follows the [administration policy](../reports/#administration-identities-sent-to-the-siem) |
+| `kind` | `person`, `key`, or null, including system/marker events |
+| `group` | First person group at recording time, or null |
+| `agent` | Agent code such as `claude-code`, `codex`, `opencode`, `apps`, or null |
+| `project` | Folder name, at most 200 printable characters without path separators, or null; overflow is `other`; `masked-` and 8 characters when its name holds a masked term ([reports](../reports/)) |
+| `masked` | Counts by normalized type, such as `EMAIL` or `CLIENT_NAME` |
+| `stopped` | Stopped request count; unanswered texts for `apps`; 1 for an `approval` not approved (rejected, abandoned, expired); represented entry count for gap markers |
+| `reason` | Stop/license code; where a `change` came from; why a `sync` failed; non-person admin actor; or a marker's `audit:<first>-<last>`; otherwise null |
+| `outcome` | Operation/result code: `scan`/`mask`, policy/license outcome, how an `approval` or a `change` ended, how a `sync` ended (`ok`, `failed`, `removed`), admin action or `siem.gap`; otherwise null |
+| `by` | Who decided an `approval` or a `change` when it was not the person ([central approvals](../approvals/)), or the person who asked for a `sync` or removed synced terms ([term sync](../term-sync/)), kept as the people setting keeps a person; otherwise null |
+| `rule` | Rule/setting ID, `apps` caller's `t_…` token ID (never its value), a `sync`'s source as `term-sync:<name>` (`term-sync` alone for a removal that names no source), or admin target under the privacy policy; otherwise null |
+| `chain` | Admin `prev`/`hash`, 64 hex digits each (`prev` empty at the chain's start); marker endpoints as above; otherwise null |
+
+## Metrics and checks
+
+The server's metrics listener exposes `/_latet/metrics`; see [server operations](../../concepts/server-operations/). SIEM labels group by output `kind`, not name.
+
+| Metric | Meaning |
+| --- | --- |
+| `latet_events_kept_total{type}` | Events counted by this instance |
+| `latet_events_lost_total` | Events lost before counting, including queue pressure, database/shutdown loss and schema refusals |
+| `latet_events_other_project_total` | Events subsequently counted after this instance's per-identity hourly guard remapped their project to `other`; excludes database-only group/global overflow and mere use of the literal name `other` |
+| `latet_siem_queued{kind}` | Shared database queue estimate refreshed every 30 seconds; use `max` across instances, not their sum |
+| `latet_siem_sent_total{kind}` | Events transport-accepted from this instance |
+| `latet_siem_failed_total{kind}` | Failed batches to retry |
+| `latet_siem_dropped_total{kind}` | Ordinary events dropped through refusals or queue trimming |
+| `latet_approvals_company_waiting{kind, route}` | Changes (`change`) and texts (`batch`) waiting for the security team (`security`) or an API key's controllers (`controllers`); each instance reads it from the database every 30 seconds and says the same: take the largest. [Central approvals](../approvals/) |
+| `latet_approvals_company_decided_total{kind, state}` | What stopped waiting through this instance, by how it ended (`approved`, `rejected`, `withdrawn`, `stale`, `superseded`, `expired`, `abandoned`, `gone`; and `approved-unapplied` and `approved-changed`, counted again among the approved, for an approval the person's settings did not take and a text approved and then not sent): add the instances up |
+| `latet_terms_masked` | Synced terms this instance masks now; missing until its terms first loaded ([Term sync](../term-sync/)) |
+| `latet_terms_behind_seconds` | Seconds this instance has masked older synced terms than the server holds (0: none); alert above 60 |
+| `latet_terms_kept{state}` | Synced terms kept, still in their source (`in-source`) or no longer (`gone`); each instance reads it from the database every 30 seconds and says the same: take the largest |
+| `latet_terms_unreadable` | Synced terms this instance cannot open (another master key sealed them); alert above 0 |
+| `latet_terms_sources{kind, state}` | Term sync's sources by kind and how their last sync went (`ok`, `failed`, `never`); read from the database every 30 seconds: take the largest |
+| `latet_terms_runs_total{kind, outcome}` | Syncs run on this instance, by how they ended (`ok`, or the code of why they failed): add the instances up |
+
+`latet server status` reports Event log settings/production and abandoned administration entries, plus each output's delivery, failures, held run and secret state. The skip hint applies to held ordinary runs as well as blocked administration entries. A displayed `siem.gap` audit row is a record, not a cryptographic verification result.
+
+Automated tests use local/fake webhook, HEC and TLS syslog receivers, failures and multi-instance scenarios. One healthy-acknowledgment multi-instance scenario checks single ordered arrival; it is not a guarantee after lost acknowledgments, crashes or lease expiry. No real Splunk deployment or manual indexing trial is claimed.

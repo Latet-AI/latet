@@ -1,6 +1,6 @@
 ---
 title: Docker
-description: Esegui il daemon di Latet in un container, e collegaci i tuoi agenti.
+description: Esegui il daemon di Latet in un container, e connettici i tuoi agenti.
 ---
 
 Latet gira anche come container: niente Python sul tuo computer, e il daemon tenuto separato dal
@@ -10,7 +10,7 @@ entrambi facoltativi; i loro modelli vengono scaricati solo se lo chiedi. I tuoi
 tuo computer e comunicano con il container su `127.0.0.1`.
 
 Il container non può cambiare le impostazioni dei tuoi agenti né vedere chi sei, quindi due passaggi che
-`latet global-install` fa da solo qui si fanno a mano: collegare gli agenti al container, e comunicargli la
+`latet global-install` fa da solo qui si fanno a mano: connettere gli agenti al container, e comunicargli la
 tua identità. Entrambi sono un copia e incolla.
 
 ## Avvialo
@@ -34,7 +34,7 @@ docker run -d --name latet --restart unless-stopped -p 127.0.0.1:5283:5283 \
 un file system di sola lettura, e tiene tutto in due volumi: `latet-data` (la cassaforte, la sua
 chiave e la cronologia della dashboard) e `latet-config` (`config.yaml`).
 
-## Collega i tuoi agenti
+## Connetti i tuoi agenti
 
 ```sh
 docker exec latet latet agents print
@@ -73,7 +73,7 @@ volume `latet-data` del container con `docker cp`, lo unisce lì e lo copia indi
 Poi riavvia gli agenti. Per questi percorsi le [modalità](../../concepts/how-it-works/) e la
 protezione sono le stesse di quando il daemon è installato sul tuo computer: Anthropic per Claude
 Code, OpenAI o ChatGPT per Codex, e i provider di OpenCode. Claude Code su Bedrock, Vertex AI o
-Microsoft Foundry, un provider di Codex tuo e il gateway di un'azienda li configurano
+Microsoft Foundry, un provider personalizzato di Codex e il gateway di un'azienda li configurano
 `latet claude`, `latet codex` e `latet global-install`, che girano sul tuo computer: per quei casi
 usa Latet installato sul tuo computer.
 

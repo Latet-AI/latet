@@ -29,8 +29,8 @@ chiave: passa da Latet con quell'accesso, come Codex ([più sotto](#accesso-con-
 
 Latet legge ogni parte di ogni richiesta che questi agenti inviano
 ([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)): una chiamata che non
-legge, come un upload o un batch, viene rifiutata, e così un header che aggiungi nelle impostazioni del
-provider di un agente, finché
+legge, come un upload o un batch, viene rifiutata, e lo stesso vale per un header che aggiungi nelle
+impostazioni del provider di un agente, finché
 un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non lo lascia passare.
 Questi agenti sono configurati a mano, quindi Latet non considera attendibile nessun progetto per loro:
 una cartella che nominano aggiunge solo protezione, e le tue impostazioni per un progetto lì non
@@ -63,17 +63,22 @@ all'indirizzo che usa Codex. Aggiungi una riga a `.env` nella cartella di Hermes
 HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
 ```
 
-Hermes rilegge il file da solo: il suo messaggio successivo passa da Latet. La variabile sposta ogni
-richiesta che Hermes invia con quell'accesso: la conversazione, e il lavoro che affida allo stesso
-modello a margine, come il titolo di una sessione, il riassunto di un contesto lungo o la lettura di
-un'immagine o di una pagina web. Viene prima di `model.base_url` in `config.yaml`, che puoi lasciare
-com'è.
+Hermes rilegge il file da solo: il suo messaggio successivo passa da Latet. La variabile devia ogni
+richiesta che Hermes invia con quell'accesso: la conversazione e i compiti secondari che affida allo
+stesso modello, come il titolo di una sessione, il riassunto di un contesto lungo o la lettura di
+un'immagine o di una pagina web. Ha la precedenza su `model.base_url` in `config.yaml`, che puoi
+lasciare com'è.
 
-- **Un Latet 0.9.3 o precedente** restituisce a Hermes i valori fittizi al posto di quelli veri: prima
+- **Un Latet 0.9.3 o precedente** restituisce a Hermes i valori fittizi al posto di quelli reali: prima
   aggiorna Latet (`latet upgrade`).
+- **Un Latet dalla 0.11.0 alla 0.12.1** rifiuta alcune richieste di Hermes: quelle di una
+  conversazione avviata dalla sua riga di comando o dal suo gateway (un id di sessione che inizia con
+  `local-`), quelle di un workspace ChatGPT con una residenza dei dati, e una conversazione ripresa
+  le cui risposte portano la loro fase. Latet 0.15.0 le lascia passare, ognuna con la sua forma esatta,
+  verificata sul sorgente di Hermes Agent 0.23.1: aggiorna Latet.
 - **Un provider di riserva con un suo `base_url`** mantiene quell'indirizzo: in `fallback_providers`,
   imposta anche lì l'indirizzo di Latet, oppure togli la riga. Altrimenti una richiesta che ripiega su
-  quel provider va a ChatGPT senza niente di mascherato.
+  quel provider va a ChatGPT senza che nulla sia mascherato.
 - Se Latet non è in esecuzione, Hermes non può raggiungere il modello. È voluto: niente esce senza
   essere mascherato.
 - Nella dashboard, le richieste di Hermes compaiono sotto Codex o sotto un altro agente: Hermes si
@@ -83,7 +88,7 @@ Provato dal vivo: Hermes Agent con l'accesso tramite ChatGPT.
 
 ## OpenClaw
 
-OpenClaw legge `~/.openclaw/openclaw.json` (JSON5) e applica da solo le modifiche che ci fai. Aggiungi
+OpenClaw legge `~/.openclaw/openclaw.json` (JSON5) e applica da solo le modifiche che vi apporti. Aggiungi
 un provider che punta a Latet, e rendi uno dei suoi modelli quello predefinito:
 
 ```json5 title="~/.openclaw/openclaw.json"
@@ -120,7 +125,7 @@ export GOOSE_MODEL=gpt-5.1
 goose session
 ```
 
-`GOOSE_PROVIDER` e `GOOSE_MODEL` scelgono il provider e il modello: senza, Goose ti chiede di
+`GOOSE_PROVIDER` e `GOOSE_MODEL` scelgono il provider e il modello: senza queste variabili, Goose ti chiede di
 eseguire prima `goose configure`, che salva gli stessi valori. Per OpenRouter, aggiungi con
 `goose configure` un provider personalizzato compatibile con OpenAI, con l'URL di base
 `http://127.0.0.1:5283/openrouter/api/v1` e la tua chiave di OpenRouter; questa configurazione non è
@@ -141,8 +146,8 @@ LLM_MODEL=openai/gpt-5.1 LLM_BASE_URL=http://127.0.0.1:5283/openai/v1 LLM_API_KE
 
 Un agente che accetta un URL di base compatibile con OpenAI passa da Latet con gli indirizzi della
 tabella qui sopra. Uno che legge `OPENAI_BASE_URL` o `ANTHROPIC_BASE_URL` dall'ambiente si può
-avviare con [`latet run`](../openai-compatible/#per-un-comando-latet-run), che le imposta solo per
-quell'agente.
+avviare con [`latet run`](../openai-compatible/#per-un-comando-latet-run), che imposta queste variabili
+solo per quell'agente.
 
 **Un agente in un container** non raggiunge Latet su `127.0.0.1`: lì, `127.0.0.1` è il container
 stesso, e Latet risponde solo alle richieste indirizzate a `127.0.0.1` o a `localhost`. Esegui
@@ -155,7 +160,7 @@ l'agente sul tuo computer; su Linux, anche un container avviato con `--network h
   Legge quello che l'agente recupera, la parte che nessuno scrive, e per impostazione predefinita una
   richiesta attende la sua revisione e viene fermata quando il revisore non può rispondere.
 - **Usa la [modalità dati rigorosa](../../concepts/production-data/)** per un agente che legge
-  database o log: ogni valore di una tabella o di un documento JSON viene mascherato, e le join
+  database o log: ogni valore di una tabella o di un documento JSON viene mascherato, e i join
   funzionano ancora.
 - **Seguilo nella dashboard:** `latet dashboard` mostra ogni richiesta che l'agente ha inviato, cosa
   è stato mascherato al suo interno e cosa è stato bloccato.
@@ -164,7 +169,7 @@ l'agente sul tuo computer; su Linux, anche un container avviato con `--network h
   protezione si applica; quello che la riduce attende la tua approvazione nella dashboard. Vedi
   [Gli agenti e le tue impostazioni](../../concepts/agents-and-settings/).
 
-Ognuno di questi quattro agenti è provato davvero, configurato come qui sopra: invia un compito
+Ognuno di questi quattro agenti è stato provato davvero, configurato come qui sopra: invia un compito
 attraverso Latet a un provider di prova che risponde come OpenAI, il provider riceve valori
 fittizi e l'agente riceve indietro quelli reali. Se un agente non funziona attraverso Latet,
 [apri una issue](https://github.com/Latet-AI/latet/issues), per favore.

@@ -3,8 +3,8 @@ title: Rilevamento
 description: Come Latet riconosce segreti e dati personali, interamente sul tuo computer.
 ---
 
-Il rilevamento avviene sul tuo computer, o sul server Latet a cui è connesso: non viene mai chiamato
-nessun servizio di rilevamento nel cloud. Diversi rilevatori leggono ogni porzione di testo che una richiesta contiene.
+Il rilevamento avviene sul tuo computer, o sul server di Latet a cui il tuo computer è connesso: non
+viene mai chiamato nessun servizio di rilevamento nel cloud. Diversi rilevatori leggono ogni porzione di testo che una richiesta contiene.
 Questa pagina li spiega con degli esempi; il [riferimento dei rilevatori](../../reference/detectors/)
 elenca ogni rilevatore e ogni regola per i segreti.
 
@@ -18,25 +18,25 @@ Sono incluse le credenziali di Latet: `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LA
 (`latet_brg_`, il token che il plugin di Claude Code dà al daemon del tuo computer), `LATET_LAUNCH_KEY`
 (`latet_lk_`, la chiave che `latet claude`, `latet codex` e gli altri comandi di avvio danno all'agente
 che avviano, e che un comando che stampa l'ambiente dell'agente mette nell'output di uno strumento) e
-`LATET_ONE_TIME_CODE` (`latet_code_`, il codice che un amministratore dà a una persona per collegare
+`LATET_ONE_TIME_CODE` (`latet_code_`, il codice che un amministratore dà a una persona per connettere
 un computer), ciascun prefisso seguito da 43 caratteri URL-safe (32 per il codice monouso; `A-Z`,
 `a-z`, `0-9`, `_`, `-`). Un token del bridge o un codice monouso creato da una versione precedente
-non ha prefisso: viene mascherato dal nome con cui è scritto, come ogni segreto. In `https://<host>/u/<route-key>`, i 16-128 caratteri
-URL-safe della chiave di percorso vengono mascherati come `LATET_ROUTE_KEY`; l'host e gli altri
+non ha prefisso: viene mascherato in base al nome sotto cui è scritto, come ogni segreto. In `https://<host>/u/<route-key>`, i caratteri URL-safe
+della chiave di percorso, da 16 a 128, vengono mascherati come `LATET_ROUTE_KEY`; l'host e gli altri
 segmenti del percorso restano. Vale sul tuo computer e in uno spazio sul server, anche nei dump
 dell'ambiente, nel file `settings.json` di Claude Code e nel file `config.toml` di Codex. Le chiamate
 agli strumenti locali ricevono i valori reali. Una chiamata a uno strumento esterno che contiene un
 valore fittizio viene fermata dove Latet può intercettarla (vedi [Ambito della protezione](../protection-scope/)).
 
 - **Formati noti.** Il set di regole predefinito di [gitleaks](https://github.com/gitleaks/gitleaks)
-  (222 regole) è incluso in Latet e gira su [RE2](https://github.com/google/re2), con le parole
+  (222 regole) è incluso in Latet e usa [RE2](https://github.com/google/re2), con le parole
   chiave, le soglie di entropia e gli elenchi di valori consentiti che usa gitleaks. Copre le chiavi
   API e i token di molti provider, come GitHub, Anthropic, OpenAI, AWS, Stripe o Slack.
 - **Valori assegnati a nomi sensibili**, nei file `.env`, nella configurazione e nel codice. Decide il
   nome, qualunque aspetto abbia il valore: `DB_PASSWORD=...`, `"api_key": "..."` e
   `$env:TOKEN = ...` vengono mascherati; `APP_NAME=shop` e `DEBUG=true` no. I segnaposto come
   `changeme`, `${DB_PASSWORD}` o `<your-key>` restano come sono, e così anche i riferimenti nel codice
-  come `process.env.API_KEY`. Una coppia `password=...` viene mascherata ovunque stia in una riga, dopo
+  come `process.env.API_KEY`. Una coppia `password=...` viene mascherata ovunque si trovi in una riga, dopo
   altre parole in un log (`INFO login ok password=...`), tra parentesi, nella query di un URL o dopo `--`
   in un comando (`--password=...`); dopo un nome forte (`password`, `secret`, `api_key`,
   `access_token`...) viene mascherato anche un valore letterale tra virgolette dopo due punti o un
@@ -55,7 +55,7 @@ valore fittizio viene fermata dove Latet può intercettarla (vedi [Ambito della 
   più lungo) viene mascherato.
   Un nome che finisce con `reset`, `source`, `arg`, `option` o `flag` resta il nome
   di un segreto (`password_reset`, `token_source`), e solo dopo `--` in mezzo a una riga un'opzione che
-  finisce così (`--pass-arg=...`) resta com'è, perché prende il nome di qualcosa.
+  finisce così (`--pass-arg=...`) resta com'è, perché il suo valore è il nome di qualcosa.
 - **Chiavi private**: l'intero corpo di un blocco di chiave privata PEM, OpenSSH o PGP. Le righe
   `BEGIN` ed `END` restano visibili, così il modello sa comunque che lì c'è una chiave.
 - **Credenziali**: la password in `postgres://user:password@host/db` e in altri URL, i JSON Web Token
@@ -78,20 +78,20 @@ e ciò che riceve il modello quando l'agente lo legge:
 ```sh
 APP_NAME=shop
 SMTP_HOST=mail.northwind-legal.com
-SMTP_PASSWORD=jeeepo3ixhbkw
-PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
+SMTP_PASSWORD=7vdn5d1nku0hy
+PAYMENTS_API_KEY=gd_1a2f2438f7bc60e0f872
 ```
 
 Il nome host non è un segreto e resta. La password e la chiave vengono sostituite da valori fittizi
 della stessa lunghezza e dello stesso formato (i tuoi saranno diversi). Un segreto di meno di dodici
-caratteri riceve invece un valore fittizio più lungo degli stessi tipi, con i suoi segni al loro
-posto, di dodici lettere e cifre, quindici cifre per un numero: `password=1234` esce come
+caratteri riceve invece un valore fittizio più lungo, con gli stessi tipi di caratteri e i simboli
+al loro posto: dodici lettere e cifre, quindici cifre per un numero. `password=1234` esce come
 `password=582194736201937`, `token=ab12f3` come `token=9e04c7b1d2fa`. Un valore fittizio breve
 quanto il valore comparirebbe per caso negli id e nei numeri dei testi successivi, e un ripristino
-li cambierebbe. Un valore fittizio breve dato prima di Latet 0.10.2 (di otto caratteri o meno)
-resta: una conversazione lo ripristina come prima, e `unmask` dell'[API per le
-applicazioni](../../applications/#la-cassaforte-di-una-chiave), che legge un'intera cassaforte, solo
-dove sta come parola intera.
+li cambierebbe. Un valore fittizio breve assegnato prima di Latet 0.10.2 (di otto caratteri o meno)
+resta: in una conversazione viene sostituito con il valore reale come prima, e con `unmask` dell'[API
+per le applicazioni](../../applications/#la-cassaforte-di-una-chiave), che legge un'intera
+cassaforte, solo dove compare come parola intera.
 
 ### Segnaposto
 
@@ -115,11 +115,11 @@ anche un riferimento nel codice: `process.env.API_KEY`, `os.environ["TOKEN"]`, `
 da non mascherare mai ([valori consentiti](../profiles/#valori-consentiti)): se appartiene a un progetto,
 nelle tue impostazioni per quel progetto.
 
-Resta com'è anche un valore fatto solo di simboli, chiunque lo trovi e per quanto sia lungo:
+Resta com'è anche un valore fatto solo di simboli, qualunque rilevatore lo trovi e per quanto sia lungo:
 `!!!!!!!!` come password, `--------------------` dopo `Bearer`, una corrispondenza di uno dei tuoi
 [riconoscitori](../custom-recognizers/) o un valore segnalato dal [revisore locale](../llm-review/).
 Il valore fittizio conserva i simboli dell'originale, quindi coinciderebbe con l'originale. Fa eccezione
-una chiave di percorso di Latet: ogni carattere del valore fittizio viene generato di nuovo, anche
+una chiave di percorso di Latet: ogni carattere del valore fittizio viene generato di nuovo a caso, anche
 quando l'originale è fatto solo di `_` o `-`.
 
 ## Dati personali
@@ -173,7 +173,7 @@ Svizzera e la Norvegia, qualunque cosa dica `id_regions`: hanno sempre il prefis
 
 Alcune cose restano come sono di proposito:
 
-- le email ai domini di documentazione `example.com`, `example.net` e `example.org`, o sotto
+- le email dei domini di documentazione `example.com`, `example.net` e `example.org`, o sotto
   `.example`, `.test`, `.invalid` e `.localhost`, e i mittenti di sistema come `git@` o `noreply@`;
 - nel codice e nell'output degli strumenti, le sequenze di cifre senza `+`, `00`, spazi o parentesi,
   che molto più spesso sono id, date o numeri di build che numeri di telefono. Nei tuoi messaggi le
@@ -185,7 +185,7 @@ Alcune cose restano come sono di proposito:
 
 I nomi nel testo libero, come in *Emily Carter ha scritto questo*, richiedono un modello statistico.
 Con il [modello locale dei nomi](../../getting-started/installation/) facoltativo installato, Latet
-trova da sé nomi e indirizzi; anche il [revisore locale](../llm-review/), un modello linguistico sul
+trova da sé nomi e indirizzi stradali; anche il [revisore locale](../llm-review/), un modello linguistico sul
 tuo computer o su un tuo server, li trova, insieme ai dati sulla salute e agli altri valori che
 nessun pattern descrive.
 Senza nessuno dei due, un nome viene mascherato solo quando è il nome del tuo autore git (vedi
@@ -207,7 +207,7 @@ Quando torna la risposta, il tuo agente vede comunque il nome e l'indirizzo real
 
 Cosa cerca il modello dei nomi dipende dal [profilo](../profiles/):
 
-- **`balanced`**: nomi completi (due parole o più) e indirizzi, in ciò che scrivi e alleghi e nel
+- **`balanced`**: nomi completi (due parole o più) e indirizzi stradali, in ciò che scrivi e alleghi e nel
   testo letto nelle immagini. Una città o un codice postale contano solo accanto a una via. Il codice, l'output degli strumenti e il testo
   di sistema non vengono letti.
 - **`max`**: anche nomi di una sola parola e città, e anche il testo di sistema e l'output degli
@@ -217,7 +217,7 @@ Cosa cerca il modello dei nomi dipende dal [profilo](../profiles/):
 Una volta trovato, un nome entra tra i [valori noti](#valori-noti) e da lì in poi viene mascherato
 ovunque, output degli strumenti compreso, in ogni profilo, anche `secrets`.
 
-Il modello non dà garanzie:
+Il modello non è infallibile:
 
 - **Gli sfuggono dei nomi.** I nomi poco comuni, le iniziali e i nomi scritti in minuscolo sono quelli
   che sfuggono più spesso. I saluti e i titoli davanti a un nome (*Ciao Paul*, *Dr. Sarah Mitchell*)
@@ -257,8 +257,8 @@ lo segnalano.
 Un termine contiene al massimo 8.192 caratteri: uno più lungo viene cercato da solo, e uno di circa
 un milione di lettere non si può cercare affatto. La dashboard, `latet config` e un'importazione
 rifiutano un termine più lungo. Uno scritto a mano in `config.yaml` viene lasciato fuori, e
-`latet reload`, il log del daemon e `latet config validate` dicono quale voce; uno nel `latet.yaml`
-di un progetto viene lasciato fuori anche lui, e la pagina del progetto lo dice.
+`latet reload`, il log del daemon e `latet config validate` dicono quale voce; anche uno nel
+`latet.yaml` di un progetto viene lasciato fuori, e la pagina del progetto lo segnala.
 
 Per un formato invece che per un valore, come ogni numero di badge scritto `AB-123456`, scrivi un
 [riconoscitore personalizzato](../custom-recognizers/): un pattern, cifre di controllo e parole
@@ -302,12 +302,13 @@ riferimento a un carattere HTML (`&#242;`, `&ograve;`). Lo stesso vale per i tuo
 l'identità di questo computer e, dove una sequenza scrive un carattere, per i dati personali e i
 valori dei tuoi riconoscitori: così viene trovato anche un indirizzo scritto `mario.rossi%40acme.it`
 (un segreto o un valore di una struttura viene trovato solo com'è scritto). Un valore trovato così
-viene conservato com'è scritto, come un valore a sé con un valore fittizio suo, scritto con le stesse
+viene conservato com'è scritto, come un valore a sé con un proprio valore fittizio, scritto con le stesse
 sequenze dove fanno parte del testo: `Paolo%20Fontana` in un link, `\'` in una stringa tra apici.
 All'agente torna il valore esattamente com'era scritto, così un link resta un link e una modifica
 ritrova la sua riga. Dove il modello scrive il valore fittizio così come si legge,
 `Paolo Fontana`, all'agente torna il valore così come si legge. La cassaforte registra come è stato
-trovato ogni valore, così com'è scritto o dove i suoi escape si leggono, e quindi questo vale per un
+trovato ogni valore, così com'è scritto o come si legge una volta decodificate le sue sequenze di
+escape, e quindi questo vale per un
 valore di ogni tipo trovato in quel modo: un numero di telefono noto come `333 1234567` e incontrato
 come `333+1234567` in una query torna anch'esso come `333 1234567`.
 

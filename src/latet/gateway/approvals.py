@@ -7,6 +7,10 @@ clear. Nothing of a batch is written to disk; the originals stay in the daemon's
 What waits is kept by an ``ApprovalsBackend``: this process's memory on a computer, Valkey on a Latet
 server, where a decision taken in one process wakes a request waiting in another.
 
+With Latet Enterprise on a server a batch or a change may wait for someone else (``decides``): the company's security
+team, or the people who control an API key. Whoever waits for it can stop it, never approve it, and the runtime keeps
+the company's record of it (``Central``).
+
 Everything here runs on the event loop, but the changes to your settings: the runtime opens and settles
 them in a worker thread, and their events reach the dashboards on the loop (``publish_change``). And a
 batch that ``open`` awaits is kept by its backend where that costs the loop nothing: a server's queue
@@ -18,22 +22,25 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import re
 import secrets
 import time
-from collections.abc import Callable, MutableMapping
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from latet import observe
 from latet.engine.detectors.terms import has_letter_or_digit
 from latet.engine.reviewer.reviewer import CATEGORY_TYPES
+from latet.engine.vault import MaskingError
 from latet.gateway.recorder import Broadcaster
 from latet.logline import Paced
 
 if TYPE_CHECKING:
-    from latet.state.protocols import ApprovalsBackend, Feed, Timing
+    from latet.state.protocols import ApprovalsBackend, Feed, IdentityRef, Timing
 
 log = logging.getLogger(__name__)
 
@@ -52,10 +59,77 @@ State = Literal["approved", "rejected", "abandoned", "expired"]
 REJECTED = "you did not approve it in the Live Reviewer"
 EXPIRED = "it waited for your approval in the Live Reviewer longer than live_review.timeout_s"
 ABANDONED = "the agent stopped waiting for it"
+REJECTED_BY_SECURITY = "your company's security team did not approve it in the Live Reviewer"
+EXPIRED_FOR_SECURITY = "it waited for your company's security team longer than live_review.timeout_s"
+
+# Who decides on what waits (Latet Enterprise, on a server): the person whose space it is (self), the company's
+# security team, or, for an API key's change, the people who control the key, never the one who made it.
+Decides = Literal["self", "security", "controllers"]
+NOT_YOURS: dict[str, str] = {
+    "security": "your company's security team decides on this: you can stop it or undo it, not approve it",
+    "controllers": (
+        "another person who controls this API key decides on this, in Company approvals: you can undo it, not "
+        "approve it"
+    ),
+}
+WAITS: dict[str, str] = {  # what waits for the person is said by the Community's ChangeWaits (R42)
+    "security": (
+        "it lowers protection, so your company's security team decides on it: it waits for them (Approvals), and the "
+        "settings in use stay as they are"
+    ),
+    "controllers": (
+        "it lowers protection, so another person who controls this API key decides on it: it waits for them (Company "
+        "approvals), and the settings in use stay as they are"
+    ),
+}
+_UNTOLD = Paced()  # a hook that failed to keep how an item ended: said once a minute
 
 
 class MaskError(ValueError):
     """A mask the Live Reviewer does not take: it would not add protection, or is not in the text."""
+
+
+class NotYours(Exception):
+    """An approval of what someone else decides on (Latet Enterprise), asked by whoever waits for it: they may stop
+    it, not approve it."""
+
+
+class Changed(Exception):
+    """An approval of a text as it was read (its ``batch_version``), after it was masked again (its previews made anew
+    while it waited: the rules or the vault changed, and it may mask less now): nothing is decided, and it still waits.
+    A decider of the company approves only what they saw (the review of Task 10, I1)."""
+
+
+APPROVED_CHANGED = (
+    "it would leave masked otherwise than your company's decider approved it (the rules changed meanwhile): it was "
+    "not sent, and waits for them again when the agent sends it again"
+)
+
+
+class ApprovedChanged(MaskingError):
+    """Texts a decider of the company approved (``Decision.version``) that masking them where they are sent gives
+    otherwise (the rules or the vault changed between the approval and the sending): withheld, through the path of any
+    text that cannot be masked, never taken as approved (the review of Task 10, fix round 2). Fixed words."""
+
+
+def batch_version(items: Sequence[dict[str, Any]]) -> str:
+    """A batch's version: a digest of how each of its texts would leave (its masked text, and where each value sits),
+    which changes whenever its previews are made anew. Never of its values in clear: the originals are not in it."""
+    digest = hashlib.sha256()
+    for item in items:
+        shown = [item.get("masked"), item.get("replacements")]
+        digest.update(json.dumps(shown, sort_keys=True, separators=(",", ":"), default=str).encode())
+        digest.update(b"\x00")
+    return digest.hexdigest()[:32]
+
+
+class Waits(Exception):
+    """A save in the dashboard lowers protection, and someone else decides on it (the company's security team, or
+    another person who controls the API key): it waits for them instead of applying."""
+
+    def __init__(self, change: Change) -> None:
+        super().__init__(WAITS.get(change.decides, WAITS["security"]))
+        self.change = change
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +157,13 @@ class Decision:
     images: list[ImageDecision] = field(default_factory=list)
     reason: str | None = None  # why it is not sent
     state: State = "approved"
+    by: IdentityRef | None = None  # who decided when it was not whoever waits (kept on the instance that decided)
+    # In an API key's space, the person working there who stopped it (the whole-branch review's m1): who ended it, in
+    # the company's record and the event, never the agent's reason nor the dashboards' (kept on the instance too).
+    stopped_by: str | None = None
+    # The batch as a decider of the company approved it (its ``batch_version``), carried to the instance that sends it:
+    # there it leaves only while masking it then gives that version (``Mediator.apply_live``). None for whoever waits.
+    version: str | None = None
 
 
 @dataclass(slots=True)
@@ -103,8 +184,13 @@ class Batch:
     seen: float = field(default_factory=time.monotonic)
     waiting: int = 0  # calls waiting on it right now (a poll held open)
     images: dict[int, Any] = field(default_factory=dict)  # item → its image (an ImageWork), in memory only
-    # The rules' and the vault's versions its previews were made with, in memory only (``Mediator.hold_live``).
-    made_at: tuple[int, int] | None = None
+    # The rules' and the vault's versions its previews were made with, and the synced terms' tag, in memory only
+    # (``Mediator.hold_live``).
+    made_at: tuple[int, int, str] | None = None
+    # Who decides on it (Latet Enterprise, on a server): you, or your company's security team, named. Set before it is
+    # kept (``Approvals.route_batch``), and kept with it: every instance reads it.
+    decides: Decides = "self"
+    deciders: list[str] = field(default_factory=list)
     # Your decision, once it is in the queue (made on the event loop: a batch is built in the engine thread).
     future: asyncio.Future[Decision] = field(init=False)
 
@@ -118,6 +204,8 @@ class Batch:
             "created": self.created,
             "expires": expires,
             "items": self.items,
+            "decides": self.decides,
+            "deciders": self.deciders,
         }
 
 
@@ -127,7 +215,9 @@ class Change:
 
     config: Any  # the settings it would apply (a Config)
     base: str  # a digest of the settings it was made against: approved over others, it would undo them
-    source: Literal["command", "file", "start"]  # a latet command, config.yaml edited, found at start
+    # A latet command, config.yaml edited (on a server: the settings as PostgreSQL has them), found at start, saved in
+    # the dashboard.
+    source: Literal["command", "file", "start", "dashboard"]
     agent: str | None  # the agent that ran the command, when one did
     loosened: list[str]  # what it lowers, never a value
     keys: list[str]  # the top-level keys it changes
@@ -141,6 +231,12 @@ class Change:
     exceptions: list[dict[str, Any]] = field(default_factory=list)
     id: str = field(default_factory=lambda: secrets.token_urlsafe(9))
     created: float = field(default_factory=time.time)
+    # Who decides on it: you, your company's security team, or an API key's controllers (Latet Enterprise), named.
+    decides: Decides = "self"
+    deciders: list[str] = field(default_factory=list)
+    # In an API key's space, the person who made it (E3's latet.acting): one of those acting for the key, who never
+    # approves it. None in one's own space.
+    asked_by: str | None = None
 
     def summary(self, full: bool = False) -> dict[str, Any]:
         """What the change is; ``full`` for the dashboard: with the guidance it writes."""
@@ -151,6 +247,9 @@ class Change:
             "agent": self.agent,
             "loosened": self.loosened,
             "keys": self.keys,
+            "decides": self.decides,
+            "deciders": self.deciders,
+            "asked_by": self.asked_by,
         }
         if full:
             out["guidance"] = self.guidance
@@ -174,6 +273,50 @@ def waiting_lines(change: dict[str, Any], where: str = "`latet dashboard`, Appro
     ]
 
 
+class Central(Protocol):
+    """The company's record of what waits for someone other than whoever asked (Latet Enterprise, on a server): the
+    runtime asks it who decides (never whoever asked: the identity, or ``asked_by`` in an API key's space), and tells
+    it what opens, what never waited, and how each ended, by its id."""
+
+    def deciders(self, identity: IdentityRef | None, decides: Decides, asked_by: str | None = None) -> list[str]: ...
+    def opened(self, identity: IdentityRef | None, item: Change | Batch) -> None: ...
+    # ``stopped_by``: in an API key's space, the person working there who stopped it and did not ask for it (an id).
+    def ended(
+        self, identity: IdentityRef | None, item_id: str, kind: Literal["change", "batch"], state: str,
+        by: IdentityRef | None, stopped_by: str | None = None,
+    ) -> None: ...  # fmt: skip
+    def dropped(self, identity: IdentityRef | None, item_id: str) -> None: ...
+    # A text a decider approved, withheld where it was sent: masked then, it was not what they approved.
+    def withheld(self, identity: IdentityRef | None, item_id: str) -> None: ...
+
+
+def _quietly(hook: Callable[..., object], *args: Any) -> None:
+    """A hook that keeps how an item ended (the event, the company's record): never in the way of the decision, which
+    stands. Its failure is said by its type, once a minute."""
+    try:
+        hook(*args)
+    except Exception as exc:  # its words could name the record's database
+        _untold(exc)
+
+
+def _untold(exc: Exception) -> None:
+    """A hook's failure to keep how an item ended, or that it never waited: said by its type, once a minute."""
+    if count := _UNTOLD.due():
+        log.warning(
+            "how an item that waited ended was not kept (%s)%s",
+            type(exc).__name__,
+            f" ({count} times since the line before)" if count > 1 else "",
+        )
+
+
+async def _nothing_to_route(batch: Batch) -> None:
+    return None
+
+
+async def _nothing_dropped(batch_id: str) -> None:
+    return None
+
+
 class Approvals:
     """The batches waiting for you, the changes to your settings waiting for you, and the dashboards watching them:
     kept by ``backend``, told through ``broadcaster``."""
@@ -191,6 +334,22 @@ class Approvals:
         self.is_surrogate: Callable[[str], bool] = lambda _value: False  # the vault's, once there is one
         # Whether a value is one never to mask (Not sensitive) where a batch comes from.
         self.is_allowed: Callable[[Batch, str], bool] = lambda _batch, _value: False
+        # Latet Enterprise on a server (the runtime's, ``Runtime.__post_init__``): who decides on what opens, said and
+        # recorded before anyone sees it (raising, it does not open); what was recorded and never waited; how each item
+        # ended, once, where it was decided. On the Community Edition they do nothing.
+        self.route_change: Callable[[Change], None] = lambda _change: None
+        self.route_batch: Callable[[Batch], Awaitable[None]] = _nothing_to_route
+        self.dropped_change: Callable[[str], None] = lambda _change_id: None
+        self.dropped_batch: Callable[[str], Awaitable[None]] = _nothing_dropped
+        # How a change ended, with who decided (``by``) or, in an API key's space, who stopped it there (an id).
+        self.on_change_settled: Callable[[str, Change | None, str, IdentityRef | None, str | None], None] = (
+            lambda *_args: None
+        )
+        # On the event loop, or in a server's queue thread (``settle_all``): it must not wait on a network.
+        self.on_batch_settled: Callable[[str, Decision, Decides, str | None], None] = lambda *_args: None
+        # A text a decider approved, withheld where it was sent (``ApprovedChanged``): from the engine's thread or the
+        # event loop, it must not wait on a network either.
+        self.on_batch_withheld: Callable[[str, Decides], None] = lambda *_args: None
         self._reaper: asyncio.Task[None] | None = None
         self._unreaped = Paced()  # rounds of the reaper that failed, said once a minute
 
@@ -222,21 +381,34 @@ class Approvals:
     # --- the agents' side ------------------------------------------------------------------------
 
     async def open(self, batch: Batch) -> Batch:
-        """``batch`` waits for you, and the dashboards are told ("pending") once any process can read it. The backend
-        keeps it where that costs the event loop nothing (``ApprovalsBackend.store``): a server's queue makes, seals
-        and writes its records in a thread of its own, and tells the dashboards from there, where keeping it on the loop
-        held every other request for a quarter of a second, seconds for a burst. Raises what keeping it raises (a
-        server's ``BatchRefused``), and tells nobody then."""
-        await self.backend.store(batch, lambda: self.broadcaster.publish(batch.summary(), "pending"))
+        """``batch`` waits for you, or for whoever decides on it (``route_batch``: Latet Enterprise), and the
+        dashboards are told ("pending") once any process can read it. The backend keeps it where that costs the event
+        loop nothing (``ApprovalsBackend.store``): a server's queue makes, seals and writes its records in a thread of
+        its own, and tells the dashboards from there, where keeping it on the loop held every other request for a
+        quarter of a second, seconds for a burst. Raises what keeping it raises (a server's ``BatchRefused``), and tells
+        nobody then."""
+        await self.route_batch(batch)  # who decides on it, before anyone sees it; raising, it never waits
+        try:
+            await self.backend.store(batch, lambda: self.broadcaster.publish(batch.summary(), "pending"))
+        except BaseException:
+            if batch.decides != "self":
+                try:
+                    await self.dropped_batch(batch.id)  # recorded, and never waited: the record forgets it
+                except Exception as exc:  # never in place of why it was not kept, which is raised (Task 1's C2)
+                    _untold(exc)
+            raise
         if self._reaper is None or self._reaper.done():
             self._reaper = asyncio.get_running_loop().create_task(self._reap())
         return batch
 
-    async def update(self, batch_id: str, items: list[dict[str, Any]]) -> bool:
+    async def update(
+        self, batch_id: str, items: list[dict[str, Any]], pictures: Mapping[int, tuple[str, str]] | None = None
+    ) -> bool:
         """A batch opened here shown masked again (the rules or the vault changed while it waited): its previews stored
-        (``ApprovalsBackend.replace``), and the dashboards told ("updated", the batch as it is now). False: it no longer
+        with its images painted again (``pictures``, by item: base64 and media type, as each would leave now;
+        ``ApprovalsBackend.replace``), and the dashboards told ("updated", the batch as it is now). False: it no longer
         waits here, and nobody is told."""
-        batch = await self.backend.replace(batch_id, items)
+        batch = await self.backend.replace(batch_id, items, pictures)
         if batch is None:
             return False
         self.broadcaster.publish(batch.summary(), "updated")
@@ -269,18 +441,27 @@ class Approvals:
         KeyError too."""
         return await self.backend.answer(batch_id, hold)
 
-    def give(self, batch_id: str, answer: dict[str, Any]) -> None:
-        """What the plugin gets for a batch you decided. Raises ValueError while the batch still waits."""
-        self.backend.give(batch_id, answer)
+    def give(self, batch_id: str, answer: dict[str, Any]) -> bool:
+        """What the plugin gets for a batch you decided. Raises ValueError while the batch still waits. True when it was
+        kept as given for the plugin's call (``ApprovalsBackend.give``)."""
+        return self.backend.give(batch_id, answer)
 
     async def image(self, batch_id: str, item: int, sent: bool) -> tuple[str, str] | None:
         """An image of a batch waiting, as it came or as it would leave (``sent``), read where it costs the event loop
         nothing (``fetch_image``: a server opens the image's record in its queue's thread)."""
         return await self.backend.fetch_image(batch_id, item, sent)
 
+    def withheld(self, batch: Batch) -> None:
+        """``batch``, approved by a decider of the company, was withheld where it was sent (``ApprovedChanged``: masked
+        then, it was not what they approved): the dashboards told ("withheld", its id: they say it in their own words,
+        the plugin's path recording no exchange), and how it ended kept anew (``on_batch_withheld``), never in the
+        way."""
+        self.broadcaster.publish({"id": batch.id}, "withheld")
+        _quietly(self.on_batch_withheld, batch.id, batch.decides)
+
     def abandon(self, batch: Batch) -> None:
         """The agent stopped waiting (the client went away): the batch leaves the queue unsent."""
-        self._settle(batch.id, Decision(False, reason=ABANDONED, state="abandoned"))
+        self._settle(batch.id, Decision(False, reason=ABANDONED, state="abandoned"), batch.decides, batch.agent)
 
     # --- your side -------------------------------------------------------------------------------
 
@@ -295,29 +476,58 @@ class Approvals:
         approve: bool,
         masks: list[dict[str, Any]] | None = None,
         images: list[dict[str, Any]] | None = None,
+        by: IdentityRef | None = None,
+        version: str | None = None,
+        stopped_by: str | None = None,
     ) -> bool:
-        """Approve a batch (with the values you masked in it, the rectangles you drew on its images and
-        the images you withheld), or stop it. False: it is not waiting. The batch is read where it costs the
-        event loop nothing (``fetch``: a server opens its record, its texts with it, in its queue's thread)."""
+        """Approve a batch (with the values you masked in it, the rectangles you drew on its images and the images you
+        withheld), or stop it. False: it is not waiting. ``by``: who decided when it is not whoever waits, one of the
+        company's deciders (``CentralApprovals``); what they decide on, whoever waits may stop, never approve
+        (``NotYours``). ``version``: the batch as its decider read it (``batch_version``), approved only while it is
+        still so (``Changed`` otherwise, nothing decided), and named by every decider's approval (``Changed`` without
+        one: the whole-branch security review's L4); stopping it is never refused for it. ``stopped_by``: in an API
+        key's space, the person working there, named as who stopped it in the record and the event alone (m1): a stop
+        there is whoever waits stopping it. The batch is read where it costs the event loop nothing (``fetch``: a
+        server opens its record, its texts with it, in its queue's thread)."""
         batch = await self.backend.fetch(batch_id)
         if batch is None:
             return False
+        if approve and batch.decides != "self" and by is None:
+            raise NotYours(NOT_YOURS.get(batch.decides, NOT_YOURS["security"]))
+        if approve and by is not None and not version:  # a decider's: never taken for the person's own where it leaves
+            raise Changed("a decider's approval names the version of the text they read: read it, then decide")
+        if approve and version is not None and batch_version(batch.items) != version:
+            raise Changed("it was masked again since it was read: read it again, then decide")
         if not approve:
-            return self._settle(batch.id, Decision(False, reason=REJECTED, state="rejected"))
-        decision = Decision(True, self._masks(batch, masks or []), self._images(batch, images or []))
-        return self._settle(batch.id, decision)
+            reason = REJECTED_BY_SECURITY if by is not None else REJECTED
+            stopper = stopped_by if by is None else None
+            decision = Decision(False, reason=reason, state="rejected", by=by, stopped_by=stopper)
+            return self._settle(batch.id, decision, batch.decides, batch.agent)
+        # A decider masks what the text holds, never a value of their own in another person's vault (R45).
+        masked = self._masks(batch, masks or [], in_text=by is not None)
+        # The version they approved goes with their decision: where the text is sent, it leaves only as they read it.
+        decision = Decision(True, masked, self._images(batch, images or []), by=by, version=version)
+        return self._settle(batch.id, decision, batch.decides, batch.agent)
 
     async def approve_all(self, project: str | None = None, *, every: bool = True) -> int:
         """Approve every batch waiting, as Latet and the local reviewer masked it; with ``every``
         false, only those of ``project`` (None: those of no project). Settled where it costs the event loop nothing
         (``ApprovalsBackend.settle_all``: a server's queue in its own thread, fifty batches' round trips), and the
-        dashboards told from there (a server's feed sends to Valkey, as ``open`` tells them)."""
-        batches = [b for b in await self.backend.listed() if every or b.project == project]
-        return await self.backend.settle_all([(batch.id, Decision(True)) for batch in batches], self._told)
+        dashboards told from there (a server's feed sends to Valkey, as ``open`` tells them). Only those you decide on
+        (never those someone else decides on)."""
+        batches = [b for b in await self.backend.listed() if b.decides == "self" and (every or b.project == project)]
+        agents = {batch.id: batch.agent for batch in batches}
+        return await self.backend.settle_all(
+            [(batch.id, Decision(True)) for batch in batches],
+            lambda batch_id, decision: self._told(batch_id, decision, "self", agents.get(batch_id)),
+        )
 
-    def _told(self, batch_id: str, decision: Decision) -> None:
-        """The dashboards told that a batch was settled (``settled``)."""
-        self.broadcaster.publish({"id": batch_id, "state": decision.state}, "settled")
+    def _told(self, batch_id: str, decision: Decision, decides: Decides = "self", agent: str | None = None) -> None:
+        """The dashboards told that a batch was settled (``settled``, with who decided when it was someone else), and
+        how it ended kept (``on_batch_settled``), once: where it was settled."""
+        by = decision.by.name if decision.by is not None else None
+        self.broadcaster.publish({"id": batch_id, "state": decision.state, "by": by}, "settled")
+        _quietly(self.on_batch_settled, batch_id, decision, decides, agent)
 
     # --- changes to your settings ----------------------------------------------------------------
 
@@ -328,18 +538,40 @@ class Approvals:
         return [change for change_id in list(changes) if (change := changes.get(change_id)) is not None]
 
     def open_change(self, change: Change) -> Change:
-        opened, superseded = self.backend.open(change)
+        """``change`` waits (in a worker thread): routed first (``route_change``: who decides, recorded; raising, it
+        never waits), then kept by the backend, which keeps an equivalent change already waiting instead (this one then
+        never waited: ``dropped_change``) or supersedes the one waiting. How a superseded one ended is told and kept."""
+        self.route_change(change)
+        waiting = {found.id: found for found in self.waiting_changes()}  # what this one may supersede, read first
+        try:
+            opened, superseded = self.backend.open(change)
+        except BaseException:
+            if change.decides != "self":
+                _quietly(self.dropped_change, change.id)
+            raise
+        if opened is not change and change.decides != "self":
+            _quietly(self.dropped_change, change.id)  # an equivalent change waits already: this one never did
         for change_id in superseded:
-            self.publish_change({"id": change_id, "state": "superseded"}, "change_settled")
+            self.publish_change({"id": change_id, "state": "superseded", "by": None}, "change_settled")
+            _quietly(self.on_change_settled, change_id, waiting.get(change_id), "superseded", None, None)
         if opened is change:  # the backend returns the supplied object only for this call's committed insert
             self.publish_change(opened.summary(full=True), "change")
         return opened
 
-    def settle_change(self, change_id: str, state: str) -> Change | None:
+    def settle_change(
+        self, change_id: str, state: str, by: IdentityRef | None = None, stopped_by: str | None = None
+    ) -> Change | None:
+        """``change_id`` ended as ``state``, decided ``by`` someone else when given; None when it no longer waits.
+        ``stopped_by``: in an API key's space, the person working there who stopped it and did not ask for it, for how
+        it ended alone (``on_change_settled``: the record, the event), never told the dashboards as a decider (m1).
+        Whether whoever asks may decide on it is checked by its callers, the runtime and a server's spaces alone
+        (``Runtime.decide_change``: ``not-yours``): no route calls it (Task 1's review, C3)."""
         change = self.changes.get(change_id)
         if change is None or not self.backend.end(change_id, state):
             return None
-        self.publish_change({"id": change_id, "state": state}, "change_settled")
+        told = {"id": change_id, "state": state, "by": by.name if by is not None else None}
+        self.publish_change(told, "change_settled")
+        _quietly(self.on_change_settled, change_id, change, state, by, stopped_by)
         return change
 
     def pending_changes(self) -> list[dict[str, Any]]:
@@ -370,10 +602,11 @@ class Approvals:
 
     # --- inside ----------------------------------------------------------------------------------
 
-    def _masks(self, batch: Batch, raw: list[dict[str, Any]]) -> list[HumanMask]:
+    def _masks(self, batch: Batch, raw: list[dict[str, Any]], *, in_text: bool = False) -> list[HumanMask]:
         """Your masks, checked: inside one text, over clear text only, whole words (a secret may be part
         of one), of a known category, one category for each value, never a fake already in use nor a
-        value marked Not sensitive. A mask that would leave its value in clear is refused here."""
+        value marked Not sensitive. A mask that would leave its value in clear is refused here. ``in_text``: a
+        decider's, whose value must be in its text (R45)."""
         if len(raw) > _MAX_MASKS:
             raise MaskError(f"at most {_MAX_MASKS} masks at a time")
         out: dict[tuple[int, str], HumanMask] = {}
@@ -401,6 +634,8 @@ class Approvals:
             if by_place and not 0 <= start < end <= len(text):
                 raise MaskError("a mask must lie inside its text")
             value = text[start:end] if given is None else given
+            if in_text and value not in text:
+                raise MaskError("this value is not in the text")
             if value != value.strip() or len(value) < 2:
                 raise MaskError("a masked value has two characters or more, with no space around it")
             if len(value) > _MAX_VALUE:
@@ -451,10 +686,10 @@ class Approvals:
             out[index] = ImageDecision(index, tuple(checked), withhold)
         return list(out.values())
 
-    def _settle(self, batch_id: str, decision: Decision) -> bool:
+    def _settle(self, batch_id: str, decision: Decision, decides: Decides = "self", agent: str | None = None) -> bool:
         if not self.backend.settle(batch_id, decision):
             return False  # decided already, here or in another process
-        self._told(batch_id, decision)
+        self._told(batch_id, decision, decides, agent)
         return True
 
     def close(self) -> None:
@@ -489,7 +724,10 @@ class Approvals:
         now, clock = time.time(), time.monotonic()
         for timing in timings:
             if timing.timeout_s and now - timing.created > timing.timeout_s:
-                self._settle(timing.id, Decision(False, reason=EXPIRED, state="expired"))
+                reason = EXPIRED_FOR_SECURITY if timing.decides == "security" else EXPIRED
+                expired = Decision(False, reason=reason, state="expired")
+                self._settle(timing.id, expired, cast(Decides, timing.decides), timing.agent)
             elif timing.polled and not timing.waiting and clock - timing.seen > ABANDON_AFTER:
-                self._settle(timing.id, Decision(False, reason=ABANDONED, state="abandoned"))
+                abandoned = Decision(False, reason=ABANDONED, state="abandoned")
+                self._settle(timing.id, abandoned, cast(Decides, timing.decides), timing.agent)
         return bool(timings)

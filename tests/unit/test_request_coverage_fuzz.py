@@ -31,13 +31,30 @@ COMPUTER_CELLS = [cell for cell in rcf.CELLS if cell.startswith("computer-")]
 
 
 def test_sixteen_cells_one_for_each_machine_transport_policy_and_history():
-    assert len(rcf.CELLS) == len(set(rcf.CELLS)) == 16
-    seen = {rcf.parts(cell) for cell in rcf.CELLS}
+    assert len(rcf.READING_CELLS) == len(set(rcf.READING_CELLS)) == 16
+    seen = {rcf.parts(cell) for cell in rcf.READING_CELLS}
     assert seen == {
         (m, t, p, h) for m in rcf.MACHINES for t in rcf.TRANSPORTS for p in rcf.POLICIES for h in rcf.HISTORIES
     }
     with pytest.raises(ValueError, match="not a cell of the fuzz"):
         rcf.parts("computer-http-loose-history-on")
+
+
+def test_eight_cells_refuse_new_members_one_for_each_machine_transport_and_policy():
+    """Today's behaviour and a company floor's (``unknown_members: refuse``), the history on: the rest of the 24."""
+    assert len(rcf.CELLS) == len(set(rcf.CELLS)) == 24 and rcf.CELLS[:16] == rcf.READING_CELLS
+    assert {rcf.parts(cell)[:3] for cell in rcf.REFUSE_CELLS} == {
+        (m, t, p) for m in rcf.MACHINES for t in rcf.TRANSPORTS for p in rcf.POLICIES
+    }
+    assert {rcf.parts(cell)[3] for cell in rcf.REFUSE_CELLS} == {"on"}
+    assert {rcf.unknown_members(cell) for cell in rcf.REFUSE_CELLS} == {"refuse"}
+    assert {rcf.unknown_members(cell) for cell in rcf.READING_CELLS} == {"check"}
+    with pytest.raises(ValueError, match="not a cell of the fuzz"):
+        rcf.unknown_members("computer-http-strict-history-off-refuse")
+    for cell in rcf.REFUSE_CELLS:  # one corpus judged each way: the cases of the cell it is the twin of
+        twin = cell.removesuffix("-refuse")
+        drawn = [(c.template, c.body, c.frames, c.events, c.mutations) for c in rcf.generate(SEED, 30, cell)]
+        assert drawn == [(c.template, c.body, c.frames, c.events, c.mutations) for c in rcf.generate(SEED, 30, twin)]
 
 
 @pytest.mark.parametrize("cell", ["computer-http-exception-history-on", "server-ws-strict-history-off"])
@@ -108,17 +125,22 @@ def test_the_run_refuses_a_full_count_unless_asked_and_batches_one_machine_at_a_
     monkeypatch.delenv("LATET_RCF_FULL", raising=False)
     assert rcf.main(["run", "--seed", "1", "--count", "101", "--out", str(tmp_path)]) == 2
     batches = rcf._batches(list(rcf.CELLS), 2)
-    assert len(batches) == 8 and all(len({rcf.parts(c)[0] for c in batch}) == 1 for batch in batches)
+    assert len(batches) == 12 and all(len({rcf.parts(c)[0] for c in batch}) == 1 for batch in batches)  # 24 cells
     assert sorted(c for batch in batches for c in batch) == sorted(rcf.CELLS)
 
 
 # --- the judge: each assertion catches what it names -----------------------------------------------------------------
 
 
+def _made(tmp_path, upstream, cell: str):
+    """The computer cell ``cell`` is made of, reading new members as the cell says (``rcf.unknown_members``)."""
+    return computer_cell(tmp_path, upstream, unknown_members=rcf.unknown_members(cell))
+
+
 async def _one(tmp_path, cell: str, case: rcf.FuzzCase) -> rcf.CaseResult:
     upstream = RecordingWSUpstream().start()
     try:
-        async with rcf.fuzz_cell(cell, lambda: computer_cell(tmp_path, upstream), 1) as made:
+        async with rcf.fuzz_cell(cell, lambda: _made(tmp_path, upstream, cell), 1) as made:
             return await rcf.run_case(made, case, 0)
     finally:
         upstream.stop()
@@ -255,15 +277,16 @@ async def test_a_revoked_exception_lets_nothing_through_any_more(tmp_path):
 # --- D6 (plan, approved 2026-10-29): on a verify-only route an unknown string member is checked text, and passes ----
 
 STRICT = "computer-http-strict-history-on"
+REFUSING = "computer-http-strict-history-on-refuse"
 
 
-def _bedrock(member: str, value, plant: rcf.Plant) -> rcf.FuzzCase:
+def _bedrock(member: str, value, plant: rcf.Plant, cell: str = STRICT) -> rcf.FuzzCase:
     """Bedrock's signed call (verify-only: checked, never rewritten), its body given one member no profile names."""
     template = rcf.TEMPLATE["bedrock-signed"]
     doc = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 64,
            "messages": [{"role": "user", "content": "hello there"}], member: value}  # fmt: skip
     return rcf.FuzzCase(
-        "d6", STRICT, "bedrock-signed", "POST", template.path, template.headers, json.dumps(doc).encode(), (),
+        "d6", cell, "bedrock-signed", "POST", template.path, template.headers, json.dumps(doc).encode(), (),
         ("request",), ("field-top",), (plant,), (), 6, 3,
     )  # fmt: skip
 
@@ -296,17 +319,41 @@ async def test_a_string_canary_in_an_unknown_member_of_a_verify_only_route_passe
     assert _rejudge(result, moved)["canary"]
 
 
-async def test_a_non_string_canary_in_that_member_is_refused_and_a_leak_of_one_is_named(tmp_path):
-    """Ruling (b): the fuzz plants an object or an array holding a canary there too; the product refuses it, and one
-    that left all the same (under the very Pass a string canary leaves by) is a violation."""
+async def test_a_non_string_canary_in_that_member_passes_by_the_new_rule_and_a_leak_of_one_is_named(tmp_path):
+    """Ruling (b), with the new rule (0.15.0): the fuzz plants an object or an array holding a canary there too; the
+    product reads it whole and lets it through under a Pass naming the new rule, which the judge accepts; the same
+    canary left under any other decision, or beside a string under D6's Pass alone, is a violation."""
+    from latet.gateway.body_coverage import NEW_MEMBER_RULE
+    from latet.gateway.outcome import PolicyEvidence
+
     drawn = [m for cell in rcf.CELLS if cell.startswith("computer-http") for case in rcf.generate(SEED, 1500, cell)
              if case.template == "bedrock-signed" for m in case.mutations]  # fmt: skip
     assert "field-object" in drawn and "secret-member" in drawn
     canary = "rcfk0000000000ob"
-    refused = await _one(tmp_path, STRICT, _bedrock("x_rcf_obj", {"note": canary},
-                                                    rcf.Plant("canary", "body:/x_rcf_obj", canary)))  # fmt: skip
-    assert refused.steps[0].blocked_answer and not refused.steps[0].sent
-    assert {name: why for name, why in refused.violations.items() if why} == {}
+    read = await _one(tmp_path, STRICT, _bedrock("x_rcf_obj", {"note": canary},
+                                                 rcf.Plant("canary", "body:/x_rcf_obj", canary)))  # fmt: skip
+    step = read.steps[0]
+    [decision] = {id(a.decision): a.decision for a in step.witness.authorized}.values()
+    assert type(decision).__name__ == "Pass" and NEW_MEMBER_RULE in decision.evidence.rules
+    assert any(canary in s.content.decode() for s in step.sent)  # it left as it came, read by the final check
+    assert {name: why for name, why in read.violations.items() if why} == {}
+    other = dataclasses.replace(decision, evidence=PolicyEvidence(("checked only",), "x"))
+    authorized = [types.SimpleNamespace(decision=other, attempt=a.attempt, credentials=a.credentials,
+                                        payload=a.payload) for a in step.witness.authorized]  # fmt: skip
+    moved = [dataclasses.replace(step, witness=dataclasses.replace(step.witness, authorized=authorized))]
+    assert _rejudge(read, moved)["canary"]
+    # At its own member alone: the same canary carried elsewhere in the body as well is a violation.
+    sent = step.sent[-1]
+    doc = json.loads(sent.content)
+    doc["messages"][0]["content"] = f"hello there {canary}"
+    elsewhere = dataclasses.replace(sent, content=json.dumps(doc).encode())
+    payload = [types.SimpleNamespace(decision=a.decision, attempt=a.attempt, credentials=a.credentials,
+                                     payload=elsewhere.content) for a in step.witness.authorized]  # fmt: skip
+    widened = dataclasses.replace(step.witness, authorized=payload)
+    assert _rejudge(read, [dataclasses.replace(step, sent=[elsewhere], witness=widened)])["canary"]
+    # Under a cell that refuses new members, the very step that left is a violation: judged as before the rule.
+    refusing = dataclasses.replace(read.case, cell=REFUSING)
+    assert _rejudge(read, case=refusing)["canary"]
     string = "rcfk0000000000s6"
     (tmp_path / "pass").mkdir()
     passed = await _one(tmp_path / "pass", STRICT, _bedrock("x_rcf_d6d6", string,
@@ -316,6 +363,14 @@ async def test_a_non_string_canary_in_that_member_is_refused_and_a_leak_of_one_i
             passed.case, plants=(*passed.case.plants, rcf.Plant("canary", "body:/x_rcf_obj", canary))
         )
         assert _rejudge(passed, _left_with(passed.steps[0], "x_rcf_obj", value), case=case)["canary"]
+
+
+async def test_strict_a_non_string_canary_in_that_member_is_refused(tmp_path):
+    canary = "rcfk0000000000ob"
+    plant = rcf.Plant("canary", "body:/x_rcf_obj", canary)
+    refused = await _one(tmp_path, REFUSING, _bedrock("x_rcf_obj", {"note": canary}, plant, REFUSING))
+    assert refused.steps[0].blocked_answer and not refused.steps[0].sent
+    assert {name: why for name, why in refused.violations.items() if why} == {}
 
 
 async def test_a_real_secret_in_that_member_is_still_a_violation(tmp_path):
@@ -349,7 +404,7 @@ async def test_a_real_secret_in_that_member_is_still_a_violation(tmp_path):
 async def test_the_smoke_of_each_computer_cell(tmp_path, cell):
     upstream = RecordingWSUpstream().start()
     try:
-        async with rcf.fuzz_cell(cell, lambda: computer_cell(tmp_path, upstream), 4) as made:
+        async with rcf.fuzz_cell(cell, lambda: _made(tmp_path, upstream, cell), 4) as made:
             report = await rcf.fuzz(made, SEED, SMOKE)
     finally:
         upstream.stop()
@@ -369,7 +424,7 @@ async def _fuzz_the_computer(tmp_path):
         made[0] += 1
         folder = tmp_path / f"cell{made[0]}"
         folder.mkdir()
-        return computer_cell(folder, upstream)
+        return _made(folder, upstream, cell)
 
     try:
         await rcf.run_machine_cells(fresh)

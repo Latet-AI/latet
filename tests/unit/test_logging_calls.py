@@ -18,6 +18,7 @@ import functools
 import importlib
 import importlib.util
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -63,6 +64,8 @@ KEPT: dict[str, str | None] = {
     "latet.engine.detectors.base.DetectorSkipped": None,
     "latet.engine.reviewer.client.ReviewError": None,  # an HTTP status, an error's type, a certificate refused
     "latet.gateway.aws.AwsError": "code",  # its code; its words can name a profile and quote the AWS CLI
+    # E3: fixed words and an error's type and host (L3); its ``said`` is an administrator's
+    "latet.ee.oidc.SignInError": "detail",
     # its code, one of ENVELOPE_STATUSES' fixed categories, read-only (``test_an_envelope_refusals_code_is_...``)
     "latet.gateway.coverage.EnvelopeRefused": "code",
     # Task 11b: the error that kept a forget's log entry out, by its type alone (``described``)
@@ -462,10 +465,19 @@ def findings(
     return found
 
 
+def _read_here(path: Path) -> bool:
+    """Whether ``path`` is read here: every file of Latet's, but the Enterprise Edition's where it cannot be imported
+    (the Enterprise branch's ``--without-ee``, as a Community checkout has none), whose classes could not be told."""
+    return not (
+        path.relative_to(SRC).parts[0] == "ee" and "latet.ee" in sys.modules and sys.modules["latet.ee"] is None
+    )
+
+
 def test_no_log_line_of_latets_holds_an_errors_words_or_a_tracebacks_text():
     found = [
         f"{path.relative_to(SRC)}:{line}"
         for path in sorted(SRC.rglob("*.py"))
+        if _read_here(path)
         for line in findings(
             path.read_text("utf-8"),
             written=path.relative_to(SRC).parts[0] != "cli",  # the command line writes to its terminal

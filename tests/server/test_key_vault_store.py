@@ -91,6 +91,44 @@ def test_a_kept_value_is_found_by_its_anchor_and_by_its_fakes(keys):
     ) == [e]
 
 
+def test_a_page_of_the_vault_is_read_from_postgresql_the_newest_first_with_its_types_counted(keys):
+    """What a page of an API key's vault shows (the dashboard's, in Latet Enterprise): read from PostgreSQL, never the
+    whole vault, the newest first and by id among values of one instant, of a type, a class, or some types or ids, with
+    how many match; and how many values of each type the vault holds. Another key's values are never among them."""
+    mine, theirs = keys
+    now = time.time()
+    mails = [
+        replace(_entity(n, f"customer{n}@acme-intra.it", f"user{n}@example.org"), created=now + n // 2)
+        for n in range(6)
+    ]
+    team = _entity(7, "Billing Team", "Ops Team", etype="TEAM", eclass=EntityClass.CUSTOM)
+    team = replace(team, created=now + 5)
+    for e in [*mails, team]:
+        assert mine.save_entity(e) is None
+    newest = [team, mails[4], mails[5], mails[2], mails[3], mails[0], mails[1]]
+    assert mine.paged(0, 3) == (newest[:3], 7) and mine.paged(3, 10) == (newest[3:], 7)
+    assert mine.paged(7, 10) == ([], 7) and mine.paged(0, 0) == ([], 7)
+    assert mine.paged(0, 10, etype="EMAIL") == (newest[1:], 6)
+    assert mine.paged(0, 10, eclass=int(EntityClass.CUSTOM)) == ([team], 1)
+    assert mine.paged(0, 10, etype="EMAIL", eclass=int(EntityClass.CUSTOM)) == ([], 0)
+    assert mine.paged(0, 10, of_types=["TEAM"], of_ids=[mails[0].id]) == ([team, mails[0]], 2)
+    assert mine.paged(0, 10, of_types=[], of_ids=[]) == ([], 0)  # asked for none: none
+    assert mine.paged(0, 10, etype="EMAIL", of_types=["TEAM"], of_ids=[mails[3].id]) == ([mails[3]], 1)
+    assert mine.types_held() == {"EMAIL": 6, "TEAM": 1}
+    assert theirs.paged(0, 10) == ([], 0) and theirs.types_held() == {}
+
+
+def test_a_lookup_by_words_is_refused_past_the_bound_it_is_given(keys):
+    """A search of the dashboard gives its own bound (``most``), a call's is ``CANDIDATES_AT_MOST``: past it, refused,
+    never answered with a part of the values."""
+    mine, _ = keys
+    first, second = _entity(1, LAURA, FAKE), _entity(2, "laura.bianchi@posta.it", "m.verdi@posta.it")
+    assert mine.save_entity(first) is None and mine.save_entity(second) is None
+    assert len(mine.with_words("original", {"laura.bianchi"}, most=2)) == 2
+    with pytest.raises(vault_module.TooManyCandidates):
+        mine.with_words("original", {"laura.bianchi"}, most=1)
+
+
 def test_a_value_found_by_several_of_its_words_is_answered_once(keys):
     mine, _ = keys
     e, other = _entity(1, LAURA, FAKE), _entity(2, "m.conti@posta.it", "Orsa-7", etype="USERNAME")
@@ -1131,6 +1169,7 @@ OWN = [
     "latet.server.migrations:015_legacy_plugin_binding",
     "latet.server.migrations:016_plugin_identity_quota",
     "latet.server.migrations:017_request_exception_index",
+    "latet.server.migrations:018_server_notes",
 ]
 
 
@@ -1185,7 +1224,9 @@ def test_a_server_of_0_9_10_takes_the_api_keys_migrations_after_its_own(
         assert "vault_words" not in _tables(db) and "permissions" not in _columns(db, "tokens")
         with pytest.raises(SchemaMismatch, match="older than this Latet"):
             check_schema(db)
-        assert migrate(db, master=migration_master) == OWN
+        applied = migrate(db, master=migration_master)
+        assert applied[: len(OWN)] == OWN  # then an edition's own tables, where there are (Latet Enterprise's)
+        assert not any(name.startswith("latet.server.migrations:") for name in applied[len(OWN) :])
         check_schema(db)
         assert "permissions" in _columns(db, "tokens") and "vault_limit" in _columns(db, "identities")
         store = PgVaultStore(db, identity, ROOT_KEY)
@@ -1204,6 +1245,8 @@ def test_a_new_server_applies_every_migration_in_the_order_of_its_number(setting
         applied = migrate(db, master=migration_master)
         check_schema(db)
         assert [name.split(":")[1] for name in applied[: len(RELEASED)]] == list(RELEASED)
-        assert applied[len(RELEASED) :] == OWN and applied == sorted(applied)
+        # The server's own first, in order; then an edition's own tables, where there are (Latet Enterprise's).
+        own = [name for name in applied if name.startswith("latet.server.migrations:")]
+        assert applied[: len(own)] == own and own[len(RELEASED) :] == OWN and own == sorted(own)
     finally:
         db.close()

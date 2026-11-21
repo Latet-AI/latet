@@ -19,9 +19,11 @@ from latet.engine import wellformed
 from latet.engine.build import build
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import Vault
+from latet.gateway.approvals import batch_version
 from latet.gateway.mediate import _CHECK_BYTES, REWRITE, VERIFY, Mediator
 from latet.gateway.routes import Upstream
 from latet.protocols.base import map_json_values
+from latet.state import IdentityRef
 
 from ..conftest import ROOT_KEY
 from .test_reviewer import FakeServer, send
@@ -472,6 +474,31 @@ async def test_a_secret_the_local_reviewer_finds_is_checked_gone_from_the_rest_o
     mediator = reviewing(FakeServer({"tiramisu42": "secret"}), budget_ms=5000)
     prepared = await send(mediator, json.dumps(body).encode())
     assert prepared.block_reason == f"{STOPPED}SECRET[10]"
+
+
+async def test_a_text_the_local_reviewer_masked_leaves_the_gateway_as_a_decider_approved_it():
+    """The review of Task 10, fix round 3 (m1): the gateway's preview of a text the local reviewer masked in (the
+    request's masking, its findings masked again, read back from the slot) is the one the sending's comparison makes
+    with the same findings (``item.extra``): a decider's approval of it lets it leave, never withheld for nothing."""
+    mediator = reviewing(FakeServer({"Ferri": "person"}))
+    mediator.live_review = LiveReview(enabled=True)
+    raw = reviewed_request("the customer Ferri called about the invoice", prompt="read the log")
+    prepared = await send(mediator, raw)
+    assert prepared.block_reason is None
+    feed = await mediator.approvals.watch()
+    waiting = asyncio.ensure_future(mediator.live_prepared(prepared, "codex"))
+    while (told := await asyncio.wait_for(feed.get(), 10))[0] != "pending":
+        pass
+    batch = told[1]
+    [item] = batch["items"]
+    assert "Ferri" in item["original"] and "Ferri" not in item["masked"]  # the reviewer's finding, masked in it
+    stored = await mediator.approvals.backend.fetch(batch["id"])
+    assert stored is not None
+    decider = IdentityRef("u_markellisx", "Mark Ellis", "person")
+    assert await mediator.approvals.decide(batch["id"], True, by=decider, version=batch_version(stored.items))
+    sent = await asyncio.wait_for(waiting, 10)
+    assert sent.block_reason is None, sent.block_reason
+    assert "Ferri" not in sent.body.decode()
 
 
 async def test_a_value_you_mask_in_the_live_reviewer_is_checked_gone_from_the_rest_of_the_request():

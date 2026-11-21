@@ -30,8 +30,12 @@ from urllib.parse import quote, quote_plus, unquote, unquote_plus
 
 from latet.engine.types import EntityClass, Span
 
-# A backslash that is not itself escaped (`\\`), then the letter of an escape, or `u` and four hex digits.
-_ESCAPE = re.compile(r"(?<!\\)(?:\\\\)*\\([nrtbf]|u[0-9A-Fa-f]{4})")
+# A run of backslashes, each run taken whole once; then, where the run is odd (its last backslash not itself escaped,
+# `\\`), the letter of an escape, or `u` and four hex digits. A pattern that begins with a look behind is tried at
+# every place of a text (a long read of saved sessions spent a tenth of its masking there), and one that begins with
+# the run and ends with the letter is tried again from each backslash of a run with no letter after it.
+_BACKSLASHES = re.compile(r"\\+")
+_ESCAPE_LETTER = re.compile(r"[nrtbf]|u[0-9A-Fa-f]{4}")
 # An escape at a text's end that ends in a letter or a digit as written, of every kind ``decoded`` reads (behind any
 # run of backslashes, a nested document's too; `%XX`; a reference by number with no `;`): what follows it begins a word
 # where the decoded reading found a value, and a restore must see it so (Ruling 099-R2).
@@ -68,7 +72,13 @@ _UNREADABLE = "\N{REPLACEMENT CHARACTER}"  # half of a character with no other h
 
 def escapes(text: str) -> list[tuple[int, int]]:
     """Where the letters of ``text``'s escapes are."""
-    return [m.span(1) for m in _ESCAPE.finditer(text)] if "\\" in text else []
+    if "\\" not in text:
+        return []
+    places = []
+    for run in _BACKSLASHES.finditer(text):
+        if (run.end() - run.start()) % 2 and (letter := _ESCAPE_LETTER.match(text, run.end())) is not None:
+            places.append(letter.span())
+    return places
 
 
 def breaks(text: str) -> list[tuple[int, int]]:

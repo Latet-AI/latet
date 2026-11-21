@@ -24,9 +24,18 @@ What is there and does not open (written or moved by hand, sealed with another k
 settings that do not open stop the space (``ValueError``), and so does an approved snapshot that does not open, where
 none would make whatever the own part holds count as approved. Each is said in the log by the identity and the kind of
 row alone, once a minute at most. An own part over ``SETTINGS_LIMIT`` is not kept, nor an API key's snapshot (its own
-part), nor a person's snapshot over twice that (the shared settings and her own part, each bound at the limit). The
-database's own failures are raised as ``OSError`` naming the type of the error alone (a driver's words can quote an
-address or a key).
+part), nor a person's snapshot over three times that (the shared settings, and her own part twice: in the settings
+approved, and kept beside them as approved; each bound at the limit). The database's own failures are raised as
+``OSError`` naming the type of the error alone (a driver's words can quote an address or a key).
+
+A person's snapshot is the settings approved, and beside them, under ``APPROVED_OWN`` (a key the settings have no
+field for), her own part approved with them (E5's [D1]: whether settings that arrive from the server lower her own
+part, or the shared settings alone lowered them, is weighed against it). A release before E5 reads the settings
+approved from it as it read its own snapshots, and writes back the settings alone. Its own part is the own part kept
+when the settings kept are the settings approved; while a composition is in use the own part kept may hold what waits,
+which is never approved by being applied, and the own part approved stays as it was (None when none was kept yet). A
+snapshot with no own part (kept before E5, or by such a release since) still reads: its own part is None until it is
+written again, and so is the pair ``{"settings", "own"}`` E5's branch wrote before its security review.
 
 The approved snapshot is read as it applies now: a person's with what is the server's (where the local reviewer runs,
 the port, the capture folder) taken from the shared settings of now (``shared.repinned``), never weighed per person. An
@@ -116,6 +125,26 @@ _COUNT: Final = (
 )
 
 
+# Where a person's snapshot keeps the own part approved with its settings (E5's [D1]): beside the settings, at their top
+# level, under a key the settings have no field for, so that a release before E5, which makes settings of the snapshot
+# as it is (``Config`` ignores a key it does not know), reads the settings approved, never Latet's defaults (the
+# whole-branch security review's M1). What such a release writes back is the settings alone: no own part approved.
+APPROVED_OWN: Final = "_approved_own"
+
+
+def _parts(found: Any) -> tuple[Any, Any, bool] | None:
+    """A person's snapshot as kept, as the settings approved, the own part approved with them, and whether it is kept as
+    a release before E5 reads it; None for one with no own part (kept before E5: the settings alone). The pair
+    ``{"settings", "own"}`` that E5's branch wrote before the review still reads, and is written again."""
+    if not isinstance(found, dict):
+        return None
+    if APPROVED_OWN in found:
+        return {key: value for key, value in found.items() if key != APPROVED_OWN}, found[APPROVED_OWN], True
+    if set(found) == {"settings", "own"}:
+        return found["settings"], found["own"], False
+    return None
+
+
 def settings_owner(identity_id: str) -> str:
     """Whose row of ``change_counters`` counts an identity's settings' changes (its vault's is its own id): a change of
     its settings makes no instance read its vault again."""
@@ -191,12 +220,18 @@ class PgSettings(OwnSettings):
         self._counted: Callable[[int], None] = counted or (lambda _counter: None)
         self._version: int | None = None  # the own part's, as the last load read it or this copy last wrote it
         self._untold: int | None = None  # the count of an own part written for the settings being applied, not told
-        # The approved snapshot as last read, sealed, with what it holds made settings: read again only when the row
-        # changed (each re-application reads it, and a snapshot holds every shared term). A person's only.
-        self._snapshot_read: tuple[bytes, Config] | None = None
+        # The approved snapshot as last read, sealed, with what it holds made settings, and whether it keeps its own
+        # part as E5 keeps it (``APPROVED_OWN``): read again only when the row changed (each re-application reads it,
+        # and a snapshot holds every shared term). A person's only.
+        self._snapshot_read: tuple[bytes, Config, bool] | None = None
         # The settings approved as this copy last read or kept them: a save of the same is no write (the settings
         # applied are the approved ones at each start and re-application of a space).
         self._approved: Config | None = None
+        # Whether a person's snapshot, as this copy last read or wrote it, keeps its own part beside its settings (E5):
+        # until it does, a save of the same settings is written once the settings kept are the settings approved, so
+        # that a snapshot kept before E5 (or by a release before it since), one first written while a change waited, or
+        # the pair E5's branch wrote before its security review gets its own part where it belongs (R71).
+        self._paired = False
         # What records the next approval, written last in the transaction of its snapshot, given that transaction's
         # connection, and dropped once that transaction has committed: a save that writes nothing does not call it,
         # and one that fails leaves it for the next. Its owner sets it, and drops it, under the runtime's lock.
@@ -251,10 +286,11 @@ class PgSettings(OwnSettings):
             )
 
     def _snapshot_limit(self) -> int:
-        """What an approved snapshot may weigh sealed: a person's holds the shared settings whole and her own part, and
-        is bound at both parts' limits, so that her approval of settings whose two parts each weigh near theirs is kept
-        (refused, it would be asked again at every re-application); an API key's holds its own part alone."""
-        return SETTINGS_LIMIT if self.kind == "key" else 2 * SETTINGS_LIMIT
+        """What an approved snapshot may weigh sealed: a person's holds the shared settings whole and her own part twice
+        (in the settings approved, and kept beside them as approved: E5), and is bound at three parts' limits, so that
+        her approval of settings whose two parts each weigh near theirs is kept (refused, it would be asked again at
+        every re-application); an API key's holds its own part alone."""
+        return SETTINGS_LIMIT if self.kind == "key" else 3 * SETTINGS_LIMIT
 
     def _count(self, conn: Connection[Any]) -> int:
         """Bump the identity's settings' change count in ``conn``'s transaction: the count of the change it writes."""
@@ -376,7 +412,8 @@ class PgSettings(OwnSettings):
         what is kept is not valid settings (another version of Latet's, as on a computer), or a key's part does not lay
         over the shared settings: the settings kept then count as approved, as for anyone. Raises ValueError, said in
         the log, for a snapshot that does not open: none would make the settings kept now count as approved, whatever
-        they hold."""
+        they hold. A person's snapshot (E5) is read by its settings, its own part approved (``APPROVED_OWN``) left
+        out; a snapshot kept before E5 as it is."""
         row = self._db(lambda conn: conn.execute(_READ, (self.identity, "reviewed")).fetchone())
         if row is None:
             self._approved = None
@@ -388,21 +425,40 @@ class PgSettings(OwnSettings):
             shared = self._laid_over
         read = self._snapshot_read
         if self.kind != "key" and read is not None and read[0] == sealed:  # the same row: made settings once
+            self._paired = read[2]
             self._approved = repinned(read[1], shared)
             return self._approved
         found = self._opened("reviewed", sealed)
+        paired = False
         try:
             if self.kind == "key":
                 self._approved = layered(shared, found) if isinstance(found, dict) else None
                 return self._approved
+            parts = _parts(found)
+            if parts is not None:  # E5's: an own part approved beside them (an older shape is written again, R71)
+                found, own, readable = parts
+                paired = readable and isinstance(own, dict)
             # The shared items it holds as they are taken as the shared settings hold them: no copy of each.
             approved = validated(reused(found, shared))
         except ValueError:
-            self._approved = None
+            self._approved, self._paired = None, False
             return None
-        self._snapshot_read = (sealed, approved)
+        self._snapshot_read = (sealed, approved, paired)
+        self._paired = paired
         self._approved = repinned(approved, shared)
         return self._approved
+
+    def approved_own(self) -> dict[str, Any] | None:
+        """The own part approved with the settings approved last (E5's [D1]), read from the snapshot kept: a person's
+        snapshot's own part beside its settings (None in a snapshot kept before E5, or by a release before it since, or
+        one written while a change waited, until it is written again), an API key's snapshot itself, which is its own
+        part. None when none is kept, or it does not open."""
+        found = self._snapshot()
+        if self.kind == "key":
+            return found if isinstance(found, dict) else None
+        parts = _parts(found)
+        own = parts[1] if parts is not None else None
+        return own if isinstance(own, dict) else None
 
     def _snapshot(self) -> Any:
         """The snapshot kept, as its JSON; None when there is none, or when it does not open (it is then replaced)."""
@@ -444,13 +500,30 @@ class PgSettings(OwnSettings):
                 ) from None
         return counter
 
+    def _kept_own(self, config: Config) -> dict[str, Any] | None:
+        """The own part kept, when the settings kept are ``config`` (a save approved, a change approved, a start with
+        nothing waiting); None while they are not (a composition is in use: the own part kept may hold what waits).
+        Raises ValueError when the own part does not open or is not valid settings, OSError when the database does not
+        answer."""
+        own = self._own()
+        return own if layered(self._laid_over or self._shared(), own) == config else None
+
     def _approved_data(self, config: Config, kept: Any) -> Any:
-        """What the snapshot of ``config`` holds: the settings whole for a person; for an API key its own part, worked
-        out against the shared settings ``config`` was laid over (a copy read later could be newer: an item they dropped
+        """What the snapshot of ``config`` holds: for a person the settings whole, and beside them (``APPROVED_OWN``)
+        the own part approved with them (``_kept_own``; while a composition is in use, the own part the snapshot
+        ``kept`` holds, as it was; none when the own part does not open); for an API key its own part, worked out
+        against the shared settings ``config`` was laid over (a copy read later could be newer: an item they dropped
         meanwhile would become the key's own, a setting they tightened would be kept at its older value), what the
         snapshot ``kept`` set staying its own while it has the value it gave."""
         if self.kind != "key":
-            return config.model_dump(mode="json")
+            try:
+                own = self._kept_own(config)
+                if own is None:  # a composition is in use: the own part approved stays as the snapshot kept it
+                    parts = _parts(kept)
+                    own = parts[1] if parts is not None else None
+            except ValueError:  # an own part that does not open is never approved, nor is an older one in its place
+                own = None  # (the review of Task 2, m3): ``own_lowers`` then answers True, until a good write
+            return {**config.model_dump(mode="json"), APPROVED_OWN: own}
         before = kept if isinstance(kept, dict) else self._own()
         return own_part(self._laid_over or self._shared(), config, before=before)
 
@@ -459,18 +532,28 @@ class PgSettings(OwnSettings):
         transaction with the identity's change count and then told (``changed``). Raises OSError when it cannot be
         kept, once the own part written for these settings, if any, is told with its own count. The settings this copy
         last read or kept as approved are not written again, nor read: each start and re-application of a space applies
-        the approved settings (another instance's approval since is told, and read again, never written over). What
-        records the change (``recording``) is written last in the snapshot's transaction, when one is written."""
+        the approved settings (another instance's approval since is told, and read again, never written over). But a
+        person's snapshot that does not yet keep its own part beside its settings (kept before E5, written while a
+        change waited, or E5's branch's earlier pair) is written again once the settings kept are the settings approved
+        (R71). What records the change
+        (``recording``) is written last in the snapshot's transaction, when one is written."""
         recording = self.recording
-        if self._approved is not None and self._untold is None and config == self._approved:
+        same = self._approved is not None and self._untold is None and config == self._approved
+        if same and self.kind != "key" and not self._paired:
+            try:  # while a composition is in use the snapshot stays as it is: it would keep no other own part
+                same = self._kept_own(config) is None
+            except ValueError:  # nor while the own part does not open: none would be kept either
+                same = True
+        if same:
             return
         try:
             kept = self._snapshot()
             data = self._approved_data(config, kept)
             sealed = self._sealer.seal_json(data, f"{self.identity}:reviewed")
             self._fits(sealed, "approved settings", self._snapshot_limit())
+            paired = self.kind != "key" and isinstance(data.get(APPROVED_OWN), dict)
             if kept == data:
-                self._approved = config
+                self._approved, self._paired = config, paired
                 return
             counter = self._db(lambda conn: self._write_reviewed(conn, sealed, recording, config), transaction=True)
         except OSError as exc:
@@ -479,7 +562,7 @@ class PgSettings(OwnSettings):
             if recording is not None:  # kept with its snapshot: written once
                 self.recording = None
             self._untold = None
-            self._approved = config
+            self._approved, self._paired = config, paired
             self._counted(counter)
             self._changed(counter)
             return
@@ -503,13 +586,21 @@ _INDEX_WRITTEN = (
 
 
 def index_exceptions(
-    conn: Connection[Any], identity_id: str, config: Config, *, permanent_allowed: bool, read_at: int | None = None
+    conn: Connection[Any],
+    identity_id: str,
+    config: Config,
+    *,
+    permanent_allowed: bool,
+    company: bool,
+    read_at: int | None = None,
 ) -> None:
     """The identity's index of its approved request exceptions (root's ruling on F-3), replaced whole on ``conn``: in
-    the transaction that keeps its approved settings, and as its space is built. Latet's id, the scope's category,
-    whether it is permanent, its end and its state (``in-force``; ``suspended``: approved under a request profile this
-    version revised, R-100; ``forbidden``: permanent where the edition allows none); never more. One revoked is gone
-    from it at once; one past its end is never listed (``listed_exceptions``).
+    the transaction that keeps its approved settings, as its space is built, and as it applies a new floor. Latet's id,
+    the scope's category, whether it is permanent, its end and its state (``in-force``; ``suspended``: approved under a
+    request profile this version revised, R-100; ``forbidden``: permanent where the edition allows none, or, where the
+    company decides on request exceptions, ``company``, approved by someone else than its security team or the
+    administration, ``request_policy.counted``: the quality re-review's N1); never more. One revoked is gone from it at
+    once; one past its end is never listed (``listed_exceptions``).
 
     One writer at a time for an identity (an advisory lock held to the transaction's end), and only when its rows
     differ from what is there: several workers or instances building one space at once write it once, never meeting
@@ -518,6 +609,7 @@ def index_exceptions(
     count the index was last written at is kept beside the counts (``index_owner``): a save of the settings' own part
     moves their count and writes no index, so the count alone never says that the index was written (fix round S-M2)."""
     from latet.gateway.request_policy import carried
+    from latet.gateway.request_policy import counted as approval_counts
 
     conn.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended('latet-exception-index:' || current_schema() || ':' || %s, 0))",
@@ -538,9 +630,12 @@ def index_exceptions(
     for row in config.request_exceptions:
         if not row.approved:
             continue
-        state = (
-            "suspended" if not carried(row) else "forbidden" if row.permanent and not permanent_allowed else "in-force"
-        )
+        if not carried(row):
+            state = "suspended"
+        elif (row.permanent and not permanent_allowed) or not approval_counts(row, company=company):
+            state = "forbidden"  # the table's check (migration 017) names no other state for what grants nothing
+        else:
+            state = "in-force"
         scope = "project" if row.project is not None else "identity"
         rows.append((identity_id, row.id, scope, row.permanent, row.expires(), state))
     there = conn.execute(
@@ -563,8 +658,9 @@ _STATES = {"suspended": "needs approval again (profile revised)", "forbidden": "
 
 def listed_exceptions(db: Database) -> list[dict[str, str]]:
     """What `latet server status` lists of every identity's request exceptions, from the index, read alone (it writes
-    nothing): each permanent one in force, and each that needs approval again or that the edition does not allow, not
-    past its end by PostgreSQL's clock; its identity, the exception's id, the scope's category and its state."""
+    nothing): each permanent one in force, and each that needs approval again, that the company did not approve where
+    it decides on them, or that the edition does not allow, not past its end by PostgreSQL's clock; its identity, the
+    exception's id, the scope's category and its state."""
     with db.connection() as conn:
         found = conn.execute(
             "SELECT identity, exception, scope, permanent, state FROM request_exception_index"

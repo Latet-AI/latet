@@ -468,6 +468,42 @@ def test_nested_conftest_fixture_survives_interleaved_module_assignment(syntheti
     assert summary["counts"] == {"passed": 6}
 
 
+@pytest.mark.skipif(os.name != "nt", reason="the bounded runner uses Windows Job Objects")
+def test_each_child_is_given_a_journal_of_its_own_beside_the_reports(synthetic_suite, monkeypatch):
+    """What a child's tests make in the shared services is named in ``<label>.owned.jsonl`` among the run's reports
+    (``tests/owned.py``), which outlives a forced stop; a journal the caller's environment names is not passed on."""
+    root, output, write, run = synthetic_suite
+    monkeypatch.setenv("LATET_TEST_OWNED", str(root / "inherited.jsonl"))
+    write(
+        "test_journal.py",
+        """
+        import json
+        import os
+
+        def note(name):
+            with open(os.environ["LATET_TEST_OWNED"], "a", encoding="utf-8") as journal:
+                journal.write(json.dumps({"name": name}) + "\\n")
+
+        def test_ordinary():
+            note("ordinary")
+
+        def test_quiet():
+            note("quiet")
+    """,
+    )
+    result, summary = run("--quiet-selector", "tests/test_journal.py::test_quiet")
+    assert result.returncode == 0, result.stdout + result.stderr
+    named = {child["label"]: child["environment"]["LATET_TEST_OWNED"] for child in summary["children"]}
+    assert "collection" in named and "quiet" in named and len(named) >= 3
+    assert named == {label: str(output / (label + ".owned.jsonl")) for label in named}
+    written = {
+        label: Path(path).read_text("utf-8").splitlines() for label, path in named.items() if Path(path).is_file()
+    }
+    assert sorted(written.values()) == [['{"name": "ordinary"}'], ['{"name": "quiet"}']]
+    assert written["quiet"] == ['{"name": "quiet"}']
+    assert not (root / "inherited.jsonl").exists()
+
+
 _PRIMARY_DATABASE = "postgresql://latet:test@127.0.0.1:15432/fixture"
 _TLS_DATABASE = "postgresql://latet:test@127.0.0.1:15433/fixture?sslmode=verify-full&sslrootcert=fake-ca"
 

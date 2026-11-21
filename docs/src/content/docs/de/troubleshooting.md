@@ -50,7 +50,7 @@ unmaskiert zu senden:
 Führen Sie `latet start` aus, dann `latet doctor`. Wenn der Daemon läuft, steht in seinem Log
 (`daemon.log` im Ordner `logs` des Datenordners), was fehlgeschlagen ist: Bitte eröffnen Sie ein
 Issue mit diesem Log. Das Plugin startet den Daemon selbst mit dem Befehl `latet`; wenn Sie Latet
-aus einem Quellcode-Checkout ausführen, liegt dieser Befehl nicht in Ihrem `PATH`, starten Sie den
+aus einem Checkout des Quellcodes ausführen, liegt dieser Befehl nicht in Ihrem `PATH`; starten Sie den
 Daemon daher mit `uv run latet start`.
 
 ### Latet lehnt seinen Datenordner ab
@@ -82,7 +82,7 @@ genannte Ordner ist der Datenordner oder einer der Ordner darüber.
 Unter Windows listet `icacls "<Ordner>"`, wer den Ordner ändern darf: Ein Eintrag für ein anderes Konto
 mit `(F)`, `(M)` oder `(W)` erlaubt es ihm. Es gibt drei Auswege:
 
-1. Entfernen Sie diesen Eintrag, wo der Rechner Ihnen gehört. Ein mit `(I)` markierter Eintrag kommt
+1. Entfernen Sie diesen Eintrag, sofern Sie auf diesem Rechner Änderungen vornehmen dürfen. Ein mit `(I)` markierter Eintrag kommt
    vom Ordner darüber und wird dort entfernt; ein Eintrag, der nur als SID erscheint, ist ein Konto,
    das Windows nicht mehr findet, oft ein gelöschtes.
 2. Vertrauen Sie diesem Konto: Setzen Sie `LATET_TRUSTED_ACCOUNTS` für Ihr Konto auf seinen Namen
@@ -113,7 +113,7 @@ seinem Terminal gesetzt ist.
 Unter Linux und macOS zeigt `ls -ld <Ordner>` Besitzer und Modus. Ein Ordner, in den andere schreiben
 dürfen, wird abgelehnt: `chmod go-w <Ordner>`, oder `chmod 700` für den Datenordner selbst. Ein
 Datenordner, den andere nur lesen dürfen (0755, wie `mkdir` ihn anlegt), wird beim ersten Mal, wenn
-Latet ihn braucht, nur Ihrer (0700), und Latet sagt das einmal: im Log des Daemons oder im Terminal des
+Latet ihn braucht, auf Sie allein beschränkt (0700), und Latet sagt das einmal: im Log des Daemons oder im Terminal des
 Befehls, der die Änderung vorgenommen hat. `LATET_TRUSTED_ACCOUNTS` ändert dort nichts: Die Prüfungen
 richten sich nach Besitzer und Modus.
 
@@ -121,7 +121,7 @@ Ein Rechner, der nie mit einem Latet-Server verbunden war, wird nie wegen einer 
 
 ### Claude Code hält auf einem verbundenen Rechner jeden Prompt zurück
 
-Das Plugin sagt warum, und jede Ursache hat ihre eigene Lösung:
+Das Plugin sagt, warum, und jede Ursache hat ihre eigene Lösung:
 
 - **Print-Modus oder eine andere Oberfläche:** `claude -p` und jede Oberfläche außer dem
   interaktiven Terminal werden auf einem Rechner, der mit einem Latet-Server verbunden ist,
@@ -138,15 +138,15 @@ Das Plugin sagt warum, und jede Ursache hat ihre eigene Lösung:
   `latet codex` und `latet opencode` gehen über den Server.
 
 `latet agents apply claude` und `latet claude` können mit `Claude Code's helper binding is
-unavailable` ablehnen. Die Meldung nennt den Teil der Installation, der fehlschlug (Python, seine
+unavailable` abbrechen. Die Meldung nennt den Teil der Installation, der fehlschlug (Python, seine
 Umgebung `sys.prefix` oder seine Installation `sys.base_prefix`, das Paket von Latet oder den
 Windows-Ordner), den Ordner und den Grund: seinen Besitzer, oder ein Konto, dem seine
 Zugriffsliste erlaubt, ihn zu ändern. Der Hilfsprozess führt diesen Code mit dem Token dieses
 Rechners aus, daher nur aus Ordnern, die nur Sie, SYSTEM und die Administratoren ändern können und
 deren übergeordnete Ordner nur diese, die direkten Mitglieder der Administratoren und die Konten in
 `LATET_TRUSTED_ACCOUNTS` ändern können. Prüfen Sie den genannten Ordner mit `icacls "<Ordner>"` und entfernen Sie den Eintrag des anderen
-Kontos; oder installieren Sie Python und Latet in eigenen Ordnern, die uvs
-`UV_PYTHON_INSTALL_DIR` und `UV_TOOL_DIR` wählen.
+Kontos; oder installieren Sie Python und Latet in eigenen Ordnern, die Sie mit
+`UV_PYTHON_INSTALL_DIR` und `UV_TOOL_DIR` von uv wählen.
 
 ### Eine Anfrage wurde blockiert
 
@@ -167,7 +167,7 @@ Wenn stattdessen der Daemon eine Anfrage blockiert, zeigt der Agent einen Fehler
 `Latet: sensitive values would leave in clear` (sensible Werte würden im Klartext hinausgehen),
 gefolgt von Typ und Länge jedes Werts, etwa `PASSWORD[13]`. Führen Sie `latet dashboard` aus: Dort
 steht die blockierte Anfrage so, wie sie gesendet worden wäre, mit den Werten, die sie gestoppt
-haben, rot umrahmt. Um weiterzumachen, nehmen Sie den Wert heraus: Beginnen Sie eine neue
+haben, rot umrandet. Um weiterzumachen, nehmen Sie den Wert heraus: Beginnen Sie eine neue
 Unterhaltung (in Claude Code `/clear`), und verweisen Sie den Agenten auf die Datei oder Variable,
 die ihn enthält, statt ihn einzufügen. Nur wenn ein Wert überhaupt nicht geheim ist, etwa ein Test-
 oder Beispielwert, klicken Sie darauf, wählen Sie **Nicht sensibel: immer zulassen**, und versuchen
@@ -176,6 +176,31 @@ Sie es dann erneut.
 Im Gateway-Modus bedeutet ein Fehler mit `Latet: masking failed` oder `Latet: unreadable request body`,
 dass der Daemon die Anfrage nicht maskieren konnte und sie deshalb abgelehnt hat.
 Das Log des Daemons sagt, warum.
+
+### Das Schema eines MCP-Tools stoppt die Anfragen von Claude Code
+
+Die Fehlermeldung nennt ein Tool und sein *parameter schema*, das Parameterschema (oder seine *input
+examples*, die Eingabebeispiele), zum Beispiel:
+
+```text
+Latet: sensitive values would leave in clear: EMAIL[21]; it is in the parameter schema of the tool
+mcp__crm__find_contact, which Latet checks but cannot mask in this request
+```
+
+Das Schema ist das, was ein MCP-Server oder ein Plugin über die Eingabe des Tools geschrieben hat,
+etwa eine Beispieladresse in der Beschreibung eines Parameters. In Claude Code maskiert Latets Plugin
+die Beschreibung eines Tools, aber Claude Code gibt ihm keine Möglichkeit, das Schema zu ändern, und
+Latet schreibt die Anfragen von Claude Code nicht um. Claude Code sendet das Schema eines Tools mit
+jeder Anfrage, sobald es das Tool geladen hat, und die Schemas aller Tools, wenn es es nach einem
+Fehler erneut versucht. Seine Anfragen halten also weiter an, bis Sie etwas ändern:
+
+- Wenn der Wert nicht sensibel ist, führen Sie `latet dashboard` aus, öffnen Sie die blockierte
+  Anfrage, klicken Sie auf den Wert, und wählen Sie **Nicht sensibel: immer zulassen**.
+- Wenn er es ist, schalten Sie den MCP-Server oder das Plugin ab, das das Tool bereitstellt (in
+  Claude Code `/mcp` oder `/plugin`), oder bitten Sie dessen Autor, den Wert aus dem Schema zu nehmen.
+
+Das Dashboard zeigt einen solchen Block als *Parameterschema des Tools*. MCP-Tools zu maskieren,
+bevor Claude Code sie liest, steht auf der [Roadmap](../roadmap/).
 
 ### Ein Teil einer Anfrage wird abgelehnt
 
@@ -221,17 +246,23 @@ Der Teil in Klammern nennt die Art:
   ihn ohne Latet aus.
 - `envelope-resource`: ein Bedrock-ARN, ein Vertex-Projekt oder ein Modellname außerhalb der von den
   Anbietern dokumentierten Formen: Listen Sie ihn in `request_resources` auf.
-- `envelope-exception-expired`: Die Ausnahme, die es durchließ, ist abgelaufen; der Fehler nennt sie
+- `envelope-exception-expired`: Die Ausnahme, die ihn durchließ, ist abgelaufen; der Fehler nennt sie
   und den Tag. Verlängern Sie sie.
-- `request body refused (unknown member in top-level)`, `(unknown member in message content
-  block)`, `(unknown member in tool definition)`...: ein Element des Inhalts, das kein Profil nennt,
-  und wo es steht. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), geht ein
-  neues Element mit Text durch, sobald es geprüft ist. Eine genaue Ausnahme kann ein anderes über
-  seinen JSON-Pointer nennen: Das Dashboard zeichnet seine Ablehnung als `body-unknown-member` auf. In
-  einem eigenen Element des Anbieters (`provider item`: Thinking, Reasoning) oder in der Quelle eines
-  Bildes (`inline image`) und in jedem WebSocket-Frame erreicht es keine: Die Ablehnung wird als
-  `body-unknown-member-no-exception` aufgezeichnet, und das Dashboard sagt, dass keine Ausnahme es
-  erreicht. Ein solches Element wird abgelehnt, bis eine Version von Latet es liest.
+- `request body refused (unknown member in top-level)`, `(unknown member in message content block)`,
+  `(unknown member in tool definition)`...: ein Element des Bodys, das kein Profil nennt, und wo es
+  steht. Seit 0.15.0 geht ein solches Element durch, sobald es gelesen und geprüft ist, wenn darin
+  nichts maskiert werden müsste und es nichts nennt, worauf der Anbieter handelt ([Neue Elemente in
+  Anfragen](../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)): Diese Ablehnung sagt,
+  dass es eine Datei, eine Adresse, eine gespeicherte Unterhaltung oder ein Modell nennt, kodierte
+  Daten enthält oder in einem eigenen Element des Anbieters mehr als kurze Tokens trägt, oder dass
+  Ihre Einstellungen `unknown_members: refuse` sagen, was das Dashboard dann nennt. Ein sensibler
+  Wert in einem solchen Element stoppt die Anfrage mit den Worten der abschließenden Prüfung, wie in
+  jedem anderen Text. Eine genaue Ausnahme kann ein abgelehntes Element über seinen JSON-Pointer
+  nennen: Das Dashboard zeichnet seine Ablehnung als `body-unknown-member` auf. In einem eigenen
+  Element des Anbieters (`provider item`: Thinking, Reasoning) oder in der Quelle eines Bildes
+  (`inline image`) und in jedem WebSocket-Frame kann keine Ausnahme es erreichen: Die Ablehnung wird
+  als `body-unknown-member-no-exception` aufgezeichnet, und das Dashboard sagt, dass keine Ausnahme
+  es erreicht. Ein solches Element wird abgelehnt, bis eine Version von Latet es liest.
 - `Latet cannot read this document, audio or remote media, so it does not send it`: Geben Sie dem
   Agenten stattdessen den Text.
 
@@ -336,8 +367,8 @@ Sie die Einstellung auf `0`, um den Schutz auszuschalten.
 Latet ist dort ausgeschaltet: Seit 0.11 sendet ein Projekt, in dem Latet aus ist, keine seiner
 Anfragen, und der Agent erfährt es. Das Dashboard markiert diese Austausche mit *Latet aus*,
 `latet project show` zeigt das an, und `latet project on` schaltet es wieder ein. Um dort
-personenbezogene Daten durchzulassen, stellen Sie es auf *Nur Geheimnisse*, das geheime Werte und
-Ihre Begriffe maskiert und die Anfragen hinausgehen lässt.
+personenbezogene Daten durchzulassen, stellen Sie Latet dort auf *Nur Geheimnisse*: Dann maskiert es
+geheime Werte und Ihre Begriffe und lässt die Anfragen hinausgehen.
 
 ### Ein Wert wird maskiert, der nicht maskiert werden sollte
 
@@ -382,13 +413,13 @@ Zwei Abhilfen:
   die Ordner `%APPDATA%\uv\tools\latet` und `%USERPROFILE%\.local\bin` (im zweiten genügen
   `latet.exe` und `latet-daemon.exe`).
 - **Oder führen Sie es über Python selbst aus,** das signiert ist und sofort startet: Installieren
-  Sie das Wheel des [neuesten Release](https://github.com/Latet-AI/latet/releases/latest) mit
+  Sie das Wheel der [neuesten Version](https://github.com/Latet-AI/latet/releases/latest) mit
   `py -m pip install "latet[ner,ocr] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"`
-  (mit dessen Version anstelle von `X.Y.Z`), und führen Sie jeden Befehl als `py -m latet` aus, etwa
+  (mit ihrer Versionsnummer anstelle von `X.Y.Z`), und führen Sie jeden Befehl als `py -m latet` aus, etwa
   `py -m latet claude`. Die `latet.exe`, die pip anlegt, ist so langsam wie die anderen, verwenden Sie
   sie also nicht. Latet teilt sich dann dieses Python mit Ihren anderen Programmen, statt ein eigenes
-  zu haben. Zum Aktualisieren führen Sie dasselbe `py -m pip install` mit dem Wheel des neuen
-  Release aus: `latet upgrade` installiert mit uv, als zweite Kopie. Zum Entfernen führen Sie
+  zu haben. Zum Aktualisieren führen Sie dasselbe `py -m pip install` mit dem Wheel der neuen
+  Version aus: `latet upgrade` installiert mit uv, als zweite Kopie. Zum Entfernen führen Sie
   `py -m latet global-uninstall` aus und dann `py -m pip uninstall latet`.
 
 Mit einem langsamen Virenscanner schafft es das Claude-Code-Plugin womöglich nicht, den Daemon
@@ -398,19 +429,90 @@ Sie Claude Code öffnen.
 
 ### Port 5283 ist bereits belegt
 
-Latet lauscht auf `127.0.0.1:5283`, einem Port, den keine gängige Software verwendet. Wenn ein
-anderes Programm ihn belegt hat oder Windows ihn reserviert hat (Hyper-V, WSL und Docker reservieren
-Portbereiche, die sich bei jedem Systemstart ändern können), meldet `latet start` das sofort:
+Latet lauscht auf `127.0.0.1:5283`, einem Port, den keine gängige Software verwendet. Kann es dort
+nicht lauschen, sagen `latet start`, `latet claude` und die anderen Befehle, die den Daemon starten,
+sofort, warum, und ebenso die Zeile Port von `latet doctor`. Dafür gibt es zwei Ursachen.
+
+**Windows hat den Port reserviert.** Hyper-V, WSL und Docker (über den Windows-Dienst WinNAT)
+reservieren bei jedem Start von Windows Blöcke von 100 Ports, jedes Mal neu gewählt, innerhalb des
+dynamischen Portbereichs von Windows, also der Ports, die Windows ausgehenden Verbindungen zuteilt.
+Dieser Bereich beginnt standardmäßig bei 49152, weit über 5283, doch manche Programme verschieben
+ihn nach unten bis 1024, und dann kann ein Block den Port von Latet bis zum nächsten Neustart
+belegen:
+
+```text
+Latet cannot listen on 127.0.0.1:5283: reserved by Windows (5241-5340).
+Run `latet reserve-port`: it moves Latet to a free port and reserves that port, so that Windows cannot take it again (your agents are updated too).
+```
+
+Führen Sie `latet reserve-port` aus. Der Befehl sagt, was er vorgefunden hat, und fragt einmal:
+
+```text
+Windows holds port 5283 since it started: Latet moves to port 5341, free, and reserves it.
+Move Latet to port 5341 and reserve it? Windows asks for an administrator's confirmation once. [Y/n]:
+```
+
+Der neue Port ist der erste freie nach den Ports, die Windows belegt, und nach denen, die ein
+Administrator für andere Programme ausgeschlossen hat. Bei Ja reserviert Latet ihn als
+Portausschluss eines Administrators: Windows lässt ihn aus den Blöcken heraus, die es reserviert,
+und Latet kann weiterhin auf ihm lauschen. Dann wechselt Latet auf diesen Port: Es speichert ihn in
+`config.yaml`, stellt jeden Agenten, den `latet global-install` eingerichtet hat, auf ihn um und
+startet den Daemon auf ihm. Agentensitzungen, die in diesem Moment offen sind, rufen weiter den
+alten Port auf, bis Sie sie neu starten. Die Bestätigung eines Administrators erfolgt im Dialog der
+Benutzerkontensteuerung von Windows. Verweigern Sie sie, wechselt Latet trotzdem den Port, damit
+es sofort starten kann, aber der neue Port ist nicht reserviert: Führen Sie `latet reserve-port`
+erneut aus, um ihn zu reservieren.
+
+Wo der dynamische Bereich den Port von Latet umfasst, aber noch kein Block ihn belegt, warnt
+`latet doctor`, und `latet reserve-port` fragt, ob der Port reserviert werden soll, wo er ist. Läuft
+der Daemon auf diesem Port, startet Latet kurz neu, und die Agenten wiederholen, was sie in der
+Zwischenzeit senden. In beiden Fällen stellt das Installationsskript für Windows am Ende dieselbe
+Frage. Ohne Ihr Ja ändert sich nichts; ohne ein Terminal, in dem er fragen kann, gibt der Befehl nur
+aus, was auszuführen ist. Ein Agent kann ihn nicht ausführen: Er ändert eine Einstellung von
+Windows, daher führen Sie ihn selbst aus.
+
+`latet reserve-port` erledigt all das. Wo Windows den Port noch nicht belegt, können Sie ihn auch
+von Hand reservieren, bei beendetem Latet, denn netsh kann einen Port ablehnen, auf dem ein
+Programm lauscht: Führen Sie `latet stop` aus, dann diese Zeile in einer als Administrator
+ausgeführten PowerShell, dann `latet start`.
+
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent
+```
+
+Wo Windows den Port bereits belegt, kann diese Zeile ihn nicht reservieren, denn der Block von
+Windows hält ihn bis zum nächsten Neustart: Dann erledigt das nur `latet reserve-port`, weil der
+Befehl Latet zuerst auf einen freien Port umstellt und diesen reserviert.
+
+`netsh int ipv4 show excludedportrange protocol=tcp` listet die ausgeschlossenen Bereiche auf, mit
+einem `*` neben denen, die ein Administrator hinzugefügt hat. `latet reserve-port --remove` gibt die
+Ports frei, die Latet reserviert hat, und keine anderen.
+
+Der andere Weg ist, den dynamischen Bereich von Windows wieder dort beginnen zu lassen, wo er
+standardmäßig beginnt: Führen Sie diese Befehle in einer als Administrator ausgeführten PowerShell
+aus, und starten Sie Windows danach neu.
+
+```powershell
+netsh int ipv4 set dynamic tcp start=49152 num=16384
+netsh int ipv6 set dynamic tcp start=49152 num=16384
+```
+
+Das ändert den Bereich für jedes Programm auf dem Rechner, und das Programm, das ihn verschoben hat,
+hat das womöglich aus gutem Grund getan; deshalb überlässt Latet diese Wahl Ihnen.
+
+**Ein anderes Programm verwendet den Port.** `latet start` meldet das:
 
 ```text
 Latet cannot listen on 127.0.0.1:5283: in use by another program.
 Run `latet global-install` to move it to a free port (your agents are updated too).
 ```
 
-`latet global-install` wählt den ersten freien Port zwischen 5284 und 5335, speichert ihn in
-`config.yaml` und stellt jeden Agenten, den er eingerichtet hat, auf den neuen Port um. Ist keiner
-davon frei, wählen Sie selbst einen: `latet global-install --port 6655`. `latet serve --port <port>`
-ändert den Port nur für einen einzelnen Lauf im Vordergrund.
+`latet global-install` wählt den ersten freien Port über 5283, nach den Ports, die Windows belegt,
+und nach denen, die ein Administrator für andere Programme ausgeschlossen hat, speichert ihn in
+`config.yaml` und stellt jeden Agenten, den er eingerichtet hat, auf den neuen Port um. Kann Windows
+auch den neuen Port belegen, nennt der Befehl unter Windows `latet reserve-port` in dem, was er vor
+seiner Frage zeigt. Um selbst einen Port zu wählen, führen Sie `latet global-install --port 6655`
+aus. `latet serve --port <port>` ändert den Port nur für einen einzelnen Lauf im Vordergrund.
 
 ### Latet läuft in Docker, und die Agenten erreichen es nicht
 
@@ -430,7 +532,7 @@ davon nicht betroffen. Um den Datenverkehr anzusehen, verwenden Sie `latet dashb
 ### "host not allowed"
 
 Die Anfrage hat einen anderen Hostnamen als `127.0.0.1`, `localhost` oder `[::1]` verwendet, und der
-Daemon lässt ihn nicht zu. Verwenden Sie einen davon in der Basis-URL.
+Daemon lässt ihn nicht zu. Verwenden Sie einen davon in der Base-URL.
 
 ### Codex läuft nicht über Latet
 
@@ -460,7 +562,7 @@ festgelegt hat.
   Behalten Sie eine.
 - **Gar keine Adresse**, oder eine Cloud, die direkt erreicht wird (`CLAUDE_CODE_USE_BEDROCK` ohne
   ihre Adresse): Starten Sie Claude Code mit `latet claude`, oder führen Sie
-  `latet agents apply claude` aus, dann gilt es für jede Sitzung.
+  einmal `latet agents apply claude` aus, das für alle Sitzungen gilt.
 - **Die verwalteten Einstellungen Ihrer Organisation** erzwingen eine Adresse: siehe
   [Unternehmens-Endpunkte](../agents/company-endpoints/#wo-sich-latet-nicht-davorschalten-kann).
 
@@ -489,13 +591,13 @@ sie werden nicht im Dashboard aufgezeichnet. Siehe [Claude Code](../agents/claud
 ### Remote Control ist in Claude Code verschwunden
 
 Erwartetes Verhalten, solange Latet dazwischengeschaltet ist: Claude Code schaltet Remote Control
-aus, wenn seine Basis-URL angepasst ist. `latet agents revert claude` bringt Remote Control zurück,
+aus, wenn seine Base-URL angepasst ist. `latet agents revert claude` bringt Remote Control zurück,
 und Claude Code läuft dann nicht mehr über Latet.
 
 ### Das Dashboard meldet, dass seine Dateien nicht Teil dieser Installation sind
 
-Sie führen Latet aus einem Quellcode-Checkout aus. Bauen Sie das Dashboard: `npm ci`, dann
-`npm run build`, in `dashboard/`. Releases enthalten es. Auch die Seite des Tutorials braucht es:
+Sie führen Latet aus einem Checkout des Quellcodes aus. Bauen Sie das Dashboard: `npm ci`, dann
+`npm run build`, in `dashboard/`. Die veröffentlichten Versionen enthalten es. Auch die Seite des Tutorials braucht es:
 Bis dahin warnt `latet tutorial`, dass seine Seite nicht angezeigt wird.
 
 ### Das Tutorial öffnet sich nicht oder verlangt, neu gestartet zu werden
@@ -511,13 +613,13 @@ Bis dahin warnt `latet tutorial`, dass seine Seite nicht angezeigt wird.
 
 ### Ein Upgrade schlägt unter Windows fehl, weil Dateien in Gebrauch sind
 
-Verwenden Sie `latet upgrade`: Er stoppt den Daemon, installiert die neue Version nach dem Ende des
+Verwenden Sie `latet upgrade`: Der Befehl stoppt den Daemon, installiert die neue Version nach dem Ende des
 Befehls in einem eigenen Fenster (Windows ersetzt keine Dateien eines laufenden Programms) und startet
 Latet wieder.
 
 Ein Latet 0.9.0 oder 0.9.1, das unter Windows mit seinem eigenen `latet upgrade` aktualisiert wurde,
 kann danach nicht mehr starten, und `latet` antwortet `No module named 'latet'`: Führen Sie das
-Installationsskript erneut aus, es installiert die neueste Version vollständig.
+Installationsskript erneut aus; es installiert die neueste Version vollständig.
 
 ### Zur vorherigen Version zurückkehren
 
@@ -543,21 +645,21 @@ nennt den Platz, den es braucht), nennt es den Grund und bricht ab:
 Nichts wurde installiert, und der Daemon wurde nicht beendet. Schaffen Sie Platz oder löschen Sie
 ältere Kopien in `backups` im Datenordner von Latet, und führen Sie es erneut aus.
 
-### Das neueste Release lässt sich nicht ermitteln
+### Die neueste Version lässt sich nicht ermitteln
 
-Die Installer und `latet upgrade` fragen die API von GitHub, welches Release das neueste ist, und
+Die Installationsskripte und `latet upgrade` fragen die API von GitHub, welche Version die neueste ist, und
 installieren dessen Wheel. Wenn das nicht gelingt, sagen sie, warum, und ändern nichts:
 
 - **Die API von GitHub hat mit 403 geantwortet** (oder 429): Sie nimmt 60 Anfragen pro Stunde von
   einer Adresse an, und ein Büro hinter einer einzigen Adresse kann sie aufbrauchen. Beide lesen dann
-  die Seite des neuesten Release, die nicht mitgezählt wird; schlägt auch das fehl, warten Sie eine
+  die Seite der neuesten Version, die nicht mitgezählt wird; schlägt auch das fehl, warten Sie eine
   Stunde, oder installieren Sie von Hand (siehe unten).
 - **GitHub war nicht erreichbar:** Es gibt keine Verbindung, oder ein Proxy steht im Weg.
-- **Das neueste Release hat kein Wheel,** oder es gibt gar keines: Installieren Sie
+- **Die neueste Version hat kein Wheel,** oder es gibt gar keine: Installieren Sie
   [aus dem Quellcode](../getting-started/installation/#aus-dem-quellcode-ausführen).
 
-Um ein Release von Hand zu installieren, nehmen Sie die Adresse seines Wheels von der Seite
-[Releases](https://github.com/Latet-AI/latet/releases), und übergeben Sie sie dem Installer in
+Um eine Version von Hand zu installieren, nehmen Sie die Adresse ihres Wheels von der Seite
+[Releases](https://github.com/Latet-AI/latet/releases), und übergeben Sie sie dem Installationsskript in
 `LATET_SOURCE` (er aktualisiert auch ein bereits installiertes Latet; führen Sie dann `latet start`
 aus, und `latet agents apply claude`, wenn Claude Code dauerhaft über Latet läuft):
 
@@ -575,7 +677,7 @@ irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | 
 Ein heruntergeladenes Wheel funktioniert ebenso: sein Pfad anstelle der Adresse.
 
 `LATET_SOURCE` wird so installiert, wie es angegeben ist: Ein Latet mit weiteren Extras behält sie
-nur, wenn es sie ebenfalls nennt. Auf einem Server gehört also auch `server` dazu, wie in
+nur, wenn `LATET_SOURCE` sie ebenfalls nennt. Auf einem Server gehört also auch `server` dazu, wie in
 `latet[ner,ocr,server] @ …`; `latet upgrade` sagt, welche Extras zu nennen sind. Ein als
 Betriebssystemdienst installierter Server wird aktualisiert, wie es der
 [Serverbetrieb](../concepts/server-operations/#ein-als-betriebssystemdienst-installiertes-latet-aktualisieren)
@@ -586,7 +688,7 @@ beschreibt.
 ### Funktioniert es mit einem Abonnement Claude Pro oder Max?
 
 Ja, ohne API-Schlüssel: Dafür ist der Client-Modus da. Claude Code läuft unverändert, Sie verwenden
-seine eigene Anmeldung, das Plugin maskiert in Claude Code selbst, und der Daemon leitet den Inhalt
+seine eigene Anmeldung, das Plugin maskiert in Claude Code selbst, und der Daemon leitet den Body
 jeder Anfrage Byte für Byte weiter. Siehe [Claude Code](../agents/claude-code/#pro--und-max-abonnements).
 
 ### Können Hermes Agent oder OpenClaw über Latet mein Claude-Abonnement nutzen?
@@ -636,8 +738,8 @@ Latet gerichtet haben, behalten seine Adresse: Stellen Sie ihre eigene wieder ei
 
 Nur den eigenen Datenverkehr Ihres Agenten, an den Anbieter (oder den Unternehmens-Endpunkt), den Ihr
 Agent bereits verwendet. Alle Ausnahmen geschehen nur, wenn Sie es verlangen: `latet ner install` und
-`latet ocr install` laden ihre Modelle einmal von huggingface.co herunter; die Installer und
-`latet upgrade` fragen GitHub, welches Release das neueste ist, und laden dessen Wheel von dort
+`latet ocr install` laden ihre Modelle einmal von huggingface.co herunter; die Installationsskripte und
+`latet upgrade` fragen GitHub, welche Version die neueste ist, und laden dessen Wheel von dort
 herunter; und der lokale Prüfer wird auf Ihrem eigenen Server befragt. Es gibt keinen Cloud-Dienst
 von Latet, keine Telemetrie und keine Nutzungsanalyse.
 
@@ -663,7 +765,7 @@ stattdessen den Text.
 Der Agent hat statt einer Antwort einen Fehler erhalten, und nichts wurde gesendet:
 
 - *Latet cannot read this image's text: text recognition is not installed...*: Die Texterkennung ist nicht
-  installiert, oder `ocr: off` ist gesetzt. Installieren Sie sie (`latet ocr install` auf einem Rechner; auf einem Latet-Server installiert sie seine Administration), setzen Sie dann die Unterhaltung auf
+  installiert, oder `ocr: off` ist gesetzt. Installieren Sie sie (`latet ocr install` auf einem Rechner; auf einem Latet-Server installiert sie der Administrator des Servers), setzen Sie dann die Unterhaltung auf
   den Stand vor dem Bild zurück oder beginnen Sie eine neue, da das Bild in ihrem Verlauf bleibt.
 - *Latet cannot read all of this image's metadata or embedded images...*: Bei einer Anfrage, die
   Latet nur prüft, wie denen von Claude Code, enthielt ein Foto einen Standort, Herstellerangaben der
@@ -702,15 +804,17 @@ der Agent läuft, damit der Agent es unter `127.0.0.1` erreicht.
 
 ### Kann mein Unternehmen Latet kostenlos nutzen?
 
-Ja, unabhängig von seiner Größe, für seine eigene Arbeit, auf beliebig vielen Computern und Servern.
+Ja, unabhängig von seiner Größe, für seine eigene Arbeit, auf beliebig vielen Rechnern und Servern.
 Auch die private und die nicht kommerzielle Nutzung sind kostenlos. Für die Community Edition
 brauchen Sie eine kommerzielle Lizenz nur, um Latet zu verkaufen, es anderen als Dienst anzubieten,
 es in ein Produkt einzubauen, das Sie verkaufen, oder für einen kommerziellen Fork: Schreiben Sie an
 [info@latet.ai](mailto:info@latet.ai). Die Enterprise Edition, die Dateien in den Verzeichnissen
-`ee`, bringt, was ein Unternehmen braucht, um Latet zentral zu verwalten, und braucht im
-Produktivbetrieb eine kommerzielle Lizenz; das Entwickeln und Testen damit ist kostenlos. Die
-Community Edition prüft nie eine Lizenz: Es gibt keine Schlüssel. [LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) enthält die
-Einzelheiten und Beispiele.
+`ee`, bringt, was ein Unternehmen braucht, um Latet zentral zu verwalten: Ihre Funktionen brauchen im
+Produktivbetrieb eine Latet-Enterprise-Lizenz, eine Lizenzdatei, die Latet auf Ihrem
+Latet-Server prüft, ohne Verbindung zum Lizenzgeber aufzunehmen, und das Entwickeln und Testen damit ist kostenlos. Um sie zuerst
+zu erproben, fragen Sie unter derselben Adresse nach einer Testlizenz für 32 Tage. Die Community Edition
+prüft nie eine Lizenz: Es gibt keine Schlüssel. Siehe [Editionen und Lizenz](../enterprise/) und
+[LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) für die Einzelheiten und Beispiele.
 
 ### Woher kommt der Name?
 

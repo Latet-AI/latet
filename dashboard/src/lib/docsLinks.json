@@ -62,6 +62,7 @@
   "rule.detectors": { "page": "reference/detectors/", "anchor": null },
 
   "why.blocked": { "page": "troubleshooting/", "anchor": "a-request-was-blocked" },
+  "why.toolInput": { "page": "troubleshooting/", "anchor": "an-mcp-tools-schema-stops-claude-codes-requests" },
   "why.autoModeReview": { "page": "troubleshooting/", "anchor": "auto-mode-says-its-reviewer-is-temporarily-unavailable" },
   "why.history": { "page": "troubleshooting/", "anchor": "every-request-of-a-conversation-is-blocked" },
   "why.uninspected": { "page": "troubleshooting/", "anchor": "what-about-images-and-pdfs" },
@@ -70,6 +71,7 @@
   "why.localReviewer": { "page": "troubleshooting/", "anchor": "the-local-reviewer-stopped-a-request" },
   "why.liveRejected": { "page": "concepts/live-review/", "anchor": "what-you-can-do" },
   "why.liveTimeout": { "page": "concepts/live-review/", "anchor": "when-you-do-not-answer" },
+  "why.liveChanged": { "page": "enterprise/approvals/", "anchor": "what-the-person-who-asked-sees" },
   "why.outbound": { "page": "concepts/protection-scope/", "anchor": "not-protected" },
   "why.autoModeReviewer": { "page": "agents/claude-code/", "anchor": "auto-modes-reviewer" },
   "why.withheld": { "page": "troubleshooting/", "anchor": "a-tool-output-was-withheld" },
@@ -87,5 +89,6 @@
   "why.lostProject": { "page": "dashboard/", "anchor": "rules-of-a-project" },
   "why.projectNotices": { "page": "concepts/projects/", "anchor": "the-project-file" },
   "why.importHeld": { "page": "concepts/export-import/", "anchor": "your-rules-for-a-colleague" },
-  "section.approveException": { "page": "getting-started/upgrading-to-0-11/", "anchor": "approving-an-exact-exception" }
+  "section.approveException": { "page": "getting-started/upgrading-to-0-11/", "anchor": "approving-an-exact-exception" },
+  "section.newMembers": { "page": "getting-started/upgrading-to-0-11/", "anchor": "new-request-members" }
 }

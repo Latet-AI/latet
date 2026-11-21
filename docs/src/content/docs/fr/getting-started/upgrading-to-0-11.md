@@ -7,7 +7,7 @@ Latet 0.11.0 lit chaque partie d'une requête avant de l'envoyer : le chemin, le
 requête, les en-têtes et le corps. Une requête dont une partie n'est ni inspectée par Latet ni admise
 par une règle ou une exception que vous avez approuvée n'est pas envoyée. Un corps vide ne suffit
 plus pour laisser passer une requête. Les identifiants dont votre fournisseur a besoin, et les
-parties qu'un fournisseur signe, suivent leurs propres règles. Il en va de même sur votre ordinateur
+parties qu'un fournisseur signe, suivent leurs propres règles. Il en va de même sur votre machine
 et sur un serveur Latet.
 
 Un appel que la 0.10 envoyait sans le lire peut donc être refusé maintenant. Cette page indique ce qui
@@ -65,34 +65,42 @@ en-têtes propres aux agents qui peuvent contenir du texte libre.
 [Les en-têtes que Latet retire](#les-en-têtes-que-latet-retire) les liste.
 
 **Les membres du corps.** Chaque membre du corps d'une requête est lu selon son profil : masqué,
-vérifié par la vérification finale, ou tenu à la forme que le fournisseur lui donne (l'identifiant
-d'un modèle, l'identifiant d'un appel d'outil, un réglage). Un membre qu'aucun profil ne nomme est
-refusé, avec l'endroit où il se trouve (`top-level`, `message content block`, `tool definition`...),
-jamais son nom ni sa valeur :
+vérifié par la vérification finale, ou contrôlé selon la forme que le fournisseur lui donne (l'identifiant
+d'un modèle, l'identifiant d'un appel d'outil, un réglage). Dans la 0.11, un membre qu'aucun profil
+ne nommait était refusé, avec l'endroit où il se trouve (`top-level`, `message content block`,
+`tool definition`...), jamais son nom ni sa valeur :
 
 ```text
 Latet: request body refused (unknown member in top-level). Nothing was sent; run `latet dashboard` to see where it was
 ```
 
-Une [exception exacte](#approuver-une-exception-exacte) peut nommer un tel membre par son pointeur
+Depuis la 0.15.0, un tel membre est lu en entier et vérifié, et il passe tel quel quand rien en lui
+ne serait masqué et qu'il ne nomme rien sur quoi le fournisseur agit : voir
+[Nouveaux membres des requêtes](#nouveaux-membres-des-requêtes). Il est encore refusé, avec les
+mêmes mots, quand il nomme un fichier, une adresse, une conversation enregistrée ou un modèle,
+contient des données encodées ou porte plus que de courts jetons dans un élément propre au
+fournisseur ; et avec `unknown_members: refuse`, il est refusé comme dans la 0.11.
+
+Une [exception exacte](#approuver-une-exception-exacte) peut nommer un membre refusé par son pointeur
 JSON, sauf là où aucune ne peut l'atteindre : dans un élément propre au fournisseur (`provider item` :
-thinking, raisonnement), dans la source d'une image (`inline image`) et dans toute trame WebSocket.
+thinking, reasoning), dans la source d'une image (`inline image`) et dans toute trame WebSocket.
 L'agent reçoit les mêmes mots ; le tableau de bord enregistre le refus sous
 `body-unknown-member-no-exception` au lieu de `body-unknown-member`, et dit *Son corps contenait un
-champ qu'aucun profil de requête ne prévoit, là où aucune exception ne peut l'atteindre (dans un
+membre qu'aucun profil de requête ne prévoit, là où aucune exception ne peut l'atteindre (dans un
 élément du fournisseur, la source d'une image ou un tour WebSocket).*
 
 Une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex) n'est jamais réécrite, donc
 une règle de plus s'y applique : un nouveau membre dont la valeur est un texte ou une liste de textes
 passe une fois que la vérification finale a lu son nom et son texte, et le tableau de bord l'affiche
-comme *seulement vérifiée*. Un nouveau membre imbriqué, ou d'un autre type, est refusé comme ci-dessus.
-`client_metadata` de Codex, qui répète le chemin et les remotes du dépôt, est retiré de la requête
+comme *seulement vérifiée*. Un nouveau membre imbriqué, ou d'un autre type, est lu comme le dit
+[Nouveaux membres des requêtes](#nouveaux-membres-des-requêtes).
+Le `client_metadata` de Codex, qui répète le chemin et les remotes du dépôt, est retiré de la requête
 avant qu'elle soit masquée.
 
 **Ce que le fournisseur a renvoyé.** Les signatures du raisonnement du modèle, le raisonnement chiffré,
 les compactages et les résultats de recherche web reviennent à chaque tour. Ils passent parce que
 Latet les a vus arriver du fournisseur dans cette conversation. Là où il ne les a pas vus (le daemon
-d'un ordinateur a redémarré, par exemple), une règle intégrée laisse passer les champs chiffrés du
+d'une machine a redémarré, par exemple), une règle intégrée laisse passer les champs chiffrés du
 fournisseur, seulement dans les tours du modèle et seulement vers l'adresse du fournisseur lui-même ;
 le tableau de bord les affiche comme *autorisée par une règle*. Une conversation passant par une
 [passerelle d'entreprise](#conversations-par-une-passerelle-dentreprise) n'a pas cette règle.
@@ -103,7 +111,7 @@ d'exécuter `latet ocr install` et de commencer une nouvelle conversation, puisq
 son historique. `images: allow` n'envoie plus une image que Latet n'a pas lue. Les PDF et autres
 documents, l'audio et les images désignées par leur adresse sont refusés, quoi que dise `images`. Sur
 une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), chaque octet d'une image
-doit être expliqué, et une photo de téléphone avec une position, les notes du fabricant de
+doit être expliqué, et une photo de téléphone avec une localisation, les notes du fabricant de
 l'appareil, une miniature ou une seconde image à l'intérieur (une carte de profondeur, la vidéo
 d'une photo animée) est refusée : voir
 [Les photos et leurs métadonnées](../../concepts/images/#les-photos-et-leurs-métadonnées). Une image
@@ -111,8 +119,8 @@ WebP d'origine y est refusée aussi : exportez-la en PNG. Les requêtes que Late
 autres) envoient les images réécrites, sans leurs métadonnées, et ne voient pas ces refus.
 
 **Un projet où Latet est désactivé** n'envoie rien : voir [plus bas](#un-projet-où-latet-est-désactivé).
-**`latet serve --passthrough`** n'existe plus : l'option reste cachée pendant toute la 0.11, et
-s'arrête aussitôt avec un message, pour qu'un service qui la nomme encore s'arrête là où vous le voyez.
+**`latet serve --passthrough`** n'existe plus : l'option reste cachée pendant toute la 0.11, et la
+commande s'arrête aussitôt avec un message, pour qu'un service qui la nomme encore s'arrête là où vous le voyez.
 Retirez-la de la commande du service, ou du script qui démarre Latet.
 
 **Un dossier nommé par une requête ne fait qu'ajouter de la protection :** voir
@@ -132,7 +140,7 @@ Latet retire ces en-têtes d'une requête avant de l'envoyer, quel que soit l'ag
 
 Les en-têtes `x-latet-*` propres à Latet n'atteignent jamais un fournisseur non plus. Un identifiant
 n'est jamais retiré. Sur une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), le
-corps part octet pour octet : ces en-têtes sont le seul changement. `client_metadata` de Codex, la
+corps part octet pour octet : ces en-têtes sont le seul changement. Le `client_metadata` de Codex, la
 copie de `x-codex-turn-metadata` dans le corps, est retiré du corps d'une requête que Latet réécrit.
 
 Chaque échange du tableau de bord compte les en-têtes et les membres du corps qui lui ont été
@@ -143,6 +151,122 @@ besoin :
 ```text
 Latet: the provider answered 401 after Latet removed 2 SDK/tracing headers
 ```
+
+## Nouveaux membres des requêtes
+
+Une nouvelle version d'un agent ajoute souvent un membre à ses requêtes : un mode, un indicateur, un
+réglage qui lui est propre. Avant la 0.15.0, Latet refusait une requête qui contenait un membre
+qu'aucun profil de requête ne nomme, sauf si, dans une requête qu'il ne fait que vérifier, le membre
+ne contenait que du texte : l'agent s'arrêtait jusqu'à ce qu'une version de Latet nomme ce membre.
+Depuis la 0.15.0, Latet lit un tel membre en entier, chaque nom et chaque valeur qu'il contient, le
+vérifie avec la même rigueur qu'un texte qu'il masque, et l'envoie tel quel quand rien en lui ne
+serait masqué et qu'il ne nomme rien sur quoi le fournisseur agit. C'est `unknown_members: check`,
+la valeur par défaut, sur chaque requête : celles que Latet ne fait que vérifier (Claude Code,
+Bedrock, Vertex) et celles qu'il réécrit (Codex, OpenCode, Gemini CLI, Hermes Agent, les SDK). Un
+tel membre n'est jamais masqué : il part tel quel, ou la requête s'arrête.
+
+**Ce qui passe :** un membre fait de valeurs de contrôle, comme
+`{"mode": "compact", "level": 2, "on": true}` : un mode, un indicateur, un nombre, un jeton court,
+ou un objet ou une liste de ceux-ci.
+
+**Ce qui arrête encore la requête,** avec les mots et les codes de la 0.11, où que ce soit dans le
+membre :
+
+- une adresse web ou tout autre URI, y compris un URI `data:`, ou l'identifiant d'un fichier, d'une
+  conversation, d'une réponse enregistrée ou d'une autre ressource que le fournisseur conserve
+  (`file-…`, `conv_…`, `resp_…`, `gs://…`) ;
+- un nom qui dit qu'il s'agit de quelque chose sur quoi le fournisseur agirait, comme un fichier,
+  une pièce jointe, une image, un document, une adresse web, un serveur, un serveur MCP, un
+  conteneur, une conversation, un cache ou un modèle ;
+- des données encodées : une suite de 64 caractères base64 ou plus qui mêle chiffres, majuscules et
+  minuscules, ou de 48 chiffres hexadécimaux ;
+- un nombre qui n'est pas fini, ou plus que ce que Latet lit d'une requête ;
+- plus que ce que Latet lit des nouveaux membres d'une requête : un nom de plus de 256 caractères,
+  plus de 4 096 textes différents en tout (chaque nom et chaque valeur, une valeur une fois de plus
+  pour chaque champ où elle se trouve), plus de 256 Kio de ces textes, ou des membres que le modèle
+  local de noms ne peut pas lire dans les 5 secondes qu'il a pour un document ;
+- dans un élément propre au fournisseur (thinking, reasoning, les résultats d'une recherche web, la
+  source d'une image), tout ce qui n'est pas un jeton court : du texte libre, une clé ou une valeur de
+  plus de 64 lettres, chiffres, `_`, `.`, `:` ou `-`, ou plus de 32 valeurs ou 2 048 octets en tout ;
+- une valeur sensible : tout ce que vos règles masqueraient ou caviarderaient dans un texte (un
+  secret, un nom, une adresse e-mail, un numéro de téléphone, une valeur qu'une de vos règles de
+  champ désigne, par sa clé ou son chemin), ou une valeur que votre coffre-fort connaît. La requête
+  s'arrête comme pour une telle valeur dans n'importe quel autre texte, et le tableau de bord
+  indique le type de la valeur, *Nouveau membre de la requête*, jamais le nom du membre.
+
+Un texte d'un tel membre déjà parti passe à nouveau dans la même conversation, comme du texte déjà
+envoyé, même après que Latet a appris une valeur qu'il contient : une conversation n'y reste jamais
+bloquée. Dans le tableau de bord, un échange qui en a laissé passer un indique *un champ qu'aucun
+profil de requête ne prévoit encore, lu et vérifié* parmi ce qui l'a laissé passer. Le nom d'un
+membre n'est jamais enregistré, journalisé ni affiché.
+
+### Les refuser à nouveau
+
+`unknown_members: refuse` refuse un tel membre comme Latet le faisait avant la 0.15.0 : une requête
+qui en contient un est refusée, sauf si, dans une requête que Latet ne fait que vérifier, le membre
+ne contient que du texte. Dans `config.yaml` :
+
+```yaml
+unknown_members: refuse
+```
+
+ou dans le tableau de bord, sous *Nouveaux membres des requêtes* dans les données de production de
+**Règles**. Le passage à `refuse` s'applique aussitôt. Le retour à `check` abaisse la protection :
+fait dans `config.yaml`, ou par un agent, il attend votre approbation sur **Approbations** ; fait
+dans le tableau de bord, l'enregistrement est votre approbation. Sur un serveur Latet dont les
+[approbations centralisées](../../enterprise/approvals/) (Latet Enterprise) envoient ces
+modifications à l'équipe de sécurité de votre entreprise, il attend plutôt sa décision, un
+enregistrement dans le tableau de bord compris. Là où les directives de votre entreprise
+verrouillent `unknown_members: refuse`, `refuse` reste en vigueur quoi que disent vos réglages, et
+le tableau de bord ne propose que lui. Une requête refusée sous `refuse` dit dans le tableau de bord
+que `unknown_members: refuse`, dans vos réglages, dans ceux du projet ou dans les directives de
+votre entreprise, refuse de tels membres, et ce que ferait `check`, avec un lien vers cette
+section ; là où une exception exacte peut atteindre le membre, elle dit toujours comment en
+approuver une, puisqu'une exception est lue avant ce réglage.
+
+- **Un projet ne peut que les refuser.** `unknown_members: refuse` dans vos réglages pour un projet
+  (son entrée sous `projects` dans `config.yaml`) ou dans le `latet.yaml` de son dépôt les refuse
+  dans ce projet seulement. `check` n'appartient qu'à vos réglages : l'entrée d'un projet dans
+  `config.yaml` n'accepte que `refuse`, et un `latet.yaml` qui dit `check` est listé sous
+  *Ce qui n'est pas appliqué*.
+- **Le `refuse` d'un dépôt lie un projet de confiance ou déclaré.** Comme toute règle d'un projet qui
+  ajoute de la protection, il s'applique aux requêtes que Latet place dans ce projet, qu'il le tienne
+  pour un projet de confiance ou qu'une requête le déclare : un client qui nomme un autre dossier n'y
+  est pas lié, sauf si sa clé de lancement le lie au projet (voir
+  [Les dossiers qu'une requête nomme](#les-dossiers-quune-requête-nomme)).
+- **Sur un serveur Latet**, chaque personne et chaque clé d'API a sa propre valeur, `check` à moins
+  qu'elle n'indique `refuse`, et `latet server status` donne la valeur en vigueur
+  (`new request members: …`). Avec Latet Enterprise, les directives de l'entreprise peuvent
+  verrouiller `unknown_members: refuse` pour chaque personne et chaque clé d'API
+  ([Règles verrouillées](../../enterprise/locked-rules/)) ; comme toute règle verrouillée, il reste
+  en vigueur quand la licence prend fin.
+- **`latet doctor`** donne la valeur en vigueur, sous *New request members*, et, tant que
+  `config.yaml` ne contient pas `unknown_members`, que `check` est la valeur par défaut et comment
+  les refuser à nouveau.
+
+### Ce que cela ne couvre pas
+
+- **Le relecteur local**, le modèle de langage qui lit les textes par catégories, ne lit pas ces
+  membres : les détecteurs de Latet et votre coffre-fort le font.
+- **Le mode données strict** ne lit pas ces membres : il couvre les sorties d'outils, les fichiers
+  et les hôtes qu'il désigne, et un nouveau membre n'est rien de cela. Vos règles de champ les
+  lisent, par la clé ou le chemin d'une valeur, et les détecteurs de Latet aussi.
+- **Les données encodées ne sont pas décodées :** un secret en base64 plus court que les suites
+  ci-dessus, ou écrit sous une forme qui lui est propre, est lu comme le texte qu'il est, comme dans
+  tout texte que Latet vérifie.
+- **Sur une requête que Latet réécrit,** une valeur sensible dans un tel membre arrête la requête au
+  lieu de partir sous une valeur factice, chaque fois qu'elle est envoyée à nouveau, sauf si elle est
+  déjà partie dans cette conversation. Un client qui recopie dans un nouveau membre les valeurs que
+  Latet a restaurées s'arrête jusqu'à ce qu'une version de Latet nomme ce membre.
+- **Sur une requête que Latet ne fait que vérifier,** un nouveau membre dont la valeur est un texte
+  ou une liste de textes, hors d'un élément du fournisseur, garde la règle de la 0.11 (*seulement
+  vérifiée*) : la vérification finale y arrête les secrets, vos termes, votre identité et les données
+  personnelles, mais n'y cherche pas de noms et n'y applique ni vos règles de champ ni le mode
+  données strict, pour que rien de ce qui partait avant la 0.15.0 ne soit refusé maintenant.
+- **Le `refuse` d'un dépôt** ne lie que les requêtes que Latet place dans son projet, comme
+  ci-dessus.
+- **La mise à jour a fait passer chaque installation à `check`**, serveurs compris, sans
+  approbation : si vous comptiez sur le refus, indiquez `unknown_members: refuse`.
 
 ## Ce que vérifie `latet doctor`
 
@@ -167,7 +291,7 @@ Le daemon dit la même chose dans son journal à son premier démarrage en 0.11.
 latet ocr install   # environ 31 Mo, une seule fois
 ```
 
-`latet upgrade` ajoute ce sur quoi tournent les modèles à un Latet installé sans. Dans Docker :
+`latet upgrade` ajoute ce sur quoi tournent les modèles à un Latet installé sans ce composant. Dans Docker :
 `docker exec latet latet ocr install --yes`. Sur un serveur Latet, les administrateurs installent les
 modèles sur chaque instance
 ([Modèles de reconnaissance sur un serveur](../../concepts/server-operations/#modèles-de-reconnaissance-sur-un-serveur)).
@@ -182,7 +306,7 @@ d'OpenCode, `GEMINI_CLI_CUSTOM_HEADERS` de Gemini CLI. Le refus nomme l'en-tête
 chacun par une exception exacte, comme ci-dessous, en nommant la destination où il va ; la clé d'une
 passerelle d'entreprise dans un en-tête se nomme comme un identifiant, que Latet envoie tel qu'il est
 arrivé et ne lit jamais. La clé de lancement de Latet, que `latet claude` et les autres ajoutent à ces
-réglages, ne se nomme pas : Latet la retire avant de transmettre quoi que ce soit.
+réglages, ce n'est pas à vous de la nommer : Latet la retire avant de transmettre quoi que ce soit.
 
 Un en-tête que vous définissez pour Claude Code et dont le nom commence par `anthropic-` n'a besoin
 d'aucune exception : il passe une fois lu par la vérification finale, comme un nouvel en-tête de
@@ -191,9 +315,8 @@ nom commence par `x-claude-code-` est retiré. Un identifiant d'une destination 
 nomme quand même par une exception, pour que Latet l'envoie tel qu'il est arrivé et ne le lise
 jamais. Une exception qui nomme un tel en-tête en décide même là où elle ne s'applique pas : sur une
 requête d'un autre projet, ou une fois l'exception expirée, l'en-tête est refusé (en le nommant, ou
-en nommant l'exception et le jour où elle a expiré), et il n'est jamais lu ni envoyé à la place de
-l'exception.
-Retirez l'exception si l'en-tête doit passer vérifié partout.
+en nommant l'exception et le jour où elle a expiré), et il n'est jamais lu puis envoyé à la place de
+l'exception. Retirez l'exception si l'en-tête doit passer partout après vérification.
 
 ## Approuver une exception exacte
 
@@ -247,8 +370,8 @@ request_exceptions:
   dans un journal.
 - **Pas sur un WebSocket.** Dans la 0.11.0, une exception ne s'applique pas à un WebSocket : Codex
   connecté avec ChatGPT, qui en utilise un, ne peut envoyer aucun de vos propres en-têtes. Le tableau
-  de bord n'en propose aucune pour un refus là, et dit *Dans cette version de Latet, un WebSocket ne
-  prend aucune exception aux requêtes.*
+  de bord n'en propose aucune pour un refus à cet endroit, et dit *Dans cette version de Latet, un WebSocket ne
+  prend aucune exception de requête.*
 - **Après une mise à jour.** Une version ultérieure qui change une partie d'un profil nommée par une
   exception suspend cette exception jusqu'à ce que vous l'approuviez à nouveau ; le tableau de bord et
   `latet doctor` disent qu'elle est à approuver de nouveau (*À approuver de nouveau : son profil a
@@ -261,11 +384,11 @@ avec chaque appel demande une exception pour chaque type d'appel qu'il fait :
 
 | Appels | Profil |
 | --- | --- |
-| Anthropic Messages (Claude Code, le SDK d'Anthropic), comptage des tokens, la liste des modèles et un modèle | `anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`, `anthropic.model.1` |
-| Le format d'OpenAI (OpenAI, OpenRouter, une passerelle d'entreprise) : Chat Completions, les anciens completions, Responses en HTTP, embeddings, la liste des modèles et un modèle | `openai.chat.1`, `openai.completions.1`, `openai.responses.1`, `openai.embeddings.1`, `openai.models.1`, `openai.model.1` |
+| Anthropic Messages (Claude Code, le SDK d'Anthropic), comptage des jetons, la liste des modèles, un modèle et l'appel qui ouvre la connexion de Claude Code au démarrage (un HEAD sans corps) | `anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`, `anthropic.model.1`, `anthropic.hello.1` |
+| Le format d'OpenAI (OpenAI, OpenRouter, une passerelle d'entreprise) : Chat Completions, l'ancienne API Completions, Responses en HTTP, embeddings, la liste des modèles et un modèle | `openai.chat.1`, `openai.completions.1`, `openai.responses.1`, `openai.embeddings.1`, `openai.models.1`, `openai.model.1` |
 | Codex connecté avec ChatGPT, en HTTP : Responses et la liste des modèles | `chatgpt.codex.responses.1`, `chatgpt.codex.models.1` |
 | Gemini, par l'API Gemini ou Vertex AI : génération, streaming, comptage, embeddings (un seul ou par lot), la liste des modèles et un modèle, création ou modification d'un cache, le chat et les embeddings compatibles avec OpenAI | `gemini.<version>.generateContent.1`, `gemini.<version>.streamGenerateContent.1`, `gemini.<version>.countTokens.1`, `gemini.<version>.embedContent.1`, `gemini.<version>.batchEmbedContents.1`, `gemini.<version>.models.1`, `gemini.<version>.model.1`, `gemini.<version>.cache-create.1`, `gemini.<version>.cache-patch.1`, `gemini.<version>.openai.completions.1`, `gemini.<version>.openai.embeddings.1` |
-| Bedrock : appel, streaming, comptage des tokens, les profils d'inférence et l'un d'eux | `bedrock.invoke.1`, `bedrock.invoke-with-response-stream.1`, `bedrock.count-tokens.1`, `bedrock.inference-profiles.1`, `bedrock.inference-profile.1` |
+| Bedrock : appel, streaming, comptage des jetons, les profils d'inférence et l'un d'eux | `bedrock.invoke.1`, `bedrock.invoke-with-response-stream.1`, `bedrock.count-tokens.1`, `bedrock.inference-profiles.1`, `bedrock.inference-profile.1` |
 | Claude sur Vertex AI | `vertex.anthropic.rawPredict.1`, `vertex.anthropic.streamRawPredict.1` |
 | Une passerelle d'entreprise devant Bedrock ou devant Claude sur Vertex AI | `company.bedrock.invoke.1`, `company.bedrock.invoke-with-response-stream.1`, `company.bedrock.count-tokens.1`, `company.vertex.rawPredict.1`, `company.vertex.streamRawPredict.1` |
 | Destinations Azure OpenAI | `azure-openai.chat.1`, `azure-openai.completions.1`, `azure-openai.responses.1`, `azure-openai.embeddings.1` |
@@ -305,11 +428,11 @@ requête est refusée avec `envelope-resource`. Un identifiant de modèle hors d
 (les noms de modèles propres à une passerelle d'entreprise) se liste de la même façon, avec le rôle
 `model`.
 
-Sur OpenRouter, un modèle est nommé avec son fournisseur. Ceux d'Anthropic, d'OpenAI et de Google
-passent d'eux-mêmes quand la partie après le fournisseur est dans la forme documentée de ce
+Sur OpenRouter, un modèle est nommé avec son éditeur. Ceux d'Anthropic, d'OpenAI et de Google
+passent d'eux-mêmes quand la partie après l'éditeur est dans la forme documentée de ce
 fournisseur, avec ou sans une variante comme `:free` ou `:thinking` (`anthropic/claude-sonnet-4.5`,
 `openai/gpt-4o`, `google/gemini-2.5-pro`), et `openrouter/auto` aussi. Le modèle de tout autre
-fournisseur (`meta-llama/…`, `deepseek/…`) se liste avec la destination `openrouter`, l'adresse
+éditeur (`meta-llama/…`, `deepseek/…`) se liste avec la destination `openrouter`, l'adresse
 `https://openrouter.ai` et le rôle `model`.
 
 ## Un projet où Latet est désactivé
@@ -327,8 +450,8 @@ Quand le projet n'est que nommé par la requête (déclaré, plus bas), les mots
 
 `latet project off` et l'interrupteur du tableau de bord le disent avant de désactiver un projet. Pour
 travailler dans ce dossier sans Latet, lancez-y l'agent sans l'adresse de Latet : un agent que vous
-lancez avec `latet claude`, `latet codex` ou une autre commande `latet` se lance seul (`claude`,
-`codex`) ; un agent dont les réglages pointent vers Latet (après `latet global-install`) passe par
+lancez avec `latet claude`, `latet codex` ou une autre commande `latet` se lance alors directement
+(`claude`, `codex`) ; un agent dont les réglages pointent vers Latet (après `latet global-install`) passe par
 Latet où qu'il démarre, donnez-lui donc pour cette session l'adresse de son fournisseur, comme le dit
 sa documentation, ou utilisez `latet agents revert`. Latet ne voit alors rien de ce qu'il envoie. Si
 vous aviez désactivé Latet pour laisser passer les données personnelles, *Secrets uniquement* fait
@@ -354,8 +477,8 @@ Ce que cela veut dire pour chaque agent :
   fournisseurs intégrés (connecté avec ChatGPT, ou le fournisseur d'OpenAI), Codex avant la 0.115,
   OpenCode avant la 1.19.5, Gemini CLI en mode ACP, Copilot CLI hors de Chat Completions et les programmes que lance `latet run` n'en portent pas : la
   commande qui les lance le dit en une phrase, et leurs projets sont déclarés.
-- **Claude Code avec le plugin**, configuré durablement : de confiance grâce au plugin.
-- **Tout autre agent configuré durablement** : déclaré. Vos propres règles et toute exception sans
+- **Claude Code avec le plugin**, configuré pour de bon : de confiance grâce au plugin.
+- **Tout autre agent configuré pour de bon** : déclaré. Vos propres règles et toute exception sans
   `project` s'appliquent toujours.
 
 ## Conversations par une passerelle d'entreprise
@@ -373,7 +496,7 @@ nouvelle.
 latet upgrade --to 0.10.4
 ```
 
-Revenir à la version sous laquelle une copie de vos données a été faite propose de remettre cette
+Revenir à la version sous laquelle une copie de vos données a été faite propose de restaurer cette
 copie ([Mettre à jour](../installation/#mettre-à-jour)). Latet 0.10 ignore `request_exceptions` et
 `request_resources`, et envoie de nouveau ce que la 0.11 refuse : les parties non lues des requêtes,
 les requêtes des projets où Latet est désactivé et les images qu'il ne sait pas lire. Ne revenez en
@@ -384,11 +507,11 @@ ne l'écrit que pour une destination dont vous avez choisi le profil, dans `conf
 `config.reviewed.json`, les réglages que vous avez approuvés en dernier, dans le dossier de données de
 Latet. La 0.10 ne démarre pas s'il est dans `config.yaml`, et lit un `config.reviewed.json` qui le
 contient comme s'il n'y avait aucun réglage approuvé : une modification de `config.yaml`
-s'appliquerait alors sans attendre votre approbation. Si vous en avez choisi un, remettez la copie
+s'appliquerait alors sans attendre votre approbation. Si vous en avez choisi un, restaurez la copie
 que la mise à jour vers la 0.11 a faite, qui contient les deux fichiers tels qu'ils étaient avant :
 `latet upgrade --to` la propose en revenant en arrière (elle se trouve dans le dossier de données,
 dans `backups/before-<version>-<heure>`, dont le nom reprend la version installée, par exemple
-`before-0.12.1-…`). Sans cette copie (la 0.11 installée par le script
+`before-0.15.0-…`). Sans cette copie (la 0.11 installée par le script
 d'installation, qui n'en fait aucune), retirez la clé des deux fichiers avant de revenir en arrière :
 les lignes `request_profile:` de `config.yaml`, et chaque membre `"request_profile": "…"` de
 `config.reviewed.json`, en le laissant en JSON valide.

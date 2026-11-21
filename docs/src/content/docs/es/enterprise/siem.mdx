@@ -1,0 +1,156 @@
+---
+title: Eventos a tu SIEM
+description: Configura salidas SIEM, protege sus secretos, entiende la entrega y las lagunas y verifica las pruebas conservadas.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Latet Enterprise reenvía eventos del servidor y entradas del registro de administración a tus sistemas de seguridad. Empieza por [Informes y registro de administración](../reports/) para los recuentos, las personas, los roles y las condiciones de la licencia. SIEM requiere la función `siem`; no da acceso a Informes ni al Registro de administración, que requieren `reports`.
+
+## Configurar salidas
+
+El rol Seguridad configura y prueba salidas en **Eventos a tu SIEM**; el rol Auditor las lee. El acceso al panel requiere `roles`. Los cambios que se aplican a todos y las pruebas requieren una sesión abierta con la cuenta de empresa cuando `company_changes: sso`. Quien solo lee ve el origen de los destinos, no las rutas, los parámetros ni las cabeceras que llevan secretos. Un guardado en conflicto devuelve 409 y recarga los ajustes actuales; revísalos antes de volver a intentarlo.
+
+<Screenshot name="siem" alt="Salidas SIEM con entrega, cola, eventos descartados, errores y controles de prueba" caption="Eventos a tu SIEM vistos con el rol Seguridad." />
+
+Se admiten hasta 50 salidas. Los nombres contienen minúsculas, cifras y guiones, hasta 40 caracteres. Un nombre existente no se puede editar: renombrar elimina la salida antigua y añade otra, con las consecuencias para la cola y el secreto que se describen más abajo. La [CLI](../../reference/cli/) con token de administración también configura salidas:
+
+```yaml
+# outputs.yaml: latet server siem set outputs.yaml
+- name: splunk
+  kind: splunk
+  url: https://splunk.acme.com:8088/services/collector/event
+  secret: siem-splunk
+- name: collector
+  kind: webhook
+  url: https://collector.acme.com/latet
+  headers:
+    Authorization: "Bearer {secret}"
+  secret: siem-collector
+  format: ndjson
+- name: syslog
+  kind: syslog
+  url: tls://siem.acme.com:6514
+```
+
+`latet server siem set outputs.yaml` acepta una lista YAML/JSON o un envoltorio `siem: [...]`, de hasta 64 KiB tanto antes como después de codificarla en JSON. Rechaza alias, valores o claves que no son JSON, anidación excesiva y estructuras demasiado grandes. Sustituye la lista de salidas: incluye las salidas que quieras mantener. `latet server siem show` muestra la configuración y el estado; `latet server siem secret splunk` pide el secreto con entrada oculta, sin opción para pasar su valor.
+
+| Tipo | Formato transmitido |
+| --- | --- |
+| `webhook` | POST HTTPS, matriz JSON (`json`) o un evento por línea (`ndjson`), con cabeceras configuradas |
+| `splunk` | Envoltorios HTTP Event Collector, `sourcetype: latet:event`, nombre de host del servidor como `host` |
+| `syslog` | Mensajes [RFC 5424](https://www.rfc-editor.org/rfc/rfc5424.html) sobre [TLS RFC 5425](https://www.rfc-editor.org/rfc/rfc5425.html), facility 13, nombre de host y JSON del evento |
+
+Usa un receptor o un intermediario que acepte estos formatos y gestione la autenticación con los sistemas posteriores. Las reglas de direcciones y credenciales de esta implementación no admiten los feeds webhook directos de Google SecOps ni Azure Logs Ingestion. Una prueba de transporte HTTP correcta no demuestra que los eventos se indexen después.
+
+## Secretos y vinculación al destino
+
+Cada salida usa solo `siem-<output-name>`. Su secreto está sellado en PostgreSQL bajo la clave maestra del servidor; el panel lo acepta una vez y no vuelve a mostrarlo. Las instancias reconstruyen periódicamente las salidas y releen los secretos (normalmente cada 60 segundos).
+
+- Escribe `{secret}` donde vaya una credencial: en la ruta, en el valor de un parámetro o en una cabecera, nunca en el nombre de host o el puerto. Al insertarlo en la URL, el secreto se codifica por porcentaje. Los secretos y las cabeceras que se introducen usan ASCII visible.
+- Los nombres de parámetro o de cabecera que parecen de credenciales exigen el marcador de posición. En los segmentos de ruta decodificados **y en los nombres y valores de los parámetros** se buscan formas de token incrustadas: cadenas alfanuméricas largas en mayúsculas y minúsculas o solo en minúsculas, 32 o más cifras hexadecimales y GUID. Codificar o incrustar el token no lo exime. Excepciones limitadas: ID de workflow tras `/workflows/` en `*.logic.azure.com` y un único parámetro escrito exactamente `channel` con GUID en una salida `splunk`.
+- La vinculación abarca nombre, tipo, destino normalizado, ruta/parámetros y nombres/valores de cabeceras que llevan el secreto. Mayúsculas del host, puntos finales, puertos predeterminados y diferencias inocuas de mayúsculas/orden de cabeceras se normalizan; por sí solas no rompen la vinculación. Cambiar el destino vinculado o una cabecera que lleva el secreto exige volver a guardar el secreto antes de que se pueda enviar allí.
+- Eliminar una salida elimina su secreto. Renombrar no lo transfiere. Un secreto ausente o vinculado a otro destino retiene la entrega con un estado explicativo.
+- Los webhooks con secreto añaden `x-latet-signature: sha256=…`, HMAC-SHA256 del cuerpo. La firma no tiene marca temporal: los receptores deben deduplicar por el ID de evento y rechazar con él los ataques de repetición (replay).
+- Se rechazan cabeceras como `Host`, `Content-Length`, las de reenvío, `Cookie`, `Origin`, las controladas por proxy/navegador y `x-latet-*`. Límites: 32 nombres únicos sin distinguir mayúsculas, 64 caracteres por nombre y 4096 por valor. Las URL son ASCII visible sin espacios, hasta 2048 caracteres, sin usuario/contraseña ni fragmento; usa un nombre de host `xn--` para los nombres internacionales. Syslog no acepta parámetros ni rutas significativas.
+
+## Dónde conectan las salidas
+
+El servidor comprueba el destino al guardar y vuelve a comprobar las direcciones resueltas en cada conexión, que fija a una dirección comprobada: la primera que la acepta, y la siguiente solo cuando la conexión a la anterior se rechaza o no se establece a tiempo, antes de enviar nada de un lote. Se permiten las redes privadas de la empresa. Se rechazan las direcciones link-local (incluidas las de metadatos de la nube), reservadas, no especificadas y multicast, las formas IPv6 que llevan una IPv4 y las zonas IPv6. Un nombre DNS no permite saltarse esta comprobación. IPv4 exige el formato decimal canónico con puntos; se rechazan los nombres de host con guiones bajos, así que usa un alias de servicio válido.
+
+Solo `localhost`, `127.0.0.1` o `[::1]`, escritos explícitamente, pueden designar al propio servidor; HTTP solo se permite allí. Por HTTPS o TLS, `localhost` funciona igual que `127.0.0.1`, porque el certificado del receptor se comprueba en cada dirección; por HTTP, escribe la dirección en la que escucha el receptor (`127.0.0.1` o `[::1]`), nunca `localhost`: `localhost` se prueba primero en `::1`, y cualquier programa del servidor que escuche allí recibiría los eventos y el secreto de la salida. Las salidas locales, incluso las HTTPS/TLS, se **editan y prueban solo con la CLI**, no desde el panel. Lo mismo vale para su secreto: lo configura `latet server siem secret`. En el panel siguen visibles y se pueden eliminar. Ejemplos que puede ejecutar un administrador:
+
+```sh
+latet server siem test syslog
+latet server siem show
+latet server status
+```
+
+Las pruebas se limitan a una por salida cada 10 segundos, 30 por salida y hora y 30 por persona del panel o token de administración y hora. Desde el panel, añadir salidas o moverlas a otro esquema, host o puerto admite diez destinos por persona y hora; después, 429. Los guardados rechazados y los reintentos tras un 409 pueden consumir esa cuota. Los guardados desde la CLI no tienen esta cuota de destinos. Cada guardado y cada prueba quedan en el registro de administración.
+
+Se ignoran proxies de entorno como `HTTPS_PROXY`. TLS comprueba el nombre del destino con el almacén de certificados de confianza del servidor; instala allí tu CA privada si hace falta. En Windows/macOS, el almacén del sistema puede recuperar URL AIA de certificados fuera de estos controles de salida. Cada envío tiene un plazo de 20 segundos. Los cuerpos de respuesta sin comprimir están limitados a 64 KiB; los comprimidos no se leen ni descomprimen, pero HTTP 2xx sigue contando como aceptación de transporte. El `close_notify` TLS de syslog puede esperar hasta dos segundos dentro del plazo de envío.
+
+## Entrega y lotes retenidos
+
+Las peticiones no esperan a la entrega SIEM. Cada salida tiene una cola en PostgreSQL; las instancias toman su concesión por turnos y envían lotes ordenados de hasta 500. Una concesión caduca en 60 segundos, lo que **no** es un SLA de relevo o entrega: los turnos de salidas son secuenciales y el presupuesto de diez segundos de cada ronda se comprueba entre turnos.
+
+HTTP 2xx significa aceptación de transporte, no indexación ni confirmación del indexador Splunk. Syslog no tiene confirmación de aplicación. La entrega reintenta con semántica de al menos una vez mientras los eventos siguen en cola: una confirmación perdida tras la aceptación, una caída o una concesión caducada pueden producir duplicados. Deduplica por `id`; una entrada del registro de administración reenviada tiene un ID estable. La conservación, los límites de cola y los saltos deliberados impiden garantizar en todos los casos una entrega sin pérdidas o exactamente una vez.
+
+- Errores de red, redirecciones (nunca seguidas), HTTP 401, 403, 404, 405, 408, 409, 410, 411, 415, 425, 429 y 5xx conservan/reintentan el lote tras 5, 10, 30, 60 y luego 300 segundos.
+- Los demás rechazos del receptor dividen el lote para aislar los eventos rechazados. Con un resultado mixto, los eventos no administrativos rechazados uno a uno pueden descartarse y contarse; una entrada del registro de administración se retiene.
+- Una secuencia rechazada entera sigue retenida, con esperas antes de reintentar, también una secuencia solo de eventos ordinarios, con `held: true` y `blocked: false`. Un error de red posterior borra la retención por rechazo hasta el siguiente intento ante el receptor. Revisa los registros del receptor antes de saltarla.
+- Solo la CLI con token de administración libera una secuencia retenida: `latet server siem skip <output>`. Las concesiones activas y las comprobaciones de estado pueden rechazarlo; que la concesión caduque no garantiza que funcione un minuto después. Un salto incluye las filas confirmadas tarde dentro del tramo retenido. En los saltos de solo eventos ordinarios, `from`/`to` son null, el `count` administrativo es 0 y `dropped` puede ser positivo; no se crea ningún marcador de laguna para eventos ordinarios. Los rangos administrativos se atestiguan como se describe más abajo.
+- Cuando la cola total de una salida supera 200.000 eventos, el recorte descarta primero los `apps` más antiguos y después otros eventos ordinarios. Nunca recorta entradas del registro de administración, por lo que el total puede seguir por encima de ese umbral. El procesamiento de cada instancia conserva hasta 10.000 eventos en espera, de los que como máximo la mitad son `apps`; fallos de base de datos, cierre o esquema pueden perder eventos antes de guardar recuentos.
+
+**Enviar un evento de prueba** envía un evento `test` fuera del registro de eventos. Informa del resultado del transporte, no prueba que un índice lo contenga. El panel, la CLI y el estado muestran el último éxito, el último error y desde cuándo, los recuentos en cola, descartados y agrupados, la retención y los problemas de secretos.
+
+## Lagunas y verificación
+
+El reenvío del registro de administración empieza cuando la licencia incluye SIEM, cerca de la última hora conservada, no al principio de todo el historial. `siem.forwarding` registra su inicio. La nota autenticada del reenviador guarda el progreso. Una nota ilegible detiene el reenvío; borrarla mientras se conserva la entrada de inicio también lo detiene. Restaurar una nota auténtica más antigua puede reenviar entradas, volver a marcar lagunas reales y reenviar después entradas de un período que estuvo en pausa. Una vez que la conservación elimina `siem.forwarding`, borrar la nota puede parecer un primer arranque. Conserva copias externas y los anclajes conservados de la cadena.
+
+La copia SIEM puede tener estas lagunas administrativas:
+
+- **Sin salidas o sin generación de eventos SIEM:** el reenvío anota el rango no enviado. Su marcador acompaña a la siguiente entrada del registro de administración reenviada; la reanudación normalmente crea una entrada. Los eventos que ya estaban en cola pueden reanudar la entrega. Esto no garantiza que las entradas del período en pausa no se puedan volver a enviar nunca.
+- **Salida eliminada:** cuando una instancia observa la eliminación, esa copia termina sin marcador de cierre. Una instancia desactualizada puede enviar otro lote. Se eliminan la cola y el secreto; el estado cuenta las entradas del registro de administración abandonadas. Otras salidas reciben la acción de eliminación.
+- **Acumulación prolongada:** por encima de 1.000.000 de entradas del registro de administración en espera por salida, las más antiguas se agrupan en un marcador atestiguado hasta bajar a 990.000. No es un límite estricto de disco. Estimaciones aproximadas: 400 MB por salida y 20 GB para 50 colas así. El estado avisa a partir de 100.000; una agrupación provoca FAIL hasta la siguiente entrega correcta.
+- **Salto administrativo:** los rangos administrativos saltados reciben un marcador y una atestación encadenada `siem.skipped`. Saltar un marcador rechazado lo quita de la copia del receptor; `siem.skipped` conserva su rango en el servidor.
+
+Un marcador de rango tiene `type: admin`, `outcome: siem.gap`, `reason: audit:<first>-<last>`, `stopped` entero igual a su número de entradas, identidad y objeto null, y `chain.prev` de la primera entrada con `chain.hash` de la última. No contiene detalles de las entradas. El marcador y la atestación encadenada `siem.gap`/`siem.skipped` se confirman juntos. Un marcador por sí solo no prueba nada; una entrada autenticada coincidente y conservada debe atestiguar su rango. Prueba el no envío, no su causa: correlaciona entradas de licencia/ajustes. El evento `siem.gap` del propio registro tiene su propia posición en la cadena y `reason: server`, no `audit:…`.
+
+```sh
+latet server log verify
+latet server log verify --siem siem-export.ndjson
+```
+
+La verificación recorre la cadena con clave del servidor, informa de la cabeza de la cadena y comprueba los marcadores en cola. Con `--siem`, también inspecciona cada objeto `outcome: siem.gap` extraído, incluso si el envoltorio del evento está malformado. Acepta un **archivo regular, sin enlaces, de hasta 256 MiB**: matrices JSON o NDJSON de eventos, envoltorios HEC, exportaciones Splunk `result._raw` y `_source` de hits Elastic. Se rechaza un archivo sin ningún evento de Latet reconocible.
+
+Las atestaciones conservadas se comprueban antes que la antigüedad. Solo los rangos antiguos sin atestación conservada se declaran no comprobados cuando sus entradas superan el período de conservación; esos rangos antiguos por sí solos no causan un fallo. Una cadena rota o imposible de recorrer, un marcador actual malformado o no atestiguado, o información de verificación del servidor ausente o malformada terminan con el código 1; `--siem` en la Community Edition, una entrada ilegible y los archivos sin eventos terminan con el código 2. Marcadores/respuestas del servidor malformados nunca se convierten en éxito.
+
+`--siem` comprueba los marcadores, no la exhaustividad ni la autenticidad de cada evento ordinario exportado. Quien puede escribir en la base de datos aún puede suprimir entregas o copiar campos de la cadena en un evento ordinario falso. La cadena del servidor y los anclajes externos conservados siguen siendo pruebas necesarias. Con el peor retraso medido, verificar puede mantener una instantánea de solo lectura unos 1,5 minutos, lo que retrasa el vacuum; al agotarse el tiempo puede fallar de forma segura en vez de certificar un recorrido incompleto.
+
+## Campos de eventos
+
+| Campo | Significado |
+| --- | --- |
+| `v` | Versión del esquema, 1 |
+| `id` | Identificador del evento, 32 cifras hexadecimales; clave de deduplicación |
+| `ts` | Hora del evento en UTC |
+| `type` | Productores actuales: `exchange`, `stopped`, `apps`, `policy`, `approval`, `change`, `sign-in`, `sync`, `license`, `admin`; `test` solo en pruebas |
+| `identity` | La persona tal como la guarda el ajuste de personas, o el ID de la clave de API; el actor admin sigue la [política administrativa](../reports/#identidades-administrativas-enviadas-al-siem) |
+| `kind` | `person`, `key` o null, incluidos eventos de sistema/marcadores |
+| `group` | Primer grupo de la persona en el momento del registro, o null |
+| `agent` | Código de agente como `claude-code`, `codex`, `opencode`, `apps`, o null |
+| `project` | Nombre de carpeta, hasta 200 caracteres imprimibles sin separadores de ruta, o null; exceso en `other`; `masked-` y 8 caracteres cuando su nombre contiene un término enmascarado ([informes](../reports/)) |
+| `masked` | Recuentos por tipo normalizado, como `EMAIL` o `CLIENT_NAME` |
+| `stopped` | Peticiones detenidas; textos sin respuesta para `apps`; 1 para un `approval` no aprobado (rechazado, abandonado, caducado); entradas representadas en marcadores |
+| `reason` | Código de detención o de licencia; de dónde vino un `change`; por qué falló un `sync`; actor admin no personal; o `audit:<first>-<last>` de marcador; si no, null |
+| `outcome` | Código de operación/resultado: `scan`/`mask`, resultado de directrices/licencia, cómo terminó un `approval` o un `change`, cómo terminó un `sync` (`ok`, `failed`, `removed`), acción admin o `siem.gap`; si no, null |
+| `by` | Quién decidió un `approval` o un `change` cuando no fue la persona ([aprobaciones centrales](../approvals/)), o la persona que pidió un `sync` o quitó términos sincronizados ([sincronización de términos](../term-sync/)), guardado como el ajuste de personas guarda a una persona; si no, null |
+| `rule` | ID de regla o de ajuste, el ID del token `t_…` de quien llama a `apps` (nunca su valor), la fuente de un `sync` como `term-sync:<name>` (solo `term-sync` para una eliminación que no nombra ninguna fuente), o el objeto de una acción admin según la política de privacidad; si no, null |
+| `chain` | `prev`/`hash` admin, 64 cifras hexadecimales cada uno (`prev` vacío al inicio); extremos del marcador como arriba; si no, null |
+
+## Métricas y comprobaciones
+
+El listener de métricas del servidor expone `/_latet/metrics`; consulta [operaciones del servidor](../../concepts/server-operations/). Las etiquetas SIEM agrupan por `kind` de salida, no por nombre.
+
+| Métrica | Significado |
+| --- | --- |
+| `latet_events_kept_total{type}` | Eventos contados por esta instancia |
+| `latet_events_lost_total` | Eventos perdidos antes del recuento, incluidas la presión de la cola, las pérdidas por la base de datos o el cierre y los rechazos del esquema |
+| `latet_events_other_project_total` | Eventos contados después de que el límite horario por identidad de esta instancia reasignara su proyecto a `other`; excluye el exceso de grupo/global tratado solo en la base y el mero uso del nombre literal `other` |
+| `latet_siem_queued{kind}` | Estimación de la cola compartida en la base de datos, actualizada cada 30 segundos; usa `max` entre instancias, no su suma |
+| `latet_siem_sent_total{kind}` | Eventos aceptados en el transporte desde esta instancia |
+| `latet_siem_failed_total{kind}` | Lotes fallidos para reintentar |
+| `latet_siem_dropped_total{kind}` | Eventos ordinarios descartados por rechazos o recorte de cola |
+| `latet_approvals_company_waiting{kind, route}` | Cambios (`change`) y textos (`batch`) que esperan al equipo de seguridad (`security`) o a quienes controlan una clave de API (`controllers`); cada instancia lo lee de la base de datos cada 30 segundos y da el mismo valor: toma el mayor. [Aprobaciones centrales](../approvals/) |
+| `latet_approvals_company_decided_total{kind, state}` | Lo que dejó de esperar a través de esta instancia, según cómo terminó (`approved`, `rejected`, `withdrawn`, `stale`, `superseded`, `expired`, `abandoned`, `gone`; y `approved-unapplied` y `approved-changed`, contados de nuevo entre los aprobados, para una aprobación que los ajustes de la persona no incorporaron y para un texto aprobado y después no enviado): suma las instancias |
+| `latet_terms_masked` | Términos sincronizados que esta instancia enmascara ahora; falta hasta que sus términos se cargan por primera vez ([Sincronización de términos](../term-sync/)) |
+| `latet_terms_behind_seconds` | Segundos que lleva esta instancia enmascarando términos sincronizados más antiguos que los del servidor (0: ninguno); alerta por encima de 60 |
+| `latet_terms_kept{state}` | Términos sincronizados guardados, aún en su fuente (`in-source`) o ya no (`gone`); cada instancia lo lee de la base de datos cada 30 segundos y da el mismo valor: toma el mayor |
+| `latet_terms_unreadable` | Términos sincronizados que esta instancia no puede abrir (los selló otra clave maestra); alerta por encima de 0 |
+| `latet_terms_sources{kind, state}` | Las fuentes de la sincronización de términos por tipo y según cómo fue su última sincronización (`ok`, `failed`, `never`); leído de la base de datos cada 30 segundos: toma el mayor |
+| `latet_terms_runs_total{kind, outcome}` | Sincronizaciones ejecutadas en esta instancia, según cómo terminaron (`ok`, o el código del motivo por el que fallaron): suma las instancias |
+
+`latet server status` muestra los ajustes y la generación del registro de eventos y las entradas del registro de administración abandonadas, además de la entrega, los fallos, la secuencia retenida y el estado del secreto de cada salida. La indicación de salto sirve tanto para las secuencias ordinarias retenidas como para las entradas del registro de administración bloqueadas. Una fila `siem.gap` mostrada en el Registro de administración es un registro, no un resultado de verificación criptográfica.
+
+Las pruebas automatizadas usan receptores locales/simulados webhook, HEC y syslog TLS, fallos y escenarios con varias instancias. Un escenario con confirmaciones normales comprueba llegada única y ordenada; no garantiza ese resultado tras confirmaciones perdidas, caídas o caducidad de concesión. No se afirma que se haya probado un despliegue real de Splunk ni que se haya hecho una prueba manual de indexación.

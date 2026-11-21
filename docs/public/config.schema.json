@@ -749,6 +749,20 @@
           "description": "Reading the text in images.",
           "title": "Ocr"
         },
+        "unknown_members": {
+          "anyOf": [
+            {
+              "const": "refuse",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`refuse`: a request here with a field no request profile names yet is refused, as `refuse` in your settings refuses it (on Claude Code, Bedrock and Vertex a field of text alone still passes once checked). Only `refuse`: a project cannot loosen it.",
+          "title": "Unknown Members"
+        },
         "llm_review": {
           "anyOf": [
             {
@@ -961,7 +975,9 @@
               "enum": [
                 "owner",
                 "person",
-                "administration"
+                "administration",
+                "security",
+                "controllers"
               ],
               "type": "string"
             },
@@ -970,8 +986,36 @@
             }
           ],
           "default": null,
-          "description": "Who approved it: `owner` (you, on your computer), `person` (you, on a server) or `administration` (a server's administration, for an API key). Set by Latet.",
+          "description": "Who approved it: `owner` (you, on your computer), `person` (you, on a server), `administration` (a server's administration, for an API key), `security` (your company's security team) or `controllers` (another of the people who control an API key), the last two with Latet Enterprise. Set by Latet.",
           "title": "Issuer"
+        },
+        "approver": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With `security` or `controllers`, the name of the person who approved it, as the company's record of approvals names them. Set by Latet.",
+          "title": "Approver"
+        },
+        "approver_id": {
+          "anyOf": [
+            {
+              "pattern": "^u_[a-z2-7]{10}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With `security` or `controllers`, the server's id of the person who approved it. Set by Latet.",
+          "title": "Approver Id"
         }
       },
       "required": [
@@ -1564,6 +1608,16 @@
         "block"
       ],
       "title": "Images",
+      "type": "string"
+    },
+    "unknown_members": {
+      "default": "check",
+      "description": "A field of a request that no request profile names yet, such as one a new release of an agent adds: `check` reads it whole and sends it as it came when nothing in it would be masked and it names no file, address, stored conversation or model, and refuses the request otherwise; `refuse` refuses the request, as Latet did before 0.15.0, save on Claude Code, Bedrock and Vertex a field of text alone outside a provider's own item, which still passes once the final check has read it. Moving to `check` waits for your approval.",
+      "enum": [
+        "check",
+        "refuse"
+      ],
+      "title": "Unknown Members",
       "type": "string"
     },
     "llm_review": {

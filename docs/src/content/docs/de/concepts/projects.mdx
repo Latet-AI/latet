@@ -20,7 +20,7 @@ wollen.
 
 Auf einem Rechner, der mit einem Latet-Server verbunden ist, gilt die Projektdatei nicht: Der Server
 liest keine Datei des Rechners und wendet Ihre eigenen Einstellungen und die Einstellungen an, die
-er teilt. In einem solchen Projekt sagen `latet doctor` und `latet claude` das. Um die Regeln des
+er teilt. In einem solchen Projekt weisen `latet doctor` und `latet claude` darauf hin. Um die Regeln des
 Projekts dort zu verwenden, importieren Sie seine `latet.yaml` in Ihrem Dashboard, unter **Regeln**
 mit **Regeln importieren**. Siehe
 [Was auf dem Rechner bleibt](../server/#was-auf-dem-rechner-bleibt).
@@ -54,7 +54,7 @@ Latet vertraut dem Projekt einer Sitzung nur, wenn es dieses selbst kennt:
 
 Ein Ordner, den nur die Anfrage nennt (der Header `x-latet-project` oder der Arbeitsordner, den Codex,
 OpenCode und Gemini CLI in ihre Anfragen schreiben), ist *nur behauptet*. Die Regeln eines
-behaupteten Projekts, die Schutz hinzufügen, gelten: seine Begriffe, seine Erkennungsregeln, ein
+behaupteten Projekts, die Schutz hinzufügen, gelten: seine Begriffe, seine Erkenner, ein
 strengeres Profil. Seine Lockerungen gelten nicht: Werte und Muster, die nie maskiert werden,
 ausgeschaltete Regeln für geheime Werte, ein schwächeres Profil oder eine schwächere Richtlinie,
 `data_tools`, die Hinweise und Bilder für den lokalen Prüfer. Ein behauptetes Projekt, in dem Latet
@@ -77,14 +77,14 @@ entschieden wurde.
 
 ### Startschlüssel
 
-Wenn Latet einen Agenten startet, öffnet es einen Start für den Ordner: einen geheimen Schlüssel, nur
-für diesen Start gezogen, an das Projekt des Ordners und an Sie gebunden. Der Agent sendet ihn mit
+Wenn Latet einen Agenten startet, öffnet es einen Start für den Ordner: einen geheimen Schlüssel,
+eigens für diesen Start zufällig erzeugt, an das Projekt des Ordners und an Sie gebunden. Der Agent sendet ihn mit
 seinen Anfragen in einem Header, `x-latet-launch-key`, den Latet prüft und entfernt, bevor irgendetwas
-weitergesendet, aufgezeichnet oder protokolliert wird; Latet behält nur einen mit einem Schlüssel
-gebildeten Hash davon. Der Schlüssel endet mit dem Start: wenn der Agent sich beendet oder wenn der Befehl, der ihn
-gestartet hat, angehalten wird.
+weitergesendet, aufgezeichnet oder protokolliert wird; Latet behält nur einen
+schlüsselabhängigen Hash davon. Der Schlüssel endet mit dem Start: wenn der Agent sich beendet oder wenn der
+Befehl, der ihn gestartet hat, angehalten wird.
 
-| Befehl | Wie der Schlüssel reist |
+| Befehl | Wie der Schlüssel übertragen wird |
 | --- | --- |
 | `latet claude` | `ANTHROPIC_CUSTOM_HEADERS`, in der privaten Einstellungsdatei dieser Sitzung |
 | `latet codex` | `env_http_headers` eines Anbieters aus `model_providers`, ab Codex 0.115; keiner bei den eingebauten Anbietern von Codex (mit ChatGPT-Anmeldung oder dem eigenen Anbieter von OpenAI) |
@@ -103,8 +103,8 @@ und sein Projekt ist nur behauptet. Ein Ordner, der keines Ihrer Projekte ist, b
   Schlüssel wie das eigene Token von Latet maskiert; wo Latet ihn nicht maskieren kann (eine Anfrage,
   die es nur prüft), wird die Anfrage abgelehnt, mit dem Hinweis, zurückzusetzen oder eine neue
   Unterhaltung zu beginnen.
-- **Besessen, nicht an einen Prozess gebunden.** Jedes Programm, das den Schlüssel besitzt, zählt als
-  dieser Start. Es läuft als derselbe Benutzer, und Latet gibt nicht vor, Programme auseinanderhalten
+- **An den Besitz gebunden, nicht an einen Prozess.** Jedes Programm, das den Schlüssel besitzt,
+  zählt als dieser Start. Es läuft unter demselben Benutzer, und Latet gibt nicht vor, Programme auseinanderhalten
   zu können.
 - **Unbekannt, beendet oder fremd.** Eine Anfrage mit einem Schlüssel, den Latet nicht kennt (sein
   Daemon wurde zum Beispiel neu gestartet), wird als nur behauptet entschieden, nie deswegen abgelehnt.
@@ -163,8 +163,8 @@ Ihrer Einstellungen für das Projekt, dessen Name oder Typ einer Ihrer globalen 
 wird ausgeschaltet. Einer der Datei mit dem Namen oder dem Typ eines Ihrer Erkenner, global oder
 für das Projekt, gilt trotzdem, unter einem eigenen Namen oder Typ (`badge-repo`, `BADGE_REPO`):
 Beide gelten; bei demselben Typ nehmen beide Typen die strengere der beiden Richtlinien; und die
-Seite des Projekts sagt es, mit dem Namen und dem Typ in Gebrauch. Für ein Feld gilt die strengere
-von Ihrer Regel und der der Datei, bei gleicher Ihre.
+Seite des Projekts weist darauf hin, mit dem verwendeten Namen und Typ. Für ein Feld gilt die
+strengere von Ihrer Regel und der der Datei, bei gleicher Strenge Ihre.
 
 **Was dort Werte im Klartext ließe, wird beiseitegelegt:** ein Erkenner, der durchlässt, was er
 findet (`policy: allow`), und ein Erkenner, ein Begriff oder eine Feldregel mit einem Typ, der in
@@ -185,7 +185,7 @@ warum. Ein Repository, das Sie klonen, kann Ihren Schutz nicht verringern.
 - Sie darf bis zu 500 Begriffe und 100 Erkenner enthalten, in höchstens 256 KB.
 - Eine Datei mit mehr als 20.000 YAML-Einträgen (Schlüssel, Werte und die Listen und Zuordnungen um
   sie herum; etwa viermal so viele, wie eine volle Datei mit 500 Begriffen und 100 Erkennern enthält)
-  ist nicht gültig: Nichts darin gilt, und `latet project check` sagt es.
+  ist nicht gültig: Nichts darin gilt, und `latet project check` weist darauf hin.
 - Eine Datei, die sich nicht lesen lässt, hat keine Wirkung, und Latet arbeitet weiter.
 - Latet liest die Datei neu, wenn sie sich ändert: Es gibt nichts neu zu laden.
 - Begriffe in der Datei kann jeder lesen, der das Repository liest. Tragen Sie die Namen Ihrer
@@ -220,8 +220,8 @@ deren Projekt Latet [vertraut](#vertrauenswürdig-und-behauptet):
 - Felder, die im strikten Datenmodus im Klartext bleiben, ein ausgeschalteter strikter Datenmodus
   (`data: normal`), gesendete Bilder, ein höherer oder ausgeschalteter Dump-Schutz.
 
-Wird der Text in Bildern dort nicht gelesen (`ocr: off`), bleibt jede Anfrage mit einem Bild im
-Projekt stehen.
+Wird der Text in Bildern dort nicht gelesen (`ocr: off`), wird jede Anfrage mit einem Bild im
+Projekt gestoppt.
 
 Nur Ihre eigenen Einstellungen schalten den [Live-Prüfer](../live-review/) in einem Projekt ein oder
 aus (`live_review`) und geben dem lokalen Prüfer dort Hinweise (`review_guidance`, siehe
@@ -278,8 +278,8 @@ Eine Änderung dessen, was in einem Projekt nichts schützt (der Port, der Verla
 aufbewahrt wird), oder eine, die nur Schutz hinzufügt (ein Begriff), liest keine. Ein Hilfsprozess
 liest sie, mit 10 Sekunden für alle und 2 für jede. Ein Repository, das sich gerade nicht lesen lässt
 (auf einer Netzwerkfreigabe, die nicht antwortet, oder eine Datei, die Sie nicht lesen dürfen), gilt
-nie als eines ohne Inhalt: Eine Änderung, die seinen Schutz verringern könnte, gilt weder, noch
-wartet sie auf Sie, und das Neuladen sagt das.
+nie als eines ohne Inhalt: Eine Änderung, die seinen Schutz verringern könnte, wird weder
+angewendet, noch wartet sie auf Sie, und das Neuladen weist darauf hin.
 
 So finden Sie ein solches Repository und nehmen es aus der Liste:
 
@@ -296,9 +296,9 @@ eines vergisst: Führen Sie es selbst aus, in einem eigenen Terminal. Das Reposi
 wieder abgewogen, sobald eine Unterhaltung es erreicht.
 
 Wenn sich `repositories.json` selbst nicht lesen lässt (an seiner Stelle liegt ein Ordner, ein Link
-oder eine Datei, die größer ist, als die Liste sein darf), gilt eine Änderung, die den Schutz in
-einem Repository verringern könnte, weder, noch wartet sie auf Sie, und `latet repositories` sagt
-es. Bleibt es so, verschieben Sie `repositories.json` an einen anderen Ort, in einem eigenen
+oder eine Datei, die größer ist, als die Liste sein darf), wird eine Änderung, die den Schutz in
+einem Repository verringern könnte, weder angewendet, noch wartet sie auf Sie, und
+`latet repositories` weist darauf hin. Bleibt es so, verschieben Sie `repositories.json` an einen anderen Ort, in einem eigenen
 Terminal: Latet merkt sich die Repositorys dann wieder, sobald Unterhaltungen sie erreichen.
 
 ## Befehle
@@ -310,7 +310,7 @@ Terminal: Latet merkt sich die Repositorys dann wieder, sobald Unterhaltungen si
 | `latet project check [FOLDER]` | Prüft die Projektdatei, einschließlich der Erkenner |
 | `latet project off` / `on [FOLDER]` | Schaltet Latet in einem Projekt aus, wo seine Anfragen dann abgelehnt werden, oder wieder ein |
 | `latet repositories` | Die Repositorys, die Latet sich merkt, jedes mit seinem Zustand |
-| `latet repositories forget FOLDER` | Nimmt eines aus der Liste (nur Ihre Sache: Es verweigert einen Agenten) |
+| `latet repositories forget FOLDER` | Nimmt eines aus der Liste (nur durch Sie selbst: In einem Agenten verweigert der Befehl die Ausführung) |
 | `latet rules add FILE --repo FOLDER` | Fügt Erkenner der Projektdatei statt `config.yaml` hinzu (`--project`: Ihren Einstellungen für das Projekt) |
 | `latet config schema --project` | Gibt das JSON Schema der Projektdatei aus |
 

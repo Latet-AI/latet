@@ -1,0 +1,429 @@
+---
+title: Begriffssynchronisierung
+description: Die Listen Ihres Unternehmens mit Kunden, Kollegen und Codenamen von Projekten, dort gelesen, wo sie schon liegen, und von Ihrem Latet-Server für alle maskiert, die er bedient, ohne dass jemand sie eintippen muss.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Manche Listen sind schon für sich sensibel: die Kunden eines Unternehmens, seine Mitarbeitenden, die Codenamen seiner
+Projekte. Die Synchronisierung der Begriffe liest sie dort, wo sie schon liegen, in festen Abständen, und Ihr
+[Latet-Server](../../getting-started/server/) maskiert jeden Namen darauf so, wie er Ihre eigenen
+[Begriffe](../../concepts/detection/#ihre-eigenen-begriffe) maskiert, im Bereich jeder Person und jedes API-Schlüssels,
+die er bedient. Niemand tippt sie ein, und niemand kann einen auslassen.
+
+Die Synchronisierung der Begriffe gehört zu Latet Enterprise: Sie läuft auf einem Latet-Server, dessen Lizenz
+`term-sync` aufführt ([Editionen und Lizenz](../)).
+
+## Woher die Begriffe kommen
+
+| Quelle | `kind` | Was sie liest |
+| --- | --- | --- |
+| Eine Datei | `file` | Einen CSV-, JSON- oder YAML-Export, den Ihr CRM-, ERP- oder Personalsystem in festen Abständen schreibt |
+| Eine Webadresse | `url` | Dieselben Formate von einer https-Adresse |
+| Microsoft Entra ID | `graph` | Namen und Adressen von Personen, oder die Namen von Gruppen, über Microsoft Graph |
+| LDAP und Active Directory | `ldap` | Die Attribute der Einträge, die eine Suche findet |
+
+HubSpot, Salesforce und andere CRM-Systeme werden über einen Export gelesen: einen Bericht, den sie in festen Abständen
+in eine Datei schreiben oder unter einer Adresse veröffentlichen.
+
+Jede Quelle ordnet die Felder ihrer Datensätze einem Begriffstyp zu: `CLIENT`, `PERSON`, `PROJECT` oder einem anderen
+Namen in Großbuchstaben. Der Typ ist die Bezeichnung, die das Dashboard zeigt, und er bestimmt den Ersatzwert: einen
+Personennamen für eine Person, ein Unternehmen für ein Unternehmen, eine Adresse für eine Adresse.
+
+## Die Quellen einrichten
+
+Die Quellen werden in YAML geschrieben:
+
+```yaml
+sources:
+  - name: customers
+    kind: file
+    path: customers.csv
+    every_minutes: 60
+    mapping: {company: CLIENT, contact: PERSON}
+  - name: colleagues
+    kind: graph
+    tenant: acme.onmicrosoft.com
+    client_id: 6f1c2b9e-4d3a-4c1e-9b7f-2a5d8e0c1f34
+    filter: accountEnabled eq true
+    mapping: {"{givenName} {surname}": PERSON, mail: EMAIL}
+```
+
+Eine Dateiquelle liest nur im Ordner der Begriffssynchronisierung des Servers: `term-sync` in seinem Datenordner
+(`/data/term-sync/` im Container, das Volume, das sich die Instanzen teilen). Legen Sie die Exporte für die
+Synchronisierung der Begriffe dort ab, oder binden Sie einen Ordner ein, in den Ihr System sie schreibt: Wer die
+Quellen festlegt, kann jede Datei im Ordner der Begriffssynchronisierung als Begriffe lesen. Geben Sie der
+Synchronisierung daher einen eigenen Ordner, der nur diese Exporte enthält. Eine Quelle nennt eine Datei dort nur mit ihrem Namen, ohne
+Ordnerangabe; ein Pfad anderswo wird abgelehnt, ebenso ein Link, der aus dem Ordner hinausführt.
+
+Personen mit der Rolle Sicherheit bearbeiten die Quellen und legen das Geheimnis jeder Quelle auf der Seite
+**Begriffssynchronisierung** fest, aus einer mit Ihrem Unternehmenskonto geöffneten Sitzung, solange die
+Anmeldeeinstellungen das verlangen, wie bei jeder [Änderung, die für alle gilt](../sign-in/#änderungen-die-für-alle-gelten).
+Die Administratoren des Servers tun dasselbe mit `latet server terms`, von jedem Rechner mit einem Administrationstoken,
+wie bei den anderen `latet server`-Befehlen:
+
+```sh
+latet server terms sources set term-sync.yaml   # the server uses these sources from now on
+latet server terms secret colleagues            # asks for the value; it is never on the command line
+latet server terms run                          # syncs every source now; `latet server terms run customers` syncs one
+latet server terms status                       # what each source gave, and when it last synced
+latet server terms sources show                 # the sources, in the format `sources set` takes
+```
+
+Der Server bewahrt die Quellen in seinen Enterprise-Einstellungen auf (im Abschnitt `term_sync`), nie in einer eigenen
+Datei, und jede Instanz verwendet sie sofort. Sie festzulegen ersetzt die bisherigen Quellen: Die Begriffe einer
+herausgenommenen Quelle gelten dann als nicht mehr in der Quelle
+([siehe unten](#ein-an-seiner-quelle-entfernter-begriff)), und `latet server terms sources set` fragt vorher nach, wenn
+sie Begriffe hatte. Ein Server nimmt höchstens 20 Quellen mit zusammen höchstens 64 KB an.
+
+Jede Quelle hat höchstens einen geheimen Wert, ihren eigenen: `latet server terms secret colleagues` fragt nach ihm, und
+der Server bewahrt ihn mit seinem Hauptschlüssel versiegelt auf, für diese Quelle so, wie sie jetzt eingerichtet ist.
+Richten Sie die Quelle auf ein anderes Ziel (eine andere Adresse, Anmeldeadresse, ein anderes Verzeichnis oder Konto)
+oder ändern Sie, was sie mit dem geheimen Wert liest (ihren Filter, die Basis, die Datensätze, die Objekte oder die
+Gruppe, oder die Felder, die ihre Zuordnung nennt), dann muss der geheime Wert neu festgelegt werden: Der Server schickt
+einen geheimen Wert nie an einen Ort, für den er nicht festgelegt wurde, und liest damit keine anderen Daten. Die Header
+einer Webadresse zählen auch, jeder einzelne, ebenso das Zertifikat eines Verzeichnisses. Das Speichern der Quellen
+sagt, welche geheimen Werte neu festzulegen sind, und wer die Quellen auf der Seite **Begriffssynchronisierung**
+bearbeitet, legt den geheimen Wert dann neu fest; das Administrationsprotokoll nennt die geänderten Felder, nie ihre
+Werte. Das Festlegen eines geheimen Werts fordert sofort eine Synchronisierung dieser Quelle an. Bevor sie nach dem
+geheimen Wert fragen, sagen `latet server terms secret` und der Dialog **Geheimnis** der Seite, wohin sich die
+Quelle verbindet und als welches Konto sich ein Verzeichnis anmeldet: Legen Sie ihn nur fest, wenn er dorthin
+gehört.
+
+Eine angeforderte Synchronisierung läuft sofort auf der Instanz, die gerade das Zeitfenster der Synchronisierung hält;
+`latet server terms run` wartet bis zu einer Minute darauf und gibt ihr Ergebnis aus (mit `--no-wait` fordert es sie
+nur an). Ansonsten synchronisiert der Server jede Quelle alle `every_minutes` Minuten (standardmäßig 60, von 5 bis
+10080), das erste Mal innerhalb einer Minute nach dem Einrichten, und ebenso wieder, wenn sie geändert oder
+herausgenommen und neu eingerichtet wird; eine fehlgeschlagene Quelle wird nach 15 Minuten erneut versucht, oder nach
+ihrem eigenen Abstand, wenn dieser kürzer ist.
+
+Eine Änderung der Quellen und ein festgelegter oder entfernter geheimer Wert nennen die Quellen, von denen aus sie
+gemacht wurden. Hat inzwischen jemand die Quellen geändert, wird die Änderung abgelehnt, mit dem Hinweis, dass sich die
+Quellen geändert haben, und nichts wird geschrieben: Lesen Sie sie erneut und nehmen Sie die Änderung dann noch einmal vor.
+`latet server terms` fordert dazu auf, den Befehl erneut auszuführen, und die Seite bietet **Erneut lesen** an.
+
+Eine Quelle an der eigenen Adresse des Servers (`localhost`, `127.0.0.1` oder `[::1]`) wird nur mit
+`latet server terms` festgelegt: Auf der Seite **Begriffssynchronisierung** fügt niemand eine solche Quelle hinzu,
+ändert sie, nimmt sie heraus, legt ihren geheimen Wert fest oder entfernt ihn, und die Seite lässt sie unverändert,
+während sie die anderen ändert.
+
+Alle Schlüssel, die eine Quelle annimmt:
+
+| Schlüssel | Arten | Was er angibt |
+| --- | --- | --- |
+| `name` | alle | Der Name der Quelle: Kleinbuchstaben, Ziffern und Bindestriche, höchstens 40 |
+| `kind` | alle | `file`, `url`, `graph` oder `ldap` |
+| `mapping` | alle | Welches Feld zu einem Begriff welchen Typs wird, höchstens 32 Felder: `{company: CLIENT}`; ein Feld kann eine Vorlage aus mehreren sein, `"{givenName} {sn}": PERSON` |
+| `every_minutes` | alle | Minuten zwischen zwei Synchronisierungen, von 5 bis 10080 (60) |
+| `exclude` | alle | Werte, die nie als Begriffe genommen werden, in jeder Schreibweise, höchstens 1.000 |
+| `min_length` | alle | Der kürzeste Wert, der als Begriff genommen wird, von 2 bis 50 (4); ein Personenname ab 3 Zeichen, was immer darüber steht |
+| `path` | `file` | Die Datei, mit ihrem Namen im Ordner der Begriffssynchronisierung |
+| `url` | `url`, `ldap` | Die Adresse |
+| `headers` | `url` | Mit der Anfrage gesendete Header; `{secret}` steht für den geheimen Wert der Quelle |
+| `format` | `file`, `url` | `csv`, `json` oder `yaml`; fehlt es, bestimmt es die Endung der Datei oder des Pfads der Adresse, sonst `json` |
+| `records` | `file`, `url` | Wo die Liste der Datensätze in einem JSON- oder YAML-Dokument steht (`data.items`); fehlt es, das Dokument selbst |
+| `delimiter` | `file`, `url` | Das Feldtrennzeichen einer CSV-Datei (`,`) |
+| `encoding` | `file`, `url` | Die Kodierung des Textes (`utf-8`; eine Byte-Reihenfolge-Markierung wird übersprungen) |
+| `tenant` | `graph` | Der Microsoft-Entra-Mandant: seine ID oder eine seiner Domains |
+| `client_id` | `graph` | Die Anwendungs-ID (Client-ID) der für Latet registrierten App |
+| `objects` | `graph` | `users` (Standard) oder `groups` |
+| `group` | `graph` | Mit `users`: nur die Mitglieder dieser Gruppe, über ihre ID |
+| `filter` | `graph`, `ldap` | Ein OData-Filter, den Microsoft Graph anwendet; ein LDAP-Filter (`(objectClass=person)`) |
+| `login_url`, `graph_url` | `graph` | Die Anmeldeadresse von Microsoft Entra und die von Microsoft Graph, für eine souveräne Cloud |
+| `start_tls` | `ldap` | Mit `ldap://`: vor der Anmeldung mit STARTTLS verschlüsseln (`true`) |
+| `bind` | `ldap` | Als wer Latet sich anmeldet; fehlt es, meldet es sich anonym an |
+| `base` | `ldap` | Wo die Suche beginnt |
+| `certificate` | `ldap` | Die PEM-Datei einer Zertifizierungsstelle, mit ihrem Namen im Ordner der Begriffssynchronisierung |
+
+### Eine Datei oder eine Webadresse
+
+Die erste Zeile einer CSV-Datei nennt ihre Spalten, höchstens 1.000. Ein JSON- oder YAML-Dokument ist eine Liste von
+Datensätzen, oder es enthält eine dort, wo `records` es angibt (`records: data.items`). Ein Dokument listet höchstens
+200.000 Datensätze auf und wird bis 50 MB gelesen, ein YAML-Dokument bis 5 MB, denn YAML zu lesen braucht weit mehr
+Arbeitsspeicher des Servers: Die Synchronisierung eines Dokuments, das diese Grenzen überschreitet, schlägt fehl und
+ändert nichts. Eine Datei, die Excel in weiten Teilen Europas exportiert, hat Semikolons zwischen ihren Feldern und die
+Windows-Kodierung:
+
+```yaml
+  - name: customers
+    kind: file
+    path: customers.csv
+    delimiter: ";"
+    encoding: cp1252
+    mapping: {Company: CLIENT}
+```
+
+Eine Webadresse liefert dieselben Formate:
+
+```yaml
+  - name: projects
+    kind: url
+    url: https://intranet.acme.com/api/projects
+    headers: {Authorization: "Bearer {secret}"}
+    records: items
+    mapping: {code_name: PROJECT}
+```
+
+`{secret}` steht für den geheimen Wert der Quelle, in einem Header, im Pfad oder in der Abfrage; ein Header oder ein
+Abfrageparameter, der Zugangsdaten trägt, muss es verwenden, und eine Adresse mit einem darin geschriebenen Token wird
+abgelehnt. Hier bewahrt `latet server terms secret projects` nur das Token auf.
+
+Eine Adresse ist https; ein lokaler Export gehört in den Ordner der Begriffssynchronisierung. Der Server verbindet sich
+mit einer Adresse, die seine eigene Namensauflösung in diesem Moment liefert (der ersten, die die Verbindung annimmt;
+der nächsten erst, wenn die Verbindung zur vorigen abgelehnt oder nicht rechtzeitig aufgebaut wird und noch nichts
+gesendet wurde), auch innerhalb Ihres Netzes, nie mit einer Link-local- oder Metadatenadresse, und folgt keiner
+Weiterleitung. Er verlangt eine unkomprimierte Antwort und lehnt eine komprimierte ab. Das Zertifikat der Adresse wird gegen den
+Zertifikatsspeicher des Servers geprüft: Fügen Sie dort die Zertifizierungsstelle Ihres Unternehmens hinzu, wenn sie die
+Zertifikate Ihres Intranets signiert.
+
+Was eine Adresse liefert, wird in dem Format gelesen, das `format` ihrer Quelle angibt, sonst in dem der Endung ihres
+Pfads (`/export/customers.csv` ist CSV), sonst als JSON: Die Antwort bestimmt es nie. Eine Antwort, deren Inhaltstyp
+ein anderes Format nennt, etwa `text/csv` für eine Quelle, die als JSON gelesen wird, wird abgelehnt, mit dem Hinweis,
+`format` zu setzen.
+
+### Microsoft Entra ID
+
+1. Registrieren Sie im Microsoft Entra Admin Center eine Anwendung für Latet.
+2. Geben Sie ihr die Anwendungsberechtigung `User.Read.All`, und `Group.Read.All` und `GroupMember.Read.All`, um
+   Gruppennamen oder die Mitglieder einer Gruppe zu lesen; erteilen Sie die Administratorzustimmung.
+3. Fügen Sie ein Client-Geheimnis hinzu, und bewahren Sie es auf dem Server auf: `latet server terms secret colleagues`.
+4. In den Quellen: `tenant` ist die ID des Mandanten oder eine seiner Domains, und `client_id` die ID der Anwendung.
+
+`objects: users`, der Standard, liest Personen; `objects: groups` liest Gruppen, zugeordnet als `{displayName: TEAM}`.
+`group` liest nur die Mitglieder einer Gruppe und der Gruppen darin: Geben Sie Latet Ihre Mitarbeitenden, nicht Ihre
+Gäste. `filter` ist ein OData-Filter, etwa `accountEnabled eq true`. Die Zuordnung nennt die Eigenschaften von
+Microsoft Graph: `displayName`, `givenName`, `surname`, `mail`, `userPrincipalName`, `jobTitle`, `department`. In einer
+souveränen Cloud geben `login_url` und `graph_url` deren Adressen an.
+
+Latet meldet sich als die Anwendung an, ohne dass sich eine Person anmeldet, und sendet das Token nur an die eigene
+Adresse von Microsoft Graph. Eine Ablehnung nennt den Fehlercode von Microsoft Entra, etwa `invalid_client`, nie dessen
+Beschreibung.
+
+### LDAP und Active Directory
+
+LDAP braucht Latets Extra `ldap`, das im Container-Image enthalten ist. Es installiert ldap3, eine Bibliothek unter
+der LGPL-3.0-or-later, die als separates, unverändertes Paket verwendet wird. Ein als Betriebssystemdienst
+installierter Server erhält es unter seinen Extras mit dem Befehl, mit dem er installiert wurde, erneut ausgeführt
+mit denselben `UV_*`-Ordnern (hier denen aus [Serverbetrieb](../../concepts/server-operations/) unter Linux) und der
+Versionsnummer anstelle von `X.Y.Z`; lassen Sie `ner` und `ocr` weg, wenn er sie nicht hat. Danach behält
+`latet upgrade` das Extra `ldap` bei. Eine Instanz ohne das Extra überlässt eine LDAP-Quelle den Instanzen, die es
+haben, und sagt das, wenn die Quellen über sie gespeichert werden, in ihrem Zustand auf der Seite
+**Begriffssynchronisierung** und in `latet server status`; wo keine Instanz es hat, schlägt die Quelle mit
+`not-installed` fehl.
+
+```sh
+UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[ner,ocr,server,ldap] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+```
+
+```yaml
+  - name: directory
+    kind: ldap
+    url: ldaps://dc1.acme.lan
+    bind: latet-sync@acme.lan
+    base: OU=Staff,DC=acme,DC=lan
+    filter: "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+    mapping: {"{givenName} {sn}": PERSON, mail: EMAIL}
+```
+
+Das Passwort von `bind` ist der geheime Wert der Quelle: `latet server terms secret directory`. Ohne `bind` meldet sich
+Latet anonym an. Der Filter oben nimmt nur die aktivierten Konten von Active Directory.
+
+Die Adresse ist `ldaps://`, oder `ldap://` mit STARTTLS (`start_tls: true`, der Standard): Namen und Passwort gehen nie
+unverschlüsselt über das Netz. Nur ein Verzeichnis auf der Maschine des Servers selbst, geschrieben als `127.0.0.1`,
+`[::1]` oder `localhost`, darf ohne TLS gelesen werden, über `ldap://` mit `start_tls: false`, und eine solche Quelle
+wird nur mit `latet server terms` eingerichtet; jedes andere Verzeichnis braucht `ldaps://` oder STARTTLS. Der Server
+erreicht das Verzeichnis unter der ersten Adresse seiner Namensauflösung, die die Verbindung annimmt, und versucht die
+nächste nur, wenn die Verbindung zur vorigen abgelehnt oder nicht rechtzeitig aufgebaut wird, also nie, wenn TLS,
+STARTTLS oder die Anmeldung schon begonnen haben. Mit LDAPS oder STARTTLS funktioniert ein Verzeichnis auf der Maschine
+des Servers unter `localhost` wie unter `127.0.0.1`, denn sein Zertifikat wird bei jeder Adresse geprüft: Ein
+Verzeichnis in Docker, das nur auf 127.0.0.1 lauscht, ist auch unter `localhost` erreichbar. Ohne TLS schreiben
+Sie die Adresse, auf der das Verzeichnis lauscht (`127.0.0.1` oder `[::1]`), nie `localhost`: `localhost` wird zuerst unter `::1` versucht,
+und jedes Programm auf dem Server, das dort lauscht, bekäme das Passwort von `bind`. Der Server prüft das Zertifikat
+gegen den in `url` geschriebenen Namen (nie gegen die erreichte Adresse) und folgt keinem Referral. Für ein Verzeichnis,
+dessen Zertifikat von der Zertifizierungsstelle Ihres Unternehmens stammt, nennt `certificate` die PEM-Datei dieser
+Stelle im Ordner der Begriffssynchronisierung, mit ihrem Namen.
+
+## Was zu einem Begriff wird
+
+- Jeder Wert eines zugeordneten Feldes; ein Feld mit mehreren Werten (eine Liste, ein mehrwertiges Attribut) liefert
+  jeden davon.
+- Eine Vorlage verbindet Felder: `"{givenName} {sn}": PERSON` macht "Emily Carter" aus einem Verzeichnis, dessen
+  Anzeigenamen "Carter, Emily" lauten. Ein Datensatz, in dem eines ihrer Felder fehlt oder mehrere Werte hat, liefert
+  aus der Vorlage nichts, und nichts wird gezählt: Ein Eintrag ohne `sn` liefert aus `"{givenName} {sn}"` keinen
+  Begriff.
+- Mehrfache Leerzeichen werden zu einem: "Acme  Corp" wird "Acme Corp".
+- Ausgelassen werden Werte, die kürzer als `min_length` oder länger als 200 Zeichen sind, die keinen Buchstaben und keine
+  Ziffer enthalten oder die im `exclude` der Quelle stehen. Jede Synchronisierung zählt sie, nach Grund.
+- Ein Begriff wird als ganzes Wort gefunden, in jeder Schreibweise: "Halden Insurance" maskiert auch
+  "HALDEN INSURANCE", aber nicht "Haldenville".
+
+Eine Gruppe namens `Sales` würde das Wort "sales" überall maskieren: Führen Sie solche Namen in `exclude` auf. Ein
+Kunde namens `SAP` braucht `min_length: 3`.
+
+Ein Server bewahrt höchstens 50.000 synchronisierte Begriffe auf, die nicht mehr in ihrer Quelle stehenden
+eingeschlossen: Eine Synchronisierung, die diese Zahl überschreiten würde, ändert nichts und meldet das.
+
+Ein synchronisierter Begriff wird wie ein Begriff maskiert, den Ihr Unternehmen sperrt: Keine Ausnahme einer Person (ein
+als nicht sensibel markierter Wert oder ein solches Muster, eine Richtlinie, die seinen Typ durchlässt) lässt ihn im
+Klartext. Im Verlauf einer Person lautet seine Regel `synced:` und sein Typ, etwa `synced:client`.
+
+## Ein an seiner Quelle entfernter Begriff
+
+Wenn eine Quelle einen Begriff nicht mehr liefert, bleibt der Begriff maskiert und wird als **Nicht mehr in der
+Quelle** markiert: Ihn zu entfernen verringert den Schutz, also entscheidet eine Person. Personen mit der Rolle
+Sicherheit, ihnen selbst oder einer ihrer Gruppen vergeben, sehen diese Begriffe auf der Seite
+**Begriffssynchronisierung** und entfernen sie dort, aus einer mit Ihrem Unternehmenskonto geöffneten
+Sitzung, solange die Anmeldeeinstellungen das verlangen. Die Administratoren des Servers listen sie mit
+`latet server terms gone` auf und entfernen sie mit `latet server terms remove`: über ihre IDs, alle einer Quelle
+(`--source`) oder alle (`--all`).
+
+<Screenshot name="term-sync" alt="Die Seite Begriffssynchronisierung: vier Quellen mit ihrer Art, ihrer letzten Synchronisierung und ihren Begriffen nach Typ, eine davon fehlgeschlagen mit ihrem Grund, Schaltflächen, um jede zu synchronisieren, ihr Geheimnis festzulegen und die Quellen zu bearbeiten, und darunter drei Begriffe, die nicht mehr in ihrer Quelle stehen, mit Kästchen zum Auswählen und einer Schaltfläche Entfernen" caption="Begriffssynchronisierung: die Quellen und die Begriffe, die nicht mehr in ihrer Quelle stehen." />
+
+Eine Quelle, die fehlschlägt oder plötzlich gar keinen Begriff mehr liefert, wo sie welche lieferte (ein abgebrochener
+Export, ein Filter, der nichts mehr findet), ändert nichts: Ihre Begriffe bleiben, wie sie waren, und die
+Synchronisierung wird mit dem Grund als fehlgeschlagen markiert. Wird eine Quelle aus den Quellen herausgenommen,
+gelten alle ihre Begriffe als nicht mehr in der Quelle.
+
+Einen Begriff zu entfernen bedeutet, dass Latet nicht mehr nach ihm sucht. Eine Person, deren Anfragen ihn schon maskiert
+hatten, behält ihn in ihrem Tresor, wo sie ihn auf der Seite **Tresor** vergessen kann.
+
+## Wie der Server sie ausführt
+
+Es liest jeweils eine Instanz, höchstens 15 Minuten lang: Ein Lesevorgang, der länger dauert, bricht ab und ändert
+nichts. Eine Instanz, die mittendrin beendet wird, gibt ihr Zeitfenster dabei zurück; eine, die abstürzt, überlässt
+die Quelle einer anderen, sobald ihr Zeitfenster endet. Jede Synchronisierung einer Quelle liest innerhalb dieses
+Zeitfensters und insgesamt höchstens 50 MB.
+
+Jede Instanz übernimmt neue Begriffe innerhalb von 30 Sekunden, was immer sie gerade liest. Eine, der das nicht gelingt
+(ihre Datenbank nicht erreichbar, oder Begriffe, die ihr Hauptschlüssel nicht öffnet und die sie nie verwirft: Sie
+maskiert die, die sie hatte), sagt es in ihren eigenen Metriken (unten). Ein erneutes Laden, das die Begriffe nicht
+lesen kann, maskiert nie weniger Begriffe: Eine
+Instanz, die auf Begriffe stößt, die ihr Hauptschlüssel nicht öffnet, behält die Begriffe, die sie hat, und eine, die
+sie nie geladen hat, öffnet keinen neuen Bereich, bis es ihr gelingt, und antwortet mit 503 und der Bitte, es erneut zu
+versuchen.
+
+Eine Synchronisierung, die die Begriffe ändert, beendet jeden offenen WebSocket bei seiner nächsten Nachricht
+(Schließcode 1008), und der Client des Agenten verbindet sich neu. Eine Anfrage, die ihre Prüfungen schon hinter sich
+hat, wenn sich die Begriffe ändern, wird abgelehnt, ohne dass etwas von ihr gesendet wird, und ihr Agent erfährt, dass
+sich die Einstellungen geändert haben und sie erneut zu senden ist (*the settings changed while this request was
+prepared: send it again*): bevor Latet entschieden hat, sie zu senden, und ebenso nach dieser Entscheidung, kurz bevor
+sie gesendet wird (etwa während ihre Adresse nachgeschlagen oder, bei Bedrock, ihre AWS-Anmeldung gelesen wird). Erneut
+gesendet, wird sie mit den neuen Begriffen maskiert. Eine Synchronisierung, die keinen maskierten Begriff ändert, rührt
+nichts an, ebenso eine, die nur Begriffe findet, die nicht mehr in ihrer Quelle oder wieder darin sind, und das
+Herausnehmen einer Quelle, deren Begriffe maskiert bleiben.
+
+Solange der Server synchronisierte Begriffe maskiert, liest er jeden Text eines Aufrufs der API für Anwendungen einzeln, wie
+Latet 0.10 es tat und wie bei Begriffen, die Ihr Unternehmen sperrt, wo er die Texte eines Aufrufs sonst zusammen liest:
+Die Maskierung bleibt dieselbe, und ein Aufruf mit vielen Texten dauert länger. Ein Server, dessen Lizenz die
+Synchronisierung der Begriffe aufführt, der aber keinen synchronisierten Begriff maskiert, liest sie weiterhin zusammen.
+
+Die Metriken sprechen für jede Instanz, `latet server status` und `latet server terms status` dagegen für die Instanz,
+die antwortet: Über Alarme auf die Metriken erfahren Sie, dass eine andere Instanz zurückliegt oder ihr eine
+Schlüsselversion fehlt. Richten Sie einen Alarm für jede Instanz ein, bei der `latet_terms_masked` fehlt (ihre synchronisierten Begriffe wurden
+nie geladen), bei der `latet_terms_behind_seconds` über 60 liegt (sie maskiert ältere synchronisierte Begriffe, als der
+Server hat) oder bei der `latet_terms_unreadable` über 0 liegt, neben den Regeln aus
+[Serverbetrieb](../../concepts/server-operations/):
+
+```yaml
+groups:
+  - name: latet-terms
+    rules:
+      - alert: LatetTermsNeverLoaded
+        expr: up{job="latet"} == 1 unless on(instance) latet_terms_masked
+        for: 5m
+      - alert: LatetTermsBehind
+        expr: latet_terms_behind_seconds > 60
+      - alert: LatetTermsUnreadable
+        expr: latet_terms_unreadable > 0
+```
+
+`latet server status` sagt dasselbe über die Instanz, die antwortet: dass sie zurückliegt, und wie viele Begriffe
+dort kein Schlüssel des Servers öffnet.
+Ein Begriff, den kein Schlüssel des Servers öffnet (eine Schlüsselversion, die aus jeder Schlüsseldatei entfernt wurde,
+eine von Hand geänderte Zeile), wird von selbst neu versiegelt, sobald seine Quelle ihn wieder liefert. Einer, den keine
+Quelle mehr liefert, wird mit `latet server terms remove --unreadable` entfernt, das nie einen Begriff entfernt, den eine
+Quelle noch liefert, und nichts entfernt, solange ein zu entfernender Begriff eine neuere Schlüsselversion nennt, als die
+antwortende Instanz hat.
+
+Eine Instanz einer älteren Version oder ohne die Enterprise Edition maskiert keinen synchronisierten Begriff:
+`latet server terms status` und `latet server status` sagen es, anhand der Version und Edition, die jede laufende
+Instanz meldet. `latet server init` startet keine Synchronisierung der
+Begriffe: Nur ein laufender Server synchronisiert. An die Rechner geht nichts: Der Server maskiert.
+
+## Wo die Begriffe aufbewahrt werden
+
+- In der PostgreSQL-Datenbank des Servers, jeder Begriff mit dem Hauptschlüssel des Servers versiegelt; die ID eines
+  Begriffs ist ein schlüsselabhängiger Hash, sodass die Datenbank weder verrät, welche Begriffe sie enthält, noch, ob ein
+  erratener darunter ist. Die geheimen Werte der Quellen werden mit den anderen Enterprise-Geheimnissen des Servers
+  aufbewahrt, ebenfalls mit dem Hauptschlüssel versiegelt.
+- Nie in `config.yaml`, in einer Regeldatei oder in den Einstellungen einer Person: Eine Kundenliste ist schon für sich
+  sensibel.
+- Wer sowohl die Datenbank als auch den Hauptschlüssel hat, kann sie lesen, wie jedes Geheimnis des Servers
+  ([Serverbetrieb](../../concepts/server-operations/)). Mit einem anderen Hauptschlüssel lassen sich die Begriffe nicht
+  lesen: Die Synchronisierungen schlagen fehl, bis der richtige Schlüssel zurück ist, jede Instanz maskiert weiter die
+  Begriffe, die sie hatte, und `latet server terms status` sagt, wie viele sich auf der antwortenden Instanz nicht
+  öffnen lassen (die Metriken sagen es für jede Instanz).
+- Das Administrationsprotokoll hält jede Änderung der Quellen fest (`terms.source.changed`), jeden festgelegten oder
+  entfernten geheimen Wert (`terms.secret.changed`), jedes Entfernen (`terms.removed`) und jede angeforderte
+  Synchronisierung (`terms.sync.asked`), mit Namen von Quellen und Anzahlen, nie mit einem Begriff oder einem geheimen
+  Wert ([Serververwaltung](../../reference/server-administration/)).
+- Jede Synchronisierung und jedes Entfernen ist ein Ereignis (`sync`), mit der Quelle, falls es eine gibt, dem Ergebnis und den Anzahlen
+  nach Typ ([Berichte und Administrationsprotokoll](../reports/)).
+- Die Metriken des Servers, `latet_terms_*`, zählen nach Art der Quelle und Ergebnis, nie nach dem Namen einer Quelle,
+  einem Begriffstyp oder einem Begriff ([Ereignisse an Ihr SIEM](../siem/#metriken-und-prüfungen)).
+
+Wer die Quellen festlegt (die Administratoren des Servers und Personen mit der Rolle Sicherheit), kann den Server jede
+Datei im Ordner der Begriffssynchronisierung oder ein https-Dokument oder ein Verzeichnis Ihres Netzes lesen lassen
+(anonym oder mit dem Konto, dessen geheimen Wert diese Person festlegt) und dann die Felder sehen, die die Zuordnung
+nennt, als Begriffe, sobald sie nicht mehr in ihrer Quelle stehen: Wird eine Quelle nach einer Synchronisierung
+herausgenommen, erscheinen ihre Werte unter den Begriffen, die nicht mehr in ihrer Quelle stehen. Der Grund einer
+fehlgeschlagenen Synchronisierung verrät auch, ob eine Datei mit einem bestimmten Namen im Ordner liegt. Der Server verbindet sich nur über seine eigenen Prüfungen: nie mit einer
+Link-local-, Metadaten- oder reservierten Adresse, mit seinem eigenen Loopback nur, wo die Adresse ihn nennt (nur mit
+`latet server terms` festgelegt), und ohne Weiterleitung. Innerhalb Ihres Netzes erreicht er, was das Netz des Servers
+erreicht, die eigene Adresse des Servers, seine anderen Instanzen und die Hosts seiner Datenbank und von Valkey
+eingeschlossen. Eine Person kann über die Seite pro Stunde höchstens 10 Ziele von Quellen hinzufügen oder ändern (eine Dateiquelle hat keines), und
+jede Änderung der Quellen und jede angeforderte Synchronisierung steht im Administrationsprotokoll: Geben Sie diese
+Rollen Personen, denen Sie die Dateien dieses Ordners und das anvertrauen würden, was Ihr Intranet bereitstellt. Ein Verzeichnis wird mit ldap3 gelesen,
+das eine ganze Seite der Antwort des Verzeichnisses im Speicher hält, bevor Latet ihre Größe zählen kann: Ein
+Verzeichnis, auf das eine Quelle zeigt, kann die lesende Instanz dazu bringen, eine sehr große Antwort im Speicher zu halten.
+
+Die Maskierung zeigt, was sie maskiert: Wer einen Text durch seinen Bereich sendet, kann erkennen, ob ein Name, den er
+schon kennt, zu den synchronisierten Begriffen gehört, wie bei einem Begriff, den Ihr Unternehmen sperrt. Niemand außer
+der Rolle Sicherheit und den Administratoren des Servers kann sie auflisten.
+
+## Wenn die Lizenz endet
+
+Die Synchronisierung der Begriffe läuft in den 30 Tagen Kulanzzeit nach dem Ende der Lizenz weiter. Danach, bei mehr
+Personen und API-Schlüsseln, als die Lizenz abdeckt, über die Kulanzzeit hinaus, oder am Ende einer Testphase,
+pausiert die Synchronisierung der Begriffe: Keine Quelle wird gelesen, nichts wird entfernt oder geändert (**Jetzt
+synchronisieren** und **Entfernen** werden abgelehnt), und die bisher synchronisierten Begriffe bleiben maskiert. Die
+Lizenz zu entfernen oder eine zu installieren, die die Synchronisierung der Begriffe nicht aufführt, beendet ihre
+Maskierung: Latet fragt vorher.
+
+## Was getestet wurde
+
+Latets automatisierte Tests lesen jede Art von Quelle: Dateien, einen simulierten Webserver, ein simuliertes Microsoft
+Entra ID und Microsoft Graph, das simulierte Verzeichnis von ldap3 und ein eigenes Verzeichnis für TLS; zwei Instanzen
+eines Servers teilen sich darin PostgreSQL und Valkey.
+
+Außerdem liefen sie gegen OpenLDAP 2.6.10, das Paket `slapd` von Debian, in Docker auf einem Entwicklungsrechner,
+zweimal, mit dem Verzeichnis erst als `127.0.0.1` und dann als `localhost` geschrieben (Windows liefert zuerst `::1`, und
+das Verzeichnis lauschte nur auf 127.0.0.1): eine Quelle über LDAPS und eine über STARTTLS, jede angemeldet als
+Dienstkonto, dem das Verzeichnis das Lesen erlaubt und nichts weiter, sein Passwort mit `latet server terms secret`
+gesetzt, jede mit `base`, `filter` und einem `mapping` für Personen (`"{givenName} {sn}": PERSON`, `mail: EMAIL`) oder
+für Gruppen (`cn: TEAM`), und die PEM-Datei der Zertifizierungsstelle im Ordner der Begriffssynchronisierung. Die Namen
+und Adressen der Personen und die Namen der Gruppen wurden auf beiden Instanzen maskiert; eine aus dem Verzeichnis
+entfernte Person ließ ihre Begriffe als nicht mehr in der Quelle zurück, weiter maskiert; eine Quelle `ldap://` mit
+`start_tls: false` wurde beim Setzen der Quellen abgelehnt; und mit einer Zertifizierungsstelle, die das Zertifikat des
+Verzeichnisses nicht ausgestellt hatte, wurden beide Quellen abgelehnt, mit dem Hinweis, dass dem Zertifikat des
+Verzeichnisses nicht vertraut wurde, und lieferten keinen Begriff.
+
+Die drei Alarme oben wurden so, wie sie hier stehen, in Prometheus 3.16.0 geladen, mit dem Scrape-Job `latet` aus
+[Serverbetrieb](../../concepts/server-operations/) und einem Ziel für jede von zwei Instanzen. Auf einer Instanz, deren
+Hauptschlüssel die Version nicht enthielt, mit der die Begriffe versiegelt waren, schlug `LatetTermsUnreadable` sofort
+an, und `LatetTermsNeverLoaded` wartete seine fünf Minuten ab und schlug dann an; die Instanz, die die Begriffe
+maskierte, löste keinen der beiden aus.
+
+Verzeichnisse werden auf viele Arten eingerichtet: Wenn eines Ihrer Verzeichnisse anders gelesen wird, als diese Seite
+sagt, hilft ein Issue mit dem, was Sie gesehen haben.

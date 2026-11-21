@@ -637,6 +637,45 @@ def test_the_shared_settings_take_no_rules_for_everyone_and_keep_those_an_earlie
     assert client.get(f"{ADMIN}/status", headers=admin).json()["edition"] == []
 
 
+@pytest.mark.parametrize("edition", ["community", "enterprise"])
+def test_a_rule_for_everyone_is_refused_in_the_words_of_the_servers_edition(
+    server, client, admin, monkeypatch, edition
+):
+    """The release checklist's item 8: a change of the shared settings that holds a rule is refused in every edition,
+    and its words say what the server's edition does instead: shared by hand in the Community Edition, the company's
+    policy with the Enterprise Edition (`latet server policy set`). The shared settings say their server's edition, so
+    that `latet server config` and `latet server rules` refuse a rule in its words before they send anything."""
+    from latet.server.shared import RULES_FOR_EVERYONE, RULES_IN_THE_POLICY
+
+    monkeypatch.setattr(server.edition, "name", edition)
+    refused = client.put(f"{ADMIN}/shared", json={"profile": "max"}, headers=admin)
+    said = RULES_IN_THE_POLICY if edition == "enterprise" else RULES_FOR_EVERYONE
+    assert refused.status_code == 400 and refused.json()["error"] == said and refused.json()["details"] == ["profile"]
+    assert ("latet rules export" in said) == (edition == "community") and "latet server policy set" in said
+    assert client.get(f"{ADMIN}/shared", headers=admin).json()["edition"] == edition
+    assert server.shared.stored() == Config()
+
+
+def test_forgetting_the_kept_rules_leaves_the_rules_an_edition_gives(server, client, admin):
+    """An edition that gives terms (as E6's central rules will): a write of the shared settings changes none of them,
+    and forgetting the rules kept from an earlier version deletes the kept ones alone."""
+    server.shared.rules = lambda row: {"terms": row.terms}
+    server.shared.forget()
+    server.shared.set(Config(terms=[TermConfig(value=CANARY)], profile=Profile.MAX), actor="admin:a_elsewhere0")
+    read = client.get(f"{ADMIN}/shared", headers=admin).json()
+    assert set(read["kept_rules"]) == {"profile"}  # the terms are in force, not kept
+    written = client.put(
+        f"{ADMIN}/shared", json={**read["settings"], "history": "metadata", "etag": read["etag"]}, headers=admin
+    ).json()
+    assert [t.value for t in server.shared.stored().terms] == [CANARY] and set(written["kept_rules"]) == {"profile"}
+    forgot = client.put(
+        f"{ADMIN}/shared", json={**written["settings"], "etag": written["etag"], "forget_kept_rules": True},
+        headers=admin,
+    ).json()  # fmt: skip
+    assert forgot["kept_rules"] == {} and server.shared.stored().profile == Profile.BALANCED
+    assert [t.value for t in server.shared.get().terms] == [CANARY]  # still in force for every identity
+
+
 def test_the_status_says_when_its_list_of_instances_is_cut_at_its_bound(server, client, admin, monkeypatch):
     """The final re-review's R-4: the list of instances the status reads is bounded (``app.INSTANCE_KEYS``): one cut
     at its bound says it is partial (``instances_whole`` false), so that a missing instance is never taken for a
@@ -762,6 +801,10 @@ def test_the_log_verifies_and_the_status_says_how_full_the_vaults_are(server, cl
     checked = client.get(f"{ADMIN}/log/verify", headers=admin).json()
     assert checked["ok"] is True and checked["checked"] >= 2 and checked["broken_at"] is None
     assert checked["head"]["id"] == server.audit.query(limit=1)[0].id - 1  # the newest before its own entry
+    if server.edition.name == "community":  # the `--without-ee` suite: no SIEM, no gap marker (R4-3)
+        assert "gaps" in checked and checked["gaps"] is None
+    else:  # E4's: nothing waits for an output, so no marker is unaccounted for
+        assert checked["gaps"]["unrecorded"] == [] == checked["gaps"]["unchecked"]
     status = client.get(f"{ADMIN}/status", headers=admin).json()
     assert status["vault"] == {"limit": server.settings.vault_limit, "near": []}
     assert status["audit"]["chain"] in ("ok", "unknown")
@@ -775,6 +818,7 @@ def test_a_walk_of_the_log_that_fails_is_a_failed_check(server, client, admin, m
     monkeypatch.setattr(server.audit, "verify", broken)
     checked = client.get(f"{ADMIN}/log/verify", headers=admin)
     assert checked.status_code == 200 and checked.json()["ok"] is False  # never "unchecked"
+    assert "gaps" not in checked.json()  # left out: an answer without it is no Community server's (R4-3)
 
 
 # --- what the log keeps -------------------------------------------------------------------------------------------

@@ -56,7 +56,7 @@ OpenCode, das älter als 1.19.5 ist.
 
 **OpenCode Desktop** liest dieselbe globale Konfiguration: `latet agents apply opencode` (oder
 `latet global-install`) leitet die App über Latet, sobald Sie sie neu starten, während
-`latet opencode` nur das OpenCode der Befehlszeile startet. `latet agents revert opencode` entfernt
+`latet opencode` nur die Befehlszeilenversion von OpenCode startet. `latet agents revert opencode` entfernt
 die Adressen von Latet wieder und lässt den Rest der Datei, wie er ist.
 
 ## Grenzen
@@ -66,11 +66,11 @@ die Adressen von Latet wieder und lässt den Rest der Datei, wie er ist.
   ohne Latet, und nichts warnt Sie davor: Wählen Sie ein Modell von Anthropic, OpenAI oder
   OpenRouter. Claude Code und Codex laufen auch mit diesen Clouds über Latet: siehe
   [Unternehmens-Endpunkte](../company-endpoints/).
-- **Die Modelle von Anthropic, OpenAI und Google auf OpenRouter gehen von selbst durch.** Die jedes
-  anderen Anbieters (`meta-llama/…`, `deepseek/…`) werden abgelehnt, bis sie in `request_resources`
+- **Die Modelle von Anthropic, OpenAI und Google auf OpenRouter gehen ohne Weiteres durch.** Die
+  Modelle jedes anderen Herstellers (`meta-llama/…`, `deepseek/…`) werden abgelehnt, bis sie in `request_resources`
   aufgelistet sind:
   [Bedrock und Vertex: was aufzulisten ist](../../getting-started/upgrading-to-0-11/#bedrock-und-vertex-was-aufzulisten-ist).
-- **Eine Organisation der Konsole kann einen Anbieter verlegen.** Ist OpenCode bei einer
+- **Eine Organisation der OpenCode-Konsole kann einen Anbieter umleiten.** Ist OpenCode bei einer
   Organisation der OpenCode-Konsole angemeldet, können deren Einstellungen die Adresse eines Anbieters
   ändern, und die Anfragen dieses Anbieters gehen dann nicht über Latet. Latet kann das nicht sehen:
   Führen Sie `latet doctor` aus, und prüfen Sie die Einstellungen der Organisation.

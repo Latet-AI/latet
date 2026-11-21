@@ -1,11 +1,13 @@
 """Format-preserving surrogate generators.
 
 Every generator is a pure function of (original, rng): the same seed always gives the same fake,
-which keeps masked conversations byte-stable. Surrogates keep the shape a model expects (prefix,
-length, character classes, valid checksums) but never contain quotes, backslashes or ``$``, so they
-survive JSON and shell quoting unchanged. A secret shorter than ``SECRET_FAKE_SHORTEST`` characters
-is the exception: its fake has that many letters and digits, of its kinds, its signs in place
-(``gen_short_secret``), so that no id or number of a later text holds it by chance.
+which keeps masked conversations byte-stable. Surrogates keep the shape a model expects (a vendor's
+public prefix, length, character classes, valid checksums) but never contain quotes, backslashes or
+``$``, so they survive JSON and shell quoting unchanged. A secret's fake draws each run of letters and digits between
+its signs from the kinds of characters the run holds (``secret_shape``), so that it does not show which places hold a
+digit, a capital or a small letter. A secret shorter than ``SECRET_FAKE_SHORTEST`` characters is the exception: its
+fake has that many letters and digits, of its kinds, its signs in place (``gen_short_secret``), so that no id or
+number of a later text holds it by chance.
 
 A fake never shows its original: a word drawn from a list (a name, a company, a town, a host's word)
 is never one of the original's words, nor holds one, nor is a part of one, nor holds the whole
@@ -26,6 +28,7 @@ import datetime
 import hashlib
 import hmac
 import ipaddress
+import itertools
 import re
 import string
 import unicodedata
@@ -50,6 +53,7 @@ from latet.engine.surrogates.data.names import (
     STREET_TYPES,
     Names,
 )
+from latet.engine.surrogates.prefixes import public_prefix
 from latet.engine.types import SECRET_FAKE_SHORTEST
 
 
@@ -90,6 +94,8 @@ _LOWER = string.ascii_lowercase
 _DIGITS = string.digits
 _HEX_LOWER = "0123456789abcdef"
 _HEX_UPPER = "0123456789ABCDEF"
+_HEX_LETTERS = frozenset("abcdefABCDEF")
+_ALPHANUMERIC = frozenset(_DIGITS + _LOWER + _UPPER)
 # Characters a surrogate never carries: they would need escaping in JSON or a shell.
 _UNSAFE = set("\"'\\`$")
 
@@ -122,23 +128,68 @@ def shape(original: str, rng: Drbg, keep: int = 0) -> str:
     return head + "".join(out)
 
 
-_FIXED_PREFIXES = ("AKIA", "ASIA", "AGPA", "AIDA", "AROA", "AIPA", "ANPA", "ANVA", "APKA", "ABIA", "ACCA", "AIza")
-_SEPARATED_PREFIX = re.compile(r"^(?:[A-Za-z][A-Za-z0-9]{0,11}[-_.])+")
+def secret_shape(original: str, rng: Drbg, keep: int = 0) -> str:
+    """A secret's fake (0.15.0): the value's length, its signs and spaces where they are and its first ``keep``
+    characters (a vendor's public prefix) kept, and each run of letters and digits between them drawn place by place
+    from the run's alphabet (``_alphabet``), never by the class of each place. ``shape``, which draws a digit for a
+    digit and a capital for a capital, showed which places of a secret hold a digit, a capital or a small letter: 61 of
+    the 256 bits of a hexadecimal key glued to `0x`, about 53 of a `ghp_` token's 214, and a password's pattern
+    (`Summer2024`), which helps a guesser most. Each place still gets one draw, so a fake is the same for the same key
+    and seed; one drawn before stays the value's (``Vault``)."""
+    head, tail = original[:keep], original[keep:]
+    out: list[str] = []
+    for drawn, characters in itertools.groupby(tail, key=_drawn):
+        run = "".join(characters)
+        if not drawn:
+            out.append(run)
+            continue
+        alphabet = _alphabet(run)
+        out += [rng.choice(alphabet) if c in _ALPHANUMERIC else _of_class(c, rng) for c in run]
+    return head + "".join(out)
 
 
-def secret_prefix_length(value: str) -> int:
-    """How much of a token is a public, typed prefix (``sk-ant-api03-``, ``ghp_``, ``AKIA``...)."""
-    for p in _FIXED_PREFIXES:
-        if value.startswith(p):
-            return len(p)
-    m = _SEPARATED_PREFIX.match(value[:24])
-    if m and len(value) - m.end() >= 8:
-        return m.end()
-    return 0
+def _drawn(c: str) -> bool:
+    """Whether ``secret_shape`` draws ``c`` (a letter, a decimal digit, a character a fake must not carry) or keeps it
+    where it is (a sign, a space), as ``shape`` does."""
+    return c.isalpha() or c.isdecimal() or c in _UNSAFE or (not c.isprintable() and c not in "\n\r\t")
 
 
-def gen_secret(original: str, rng: Drbg) -> str:
-    return shape(original, rng, keep=secret_prefix_length(original))
+def _alphabet(run: str) -> str:
+    """What a run of a secret's fake is drawn from at every place: one case's hexadecimal digits where the run holds
+    nothing else (`9f2c4e7a`, `0A6C`, `deadbeef`); else the digits if it holds one, the small letters if it holds one,
+    the capitals if it holds one (`1234`: the digits; `0x9f2c…`: the digits and the small letters; `Summer2024`: all
+    62). A character of none of them (another script's letter or digit, one a fake must not carry) is drawn as
+    ``_of_class`` draws it."""
+    if any(c in _HEX_LETTERS for c in run):
+        for digits in (_HEX_LOWER, _HEX_UPPER):
+            if all(c in digits for c in run):
+                return digits
+    return "".join(kind for kind in (_DIGITS, _LOWER, _UPPER) if any(c in kind for c in run))
+
+
+def _of_class(c: str, rng: Drbg) -> str:
+    """A character drawn for ``c`` of its class: a letter of its case, a digit, of its script."""
+    if c in _UPPER:
+        return rng.choice(_UPPER)
+    if c in _LOWER:
+        return rng.choice(_LOWER)
+    if c in _DIGITS:
+        return rng.choice(_DIGITS)
+    if c.isdecimal():  # a digit of another script (Arabic, Devanagari, full width): one of the same script
+        return chr(ord(c) - unicodedata.decimal(c) + rng.below(10))
+    if c in _UNSAFE or not c.isalpha():  # a quote, a backslash, a control character: never in a fake
+        return rng.choice(_LOWER)
+    return rng.choice(_LOWER if c.islower() else _UPPER)
+
+
+def gen_secret(original: str, rng: Drbg, etype: str) -> str:
+    """A secret's fake (``secret_shape``), the public prefix of its type alone kept (``prefixes.public_prefix``:
+    `ghp_`, `sk-ant-api03-`, `AKIA`; nothing for a type any value can have, nor for a value assigned to a name). Until
+    0.15.0 it kept up to 24 letters, digits and separators from the value's start, which ran into a token's random part
+    (`sk-proj-abc_`: `-`, `_` and `.` are base64url's) and kept the words of a value assigned to a name
+    (`my-company-prod-`): a fake drawn then stays the value's (``Vault``). Latet's own tokens have a generator of their
+    own (``gen_latet_token``), which keeps `latet_<kind>_` alone and draws the rest, signs too."""
+    return secret_shape(original, rng, keep=len(public_prefix(etype, original)))
 
 
 _SHORT_DRAWS = 64  # fakes of a short secret drawn in turn until one does not hold the value (a one-digit `7`: a few)
@@ -238,8 +289,10 @@ def gen_latet_route_key(original: str, rng: Drbg) -> str:
 
 
 def gen_jwt(original: str, rng: Drbg) -> str:
+    """A JSON Web Token's fake: its dots, the `eyJ` that begins a part, and every other letter and digit drawn as a
+    secret's are (``secret_shape``)."""
     parts = original.split(".")
-    return ".".join(shape(p, rng, keep=3 if p.startswith("eyJ") else 0) for p in parts)
+    return ".".join(secret_shape(p, rng, keep=3 if p.startswith("eyJ") else 0) for p in parts)
 
 
 def _styled(word: str, like: str) -> str:

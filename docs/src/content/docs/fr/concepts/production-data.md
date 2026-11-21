@@ -64,7 +64,7 @@ attend votre approbation.
 
 Chaque valeur d'un tableau, d'un document JSON ou de paires `key=value` dans la sortie d'un outil est
 masquée ; les noms des colonnes et des clés restent, sauf une clé qui est elle-même une valeur, comme
-une adresse e-mail, masquée comme les valeurs partout. Le résultat d'une requête de base de données :
+une adresse e-mail : elle est masquée partout, comme le sont les valeurs. Le résultat d'une requête de base de données :
 
 ```text
  id | status  | amount | note
@@ -91,7 +91,7 @@ part ainsi :
 - **Un lien reste un lien.** Une adresse web garde son schéma (`https://`, `s3://`...) ; le reste est
   masqué.
 - **Ce qui nomme une valeur ou dit à quoi ressemble une page reste en clair :** un espace réservé
-  d'un modèle ou d'un shell (`${from}`, `{{ subject }}`, `$MAIL_FROM`), et les attributs `class` et
+  d'un gabarit ou d'un shell (`${from}`, `{{ subject }}`, `$MAIL_FROM`), et les attributs `class` et
   `style` du balisage qu'une commande affiche, sauf si le style charge une adresse. Une ligne de
   tableau qui ne correspond pas à ses colonnes est masquée en entier.
 - **Une valeur trouvée à l'intérieur d'une autre garde son propre type.** Le numéro de téléphone de la
@@ -145,9 +145,9 @@ data: strict
 data_files: ["exports/**", "data/*.csv", ".env*"]
 ```
 
-Un fichier qu'un motif désigne compte comme données que le mode données strict soit activé ou non : le désigner suffit. Un fichier que lit l'agent et dont le chemin correspond à un motif compte comme données : chacune de
+Un fichier qu'un motif désigne compte comme données, que le mode données strict soit activé ou non : le désigner suffit. Un fichier que lit l'agent et dont le chemin correspond à un motif compte comme données : chacune de
 ses valeurs est masquée, comme dans la sortie d'un outil. Un motif sans barre oblique désigne un
-fichier par son nom (`*.json`, `.env*`), un motif avec barre oblique la fin de son chemin
+fichier par son nom (`*.json`, `.env*`), un motif avec une barre oblique, par la fin de son chemin
 (`exports/**`, `**/*.csv`) ; `*` correspond à n'importe quels caractères, et la casse ne compte pas.
 Les valeurs sont trouvées selon le format du fichier :
 
@@ -183,7 +183,7 @@ data: strict
 data_hosts: [api.internal.example.com, "*.salesforce.com"]
 ```
 
-Une adresse qu'un motif désigne compte comme données que le mode données strict soit activé ou non. Une page qu'un outil web (`WebFetch`) récupère sur un hôte qui correspond à un motif compte comme
+Une adresse qu'un motif désigne compte comme données, que le mode données strict soit activé ou non. Une page qu'un outil web (`WebFetch`) récupère sur un hôte qui correspond à un motif compte comme
 données, comme la sortie d'un outil : chaque valeur de ses tableaux, de son JSON et de ses paires
 `key=value` est masquée. `*` correspond à n'importe quels caractères ; la casse et le port ne
 comptent pas. Un motif pour tous les sous-domaines désigne aussi le domaine lui-même :
@@ -264,7 +264,7 @@ valeurs affichées à côté de chaque colonne avant d'appliquer.
 Les colonnes proposées en clair sont déjà cochées. *Laisser 2 colonnes en clair* ajoute une règle pour
 chacune, comme `{name: status, mask: false}`, en tête de vos réglages pour le projet (*Ce projet*) ou
 de vos règles globales (*Partout*) : parmi vos règles, la première qui correspond l'emporte, donc une
-règle plus large de vous comme `note_*` ne la masque pas à nouveau ; une règle du `latet.yaml` du
+règle plus large que vous avez écrite, comme `note_*`, ne la masque pas à nouveau ; une règle du `latet.yaml` du
 projet qui masque la colonne continue de s'y appliquer, quoi que vous choisissiez. Les sorties
 suivantes montrent ces colonnes telles quelles. Rien ne s'applique tant que vous n'avez pas cliqué.
 
@@ -332,7 +332,7 @@ projet ne peut qu'ajouter de la protection :
 | `data_tools` | ignoré | ajouté aux vôtres |
 | `data_files` | ajouté | ajouté aux vôtres |
 | `data_hosts` | ajouté | ajouté aux vôtres |
-| `fields` | seulement les règles qui masquent, d'un type masqué là | toute règle, `mask: false` compris |
+| `fields` | seulement les règles qui masquent, d'un type qui y est masqué | toute règle, `mask: false` compris |
 | `dump_guard` | seulement plus bas | toute valeur ; 0 le désactive |
 | `images` | seulement moins d'images : `mask`, puis `block` | `allow`, `mask` ou `block` |
 | `ocr` | seulement `auto` | `auto` ou `off` |

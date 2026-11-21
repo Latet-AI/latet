@@ -104,6 +104,7 @@ export default defineConfig({
 					items: [
 						{ slug: 'concepts/how-it-works' },
 						{ slug: 'concepts/protection-scope' },
+						{ slug: 'concepts/leaks' },
 						{ slug: 'concepts/server' },
 						{ slug: 'concepts/server-operations' },
 						{ slug: 'concepts/profiles' },
@@ -144,6 +145,12 @@ export default defineConfig({
 					],
 				},
 				{ slug: 'dashboard' },
+				{
+					// The editions' names stay as they are in every language.
+					label: 'Enterprise Edition',
+					translations: { it: 'Enterprise Edition', de: 'Enterprise Edition', fr: 'Enterprise Edition', es: 'Enterprise Edition' },
+					items: [{ slug: 'enterprise' }, { slug: 'enterprise/locked-rules' }, { slug: 'enterprise/sign-in' }, { slug: 'enterprise/reports' }, { slug: 'enterprise/siem' }, { slug: 'enterprise/approvals' }, { slug: 'enterprise/term-sync' }],
+				},
 				{
 					label: 'Reference',
 					translations: { it: 'Riferimento', de: 'Referenz', fr: 'Référence', es: 'Referencia' },

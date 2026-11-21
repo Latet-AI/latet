@@ -154,8 +154,9 @@ def reuse_port_here() -> bool:
 
 # What a beat says (``app.beat_said``), each field checked (``beat_checked``): an instance's id is the 12 hexadecimal
 # digits each instance draws for itself (``Server.instance``), a version is a version's characters.
-TELEMETRY = ("instance", "worker", "version", "ready", "memory", "spaces", "index")
+TELEMETRY = ("instance", "worker", "version", "edition", "ready", "memory", "spaces", "index")
 INSTANCE_ID = re.compile(r"[0-9a-f]{12}")
+EDITIONS = ("community", "enterprise")  # an edition's name, as a beat says it (``latet.edition.Edition.name``)
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}")
 _COUNT_MOST = 1 << 62
 
@@ -167,8 +168,9 @@ def _count(value: object) -> int | None:
 def beat_checked(raw: object, instance: str | None = None) -> dict[str, Any] | None:
     """What a beat says (a worker's frame on its pipe, an instance's key in Valkey), checked before anything is read of
     it: a JSON object of ``BEAT_BYTES`` at most whose ``instance`` is an instance's id (``instance``'s, when given),
-    with the fields of ``TELEMETRY`` alone, each None unless it is what it should be (a worker's number, a version, a
-    boolean, a count of bytes or of spaces). None for what is no beat: it is never repeated anywhere."""
+    with the fields of ``TELEMETRY`` alone, each None unless it is what it should be (a worker's number, a version, an
+    edition's name, a boolean, a count of bytes or of spaces). None for what is no beat: it is never repeated
+    anywhere."""
     if not isinstance(raw, bytes) or len(raw) > BEAT_BYTES:
         return None
     try:
@@ -181,15 +183,28 @@ def beat_checked(raw: object, instance: str | None = None) -> dict[str, Any] | N
     if not isinstance(found, str) or not INSTANCE_ID.fullmatch(found) or instance not in (None, found):
         return None
     worker, version, ready = said.get("worker"), said.get("version"), said.get("ready")
+    edition = said.get("edition")
     return {
         "instance": found,
         "worker": worker if type(worker) is int and 0 <= worker < WORKERS_MOST else None,
         "version": version if isinstance(version, str) and _VERSION.fullmatch(version) else None,
+        "edition": edition if isinstance(edition, str) and edition in EDITIONS else None,
         "ready": ready if type(ready) is bool else None,
         "memory": _count(said.get("memory")),
         "spaces": _count(said.get("spaces")),
         "index": _count(said.get("index")),
     }
+
+
+_LEGACY_BEAT = re.compile(rb"([0-9A-Za-z][0-9A-Za-z.+_-]{0,63}) (community|enterprise)")
+
+
+def legacy_beat(raw: object) -> tuple[str, str] | None:
+    """The release and the edition an instance of Latet Enterprise's 0.10 line said in its key (``<version> <edition
+    name>``, no beat of 0.11's), or None for anything else."""
+    if not isinstance(raw, bytes) or (found := _LEGACY_BEAT.fullmatch(raw)) is None:
+        return None
+    return found.group(1).decode("ascii"), found.group(2).decode("ascii")
 
 
 def share_processors(workers: int) -> None:

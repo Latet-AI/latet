@@ -30,7 +30,13 @@ that another identity's names need; it would take a hundred and twenty-eight ide
 names that do not answer, to delay the others'. A save of settings resolves its names the same way (``bounded``), all
 of them waited for that long at most, and one that has not answered by then is judged when the server connects. Only an
 administrator sets a destination that leads inside, in the shared settings. Nothing here needs the `server` extra: a
-computer's install imports it too (the forwarder does)."""
+computer's install imports it too (the forwarder does).
+
+An administrator's own service (E3's identity provider) may be on the company's own network: ``inside`` lets the
+networks of ``INSIDE`` through (RFC 1918, unique-local, carrier-grade NAT), never a link-local address (the cloud's
+metadata address ``169.254.169.254``), multicast, unspecified, reserved, an address with a zone or an IPv6 form that
+carries an IPv4 address; the server's loopback only when the address itself names it (``localhost`` or a loopback
+address written as one), and then nothing but loopback."""
 
 from __future__ import annotations
 
@@ -59,6 +65,12 @@ _NETWORKS = tuple(
         "100::/64", "2001::/23", "2002::/16", "fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
     )
 )  # fmt: skip
+# The networks an administrator's own service may be on (``inside``): the company's own.
+INSIDE = tuple(
+    ipaddress.ip_network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7")
+)
+# Clouds' metadata addresses inside those networks (Alibaba Cloud's, AWS's IPv6 one): refused inside too.
+METADATA = (ipaddress.ip_address("100.100.100.200"), ipaddress.ip_address("fd00:ec2::254"))
 NOT_PUBLIC = (
     "it leads into the server's own network (a private, local or reserved address): only its administrator sets such "
     "a destination, for everyone"
@@ -310,17 +322,37 @@ _LOOKUPS = _Lookups()
 _NAT64 = _Nat64()
 
 
-def forbidden(address: Address) -> bool:
+def forbidden(address: Address, *, inside: bool = False) -> bool:
     """Whether ``address`` is one a destination of an identity's own may not lead to. An IPv6 address written with a
-    zone (``%eth0``) is: the zone picks an interface of the server's."""
+    zone (``%eth0``) is: the zone picks an interface of the server's. ``inside``: an administrator's own service, which
+    may be on the company's network (``INSIDE``); an IPv6 form that carries an IPv4 address never is, whatever it
+    carries."""
     if isinstance(address, ipaddress.IPv6Address):
         if address.scope_id:
             return True
         if address.ipv4_mapped is not None:
-            return forbidden(address.ipv4_mapped)
+            return inside or forbidden(address.ipv4_mapped)
         if any(forbidden(carried) for carried in _NAT64.carried(address)):
             return True
+    if inside and address not in METADATA and any(address in net for net in INSIDE):
+        return False
     return not address.is_global or address.is_reserved or any(address in net for net in _NETWORKS)
+
+
+def _names_loopback(host: str) -> bool:
+    """Whether ``host`` names this computer as written: ``localhost``, or a loopback address written as one (numbers
+    the resolver reads as one, ``127.1``, do not: they are judged by what they resolve to)."""
+    if host.rstrip(".") == "localhost":
+        return True
+    found = literal(host)
+    return found is not None and found.is_loopback and not getattr(found, "scope_id", None)
+
+
+def _loopback_only(address: Address) -> bool:
+    """A loopback address written plainly: no zone, no IPv4-mapped form."""
+    if isinstance(address, ipaddress.IPv6Address) and (address.scope_id or address.ipv4_mapped is not None):
+        return False
+    return address.is_loopback
 
 
 def _translatable(address: Address) -> bool:
@@ -456,14 +488,15 @@ def problem(url: str, resolver: Resolver | None = None) -> str | None:
     return NOT_PUBLIC if any(forbidden(a) for a in resolver(host, port)) else None
 
 
-async def pin(url: str, *, holder: str | None = None) -> tuple[str, str, dict[str, Any]]:
+async def pin(url: str, *, holder: str | None = None, inside: bool = False) -> tuple[str, str, dict[str, Any]]:
     """``url`` with its host replaced by the address checked now, the ``Host`` header to send (the host and port as
     written), and the httpx extensions that keep TLS's name (``sni_hostname``) the one in ``url`` and hand the addresses
     the connection may try in turn (``ADDRESSES``: every address of the same lookup, in the order the system gave them,
     the one in the URL first, ``ADDRESSES_TRIED`` at most). A name is resolved in this module's own threads, for
     ``RESOLVE_SECONDS`` at most, its lookup counted for ``holder``: whose request it is (an identity's id). While the
-    network has never said its NAT64 prefixes, an IPv6 address a NAT64 could translate is not among them. Raises
-    EgressRefused: the request is not sent."""
+    network has never said its NAT64 prefixes, an IPv6 address a NAT64 could translate is not among them. ``inside``:
+    an administrator's own service (``forbidden``), the server's loopback reached only when ``url`` names it, and then
+    only it. Raises EgressRefused: the request is not sent."""
     target = _target(url)
     if target is None:
         raise EgressRefused(UNREADABLE)
@@ -480,10 +513,14 @@ async def pin(url: str, *, holder: str | None = None) -> tuple[str, str, dict[st
             raise
         if not found:
             raise EgressRefused(f"{host} does not resolve")
-    if any(_translatable(a) for a in found):
-        await _NAT64.known()  # what such an address would carry under a NAT64 prefix of the server's network
-    if any(forbidden(a) for a in found):
-        raise EgressRefused(f"{host}: {NOT_PUBLIC}")
+    if inside and _names_loopback(host):  # this computer, as the address says: nothing but its loopback
+        if not all(_loopback_only(a) for a in found):
+            raise EgressRefused(f"{host}: names this computer and resolves elsewhere")
+    else:
+        if any(_translatable(a) for a in found):
+            await _NAT64.known()  # what such an address would carry under a NAT64 prefix of the server's network
+        if any(forbidden(a, inside=inside) for a in found):
+            raise EgressRefused(f"{host}: {NOT_PUBLIC}")
     if not _NAT64.answered:  # no prefix is known to be none: such an address could lead inside
         found = [a for a in found if not _translatable(a)]
         if not found:

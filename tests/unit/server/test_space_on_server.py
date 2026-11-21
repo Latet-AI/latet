@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketDisconnect
 from latet.api import rest
 from latet.api.rest import USER_NAME_BYTES
 from latet.config import Config, IdentityConfig, ProjectEntry, TermConfig
+from latet.edition import Community
 from latet.engine.rehydrate import restore_text
 from latet.engine.types import SlotKind
 from latet.gateway import forward, ws
@@ -69,6 +70,28 @@ def test_me_names_the_server_and_whose_space_it_is(space):
     assert me["server"] == {"url": URL, "identity": {"id": EMILY.id, "name": "Emily Carter", "kind": "person"}}
 
 
+def _opened_as(app, identity_id, via):
+    """``app``, its requests handed on as the server's gate hands a dashboard's: for ``identity_id``, and the kind of
+    session they came with (``scope["latet.via"]``; none: a session that does not say)."""
+
+    async def handed(scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "latet.identity": identity_id, **({} if via is None else {"latet.via": via})}
+        await app(scope, receive, send)
+
+    return handed
+
+
+@pytest.mark.parametrize(("via", "said"), [("sso", "sso"), ("code", "code"), (None, "code"), ("anything else", "code")])
+def test_me_says_how_the_session_was_opened_and_one_that_does_not_say_is_a_code_one(space, via, said):
+    """The dashboard offers what only the company's sign-in may do (saying a notice seen) by it; the server decides
+    again. Only the gate's word ``sso`` reads as one: a session opened before sessions said how, or any other word, is
+    the one-time code's."""
+    rt, _ = space
+    with TestClient(_opened_as(create_app(rt.gateway), EMILY.id, via), base_url=URL) as c:
+        assert c.get(f"{API}/me").json()["session"] == {"via": said}
+
+
 def test_a_server_space_masks_and_restores_latet_credentials_and_route_keys(space):
     rt, _ = space
     tail = "Q7wZ2k4NBX5pL3mD_r8S-v6Hj9Ta0Bc1Eo2Fi3Gu4J5"
@@ -95,7 +118,9 @@ def test_a_server_space_masks_and_restores_latet_credentials_and_route_keys(spac
 
 def test_an_api_keys_space_says_it_is_one(tmp_path):
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=MemorySettings(SHARED))
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=BILLING)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=BILLING, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, BILLING.id)
     try:
         with _client(rt, BILLING.id) as c:
@@ -114,7 +139,8 @@ def test_a_computers_dashboard_names_no_server(tmp_path):
         with TestClient(create_app(rt.gateway), base_url=f"http://127.0.0.1:{rt.gateway.port}") as c:
             code = c.post("/_latet/admin/login-code", headers=token).json()["code"]
             c.get(f"/_latet/ui/login?code={code}", follow_redirects=False)
-            assert c.get(f"{API}/me").json()["server"] is None
+            me = c.get(f"{API}/me").json()
+            assert me["server"] is None and me["session"] is None  # no gate opened this session: nothing to say of it
             assert "shared" not in c.get(f"{API}/config").json()
     finally:
         rt.close()
@@ -195,7 +221,9 @@ def _upstream(rt):
 
 def _key_space(tmp_path, settings):
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=BILLING)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=BILLING, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, BILLING.id)
     return rt
 
@@ -561,7 +589,9 @@ def _space_over(tmp_path, shared):
     """A space as the ``space`` fixture makes it, over these shared settings; and the store of its settings."""
     settings = MemorySettings(shared)
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     try:
         yield rt, settings

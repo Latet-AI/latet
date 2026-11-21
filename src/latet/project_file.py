@@ -66,8 +66,17 @@ def _kept(key: str, settings: ProjectSettings) -> Any:
 # What a repository file may set: protection it adds. Anything else in it is ignored, and said so.
 REPO_KEYS = (
     "profile", "pii", "id_regions", "phone_regions", "include_private_ips", "ner", "terms", "recognizers",
-    "policies", "data", "data_files", "data_hosts", "fields", "dump_guard", "images", "ocr", "llm_review",
+    "policies", "data", "data_files", "data_hosts", "fields", "dump_guard", "images", "ocr", "unknown_members",
+    "llm_review",
 )  # fmt: skip
+# A key above whose one other value only loosens, which a repository file never sets: ignored, and said so (a project's
+# settings do not take it at all).
+_ONLY_LOOSENS = {
+    "unknown_members": (
+        "check",
+        "a repository file can only refuse new request members (`refuse`): `check` is set in your config.yaml",
+    ),
+}
 _LOOSENING = {
     "allow_values": "values never to mask",
     "allow_patterns": "patterns of values never to mask",
@@ -117,7 +126,9 @@ def repo_settings(data: dict[str, Any]) -> tuple[ProjectSettings, list[Notice]]:
     kept: dict[str, Any] = {}
     for raw_key, value in data.items():
         key = str(raw_key)
-        if key in REPO_KEYS:
+        if key in _ONLY_LOOSENS and value == _ONLY_LOOSENS[key][0]:
+            notices.append(Notice("repo", key, "ignored", _ONLY_LOOSENS[key][1]))
+        elif key in REPO_KEYS:
             try:
                 kept[key] = _kept(key, ProjectSettings.model_validate({key: value}))
             except ValidationError as exc:

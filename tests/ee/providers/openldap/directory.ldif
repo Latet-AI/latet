@@ -1,0 +1,80 @@
+# The directory of Acme, loaded with slapadd -n 1 before slapd starts: its people, its teams and two read-only service
+# accounts (Latet's term sync, and Keycloak's user federation). Each @...@ is a password's hash the test makes at each
+# run ({SSHA}); no password is kept here.
+
+dn: dc=acme,dc=lan
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Acme
+dc: acme
+
+dn: ou=people,dc=acme,dc=lan
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=acme,dc=lan
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=services,dc=acme,dc=lan
+objectClass: organizationalUnit
+ou: services
+
+dn: cn=latet-sync,ou=services,dc=acme,dc=lan
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: latet-sync
+description: Latet's term sync: reads people and teams
+userPassword: @SYNC_HASH@
+
+dn: cn=keycloak,ou=services,dc=acme,dc=lan
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: keycloak
+description: Keycloak's user federation: reads people and teams
+userPassword: @KEYCLOAK_HASH@
+
+dn: uid=emily.carter,ou=people,dc=acme,dc=lan
+objectClass: inetOrgPerson
+uid: emily.carter
+cn: Emily Carter
+givenName: Emily
+sn: Carter
+mail: emily.carter@acme.com
+userPassword: @PERSON_HASH@
+
+dn: uid=daniel.okafor,ou=people,dc=acme,dc=lan
+objectClass: inetOrgPerson
+uid: daniel.okafor
+cn: Daniel Okafor
+givenName: Daniel
+sn: Okafor
+mail: daniel.okafor@acme.com
+userPassword: @PERSON_HASH@
+
+dn: uid=priya.raman,ou=people,dc=acme,dc=lan
+objectClass: inetOrgPerson
+uid: priya.raman
+cn: Priya Raman
+givenName: Priya
+sn: Raman
+mail: priya.raman@acme.com
+userPassword: @PERSON_HASH@
+
+dn: cn=latet-users,ou=groups,dc=acme,dc=lan
+objectClass: groupOfNames
+cn: latet-users
+member: uid=emily.carter,ou=people,dc=acme,dc=lan
+member: uid=daniel.okafor,ou=people,dc=acme,dc=lan
+
+dn: cn=Orion Payments,ou=groups,dc=acme,dc=lan
+objectClass: groupOfNames
+cn: Orion Payments
+member: uid=emily.carter,ou=people,dc=acme,dc=lan
+member: uid=priya.raman,ou=people,dc=acme,dc=lan
+
+dn: cn=Halcyon Research,ou=groups,dc=acme,dc=lan
+objectClass: groupOfNames
+cn: Halcyon Research
+member: uid=daniel.okafor,ou=people,dc=acme,dc=lan

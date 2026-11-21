@@ -4,7 +4,8 @@ description: Faire passer Gemini CLI, les SDK Google GenAI et Gemini sur Vertex 
 ---
 
 Gemini CLI et les programmes construits sur les SDK GenAI de Google utilisent le **mode
-passerelle** : le daemon local masque les requêtes et restaure les réponses. Il couvre la Gemini API
+passerelle** : le daemon local masque les requêtes et remet les originaux en place
+dans les réponses. Il couvre la Gemini API
 avec une clé d'API, et Gemini sur Vertex AI, avec un projet Google Cloud ou en mode express avec une
 clé d'API.
 
@@ -17,13 +18,13 @@ clé d'API.
 
 Votre clé d'API ou votre connexion à Google Cloud restent où elles sont. La passerelle les transmet
 sans les modifier (une clé dans l'en-tête `x-goog-api-key` ou dans le paramètre `key` de l'adresse,
-un jeton Vertex dans `Authorization`) et n'écrit jamais leur valeur dans les journaux, dans le
-tableau de bord ou dans une capture. Sur Vertex, chaque requête va à l'adresse de la location
+un jeton Vertex dans `Authorization`) et n'écrit jamais leur valeur dans les journaux, ni dans le
+tableau de bord ni dans une capture. Sur Vertex, chaque requête va à l'adresse de l'emplacement
 qu'elle nomme.
 
 ## Gemini CLI
 
-Faites passer Gemini CLI par Latet avec le wrapper. Il démarre le daemon si besoin, définit les deux
+Faites passer Gemini CLI par Latet avec le lanceur. Il démarre le daemon si besoin, définit les deux
 URL de base pour cette exécution seulement, et transmet chaque argument à `gemini` :
 
 ```sh
@@ -40,13 +41,13 @@ dans `GEMINI_CLI_CUSTOM_HEADERS` sont refusés, chacun nommé, tant qu'une
 
 Gemini CLI lit `GEMINI_CLI_CUSTOM_HEADERS` à partir de la version 0.19.0, et Latet a vérifié comment il
 les envoie de la 0.19.0 à la 0.66.0. Un Gemini CLI plus ancien ignore la variable : sa session est
-déclarée, et `latet doctor` nomme sa version. En mode ACP (`--acp` ou `--experimental-acp`, quand un
-éditeur démarre Gemini CLI), l'éditeur peut donner à Gemini CLI une adresse et des en-têtes à lui, donc
+déclarée, et `latet doctor` nomme sa version. En mode ACP (`--acp` ou `--experimental-acp`, comme lorsqu'un
+éditeur démarre Gemini CLI), l'éditeur peut donner à Gemini CLI une adresse et des en-têtes qui lui sont propres, donc
 `latet gemini` n'y passe aucune clé de lancement et le dit au démarrage.
 
 `latet run gemini` fait de même. Gemini CLI ne prend son adresse que dans l'environnement, il n'est
 donc pas disponible en mode global : `latet global-install` ne le configure pas, et il n'y a pas de
-`latet agents apply gemini`. Un changement durable n'atteindrait pas un projet qui a son propre
+`latet agents apply gemini`. Un changement pour de bon n'atteindrait pas un projet qui a son propre
 fichier `.env`, et Gemini CLI y parlerait directement à Google sans le dire.
 
 ### Choisir une clé d'API ou Vertex AI
@@ -63,14 +64,14 @@ Dans Gemini CLI, `/auth` choisit comment il atteint son modèle, et ce choix est
   `GOOGLE_CLOUD_LOCATION` et votre connexion à Google Cloud, ou `GOOGLE_API_KEY` seul en mode
   express.
 
-Quand rien n'est encore choisi, `latet gemini` propose la clé d'API dans la fenêtre de Gemini CLI, ou
+Quand rien n'est encore choisi, `latet gemini` propose la clé d'API dans la boîte de dialogue de Gemini CLI, ou
 Vertex AI quand `GOOGLE_GENAI_USE_VERTEXAI=true` est défini. Une exécution avec `-p` a besoin que le
 choix soit fait avant : définissez `selectedType` comme ci-dessus.
 
 **Connecté avec Google**, que ce choix vienne de vos réglages, de ceux du projet
 (`.gemini/settings.json` dans le dossier où vous le lancez) ou de ceux de la machine, Gemini CLI
-envoie ses requêtes à un point d'accès que Latet ne lit pas, rien ne serait donc masqué. `latet
-gemini` ne le démarre pas alors, et dit où le choix est fait et quoi choisir à la place.
+envoie ses requêtes à un point de terminaison que Latet ne lit pas, rien ne serait donc masqué.
+`latet gemini` ne le lance alors pas, et dit où le choix est fait et quoi choisir à la place.
 
 ### Statistiques d'utilisation
 
@@ -98,25 +99,25 @@ reply = client.models.generate_content(
 print(reply.text)
 ```
 
-Lancez-le avec `latet run python welcome.py` : Google lit une fausse adresse de la même forme, et le
+Lancez-le avec `latet run python welcome.py` : Google lit une adresse factice du même format, et le
 script affiche l'e-mail avec la vraie. Les réponses en streaming fonctionnent de la même façon,
-morceau par morceau.
+fragment par fragment.
 
-Le point d'accès de Google compatible avec OpenAI passe aussi par Latet : donnez à un client OpenAI
+Le point de terminaison de Google compatible avec OpenAI passe aussi par Latet : donnez à un client OpenAI
 l'URL de base `http://127.0.0.1:5283/gemini/v1beta/openai`.
 
 ## Ce que lit la passerelle
 
 - **Générer**, en streaming ou non (`generateContent`, `streamGenerateContent`), **compter les
-  tokens** (`countTokens`), les **embeddings** (`embedContent`, `batchEmbedContents`) et **créer un
+  jetons** (`countTokens`), les **embeddings** (`embedContent`, `batchEmbedContents`) et **créer un
   cache** (`cachedContents`) : l'instruction système, chaque message, les appels de fonction et
   leurs résultats, les déclarations des fonctions et le schéma de la réponse sont masqués, et les
-  réponses restaurées.
+  originaux sont remis en place dans les réponses.
 - Les **images** envoyées dans la requête sont lues et masquées avec la
   [reconnaissance de texte](../../concepts/images/) facultative ; sans elle, une requête avec une
   image n'est pas envoyée. Les autres fichiers, et les fichiers donnés par leur adresse, sont
   refusés.
-- La **réflexion** du modèle reste telle que le modèle l'a écrite. Le code que Google exécute pour
+- Le **raisonnement** du modèle reste tel que le modèle l'a écrit. Le code que Google exécute pour
   lui et ce que ce code a affiché, ainsi que les entrées et les sorties des outils de Google
   lui-même (Google Search, contexte d'URL, Maps, File Search), sont masqués, comme l'appel d'une
   fonction et son résultat.
@@ -134,7 +135,7 @@ l'URL de base `http://127.0.0.1:5283/gemini/v1beta/openai`.
 
 - **Gemini CLI connecté avec Google** n'est pas couvert (voir plus haut).
 - **Antigravity CLI** accepte une URL de base avec une clé d'API (`GOOGLE_GEMINI_BASE_URL`), mais sa
-  documentation ne dit pas quel protocole de Google il parle alors, et il n'est pas vérifié avec
+  documentation ne dit pas quel protocole de Google il utilise alors, et il n'est pas vérifié avec
   Latet. S'il utilise l'Interactions API, Latet refuse ses requêtes au lieu de les envoyer sans les
   masquer.
 - Une réponse qui utilise un **cache explicite** retrouve les originaux des valeurs que porte sa

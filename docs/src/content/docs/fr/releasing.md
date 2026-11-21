@@ -13,7 +13,8 @@ commit public par version, avec le code, les tests, les numéros de version et l
 2. Fusionnez ce commit dans `main`. Notez son SHA complet.
 3. Attendez que **l'ensemble du workflow CI** (`.github/workflows/ci.yml`), déclenché par ce push sur
    `main`, se termine avec **succès** pour ce SHA exact. Vérifiez le résultat du workflow, y compris
-   tous les jobs de la matrice et les tests du serveur. Une pull request ou un job réussi ne suffit pas.
+   tous les jobs de la matrice et les tests du serveur. Une exécution réussie sur une pull request, ou
+   un seul job réussi, ne suffit pas.
 4. Créez le tag de version sur ce commit exact et poussez-le seulement lorsque la publication est autorisée.
    Les tags légers et annotés sont acceptés ; pour un tag annoté, le commit sous-jacent est vérifié.
 5. Vérifiez le résultat du workflow de publication. Conservez le SHA du tag et l'URL de la CI réussie sur
@@ -24,7 +25,8 @@ l'unique commit public de version ; n'ajoutez pas de commit public uniquement po
 
 ## Exigences du contrôle de publication
 
-Avant toute compilation, attestation ou publication, le contrôle identifie le workflow CI par son fichier,
+Avant toute compilation, attestation ou publication, le contrôle détermine l'identifiant réel du
+workflow CI à partir de son fichier,
 vérifie que le commit du tag appartient à `main` et lit les exécutions `push` sur `main` de ce SHA exact.
 Il choisit l'exécution la plus récente et relit sa tentative actuelle. Seul `completed` avec `success` est accepté.
 Les jobs suivants utilisent le SHA du commit vérifié et dépendent de ce contrôle.
@@ -42,7 +44,7 @@ de l'exécution consignée. Un contrôle vert confirme la réussite de la CI, pa
 ## Un bilan de vérification par version
 
 Liez depuis les notes de version un court bilan de vérification en anglais, avec un fichier Markdown
-identifié par version et des manifestes communs des sources et des preuves joints hors de Git.
+versionné et des manifestes communs des sources et des preuves joints hors de Git.
 Finalisez le bilan après la création du commit public et la réussite de toute sa CI sur main ; après
 le tag et la publication autorisés, joignez les fichiers manuellement et ajoutez les liens dans les
 notes de version. Le workflow de publication actuel ne génère pas ces fichiers de vérification.
@@ -54,35 +56,35 @@ Incluez :
 - La version, le SHA complet du commit public et celui du commit sous-jacent au tag ; séparément, les
   sources privées réellement testées (commit ou base avec patch/manifeste conservé). Un manifeste
   énumère les chemins et empreintes du contenu du code, des tests, du harnais et de la configuration
-  vérifiés. Consigner tous les écarts avec les sources publiques, les exclusions et les vérifications
+  vérifiés. Consignez tous les écarts avec les sources publiques, les exclusions et les vérifications
   à refaire ; un résultat privé ne devient pas un résultat pour le SHA public.
   Séparez les inventaires des blobs Git canoniques et des octets réellement exécutés, pour les copies
   de travail propres comme modifiées ; consignez les conversions EOL/filtres et les différences,
   sans normaliser les empreintes des octets exécutés.
 - Les participants réels aux revues ou leurs rôles identifiables et références aux rapports, le
   périmètre, le type de revue et l'existence d'une revue humaine indépendante. La revue d'un agent
-  automatisé distinct n'est pas humaine. Lister les constats clos avec les preuves de nouvelle
+  automatisé distinct n'est pas humaine. Listez les constats clos avec les preuves de nouvelle
   vérification, ainsi que les constats ouverts avec leur gravité et le travail restant.
 - Les commandes des suites, l'environnement, les résultats et les tests ignorés ; les identifiants
   des configurations fuzz, le harnais et les sources, les graines ou corpus, les nombres visés/réels
-  et les configurations terminées/prévues. Signaler explicitement les travaux échoués, incomplets et
+  et les configurations terminées/prévues. Signalez explicitement les travaux échoués, incomplets et
   non exécutés. Les campagnes de comptage ne constituent pas des mesures de performances.
 - Le dépôt CI exact, le chemin du workflow, l'événement/ref, le SHA, l'identifiant d'exécution, l'URL
-  de la tentative, l'état/conclusion du workflow entier et l'heure d'observation. Vérifier séparément
+  de la tentative, l'état/conclusion du workflow entier et l'heure d'observation. Vérifiez séparément
   la CI finale `push`/`main` avant le tag ; les contrôles PR, résultats locaux et publications réussies
   ne la remplacent pas.
 - Les limites testées : upstream simulé ou tests directs des runtimes d'espaces face aux tests
-  authentifiés de bout en bout, configurations omises et preuves indisponibles. Les logs privés ne
-  sont pas consultables publiquement ; fournir si possible un extrait public sûr et préciser ce que
-  les lecteurs ne peuvent pas vérifier.
+  authentifiés de bout en bout, configurations omises et preuves indisponibles. Les journaux privés
+  ne sont pas des preuves consultables publiquement ; fournissez si possible un extrait public sûr et
+  précisez ce que les lecteurs ne peuvent pas vérifier.
 
-Conserver le bilan et les manifestes hors du commit qu'ils identifient. Donner aux fichiers de preuves
-des sommes de contrôle et des identifiants de révision ; préserver les révisions précédentes et expliquer
-les corrections. Un lien ou une somme de contrôle ne prouve à lui seul ni une revue indépendante ni un
-stockage immuable. Utiliser des données synthétiques et des extraits sûrs, jamais des identifiants secrets
+Conservez le bilan et les manifestes hors du commit qu'ils identifient. Donnez aux fichiers de preuves
+des sommes de contrôle et des identifiants de révision ; préservez les révisions précédentes et
+expliquez les corrections. Un lien ou une somme de contrôle ne prouve à lui seul ni une revue indépendante ni un
+stockage immuable. Utilisez des données synthétiques et des extraits sûrs, jamais des identifiants secrets
 ou du trafic réel. Rédigez le bilan par version uniquement en anglais, avec des manifestes techniques
 communs ; le guide de publication et le reste de la documentation publique restent dans les cinq langues.
-Une entrée du modèle ou une case cochée ne prouve rien. Un bilan ne vaut que pour les sources et le
+Une entrée du modèle ou une case cochée ne prouve rien à elle seule. Un bilan ne vaut que pour les sources et le
 périmètre indiqués ; signalez explicitement les campagnes incomplètes et les étapes de publication en attente.
 
 ## Publications distinctes du client

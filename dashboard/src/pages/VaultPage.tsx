@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams, type To } from 'react-router'
-import { api } from '../api/client'
+import { api, currentSpace } from '../api/client'
 import { revealedText } from '../lib/vault'
 import type { VaultEntity } from '../api/types'
 import { ClassLabel } from '../components/badges'
@@ -16,6 +16,8 @@ import { useFormat } from '../lib/useFormat'
 import { useDeploymentKey } from '../lib/me'
 
 const REVEAL_SECONDS = 10
+// The longest search of an API key's vault the server reads (api.rest.SEARCH_LONGEST): a longer one is refused.
+const KEY_SEARCH_LONGEST = 200
 
 /** The address's search with page `number` (the first page has none). */
 function withPage(params: URLSearchParams, number: number): URLSearchParams {
@@ -112,6 +114,7 @@ export function VaultPage() {
               className="field w-full pl-8"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              maxLength={currentSpace() ? KEY_SEARCH_LONGEST : undefined}
               placeholder={t('vault.search.placeholder')}
               autoComplete="off"
               spellCheck={false}
@@ -223,7 +226,8 @@ export function VaultPage() {
             <p>
               {t('vault.forget.body', { type: forgetting.type })} <code className="mono text-ink">{forgetting.surrogate}</code>
             </p>
-            <p className="mt-2">{t('vault.forget.consequence')}</p>
+            {/* An API key's space (Latet Enterprise): forgotten as `latet server keys forget` does. */}
+            <p className="mt-2">{currentSpace() ? t('vault.forget.consequenceKey') : t('vault.forget.consequence')}</p>
           </>
         )}
       </ConfirmDialog>

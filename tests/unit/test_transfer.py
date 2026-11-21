@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from latet.config import Config, Profile, ProjectEntry, ProjectSettings, load_config, load_yaml, save_config
 from latet.protection import loosened
-from latet.transfer import FORMAT, RulesError, export_rules, merge_rules, read_rules
+from latet.transfer import FORMAT, RulesError, export_rules, merge_rules, read_rules, rules_data, rules_of
 
 ALICE = Config(
     profile="max",
@@ -85,7 +85,7 @@ def test_an_import_adds_protection_and_holds_back_the_rest():
 def test_a_term_of_signs_alone_is_not_read():
     settings, notices = read_rules("terms: [{value: '--'}, {value: Banca Ligure, type: CLIENT}]\n")
     assert [t.value for t in settings.terms] == ["Banca Ligure"]
-    assert len(notices) == 1 and notices[0].startswith("term '--': a term needs a letter or a digit")
+    assert len(notices) == 1 and notices[0].startswith("terms: entry 1: a term needs a letter or a digit")
 
 
 def test_a_weaker_value_is_held_back():
@@ -288,10 +288,43 @@ def test_what_cannot_be_read():
     )
     assert len(notices) == 6 and settings.pii == ["EMAIL"] and settings.allow_patterns == []
     broken, notices = read_rules(yaml.safe_dump({"recognizers": [{"name": "x", "pattern": "("}]}))
-    assert broken.recognizers == [] and notices[0].startswith("recognizer x")
+    assert broken.recognizers == [] and notices == ["recognizers: entry 1 is left out: a problem with its pattern"]
     # A config.yaml is read too: its rules, and the reviewer's guidance.
     settings, notices = read_rules("profile: max\nport: 7000\nllm_review: {enabled: true, guidance: Wards.}\n")
     assert settings.profile == "max" and settings.review_guidance == "Wards." and len(notices) == 1
+
+
+def test_a_yaml_mistake_is_said_by_its_place():
+    with pytest.raises(RulesError, match=r"not valid YAML: .* \(line 2, column \d+\)") as refused:
+        read_rules("profile: max\nterms: Falcon Holdings: Northwind\n")
+    assert "Falcon" not in str(refused.value)
+
+
+def test_what_is_not_read_is_said_by_its_place_never_quoting_a_term_or_a_pattern():
+    text = yaml.safe_dump(
+        {
+            "terms": [{"value": "Falcon Holdings"}, {"value": "--"}],
+            "recognizers": [
+                {"name": "ok", "pattern": "OK-[0-9]{6}"},
+                {"name": "falcon", "pattern": "(Falcon Holdings"},
+            ],
+        }
+    )
+    _, notices = read_rules(text)
+    assert notices == [
+        "terms: entry 2: a term needs a letter or a digit: a fake keeps the signs of a value, so signs alone, such as "
+        "-- or ###, cannot be masked",
+        "recognizers: entry 2 is left out: a problem with its pattern",
+    ]
+
+
+def test_a_company_policys_own_key_is_left_out_of_the_rules_and_said():
+    settings, notices = read_rules("latet_rules: 1\nprofile: max\nexceptions: company\n")
+    assert settings.profile == "max"
+    assert notices == ["exceptions: a setting of a company's policy (Latet Enterprise), not a rule"]
+    data = rules_data("latet_rules: 1\nexceptions: company\n")
+    assert data == {"latet_rules": 1, "exceptions": "company"}
+    assert rules_of({key: value for key, value in data.items() if key != "exceptions"}) == (ProjectSettings(), [])
 
 
 def test_into_a_project_measured_against_what_applies_there(tmp_path):

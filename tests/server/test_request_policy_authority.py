@@ -37,15 +37,19 @@ async def test_a_persons_exception_waits_for_her_and_is_stamped_by_postgresqls_c
     wanted = runtime.config.model_copy(update={"request_exceptions": [RequestException.model_validate(TEAM)]})
     change = await runtime.mediator.run(runtime.propose, wanted, "command")
     assert change is not None and any("request exception" in reason for reason in change.loosened)
-    assert request_policy.in_force(runtime.config, database_now(server.db)) == ()  # waiting: it grants nothing
+    assert (
+        request_policy.in_force(runtime.config, database_now(server.db), company=False) == ()
+    )  # waiting: it grants nothing
     before = database_now(server.db)
     assert await runtime.mediator.run(runtime.decide_change, change.id, True) == "approved"
     after = database_now(server.db)
     [row] = runtime.config.request_exceptions
     assert row.approved and row.revision == request_profiles.REVISION and row.issuer == "person"
     assert row.granted is not None and before <= row.granted <= after  # PostgreSQL's time, not the skewed instance's
-    assert request_policy.in_force(runtime.config, after) == (row,)
-    assert request_policy.in_force(runtime.config, after + timedelta(days=31)) == ()  # expired by that clock
+    assert request_policy.in_force(runtime.config, after, company=False) == (row,)
+    assert (
+        request_policy.in_force(runtime.config, after + timedelta(days=31), company=False) == ()
+    )  # expired by that clock
 
 
 async def test_a_servers_request_exception_is_judged_by_postgresqls_clock(server, monkeypatch):
@@ -201,6 +205,46 @@ async def test_an_edition_that_forbids_permanent_exceptions_routes_none_from_a_s
     assert runtime.config.request_exceptions[0].approved and runtime.gateway.request_exceptions == ()
     listed = listed_exceptions(server.db)
     assert listed == [{"identity": identity.id, "exception": "x0123456789", "scope": "identity", "state": "forbidden"}]
+
+
+async def test_server_status_lists_an_exception_the_company_did_not_approve_once_it_decides(server):
+    """The quality re-review's N1: where the company decides on request exceptions (Latet Enterprise's `exceptions:
+    company`), an exception an API key's controllers approved before, permanent, grants nothing: `latet server status`
+    lists it among those that grant nothing, forbidden (its index written again as its space applies the policy, or
+    as it is built; the index's states are migration 017's), while one the administration approved stays a permanent
+    one in force."""
+    from latet.server.space_settings import listed_exceptions
+
+    from ..floors import CompanyFloor, FloorEdition
+    from .support import until
+
+    class Deciding(CompanyFloor):
+        decides_exceptions = True
+
+    server.edition.close()
+    edition = server.edition = FloorEdition()
+    server.listening.set()
+    theirs = _stamped(permanent=True, issuer="controllers")
+    ours = _stamped(id="x1111111111", permanent=True, issuer="administration")
+    identity, _ = _key_with(server, [theirs, ours])
+    runtime = await server.spaces.runtime(identity)
+    assert {row.id for row in runtime.gateway.request_exceptions} == {theirs.id, ours.id}
+    permanent = [
+        {"identity": identity.id, "exception": theirs.id, "scope": "identity", "state": "permanent"},
+        {"identity": identity.id, "exception": ours.id, "scope": "identity", "state": "permanent"},
+    ]
+    assert listed_exceptions(server.db) == permanent
+    edition.locked = Deciding()
+    server.spaces.floor_changed()  # as the edition tells the spaces of a new policy
+    await until(lambda: listed_exceptions(server.db) != permanent)
+    assert [row.id for row in runtime.gateway.request_exceptions] == [ours.id]
+    assert listed_exceptions(server.db) == [{**permanent[0], "state": "forbidden"}, permanent[1]]
+    # Built anew on that floor (another instance's space, or this one's next build), it is indexed so at once.
+    later, _ = _key_with(server, [_stamped(id="x2222222222", permanent=True, issuer="controllers")])
+    await server.spaces.runtime(later)
+    assert {"identity": later.id, "exception": "x2222222222", "scope": "identity", "state": "forbidden"} in (
+        listed_exceptions(server.db)
+    )
 
 
 async def test_server_status_lists_an_exception_an_upgrade_suspended(server):
@@ -395,7 +439,9 @@ def test_two_builds_at_once_write_the_exception_index_once(server, monkeypatch, 
 
     monkeypatch.setattr(server.db, "transaction", watched)
     builds = [
-        threading.Thread(target=spaces_module._index_again, args=(server, identity.id, config), name=name)
+        threading.Thread(
+            target=spaces_module._index_again, args=(server, identity.id, config), kwargs={"company": False}, name=name
+        )
         for name in ("first", "second")
     ]
     with caplog.at_level(logging.WARNING, logger="latet.server.spaces"):
@@ -425,13 +471,13 @@ def test_a_build_that_read_the_settings_before_an_approval_never_brings_back_wha
         identity.id,
         root_key(server.db, server.master, identity.id, clock=server.clock),
         kind="key",
-        index=lambda conn, config: index_exceptions(conn, identity.id, config, permanent_allowed=True),
+        index=lambda conn, config: index_exceptions(conn, identity.id, config, permanent_allowed=True, company=False),
     )
     revoked = storage.prepare(storage.load().model_copy(update={"request_exceptions": []}))
     storage.save(revoked)
     storage.save_reviewed(revoked)  # the approval: its index, without the exception, in its own transaction
     assert _indexed(server, identity.id) == []
-    spaces_module._index_again(server, identity.id, stale, read_at=read)  # the build, writing after it
+    spaces_module._index_again(server, identity.id, stale, read_at=read, company=False)  # the build, writing after it
     assert _indexed(server, identity.id) == []
 
 
@@ -459,7 +505,7 @@ def test_a_build_after_a_save_that_wrote_no_index_still_writes_it(server):
     loaded = storage.load()
     storage.save(loaded.model_copy(update={"retention_days": loaded.retention_days + 1}))  # its own part alone
     assert spaces_module._read_counts(server.db, [owner])[owner] > read
-    spaces_module._index_again(server, identity.id, loaded, read_at=read)
+    spaces_module._index_again(server, identity.id, loaded, read_at=read, company=False)
     assert _indexed(server, identity.id) == ["x0123456789"]
 
 
@@ -480,11 +526,11 @@ async def test_a_spaces_build_never_writes_over_an_approval_kept_while_it_was_bu
     index_again = spaces_module._index_again
     seen: list[int | None] = []
 
-    def held(server_, identity_id, config, read_at=None):
+    def held(server_, identity_id, config, read_at=None, **kwargs):
         seen.append(read_at)
         reached.set()  # the build read the settings; its index not written yet
         assert approved.wait(10)
-        index_again(server_, identity_id, config, read_at=read_at)
+        index_again(server_, identity_id, config, read_at=read_at, **kwargs)
 
     monkeypatch.setattr(spaces_module, "_index_again", held)
 
@@ -495,7 +541,9 @@ async def test_a_spaces_build_never_writes_over_an_approval_kept_while_it_was_bu
             identity.id,
             root_key(server.db, server.master, identity.id, clock=server.clock),
             kind="key",
-            index=lambda conn, config: index_exceptions(conn, identity.id, config, permanent_allowed=True),
+            index=lambda conn, config: index_exceptions(
+                conn, identity.id, config, permanent_allowed=True, company=False
+            ),
         )
         revoked = storage.prepare(storage.load().model_copy(update={"request_exceptions": []}))
         storage.save(revoked)

@@ -10,7 +10,7 @@ IP, sus IBAN, de vez en cuando un token. Enviados tal cual, pasan meses en un se
 leídos por todos los que leen los registros. Con la [API para aplicaciones](../), la aplicación
 enmascara cada lote de líneas con un servidor de Latet antes de enviarlo, y el servicio de registros
 recibe valores ficticios. Como un valor recibe siempre el mismo valor ficticio, las líneas de un
-cliente se pueden seguir buscando, contando y siguiendo durante días; cuando soporte necesita saber
+cliente se pueden seguir buscando, contando y rastreando durante días; cuando soporte necesita saber
 de quién se trataba, una herramienta con el token adecuado restaura la línea.
 
 ## Los tokens
@@ -69,7 +69,7 @@ salen así:
 2026-10-26T09:14:05Z WARN card declined customer=tommaso.gallo@margie-6e5a.example ip=198.51.100.41
 ```
 
-Envía las líneas por lotes, no una llamada por línea: una llamada admite hasta 1.000 líneas, y el
+Envía las líneas por lotes, no una llamada por línea: una llamada admite hasta 1000 líneas, y el
 cliente envía una lista más larga en varias llamadas, una tras otra. Las líneas de una llamada se
 enmascaran juntas: un valor que una línea de la llamada enseña a la caja fuerte se enmascara también
 en las demás líneas de la llamada. Un valor que solo enseña una llamada posterior no se enmascara en
@@ -81,9 +81,9 @@ enmascarar. El cliente reintenta por su cuenta un 429 y un 503 (tres veces, tras
 el servidor) antes de lanzar el error. Enmascarar dos veces las mismas líneas da los mismos valores
 ficticios, así que reintentar es seguro.
 
-Cada rechazo del servidor es un `LatetError`, con su estado y sus palabras, y una llamada que no llegó
+Cada rechazo del servidor es un `LatetError`, con su estado y su mensaje, y una llamada que no llegó
 a hacerse es un `ConnectionFailed` (estado 0). `ConnectionFailed` ocupa el lugar de los errores de
-`httpx`, también los de un `httpx.Client` que pases como `client=`, y no contiene la solicitud, para
+`httpx`, también los de un `httpx.Client` que pases como `client=`, y no contiene la petición, para
 que el token no aparezca en ningún error: captura los errores del cliente, no los de `httpx`. Una
 dirección `http://` de otro equipo da un `ClearTextWarning`, porque el token y las líneas viajarían en
 claro. El cliente juzga solo por la dirección, así que un `client=` tuyo que llega al servidor por TLS
@@ -102,7 +102,7 @@ clave. Para lo demás, configura las reglas de la clave
   y en las líneas `clave=valor` donde un valor con espacios va entre comillas:
   `phone="+39 347 123 4567"`. Un valor sin comillas termina en el primer espacio. Escribe tus líneas
   de registro en JSON, o pon esos valores entre comillas.
-- Los **términos** y los **reconocedores** atrapan tus propios nombres y formatos: el nombre de un
+- Los **términos** y los **reconocedores** detectan tus propios nombres y formatos: el nombre de un
   cliente, un número de pedido escrito `ORD-123456` ([reconocedores personalizados](../../concepts/custom-recognizers/)).
 - Los **nombres** en el texto libre de un mensaje se encuentran con el modelo de nombres local
   instalado en el servidor, en los textos `prose`; en los textos `data`, con el perfil `max`.
@@ -125,14 +125,14 @@ print(support.unmask(line).text)
 Para encontrar todas las líneas de un cliente, enmascara su dirección con un token que puede
 enmascarar y busca el valor ficticio en el servicio de registros. Cada restauración se escribe en el
 registro de administración del servidor, con el token y cuántos valores restauró;
-`latet server log --action apps.unmasked` las lista.
+`latet server log --action apps.unmasked` las enumera.
 
 ## Qué velocidad, y cuántas instancias
 
 En una instancia, el enmascaramiento procesa unas 190 líneas por segundo para una clave nueva y de
 410 a 440 para una clave cuya caja fuerte contiene de 200.000 a 1.000.000 de valores; la restauración,
-de 1.500 a 2.700 ([las mediciones](../#velocidad)). Las llamadas de una clave se ejecutan una tras otra
-en una instancia, así que un servicio que registra más deprisa necesita más instancias detrás del
+de 1500 a 2700 ([las mediciones](../#velocidad)). Las llamadas de una clave se ejecutan una tras otra
+en una instancia, así que un servicio que registra más deprisa que eso necesita más instancias detrás del
 equilibrador de carga, o repartir sus líneas entre claves cuyos clientes no hace falta seguir juntos.
 
 Una llamada guarda las líneas en memoria hasta que recibe respuesta: envía desde una cola propia, para

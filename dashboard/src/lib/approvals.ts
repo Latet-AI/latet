@@ -1,7 +1,9 @@
 // The Live Reviewer in the dashboard: the queue of batches waiting for you, and the values you mask
 // by hand before approving one.
 
-import type { Agent, ApprovalDecision, ApprovalEvent, Batch, LiveItem, ReviewCategory, SettingsChange, SlotKind } from '../api/types'
+import { ApiError } from '../api/client'
+import type { Agent, ApprovalDecision, ApprovalEvent, Batch, Decides, LiveItem, ReviewCategory, SettingsChange, SlotKind } from '../api/types'
+import { tk } from '../i18n'
 import { imagesBody, type ImageChoice } from './images'
 import { AGENT_LABEL } from './labels'
 import { CATEGORY_TYPE, REVIEW_CATEGORIES } from './reviewer'
@@ -52,6 +54,7 @@ export function applyEvent(state: QueueState, event: ApprovalEvent): QueueState 
       if (!state.batches.some((b) => b.id === event.batch.id)) return state
       return { ...state, batches: state.batches.map((b) => (b.id === event.batch.id ? event.batch : b)) }
     case 'settled':
+    case 'withheld': // approved by the team, withheld as it left (Latet Enterprise): settled already, as a rule
       return withoutBatch(state, event.id)
     case 'change':
       // At most one waits: a newer change replaces the one before (settled as superseded).
@@ -74,19 +77,137 @@ export function withoutChange(state: QueueState, id: string): QueueState {
   return { ...state, changes: state.changes.filter((c) => c.id !== id) }
 }
 
-/** Everything waiting for you: the batches and the change to your settings (the menu's count, the tab title). */
+/** What waits for you to decide: the batches and the change to your settings (the menu's count, the tab title); not what
+ * someone else decides on. */
 export function waitingCount(state: Pick<QueueState, 'batches' | 'changes'>): number {
-  return state.batches.length + state.changes.length
+  return state.batches.filter((b) => !othersDecide(b)).length + state.changes.filter((c) => !othersDecide(c)).length
+}
+
+/** Whether someone else decides on it (Latet Enterprise): you may stop or undo it, not approve it. */
+export function othersDecide(item: { decides?: Decides }): boolean {
+  return item.decides !== undefined && item.decides !== 'self'
+}
+
+/** The batches that wait for your approval: not those your company's security team decides on. */
+export function yourBatches<B extends { decides?: Decides }>(batches: readonly B[]): B[] {
+  return batches.filter((b) => !othersDecide(b))
+}
+
+/**
+ * The Live Reviewer's words, by where its texts go (/me's `edition.approvals.live_review`): to you, or to your company's
+ * security team (Latet Enterprise), who see each text values included and decide on it; you may only stop it. `team`:
+ * whether they go to the team. Each word is a translation key.
+ */
+export function liveReviewWords(routes: { live_review: Decides } | null | undefined) {
+  const team = routes?.live_review === 'security'
+  return {
+    team,
+    /** The Rules page's Live Reviewer section. */
+    description: team ? tk('liveReview.descriptionSecurity') : tk('liveReview.description'),
+    enabled: team ? tk('liveReview.enabledSecurity') : tk('liveReview.enabled'),
+    kinds: team ? tk('liveReview.kindsSecurity') : tk('liveReview.kinds'),
+    timeoutHelp: team ? tk('liveReview.timeoutHelpSecurity') : tk('liveReview.timeoutHelp'),
+    /** The switch of the Live and Approvals pages, and its message. */
+    switchOn: team ? tk('liveReview.switchOnSecurity') : tk('liveReview.switchOn'),
+    turnedOn: team ? tk('liveReview.turnedOnSecurity') : tk('liveReview.turnedOn'),
+    /** The Approvals page: its description, what its empty queue says, and what it says while the reviewer is off. */
+    page: team ? tk('approvals.descriptionSecurity') : tk('approvals.description'),
+    empty: team ? tk('approvals.empty.bodySecurity') : tk('approvals.empty.body'),
+    off: team ? tk('approvals.off.bodySecurity') : tk('approvals.off.body'),
+    /** The name a screen reader gives the Approvals page's queue of texts. */
+    queue: team ? tk('approvals.queue.labelSecurity') : tk('approvals.queue.label'),
+    /** A project's "Live Reviewer here" (its rules' page). */
+    projectHelp: team ? tk('projects.live.helpSecurity') : tk('projects.live.help'),
+  }
+}
+
+/** The name a screen reader gives the tabs of Approvals: what waits for you, or, when someone else decides on your
+ * changes or your texts (Latet Enterprise), what waits for a decision. A translation key. */
+export function tabsLabel(routes: { changes: Decides; live_review: Decides } | null | undefined): string {
+  const others = routes != null && (routes.changes !== 'self' || routes.live_review !== 'self')
+  return others ? tk('approvals.tabs.labelOthers') : tk('approvals.tabs.label')
+}
+
+/** What the Settings tab of Approvals says while no change waits: who a change that lowers protection would wait for
+ * (/me's `edition.approvals.changes`). A translation key. */
+export function settingsEmptyWords(routes: { changes: Decides } | null | undefined): string {
+  if (routes?.changes === 'security') return tk('approvals.settingsEmpty.bodySecurity')
+  if (routes?.changes === 'controllers') return tk('approvals.settingsEmpty.bodyControllers')
+  return tk('approvals.settingsEmpty.body')
+}
+
+/**
+ * What a save held for whoever decides says (the Rules page): that it waits for them and the form shows the settings
+ * in use, once they were read again (`remade`); else only that it waits, the form still holding the change.
+ */
+export function heldSaveWords(pending: Pick<SettingsChange, 'decides'>, remade: boolean): string {
+  if (!remade) return tk('errors.settingsWaitingForOthers')
+  return pending.decides === 'controllers' ? tk('approvals.whoDecides.sentControllers') : tk('approvals.whoDecides.sent')
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
 /**
+ * Who decides, for a sentence: their names as the language lists them, then how many more there are past those the
+ * server names (`more`: /me's `deciders_more` or `text_deciders_more`); or that nobody can yet.
+ */
+export function decidersText(
+  t: Translate,
+  list: (items: readonly string[]) => string,
+  deciders: readonly string[] | undefined,
+  more = 0,
+): string {
+  if (!deciders || deciders.length === 0) return t('approvals.whoDecides.nobody')
+  return list(more > 0 ? [...deciders, t('approvals.whoDecides.more', { count: more })] : deciders)
+}
+
+/**
+ * What you are told when someone else decided on your change (Latet Enterprise, `by` set): the words' key, which names
+ * them as `name`, and the message's tone. An approval your settings did not take (R60), or that came after they moved
+ * on (stale), applied nothing: ask again. Null for your own decisions and for ends nobody decided.
+ */
+export function decidedBy(
+  event: Extract<ApprovalEvent, { type: 'change_settled' }>,
+): { key: string; tone: 'ok' | 'info' | 'fail' } | null {
+  if (!event.by) return null
+  switch (event.state) {
+    case 'approved':
+      return { key: tk('approvals.whoDecides.approvedBy'), tone: 'ok' }
+    case 'rejected':
+      return { key: tk('approvals.whoDecides.rejectedBy'), tone: 'info' }
+    case 'approved-unapplied':
+    case 'stale':
+      return { key: tk('approvals.whoDecides.unappliedBy'), tone: 'fail' }
+    default:
+      return null
+  }
+}
+
+/** How many deciders the server names on an item at most (its MOST_NAMED): an item carries no count of the others. */
+export const MOST_NAMED = 20
+
+/** How many more decide on an item than it names: /me's count for the same route (`counted`) when the item's list is
+ * full, else none (the whole team is named). */
+export function moreDeciders(names: readonly string[] | undefined, counted: number | undefined): number {
+  return names !== undefined && names.length >= MOST_NAMED ? (counted ?? 0) : 0
+}
+
+/** The change a save in the dashboard made, waiting for whoever decides on it (the daemon's 409), or null. */
+export function pendingOf(error: unknown): SettingsChange | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const pending = (error.body as { pending?: unknown } | undefined)?.pending
+  if (!pending || typeof pending !== 'object' || typeof (pending as { id?: unknown }).id !== 'string') return null
+  return pending as SettingsChange
+}
+
+/**
  * Where a change to your settings came from, as one sentence. On a Latet server (`server`) there is no config.yaml: a
  * change found as the settings were applied again (`file`: a change set for everyone, or yours saved on another
- * instance) and one found as your space was made (`start`) each have words of their own.
+ * instance) and one found as your space was made (`start`) each have words of their own, which say that the settings
+ * you approved run until someone else decides when it is theirs to decide (Latet Enterprise).
  */
-export function changeOrigin(t: Translate, change: Pick<SettingsChange, 'source' | 'agent'>, server = false): string {
+export function changeOrigin(t: Translate, change: Pick<SettingsChange, 'source' | 'agent' | 'decides'>, server = false): string {
+  const others = othersDecide(change)
   switch (change.source) {
     case 'command': {
       if (!change.agent) return t('approvals.change.source.commandNoAgent')
@@ -94,9 +215,13 @@ export function changeOrigin(t: Translate, change: Pick<SettingsChange, 'source'
       return t('approvals.change.source.command', { agent: label ? t(label) : change.agent })
     }
     case 'file':
-      return server ? t('approvals.change.source.serverFile') : t('approvals.change.source.file')
+      if (!server) return t('approvals.change.source.file')
+      return others ? t('approvals.change.source.serverFileOthers') : t('approvals.change.source.serverFile')
     case 'start':
-      return server ? t('approvals.change.source.serverStart') : t('approvals.change.source.start')
+      if (!server) return t('approvals.change.source.start')
+      return others ? t('approvals.change.source.serverStartOthers') : t('approvals.change.source.serverStart')
+    case 'dashboard':
+      return t('approvals.change.source.dashboard')
     default:
       return t('approvals.change.source.other')
   }
@@ -106,7 +231,7 @@ export function changeOrigin(t: Translate, change: Pick<SettingsChange, 'source'
  * The batch shown: the one chosen while it waits; once it leaves, the one that took its place in the
  * queue (or the last); the oldest when nothing was chosen.
  */
-export function selectedBatch(batches: readonly Batch[], selection: { id: string; index: number } | null): Batch | null {
+export function selectedBatch<B extends Pick<Batch, 'id'>>(batches: readonly B[], selection: { id: string; index: number } | null): B | null {
   if (batches.length === 0) return null
   if (!selection) return batches[0] ?? null
   return batches.find((b) => b.id === selection.id) ?? batches[Math.min(selection.index, batches.length - 1)] ?? null

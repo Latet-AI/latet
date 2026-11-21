@@ -4,7 +4,9 @@
 // Keyboard shortcuts, off until you turn them on, decide the texts too (lib/shortcuts); Enter approves nothing. A text
 // is decided only once it has shown 400 ms, and after a decision the focus is on the text that shows next.
 // `embedded` is the queue and the batch alone, for another page to show (the tutorial's): no header, no tabs, no
-// approve-all, no switch, no shortcuts, one column.
+// approve-all, no switch, no shortcuts, one column. With Latet Enterprise on a server, a text or a change may wait for
+// someone else (your company's security team, or the people who control an API key): it shows as it is, named, with
+// Don't send or Undo alone, and neither approve-all nor a shortcut approves it.
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -17,9 +19,10 @@ import { DocsWhyLink } from '../components/DocsLinks'
 import { Icon } from '../components/Icon'
 import { LiveReviewSwitch } from '../components/LiveReviewEditor'
 import { PendingChanges } from '../components/SettingsChange'
+import { TeamReviewsBanner, WhoDecidesNote } from '../components/WhoDecides'
 import { tabIds, Tabs } from '../components/Tabs'
 import { blockMarks } from '../components/masked/marks'
-import { markStyle, type MarkTone } from '../components/masked/MaskedText'
+import { MaskedText, markStyle, type MarkTone } from '../components/masked/MaskedText'
 import { REFUSED, SelectableText, type SelectableHandle, type ShownRange } from '../components/masked/SelectableText'
 import type { TextMark } from '../components/masked/types'
 import { CATEGORY_LABEL } from '../components/ReviewerEditor'
@@ -36,10 +39,14 @@ import {
   findValues,
   inProject,
   maskedRanges,
+  liveReviewWords,
   openSuggestions,
+  othersDecide,
   previewSent,
   projectsWaiting,
   selectedBatch,
+  settingsEmptyWords,
+  tabsLabel,
   shortSession,
   toCodePoint,
   type AddedMask,
@@ -57,9 +64,9 @@ import {
   type Shown,
 } from '../lib/approvalsView'
 import { formatRelative } from '../lib/format'
-import { choiceFor, imageChanges, type ImageChoice } from '../lib/images'
+import { choiceFor, imageChanges, sentMark, type ImageChoice } from '../lib/images'
 import { isJudgement, KIND_LABEL } from '../lib/labels'
-import { useDeploymentKey } from '../lib/me'
+import { useDeploymentKey, useMe } from '../lib/me'
 import { usePref } from '../lib/prefs'
 import { CATEGORY_TYPE } from '../lib/reviewer'
 import { SHORTCUTS, turnedOn, useApprovalShortcuts, type ShortcutAction } from '../lib/shortcuts'
@@ -84,6 +91,13 @@ const TABS_ID = 'approvals'
 
 /** The tone of the Settings tab's count while a change waits. */
 const WARM = 'warm' as const
+
+/** Who decides, said above the tabs (Latet Enterprise): on the changes and on the texts. */
+const WHO_DECIDES = 'both' as const
+
+/** What the notifications button says it notifies of, here: a new text waiting. */
+const NOTIFY_HELP = tk('approvals.notify.help')
+const NOTIFY_ON_HELP = tk('approvals.notify.onHelp')
 
 const TAB_LABEL: Record<ApprovalsTab, string> = {
   texts: tk('approvals.tabs.texts'),
@@ -117,6 +131,8 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation()
   const toast = useToast()
   const { batches, changes, loaded, stream, live, remove } = useApprovals()
+  const { me } = useMe()
+  const words = liveReviewWords(me?.edition?.approvals) // where the texts wait: for you, or for the security team
   const projects = useAsync('projects', (signal) => api.projects(signal))
   const projectNames = useMemo(() => new Map((projects.data?.items ?? []).map((p) => [p.id, p.name])), [projects.data])
   const [selection, setSelection] = useState<{ id: string; index: number } | null>(null)
@@ -140,6 +156,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   const pickTab = (id: string) => navigate({ search: location.search, hash: `#${id}` }, { replace: true })
   const waitingIn = projectsWaiting(batches)
   const shown = inProject(batches, filter)
+  const decidable = shown.filter((b) => !othersDecide(b)) // approve-all leaves the others' (the daemon approves only these)
   const filtered = shown !== batches
   const now = useNow(batches.length > 0)
   const selected = selectedBatch(shown, selection)
@@ -212,6 +229,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
 
   const decide = async (batch: Batch, action: 'approve' | 'reject') => {
     if (busy || !mayDecideNow(shownSince.current, batch.id)) return
+    if (action === 'approve' && othersDecide(batch)) return // someone else decides on it: you may stop it, not approve it
     const added = masks[batch.id] ?? []
     setBusy(action)
     setError(null)
@@ -241,7 +259,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   const approveAll = async () => {
     setApprovingAll(true)
     try {
-      const waiting = shown.map((b) => b.id)
+      const waiting = decidable.map((b) => b.id)
       const result = await api.approveAll(filtered ? filter : undefined)
       for (const id of waiting) remove(id)
       forget(waiting)
@@ -282,7 +300,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   }
   useApprovalShortcuts(shortcutsOn, {
     approve: () => {
-      if (onTexts && selected) void decide(selected, 'approve')
+      if (onTexts && selected && !othersDecide(selected)) void decide(selected, 'approve')
     },
     skip: () => {
       if (onTexts && selected) void decide(selected, 'reject')
@@ -294,10 +312,10 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
       if (onTexts) move(-1)
     },
     mask: () => {
-      if (onTexts && selected) maskShown()
+      if (onTexts && selected && !othersDecide(selected)) maskShown()
     },
     approveAll: () => {
-      if (onTexts && shown.length > 0) setConfirmAll(true)
+      if (onTexts && decidable.length > 0) setConfirmAll(true)
     },
     help: () => setShortcutsOpen(true),
   })
@@ -314,11 +332,11 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
       <div className="panel">
         {live && !live.enabled ? (
           <EmptyState icon="approvals" title={t('approvals.off.title')}>
-            {t('approvals.off.body')}
+            {t(words.off)}
           </EmptyState>
         ) : (
           <EmptyState icon="approvals" title={changes.length > 0 ? t('approvals.empty.noTexts') : t('approvals.empty.title')}>
-            {t('approvals.empty.body')}
+            {t(words.empty)}
           </EmptyState>
         )}
       </div>
@@ -356,6 +374,8 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
         busy={busy}
         error={error?.id === selected.id ? error.message : null}
         onDecide={(action) => void decide(selected, action)}
+        stopOnly={othersDecide(selected)}
+        banner={othersDecide(selected) ? <TeamReviewsBanner deciders={selected.deciders} /> : undefined}
         steps={steps}
         refocus={refocus}
         shortcuts={shortcutsOn}
@@ -405,7 +425,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   const settingsIds = tabIds(TABS_ID, 'settings')
   return (
     <>
-      <PageHeader title={t('approvals.title')} description={t('approvals.description')} actions={<NotifyButton />} docs="page.approvals" />
+      <PageHeader title={t('approvals.title')} description={t(words.page)} actions={<NotifyButton />} docs="page.approvals" />
 
       {loaded && stream !== 'open' && (
         <p role="status" className="mb-3 text-meta text-ink-3">
@@ -413,9 +433,11 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
         </p>
       )}
 
+      {loaded && <WhoDecidesNote show={WHO_DECIDES} />}
+
       <div className="mb-4">
         <Tabs
-          label={t('approvals.tabs.label')}
+          label={t(tabsLabel(me?.edition?.approvals))}
           idPrefix={TABS_ID}
           active={tab}
           onChange={pickTab}
@@ -445,11 +467,11 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
             <Link to="/rules#live-review" className="link">
               {t('approvals.settings')}
             </Link>
-            <button type="button" className="btn" disabled={shown.length === 0} onClick={() => setConfirmAll(true)}>
+            <button type="button" className="btn" disabled={decidable.length === 0} onClick={() => setConfirmAll(true)}>
               <Icon name="check" size={14} />
               {filtered
-                ? t('approvals.approveAllIn', { count: shown.length, project: projectLabel(filter ?? null) })
-                : t('approvals.approveAll', { count: shown.length })}
+                ? t('approvals.approveAllIn', { count: decidable.length, project: projectLabel(filter ?? null) })
+                : t('approvals.approveAll', { count: decidable.length })}
             </button>
           </span>
         </div>
@@ -467,7 +489,7 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
         ) : (
           <div className="panel">
             <EmptyState icon="rules" title={t('approvals.settingsEmpty.title')}>
-              {t('approvals.settingsEmpty.body')}
+              {t(settingsEmptyWords(me?.edition?.approvals))}
             </EmptyState>
           </div>
         )}
@@ -477,13 +499,13 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
         open={confirmAll}
         title={
           filtered
-            ? t('approvals.approveAllInTitle', { count: shown.length, project: projectLabel(filter ?? null) })
-            : t('approvals.approveAllTitle', { count: shown.length })
+            ? t('approvals.approveAllInTitle', { count: decidable.length, project: projectLabel(filter ?? null) })
+            : t('approvals.approveAllTitle', { count: decidable.length })
         }
         confirmLabel={
           filtered
-            ? t('approvals.approveAllIn', { count: shown.length, project: projectLabel(filter ?? null) })
-            : t('approvals.approveAll', { count: shown.length })
+            ? t('approvals.approveAllIn', { count: decidable.length, project: projectLabel(filter ?? null) })
+            : t('approvals.approveAll', { count: decidable.length })
         }
         onConfirm={() => void approveAll()}
         onCancel={() => setConfirmAll(false)}
@@ -499,14 +521,18 @@ export function ApprovalsPage({ embedded = false }: { embedded?: boolean }) {
   )
 }
 
-function NotifyButton() {
+/**
+ * Browser notifications for what waits, asked once (the Company approvals page shows it too, with `help` and `onHelp`,
+ * the translation keys of what it notifies of).
+ */
+export function NotifyButton({ help = NOTIFY_HELP, onHelp = NOTIFY_ON_HELP }: { help?: string; onHelp?: string }) {
   const { t } = useTranslation()
   const supported = typeof Notification !== 'undefined'
   const [permission, setPermission] = useState<NotificationPermission>(() => (supported ? Notification.permission : 'denied'))
   if (!supported) return null
   if (permission === 'granted') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-meta text-ink-3" title={t('approvals.notify.onHelp')}>
+      <span className="inline-flex items-center gap-1.5 text-meta text-ink-3" title={t(onHelp)}>
         <Icon name="bell" size={13} />
         {t('approvals.notify.on')}
       </span>
@@ -517,7 +543,7 @@ function NotifyButton() {
     <button
       type="button"
       className="btn"
-      title={t('approvals.notify.help')}
+      title={t(help)}
       onClick={() => void Notification.requestPermission().then(setPermission)}
     >
       <Icon name="bell" size={14} />
@@ -545,6 +571,7 @@ function Queue({
 }) {
   const { t } = useTranslation()
   const key = useDeploymentKey()
+  const { me } = useMe()
   const fmt = useFormat()
   const list = useRef<HTMLUListElement>(null)
 
@@ -566,7 +593,7 @@ function Queue({
         <p className="py-0.5 text-meta text-ink-2">{t('approvals.queue.title', { count: batches.length })}</p>
         {filter}
       </div>
-      <ul ref={list} role="listbox" aria-label={t('approvals.queue.label')} className="max-h-[70vh] overflow-y-auto" onKeyDown={onKeyDown}>
+      <ul ref={list} role="listbox" aria-label={t(liveReviewWords(me?.edition?.approvals).queue)} className="max-h-[70vh] overflow-y-auto" onKeyDown={onKeyDown}>
         {batches.map((batch) => {
           const active = batch === selected
           const project = batch.project ? projectNames.get(batch.project) : undefined
@@ -597,6 +624,7 @@ function Queue({
                     {t(key(KIND_LABEL[kind]))}
                   </span>
                 ))}
+                {othersDecide(batch) && <span className="tag border-warn/60">{t('approvals.whoDecides.tag')}</span>}
               </div>
               {left !== null && (
                 <p className={`mt-1.5 text-meta ${left < 30 ? 'text-crit-ink' : 'text-ink-2'}`}>
@@ -611,7 +639,7 @@ function Queue({
   )
 }
 
-function BatchView({
+export function BatchView({
   batch,
   masks,
   setMasks,
@@ -622,6 +650,11 @@ function BatchView({
   busy,
   error,
   onDecide,
+  stopOnly = false,
+  imageUrl = (item, view, mark) => api.approvalImageUrl(batch.id, item, view, mark),
+  canKeep = true,
+  banner,
+  hideActions = false,
   steps,
   refocus,
   shortcuts = false,
@@ -638,6 +671,17 @@ function BatchView({
   busy: 'approve' | 'reject' | null
   error: string | null
   onDecide: (action: 'approve' | 'reject') => void
+  /** Someone else decides on it (Latet Enterprise): shown as it is, and only stopped. */
+  stopOnly?: boolean
+  /** Where its images come from (the Company approvals page has a route of its own), as it leaves now with `mark`
+   * (`sentMark` of its text as masked), so that it is asked again once it is painted again. */
+  imageUrl?: (item: number, view: 'original' | 'sent', mark?: string) => string
+  /** Whether "Always mask" (your terms) is offered: not for someone else's text. */
+  canKeep?: boolean
+  /** Shown above its texts. */
+  banner?: ReactNode
+  /** No decision is offered (the Company approvals page once a trial ended: read, not changed). */
+  hideActions?: boolean
   /**
    * In a narrow window, one text at a time: the original and what will be sent one above the other, and the decision
    * in an action bar at the bottom with the previous and the next text (null: none). Undefined: the wide layout.
@@ -670,6 +714,10 @@ function BatchView({
     ;(pressed && !pressed.disabled ? pressed : other)?.focus()
   })
   useEffect(() => takeFocus(), [])
+  // Read, not decided here: someone else decides (stopOnly), or nobody can now (hideActions, a trial ended). Nothing
+  // to mask in it, no legend of how, no claim of how it leaves, and no image to draw on (the server serves none of a
+  // text once a trial ended; the person's own view shows none of a text someone else decides on).
+  const viewOnly = stopOnly || hideActions
   const values = useMemo(() => masks.map((m, key) => ({ value: m.value, category: m.category, key })), [masks])
   const legend = useMemo(
     () => batch.items.flatMap((item, i) => blockMarks(item.original, item.masked, item.replacements, `${batch.id}:${i}`).values),
@@ -682,7 +730,7 @@ function BatchView({
       {masks.length > 0 && <p>{t('approvals.decision.masks', { count: masks.length })}</p>}
       {changed.rects > 0 && <p>{t('approvals.decision.rects', { count: changed.rects })}</p>}
       {changed.withheld > 0 && <p>{t('approvals.decision.withheld', { count: changed.withheld })}</p>}
-      {!anyChange && <p>{t('approvals.decision.asIs')}</p>}
+      {!anyChange && !viewOnly && <p>{t('approvals.decision.asIs')}</p>}
       {error && (
         <p role="alert" className="flex items-start gap-1.5 text-crit-ink">
           <Icon name="ban" size={13} className="mt-px flex-none" />
@@ -691,7 +739,7 @@ function BatchView({
       )}
     </div>
   )
-  const buttons = (
+  const buttons = !hideActions && (
     <div className="flex flex-wrap gap-2">
       <button
         type="button"
@@ -709,27 +757,29 @@ function BatchView({
           </kbd>
         )}
       </button>
-      <button
-        type="button"
-        className="btn btn-primary"
-        disabled={busy !== null}
-        onClick={() => onDecide('approve')}
-        aria-keyshortcuts={shortcuts ? KEY.approve : undefined}
-      >
-        <Icon name="check" size={14} />
-        {busy === 'approve'
-          ? t('approvals.approving')
-          : masks.length > 0
-            ? t('approvals.approveWith', { count: masks.length })
-            : anyChange
-              ? t('approvals.approveChanged')
-              : t('approvals.approve')}
-        {shortcuts && (
-          <kbd className="kbd" aria-hidden="true">
-            {KEY.approve}
-          </kbd>
-        )}
-      </button>
+      {!stopOnly && (
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy !== null}
+          onClick={() => onDecide('approve')}
+          aria-keyshortcuts={shortcuts ? KEY.approve : undefined}
+        >
+          <Icon name="check" size={14} />
+          {busy === 'approve'
+            ? t('approvals.approving')
+            : masks.length > 0
+              ? t('approvals.approveWith', { count: masks.length })
+              : anyChange
+                ? t('approvals.approveChanged')
+                : t('approvals.approve')}
+          {shortcuts && (
+            <kbd className="kbd" aria-hidden="true">
+              {KEY.approve}
+            </kbd>
+          )}
+        </button>
+      )}
     </div>
   )
   return (
@@ -752,16 +802,21 @@ function BatchView({
         </span>
       </header>
 
-      <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-ink-2" aria-label={t('legend.label')}>
-        <li className="inline-flex items-center gap-1.5">
-          <span className="mask-suggested code flex-none px-1 text-micro">{t('legend.sample')}</span>
-          {t('approvals.legend.suggested')}
-        </li>
-        <li className="inline-flex items-center gap-1.5">
-          <span className="mask-pending code flex-none px-1 text-micro">{t('legend.sample')}</span>
-          {t('approvals.legend.added')}
-        </li>
-      </ul>
+      {/* What you can mask, and how: nothing to mask in a text someone else decides on, or nobody can. */}
+      {!viewOnly && (
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-ink-2" aria-label={t('legend.label')}>
+          <li className="inline-flex items-center gap-1.5">
+            <span className="mask-suggested code flex-none px-1 text-micro">{t('legend.sample')}</span>
+            {t('approvals.legend.suggested')}
+          </li>
+          <li className="inline-flex items-center gap-1.5">
+            <span className="mask-pending code flex-none px-1 text-micro">{t('legend.sample')}</span>
+            {t('approvals.legend.added')}
+          </li>
+        </ul>
+      )}
+
+      {banner}
 
       {batch.items.map((item, index) => (
         <ItemView
@@ -776,12 +831,17 @@ function BatchView({
           stacked={steps !== undefined}
           maskers={maskers}
           setMasks={setMasks}
+          readOnly={viewOnly}
+          canKeep={canKeep}
           image={
-            item.image && {
-              choice: choiceFor(item.image, images[index]),
-              src: (view) => api.approvalImageUrl(batch.id, index, view),
-              onChange: (choice) => setImage(index, choice),
-            }
+            // Someone else's to decide, or nobody's now: no rectangle is drawn on it, and no image withheld.
+            item.image && !viewOnly
+              ? {
+                  choice: choiceFor(item.image, images[index]),
+                  src: (view) => imageUrl(index, view, sentMark(item.masked)),
+                  onChange: (choice) => setImage(index, choice),
+                }
+              : undefined
           }
         />
       ))}
@@ -819,10 +879,13 @@ function BatchView({
           {buttons}
         </div>
       ) : (
-        <div className="panel sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 shadow-[var(--shadow)]">
-          {summary}
-          {buttons}
-        </div>
+        // No decision offered: the bar shows only to say what went wrong.
+        (!hideActions || error) && (
+          <div className="panel sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 shadow-[var(--shadow)]">
+            {summary}
+            {buttons}
+          </div>
+        )
       )}
     </section>
   )
@@ -839,6 +902,8 @@ function ItemView({
   stacked,
   maskers,
   setMasks,
+  readOnly,
+  canKeep,
   image,
 }: {
   item: LiveItem
@@ -853,6 +918,10 @@ function ItemView({
   stacked: boolean
   maskers?: RefObject<Map<number, Masker>> | undefined
   setMasks: (update: (list: AddedMask[]) => AddedMask[]) => void
+  /** Someone else decides on it: the original shown as it is, nothing to mask in it. */
+  readOnly: boolean
+  /** Whether "Always mask" (your terms) is offered for a value masked here. */
+  canKeep: boolean
   /** The image the text was read in, with what you did to it. */
   image?: { choice: ImageChoice; src: (view: 'original' | 'sent') => string; onChange: (choice: ImageChoice) => void } | undefined
 }) {
@@ -889,7 +958,7 @@ function ItemView({
   const selectable = useRef<SelectableHandle>(null)
   useEffect(() => {
     const all = maskers?.current
-    if (!all) return
+    if (!all || readOnly) return // nothing is masked in a text someone else decides on
     all.set(index, {
       selection: () => selectable.current?.pickSelection() ?? false,
       suggestion: () => {
@@ -945,21 +1014,25 @@ function ItemView({
           <p className="flex items-center gap-1.5 border-b border-line bg-surface px-3 py-1 text-meta text-ink-2">
             <Icon name="vault" size={12} className="text-real" />
             {t('approvals.panes.original')}
-            <span className="ml-auto text-ink-3">{t('approvals.panes.selectHint')}</span>
+            {!readOnly && <span className="ml-auto text-ink-3">{t('approvals.panes.selectHint')}</span>}
           </p>
           <div className="bg-well">
-            <SelectableText
-              ref={selectable}
-              text={original}
-              marks={marks.original ?? []}
-              suggestions={shownSuggestions}
-              added={shownFound}
-              check={check}
-              onMask={add}
-              onSuggestion={addSuggestion}
-              label={t('approvals.panes.original')}
-              tone="real"
-            />
+            {readOnly ? (
+              <MaskedText text={original} marks={marks.original ?? []} label={t('approvals.panes.original')} tone="real" />
+            ) : (
+              <SelectableText
+                ref={selectable}
+                text={original}
+                marks={marks.original ?? []}
+                suggestions={shownSuggestions}
+                added={shownFound}
+                check={check}
+                onMask={add}
+                onSuggestion={addSuggestion}
+                label={t('approvals.panes.original')}
+                tone="real"
+              />
+            )}
           </div>
         </div>
         <div className="min-w-0">
@@ -973,7 +1046,7 @@ function ItemView({
         </div>
       </div>
 
-      {suggestions.length > 0 && (
+      {!readOnly && suggestions.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
           <span className="text-meta text-ink-2">{t('approvals.suggestion.intro')}</span>
           {suggestions.map((s, key) => (
@@ -998,18 +1071,20 @@ function ItemView({
               <span className="text-meta text-ink-3">
                 {t('approvals.added.sentAs', { placeholder: CATEGORY_TYPE[mask.category] })}
               </span>
-              <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-meta text-ink-2" title={t('approvals.added.alwaysHelp')}>
-                <input
-                  type="checkbox"
-                  className="accent-[var(--ink)]"
-                  checked={mask.always}
-                  onChange={(e) => setMasks((list) => list.map((m, i) => (i === key ? { ...m, always: e.target.checked } : m)))}
-                />
-                {inProject ? t('approvals.added.alwaysProject') : t('approvals.added.always')}
-              </label>
+              {canKeep && (
+                <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-meta text-ink-2" title={t('approvals.added.alwaysHelp')}>
+                  <input
+                    type="checkbox"
+                    className="accent-[var(--ink)]"
+                    checked={mask.always}
+                    onChange={(e) => setMasks((list) => list.map((m, i) => (i === key ? { ...m, always: e.target.checked } : m)))}
+                  />
+                  {inProject ? t('approvals.added.alwaysProject') : t('approvals.added.always')}
+                </label>
+              )}
               <button
                 type="button"
-                className="btn btn-ghost btn-sm btn-icon"
+                className={`btn btn-ghost btn-sm btn-icon${canKeep ? '' : ' ml-auto'}`}
                 aria-label={t('approvals.added.remove', { value: mask.value })}
                 title={t('approvals.added.remove', { value: mask.value })}
                 onClick={() => setMasks((list) => list.filter((_, i) => i !== key))}

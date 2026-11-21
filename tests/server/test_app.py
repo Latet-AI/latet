@@ -29,6 +29,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from latet import __version__
+from latet.gateway.forward import cookieless
 from latet.gateway.security import BodyLimit
 from latet.logline import Paced
 from latet.server import admin as admin_module
@@ -250,8 +251,8 @@ def test_a_page_of_another_site_spends_no_session_limit_of_its_visitors_address(
     requests are its page's (``same-origin``)."""
     monkeypatch.setattr(app_module, "LOOKUP_LIMIT", 2)
     looked = []
-    subject_of = server.sign_ins.subject_of
-    monkeypatch.setattr(server.sign_ins, "subject_of", lambda sid: looked.append(sid) or subject_of(sid))
+    subject_of = server.sign_ins.session_of  # what the gate reads of a session: whose, and how it was opened
+    monkeypatch.setattr(server.sign_ins, "session_of", lambda sid: looked.append(sid) or subject_of(sid))
     junk = {"cookie": "latet_session=planted-by-a-sibling"}
     pages = [{"sec-fetch-site": "same-site"}, {"sec-fetch-site": "cross-site"}, {"origin": "https://shop.acme.lan"}]
     for page in pages:
@@ -310,11 +311,11 @@ def test_a_token_revoked_between_the_sign_ins_check_and_its_session_leaves_no_se
     link = client.post(f"{SERVER}/login-code", headers=_mine(token)).json()["url"]
     opened, sessions = server.sign_ins.open, []
 
-    def revoked_meanwhile(subject):
+    def revoked_meanwhile(subject, **opened_how):
         with server.db.connection() as conn:  # revoked on another instance, between the check and the opening
             conn.execute("DELETE FROM tokens WHERE identity_id = %s", (person.id,))
         server.sign_ins.end(subject=subject)  # the revocation's end of the person's sessions: before this one
-        sessions.append(opened(subject))
+        sessions.append(opened(subject, **opened_how))
         return sessions[-1]
 
     monkeypatch.setattr(server.sign_ins, "open", revoked_meanwhile)
@@ -363,7 +364,7 @@ def test_an_instance_that_loses_valkey_drops_its_spaces_and_is_not_ready_until_i
     _, token = _enrolled(server, client)
     mine, ping = {"x-latet-token": token}, f"/u/{route_key(token)}{ENGINE}/ping"
     assert client.get(ping, headers=mine).status_code == 200 and server.spaces.count() == 1
-    assert drop_listeners(server.bus) == 1
+    assert drop_listeners(server.bus) >= 1  # the instance's ear among them, beside the edition's listener
     lost = None
     for _ in range(250):
         answer = client.get("/_latet/ready")
@@ -880,7 +881,7 @@ def test_a_slow_store_holds_up_no_other_request(server, client, monkeypatch):
     assert _held_up(server, client, monkeypatch, server.identities, "_owner", ping) == 200
     monkeypatch.undo()
     me = functools.partial(client.get, f"{API}/me")
-    assert _held_up(server, client, monkeypatch, server.sign_ins, "subject_of", me) == 200
+    assert _held_up(server, client, monkeypatch, server.sign_ins, "session_of", me) == 200
     monkeypatch.undo()
     server.identities.forget()
     guess = functools.partial(client.get, f"{SERVER}/whoami", headers={"x-latet-token": "latet_pat_" + "0" * 43})
@@ -905,7 +906,7 @@ def test_a_store_that_does_not_answer_fails_the_request_closed_and_is_named_by_i
     with caplog.at_level(logging.WARNING, logger="latet"):
         assert client.get(f"{SERVER}/whoami", headers={"x-latet-token": token}).status_code == 503
         assert client.get(f"/u/{route_key(token)}{ENGINE}/ping", headers={"x-latet-token": token}).status_code == 503
-        monkeypatch.setattr(server.sign_ins, "subject_of", unanswered)
+        monkeypatch.setattr(server.sign_ins, "session_of", unanswered)
         client.cookies.set("latet_session", "s" * 43, domain="latet.acme.lan", path="/_latet")
         assert client.get(f"{API}/me").status_code == 503
     said = [record.getMessage() for record in caplog.records]
@@ -1127,7 +1128,7 @@ async def test_one_sessions_flood_of_dashboard_requests_holds_up_neither_another
     app = create_server_app(server)
     flood = 400
     looked: list[str] = []
-    subject_of = server.sign_ins.subject_of
+    subject_of = server.sign_ins.session_of  # what the gate reads of a session: whose, and how it was opened
 
     def far(sid):  # a Valkey 20 ms away
         looked.append(sid)
@@ -1140,7 +1141,7 @@ async def test_one_sessions_flood_of_dashboard_requests_holds_up_neither_another
     async with app.router.lifespan_context(app):
         await until(server.listening.is_set)
         monkeypatch.setattr(server.spaces, "app", _space_answering_at_once)
-        monkeypatch.setattr(server.sign_ins, "subject_of", far)
+        monkeypatch.setattr(server.sign_ins, "session_of", far)
         assert (await _dashboard_of(app, hers, "203.0.113.9"))[0] == 200  # looked up, held from now on
         sent = [asyncio.create_task(_dashboard_of(app, hers, "203.0.113.9")) for _ in range(flood)]
         try:
@@ -1168,7 +1169,7 @@ async def test_one_sessions_flood_past_its_few_seconds_in_memory_takes_one_looku
     app = create_server_app(server)
     flood = 400
     looked: list[str] = []
-    subject_of = server.sign_ins.subject_of
+    subject_of = server.sign_ins.session_of  # what the gate reads of a session: whose, and how it was opened
 
     def far(sid):  # a Valkey 20 ms away
         looked.append(sid)
@@ -1181,7 +1182,7 @@ async def test_one_sessions_flood_past_its_few_seconds_in_memory_takes_one_looku
     async with app.router.lifespan_context(app):
         await until(server.listening.is_set)
         monkeypatch.setattr(server.spaces, "app", _space_answering_at_once)
-        monkeypatch.setattr(server.sign_ins, "subject_of", far)
+        monkeypatch.setattr(server.sign_ins, "session_of", far)
         assert (await _dashboard_of(app, hers, "203.0.113.9"))[0] == 200
         await asyncio.sleep(0.35)  # its few seconds in memory over
         looked.clear()
@@ -1203,7 +1204,7 @@ async def test_a_sessions_lookup_runs_on_for_the_others_when_the_request_that_be
     runs on, and the request of the same session that waits for its answer is answered."""
     app = create_server_app(server)
     entered, release = threading.Event(), threading.Event()
-    subject_of = server.sign_ins.subject_of
+    subject_of = server.sign_ins.session_of  # what the gate reads of a session: whose, and how it was opened
 
     def held_up(sid):  # a Valkey that takes its time
         entered.set()
@@ -1215,7 +1216,7 @@ async def test_a_sessions_lookup_runs_on_for_the_others_when_the_request_that_be
     async with app.router.lifespan_context(app):
         await until(server.listening.is_set)
         monkeypatch.setattr(server.spaces, "app", _space_answering_at_once)
-        monkeypatch.setattr(server.sign_ins, "subject_of", held_up)
+        monkeypatch.setattr(server.sign_ins, "session_of", held_up)
         first = asyncio.create_task(_dashboard_of(app, hers))
         try:
             await until(entered.is_set)
@@ -1235,7 +1236,7 @@ async def test_a_request_after_a_sessions_end_waits_for_no_lookup_begun_before_i
     what the lookup read, but one that comes after the end waits for no lookup begun before it, and is refused."""
     app = create_server_app(server)
     entered, release = threading.Event(), threading.Event()
-    subject_of = server.sign_ins.subject_of
+    subject_of = server.sign_ins.session_of  # what the gate reads of a session: whose, and how it was opened
 
     def held_up(sid):  # read at once, answered late
         found = subject_of(sid)
@@ -1248,7 +1249,7 @@ async def test_a_request_after_a_sessions_end_waits_for_no_lookup_begun_before_i
     async with app.router.lifespan_context(app):
         await until(server.listening.is_set)
         monkeypatch.setattr(server.spaces, "app", _space_answering_at_once)
-        monkeypatch.setattr(server.sign_ins, "subject_of", held_up)
+        monkeypatch.setattr(server.sign_ins, "session_of", held_up)
         first = asyncio.create_task(_dashboard_of(app, hers))
         try:
             await until(entered.is_set)
@@ -1557,9 +1558,9 @@ def test_a_persons_held_lock_holds_up_no_other_persons_lookup(server, client):
     runtime = client.portal.call(server.spaces.runtime, person)
     applied, update_config = [], runtime.update_config
 
-    def spied(change):
+    def spied(change, **kwargs):
         applied.append(threading.current_thread().name)
-        return update_config(change)
+        return update_config(change, **kwargs)
 
     runtime.update_config = spied
     held, release = threading.Event(), threading.Event()
@@ -1902,6 +1903,104 @@ async def test_a_no_store_answer_says_it_once_whatever_its_app_said():
         headers = sent[0]["headers"]
         assert [value for name, value in headers if name == b"cache-control"] == [said], path
         assert (b"x-content-type-options", b"nosniff") in headers
+
+
+# --- what an upstream's answer says on the server's origin (the final security review's dashboard L1) -----------------
+
+SANDBOX = b"default-src 'none'; sandbox"
+
+
+async def _answer_headers(path: str, said: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
+    """The headers ``AnswerHeaders`` lets out of an answer to ``path`` whose app said ``said``."""
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": list(said)})
+        await send({"type": "http.response.body", "body": b"<script>fetch('/_latet/api/v1/me')</script>"})
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "path": path, "raw_path": path.encode(), "headers": []}
+    await app_module.AnswerHeaders(app)(scope, None, send)
+    return sent[0]["headers"]
+
+
+async def test_an_answer_under_an_address_runs_nothing_and_sets_no_cookie_of_latets_nor_one_outside_its_address():
+    """A person's own destination answers a page with a script, and a cookie: under an identity's address the answer
+    is sandboxed (no script runs, nothing loads, it has no origin of the server's), and no cookie it sets reaches the
+    dashboard's (``latet_session``, any Latet cookie, or one whose path leaves the address)."""
+    route = route_key("emily's token")
+    inside = f"/u/{route}"
+    cookies = [
+        b"latet_session=theirs; Path=/_latet; HttpOnly",
+        f"latet_sso=theirs; Path={inside}".encode(),  # a Latet name, wherever it is
+        b"LATET_TUTORIAL_5283=theirs",
+        b"__Host-latet_session=theirs; Path=/; Secure",
+        b"latet_session",  # no value: a browser keeps it nameless, and reads its name in it
+        f"=latet_session=theirs; Path={inside}".encode(),  # no name: a browser sends its value, latet_session=theirs
+        f"=x; Path={inside}".encode(),  # no name either
+        b"cf=1; Path=/",
+        b"cf=2; Path=/u",
+        f"cf=3; Path=/u/{route_key('another token')}".encode(),
+        f"cf=4; Path={inside}x".encode(),
+        f"cf=5; path={inside}; Path=/".encode(),  # the last Path is the one a browser keeps
+        f"kept=1; Path={inside}".encode(),
+        f"kept=2; Path={inside}/anthropic; HttpOnly".encode(),
+        b"kept=3; Secure",  # no Path: the request's own, /u/<route>/anthropic/v1
+        b"kept=4; Path=relative",  # not a path: the request's own as well
+    ]
+    said = [(b"content-type", b"text/html"), (b"content-security-policy", b"default-src *"), (b"clear-site-data", b'"cookies"'), *((b"set-cookie", c) for c in cookies)]  # fmt: skip
+    headers = await _answer_headers(f"{inside}/anthropic/v1/models", said)
+    assert [value for name, value in headers if name == b"content-security-policy"] == [SANDBOX]
+    assert not [value for name, value in headers if name == b"clear-site-data"]  # it would sign the person out
+    assert [value.split(b";")[0] for name, value in headers if name == b"set-cookie"] == [b"kept=1", b"kept=2", b"kept=3", b"kept=4"]  # fmt: skip
+    assert (b"content-type", b"text/html") in headers and (b"cache-control", b"no-store") in headers
+    # At the address itself a cookie with no Path would be the path /u's, every identity's addresses': it is not set.
+    at_the_address = await _answer_headers(inside, [(b"set-cookie", b"cf=6"), (b"set-cookie", f"kept=5; Path={inside}".encode())])  # fmt: skip
+    assert [value for name, value in at_the_address if name == b"set-cookie"] == [f"kept=5; Path={inside}".encode()]
+    # The applications API's answers are the server's own: sandboxed too, and no cookie is set from them.
+    apps = await _answer_headers("/_latet/apps/v1/unmask", [(b"set-cookie", b"cf=7"), (b"content-type", b"application/json")])  # fmt: skip
+    assert [value for name, value in apps if name == b"content-security-policy"] == [SANDBOX]
+    assert not [value for name, value in apps if name == b"set-cookie"]
+    # The sign-in sets the dashboard's cookie as it always did, and the dashboard's pages keep their own policy.
+    sign_in = [(b"set-cookie", b"latet_session=mine; Path=/_latet; HttpOnly"), (b"content-security-policy", b"default-src 'self'")]  # fmt: skip
+    for path in ("/_latet/ui/login", "/_latet/ui/"):
+        kept = await _answer_headers(path, sign_in)
+        assert [v for n, v in kept if n in (b"set-cookie", b"content-security-policy")] == [v for _, v in sign_in], path
+
+
+def test_a_destinations_page_and_cookies_reach_no_browser_on_the_servers_origin(server, monkeypatch):
+    """The scenario end to end: a destination answers a page with a script and the attacker's own session, to a
+    request with no browser's headers (a browser that sends no Fetch Metadata, which ``from_a_page`` lets through)."""
+    sent: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        headers = [
+            ("content-type", "text/html; charset=utf-8"),
+            ("set-cookie", "latet_session=the-attackers-own; Path=/_latet; HttpOnly"),
+            ("set-cookie", "cf=1; Path=/"),
+            ("set-cookie", "kept=1"),
+        ]
+        page = b"<script>fetch('/_latet/api/v1/ee/roles', {method: 'POST'})</script>"
+        return httpx.Response(200, headers=headers, stream=httpx.ByteStream(page))
+
+    def client(**_):  # cookieless, as Latet's own client is (``forward.make_client``)
+        return httpx.AsyncClient(transport=httpx.MockTransport(answer), cookies=cookieless())
+
+    monkeypatch.setattr("latet.gateway.app.make_client", client)
+    with TestClient(create_server_app(server), base_url=URL) as client:
+        _, token = _enrolled(server, client)
+        address, key = f"/u/{route_key(token)}/anthropic/v1", {"x-api-key": "sk-test"}
+        for method, path, body in (("GET", "models", None), ("POST", "messages", SMALL)):
+            client.cookies.clear()  # an agent sends no cookie (the request's envelope would refuse one)
+            answered = client.request(method, f"{address}/{path}", json=body, headers=key)
+            assert answered.status_code == 200 and answered.text.startswith("<script>"), path  # relayed as it came
+            assert answered.headers["content-security-policy"] == SANDBOX.decode(), path
+            assert answered.headers.get_list("set-cookie") == ["kept=1"], path
+    assert len(sent) == 2  # both reached the destination
 
 
 # --- what is said, what is kept, and whose a space is (fix round 1: the security Minors, Task 12's hand-off) ---------
@@ -2449,8 +2548,10 @@ def test_the_beat_says_the_instance_lives_checks_its_spaces_and_writes_the_logs_
     assert len(checks) >= 8 and 2 <= len(flushes) <= 3  # every beat checks, the log's counts once in FLUSH_SECONDS
     assert len(refusals) == len(flushes) and threading.main_thread().name not in refusals  # alike, off the loop
     assert heard < 0.5  # its own beat, heard on its ear
-    # Task 10: what its beat says of it, numbers, booleans and its version alone, listed among the server's instances.
+    # Task 10: what its beat says of it, numbers, booleans, its version and its edition alone, listed among the server's
+    # instances: the release and the edition are what an administration that needs every instance to apply it reads.
     assert said["instance"] == server.instance and said["worker"] is None and said["version"] == __version__
+    assert said["edition"] == server.edition.name
     assert said["ready"] is True and said["spaces"] == 0 and said["index"] == 0
     assert said["memory"] is None or said["memory"] > 0
     assert listed == [said]
@@ -2568,3 +2669,22 @@ def test_an_ear_that_hears_nothing_is_cancelled_within_three_beats_and_the_insta
                 break
             time.sleep(0.02)
         assert client.get(ping, headers=mine).status_code == 200
+
+
+def test_each_instance_alive_says_its_release_and_its_edition(server, monkeypatch):
+    """Each instance says it is alive naming its release and its edition (its beat); one of a release before says
+    ``1``, and one of Latet Enterprise's 0.10 line its release and edition as it wrote them: what an administration that
+    needs every instance to apply what it sets reads (Latet Enterprise's policy, its central approvals), with whether
+    the listing is whole (the merge review of 0.11.0's M4: one cut at its bound is a lower bound)."""
+    bus = server.bus
+    assert app_module.instances_said(server) == ([], True)
+    app_module._alive(server)  # this one, as its beat says it
+    assert app_module.instances_said(server) == ([f"{__version__} {server.edition.name}"], True)
+    bus.client.set(bus.key("instance:abcdef012345"), b"1", px=60_000)  # an older release's
+    bus.client.set(bus.key("instance:abcdef012347"), b"0.10.3 enterprise", px=60_000)  # the Enterprise 0.10 line's
+    bus.client.set(bus.key("instancex:abcdef012346"), b"2.0.0 enterprise", px=60_000)  # no instance's
+    said, whole = app_module.instances_said(server)
+    assert whole and sorted(said) == sorted(["1", "0.10.3 enterprise", f"{__version__} {server.edition.name}"])
+    monkeypatch.setattr(app_module, "INSTANCE_KEYS", 1)  # the scan stops at one key: an instance may be left out
+    said, whole = app_module.instances_said(server)
+    assert not whole and f"{__version__} {server.edition.name}" in said and len(said) < 3

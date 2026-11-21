@@ -16,15 +16,15 @@ valore reale, come fa per il testo.
 latet ocr install   # downloads the models once (about 31 MB)
 ```
 
-- I modelli usano l'extra `ocr` (ONNX Runtime e Pillow), che gli installer installano insieme a
+- I modelli usano l'extra `ocr` (ONNX Runtime e Pillow), che gli installer aggiungono insieme a
   Latet; `latet upgrade` lo aggiunge a un Latet installato senza.
 - I modelli sono [PP-OCRv6 small](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx) di
-  PaddleOCR, uno che trova le righe di testo e uno che le legge, con licenza Apache-2.0. Vengono da
-  huggingface.co a una revisione fissata, e prima dell'uso ogni file viene confrontato con uno SHA-256
+  PaddleOCR, uno che trova le righe di testo e uno che le legge, con licenza Apache-2.0. Vengono
+  scaricati da huggingface.co a una revisione fissata, e prima dell'uso ogni file viene confrontato con uno SHA-256
   fissato.
-- Girano sulla tua CPU, in circa un secondo per uno screenshot full HD, in pochi secondi per quello
-  di uno schermo 4K o 5K, e in qualche secondo in più per lo screenshot di una pagina intera. Non
-  viene inviato niente da nessuna parte, e Latet si collega a huggingface.co solo quando esegui
+- Funzionano sulla tua CPU, in circa un secondo per uno screenshot full HD, in pochi secondi per
+  quello di uno schermo 4K o 5K, e in parecchi secondi per lo screenshot di una pagina intera. Non
+  viene inviato niente da nessuna parte, e Latet si connette a huggingface.co solo quando esegui
   `latet ocr install`.
 - Un daemon in esecuzione inizia a usarli subito. `latet ocr status` mostra se sono in uso;
   `latet ocr remove` li elimina. Per tenerli installati ma non usarli, imposta `ocr: off`.
@@ -47,7 +47,7 @@ latet ocr install   # downloads the models once (about 31 MB)
    formato, senza i suoi metadati; una che risulterebbe più grande di quanto accettano i provider
    (5 MB) viene inviata come JPEG, o trattenuta se è troppo grande anche così.
 4. Inviata di nuovo, dato che ogni agente reinvia la conversazione, la stessa immagine esce identica,
-   byte per byte, anche dopo un riavvio: la cache del prompt del provider continua a funzionare.
+   byte per byte, anche dopo un riavvio: la cache dei prompt del provider continua a funzionare.
 
 Un'immagine senza niente da mascherare esce così com'era. Un'immagine che Latet non riesce a leggere
 viene trattenuta: al suo posto il modello riceve una breve nota, *[image withheld by Latet: ...]*,
@@ -56,13 +56,14 @@ non è un'immagine valida, a una così lunga rispetto alla sua larghezza, o cos�
 sua altezza, che andrebbe letta in più di 16 parti (lo screenshot di una pagina lunga più di circa
 29.000 pixel), e a qualsiasi immagine mentre i modelli si stanno ancora caricando (una richiesta li
 attende fino a 20 secondi). Da una richiesta che Latet si limita a verificare, come quelle di Claude Code, non
-si può togliere un'immagine: una con un'immagine che Latet non riesce a leggere non viene inviata.
+si può togliere un'immagine: una richiesta con un'immagine che Latet non riesce a leggere non viene
+inviata.
 
 ## Quali immagini
 
 | Cosa | Lette e mascherate |
 | --- | --- |
-| Immagini nei messaggi: le immagini base64 di Claude, gli URL `data:` di OpenAI Chat e Responses, Codex via HTTP e via il suo WebSocket, le immagini inline di Gemini (`inlineData`) | sì |
+| Immagini nei messaggi: le immagini base64 di Claude, gli URL `data:` di OpenAI Chat e Responses, Codex tramite HTTP e tramite il suo WebSocket, le immagini inline di Gemini (`inlineData`) | sì |
 | Screenshot restituiti dagli strumenti: Read di Claude Code su un'immagine, server MCP come quello di un browser, il computer use di OpenAI | sì |
 | Immagini indicate dal loro indirizzo (un URL `https://`, un id di file), PDF e altri documenti, audio | no: la richiesta non viene inviata |
 
@@ -97,7 +98,7 @@ in un progetto.
 
 Una richiesta che Latet riscrive (Codex, OpenCode e gli altri agenti in modalità gateway) invia ogni
 immagine riscritta, senza metadati. Una richiesta che Latet si limita a verificare, come quelle di Claude Code,
-esce come l'ha costruita l'agente, quindi lì Latet rende conto di ogni byte di ogni immagine: la
+esce come l'ha costruita l'agente, quindi lì Latet deve poter spiegare ogni byte di ogni immagine: la
 struttura del suo formato, letta secondo la sua grammatica; il testo dei suoi metadati (il commento
 *Screenshot* di uno screenshot, il programma che l'ha creata, il nome del suo profilo colore), letto
 dal controllo finale; e i pixel dell'immagine principale, di cui il riconoscimento del testo ha letto
@@ -121,7 +122,7 @@ senza i metadati: su iOS, *Condividi*, *Opzioni*, *Posizione* disattivata; in An
 file, *Dettagli*, *Rimuovi proprietà e informazioni personali*. Un normale screenshot non ha niente di
 tutto questo, e passa.
 
-Lì nemmeno un'immagine WebP originale può essere spiegata byte per byte, e viene rifiutata anche lei:
+Un'immagine WebP originale lì non può essere spiegata byte per byte, e anch'essa viene rifiutata:
 esportala come PNG, poi torna indietro o inizia una nuova conversazione. Una richiesta che Latet
 riscrive invia un'immagine WebP riscritta come PNG.
 
@@ -159,7 +160,7 @@ le invii:
 
 ## Cosa non può fare il riconoscimento del testo
 
-- **Non è infallibile, come per i nomi.** Il testo che non legge (molto piccolo, sbiadito, scritto a
+- **Non è infallibile, come il rilevamento dei nomi.** Il testo che non legge (molto piccolo, sbiadito, scritto a
   mano, ruotato, in un carattere stilizzato) esce così com'è. Per gli screenshot che non devono mai
   uscire, usa `images: block`, i rettangoli del Revisore Live, o il revisore locale a cui mostri le
   immagini.

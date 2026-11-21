@@ -77,7 +77,7 @@ from functools import partial
 from typing import TYPE_CHECKING, ClassVar
 
 from latet.engine import lookup
-from latet.engine.anchors import address_word, anchor, dotted, edges, glued_unfound, words_and_windows
+from latet.engine.anchors import address_word, anchor, dotted, edges, glued_unfound, words_and_windows, words_in
 from latet.engine.detectors.base import DetectContext
 from latet.engine.detectors.terms import SCALED_PER_BYTE, KnownValuesDetector, forms, long_enough
 from latet.engine.escapes import blanked, decoded, escapes, read_escaped
@@ -108,6 +108,9 @@ WORKING_VALUES = 5_000
 # 5,000 values and none held (1,041 and 1,131 lines a second, an applications call of 500 lines, one thread). The
 # server's setting key_held_secrets, 0 to 1,000,000.
 HELD_SECRETS = 1_000
+# The values a search of a key's vault opens at most (the dashboard's Vault page in the key's space, Latet Enterprise):
+# past it the search is refused, never answered with a part of them. Masking keeps the store's own bound.
+SEARCHED_AT_MOST = 1_000
 # The share of the working set that leaves memory at once once it is full: the least recently used tenth, so that the
 # detectors are made again once every so many new values, not at each.
 EVICT_SHARE = 0.1
@@ -1875,6 +1878,65 @@ class StoredVault(Vault):
         if found is not None or on_a_loop():
             return found
         return self._fetched(lambda: next(iter(self._store.by_ids([entity_id])), None))
+
+    # --- the vault as its store holds it (a page, a value revealed: the dashboard's, Latet Enterprise) ----------------
+
+    def current(self, entity_id: str) -> Entity | None:
+        """The entity of ``entity_id`` as its store holds it now, never memory's: a value forgotten on another instance,
+        which this one has not heard of yet, is none. Not brought into memory. Not on the event loop. Raises VaultUnread
+        when the store does not answer."""
+        if on_a_loop():
+            raise MaskingError(ON_THE_LOOP)
+        found = self._asked(lambda: self._store.by_ids([entity_id]))
+        return _kept(found[0]) if found else None
+
+    def page(
+        self,
+        offset: int,
+        limit: int,
+        *,
+        etype: str | None = None,
+        eclass: int | None = None,
+        of_types: Iterable[str] | None = None,
+        of_ids: Iterable[str] | None = None,
+    ) -> tuple[list[Entity], int]:
+        """A page of the vault's values and how many match, as its store lists them (``KeyVaultStore.paged``): the
+        whole vault, of which memory holds a working set alone. Not brought into memory. Not on the event loop. Raises
+        VaultUnread when the store does not answer."""
+        if on_a_loop():
+            raise MaskingError(ON_THE_LOOP)
+        found, total = self._asked(
+            lambda: self._store.paged(offset, limit, etype=etype, eclass=eclass, of_types=of_types, of_ids=of_ids)
+        )
+        return [_kept(e) for e in found], total
+
+    def types_held(self) -> dict[str, int]:
+        """How many values of each type the vault holds, as its store counts them. Not on the event loop."""
+        if on_a_loop():
+            raise MaskingError(ON_THE_LOOP)
+        return self._asked(self._store.types_held)
+
+    def holding_words(self, text: str) -> list[Entity]:
+        """The values of the store whose value or fake has one of the words of ``text`` as a word it is found by (its
+        anchor or an edge: ``words_of``), and the one whose value or fake ``text`` is: what a search of the vault reads,
+        never the whole vault, nor brought into memory, ``SEARCHED_AT_MOST`` of them at most. Not on the event loop.
+        Raises VaultUnread when the store does not answer, and the store's refusal of words that would open more (a
+        ``MaskingError``)."""
+        if on_a_loop():
+            raise MaskingError(ON_THE_LOOP)
+        found: dict[str, Entity] = {}
+        words = words_in(text, dotted=True)
+        if words:
+            searched = self._asked(
+                lambda: self._store.with_words(("original", "surrogate"), words, most=SEARCHED_AT_MOST)
+            )
+            for entity in searched:
+                found.setdefault(entity.id, _kept(entity))
+        for ask in (self._store.by_original, self._store.by_surrogate):
+            entity = self._asked(lambda ask=ask: ask(text))
+            if entity is not None:
+                found.setdefault(entity.id, _kept(entity))
+        return list(found.values())
 
     def is_surrogate(self, value: str) -> bool:
         """``Vault.is_surrogate``'s, memory first, then the store: a fake as written, or as it reads unless that

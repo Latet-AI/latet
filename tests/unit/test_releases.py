@@ -3,6 +3,7 @@ dashboard), with local name detection and the text in images. What `latet upgrad
 commands say when those two are missing."""
 
 import contextlib
+import importlib.util
 import json
 import os
 import re
@@ -145,6 +146,7 @@ def _receipt(
 def test_a_requirement_names_the_extras_the_installed_latet_has_beside_names_and_images():
     release = releases.Release("1.2.0", WHEEL)
     assert release.requirement(keep={"server"}) == f"latet[ner,ocr,server] @ {WHEEL}"
+    assert release.requirement(keep={"server", "ldap"}) == f"latet[ldap,ner,ocr,server] @ {WHEEL}"
     assert release.requirement(keep=["server", "ner"]) == f"latet[ner,ocr,server] @ {WHEEL}"
     assert release.requirement(keep=()) == f"latet[ner,ocr] @ {WHEEL}"
     # Without name detection and the text in images, where they cannot be installed: the other extras stay.
@@ -193,7 +195,8 @@ def test_the_extras_installed_are_read_from_uvs_receipt_in_the_folder_of_the_lat
     assert releases.installed_extras() == {"server"}
 
 
-INSTALLED = {"psycopg", "redis", "numpy", "onnxruntime", "pillow"}  # the server's packages, and the text in images'
+# The server's packages (PyJWT for single sign-on, on the Enterprise branch), and the text in images'.
+INSTALLED = {"psycopg", "redis", "numpy", "pyjwt", "onnxruntime", "pillow"}
 
 
 @pytest.mark.parametrize(
@@ -236,7 +239,8 @@ def test_the_packages_installed_here_agree_with_what_names_and_images_need(tmp_p
     monkeypatch.setattr(releases, "_tool_folder", lambda: tmp_path)
     found = releases.installed_extras()
     assert ("ner" in found) == ner.runtime_available() and ("ocr" in found) == models.runtime_available()
-    assert found <= {"ner", "ocr", "server"}
+    assert found <= {"ner", "ocr", "server", "ldap"}
+    assert "ldap" not in found or importlib.util.find_spec("ldap3") is not None
 
 
 def test_a_server_without_its_extra_is_told_an_install_that_keeps_the_others_and_the_folders():
@@ -399,7 +403,8 @@ def test_names_or_images_the_receipt_names_are_never_taken_away(upgrade, extra):
     ("installed", "named"),
     [
         (set(), "ner,ocr"),
-        ({"numpy", "psycopg", "redis"}, "ner,ocr,server"),  # the server extra's packages (numpy since 0.11's index)
+        # the server extra's packages (numpy since 0.11's index, PyJWT on the Enterprise branch)
+        ({"numpy", "psycopg", "pyjwt", "redis"}, "ner,ocr,server"),
         (INSTALLED | {"tokenizers"}, "ner,ocr,server"),
     ],
 )

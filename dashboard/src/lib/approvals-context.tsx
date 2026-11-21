@@ -6,7 +6,18 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { api, type StreamState } from '../api/client'
 import type { ApprovalEvent, Batch, LiveReviewSettings, SettingsChange } from '../api/types'
-import { applyEvent, changeOrigin, EMPTY_QUEUE, waitingCount, withoutBatch, withoutChange, type QueueState } from './approvals'
+import { useToast } from '../components/Toast'
+import {
+  applyEvent,
+  changeOrigin,
+  decidedBy,
+  EMPTY_QUEUE,
+  othersDecide,
+  waitingCount,
+  withoutBatch,
+  withoutChange,
+  type QueueState,
+} from './approvals'
 import { AGENT_LABEL } from './labels'
 import { useMe } from './me'
 import { savedChangePending, whenStale } from './refused'
@@ -22,7 +33,8 @@ export interface ApprovalsState extends QueueState {
   remove: (id: string) => void
   /** Takes a change to your settings out at once, after you decided on it. */
   removeChange: (id: string) => void
-  /** The batches and the change to your settings waiting: the menu's count and the tab title. */
+  /** The batches and the change to your settings waiting for you (not what someone else decides on): the menu's count
+   * and the tab title. */
   waiting: number
 }
 
@@ -43,6 +55,7 @@ export function useApprovals(): ApprovalsState {
 export function ApprovalsProvider({ live, children }: { live: LiveReviewSettings | undefined; children: ReactNode }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const toast = useToast() // App puts ToastProvider around the router, and so around this provider
   const { me, reloadConfig } = useMe()
   const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE)
   const [stream, setStream] = useState<StreamState>('connecting')
@@ -64,18 +77,30 @@ export function ApprovalsProvider({ live, children }: { live: LiveReviewSettings
     }
   }
   const notifyBatch = (batch: Batch) => {
+    if (othersDecide(batch)) return // someone else decides on it, not you
     const agent = AGENT_LABEL[batch.agent] ? t(AGENT_LABEL[batch.agent]) : batch.agent
     notify(t('approvals.notification.title'), t('approvals.notification.body', { agent, count: batch.items.length }), batch.id, '/approvals#texts')
   }
-  const notifyChange = (change: SettingsChange) =>
+  const notifyChange = (change: SettingsChange) => {
+    if (othersDecide(change)) return // someone else decides on it, not you
     notify(t('approvals.change.notification'), changeOrigin(t, change, Boolean(me?.server)), change.id, '/approvals#settings')
+  }
 
   const onEvent = useEffectEvent((event: ApprovalEvent) => {
     setQueue((current) => applyEvent(current, event))
     if (event.type === 'pending') notifyBatch(event.batch)
     else if (event.type === 'change') notifyChange(event.change)
-    // A change approved applies: the settings in use (the Live Reviewer's switch among them) changed.
-    else if (event.type === 'change_settled' && event.state === 'approved') reloadConfig()
+    else if (event.type === 'change_settled') {
+      // A change approved applies: the settings in use (the Live Reviewer's switch among them) changed.
+      if (event.state === 'approved') reloadConfig()
+      // Someone else decided on it (Latet Enterprise): who did, and what came of it (R60: an approval your settings did
+      // not take). Your own decisions, and ends nobody decided, name nobody.
+      const said = decidedBy(event)
+      if (said && event.by) toast.show(t(said.key, { name: event.by }), said.tone)
+    } else if (event.type === 'withheld') {
+      // Approved by your company's security team, withheld as it left: masked then, it was not what they approved.
+      toast.show(t('approvals.whoDecides.withheldChanged'), 'fail')
+    }
   })
 
   useEffect(() => api.approvalsStream((event) => onEvent(event), setStream), [])

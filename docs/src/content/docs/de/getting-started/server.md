@@ -4,13 +4,13 @@ description: Einen Server bereitstellen, einen Rechner verbinden und Personen, A
 ---
 
 Führen Sie Administrationsbefehle in Ihrem eigenen Terminal auf einem Rechner mit Latet aus.
-Lesen Sie [Bereiche und Vertrauen](../../concepts/server/), bevor Sie Zugriff gewähren.
+Lesen Sie, [wie Bereiche und Vertrauen funktionieren](../../concepts/server/), bevor Sie Zugriff gewähren.
 Ein Administrator richtet den Server ein; jede Person verbindet ihren eigenen Rechner.
 Ein KI-Agent kann die Schritte erklären und den Rechner prüfen, aber die Befehle, die die
 Administration ändern, `config get`, `rules export`, `latet server init`,
-`latet server service install` und `latet connect` laufen nicht in einem Agenten: Verweisen Sie ihn auf [`llms-server.md`](https://github.com/Latet-AI/latet/blob/main/llms-server.md).
-Geben Sie einem Agenten nie ein Administrationstoken: Mit einem laufen für ihn die Befehle, die nur
-lesen (der Status, die Listen der Personen und Schlüssel, das Protokoll).
+`latet server service install` und `latet connect` verweigern in einem Agenten die Ausführung: Verweisen Sie ihn auf [`llms-server.md`](https://github.com/Latet-AI/latet/blob/main/llms-server.md).
+Geben Sie einem Agenten nie ein Administrationstoken: Mit einem solchen Token kann er die Befehle
+ausführen, die nur lesen (den Status, die Listen der Personen und Schlüssel, das Protokoll).
 
 ## Die Bereitstellung vorbereiten
 
@@ -23,11 +23,11 @@ Maschine dem Server gibt (`latet server run --workers N`, oder `LATET_SERVER_WOR
 Verbindungen zu PostgreSQL und Valkey
 ([mehrere Instanzen auf einer Maschine](../../concepts/server-operations/#mehrere-instanzen-auf-einer-maschine)).
 Ein erster Server kann mit einem beginnen.
-Legen Sie die öffentliche HTTPS-Adresse fest und bereiten Sie Hauptschlüssel und
-Geheimnisdateien vor. Die Initialisierung gibt ein Administrationstoken aus: bewahren Sie
-es in einem privaten Terminal und Geheimnisspeicher auf. Folgen Sie für Container der
-Initialisierung mit deaktivierten Docker-Logs in der Betriebsanleitung; gewöhnliche
-Initialisierungslogs können das Token speichern.
+Legen Sie zuerst die öffentliche HTTPS-Adresse fest und bereiten Sie Hauptschlüssel und
+Geheimnisdateien vor. Die Initialisierung gibt ein Administrationstoken aus: Bewahren Sie
+es in einem privaten Terminal und Geheimnisspeicher auf. Initialisieren Sie einen Container so,
+wie es die Betriebsanleitung beschreibt, mit ausgeschaltetem Docker-Logging; bei einer gewöhnlichen
+Initialisierung mit Logging kann das Token im Log erhalten bleiben.
 
 Verwenden Sie ein Zertifikat, dem die Rechner vertrauen. Für einen ersten Versuch erstellen
 Sie ein selbstsigniertes Serverzertifikat und prüfen seinen Fingerabdruck:
@@ -38,8 +38,8 @@ latet server certificate certs/server.crt
 ```
 
 Halten Sie `server.key` privat. Compose bindet `certs/server.crt` und `certs/server.key`
-in Caddy ein; ohne Container konfigurieren Sie TLS an der Instanz oder ihrem
-vertrauenswürdigen Reverse-Proxy. Teilen Sie den geprüften Fingerabdruck über einen
+in Caddy ein; bei einer Bereitstellung als Betriebssystemdienst konfigurieren Sie TLS an der
+Instanz oder ihrem vertrauenswürdigen Reverse-Proxy. Teilen Sie den geprüften Fingerabdruck über einen
 separaten vertrauenswürdigen Kanal mit. Ein Fingerabdruck aus einer ungeprüften
 Netzwerkverbindung allein authentifiziert den Server nicht.
 
@@ -56,10 +56,10 @@ nennt Datenbank, Valkey, Identitäten, die antwortende Instanz und jede laufende
 Worker in einer eigenen Zeile mit seiner Bereitschaft, seinem Speicher und seiner Version. Sie prüft nicht jeden
 Agenten und belegt nicht, dass der gesamte Verkehr eines Rechners durch Latet läuft.
 
-Für wiederholte Verwaltungsaufgaben liest `--admin-token-file FILE` eine private Datei
+Für wiederholte Administrationsaufgaben liest `--admin-token-file FILE` eine private Datei
 mit dem Token oder einem an diesen Server gebundenen Datensatz. Bewahren Sie sie außerhalb
 von Repositorys und Agenten-Arbeitsbereichen auf. Beachten Sie die Berechtigungs- und
-Herkunftsprüfungen unter [Serververwaltung](../../reference/server-administration/).
+Herkunftsprüfungen unter [Serveradministration](../../reference/server-administration/).
 Exportieren Sie kein Administrationstoken in die Shell-Umgebung eines Kontos, unter dem Agenten laufen.
 
 In der Antwort ist `database` immer wahr, da eine Instanz, die PostgreSQL nicht erreicht, gar keinen
@@ -75,15 +75,15 @@ latet server --server https://latet.acme.lan people add "Emily Carter" --email e
 latet server --server https://latet.acme.lan people list
 ```
 
-Der erste Befehl gibt einen Einmalcode aus. Geben Sie ihn nur dieser Person: Wer ihn
+Der erste Befehl gibt einen Einmalcode aus. Geben Sie ihn dieser Person auf vertraulichem Weg: Wer ihn
 verwendet, kann sich als diese Person verbinden und ihr Dashboard öffnen. Die Ausgabe
 eines Codes wird im Administrationsprotokoll erfasst. Der Code funktioniert einmal, innerhalb von
 24 Stunden. `people code "Emily Carter"` stellt einen weiteren aus, wenn er abgelaufen ist oder
 verloren ging, und der vorherige funktioniert nicht mehr; schreiben Sie Codes nie in Tickets,
-gemeinsame Kanäle oder Gespräche mit einem Agenten.
+gemeinsame Kanäle oder Unterhaltungen mit einem Agenten.
 
 Die Rechner einer Person teilen einen Bereich: ihren Tresor, Verlauf und ihre
-Einstellungen. Die Rechnertoken können Sie so ansehen:
+Einstellungen. Die Tokens ihrer Rechner können Sie so ansehen:
 
 ```sh
 latet server --server https://latet.acme.lan people tokens "Emily Carter"
@@ -91,19 +91,19 @@ latet server --server https://latet.acme.lan people tokens "Emily Carter"
 
 Widerrufen Sie das Token eines verlorenen Rechners mit seiner aufgeführten ID und
 `--revoke TOKEN_ID`. `people disable "Emily Carter"` stoppt innerhalb von Sekunden jedes ihrer
-Token und lässt ihren Bereich bestehen (`people enable` gibt ihn zurück); `people remove "Emily Carter"`
+Tokens und lässt ihren Bereich bestehen (`people enable` gibt ihn zurück); `people remove "Emily Carter"`
 löscht ihren aktiven Serverbereich samt Tresor, Verlauf und Einstellungen, sobald Sie bestätigen.
 `keys disable`, `enable` und `remove` tun dasselbe für einen API-Schlüssel. Keiner der Vorgänge
 löscht Kopien in Sicherungen, Browsern oder bei Modellanbietern. Lesen Sie vor dem Entfernen die
 Bestätigung.
 
-Bei einer Entfernung gehen die Daten der Person in PostgreSQL mit ihr, ihre Datensätze in Valkey werden einmal
+Bei einer Entfernung werden die Datensätze der Person in PostgreSQL mit ihr gelöscht, ihre Datensätze in Valkey werden einmal
 von einer Instanz gelöscht (bei der nächsten Prüfung erneut, falls das nicht fertig wird), was dort bleibt, läuft
 von selbst ab, spätestens nach acht Tagen, und ihre Dashboard- und AWS-Sitzungen enden sofort.
 
 ## Den Rechner einer Person verbinden
 
-Wenn der Server bereit ist und der Administrator den Code der Person ausgestellt hat:
+Wenn der Server bereit ist und der Administrator den Code der Person ausgestellt hat, führen Sie aus:
 
 ```sh
 latet connect https://latet.acme.lan
@@ -111,7 +111,7 @@ latet connect https://latet.acme.lan
 
 Geben Sie den Einmalcode bei der Aufforderung ein. Fügen Sie bei einem selbstsignierten
 Zertifikat `--fingerprint FINGERPRINT` mit dem beim Administrator geprüften Fingerabdruck
-hinzu. Entfernen Sie keine Zertifikatsbindung, um einen Fehler zu umgehen. Der
+hinzu. Entfernen Sie keine Zertifikatsbindung, um einen Zertifikatsfehler zu umgehen. Der
 Verbindungsdatensatz, auch in einer mit `LATET_CONNECTION` ausgewählten Datei, enthält
 Metadaten und Fingerabdruck; das persönliche Token und der Rechnerschlüssel bleiben zusammen, getrennt davon,
 im Anmeldedatenspeicher oder in einer privaten Datei.
@@ -130,13 +130,13 @@ Dies ist die Installationsausnahme von der Regel, Tokens aus Agentendateien hera
 Die private Bindung des Hilfsprozesses enthält Metadaten; er erhält das vorhandene Token
 über stdin. Software, die diese Prozesseingabe beobachten kann, kann es lesen. Verbundene
 Hilfsprozesse in Claude Desktop, VS Code, JetBrains, Linux und macOS werden durch diesen
-Vertrag nicht unterstützt: unter Linux und macOS sagen diese Befehle das vorab und schreiben
+Vertrag nicht unterstützt: Unter Linux und macOS sagen diese Befehle das vorab und schreiben
 kein Token, und das Plugin hält jeden Prompt zurück.
 
 Dieses Token öffnet von überall, wo der Server erreichbar ist, die Bridge des Plugins und den Proxy
 des Bereichs; es öffnet nie das Dashboard, ändert nie die Identität der Person und verringert nie ihren
-Schutz: Die einzige Änderung, die es an ihren Einstellungen vornehmen kann, ist ein Ziel für eine Adresse
-hinzuzufügen, was nichts verringert. Das Dashboard und die Identität brauchen zusätzlich den
+Schutz: Die einzige Änderung, die es an ihren Einstellungen vornehmen kann, ist das Hinzufügen eines Ziels für eine
+Adresse, was nichts verringert. Das Dashboard und die Identität brauchen zusätzlich den
 Rechnerschlüssel, den `latet connect` mit dem Token im Anmeldedatenspeicher (oder in der privaten Datei)
 aufbewahrt und den nur `latet dashboard` und `latet identity send` lesen, die beide die Ausführung in
 einem Agenten verweigern; kein Agent erhält ihn.
@@ -159,14 +159,14 @@ Anmeldelink aus; halten Sie ihn privat. `config`, `rules`,
 Ändern von Einstellungen; nur `config schema`, `rules test` und `identity send` laufen.
 Verwenden Sie das Server-Dashboard oder Administrationsbefehle. Mit `latet identity send`
 senden Sie die Identitätsangaben dieses Rechners ausdrücklich erneut. Auch `latet start`
-verweigert: im verbundenen Zustand nutzt niemand den Daemon dieses Rechners.
+lehnt ab: Im verbundenen Zustand nutzt niemand den Daemon dieses Rechners.
 
 `latet disconnect` widerruft das Token dieses Rechners und entfernt die Agentenbindungen
 der Verbindung, einschließlich des gespeicherten Claude-Tokens. Der Widerruf beendet auch
-die Dashboard-Sitzungen der Person auf anderen Rechnern. Kann der Widerruf nicht bestätigt
+die Dashboard-Sitzungen der Person auf ihren anderen Rechnern. Kann der Widerruf nicht bestätigt
 werden, lesen Sie das Ergebnis und lassen Sie vor einem neuen Versuch einen Administrator
 die Token-IDs prüfen. Auf einem verbundenen Rechner wird der Print-Modus (`claude -p`) nicht
-unterstützt: das Plugin hält seine Anfragen zurück und sagt es. Verwenden Sie das interaktive
+unterstützt: Das Plugin hält seine Anfragen zurück und sagt es. Verwenden Sie das interaktive
 Terminal. Die [Claude-Code-Anleitung](../../agents/claude-code/) unterscheidet verbundene
 Unterstützung von lokalen Oberflächen.
 
@@ -176,17 +176,17 @@ Latet keine Zugangsdaten im Schlüsselbund des Betriebssystems, aber eine älter
 Server und entfernt sie; ein gesperrter Schlüsselbund kann zum Entsperren auffordern. Wird ein Verbinden
 oder Trennen unterbrochen, wird eine übrig gebliebene temporäre Token-Datei ungelesen gelöscht, sodass der
 Rechner das darin enthaltene Token nicht widerrufen kann. Dann, oder wenn `latet disconnect` meldet, dass
-eine Kopie bleibt, widerruft es ein Administrator auf dem Server: die Token der Person wie oben auflisten,
+eine Kopie bleibt, widerruft es ein Administrator auf dem Server: die Tokens der Person wie oben auflisten,
 das richtige an seiner ID erkennen (die Bezeichnung mit dem Hostnamen ist nur ein Hinweis: zwei Rechner
 können gleich heißen) und es mit `--revoke TOKEN_ID` widerrufen. Lässt sich das richtige Token nicht
-unterscheiden, widerruft `--revoke-all` alle Token der Person, und jeder ihrer Rechner muss sich danach neu
+unterscheiden, widerruft `--revoke-all` alle Tokens der Person, und jeder ihrer Rechner muss sich danach neu
 verbinden.
 
 ## Einem Programm einen API-Schlüssel geben
 
 Ein API-Schlüssel hat einen eigenen Bereich, aber kein persönliches Dashboard und keine
-Rechnerregistrierung. Seine Einstellungen und Regeln verwaltet der Administrator. Erstellen Sie
-das Geheimnis in einer neuen privaten Datei:
+Rechnerregistrierung. Seine Einstellungen und Regeln verwaltet der Administrator. Erzeugen Sie
+den geheimen Wert in einer neuen privaten Datei:
 
 ```sh
 latet server --server https://latet.acme.lan keys add "Billing CI" --out billing.key
@@ -194,14 +194,14 @@ latet server --server https://latet.acme.lan keys list
 ```
 
 Verwenden Sie dafür einen geschützten Ordner außerhalb des Repositorys. Der Befehl gibt
-Identität und Dateipfad aus, ohne das Geheimnis anzuzeigen. Speichern Sie den Schlüssel
+Identität und Dateipfad aus, ohne den geheimen Wert anzuzeigen. Speichern Sie den Schlüssel
 im Geheimnisspeicher des Programms. `keys rotate "Billing CI" --out replacement.key`
 ersetzt die Zugangsdaten; aktualisieren Sie Schlüssel und Routenadressen des Programms
 zusammen. Auch ein Routenschlüssel in einer Adresse ist vertraulich.
 
-Ein Schlüssel kann mehrere Token haben, jeder mit eigenen Berechtigungen aus `scan`, `mask`, `unmask`
+Ein Schlüssel kann mehrere Tokens haben, jedes mit eigenen Berechtigungen aus `scan`, `mask`, `unmask`
 und `forget`, für Programme, die die [API für Anwendungen](../../applications/) aufrufen: Eine
-Anwendung, die ihre Logs maskiert versendet, braucht nur `mask`, das Support-Werkzeug, das sie liest,
+Anwendung, die ihre Logs maskiert versendet, braucht nur `mask`, das Support-Tool, das sie liest,
 nur `unmask`.
 
 ```sh
@@ -209,14 +209,14 @@ latet server --server https://latet.acme.lan keys add-token "Billing CI" shipper
 latet server --server https://latet.acme.lan keys tokens "Billing CI"
 ```
 
-Der erste Token des Schlüssels darf analysieren, maskieren und wiederherstellen; `forget`, das Werte aus
-dem Tresor des Schlüssels entfernt, erhält ein eigener Token
-([Werte vergessen](../../applications/forget/)). Nur der erste Token des Schlüssels hat eine Adresse
-für Modelle: Ein Token, der mit `keys add-token` erstellt wurde, wird dort abgewiesen, welche
-Berechtigungen er auch hat, und ruft nur die API für Anwendungen auf, wo jede Wiederherstellung im
-Administrationsprotokoll steht. Sobald ein Schlüssel mehrere Token hat, braucht
+Das erste Token des Schlüssels hat die Berechtigungen `scan`, `mask` und `unmask`; `forget`, das Werte
+aus dem Tresor des Schlüssels entfernt, erhält ein eigenes Token
+([Werte vergessen](../../applications/forget/)). Nur das erste Token des Schlüssels hat eine Adresse
+für Modelle: Ein Token, das mit `keys add-token` erstellt wurde, wird dort abgelehnt, welche
+Berechtigungen es auch hat, und ruft nur die API für Anwendungen auf, wo jedes `unmask` im
+Administrationsprotokoll steht. Sobald ein Schlüssel mehrere Tokens hat, braucht
 `keys rotate` die Option `--token` mit der ID, die `keys tokens` auflistet, und
-`keys tokens "Billing CI" --revoke TOKEN_ID` stoppt einen. `keys limit "Billing CI" 1000000` gibt dem
+`keys tokens "Billing CI" --revoke TOKEN_ID` stoppt eines. `keys limit "Billing CI" 1000000` gibt dem
 Tresor des Schlüssels eine eigene Grenze, über oder unter dem `vault_limit` des Servers.
 
 ## Gemeinsame Einstellungen und Regeln von API-Schlüsseln festlegen
@@ -251,12 +251,13 @@ Stelle (`latet rules export FILE` auf einem Rechner, der mit keinem Server verbu
 **Regeln exportieren** auf der Seite **Regeln** eines Dashboards), und importieren Sie die Datei an
 jeder anderen (`latet rules import FILE` oder **Regeln importieren** im Dashboard); die Regeln eines
 API-Schlüssels mit `latet server rules --key KEY import FILE`. Auf Rechnern, die mit keinem Server
-verbunden sind, trägt die `latet.yaml` eines Projekts sie in seinem Repository. Regeln, die für
-alle festgelegt sind und die niemand lockern kann, sind für die Enterprise Edition geplant.
+verbunden sind, trägt die `latet.yaml` eines Projekts sie in seinem Repository. Mit der Enterprise
+Edition sind Regeln, die für alle festgelegt sind und die niemand lockern kann, die Vorgaben des
+Unternehmens, eine Regeldatei, gesetzt mit `latet server policy set`.
 
 Eine Änderung der gemeinsamen Einstellungen, die den Schutz einer Person verringert, etwa ein an
 eine andere Adresse verschobenes Ziel oder ein ausgeschalteter Prüfer, wartet auf ihre Freigabe.
-Das Speichern eigener Änderungen genehmigt keine wartende gemeinsame Änderung. Eigene Änderungen
+Das Speichern eigener Änderungen gibt keine wartende gemeinsame Änderung frei. Eigene Änderungen
 können gespeichert werden, obwohl die Aktualisierung des wartenden Vorschlags fehlschlägt.
 Lesen Sie das Ergebnis und laden Sie die Seite neu, bevor Sie weitere Änderungen vornehmen.
 Bei einem API-Schlüssel gibt es niemanden, der eine solche Änderung freigibt: Sie erreicht den
@@ -264,6 +265,6 @@ Bereich des Schlüssels sofort, auch eine Änderung, die den Schutz verringert. 
 eine Änderung an den gemeinsamen Einstellungen für Ihre Programme bedeutet, bevor Sie sie vornehmen.
 [Gemeinsame Einstellungen und eigene Regeln](../../concepts/server/) erläutert den Unterschied.
 
-Verwenden Sie für den Alltag Administrationstoken mit Ablaufdatum. Die
-[Verwaltungsreferenz](../../reference/server-administration/) beschreibt Ausstellung,
+Verwenden Sie für den Alltag Administrationstokens mit Ablaufdatum. Die Seite
+[Serveradministration](../../reference/server-administration/) beschreibt Ausstellung,
 Widerruf, private Ausgabedateien, Wiederherstellung und das Lesen des Protokolls.

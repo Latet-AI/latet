@@ -61,7 +61,7 @@ Die Kapitel maskieren Werte, stoppen Anfragen und ändern Einstellungen, daher l
 eigenen Latet, in einer Sandbox:
 
 - **Eigene Daten, Einstellungen und ein eigener Verlauf**, in einem temporären Ordner, und ein
-  eigener Server auf `127.0.0.1`, an einem freien Port. Ihr eigener Daemon bleibt unberührt und muss
+  eigener Server auf `127.0.0.1`, auf einem freien Port. Ihr eigener Daemon bleibt unberührt und muss
   nicht laufen.
 - **Nichts von Ihnen ändert sich:** Ihre Einstellungen, Ihr Tresor und Ihr Verlauf und die Anmeldung
   an Ihrem Dashboard (die Seite des Tutorials meldet sich mit einem eigenen Cookie an).

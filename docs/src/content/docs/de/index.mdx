@@ -1,10 +1,10 @@
 ---
 title: Latet
-description: Eine lokale Privacy-Firewall für KI-Agenten. Geheime Werte und personenbezogene Daten werden durch realistische Ersatzwerte ersetzt, bevor sie Ihren Rechner verlassen, und lokal wieder eingesetzt.
+description: Eine lokale Privacy-Firewall für KI-Agenten. Geheime Werte und personenbezogene Daten werden gegen realistische Ersatzwerte ausgetauscht, bevor sie Ihren Rechner verlassen, und lokal wieder eingesetzt.
 template: splash
 hero:
   title: Eine lokale Privacy-Firewall für KI-Agenten
-  tagline: Coding-Agenten und autonome Agenten lesen Ihre Dateien, Datenbanken, Logs und Postfächer und schicken all das an ein Modell in der Cloud. Latet ersetzt jeden geheimen und personenbezogenen Wert durch einen realistischen Ersatzwert, bevor er Ihren Rechner verlässt, und setzt lokal den echten Wert wieder ein, damit Ihr Agent ganz normal weiterarbeitet.
+  tagline: Coding-Agenten und autonome Agenten lesen Ihre Dateien, Datenbanken, Logs und Postfächer und schicken all das an ein Modell in der Cloud. Latet tauscht jeden geheimen und personenbezogenen Wert gegen einen realistischen Ersatzwert aus, bevor er Ihren Rechner verlässt, und setzt lokal den echten Wert wieder ein, sodass Ihr Agent wie gewohnt weiterarbeitet.
   image:
     light: ../../../assets/logo.png
     dark: ../../../assets/logo-white.png
@@ -39,7 +39,7 @@ bevor sie den Rechner verlässt, ganz gleich, wodurch der Text in sie gelangt is
 | Webseiten | Ein Admin-Panel, das der Agent mit einem Browser-Tool öffnet | Die personenbezogenen Daten im Text der Seite werden maskiert |
 | Anweisungen | CLAUDE.md, AGENTS.md, der System-Prompt | Ihr Name, Ihr Benutzername, Ihr Hostname und die Domain Ihres Unternehmens werden maskiert |
 | Verlauf | Eine Sitzung, die zehn Tage später fortgesetzt wird | Derselbe Wert erhält jedes Mal denselben Ersatzwert |
-| Screenshots | Der Screenshot einer Rechnung | Mit der optionalen [Texterkennung](concepts/images/) wird der Text darin auf Ihrem Rechner gelesen und jeder Wert mit seinem Ersatzwert überdeckt; ohne sie, und mit einer PDF, wird die Anfrage nicht gesendet |
+| Screenshots | Der Screenshot einer Rechnung | Mit der optionalen [Texterkennung](concepts/images/) wird der Text darin auf Ihrem Rechner gelesen und jeder Wert mit seinem Ersatzwert überdeckt; ohne sie, und bei einem PDF, wird die Anfrage nicht gesendet |
 | Was kein Muster erkennt | *"Mark aus dem Vertrieb führt heimlich Vorstellungsgespräche bei einem Konkurrenten"* | Der optionale [lokale Prüfer](concepts/llm-review/), Ihr eigenes Sprachmodell, findet es, bevor es den Rechner verlässt, nach den Anweisungen von Latet und [Ihren eigenen Hinweisen](concepts/llm-review/#ihre-hinweise): was in Ihrer Arbeit als sensibel gilt, überall oder in einem einzelnen Projekt |
 
 ## Wie Latet schützt
@@ -52,10 +52,10 @@ bevor sie den Rechner verlässt, ganz gleich, wodurch der Text in sie gelangt is
 		15 Ländern), Ihre eigenen Begriffe und Formate und die Identität dieses Rechners.
 	</Card>
 	<Card title="Setzt realistische Ersatzwerte ein" icon="random">
-		Jeder Wert wird zu einem deterministischen Ersatzwert im selben Format, jedes Mal demselben,
+		Jeder Wert wird zu einem deterministischen Ersatzwert im selben Format, jedes Mal zu demselben,
 		sodass Code und Konfiguration für das Modell weiterhin Sinn ergeben.
 	</Card>
-	<Card title="Stellt auf Ihrem Rechner wieder her" icon="laptop">
+	<Card title="Setzt die echten Werte lokal wieder ein" icon="laptop">
 		Die Originale werden lokal wieder eingesetzt, in Antworten, gestreamten Ausgaben und den
 		Argumenten von Tool-Aufrufen, sodass die Dateien, die Ihr Agent schreibt, die echten Werte
 		enthalten.
@@ -85,7 +85,7 @@ bevor sie den Rechner verlässt, ganz gleich, wodurch der Text in sie gelangt is
 Original auf Ihrem Rechner neben dem, was das Modell erhalten hat, und bei jedem maskierten Wert, was
 er ist und welche Regel ihn gefunden hat.
 
-<Screenshot name="exchange" alt="Ein Austausch im Dashboard: jeder Block der Anfrage so, wie er auf diesem Rechner aussieht, neben dem, was an das Modell gesendet wurde, mit allen maskierten Werten hervorgehoben" />
+<Screenshot name="exchange" alt="Ein Austausch im Dashboard: jeder Block der Anfrage so, wie er auf diesem Rechner aussieht, neben dem, was an das Modell gesendet wurde, jeder maskierte Wert hervorgehoben" />
 
 ## Agenten
 
@@ -106,7 +106,7 @@ siehe [was Latet nicht schützen kann](agents/other-tools/#was-latet-nicht-schü
 <CardGrid>
 	<LinkCard
 		title="Pro- und Max-Abonnements von Claude"
-		description="Claude Code läuft unverändert und nutzt seine eigene Anmeldung; der Inhalt jeder Anfrage geht Byte für Byte hinaus, und nur wenige Header werden entfernt und gezählt."
+		description="Claude Code läuft unverändert und nutzt seine eigene Anmeldung; der Body jeder Anfrage verlässt den Rechner Byte für Byte unverändert, und nur wenige Header werden entfernt und gezählt."
 		href="agents/claude-code/#pro--und-max-abonnements"
 	/>
 	<LinkCard

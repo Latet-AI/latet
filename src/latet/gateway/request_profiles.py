@@ -28,12 +28,18 @@ REVISION = "http-envelope-1"
 # refuses, and is shown as needing approval again. Nothing widens by an upgrade.
 CARRIES_FROM: frozenset[str] = frozenset()
 WS_REVISION = "ws-envelope-1"
+# The revision a provider's opaque echo is bound to (``opaque_scope``): what an echo it saw admits. Not the policy's
+# ``request_policy.REVISION``, which 0.15.0 moved to phase-2-policy-2 for its rule of new request members, a rule that
+# changes nothing an echo admits: bound to that, the evidence a Latet server keeps a week across its upgrades (in
+# Valkey) stopped admitting what it admitted, and a conversation in progress whose history holds an echo (Anthropic's
+# compaction, a citation's encrypted index) was refused after the upgrade until it started anew. It moves only when
+# what an echo admits does.
+ECHO_REVISION = "phase-2-policy-1"
 
 
 def opaque_scope(upstream: Upstream, method: str, path: str, protocol: str, query: str = ""):
     """Bind opaque evidence to the selected destination/resources, without credential selectors."""
     from latet.gateway.provenance import EchoScope
-    from latet.gateway.request_policy import REVISION as policy_revision
 
     try:
         profile = _profile(upstream, method, path)
@@ -65,7 +71,7 @@ def opaque_scope(upstream: Upstream, method: str, path: str, protocol: str, quer
         protocol, set()
     )
     return EchoScope(
-        (upstream.name, upstream.base_url, resolved.url, selectors, profile.id, policy_revision),
+        (upstream.name, upstream.base_url, resolved.url, selectors, profile.id, ECHO_REVISION),
         protocol,
         origin in eligible and profile.family in logical and not profile.bodyless,
     )
@@ -181,6 +187,10 @@ _UUID = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 # Hermes Agent 25ce7ccf: its session id, new_session_id() = f"{now:%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
 # (hermes_state_ids.py:53-60), and its content cache key "pck_" + sha256[:24] (agent/transports/codex.py:428-449).
 HERMES_SESSION = "[0-9]{8}_[0-9]{6}_[0-9a-f]{6}"
+# Hermes Agent 3944af0e: a conversation its unified runtime creates has the session id local_identity(),
+# "local-" + sha256(json([profile, principal, request id])).hexdigest() (hermes_state_keys.py:71-74), issue 17: a
+# digest, no free text.
+HERMES_LOCAL_SESSION = "local-[0-9a-f]{64}"
 HERMES_CACHE_KEY = "pck_[0-9a-f]{24}"
 # Correlation ids, fresh per session or request, each with a closed grammar taken from its agent's source. A grammar of
 # hex and fixed punctuation carries no free text; the id never selects a project, an identity or an exception (D7).
@@ -197,8 +207,9 @@ ID_HEADERS = {
     # Hermes Agent 25ce7ccf agent/transports/codex.py:864-872 sends x-client-request-id as its prompt_cache_key, else
     # its bounded cache scope, the session id (codex.py:31-55, 798-806, 869).
     "x-client-request-id": re.compile(f"{_UUID}|{HERMES_CACHE_KEY}|{HERMES_SESSION}"),
-    # Hermes Agent: ChatGPT's session_id header is its session id (codex.py:864-872); a cron job's free name is not.
-    "session_id": re.compile(HERMES_SESSION),
+    # Hermes Agent: ChatGPT's session_id header is its session id (codex.py:864-872; 3944af0e codex.py:871-873), dated
+    # or its unified runtime's digest; a cron job's free name is not.
+    "session_id": re.compile(f"{HERMES_SESSION}|{HERMES_LOCAL_SESSION}"),
     # Codex c1382380: "{thread_id}:{window_number}", a u64 (core/src/session/mod.rs:4523-4533).
     "x-codex-window-id": re.compile(f"{_UUID}:[0-9]{{1,20}}"),
     # Codex c1382380: the ChatGPT id token's chatgpt_account_id (login/src/token_data.rs:85-120), a workspace UUID
@@ -501,6 +512,10 @@ def _selected(upstream: Upstream, method: str, path: str) -> Profile:
         # Configured base paths are fixed owner input (Azure deployments and proxy prefixes, for example).
         if family == "openrouter" and rest.startswith("/api/"):
             rest = rest[4:]
+        if family == "anthropic" and method == "HEAD" and rest == "/api/hello":
+            # Claude Code's preconnect as it starts (2.1.319 to 2.1.323): HEAD {ANTHROPIC_BASE_URL}/api/hello from Bun's
+            # fetch, with no body and no credential, its answer ignored; it opens the connection before the first call.
+            return Profile("anthropic.hello.1", family, method, "/{destination}/api/hello", bodyless=True)
         if family == "gemini" or (
             family not in {"anthropic", "openai", "openrouter"}
             and re.match(r"/(v1beta|v1beta1)/(models|cachedContents)(?:/|$)", rest)
@@ -845,6 +860,13 @@ def _header(upstream: Upstream, profile: Profile, name: str, value: str) -> str:
         }
     if family == "chatgpt":
         enums |= {"x-openai-fedramp": {"true"}}
+        # A ChatGPT workspace's residency: Codex 72532eca sends "us" (model-provider-info/src/lib.rs:48, 495), Hermes
+        # Agent 3944af0e the token's chatgpt_data_residency claim (agent/codex_headers.py:76-78), seen as a region's two
+        # letters or "no_constraint" (issue 17). Lowercase as sent: two letters or that word carry no free text.
+        if name == "x-openai-internal-codex-residency":
+            if not re.fullmatch(r"[a-z]{2}|no_constraint", value):
+                raise _value_refused(name)
+            return "inspected"
     if family == "bedrock" and name in {"x-amz-date", "x-amz-content-sha256"}:
         grammar = r"[0-9]{8}T[0-9]{6}Z" if name == "x-amz-date" else r"[a-f0-9]{64}"
         if not re.fullmatch(grammar, value):

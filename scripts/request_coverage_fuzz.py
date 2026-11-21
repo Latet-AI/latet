@@ -1,7 +1,10 @@
 """The request fuzz of P2-8 (`notes/server-request-coverage-plan.md`, "P2-8: Compatibility qualification, drift
 fixtures, fuzz and measurements"): seeded requests through the whole app, in sixteen cells (a computer and a server,
-HTTP and WebSocket, strict and with a precise request exception in force, the history on and off), each case judged
-by the bullet's assertions, with its seed, its corpus and its counts of cases generated, executed and asserted.
+HTTP and WebSocket, strict and with a precise request exception in force, the history on and off), and eight more
+where a member no request profile declares is refused as before 0.15.0 (``unknown_members: refuse``: yours, a
+project's, a company's policy) for each machine, transport and policy, the history on (``REFUSE_CELLS``), each case
+judged by the bullet's assertions, with its seed, its corpus and its counts of cases generated, executed and
+asserted.
 
     uv run python scripts/request_coverage_fuzz.py corpus --seed 20261104 --count 5000 --out DIR
     uv run python scripts/request_coverage_fuzz.py run --seed 20261104 --count 5000 --out DIR [--cells C ...]
@@ -32,7 +35,10 @@ same request sent again (``retry``). Each request step is judged by the assertio
 - ``canary``: a canary planted in a component no profile names leaves only inside that very component, and only while
   an approved exception in force names it exactly (over HTTP: a WebSocket takes no exception in 0.11); or, on a
   verify-only route, as D6's checked text: a string canary holding no secret in an unknown body member, under a Pass
-  "checked only" (``d6_permits``); an object or an array there, or a secret, never;
+  "checked only" (``d6_permits``); on any route of a cell that reads new members (0.15.0), as the new rule's: a canary
+  holding no secret in an unknown body member, an object or an array included, under a Pass naming that rule, in the
+  request or turn it came in, at its own member where that member's name is fixed (``new_member_permits``); in a
+  ``refuse`` cell, as before 0.15.0, never; a secret, never;
 - ``masking``: no synthetic original is readable in anything that left (decoded: JSON escapes, percent-escapes,
   gzip), whatever the mutation;
 - ``restoration``: an answer that echoes a masked text gives the original back and no fake; the history (when on)
@@ -44,7 +50,7 @@ same request sent again (``retry``). Each request step is judged by the assertio
   request bytes within RC-R1's caps, and (one case in ``--memory-every``) the traced peak of a case within
   ``MEMORY_PEAK``.
 
-The full run (16 cells x 5,000) is root's to schedule on a quiet machine, one at a time; the unit tests run a small
+The full run (24 cells x 5,000) is root's to schedule on a quiet machine, one at a time; the unit tests run a small
 fixed-seed smoke of each cell."""
 
 from __future__ import annotations
@@ -83,7 +89,14 @@ MACHINES = ("computer", "server")
 TRANSPORTS = ("http", "ws")
 POLICIES = ("strict", "exception")
 HISTORIES = ("on", "off")
-CELLS = tuple(f"{m}-{t}-{p}-history-{h}" for m in MACHINES for t in TRANSPORTS for p in POLICIES for h in HISTORIES)
+# Where a member no request profile declares is read by the new rule (0.15.0), and, for each machine, transport and
+# policy, the history on, where it is refused as before it (``unknown_members: refuse``): today's behaviour and a
+# company floor's, judged as before the rule.
+READING_CELLS = tuple(
+    f"{m}-{t}-{p}-history-{h}" for m in MACHINES for t in TRANSPORTS for p in POLICIES for h in HISTORIES
+)
+REFUSE_CELLS = tuple(f"{m}-{t}-{p}-history-on-refuse" for m in MACHINES for t in TRANSPORTS for p in POLICIES)
+CELLS = (*READING_CELLS, *REFUSE_CELLS)
 ASSERTIONS = ("coverage", "authority", "bytes", "canary", "masking", "restoration", "sinks", "ownership")
 TESTS = {
     "computer": "tests/unit/test_request_coverage_fuzz.py::test_fuzz_the_computer_for_the_script",
@@ -111,10 +124,18 @@ RETAINED_MOST = (16 << 20) + (1 << 20) + (1 << 20)
 
 def parts(cell: str) -> tuple[str, str, str, str]:
     """A cell's machine, transport, policy and history."""
-    machine, transport, policy, _, history = cell.split("-")
     if cell not in CELLS:
         raise ValueError(f"not a cell of the fuzz: {cell}")
+    machine, transport, policy, _, history, *_ = cell.split("-")
     return machine, transport, policy, history
+
+
+def unknown_members(cell: str) -> str:
+    """How a cell's settings read a member no request profile declares: ``refuse`` in ``REFUSE_CELLS``, ``check``
+    (the new rule) in the others. What makes the cell sets it (``computer_cell``, ``server_cell``), ``fuzz_cell``
+    checks it."""
+    parts(cell)
+    return "refuse" if cell in REFUSE_CELLS else "check"
 
 
 # --- the request exception of the precise-exception cells ----------------------------------------------------------
@@ -383,10 +404,25 @@ _WS_MUTATIONS = (
     "many",
 )
 # Drawn on a verify-only route alone, beside D6's string canaries (``field-top``, ``field-nested``): an unknown member
-# holding an object or an array (never D6's form) and one holding a secret (D6's form, refused for what it holds).
+# holding an object or an array (never D6's form: the new rule's) and one holding a secret (D6's form, refused for what
+# it holds).
 _VERIFY_ONLY_MUTATIONS = ("field-object", "secret-member")
 # Where D6's string canaries are planted: an unknown member at the top and in a message (no provider item).
 _D6_WHERES = frozenset({"body:/x_rcf", "body:nested"})
+# Where the new rule reads a canary (notes/unknown-members-design.md §1), on any route: those, a member holding an
+# object or an array, nested deep, and the members an exception names or nearly names (read by the new rule where no
+# exception in force admits them). Never a frame Latet does not read (``body:/note``), refused whole.
+_NEW_MEMBER_WHERES = frozenset(
+    {*_D6_WHERES, "body:/x_rcf_obj", "body:/x_rcf_deep", "body:/metadata_rcf/team", "body:/metadata_rcf/near"}
+)
+# The member each of those planted under a fixed name is in: there the canary may leave, nowhere else in what carried it
+# (``_only_at``). A near name's member is the object that holds it (its key is the near miss itself).
+_FIXED_MEMBERS = {
+    "body:/x_rcf_obj": "/x_rcf_obj",
+    "body:/x_rcf_deep": "/x_rcf_deep",
+    "body:/metadata_rcf/team": "/metadata_rcf/team",
+    "body:/metadata_rcf/near": "/metadata_rcf",
+}
 
 
 def _events(rng: random.Random, policy: str, mutations: list[str]) -> tuple[str, ...]:
@@ -416,9 +452,10 @@ def _events(rng: random.Random, policy: str, mutations: list[str]) -> tuple[str,
 
 def generate(seed: int, count: int, cell: str) -> list[FuzzCase]:
     """``count`` cases of ``cell``, drawn by a generator seeded with ``seed`` and the cell's name alone (the same
-    cases on every computer), each within ``BOUNDS``."""
+    cases on every computer), each within ``BOUNDS``. A cell that refuses new members (``REFUSE_CELLS``) draws the
+    cases of the cell it is the twin of (its name without ``-refuse``): one corpus, judged each way."""
     machine, transport, policy, _ = parts(cell)
-    rng = random.Random(f"{SCHEMA}:{seed}:{cell}")
+    rng = random.Random(f"{SCHEMA}:{seed}:{cell.removesuffix('-refuse')}")
     templates = [t for t in TEMPLATES if t.transport == transport and machine in t.machines]
     weights = [(4.0 if t.exception_route and policy == "exception" else 1.0) for t in templates]
     out: list[FuzzCase] = []
@@ -481,7 +518,7 @@ def _draw_http(
             value = _canary(rng)
             holder["x_rcf_note"] = value
             plants.append(Plant("canary", "body:nested", value))
-        if "field-object" in mutations:  # not D6's form (no string, no flat list of strings): refused everywhere
+        if "field-object" in mutations:  # not D6's form (no string, no flat list of strings): the new rule's
             value = _canary(rng)
             doc["x_rcf_obj"] = rng.choice([{"note": value}, [{"note": value}], [[value]]])
             plants.append(Plant("canary", "body:/x_rcf_obj", value))
@@ -1204,6 +1241,56 @@ def d6_permits(case: FuzzCase, plant: Plant, step: Step) -> bool:
     )
 
 
+def _new_member_payloads(step: Step) -> list[bytes]:
+    """What the step's requests and WebSocket turns carried under a decision that names the new rule
+    (``body_coverage.NEW_MEMBER_RULE``: a member no profile declares, read whole by the final check), as each was
+    authorized, an exception beside it or not (what one admits is judged as an exception's is)."""
+    from latet.gateway.body_coverage import NEW_MEMBER_RULE
+
+    return [
+        _bytes(authorized.payload)
+        for authorized in (*step.witness.authorized, *step.witness.frames)
+        if type(authorized.decision).__name__ == "Pass" and NEW_MEMBER_RULE in authorized.decision.evidence.rules
+    ]
+
+
+def new_member_permits(case: FuzzCase, plant: Plant, step: Step) -> bool:
+    """The new rule (notes/unknown-members-design.md §1, 0.15.0): in a cell that reads new members (never a
+    ``REFUSE_CELLS`` one, judged as before the rule), on any route, an unknown body member is read whole and checked by
+    the final check as masking reads a text. A canary planted there, a string, an object or an array, may leave inside
+    a request or a turn whose decision names the rule (``_new_member_payloads``), when it holds no secret; a secret
+    never (judged by ``masking``)."""
+    return (
+        unknown_members(case.cell) == "check"
+        and plant.kind == "canary"
+        and plant.where in _NEW_MEMBER_WHERES
+        and not any(secret in plant.value for secret in _secrets())
+        and bool(_new_member_payloads(step))
+    )
+
+
+def _json_of(data: bytes) -> Any:
+    return json.loads(gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data)
+
+
+def _only_at(data: bytes, pointer: str, value: str) -> bool:
+    """Whether the JSON payload ``data`` holds ``value`` as a string of the member ``pointer`` names, and nowhere else
+    (no other key or string of it holds it)."""
+    with contextlib.suppress(ValueError, UnicodeDecodeError, RecursionError, OSError, EOFError, zlib.error):
+        doc = _json_of(data)
+        *path, last = pointer.strip("/").split("/")
+        holder = doc
+        for part in path:
+            if not isinstance(holder, dict) or part not in holder:
+                return False
+            holder = holder[part]
+        if not isinstance(holder, dict) or last not in holder:
+            return False
+        member = holder.pop(last)
+        return any(value == text for text in _strings(member)) and not any(value in text for text in _strings(doc))
+    return False
+
+
 def _judge_canary(case: FuzzCase, step: Step, where: str, check: Callable[[str, bool, str], None]) -> None:
     items = upstream_items(step)
     for plant in case.plants:
@@ -1217,6 +1304,15 @@ def _judge_canary(case: FuzzCase, step: Step, where: str, check: Callable[[str, 
                 places.append((location, item_name, data))
         if not places:
             asserted_ok = True
+        elif new_member_permits(case, plant, step):
+            # In the body or the turn it came in, as authorized under the new rule, nowhere else; at its own member
+            # where that member's name is fixed.
+            carried = _new_member_payloads(step)
+            member = _FIXED_MEMBERS.get(plant.where)
+            asserted_ok = all(
+                loc in ("body", "frame") and data in carried and (member is None or _only_at(data, member, plant.value))
+                for loc, _, data in places
+            )
         elif d6_permits(case, plant, step):
             asserted_ok = all(loc == "body" for loc, _, _ in places)  # in the body it came in, nowhere else
         else:
@@ -1934,6 +2030,7 @@ async def fuzz_cell(
 
     machine, transport, policy, history = parts(name)
     setting = "full" if history == "on" else "off"
+    reading = unknown_members(name)
     computer_config, server_config = rc.computer_config, rc.server_config
 
     def with_history(made: Callable[[str], Config]) -> Callable[[str], Config]:
@@ -1948,6 +2045,8 @@ async def fuzz_cell(
             recorder = runtime.gateway.recorder
             if recorder is None or recorder.history != setting:
                 raise RuntimeError(f"the cell's history is not {setting!r} as its settings say")
+            if runtime.mediator.unknown_members != reading:
+                raise RuntimeError(f"the cell does not read new members as {reading!r}: make it so")
             witness = Witness()
             with witnessing(witness, cell.transport):
                 state = PolicyState(machine, transport, policy)
@@ -1986,6 +2085,8 @@ async def fuzz(
                 report.outcomes["sent-by-exception"] += 1
             if any(d6_permits(case, p, step) for p in case.plants) and step.sent:
                 report.outcomes["sent-checked-only"] += 1
+            if any(new_member_permits(case, p, step) for p in case.plants) and step.sent:
+                report.outcomes["sent-new-member"] += 1
             report.peak = max(report.peak, step.peak or 0)
             report.retained_peak = max(report.retained_peak, step.retained or 0)
         for name, found in result.violations.items():

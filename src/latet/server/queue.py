@@ -173,23 +173,49 @@ if images > 0 then enter(KEYS[2], KEYS[3], 'i:' .. ARGV[1], images, now + held, 
 return 1
 """
 )
-# A waiting batch's record made again (its previews, masked again while it waits): written only while the batch waits
-# and no decision has claimed it, as long as it was to live, its weight in the ledger set again within the identity's
-# bytes (1); else nothing is written (0: it no longer waits, or a decision claimed it; -1: past the bytes). KEYS: the
-# record, its decision, the ledger, the weights. ARGV: the sealed record, the batch's id, QUEUE_BYTES, DECISION_MS (the
-# ledger's life).
+# A waiting batch's record made again (its previews, masked again while it waits), with its images painted again (the
+# final security review's approvals L4): written only while the batch waits and no decision has claimed it, as long as
+# they were to live, their weights in the ledger set again within the images' limit and the identity's bytes (1); else
+# nothing is written (0: it no longer waits, or a decision claimed it; -1: past the bytes; -2: past the images' limit).
+# KEYS: the record, its decision, the ledger, the weights, then every image of the batch where one is painted again.
+# ARGV: the sealed record, the batch's id, QUEUE_BYTES, DECISION_MS (the ledger's life), IMAGES_LIMIT, then each image's
+# views sealed again, or an empty string where it stays as it is.
 _REWRITE: Final = (
     _LEDGER
     + """
 if redis.call('exists', KEYS[1]) == 0 or redis.call('exists', KEYS[2]) == 1 then return 0 end
-local entry = 'b:' .. ARGV[2]
+local entry, pictures = 'b:' .. ARGV[2], 'i:' .. ARGV[2]
 local ends = redis.call('zscore', KEYS[3], entry)
 local weight = tonumber(redis.call('hget', KEYS[4], entry))
 if not ends or not weight then return 0 end
 local change = weighed(string.len(ARGV[1])) - weighed(redis.call('strlen', KEYS[1]))
-if change > 0 and used(KEYS[4]) + change > tonumber(ARGV[3]) then return -1 end
+local pictures_ends, pictures_weight, painted, sizes = nil, nil, 0, 0
+if #KEYS > 4 then
+  pictures_ends = redis.call('zscore', KEYS[3], pictures)
+  pictures_weight = tonumber(redis.call('hget', KEYS[4], pictures))
+  if not pictures_ends or not pictures_weight then return 0 end
+  for i = 5, #KEYS do
+    local now, new = redis.call('strlen', KEYS[i]), ARGV[i + 1]
+    if new ~= '' and now > 0 then
+      painted = painted + weighed(string.len(new)) - weighed(now)
+      sizes = sizes + string.len(new)
+    else
+      sizes = sizes + now
+    end
+  end
+  if sizes > tonumber(ARGV[5]) then return -2 end
+end
+if change + painted > 0 and used(KEYS[4]) + change + painted > tonumber(ARGV[3]) then return -1 end
 redis.call('set', KEYS[1], ARGV[1], 'keepttl')
 enter(KEYS[3], KEYS[4], entry, weight + change, tonumber(ends), ARGV[4])
+if #KEYS > 4 then
+  for i = 5, #KEYS do
+    if ARGV[i + 1] ~= '' and redis.call('exists', KEYS[i]) == 1 then
+      redis.call('set', KEYS[i], ARGV[i + 1], 'keepttl')
+    end
+  end
+  enter(KEYS[3], KEYS[4], pictures, pictures_weight + painted, tonumber(pictures_ends), ARGV[4])
+end
 return 1
 """
 )
@@ -386,20 +412,24 @@ def _decision_data(decision: Decision) -> dict[str, Any]:
         "images": [[i.item, [list(r) for r in i.rects], i.withhold] for i in decision.images],
         "reason": decision.reason,
         "state": decision.state,
+        "version": decision.version,  # a decider's: the text as they approved it, checked where it is sent
     }
 
 
 def _decision(data: Any) -> Decision:
     """The decision a record holds. Raises KeyError, TypeError or ValueError for what is not one."""
     approved, reason, state = data["approved"], data["reason"], data["state"]
+    version = data.get("version")  # none in a record written before a decider's version was kept
     if type(approved) is not bool or not (reason is None or isinstance(reason, str)) or state not in _STATES:
+        raise ValueError("not a decision")
+    if not (version is None or isinstance(version, str)):
         raise ValueError("not a decision")
     images = [
         ImageDecision(int(item), tuple((int(r[0]), int(r[1]), int(r[2]), int(r[3])) for r in rects), bool(withhold))
         for item, rects, withhold in data["images"]
     ]
     masks = [HumanMask(int(item), str(value), str(category)) for item, value, category in data["masks"]]
-    return Decision(approved, masks, images, reason, state)
+    return Decision(approved, masks, images, reason, state, version=version)
 
 
 def _undecided() -> Decision:
@@ -494,28 +524,50 @@ class ValkeyApprovals:
             if announce is not None:
                 await loop.run_in_executor(_STORING, announce)
 
-    async def replace(self, batch_id: str, items: list[dict[str, Any]]) -> Batch | None:
-        """The previews of a batch held here made again: sealed for its record in the queues' thread, in this
-        identity's turn, and written only while the batch waits and no decision has claimed it (``_REWRITE``), as long
-        as it was to live. A batch another instance holds is that instance's to make again (its texts are there): None.
-        Previews past ``BATCH_LIMIT``, or past the identity's bytes, leave the record as it was: None."""
+    async def replace(
+        self, batch_id: str, items: list[dict[str, Any]], pictures: Mapping[int, tuple[str, str]] | None = None
+    ) -> Batch | None:
+        """The previews of a batch held here made again, with its images painted again (``pictures``): sealed for their
+        records in the queues' thread, in this identity's turn, and written in one step only while the batch waits and
+        no decision has claimed it (``_REWRITE``), as long as they were to live. A batch another instance holds is that
+        instance's to make again (its texts are there): None. Previews past ``BATCH_LIMIT``, images past
+        ``IMAGES_LIMIT``, or either past the identity's bytes, leave the record and every image as they were: None."""
         batch = self._held.get(batch_id)
         if batch is None or batch.future.done():
             return None
         record = self._key("batch", batch_id)
         data = {**_batch_data(batch), "items": items}
-        keys = [record, self._key("decision", batch_id), *self._ledger()]
+        painted = {item: picture for item, picture in (pictures or {}).items() if item in batch.images}
+        images = [self._image_key(batch_id, item) for item in batch.images] if painted else []
+        keys = [record, self._key("decision", batch_id), *self._ledger(), *images]
         loop = asyncio.get_running_loop()
         async with self._turn:
             sealed = await loop.run_in_executor(_STORING, self._sealer.seal_json, data, record)
             if len(sealed) > BATCH_LIMIT:
                 return None
-            args = [sealed, batch_id, QUEUE_BYTES, DECISION_MS]
+            views = await loop.run_in_executor(_STORING, self._sealed_views, batch, painted)
+            args = [sealed, batch_id, QUEUE_BYTES, DECISION_MS, IMAGES_LIMIT, *views]
             written = await loop.run_in_executor(_STORING, lambda: int(self._rewrite_records(keys=keys, args=args)))
         if written != 1:
             return None
         batch.items = items
         return batch
+
+    def _sealed_views(self, batch: Batch, painted: Mapping[int, tuple[str, str]]) -> list[bytes]:
+        """Each image of ``batch`` as its record holds it (as it came, and as it would leave where that is not as it
+        came), sealed for its key, where ``painted`` paints it again; an empty value where it stays as it is. Any
+        thread: it reads the batch and asks Valkey nothing."""
+        if not painted:
+            return []
+        out = []
+        for item, work in batch.images.items():
+            if item not in painted:
+                out.append(b"")
+                continue
+            original, sent = list(work.original), list(painted[item])
+            views = {"original": original, "sent": None if sent == original else sent}
+            out.append(self._sealer.seal_json(views, self._image_key(batch.id, item)))
+        return out
 
     def _sealed_records(self, batch: Batch) -> _Records:
         """What putting ``batch`` writes: each record sealed for its own key, which is what it says it is (a batch's,
@@ -673,7 +725,11 @@ class ValkeyApprovals:
             waiting = sum(max(0, count) for instance, count in polls[n].items() if instance in alive)
             when = _seen_at(found[3 * n + 1])  # on this process's clock; none readable: seen now, as ``get`` reads it
             seen = clock - max(0.0, time.time() - when) if when is not None else clock
-            out.append(Timing(batch.id, batch.created, batch.timeout_s, batch.polled, waiting, seen))
+            out.append(
+                Timing(
+                    batch.id, batch.created, batch.timeout_s, batch.polled, waiting, seen, batch.decides, batch.agent
+                )
+            )
         return out
 
     async def fetch(self, batch_id: str) -> Batch | None:
@@ -884,7 +940,7 @@ class ValkeyApprovals:
 
     # --- the plugin's answers ----------------------------------------------------------------------
 
-    def give(self, batch_id: str, answer: dict[str, Any]) -> None:
+    def give(self, batch_id: str, answer: dict[str, Any]) -> bool:
         slot = self._key("answer", batch_id)
         sealed = self._sealer.seal_json(answer, slot)
         instead = self._sealer.seal_json({"error": TOO_HEAVY}, slot)
@@ -901,6 +957,7 @@ class ValkeyApprovals:
             kept
         ):  # kept only where a call waits for it: its slot was made when the batch was put, and is gone once taken
             self._tell({"answered": batch_id})
+        return kept == 1  # as given: never the error kept in its place (2), nor nothing kept (0)
 
     async def answer(self, batch_id: str, hold: float) -> dict[str, Any] | None:
         if not self.bus.client.exists(self._key("answer", batch_id)):
@@ -1092,6 +1149,40 @@ def _changes_lock(schema: str, identity_id: str) -> int:
     so that changes written at once on two instances take their turn."""
     digest = hashlib.sha256(f"latet-changes:{schema}:{identity_id}".encode()).digest()
     return int.from_bytes(digest[:8], "big", signed=True)
+
+
+def waiting_batches(bus: Bus, items: Sequence[tuple[str, str]]) -> set[str]:
+    """Of ``items`` (an identity's id and a batch's), the batches whose record is still in Valkey
+    (``batch:<identity>:<id>``): one round trip across identities, nothing opened (Latet Enterprise's record of
+    approvals asks it to list what waits and end what waits on nothing)."""
+    if not items:
+        return set()
+    pipe = bus.client.pipeline()
+    for identity_id, batch_id in items:
+        pipe.exists(bus.key(f"batch:{identity_id}:{batch_id}"))
+    return {batch_id for (_, batch_id), there in zip(items, pipe.execute(), strict=True) if there}
+
+
+def ended_changes(db: Database, items: Sequence[tuple[str, str]]) -> dict[str, str]:
+    """Of ``items`` (an identity's id and a change's), the changes that no longer wait, and how each ended (``gone``: no
+    row of that id for that identity, forgotten since or not written yet); one still waiting is left out. One query
+    across identities; nothing sealed is opened."""
+    if not items:
+        return {}
+    with db.connection() as conn:  # by the table's key, (identity_id, id): R64
+        rows = conn.execute(
+            "SELECT identity_id, id, state FROM changes WHERE (identity_id, id) IN "
+            "(SELECT * FROM unnest(%s::text[], %s::text[]))",
+            ([identity_id for identity_id, _ in items], [item_id for _, item_id in items]),
+        ).fetchall()
+    found = {(identity_id, change_id): state for identity_id, change_id, state in rows}
+    out: dict[str, str] = {}
+    for identity_id, change_id in items:
+        if (identity_id, change_id) not in found:
+            out[change_id] = "gone"  # forgotten since, or not written yet: the record waits LOST_AFTER first
+        elif found[identity_id, change_id] is not None:
+            out[change_id] = str(found[identity_id, change_id])  # ended, as it ended; a NULL state still waits
+    return out
 
 
 # How the latest changes ended, the latest ``SETTLED_KEPT`` kept: the older ones go.

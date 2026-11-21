@@ -8,6 +8,7 @@ answer, counts too, naming no value. A log that does not take it forgets nothing
 import asyncio
 import contextlib
 import json
+from dataclasses import replace
 
 import httpx
 import psycopg
@@ -15,6 +16,7 @@ import pytest
 
 from latet.bridge.apps import APPS_API, MOST_TEXTS
 from latet.config import LlmReview
+from latet.engine.vault import Vault
 from latet.gateway.routes import Upstream
 from latet.server.app import create_server_app
 from latet.server.machines import StoresUnavailable
@@ -636,3 +638,84 @@ async def test_a_disabled_key_can_still_have_values_forgotten(server):
         await server.spaces.drop(key.id)
         answer = await client.post(f"{ADMIN}/identities/{key.id}/forget", json={"values": [CANARY]}, headers=admin)
     assert answer.status_code == 200 and answer.json() == {"forgotten": 1, "unknown": 0}
+
+
+# --- a value forgotten from an API key's dashboard (Latet Enterprise: the key's space) --------------------------------
+
+UI = {"x-latet-ui": "1"}
+VAULT = "/_latet/api/v1/vault"
+KEY_CANNOT_FORGET = "this API key's space cannot forget a value now, and nothing was forgotten"
+
+
+@contextlib.asynccontextmanager
+async def _keys_dashboard(server, key, *, acting=None):
+    """A client of the key's space as the Enterprise Edition's hand-on makes the person's dashboard request: the key its
+    identity and, where ``acting`` is given, the person working there (``scope["latet.acting"]``)."""
+    inner = await server.spaces.app(key)
+
+    async def handed(scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "latet.identity": key.id, **({} if acting is None else {"latet.acting": acting})}
+        await inner(scope, receive, send)
+
+    transport = httpx.ASGITransport(app=handed, client=WHERE)
+    async with httpx.AsyncClient(transport=transport, base_url=URL) as client:
+        yield client
+
+
+THE_KEY = object()  # the acting person a request names when it names the key itself
+
+
+@pytest.mark.parametrize("acting", [None, "", 7, THE_KEY])
+async def test_a_forget_in_a_keys_space_that_names_no_person_is_refused_and_forgets_nothing(server, acting):
+    """N-1: a key's value is forgotten from its dashboard by the person working there, with their entry in the
+    administration log. A request that names no person (the hand-on that sets one did not run), or the key itself as
+    the one working there, is never the key's own act: refused in fixed words, the value still in the key's vault, no
+    entry written."""
+    key, secret = server.identities.add_key("Billing CI")
+    acting = key.id if acting is THE_KEY else acting
+    person, _ = server.identities.add_person("Daniel Okafor")
+    store = PgVaultStore(server.db, key.id, root_key(server.db, server.master, key.id))
+    async with _calling(server) as client:
+        await _masked(client, secret, f"write to {CANARY}")
+        held = store.by_original(CANARY)
+        assert held is not None
+        memory = server.spaces._spaces[key.id].runtime.built.vault
+        entries = len(server.audit.query())
+        async with _keys_dashboard(server, key, acting=acting) as dashboard:
+            refused = await dashboard.delete(f"{VAULT}/{held.id}", headers=UI)
+            assert (refused.status_code, refused.json()) == (503, {"error": KEY_CANNOT_FORGET})
+            assert refused.headers["cache-control"] == "no-store"
+        assert store.by_original(CANARY) == held and memory.get(held.id) == held
+        assert server.audit.query(action="key.forgotten") == [] and len(server.audit.query()) == entries
+        async with _keys_dashboard(server, key, acting=person.id) as dashboard:  # the person working there: it goes
+            done = await dashboard.delete(f"{VAULT}/{held.id}", headers=UI)
+            assert (done.status_code, done.json()) == (200, {"ok": True})
+    [entry] = server.audit.query(action="key.forgotten")
+    assert (entry.actor, entry.target) == (person.id, key.id)
+    assert store.by_original(CANARY) is None
+
+
+async def test_a_keys_space_that_cannot_forget_never_falls_back_to_a_persons_forget(server, monkeypatch):
+    """N-1: a key's space whose server hands it no forget (``OnServer.forget``), or whose vault is not the store's, is
+    refused (503, fixed words), never forgotten through the person's forget, which writes no entry of its own."""
+    key, secret = server.identities.add_key("Billing CI")
+    person, _ = server.identities.add_person("Daniel Okafor")
+    store = PgVaultStore(server.db, key.id, root_key(server.db, server.master, key.id))
+    async with _calling(server) as client:
+        await _masked(client, secret, f"write to {CANARY}")
+        held = store.by_original(CANARY)
+        assert held is not None
+        runtime = server.spaces._spaces[key.id].runtime
+        on_server, kept = runtime.gateway.on_server, runtime.built.vault
+        async with _keys_dashboard(server, key, acting=person.id) as dashboard:
+            monkeypatch.setattr(runtime.gateway, "on_server", replace(on_server, forget=None))  # no forget handed
+            refused = await dashboard.delete(f"{VAULT}/{held.id}", headers=UI)
+            assert (refused.status_code, refused.json()) == (503, {"error": KEY_CANNOT_FORGET})
+            assert store.by_original(CANARY) == held  # the person's forget would have taken it out of the store
+            monkeypatch.setattr(runtime.gateway, "on_server", on_server)
+            monkeypatch.setattr(runtime.built, "vault", Vault(b"k" * 32))  # not the store's: a local vault says 404
+            refused = await dashboard.delete(f"{VAULT}/{held.id}", headers=UI)
+            assert (refused.status_code, refused.json()) == (503, {"error": KEY_CANNOT_FORGET})
+            monkeypatch.setattr(runtime.built, "vault", kept)
+        assert store.by_original(CANARY) == held and server.audit.query(action="key.forgotten") == []

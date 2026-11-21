@@ -5,18 +5,18 @@ sidebar:
   label: Überblick
 ---
 
-Latet schützt, was ein Agent an ein Modell sendet. Programme senden vertraulichen Text aber auch an
+Latet schützt, was ein Agent an ein Modell sendet. Programme senden sensiblen Text aber auch an
 andere Stellen: ihre Logs an Datadog, Splunk oder Elastic, ihre Dokumente an den Index einer
 RAG-Anwendung. Mit der API für Anwendungen bittet ein Programm einen Latet-Server, mit dem Token
-eines API-Schlüssels, einen Text:
+eines API-Schlüssels, darum:
 
-- zu **analysieren** (`scan`): was darin vertraulich ist, und wo;
-- zu **maskieren** (`mask`): derselbe Text mit realistischen Ersatzwerten anstelle seiner Werte;
-- **wiederherzustellen** (`unmask`): die echten Werte wieder anstelle der Ersatzwerte;
+- einen Text zu **analysieren** (`scan`): was darin sensibel ist, und wo;
+- ihn zu **maskieren** (`mask`): derselbe Text mit realistischen Ersatzwerten anstelle seiner Werte;
+- ihn **wiederherzustellen** (`unmask`): die echten Werte wieder anstelle der Ersatzwerte;
 - Werte zu **vergessen** (`forget`): sie aus dem Tresor des Schlüssels zu entfernen, wenn eine Person
-  verlangt, dass ihre Daten verschwinden ([Werte vergessen](forget/)).
+  verlangt, dass ihre Daten daraus entfernt werden ([Werte vergessen](forget/)).
 
-Sie ist eine Funktion des Latet-Servers: API-Schlüssel und ihre Token gibt es nur dort, und ein
+Sie ist eine Funktion des Latet-Servers: API-Schlüssel und ihre Tokens gibt es nur dort, und ein
 Rechner ohne Server hat nichts davon. Um sie auf Ihrem eigenen Rechner auszuprobieren, starten Sie
 dort einen Community-Server mit dem Serverprofil von `compose.yaml`
 ([Serverbetrieb](../concepts/server-operations/)).
@@ -25,13 +25,13 @@ Was sie mehr bietet als eine Schwärzungsregel:
 
 - **Jedes Mal derselbe Ersatzwert.** Ein Wert erhält in jedem Aufruf, auf jeder Instanz des Servers
   denselben Ersatzwert, solange der Tresor des Schlüssels ihn behält. In einem Log-Dienst
-  funktionieren Diagramme und Suchen weiter, und ein Kunde lässt sich über Tage von Logs verfolgen,
+  funktionieren Diagramme und Suchen weiter, und ein Kunde lässt sich über Logs vieler Tage verfolgen,
   ohne dass jemand sieht, wer er ist. In einem RAG-Index bleibt eine Person über alle Dokumente
   dieselbe Person.
 - **Ein Tresor für den ganzen Ablauf.** Dokumente und Fragen, die mit demselben Schlüssel maskiert
   werden, teilen ihre Ersatzwerte. So arbeitet ein Modell mit stimmigen Ersatzwerten, und `unmask`
   setzt die echten Werte in seine Antwort wieder ein.
-- **Umkehrbar, unter Kontrolle.** Wiederherstellen ist eine eigene Berechtigung, erreicht nur die
+- **Umkehrbar, unter Kontrolle.** Wiederherstellen ist eine eigene Berechtigung, es erreicht nur die
   Ersatzwerte des Schlüssels, und jede Wiederherstellung über die API für Anwendungen wird im
   Administrationsprotokoll des Servers festgehalten.
 
@@ -59,29 +59,29 @@ printf 'Authorization: Bearer %s' "$(cat shop.key)" | curl -sS -H @- \
   "counts": {"EMAIL": 1, "IBAN": 1}}]}
 ```
 
-`shop.key` enthält den ersten Token des Schlüssels, den `keys add` schreibt
-([weiter unten](#api-schlüssel-und-token)).
+`shop.key` enthält das erste Token des Schlüssels, das `keys add` schreibt
+([weiter unten](#api-schlüssel-und-tokens)).
 `printf`, das die Shell selbst ausführt, übergibt den Header über die Standardeingabe an curl
-(`-H @-`). So steht der Token nicht in der Befehlszeile von curl, wo andere Benutzer des Rechners ihn
+(`-H @-`). So steht das Token nicht in der Befehlszeile von curl, wo andere Benutzer des Rechners es
 lesen könnten. Die Ersatzwerte sind die des Schlüssels: Ein anderer Schlüssel oder ein anderer Server
-liefert andere. Mit einem Token, der wiederherstellen darf, kommt derselbe Text, an
+liefert andere. Mit einem Token, das wiederherstellen darf, kommt derselbe Text, an
 `/_latet/apps/v1/unmask` gesendet, so zurück, wie er war, mit `"restored": 2`.
 
-## API-Schlüssel und Token
+## API-Schlüssel und Tokens
 
 Ein API-Schlüssel ist ein Bereich auf dem Server: seine Regeln, sein Tresor mit Ersatzwerten, sein
-Verlauf. Er kann mehrere **Token** haben, die Geheimnisse, die in diesem Bereich handeln, und jeder
+Verlauf. Er kann mehrere **Tokens** haben, die Geheimnisse, die in diesem Bereich handeln, und jedes
 Token hat seine eigenen **Berechtigungen**:
 
-| Berechtigung | Was der Token darf |
+| Berechtigung | Was das Token darf |
 | --- | --- |
-| `scan` | Sagen, was ein Text enthält und wo; er ändert nichts. |
-| `mask` | Die Werte eines Textes durch die Ersatzwerte des Schlüssels ersetzen. Ein Token, der maskieren darf, darf auch analysieren. |
+| `scan` | Sagen, was ein Text enthält und wo, ohne etwas zu ändern. |
+| `mask` | Die Werte eines Textes durch die Ersatzwerte des Schlüssels ersetzen. Ein Token, das maskieren darf, darf auch analysieren. |
 | `unmask` | Die echten Werte wieder anstelle der Ersatzwerte des Schlüssels einsetzen. |
 | `forget` | Werte aus dem Tresor des Schlüssels entfernen ([Werte vergessen](forget/)). Keine andere Berechtigung schließt sie ein. |
 
 Geben Sie jedem Programm nur, was es braucht. Eine Anwendung, die ihre Logs versendet, braucht
-`mask`; das Support-Werkzeug, das eine aus dem Log-Dienst kopierte Zeile liest, braucht `unmask`; eine
+`mask`; das Support-Tool, das eine aus dem Log-Dienst kopierte Zeile liest, braucht `unmask`; eine
 RAG-Anwendung, die ihre Dokumente maskiert und die Antwort des Modells wiederherstellt, braucht beides.
 
 ```sh
@@ -91,34 +91,35 @@ latet server --server https://latet.acme.lan keys add-token "Shop" support --unm
 latet server --server https://latet.acme.lan keys tokens "Shop"
 ```
 
-Der erste Token eines Schlüssels, den `keys add` erzeugt, hat `scan`, `mask` und `unmask`, ebenso der
-Token jedes Schlüssels, der angelegt wurde, bevor Token Berechtigungen hatten: Diese Schlüssel
-funktionieren wie bisher. Der erste Token des Schlüssels hat außerdem eine Adresse für Modelle, das
-[Gateway](../getting-started/server/#einem-programm-einen-api-schlüssel-geben), und bedient darüber die
-Agenten des Schlüssels: `keys tokens` kennzeichnet ihn mit `serves agents (has an address)`, damit er
-nicht anstelle eines Tokens widerrufen wird, der mit denselben Berechtigungen hinzugefügt wurde. Ein
-Token, der mit `keys add-token` erstellt wurde, hat keine Adresse, welche
-Berechtigungen er auch hat, `--mask --unmask` eingeschlossen: Das Gateway und die Bridge des Plugins
-weisen ihn ab (403), und er ruft nur die API für Anwendungen auf.
+Das erste Token eines Schlüssels, das `keys add` erzeugt, hat `scan`, `mask` und `unmask`, ebenso das
+Token jedes Schlüssels, der angelegt wurde, bevor Tokens Berechtigungen hatten: Diese Schlüssel
+funktionieren wie bisher. Keines davon darf vergessen: `forget` erhält ein eigenes Token
+(`keys add-token "Shop" erasure --forget`). Das erste Token des Schlüssels hat außerdem eine Adresse
+für Modelle, das [Gateway](../getting-started/server/#einem-programm-einen-api-schlüssel-geben), und
+bedient darüber die Agenten des Schlüssels: `keys tokens` kennzeichnet es mit
+`serves agents (has an address)`, damit es nicht anstelle eines Tokens widerrufen wird, das mit
+denselben Berechtigungen hinzugefügt wurde. Ein Token, das mit `keys add-token` erstellt wurde, hat
+keine Adresse, welche Berechtigungen es auch hat, `--mask --unmask` eingeschlossen: Das Gateway und
+die Bridge des Plugins lehnen es ab (403), und es kann nur die API für Anwendungen aufrufen.
 
-Jeder Token lässt sich einzeln stoppen: `keys tokens "Shop" --revoke t_4kxq2m7zap` widerruft einen
+Jedes Token lässt sich einzeln stoppen: `keys tokens "Shop" --revoke t_4kxq2m7zap` widerruft eines
 anhand der ID, die `keys tokens` auflistet, innerhalb von Sekunden auf jeder Instanz. `keys rotate
-"Shop" --token t_4kxq2m7zap --out shipper.token` ersetzt diesen Token durch einen neuen, mit neuem
+"Shop" --token t_4kxq2m7zap --out shipper.token` ersetzt dieses Token durch ein neues, mit neuem
 Geheimnis und neuer ID, demselben Namen und denselben Berechtigungen; ein Schlüssel mit nur einem
 Token braucht kein `--token`. Jede Änderung steht im Administrationsprotokoll (`token.added`,
-`token.revoked`, `key.rotated`), mit den IDs der Token, nie mit einem Geheimnis.
+`token.revoked`, `key.rotated`), mit den IDs der Tokens, nie mit einem Geheimnis.
 
-Die API für Anwendungen nimmt nur Token von API-Schlüsseln an: Der Rechner-Token einer Person wird
-abgewiesen (403), ebenso eine Anfrage, die eine Webseite stellt. Personen verwenden ihr Dashboard.
+Die API für Anwendungen nimmt nur Tokens von API-Schlüsseln an: Das Rechnertoken einer Person wird
+abgelehnt (403), ebenso eine Anfrage, die eine Webseite stellt. Personen verwenden ihr Dashboard.
 
 ## Prosa und Daten
 
-`scan` und `mask` nehmen eine Art (`kind`) für die Texte eines Aufrufs:
+Für die Texte eines Aufrufs nehmen `scan` und `mask` eine Art (`kind`) an:
 
-- `prose` (die Voreinstellung): Text, den Menschen geschrieben haben, etwa Nachrichten, Tickets und
+- `prose` (der Standard): Text, den Menschen geschrieben haben, etwa Nachrichten, Tickets und
   Dokumente. Er wird maskiert, wie das Gateway Ihre eigenen Nachrichten maskiert.
 - `data`: Logs, Datensätze, die Ausgabe eines Programms. Sie werden maskiert, wie das Gateway die
-  Ausgabe eines Werkzeugs maskiert.
+  Ausgabe eines Tools maskiert.
 
 Der Unterschied liegt in dem, was wahrscheinlich ist: Im Profil `balanced` werden Namen nur in Prosa
 gesucht (mit dem auf dem Server installierten
@@ -140,17 +141,17 @@ Gateway für die Anfragen des Schlüssels tut. Es gibt keine Regeln nur für die
 - **Der lokale Prüfer** liest, wenn die Regeln des Schlüssels einen festlegen, jeden Text eines
   `mask`-Aufrufs vor der Antwort, was auch immer `llm_review.inline` für das Gateway sagt: Eine
   Anwendung hat keinen späteren Zeitpunkt. Er erhält `llm_review.budget_ms`, wenn gesetzt, sonst 30
-  Sekunden. Ein Text, dessen Prüfung scheitert, folgt `llm_review.on_failure`: Mit `stop` (der
-  Voreinstellung) lautet die Antwort `blocked`, mit `send` kommt der Text so, wie ihn die Regeln
-  maskiert haben. Bei einem ausgefallenen Prüfer wird also jeder Text blockiert, bis er wieder
+  Sekunden. Ein Text, dessen Prüfung scheitert, folgt `llm_review.on_failure`: Mit `stop` (dem
+  Standard) lautet die Antwort `blocked`, mit `send` kommt der Text so zurück, wie ihn die
+  Regeln maskiert haben. Bei einem ausgefallenen Prüfer wird also jeder Text blockiert, bis er wieder
   antwortet.
 - **`scan` führt den lokalen Prüfer nicht aus.** Der Prüfer bringt dem Tresor bei, was er findet, und
   eine Analyse mit `scan` ändert nichts. Bei einem Schlüssel mit Prüfer kann `scan` weniger melden,
   als `mask` ersetzt.
-- **Der Live-Prüfer hält den Text einer Anwendung nie an.** Eine Anwendung kann nicht auf einen
+- **Der Live-Prüfer hält den Text einer Anwendung nie zurück.** Eine Anwendung kann nicht auf einen
   Menschen warten: Ein Text wird allein von den Regeln und dem lokalen Prüfer maskiert, auch wenn die
   Regeln des Schlüssels den Live-Prüfer einschalten.
-- **Der Dump-Schutz** gilt für `data`-Texte wie für die Ausgabe eines Werkzeugs: Einer, der mehr
+- **Der Dump-Schutz** gilt für `data`-Texte wie für die Ausgabe eines Tools: Einer, der mehr
   personenbezogene Werte enthält, als `dump_guard` erlaubt, erhält `blocked`.
 
 Ein blockierter Text kommt als `{"blocked": "<Grund>"}` ohne Text zurück, und der Grund nennt keinen
@@ -180,39 +181,38 @@ API wieder her ([RAG](rag/)).
 
 ## Wer was erfahren kann
 
-**Wiederherstellen** liefert die echten Werte der Ersatzwerte des Schlüssels, gleich welcher Aufruf oder
+**Wiederherstellen** liefert die echten Werte zu den Ersatzwerten des Schlüssels, gleich welcher Aufruf oder
 welche Unterhaltung des Schlüssels sie erzeugt hat, auch die vom letzten Jahr. Es erreicht keine
 Ersatzwerte eines anderen Schlüssels und keine einer Person: Text, der kein Ersatzwert des Schlüssels
 ist, bleibt, wie er ist. Der Name einer Person kommt nur als Ganzes zurück: Ein Teil davon allein (ein
 Vorname) kann ein gewöhnliches Wort oder der Name einer anderen Person sein und bleibt, wie er ist. Jede
 Wiederherstellung wird im Administrationsprotokoll festgehalten, bevor ihre Antwort gesendet wird
 (`apps.unmasked`, mit dem Token, wie viele Texte und wie viele Werte; nie ein Text oder ein Wert), und
-ein Protokoll, das sie nicht aufnehmen kann, weist den Aufruf ab (503). Der erste Token des Schlüssels,
-der analysieren, maskieren und wiederherstellen darf, bedient auch Agenten über das Gateway: Ihre
-Antworten werden wie die jedes Agenten wiederhergestellt, ohne einen Eintrag im Administrationsprotokoll
-für jede Wiederherstellung. Ein Token, der mit `keys add-token` erstellt wurde, tut das nie, daher ist
-jede seiner Wiederherstellungen ein Eintrag `apps.unmasked`. Geben Sie `unmask` den Werkzeugen der
-Personen, die die echten Daten sehen
-dürfen, und lesen Sie das Protokoll mit `latet server log --action apps.unmasked`.
+ein Protokoll, das sie nicht aufnehmen kann, lehnt den Aufruf ab (503). Das erste Token des
+Schlüssels, das analysieren, maskieren und wiederherstellen darf, bedient auch Agenten über das
+Gateway: In ihren Antworten werden die echten Werte wie bei jedem Agenten wieder eingesetzt, ohne einen
+Eintrag im Administrationsprotokoll für jede Wiederherstellung. Ein Token, das mit `keys add-token`
+erstellt wurde, tut das nie, daher ist jede seiner Wiederherstellungen ein Eintrag `apps.unmasked`.
+Geben Sie `unmask` den Tools der Personen, die die echten Daten sehen dürfen, und lesen Sie das
+Protokoll mit `latet server log --action apps.unmasked`.
 
-**Auch Maskieren verrät etwas.** Mit einem Token, der maskieren darf, und Zugriff auf die maskierten
+**Auch Maskieren verrät etwas.** Mit einem Token, das maskieren darf, und Zugriff auf die maskierten
 Logs kann jemand eine Vermutung bestätigen: `mario.rossi@acme.it` maskieren und in den Logs nach dem
 Ersatzwert suchen. Ist er da, ist Mario Rossi ein Kunde. Geben Sie `mask` deshalb nur den Programmen,
-die es brauchen, bewahren Sie den Token dort auf, wo sie ihre Geheimnisse aufbewahren, und behandeln
+die es brauchen, bewahren Sie das Token dort auf, wo sie ihre Geheimnisse aufbewahren, und behandeln
 Sie die maskierten Logs als pseudonyme Daten, nicht als anonyme.
 
 **Auch Analysieren verrät etwas.** Es erzeugt keinen Ersatzwert und ändert nichts, meldet aber die
-Werte, die der Tresor des Schlüssels schon kennt, wo immer sie stehen. Ein Token, der nur analysieren
+Werte, die der Tresor des Schlüssels schon kennt, wo immer sie stehen. Ein Token, das nur analysieren
 darf, kann also bestätigen, dass ein Wert, den kein Detektor von sich aus finden würde (ein Name in
 einem `data`-Text, ein Wert, den eine Regel des Schlüssels fand, bevor sie entfernt wurde), einer des
 Schlüssels ist. Vergeben Sie `scan` mit derselben Sorgfalt wie `mask`.
 
 **Auch Vergessen verrät etwas.** Seine Antwort sagt, wie viele der Werte der Tresor des Schlüssels
-enthielt; ein Token, der vergessen darf, kann also bestätigen, dass ein Wert einer des Schlüssels ist,
-wie einer, der analysieren darf. Geben Sie `forget` nur dem Vorgang, der Löschanfragen bearbeitet;
+enthielt; ein Token, das vergessen darf, kann also bestätigen, dass ein Wert einer des Schlüssels ist,
+wie eines, das analysieren darf. Geben Sie `forget` nur dem Prozess, der Löschanfragen bearbeitet;
 jedes Vergessen steht im Administrationsprotokoll (`apps.forgotten`, mit dem Token und den Zahlen, nie
-mit einem Wert). Keiner der Token, die `keys add` erzeugt, darf vergessen: `forget` erhält ein eigener
-Token (`keys add-token "Shop" erasure --forget`).
+mit einem Wert).
 
 ## Der Tresor eines Schlüssels
 
@@ -246,16 +246,17 @@ im Speicher gehalten ([Serverbetrieb](../concepts/server-operations/)).
 von Buchstaben und Ziffern ohne Leerzeichen oder Satzzeichen geschrieben ist, über sein Wort gefunden, und über
 seine ersten und letzten sechs Zeichen, wenn andere Buchstaben oder Ziffern an es grenzen: auf einer Seite am
 Rand der Folge des Textes, die es enthält, und auf beiden Seiten (`xhunter2y`) in dieser Folge, die ein Aufruf
-sechs Zeichen auf einmal liest. Ein Aufruf liest höchstens eine Million solcher Positionen: darüber hinaus
+sechs Zeichen auf einmal liest. Ein Aufruf liest höchstens eine Million solcher Positionen: Darüber hinaus
 werden seine späteren Folgen nur über ihre Wörter und Ränder gelesen. Ein Geheimnis von sechs Zeichen oder
-weniger, oder eines, dessen Wort an einem angrenzenden Rand sechs Zeichen oder weniger hat, findet kein Wort des
-Textes, wenn etwas an es grenzt. Darum hält eine Instanz die kurzen Geheimnisse eines Schlüssels dauerhaft im
-Speicher, die aus einer einzigen Folge von 16 Zeichen oder weniger oder mit einem so kurzen Wort am Rand: die
-neuesten `key_held_secrets` davon (1.000, sofern die Einstellungen des Servers nichts anderes sagen), gefunden,
-wie auch immer etwas an sie grenzt, auch jenseits der Million Positionen eines Aufrufs. Ein älteres oder ein
-längeres wird gefunden, wo nichts an es grenzt, mit etwas auf einer Seite, wenn das Wort an diesem Rand sieben
-Zeichen oder mehr hat, und mit etwas auf beiden Seiten, wenn es eine einzige Folge von sieben Zeichen oder mehr
-ist, innerhalb der Million Positionen des Aufrufs. Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele
+weniger, oder eines, dessen Wort an einem angrenzenden Rand sechs Zeichen oder weniger hat, wird über kein Wort
+des Textes gefunden, wenn etwas an es grenzt. Darum hält eine Instanz die kurzen Geheimnisse eines Schlüssels
+dauerhaft im Speicher, also die, die aus einer einzigen Folge von 16 Zeichen oder weniger bestehen oder ein so
+kurzes Wort am Rand haben: die neuesten `key_held_secrets` davon (1.000, sofern die Einstellungen des Servers
+nichts anderes sagen), die gefunden werden, wie auch immer etwas an sie grenzt, auch jenseits der Million
+Positionen eines Aufrufs. Ein älteres oder ein längeres wird gefunden, wo nichts an es grenzt; wo etwas auf einer
+Seite angrenzt, wenn das Wort an diesem Rand sieben Zeichen oder mehr hat; und wo etwas auf beiden Seiten
+angrenzt, wenn es eine einzige Folge von sieben Zeichen oder mehr ist, innerhalb der Million Positionen des
+Aufrufs. Erhöhen Sie `key_held_secrets` für einen Schlüssel, der viele
 kurze Geheimnisse sieht, etwa ein Sitzungstoken in jeder Logzeile: Jedes gehaltene belegt etwa 23 KB auf jeder
 Instanz, die den Schlüssel bedient, das meiste davon im Detektor, der es findet, und jeder Text, den der
 Schlüssel maskiert oder wiederherstellt, wird danach durchsucht, was seine Aufrufe etwas verlangsamt. Gemessen
@@ -269,7 +270,7 @@ wird. Wie überall in Latet wird ein Wert ab vier Zeichen wiedererkannt, der Nam
 Werte](../concepts/detection/#bekannte-werte)).
 
 **Kurze Geheimnisse.** Ein Geheimnis mit weniger als zwölf Zeichen (`password=1234`, ein kurzes
-Token) erhält einen längeren Ersatzwert derselben Arten, seine Sonderzeichen an ihrer Stelle:
+Token) erhält einen längeren Ersatzwert aus denselben Zeichenarten, seine Sonderzeichen an ihrer Stelle:
 fünfzehn Ziffern für eine Zahl (mit ihrem Vorzeichen und ihrem Dezimalpunkt, damit eine JSON-Zahl
 eine Zahl bleibt), zwölf Hexadezimalziffern für einen hexadezimalen Wert, sonst zwölf Buchstaben und
 Ziffern. Ein Ersatzwert, so kurz wie sein Wert, käme zufällig in den IDs und Zahlen anderer
@@ -290,8 +291,8 @@ und auch diese bleiben: Aktualisieren Sie jede Instanz.
 Commit, der PostgreSQL nicht erreicht), behält keinen seiner neuen Werte, wenn er dafür eine der
 Transaktionen der Instanz hielt, von denen es mit dem standardmäßigen `database_pool` drei
 gleichzeitig gibt: Der Bereich des Schlüssels vergisst sie. Waren diese belegt, hat der Aufruf jeden
-neuen Wert sofort gespeichert, und diese bleiben im Tresor des Schlüssels. Ein Fehler nach dem Maskieren, in der lokalen Prüfung oder beim
-Erstellen der Antwort, kommt nach dem Commit; auch dann bleiben die neuen Werte des Aufrufs. Die Texte
+neuen Wert sofort gespeichert, und diese bleiben im Tresor des Schlüssels. Ein Fehler nach dem
+Maskieren, in der lokalen Prüfung oder beim Erstellen der Antwort, kommt nach dem Commit; auch dann bleiben die neuen Werte des Aufrufs. Die Texte
 erneut zu maskieren ist in jedem Fall sicher: Ein Wert, den der Tresor behalten hat, hat seinen
 Ersatzwert, und einer, den er vergessen hat, erhält wieder einen. Ein Agent desselben Schlüssels, der
 einen vergessenen Wert inzwischen über das Gateway verwendet hat, hat dessen Ersatzwert bereits
@@ -303,21 +304,21 @@ gesendet, den keine spätere Wiederherstellung zurückverwandelt.
   die Einstellungen des Servers nichts anderes sagen), oder eine eigene Grenze:
   `latet server keys limit "Shop" 5000000` (von 1.000 bis 100.000.000; `default` gibt ihm wieder die
   des Servers). Ein voller Tresor weist den `mask`-Aufruf, der einen Wert hinzufügen würde, mit 507
-  ab: Vom Aufruf kommt nichts zurück, und nichts verlässt den Server im Klartext. Der Status des
+  ab: Vom Aufruf kommt nichts zurück, und nichts geht im Klartext hinaus. Der Status des
   Servers listet die Identitäten bei 90 % ihrer Grenze auf, und die Metrik `latet_vault_near_limit`
   zählt sie; heben Sie eine Grenze also an, bevor sie erreicht ist. Jede Instanz zählt die neuen Werte
-  eines Aufrufs, bevor sie sie bestätigt: Zwei Instanzen, oder ein Aufruf und ein Agent desselben
+  eines Aufrufs, bevor sie sie festschreibt: Zwei Instanzen, oder ein Aufruf und ein Agent desselben
   Schlüssels, können die Grenze um die neuen Werte je eines Aufrufs überschreiten, bevor der nächste
-  Wert abgewiesen wird. Ein Index der Fingerabdrücke eines Tresors wird bis zu 16.777.216
+  Wert abgelehnt wird. Ein Index der Fingerabdrücke eines Tresors wird bis zu 16.777.216
   Fingerabdrücken aufgebaut, etwa acht Millionen Werten der Art, die
-  [Wie schnell es ist](#wie-schnell-es-ist) misst: darüber wird kein Index aufgebaut, solange der
+  [Wie schnell es ist](#wie-schnell-es-ist) misst: Darüber wird kein Index aufgebaut, solange der
   Bereich des Schlüssels besteht, und seine Aufrufe suchen ihre Wörter allein in PostgreSQL,
   langsamer.
 - **Ein Aufruf** nimmt höchstens 1.000 Texte und das `apps_request_mb` des Servers (8 MiB, wenn seine
   Einstellungen nichts anderes sagen, nie mehr als sein `max_request_mb`): Ein Aufruf wartet im
   Speicher auf den Thread des Schlüssels, und `latet-client` teilt eine längere Liste in Aufrufe von
   höchstens 8 MiB auf. Texte, deren Wörter mehr als 100.000 Werte oder Ersatzwerte des
-  Tresors nennen, werden ganz mit 422 abgewiesen, in festen Worten, die keinen Wert nennen: Vom
+  Tresors nennen, werden ganz mit 422 abgelehnt, in festen Worten, die keinen Wert nennen: Vom
   Aufruf wird nichts maskiert oder wiederhergestellt, senden Sie also weniger Texte pro Aufruf. Ein
   503 ist etwas anderes: Ein Speicher des Servers (PostgreSQL, Valkey) hat nicht geantwortet, oder die
   Einstellungen des Schlüssels wurden noch angewendet, als der Aufruf kam oder beantwortet wurde
@@ -379,7 +380,7 @@ Auf einer Linux-Maschine addieren sich die Worker. Gemessen in Docker auf demsel
 virtuelle Linux-Maschine mit 20 Prozessoren und 16 GB, PostgreSQL 18.6 und Valkey 9.1.2 in Containern
 daneben), mit `latet server run --workers` und einem API-Schlüssel mit 200.000 Werten: 200.000
 verschiedene Zeilen der oben beschriebenen Art in Aufrufen zu 62, vier Verbindungen pro Worker, jede
-Anzahl 20 Sekunden lang, der Median von drei Runden; der Speicher ist der residente Speicher jedes
+Worker-Anzahl 20 Sekunden lang, der Median von drei Runden; der Speicher ist der residente Speicher jedes
 Workers nach den Runden:
 
 | Worker | Maskieren, Zeilen pro Sekunde | Wiederherstellen, Zeilen pro Sekunde | Speicher pro Worker |
@@ -404,7 +405,7 @@ ihre neuen Werte in je einer Transaktion speichern; die übrigen speichern jeden
 langsamer ist. Erhöhen Sie `database_pool` für eine Instanz, die für viele neue Schlüssel
 gleichzeitig maskiert, und mit ihm `max_connections` von PostgreSQL
 ([Serverbetrieb](../concepts/server-operations/#verbindungen-grenzen-und-vertrauen)).
-`scripts/bench_apps.py` im Repository misst einen Server von Ihnen so, wie die erste Tabelle gemessen
+`scripts/bench_apps.py` im Repository misst Ihren eigenen Server so, wie die erste Tabelle gemessen
 wurde.
 
 ## Einen Server aktualisieren
@@ -425,7 +426,7 @@ PostgreSQL sucht, wie 0.10 es tat, und bildet die Fingerabdrücke des Tresors im
 Instanz nach der anderen; jede Instanz baut dann ihren eigenen Index daraus auf und nutzt ihn. Bis dahin
 maskieren die Aufrufe des Schlüssels dieselben Werte, langsamer ([Wie schnell es ist](#wie-schnell-es-ist): 494
 Zeilen pro Sekunde bei 200.000 Werten mit abgeschalteten Fingerabdrücken, in einer früheren Messung), und keiner
-wird deswegen abgewiesen. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
+wird deswegen abgelehnt. Wenn die Fingerabdrücke noch nicht alle gebildet sind oder ein Index nicht aufgebaut
 werden kann (PostgreSQL oder Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), bleiben die
 Aufrufe bei der Suche in PostgreSQL, bis der Index erneut aufgebaut ist: sofort, wenn die Fingerabdrücke
 gebildet sind, von dieser oder einer anderen Instanz, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann

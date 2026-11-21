@@ -10,9 +10,10 @@ change holds no other identity's): a value masked or forgotten (PostgreSQL read 
 nothing), a conversation's new folder, its own settings or the shared ones changed (read and applied under the
 runtime's lock, composed with the settings approved as at a start: what the shared settings add applies at once, what
 lowers protection waits for the person, ``Runtime.propose``; an API key's approved settings are its own part laid over
-the shared settings of now, so that every shared change reaches it and a rollback of its own part waits). What a space
-hears while it is built is applied before anyone has it. A change that cannot be applied closes the space, made again
-from PostgreSQL at its next use: a space never runs on without it.
+the shared settings of now, so that every shared change reaches it and a rollback of its own part waits), and a new
+floor of the company's (Latet Enterprise: the spaces watch the edition, ``floor_changed``). What a space hears while it
+is built is applied before anyone has it. A change that cannot be applied closes the space, made again from PostgreSQL
+at its next use: a space never runs on without it, nor below a floor it could not take.
 
 Every announced change carries its count from PostgreSQL: the identity's vault's, its settings', or the shared
 settings'. Each space keeps the counts it has applied (heard, or made itself), and the beat's check (``Spaces.check``)
@@ -66,6 +67,7 @@ from latet.api.rest import API, _submit_publication
 from latet.engine.known import LET_GO, value_chars
 from latet.engine.stored import StoredVault
 from latet.engine.vault import Vault
+from latet.floor import BelowFloor, FloorUnavailable, company_decides
 from latet.gateway.app import OnServer, create_app
 from latet.gateway.provenance import LocalEchoes
 from latet.gateway.request_audit import RequestAudit, _SweepLease
@@ -132,12 +134,21 @@ _DROP = "drop"  # what a space being built hears when it is closed meanwhile
 WORDS_HOLD_SECONDS = 600
 # What a space is handed besides the messages of its channels: a re-application after a save refused as stale, the
 # beat's catching up (its vault, its settings, the shared settings: each by its own count; its identity, by its vault
-# limit), and a change of its identity's name, email or vault limit.
+# limit), and a change of its identity's name, email or vault limit, or of its link to the company's identity provider.
 _REAPPLY, _UPDATED = "reapply", "updated"
+# The settings read again for whoever awaits it (``Spaces.reapplied``: a decision taken here, Latet Enterprise's R41),
+# its message the future it sets: never dropped for one queued already, since each caller waits on its own.
+_REAPPLIED = "reapplied"
+# A new floor of the company's (Latet Enterprise: a server's policy set, removed, read again or brought in or out by its
+# license), applied in the space's own worker: one queued at a time, at most, before its application begins.
+_FLOOR = "floor"
 _RESYNC, _SETTINGS_BEHIND, _SHARED_BEHIND = "resync", "settings-behind", "shared-behind"
 _CATCH_UPS = frozenset({_RESYNC, _SETTINGS_BEHIND, _SHARED_BEHIND, _UPDATED})  # one of each queued at a time, at most
 # A space's long connections, ended with it: WebSockets, dashboard streams, approval waits and AWS session holds.
 _STREAMS = frozenset({f"{API}/stream", f"{API}/approvals/stream"})
+# The same streams of an API key's space, which its controller opens from their own dashboard (Latet Enterprise:
+# /_latet/api/v1/ee/keys/<key>/space/stream): the person's, held and counted as their own streams are.
+_KEY_SPACE_STREAM = re.compile(re.escape(API) + "/ee/keys/[^/]+/space/(?:approvals/)?stream")
 STALL_SECONDS = 60  # a dashboard stream's client takes each send within this bound, or its subscription ends
 # What closes a long connection of a space that closed (its identity disabled or removed, its token revoked, its key
 # rotated, the instance not hearing Valkey): a WebSocket's close code (a policy's), and its reason (123 bytes at most).
@@ -145,6 +156,8 @@ CLOSED_CODE = 1008
 _CLOSED = "latet: this identity's space closed on this instance"
 # Its reason when the space closed past its share of the memory (``Spaces._fit``): made again at its next use.
 _PAST_SHARE_CLOSED = f"{_CLOSED}, past its share of its memory"
+# What whoever waits for its settings read again (``Spaces.reapplied``) hears when it closes first.
+_UNREAD_CLOSED = "the space closed before its settings were read again: try again"
 
 
 class SpaceUnavailable(RuntimeError):
@@ -240,7 +253,7 @@ def _fixed(runtime: Runtime, retained: int | None = None) -> int:
     if backends is not None:
         held += getattr(backends.given, "cached_bytes", 0) + getattr(backends.conversations, "cached_bytes", 0)
         held += getattr(backends.approvals, "held_bytes", 0)
-    return SPACE_BASE + masker_weight(runtime.config) + held
+    return SPACE_BASE + masker_weight(runtime.in_use()) + held  # as built: raised to the company's floor (M5)
 
 
 def _values(vault: Vault, count: int = 0, chars: int = 0) -> int:
@@ -423,6 +436,11 @@ class Space:
                 task.cancel()
 
 
+def _stream(path: str) -> bool:
+    """Whether ``path`` is a dashboard's stream: one's own, or an API key's space's."""
+    return path in _STREAMS or _KEY_SPACE_STREAM.fullmatch(path) is not None
+
+
 def _long(scope: Scope) -> bool:
     """Whether a request is a space's WebSocket, dashboard stream or bridge long poll."""
     if scope["type"] == "websocket":
@@ -430,7 +448,7 @@ def _long(scope: Scope) -> bool:
     if scope["type"] != "http":
         return False
     path = scope.get("path", "")
-    if path in _STREAMS or launch_hold(scope):
+    if _stream(path) or launch_hold(scope):
         return True
     if scope.get("method") == "POST":
         return path == "/_latet/engine/v1/approvals/wait"
@@ -484,7 +502,7 @@ async def _held(space: Space, scope: Scope, receive: Receive, send: Send) -> Non
     async def sending(message: Message) -> None:
         if task in space.ended and message["type"] == "websocket.close":
             message = {**message, "code": CLOSED_CODE, "reason": space.words}
-        if scope["type"] == "http" and scope.get("path") in _STREAMS:
+        if scope["type"] == "http" and _stream(scope.get("path", "")):
             try:
                 await asyncio.wait_for(send(message), STALL_SECONDS)
             except TimeoutError:
@@ -762,24 +780,45 @@ def _forget(space: Space, entity_id: str) -> None:
 def _settle_obsolete(runtime: Runtime, *, every: bool = False) -> None:
     """A change still waiting with the very settings applied now would undo nothing: settled as superseded (applied
     through another instance, or read by a check between another instance's two writes). ``every``: an API key's, where
-    nothing lowered means the administration saved its settings since, and no change of a key waits for anyone else.
+    nothing lowered means the administration saved its settings since, and a key's change that waits for someone else
+    (Latet Enterprise) is kept: a save made since makes it stale at its decision.
     Settings are compared as values (the same as their digests are), with no dump of either."""
     approvals, applied = runtime.mediator.approvals, runtime.config
     for change_id in list(approvals.changes):
         change = approvals.changes.get(change_id)
-        if change is not None and (every or (change.config is not None and change.config == applied)):
+        if change is not None and (
+            (every and change.decides == "self") or (change.config is not None and change.config == applied)
+        ):
             approvals.settle_change(change_id, "superseded")
 
 
 def _exception_logged(server: Server, identity_id: str, details: Mapping[str, Any]) -> None:
-    """A permanent request exception the identity approved, in the administration log (R-108): its id and its scope's
-    category alone, the identity its actor and its target."""
-    server.audit.record(identity_id, "exception.permanent", identity_id, dict(details))
+    """A permanent request exception approved in the identity's space, in the administration log (R-108): its id and
+    its scope's category alone, the identity its target, and its actor whoever approved it: the decider of the
+    company's (``by``: its security team, or an API key's other controllers, Latet Enterprise), else the identity."""
+    entry = dict(details)
+    actor = entry.pop("by", None) or identity_id
+    server.audit.record(actor, "exception.permanent", identity_id, entry)
 
 
-def _index_again(server: Server, identity_id: str, config: Any, read_at: int | None = None) -> None:
-    """The index of the identity's approved request exceptions written again as its space is built, by what this
-    version and this edition make of them (one a new version suspends, R-100; a permanent one an edition forbids): kept
+# An approval that moves `unknown_members` from `refuse` to `check`, in the administration log (design §3).
+SETTING_LOOSENED = "setting.loosened"
+
+
+def _setting_logged(server: Server, identity_id: str, details: Mapping[str, Any]) -> None:
+    """An approval in the identity's space that moves `unknown_members` from `refuse` to `check`, in the administration
+    log (design §3): the setting, its value, its scope's category and how many projects stop refusing, never a folder;
+    the identity its target, and its actor whoever approved it: the decider of the company's (``by``: its security
+    team, or an API key's other controllers, Latet Enterprise), else the identity."""
+    entry = dict(details)
+    actor = entry.pop("by", None) or identity_id
+    server.audit.record(actor, SETTING_LOOSENED, identity_id, entry)
+
+
+def _index_again(server: Server, identity_id: str, config: Any, read_at: int | None = None, *, company: bool) -> None:
+    """The index of the identity's approved request exceptions written again as its space is built or applies a new
+    floor, by what this version, this edition and the company's floor make of them (one a new version suspends, R-100;
+    a permanent one an edition forbids; where the company decides on them, ``company``, one it did not approve): kept
     otherwise as its approved settings were last kept. ``read_at``: the settings count its build read before
     ``config``; an approval kept since wrote the index itself, which stands (``index_exceptions``). Its failure is said
     by its type: the space runs, and `latet server status` lists from what the index last held."""
@@ -788,7 +827,7 @@ def _index_again(server: Server, identity_id: str, config: Any, read_at: int | N
     allowed = server.edition.permanent_exceptions()
     try:
         with server.db.transaction() as conn:
-            index_exceptions(conn, identity_id, config, permanent_allowed=allowed, read_at=read_at)
+            index_exceptions(conn, identity_id, config, permanent_allowed=allowed, read_at=read_at, company=company)
     except Exception as exc:
         log.warning(
             "the index of the request exceptions of %s was not written again: %s", identity_id, type(exc).__name__
@@ -845,9 +884,22 @@ def _reapply(space: Space) -> None:
             # Asked again when none waits with these settings over those in use now: one made over settings that
             # changed since (her own save of a part of it, on any instance) would be found stale at her approval.
             if not runtime.waits(found, over_these=True):
-                runtime.propose(found, "file")
+                try:
+                    runtime.propose(found, "file")
+                except BelowFloor as refused:  # nothing opened: what was approved applies, raised to the floor
+                    log.warning("settings heard go below the company's floor: not opened (%s)", type(refused).__name__)
             return
         _settle_obsolete(runtime, every=space.identity.kind == "key")
+
+
+def _unread(space: Space) -> None:
+    """``space`` closed (its worker stopped): what it still had queued is dropped, and whoever awaits a reading of its
+    settings in it (``Spaces.reapplied``) is told SpaceUnavailable at once, never left waiting. On the event loop."""
+    while not space.queue.empty():
+        channel, message, _seq = space.queue.get_nowait()
+        done = message.get("done") if channel == _REAPPLIED else None
+        if isinstance(done, asyncio.Future) and not done.done():
+            done.set_exception(SpaceUnavailable(_UNREAD_CLOSED))
 
 
 def _resync(space: Space, db: Database) -> int:
@@ -903,6 +955,33 @@ def _resync(space: Space, db: Database) -> int:
             runtime.built.engine.rules_changed()
     vault.matchers.current()  # what it learnt matched here, in this thread, never by the next masking
     return count
+
+
+def _floor(space: Space, server: Server) -> None:
+    """The space's settings applied again as they apply, raised to the company's floor of now
+    (``Runtime.floor_changed``, under the runtime's lock), then the index of its approved request exceptions written
+    again by it (``_index_again``: where the company decides on them now, one it did not approve grants nothing, and
+    `latet server status` says so; the quality re-review's N1). FloorUnavailable when that floor cannot be said: the
+    space is closed (``_work``)."""
+    runtime = space.runtime
+    with runtime._lock:  # the settings and their count read together: a save of this space moves both under it
+        runtime.floor_changed()
+        config, company = runtime.config, company_decides(runtime.floor_used)
+        read_at = space.settings_counts.highest()
+    _index_again(server, space.identity.id, config, read_at=read_at, company=company)
+
+
+def _renamed(space: Space, found: Identity) -> None:
+    """The identity as PostgreSQL has it now (its name, its email), taken by the space's runtime in place, under its
+    lock; and, where the name the company's identity provider gives it is no longer the one its engine was built with
+    (a rename, a link, an unlink: Latet Enterprise, ``Edition.provider_name``), its settings applied again with it
+    (``Runtime.floor_changed``), which puts it in use where names are left in clear (``named_in``). FloorUnavailable
+    when that name cannot be said: the space is closed (``_work``)."""
+    runtime = space.runtime
+    with runtime._lock:
+        runtime.identity = found.ref()
+        if runtime.edition.provider_name(runtime.identity) != runtime.provided_name:
+            runtime.floor_changed()
 
 
 def _made_prints(store: PgVaultStore) -> bool:
@@ -968,8 +1047,13 @@ async def _forgetting(
     values: Sequence[str],
     details: Mapping[str, Any],
     address: str | None,
+    *,
+    action: str = "apps.forgotten",
+    actor: str | None = None,
 ) -> Forgotten:
-    """Values of an API key's vault forgotten by its applications API (Task 11b, ``OnServer.forget``): in its store
+    """Values of an API key's vault forgotten by its applications API (Task 11b, ``OnServer.forget``), or from its
+    dashboard (Latet Enterprise: the key's space, ``action`` ``key.forgotten`` and the person working there its
+    ``actor``; else the identity itself): in its store
     (``PgVaultStore.forget_values``), with the rows of its history that name their entries (``gone``, the history's
     older rows given their entries first: Ruling 11b-R1), the entry of the administration log (``apps.forgotten``:
     ``details`` and the counts, the identity its actor and its target, the client's address) written last in the same
@@ -985,7 +1069,7 @@ async def _forgetting(
     def recorded(conn: Any, forgotten: int, unknown: int) -> None:
         entry = {**details, "forgotten": forgotten, "unknown": unknown}
         try:
-            server.audit.record(identity_id, "apps.forgotten", identity_id, entry, address, conn=conn)
+            server.audit.record(actor or identity_id, action, identity_id, entry, address, conn=conn)
         except Exception as exc:  # by its type alone: a driver's words can name an address
             raise NotRecorded(described(exc)) from None
 
@@ -1180,6 +1264,8 @@ class Spaces:
         self._index_tasks: set[asyncio.Task[None]] = set()
         # The builds under way, each its turn: made for the event loop that runs them (one on a server).
         self._builds: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+        # The event loop its spaces are built on, once one was: where a new floor heard in another thread is handed.
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._unapplied = Paced()  # catch-ups that failed, said once a minute
         self._unlearnt_said = Paced()  # spaces made again for a value they did not learn, said once a minute
         self._index_off_said = Paced()  # a space's index no longer used, said once a minute
@@ -1229,6 +1315,20 @@ class Spaces:
         """The identity's runtime on this instance, built at its first use. Raises NotListening, SpaceUnavailable, or
         IdentityUnavailable for an identity that is gone or disabled."""
         return (await self._space(identity)).runtime
+
+    async def reapplied(self, identity: Identity) -> Runtime:
+        """The identity's runtime on this instance with its settings read again from PostgreSQL first (``_reapply``, in
+        the space's own worker, as a message of its settings would have it), awaited: what a decision taken here on
+        another instance's request decides against, never a copy that missed a save made elsewhere. Raises as
+        ``runtime`` does, and SpaceUnavailable when the space closes before its settings are read (try again)."""
+        space = await self._space(identity)
+        done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._enqueue(space, _REAPPLIED, {"done": done})
+        if space.closed and not done.done():  # closed meanwhile (its queue's length, or a close still to run)
+            done.cancel()  # its close then answers nobody: an answer set on it would never be read
+            raise SpaceUnavailable(_UNREAD_CLOSED)
+        await done
+        return space.runtime
 
     async def app(self, identity: Identity, *, launch_carrier: list[bytes] | None = None) -> ASGIApp:
         """The identity's app on this instance, which counts the requests it serves and weighs the space after each
@@ -1310,8 +1410,10 @@ class Spaces:
         heard), its root key, its backends and its runtime, whose app will trust the server alone. The instance's copy
         of the shared settings is read again when PostgreSQL's count is ahead of it (its announcement lost), and the
         space counts the shared settings it is built on as the copy's: were it older all the same, the beat's check
-        finds it behind."""
+        finds it behind. While the company's floor cannot be said (FloorUnavailable), nothing is read for it: refused
+        at once, as the runtime would be."""
         server = self.server
+        server.edition.floor(identity.ref())  # the same for every identity: fails fast, before any read
         found = server.identities.current(identity.id)
         if found is None or found.disabled:
             raise IdentityUnavailable("there is no such identity, or it is disabled")
@@ -1350,6 +1452,8 @@ class Spaces:
             ocr_unread=server.metrics.ocr_unread,
             working=server.settings.key_working_values,
             held=server.settings.key_held_secrets,
+            edition=server.edition,  # the server's, for every space: never one of its own, which it neither closes
+            watch_floor=False,  # the spaces watch it, and apply a new floor in its worker (``floor_changed``)
             detectors_most=int(self.budget * SPACE_SHARE * DETECTORS_SHARE),
             permanent_allowed=server.edition.permanent_exceptions,  # the edition's from its first build (Minor 1)
         )
@@ -1357,11 +1461,16 @@ class Spaces:
         # and what that API writes in the administration log, under the identity's own name, in the log threads.
         audit = functools.partial(_audited, server, found.id)
         forget = functools.partial(_forgetting, server, parts, found.id)  # its values forgotten (Task 11b)
-        runtime.gateway.on_server = OnServer(server.settings.url, found.id, audit, found.kind, forget)
+        # Each scan and mask of the applications API is an event of the server's edition (E4's `apps`: counts only).
+        runtime.gateway.on_server = OnServer(
+            server.settings.url, found.id, audit, found.kind, forget, record=server.edition.record
+        )
         # A request exception's approval time is PostgreSQL's, the same on every instance, never this one's clock (D3).
         runtime.exception_clock = functools.partial(database_now, server.db)
         runtime.exception_log = functools.partial(_exception_logged, server, found.id)
-        _index_again(server, found.id, runtime.config, read_at=settings_counts.highest())
+        runtime.setting_log = functools.partial(_setting_logged, server, found.id)
+        company = company_decides(runtime.floor_used)  # where the company decides on request exceptions (N1)
+        _index_again(server, found.id, runtime.config, read_at=settings_counts.highest(), company=company)
         runtime.gateway.launch_prepare = server.launch_prepare
         if server.launch_authority is not None:
             from latet.server.launch_requests import ServerLaunchRequests
@@ -1390,6 +1499,7 @@ class Spaces:
 
     async def _open(self, identity: Identity) -> Space:
         identity_id = identity.id
+        self._loop = asyncio.get_running_loop()  # before its build begins: a floor heard from now on reaches it
         self._missed[identity_id] = []
         try:
             async with self._build_turns():  # its turn: BUILDS_AT_ONCE at most (the module's words)
@@ -1399,7 +1509,7 @@ class Spaces:
                 await self._catch_up(space)
                 if space.runtime.built.vault.lacking is not None:  # what it heard meanwhile, not learnt past its share
                     raise SpaceUnavailable("the space could not learn what it heard while it was built: try again")
-            except SpaceUnavailable:
+            except (SpaceUnavailable, FloorUnavailable):  # the company's floor cannot be said: none built below it
                 await self._close(space)
                 raise
             except Exception as exc:  # what it missed could not be applied: its requests try again (503)
@@ -1705,12 +1815,36 @@ class Spaces:
             self._enqueue(space, channel, message)
 
     def updated(self, identity_id: str) -> None:
-        """The identity's name, email or vault limit changed: its space here takes them as PostgreSQL has them, in
-        place."""
+        """The identity's name, email or vault limit changed, or its account at the company's identity provider was
+        linked or unlinked (Latet Enterprise): its space here takes them as PostgreSQL has them, in place
+        (``_renamed``)."""
         if identity_id in self._missed:
             self._missed[identity_id].append((_UPDATED, {}))
         elif (space := self._spaces.get(identity_id)) is not None:
             self._enqueue(space, _UPDATED, {})
+
+    def floor_changed(self) -> None:
+        """The edition's floor changed (Latet Enterprise: a server's policy heard on Valkey, read again at its check,
+        set or removed here, or brought in or out by its license): every space here is raised to it in its own worker,
+        and one being built before anyone has it, never in the thread that heard it (the listener's, the check's, an
+        administration route's). A space that cannot take it is closed (``_work``), and made again at its next use on
+        the floor of then, or refused while that one cannot be said. From any thread: handed to the event loop."""
+        loop = self._loop
+        if loop is None:  # no space was ever built here: each is built on the floor of when it is
+            return
+        with contextlib.suppress(RuntimeError):  # the loop closed meanwhile: the instance stops
+            loop.call_soon_threadsafe(self._floor_heard)
+
+    def _floor_heard(self) -> None:
+        """On the event loop: ``_FLOOR`` queued for every space open here and every one being built, unless one waits
+        already that has not begun (it reads the floor of when it applies)."""
+        for waiting in self._missed.values():
+            if all(channel != _FLOOR for channel, _ in waiting):
+                waiting.append((_FLOOR, {}))
+        for space in list(self._spaces.values()):
+            if _FLOOR not in space.pending:
+                space.pending.add(_FLOOR)
+                self._enqueue(space, _FLOOR, {})
 
     def _enqueue(self, space: Space, channel: str, message: Mapping[str, Any]) -> None:
         if space.queue.qsize() >= QUEUE_LIMIT:
@@ -1762,6 +1896,8 @@ class Spaces:
                 await self._changed(space, message, seq)
             elif kind == _REAPPLY:
                 await self._read_settings(space, seq)
+            elif kind == _REAPPLIED:
+                await self._read_for(space, message["done"])
             elif kind == _RESYNC:
                 space.vault_counts.caught_up(await self._run(_resync, space, self.server.db))
             elif kind == _SETTINGS_BEHIND:
@@ -1770,15 +1906,19 @@ class Spaces:
             elif kind == _SHARED_BEHIND:
                 await self._read_settings(space, seq)
                 space.shared_counts.caught_up(message.get("counter"))
+            elif kind == _FLOOR:
+                space.pending.discard(_FLOOR)  # one heard from now on is queued again: this one may read the older
+                await self._run(_floor, space, self.server)
             elif kind == _UPDATED:
                 found = await self._run(self.server.identities.current, space.identity.id)
                 if found is not None and not found.disabled:  # else its own message closes the space
                     space.identity = found
-                    space.runtime.identity = found.ref()
+                    await self._run(_renamed, space, found)
                     # The limit the vault keeps to from the next value it is asked to keep (a number: set in one step).
                     space.parts.vault.limit = vault_limit_of(self.server, found.vault_limit)
         finally:
-            space.pending.discard(kind)  # over: the beat may queue another of its kind
+            if kind != _FLOOR:  # a floor's mark went as it began: one queued meanwhile keeps its own
+                space.pending.discard(kind)  # over: the beat may queue another of its kind
 
     async def exceptions_fresh(self, space: Space) -> tuple[datetime, bool]:
         """RC-REC-3, for a request that may be decided by a stored exception: PostgreSQL's clock and the counts of the
@@ -1807,6 +1947,19 @@ class Spaces:
             return
         space.covered = space.seq  # what is queued now was committed before this reading begins
         await self._run(_reapply, space)
+
+    async def _read_for(self, space: Space, done: asyncio.Future[None]) -> None:
+        """The space's settings read again whole for whoever awaits ``done`` (``reapplied``), always: a reading under
+        way may have begun before the save it is asked for. Its failure is theirs too, and still closes the space; a
+        space closed meanwhile answers SpaceUnavailable."""
+        try:
+            await self._read_settings(space, None)
+        except BaseException as exc:
+            if not done.done():
+                done.set_exception(exc if isinstance(exc, Exception) else SpaceUnavailable(_UNREAD_CLOSED))
+            raise
+        if not done.done():  # its caller may have stopped waiting (cancelled)
+            done.set_result(None)
 
     async def _changed(self, space: Space, message: Mapping[str, Any], seq: int | None = None) -> None:
         """A message of the identity's channel, applied to its space."""
@@ -2006,6 +2159,7 @@ class Spaces:
         space.parts.feed.close()
         if space.worker is not None:
             space.worker.cancel()
+        _unread(space)
         try:
             try:
                 await asyncio.to_thread(space.parts.vault.close)

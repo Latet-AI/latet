@@ -32,8 +32,8 @@ Il resto del file, commenti compresi, resta com'era, e prima viene fatto un back
   genere com'è e dicono perché, dato che quella riga non lo farebbe passare da Latet. Finché non lo
   aggiorni, `latet codex` passa a Codex l'indirizzo in `OPENAI_BASE_URL`, l'unica variabile che Codex
   legge, al posto di quello impostato dalla tua shell. `latet codex` non avvia un Codex che ha un
-  provider suo (vedi sotto): quel Codex aggirerebbe Latet.
-- Se in seguito passi dall'accesso con ChatGPT alla chiave API, o al contrario, esegui di nuovo
+  provider proprio (vedi sotto): quel Codex aggirerebbe Latet.
+- Se in seguito passi dall'accesso con ChatGPT alla chiave API, o viceversa, esegui di nuovo
   `latet agents apply codex`, così l'indirizzo corrisponde.
 
 **Senza toccare `config.toml`**, fai passare una sola sessione da Latet con il wrapper. Avvia il
@@ -46,17 +46,17 @@ latet codex exec "add the payments key from .env to config/local.toml"
 
 `latet run codex` equivale a `latet codex`, che sceglie l'indirizzo adatto al tuo accesso.
 
-Su un computer collegato a un server Latet, `latet codex` avvia la sessione interattiva e
+Su un computer connesso a un server di Latet, `latet codex` avvia la sessione interattiva e
 `codex exec`, `resume` e `fork`; rifiuta gli altri sottocomandi di Codex, come `review` o `mcp`, che
-non può far passare dal server.
+non può inviare attraverso il server.
 
-**Anche un provider tuo** (Azure OpenAI, il gateway della tua azienda, Mistral...) passa da Latet. Si
+**Anche un tuo provider** (Azure OpenAI, il gateway della tua azienda, Mistral...) passa da Latet. Si
 sposta su Latet solo il suo `base_url`; la sua chiave e tutto il resto restano come li hai scritti.
 
 - **Per una sessione**, `latet codex` sposta i provider di `config.toml` e del profilo che indichi
   (`--profile work`), con `-c model_providers.<id>.base_url=...`. Codex non legge altri file, e si
   rifiuta di avviarsi con un'opzione per un provider che non carica. Un Codex precedente alla 0.115
-  non accetta quelle opzioni: se ha un provider suo, `latet codex` non lo avvia e dice di aggiornare
+  non accetta quelle opzioni: se ha un provider proprio, `latet codex` non lo avvia e dice di aggiornare
   Codex.
 - **In modo permanente**, `latet global-install` cambia ogni indirizzo nel file che lo scrive,
   compresi i file di ogni profilo, dato che un profilo può far passare Codex a uno qualsiasi di
@@ -84,26 +84,26 @@ un'azienda al posto di quello di OpenAI). Vedi [Endpoint aziendali](../company-e
   [modalità dati rigorosa](../../concepts/production-data/#quali-strumenti) copre anche i file che legge.
   Indica il suo strumento per il database in `data_tools` per coprire solo quello.
 - Il percorso, i remote e il commit del repository che Codex aggiunge a ogni richiesta, nell'header
-  `x-codex-turn-metadata` e in `client_metadata` del corpo, vengono tolti prima dell'invio, e così
-  l'header `x-openai-subagent`, il tipo o l'etichetta libera che Codex dà a un subagente; la
-  dashboard li conta. Il suo elenco dei modelli passa; una chiamata che Latet non legge, come recuperare una risposta salvata,
-  viene rifiutata.
-- Gli header tuoi in `http_headers` o `env_http_headers` di un provider vengono rifiutati, nominandoli
-  uno per uno, finché un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non li
-  lascia passare (`openai.responses.1`). Sul WebSocket dell'accesso con ChatGPT nessuna eccezione si
-  applica nella 0.11.0: un header o un parametro di query che Latet non legge chiude la connessione
-  prima che si apra, e la chiusura dice perché e nomina l'header o il parametro, mai il suo valore. La
-  cronologia registra il rifiuto.
+  `x-codex-turn-metadata` e in `client_metadata` del corpo, vengono tolti prima dell'invio, e lo
+  stesso vale per l'header `x-openai-subagent`, il tipo o l'etichetta libera che Codex dà a un
+  subagente; la dashboard li conta. La richiesta dell'elenco dei modelli passa; una chiamata che Latet
+  non legge, come il recupero di una risposta salvata, viene rifiutata.
+- I tuoi header in `http_headers` o `env_http_headers` di un provider vengono rifiutati, ciascuno
+  indicato per nome, finché un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta)
+  non li lascia passare (`openai.responses.1`). Sul WebSocket dell'accesso con ChatGPT, nella 0.11.0
+  non si applica nessuna eccezione: un header o un parametro di query che Latet non legge chiude la
+  connessione prima che si apra, e la chiusura dice perché e nomina l'header o il parametro, mai il
+  suo valore. La cronologia registra il rifiuto.
 - **Il suo progetto.** `latet codex` dà a Codex una chiave di avvio tramite un provider di
   `model_providers` (`env_http_headers`), da Codex 0.115: le impostazioni del suo progetto si applicano
-  allora per intero. Sui provider integrati di Codex (con l'accesso ChatGPT, o il provider di OpenAI),
-  e prima della 0.115, nessuna chiave può viaggiare: `latet codex` lo dice all'avvio, e il progetto che
-  Codex nomina nelle sue richieste è dichiarato, quindi le sue regole che aggiungono protezione si
-  applicano e i suoi allentamenti no ([Progetti](../../concepts/projects/#attendibili-e-dichiarati)).
+  allora per intero. Sui provider integrati di Codex (con l'accesso tramite ChatGPT, o il provider di
+  OpenAI stesso), e prima della 0.115, nessuna chiave può viaggiare: `latet codex` lo dice all'avvio,
+  e il progetto che Codex nomina nelle sue richieste è dichiarato, quindi le sue regole che aggiungono
+  protezione si applicano e i suoi allentamenti no ([Progetti](../../concepts/projects/#attendibili-e-dichiarati)).
 
 Provato dal vivo: la CLI di Codex con l'accesso tramite ChatGPT. Codex Desktop legge lo stesso
-`config.toml`; se lì qualcosa non funziona, [apri una issue](https://github.com/Latet-AI/latet/issues),
-per favore.
+`config.toml`; se lì qualcosa non funziona, per favore
+[apri una issue](https://github.com/Latet-AI/latet/issues).
 
 Per smettere di usare Latet, esegui `latet agents revert codex`, o `latet global-uninstall` per tutti
 gli agenti. Vedi [Disinstallazione](../../getting-started/uninstall/).

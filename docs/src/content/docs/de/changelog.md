@@ -14,8 +14,281 @@ früheren Versionen, von 0.10.0 an zurück, stehen im
 ## Noch nicht veröffentlicht
 
 Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehnung durch den
-Auto-Modus, ein signiertes Installationsprogramm für Windows, eigene Namensmodelle, weitere Agenten
-und die Dokumentation in weiteren Sprachen.
+Auto-Modus, MCP-Tools maskiert, bevor Claude Code sie liest, ein signiertes Installationsprogramm
+für Windows, eigene Namensmodelle, weitere Agenten und die Dokumentation in weiteren Sprachen.
+
+## 0.15.0 (2026-11-21)
+
+Latet 0.15.0 bringt Latet Enterprise: auf einem Latet-Server die Funktionen, die das
+Sicherheitsteam eines Unternehmens braucht, im selben Paket und im selben Image wie die Community
+Edition und ohne Lizenzdatei ausgeschaltet. Auf einem Server ändern sich die Tabellen, deshalb
+werden seine Instanzen für die Migration einmal angehalten: Lesen Sie den Punkt **Aktualisieren** am
+Ende dieser Liste, bevor Sie einen Server aktualisieren.
+
+- **Latet Enterprise.** Die Enterprise-Funktionen laufen auf einem
+  [Latet-Server](../getting-started/server/), eingeschaltet durch eine Lizenzdatei. Ihr Code liegt
+  in den `ee`-Ordnern des Repositorys und steht unter der Latet Enterprise License, die das Paket
+  und das Image neben der Latet Sustainable Use License enthalten. Die Lizenzdatei ist vom
+  Lizenzgeber signiert: `latet server license install` installiert sie, und der Server prüft sie
+  offline, mit dem öffentlichen Schlüssel des Lizenzgebers, den Latet mitbringt. Sie deckt eine
+  Anzahl von Benutzern ab: Jede aktivierte Person und jeder aktivierte API-Schlüssel ist ein
+  Benutzer. Ein Unternehmen kann unter [info@latet.ai](mailto:info@latet.ai) eine Testphase von
+  32 Tagen anfragen. Endet eine Lizenz, weist der Server 30 Tage vorher darauf hin, alles
+  funktioniert nach dem Ende noch 30 Tage weiter, und dann pausieren Berichte, Ereignisse und die
+  Synchronisierung der Begriffe. Eine Testphase hat keine 30 weiteren Tage: Ist sie beendet, können
+  ihre Enterprise-Einstellungen eingesehen, aber nicht geändert werden. Keines von beiden verringert
+  den Schutz: Die gesperrten Regeln bleiben in Kraft, und nichts geht unmaskiert hinaus. Siehe
+  [Editionen und Lizenz](../enterprise/).
+- **Gesperrte Regeln.** Ein Unternehmen legt auf seinem Server eine Untergrenze fest, die keine
+  Person und kein API-Schlüssel unterschreiten kann: Vorgaben im Format einer Regeldatei, mit
+  `latet server policy set` für jede Instanz festgelegt. `latet policy check` liest eine Datei,
+  bevor sie in Kraft gesetzt wird, und sagt, was sie sperrt. Eine Änderung, die unter die
+  Untergrenze ginge, wird abgelehnt, und die Ablehnung nennt die Einstellung, die sie senkt; das
+  Dashboard zeigt jede Einstellung, die das Unternehmen festlegt, mit einem Schloss und
+  *Von Ihrem Unternehmen festgelegt*. Mit `exceptions: company` zählen nur die Ausnahmen des
+  Unternehmens. Siehe [Gesperrte Regeln](../enterprise/locked-rules/).
+- **Single Sign-on, Gruppen und Rollen.** Personen melden sich mit ihrem Unternehmenskonto über
+  OpenID Connect (Microsoft Entra ID, Okta, Google, Keycloak und weitere) am Dashboard an; der
+  Identitätsanbieter legt ihre Konten an, ändert und deaktiviert sie und überträgt seine Gruppen per
+  SCIM 2.0; fünf Rollen (Benutzer, Gruppenleitung, Sicherheit, Auditor, Administrator), auf der
+  Seite **Personen und Gruppen** an Personen oder Gruppen vergeben, entscheiden, wer was sieht und
+  ändert; und die Personen oder Gruppen, die ein Administrator auswählt, steuern jeden
+  API-Schlüssel. Siehe [Anmeldung, Gruppen und Rollen](../enterprise/sign-in/).
+- **Berichte, das Administrationsprotokoll und Ereignisse an Ihr SIEM.** Der Server zählt
+  Anfragen, maskierte Werte und gestoppte Anfragen nach Gruppe, Projekt, Agent, API-Schlüssel und
+  Werttyp, nie einen Wert selbst: Die Seite **Berichte** zeigt sie, mit Exporten als CSV und JSON,
+  und die Seite **Administrationsprotokoll** zeigt, was die Administration des Servers getan hat.
+  Die Ereignisse und die Einträge des Protokolls gehen an den HTTP Event Collector von Splunk, an
+  JSON-Webhooks oder an Syslog über TLS. Ein `stopped`-Ereignis nennt seinen Grund aus der Liste
+  *Warum eine Anfrage gestoppt wurde* auf der Seite zu den Berichten, `settings-changed`
+  eingeschlossen: Eine SIEM-Regel, die anhand dieser Liste geschrieben wurde, erfasst ihn. Siehe
+  [Berichte und Administrationsprotokoll](../enterprise/reports/) und
+  [Ereignisse an Ihr SIEM](../enterprise/siem/).
+- **Zentrale Freigaben.** Das Sicherheitsteam des Unternehmens entscheidet über die Änderungen, die
+  den Schutz verringern, anstelle der Person, die sie angefordert hat; diese sieht, wer entscheidet,
+  und kann die Änderung zurückziehen, aber nicht freigeben. Die Änderungen eines API-Schlüssels
+  gehen an die anderen Personen, die ihn steuern. Wenn das Unternehmen es so wählt, entscheidet das
+  Sicherheitsteam auch über die Texte des Live-Prüfers. Ein Administrator schaltet die zentralen
+  Freigaben mit `latet server approvals set` ein. Siehe [Zentrale Freigaben](../enterprise/approvals/).
+- **Synchronisierte Begriffe.** Der Server liest die Listen eines Unternehmens mit Kunden, Kollegen
+  und Codenamen von Projekten in festen Abständen aus einer Datei oder von einer Webadresse (CSV,
+  JSON oder YAML), aus Microsoft Entra ID oder aus einem LDAP-Verzeichnis wie Active Directory und
+  maskiert sie für jede Person und jeden API-Schlüssel, die er bedient, ohne dass jemand sie
+  eintippen muss. LDAP braucht das neue Extra `ldap`, das im Image enthalten ist. Siehe
+  [Begriffssynchronisierung](../enterprise/term-sync/).
+- **Die eigenen Verbindungen von Latet Enterprise, unter jeder Adresse.** Der Identitätsanbieter,
+  eine SIEM-Ausgabe (Splunk, ein Webhook oder Syslog), eine Begriffsquelle unter einer Webadresse,
+  Microsoft Entra ID und ein LDAP-Verzeichnis werden unter der nächsten Adresse erreicht, die die
+  Auflösung ihres Namens geprüft hat, wenn die Verbindung zur vorherigen fehlschlägt, wie seit
+  0.12.1 schon ein eigenes Ziel einer Person. Steht eine Verbindung, wird keine andere Adresse mehr
+  versucht.
+- **Was ein Community-Server von der Edition zeigt.** `latet server status` schließt die Zeile
+  jeder Instanz mit ihrer Edition ab, *Community Edition* oder *Enterprise Edition*, und auch die
+  gemeinsamen Einstellungen der Administrations-API enthalten `edition`. Lehnt ein
+  Community-Server eine Regel für alle ab, nennt die Ablehnung, wie sich Regeln von Hand teilen
+  lassen, und erklärt, dass solche Regeln mit der Enterprise Edition die Vorgaben des Unternehmens
+  sind, die mit `latet server policy set` festgelegt werden.
+- **Die Antworten eines Servers an Agenten und Programme, für einen Browser in einer Sandbox.** Auf
+  einem Server enthält jede Antwort unter einer Adresse für Modelle (`/u/…`) und jede Antwort der
+  API für Anwendungen den Header `Content-Security-Policy: default-src 'none'; sandbox`: Ein
+  Browser, der eine davon öffnet, führt darin kein Skript aus und behandelt sie nie als Seite des
+  Servers. Ein Cookie, das ein Ziel setzt, erreicht den Client nur für diese Adresse und nur, wenn
+  es nicht den Namen eines Cookies von Latet trägt, und der Header `Clear-Site-Data` eines Ziels
+  wird nicht mehr weitergegeben. HTTP-Clients ignorieren den neuen Header.
+- **Das Bild des Live-Prüfers, so wie es jetzt gesendet wird.** Ein Bild, das im Live-Prüfer
+  wartet, wird neu gezeichnet, wenn seine Texte während des Wartens erneut maskiert werden, nach
+  einer Änderung der Regeln oder des Tresors, sodass *So, wie es jetzt gesendet wird* zeigt, was
+  gesendet wird; bisher blieb es bei dem Bild, das gezeichnet wurde, als sein Text zu warten begann.
+  Ein wartendes Bild wird dem Dashboard außerdem mit dem Typ geliefert, den seine Bytes tatsächlich
+  haben, PNG, JPEG, WebP oder GIF, nie mit dem, den seine Anfrage angab, und unter einer Richtlinie,
+  die es in eine Sandbox setzt.
+- **Stabilere Zeitmessungstests.** Die beiden Tests, die messen, wie lange Latet für eine Zeile aus
+  `key=value`-Paaren braucht, die so lang ist, wie ein Text sein kann, prüfen jetzt, dass die ganze
+  Zeile weniger als das 30-Fache der Zeit für ein Zehntel davon braucht: Wächst die Dauer des Lesens
+  mit der Länge, ist das erfüllt; wächst sie mit dem Quadrat der Länge, ist es das nicht, wie
+  schnell der Rechner auch ist. Auf einer langsamen CI-Maschine scheitern sie nicht mehr.
+- **Hermes Agent mit Anmeldung über ChatGPT.** Drei seiner Anfragen wurden seit 0.11.0 abgelehnt
+  und gehen jetzt durch, jede in ihrer genauen Form: eine Unterhaltung, die über seine Kommandozeile
+  oder sein Gateway begonnen wurde (eine Sitzungs-ID aus `local-` und 64 Hexadezimalziffern), die
+  Datenresidenz eines ChatGPT-Workspace (`x-openai-internal-codex-residency`, zwei Kleinbuchstaben
+  oder `no_constraint`, nur an den Adressen von ChatGPT) und eine fortgesetzte Unterhaltung, deren
+  Antworten ihre Phase mitführen (`commentary`, `partial_answer` oder `final_answer`, nur an den
+  eigenen Nachrichten des Modells). Jeder andere Wert wird weiterhin abgelehnt. Siehe
+  [Hermes Agent](../agents/autonomous-agents/#mit-chatgpt-angemeldet).
+- **Ein Geheimnis vor einem maskierten Anführungszeichen.** In der Ausgabe eines Werkzeugs, die ein
+  JSON-Dokument enthält, wurde ein Geheimnis, das ohne Anführungszeichen direkt vor einem
+  Anführungszeichen steht, das das Dokument mit einem Escape schreibt (`token=…\"`), mitsamt dem
+  Backslash gelernt, und sein Ersatzwert nahm den Platz des Backslashs ein: Das Dokument ließ sich
+  nicht mehr lesen. Die Backslashes werden jetzt als Teil des Anführungszeichens gelesen: Nur das
+  Geheimnis wird maskiert, und das Dokument bleibt ganz.
+- **Ein Bearer-Token, gefolgt von Punkten.** Die Punkte nach einem Token, wo ein Text es abkürzt
+  (`Bearer <token>...`) oder einen Satz damit beendet, werden nicht mehr als Teil davon gelesen,
+  wenn davor ein ganzes Token steht und kein Platzhalter wie `YOUR_API_KEY`: Das Token behält seinen
+  einen Ersatzwert, und ein Ersatzwert, gefolgt von `...`, hält keine Anfrage mehr auf.
+- **Ein Name in der Bedingung eines Aufrufs.** Im Code bezeichnet `f(access_token=fallback or "")`
+  eine Variable, wie schon `f(token=fallback)`: Er wird nicht mehr als Geheimnis maskiert. Ein Wert
+  mit einer Ziffer wird wie bisher maskiert.
+- **Ein später erkanntes Geheimnis im Verlauf der Unterhaltung.** Wenn eine spätere Ausgabe zeigt,
+  dass ein Wert, den eine frühere Ausgabe nebenbei nannte, ein Geheimnis ist (ein Token nach
+  `Bearer`), wird die frühere Ausgabe ab der nächsten Anfrage neu maskiert, ein einziges Mal, statt
+  erneut im Klartext gesendet zu werden. Ihr Text ändert sich für den Anbieter, sodass sein Cache der
+  Unterhaltung von dort an neu beginnt, einmal. Andere Werte gehen weiterhin so hinaus, wie sie
+  hinausgingen. Die Anfragen von Claude Code sind nicht betroffen: Latet prüft sie und schreibt sie
+  nie um.
+- **Claude Code 2.1.323.** Jede seiner Anfragen wurde abgelehnt, mit *unknown member in message*,
+  und nichts wurde gesendet. Seine drei neuen Elemente gehen jetzt durch, jedes nur so, wie Claude
+  Code es sendet: eine Systemnachricht in der Unterhaltung, die den Aufwand ab ihrer Runde festlegt
+  (`output_config` nur mit `effort`), die Bearbeitung des Kontexts, die das Denken der früheren
+  Runden behält (`context_management`, `clear_thinking_20251015` mit `keep: "all"`), und der Aufwand
+  `xhigh`, seine Voreinstellung und einer der fünf Werte, die `--effort` annimmt. Der Aufwand `xhigh`
+  geht bei jeder Anfrage an die API von Anthropic durch. Eine Anfrageausnahme, die zuvor für ein
+  Element unter `context_management`, für das `output_config` einer Nachricht oder für die `phase`
+  einer Nachricht in der Responses-API von OpenAI genehmigt wurde, wartet erneut auf Genehmigung:
+  Latet liest diese Elemente jetzt nach eigenen Regeln.
+- **Ein Feld, das noch kein Anfrageprofil vorsieht, gelesen und geprüft.** Ein Agent hörte hinter
+  Latet auf zu funktionieren, jedes Mal wenn eine neue Version von ihm seinen Anfragen ein Element
+  hinzufügte, bis eine Version von Latet dieses Element nannte. Latet liest ein solches Element
+  jetzt ganz, bei jeder Anfrage, bei denen, die es nur prüft, und bei denen, die es umschreibt,
+  prüft es so streng wie einen Text, den es maskiert, und sendet es unverändert, wenn darin nichts
+  maskiert werden müsste und es keine Datei, keine Adresse, keine gespeicherte Unterhaltung und kein
+  Modell nennt: Ein Modus, ein Flag, eine Zahl oder ein kurzes Token geht durch, und ebenso ein
+  Objekt oder eine Liste davon. Eine Webadresse, eine Datei, ein Anhang, freier Text in einem eigenen
+  Element des Anbieters, kodierte Daten oder ein sensibler Wert stoppen die Anfrage weiterhin, mit den
+  Worten von vorher. Ein solches Element wird nie maskiert, und sein Name wird nie aufgezeichnet: Das
+  Dashboard führt *ein Feld, das noch kein Anfrageprofil vorsieht, gelesen und geprüft* unter dem auf,
+  was eine Anfrage durchgelassen hat, und einen darin gefundenen Wert unter der Art *Neues Element der
+  Anfrage*. `unknown_members: refuse` lehnt sie ab wie bisher, in Ihren Einstellungen oder auf der
+  Seite **Regeln**; die Einstellungen eines Projekts und die `latet.yaml` seines Repositorys können sie
+  nur ablehnen, und mit Latet Enterprise können die Vorgaben eines Unternehmens `refuse` sperren.
+  `latet doctor` und `latet server status` sagen, welcher Wert gilt. Siehe
+  [Neue Elemente in Anfragen](../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen).
+- **Das Schema eines MCP-Tools, mit Namen.** Wenn ein Wert im Klartext im Parameterschema eines
+  MCP-Tools die Anfragen von Claude Code stoppt, wo Latets Plugin ihn nicht maskieren kann, nennt die
+  Fehlermeldung das Tool und sagt, was zu tun ist: den Wert durchlassen, wenn er nicht sensibel ist,
+  oder den Server abschalten. Das Dashboard zeigt den Block als *Parameterschema des Tools*, mit
+  einer eigenen Erklärung. Siehe [Fehlerbehebung](../troubleshooting/).
+- **CLAUDE.md und Ihre E-Mail-Adresse, mit Claude Code 2.1.322 und neuer.** In einer interaktiven
+  Sitzung liest Claude Code den Kontext der ersten Nachricht (Ihre CLAUDE.md-Dateien, Ihre
+  Memory-Dateien, Ihre E-Mail-Adresse), bevor es das Plugin von Latet startet, und behält diese
+  Antwort für die ganze Unterhaltung. Das Plugin hielt ihn dann zurück, weil es noch nicht wusste,
+  wohin die Anfragen gehen, und Claude arbeitete die ganze Sitzung ohne ihn; nichts wurde im
+  Klartext gesendet. Jetzt lässt das Plugin Claude Code ihn erneut lesen, sobald es das weiß, und
+  die erste Nachricht trägt ihn maskiert. Mit `claude -p` wartet der Kontext der SessionStart-Hooks,
+  der eintraf, während das Plugin noch startete, einige Sekunden darauf, statt zurückgehalten zu
+  werden.
+- **Die Verbindung von Claude Code beim Start.** Beim Start öffnet Claude Code seine Verbindung mit
+  einem Aufruf `HEAD` an `/api/hello`, ohne Inhalt und ohne Zugangsdaten, und liest die Antwort
+  nicht. Latet lehnte ihn ab, weil kein Profil ihn nannte: Gesendet wurde nichts, aber jeder Start
+  hinterließ unter *Sitzungen* eine blockierte Anfrage, angezeigt als `/other`, und `latet doctor`
+  führte ihn unter den Aufrufen auf, die kein Profil abdeckt. Jetzt geht er unverändert durch, unter
+  einem eigenen Profil, `anthropic.hello.1`: nur als `HEAD`, nur an das Ziel von Anthropic, ohne
+  Abfrageparameter und ohne Inhalt, und nur mit den Headern, die ein Profil nennt.
+- **Ein Geheimnis aus einem Wort und bloßen Zeichen.** Ein Geheimnis aus einem Wort, auf das nur
+  Zeichen folgen, etwa ein Bearer-Token (`Bearer abcdefghijk.........`, `Bearer abc---------`) oder
+  ein Wert nach `token =`, bekam keinen Ersatzwert: Latet hielt das Wort für ein öffentliches
+  Präfix, wie `sk-ant-` eines ist, und behielt es zusammen mit den Zeichen, sodass der einzige
+  Ersatzwert des Geheimnisses das Geheimnis selbst war. Die Anfrage wurde abgelehnt, ebenso jede
+  spätere Anfrage derselben Unterhaltung; gesendet wurde nichts. Jetzt werden seine Buchstaben
+  ersetzt, wie bei jedem Geheimnis.
+- **Eine Adresse und die Wörter um sie herum.** Wenn das Namensmodell nicht sicher war, dass die
+  Stadt zu einer Adresse wie `via Garibaldi 12 a Bologna` gehört, endete die Straße auf dem Wort vor
+  der Stadt, und der Ersatzwert der Straße nahm dieses Wort mit (`via Mariani 90 p Bologna`). Am
+  Anfang eines Satzes wurden die Wörter vor der Straße (`Abito in via Garibaldi 12`) mit ihr
+  maskiert. Jetzt wird die Straße allein maskiert, und die Wörter um sie herum bleiben, wie sie sind.
+- **Der Ersatzwert eines Geheimnisses behält nur das Präfix des Anbieters.** Der Ersatzwert eines
+  Geheimnisses behielt bis zu 24 Buchstaben, Ziffern und Trennzeichen vom Anfang des Werts. Bei
+  einem Token, dessen zufälliger Teil `-`, `_` oder `.` enthält, reichte das in den zufälligen Teil
+  hinein, und bei einem Wert, der einem Namen zugewiesen ist (`my-company-prod-…`), behielt es die
+  Wörter des Werts: Diese Zeichen gingen im Ersatzwert an den Anbieter des Modells. Jetzt behält ein
+  Ersatzwert nur das Präfix, das der Anbieter jedem Schlüssel seiner Art voranstellt (`ghp_`,
+  `sk-ant-api03-`, `AKIA` und Latets eigenes `latet_pat_`), und zieht jeden anderen Buchstaben und
+  jede andere Ziffer neu; ein Geheimnis jeder anderen Art behält keinen seiner Buchstaben und keine
+  seiner Ziffern, nur seine Sonderzeichen (`-`, `_`, `.`) an ihrer Stelle. Ein Ersatzwert zog
+  außerdem eine Ziffer, wo der Wert eine Ziffer hat, einen Großbuchstaben, wo er einen Großbuchstaben
+  hat, und einen Kleinbuchstaben, wo er einen Kleinbuchstaben hat, und zeigte so, an welchen Stellen
+  ein Passwort wie `Summertime2024` oder ein Schlüssel eine Ziffer, einen Groß- oder einen
+  Kleinbuchstaben hat. Jetzt wird jeder Abschnitt aus Buchstaben und Ziffern zwischen Sonderzeichen
+  an jeder Stelle aus allen Zeichenarten gezogen, die er enthält: ein Abschnitt hexadezimaler Ziffern
+  aus allen sechzehn (`9f2c4e…`), `Summertime2024` aus allen 62 Buchstaben und Ziffern; ein eigener
+  Erkenner mit `class: secret` behält die Form, die er beschreibt (`surrogate: shape`: an jeder
+  Stelle dieselbe Zeichenart). Ein Ersatzwert,
+  der schon in Ihrem Tresor liegt, bleibt, wie er ist, damit eine
+  laufende Unterhaltung denselben Ersatzwert sieht; nur ein Wert, den Sie mit *Vergessen* entfernen,
+  erhält einen Ersatzwert der neuen Art, wenn er wieder auftaucht.
+- **Der Port von Latet, unter Windows reserviert.** Hyper-V, WSL und Docker reservieren bei jedem
+  Start von Windows Blöcke von Ports, innerhalb des dynamischen Portbereichs von Windows; wo ein
+  Programm diesen Bereich von 49152 nach unten verschoben hat, kann ein Block Port 5283 belegen. Der
+  Daemon konnte dann bis zum nächsten Neustart nicht starten, und der Rat, den Latet gab,
+  `latet global-install`, half nicht, wenn derselbe Block auch seine Ausweichports belegte. Der neue
+  Befehl `latet reserve-port` reserviert den Port von Latet mit einer einzigen Bestätigung eines
+  Administrators, sodass Windows ihn nicht mehr belegen kann; wo Windows ihn bereits belegt, stellt
+  er Latet auf einen freien Port um, mit den Agenten, die `latet global-install` eingerichtet hat,
+  und reserviert diesen. Er fragt, bevor er etwas ändert, ein Agent kann ihn nicht ausführen, und
+  `latet reserve-port --remove` gibt die Ports frei, die er reserviert hat. Das Installationsskript
+  für Windows bietet ihn am Ende an, wo Windows den Port belegen kann; `latet start`, `latet claude`
+  und die anderen Wrapper nennen ihn, wo Windows den Port belegt; `latet doctor` nennt ihn ebenfalls,
+  mit einem Fehler, wo Windows den Port belegt, und einer Warnung, wo Windows ihn belegen kann; und
+  `latet global-uninstall` bietet an, die Reservierungen aufzuheben. `latet global-install` sucht
+  einen freien Port jetzt jenseits der Ports, die Windows belegt, nicht mehr nur zwischen 5284 und
+  5335, und ein Port, der nur in einem Portausschluss eines Administrators oder in einem IPv6-Bereich
+  liegt, gilt nicht mehr als von Windows belegt. Siehe
+  [Port 5283 ist bereits belegt](../troubleshooting/#port-5283-ist-bereits-belegt).
+- **Geheimnisse in den gespeicherten Sitzungen Ihrer Agenten.** Der neue Befehl `latet leak` liest
+  die Sitzungen, die Claude Code, Codex, OpenCode, Copilot CLI, Gemini CLI, Qwen Code und Hermes
+  Agent auf diesem Rechner gespeichert haben, mit den eigenen Detektoren von Latet, und führt die
+  Geheimnisse darin in drei Listen auf: im Klartext, ohne ein Zeichen, dass Latet sie ersetzt hat,
+  also möglicherweise beim Modellanbieter angekommen; von Latet ersetzt, dessen Ersatzwert an ihrer
+  Stelle hinausging; und geschwärzt. Ein Geheimnis zeigt seinen Typ, einen Hinweis, der nur das
+  öffentliche Präfix seines Anbieters behält (`ghp_…`), die Agenten, die Sitzungen, die Ordner und
+  die Daten, nie seinen Wert; die Schlüssel eines Anbieters, die zuerst auszutauschen sind, stehen
+  vorn. Der Befehl ändert nichts und braucht kein Netzwerk, und der Tresor von Latet erfährt dabei
+  nichts. Siehe [Geheimnisse in gespeicherten Sitzungen](../concepts/leaks/).
+- **Die deutsche, französische, italienische und spanische Fassung, noch einmal gelesen.** Die
+  Dokumentation und das Dashboard auf Deutsch, Französisch, Italienisch und Spanisch wurden Satz
+  für Satz noch einmal mit dem Englischen verglichen. Wo sie etwas anderes, weniger oder mehr sagten
+  als das Englische, wurden sie korrigiert, ebenso ihre Begriffe und Formulierungen.
+- **Die Suche der Dokumentation auf Italienisch, Deutsch und Französisch.** In der italienischen,
+  deutschen und französischen Dokumentation antwortete die Suche auf Englisch
+  (*17 results for eccezione*): Starlight gibt der Suche ihre Wörter nur auf Spanisch, und die
+  Übersetzungen von Pagefind erreichen eine so gebaute Seite nie. Jetzt antwortet sie in der Sprache
+  der Seite (*17 risultati per eccezione*).
+- **Abhängigkeiten.** Das Extra `server` bringt PyJWT mit, das das ID-Token einer Anmeldung mit dem
+  Unternehmenskonto prüft; das neue Extra `ldap` installiert ldap3 und pyasn1 für die
+  Synchronisierung der Begriffe aus LDAP; und httpcore, das schon mit httpx kam, ist jetzt selbst
+  eine Abhängigkeit. Die Hinweise zu Drittanbietern führen sie auf.
+- **Aktualisieren.**
+  - **Ein Server: Die Tabellen ändern sich.** 0.15.0 fügt der Datenbank jedes Servers die Tabellen
+    der Enterprise Edition hinzu, leer und ohne Lizenz ungenutzt, deshalb lassen sich die Instanzen
+    nicht eine nach der anderen ersetzen. Erstellen Sie mit `pg_dump` eine Kopie der Datenbank und
+    führen Sie `latet server migrate --check` mit 0.15.0 aus, das meldet, dass sich die Tabellen
+    ändern; halten Sie dann alle Instanzen an, führen Sie `latet server migrate` einmal mit 0.15.0
+    aus und starten Sie die Instanzen damit, wie
+    [Serverbetrieb](../concepts/server-operations/#aktualisieren-und-instanzen-hinzufügen) zeigt. Im
+    Compose-Beispiel ist `ghcr.io/latet-ai/latet:latest` jetzt 0.15.0: Wer es neu zieht, folgt
+    denselben Schritten. Zu seinen Migrationen gehört 018 (`server_notes`), in der der Server
+    vermerkt, dass er die neue Voreinstellung für neue Elemente in Anfragen weiter unten aufgezeichnet
+    hat: `latet server migrate` wendet sie mit den anderen an. Um zurückzukehren, spielen Sie die
+    Kopie wieder ein und starten Sie 0.12.1.
+  - **Ein Rechner:** `latet upgrade` (in Docker `docker compose pull`, dann `docker compose up -d`),
+    sonst nichts: Die Enterprise Edition gehört zu einem Server.
+  - **Ohne Lizenz ändert die Enterprise Edition nichts:** keine Enterprise-Seite und keine
+    Enterprise-Einstellung. Ein Skript, das `latet server status` liest, findet die Edition am Ende
+    der Zeile jeder Instanz.
+  - **Neue Elemente in Anfragen: Jede Installation, Server eingeschlossen, wechselt zu `check`;
+    setzen Sie `refuse`, um die heutige Ablehnung zu behalten.** Ab 0.15.0 wird ein Element einer
+    Anfrage, das noch kein Anfrageprofil nennt, gelesen und geprüft, nicht mehr abgelehnt, ohne
+    Freigabe. Um die Ablehnung zu behalten, setzen Sie `unknown_members: refuse`: in `config.yaml`
+    auf einem Rechner, in den Einstellungen einer Person oder eines API-Schlüssels auf einem Server
+    oder für alle in den Vorgaben des Unternehmens mit Latet Enterprise. Auf einem Rechner sagt es
+    `latet doctor`, solange `config.yaml` diesen Schlüssel nicht hat; `latet server status` nennt
+    den Wert des Servers in einer eigenen Zeile, der erste Start von 0.15.0 eines Servers schreibt
+    einen Eintrag `setting.defaulted` in das Administrationsprotokoll, und eine Freigabe, die
+    Einstellungen von `refuse` zurück auf `check` stellt, schreibt `setting.loosened`.
+  - **Um Latet Enterprise auszuprobieren:** Fragen Sie unter [info@latet.ai](mailto:info@latet.ai)
+    eine Testphase an, und installieren Sie für die Synchronisierung der Begriffe aus LDAP das Extra
+    `ldap`.
+  - **Keine Wörter eines Schlüssels neu gebildet:** 0.15.0 bildet die Wörter keines API-Schlüssels
+    neu.
 
 ## 0.12.1 (2026-11-09)
 

@@ -19,7 +19,7 @@ Un profilo decide quali [rilevatori](../detection/) sono attivi. Ce ne sono tre:
 | L'identità di questo computer: il tuo nome utente nei percorsi, il nome host, l'autore git e il dominio della sua azienda | ✅ | ✅ | ❌ |
 | Indirizzi IP privati (`10.x`, `192.168.x`...) | ❌ | ✅ | ❌ |
 | Ogni valore delle tabelle, del JSON e delle coppie `key=value` che uno strumento stampa ([modalità dati rigorosa](../production-data/#modalità-dati-rigorosa)) | ❌ | ✅ | ❌ |
-| Nomi e indirizzi, con il [modello locale dei nomi facoltativo](../../getting-started/installation/) | nei tuoi prompt, allegati e nel testo nelle immagini | ovunque | ❌ |
+| Nomi e indirizzi stradali, con il [modello locale dei nomi facoltativo](../../getting-started/installation/) | nei tuoi prompt, allegati e nel testo nelle immagini | ovunque | ❌ |
 | Ciò che nessun pattern trova, con il [revisore locale facoltativo](../llm-review/) | quando è attivo | quando è attivo | quando è attivo |
 | Il testo nelle immagini, con il [riconoscimento del testo facoltativo](../images/) | mascherato | non inviato | mascherato |
 | PDF, e immagini senza riconoscimento del testo | non inviati | non inviati | non inviati |
@@ -32,7 +32,7 @@ Un profilo decide quali [rilevatori](../detection/) sono attivi. Ce ne sono tre:
   L'errore dice cosa fare: rimuovi l'immagine dalla conversazione (in Claude Code, `/rewind`), oppure
   passa a `balanced`. Un tuo progetto può inviare le immagini con il loro testo mascherato, con
   `images: mask`.
-- **`secrets`** maschera solo i segreti e i tuoi termini. I dati personali e la tua identità passano.
+- **`secrets`** maschera solo i segreti e i tuoi termini. I dati personali e la tua identità passano così come sono.
   Sceglilo quando i falsi allarmi sui dati personali ti intralciano.
 
 ### Scegliere un profilo
@@ -85,11 +85,11 @@ I nomi dei tipi sono quelli che la dashboard mostra accanto a ogni valore masche
 criterio vengono mascherati.
 
 `allow` lascia in chiaro il valore di quel tipo, e nient'altro: un valore di un tipo mascherato
-scritto al suo interno non passa con lui. Con `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
+scritto al suo interno non passa insieme a esso. Con `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
 arriva al modello con l'IBAN sostituito da uno fittizio e `.ops@acme-intra.it` com'è scritto; un
 segreto o un tuo termine scritto in un indirizzo viene mascherato con l'indirizzo intero, come
 prima. Un termine o una regola di campo di un tipo lasciato passare lascia in chiaro ciò che trova
-solo lui; ciò che vi trova un rilevatore di un tipo mascherato viene mascherato.
+solo quel termine o quella regola; ciò che vi trova un rilevatore di un tipo mascherato viene mascherato.
 
 `redact` va bene per i valori di cui il modello non ha mai bisogno, nemmeno in forma fittizia. Funziona
 in un solo senso: il modello riceve il marcatore, e Latet non rimette mai l'originale nelle risposte o
@@ -99,7 +99,7 @@ nei file. Che Latet conservi l'originale o no dipende da come è stato trovato i
   conservato.
 - Un valore trovato dal [revisore locale](../llm-review/), o da te nel
   [Revisore Live](../live-review/), viene conservato comunque: sigillato nella cassaforte, con un
-  valore fittizio tutto suo che non viene inviato. Così Latet lo ritrova ovunque compaia, e lo oscura
+  proprio valore fittizio che non viene inviato. Così Latet lo ritrova ovunque compaia, e lo oscura
   anche lì.
 
 Un valore più lungo di 16.384 caratteri, come un'intera stringa JSON in
@@ -110,7 +110,7 @@ contiene il marcatore.
 
 ## Valori consentiti
 
-Quando Latet maschera qualcosa che non è sensibile (un falso positivo), digli di lasciare stare quel
+Quando Latet maschera qualcosa che non è sensibile (un falso positivo), digli di non toccare quel
 valore:
 
 ```yaml

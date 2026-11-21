@@ -8,10 +8,11 @@ from dataclasses import replace
 import pytest
 
 from latet.config import Config, Destination, IdentityConfig, LlmReview, ProjectEntry, TermConfig
+from latet.edition import Community
 from latet.gateway.app import OnServer
 from latet.runtime import make_runtime
 from latet.server import egress
-from latet.server.shared import OwnSettings
+from latet.server.shared import OwnSettings, layered
 from latet.state import IdentityRef, local_backends
 
 from ...conftest import ROOT_KEY
@@ -43,6 +44,7 @@ class MemorySettings(OwnSettings):
         super().__init__(lambda: shared)
         self.own: dict = {}
         self.approved: Config | None = None
+        self.approved_part: dict | None = None  # the own part approved with them (E5), as ``PgSettings`` keeps it
 
     def _own(self):
         return self.own
@@ -55,6 +57,11 @@ class MemorySettings(OwnSettings):
 
     def save_reviewed(self, config):
         self.approved = config
+        if layered(self._made_over(), self.own) == config:  # the settings kept are the ones approved
+            self.approved_part = dict(self.own)
+
+    def approved_own(self):
+        return self.approved_part
 
 
 def refused_on_v6(start):
@@ -96,7 +103,9 @@ def space(tmp_path):
     hers, in memory); and the store of her settings."""
     settings = MemorySettings(SHARED)
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     yield rt, settings
     rt.close()

@@ -246,6 +246,13 @@ def _response(operation: str, value: Any, body: Any) -> None:
         if "pending" in value:
             if not isinstance(value["pending"], str) or not value["pending"]:
                 raise ValueError
+            # Who decides on it (Latet Enterprise): a word, and the names of the people who decide.
+            if "decides" in value and not isinstance(value["decides"], str):
+                raise ValueError
+            if "deciders" in value and (
+                not isinstance(value["deciders"], list) or any(not isinstance(name, str) for name in value["deciders"])
+            ):
+                raise ValueError
         elif not isinstance(value.get("items"), list):
             raise ValueError
     if operation == "rehydrate" and (

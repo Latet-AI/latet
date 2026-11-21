@@ -115,8 +115,8 @@ def test_opencode_desktop_alone_counts_as_opencode_installed(isolated, monkeypat
 
 
 def test_opencodes_chatgpt_sign_in_is_said_to_be_on_the_roadmap_not_in_a_version(isolated, monkeypatch):
-    """The note named a version (v1.1) that no longer comes next: Latet's versions are 0.9.x, and 1.0.0 is the
-    Enterprise release. The OpenCode guide says the ChatGPT sign-in is on the roadmap."""
+    """The note named a version (v1.1) for OpenCode's ChatGPT sign-in, which no release plan holds: it says that the
+    sign-in is on the roadmap, as the OpenCode guide does."""
     monkeypatch.setattr(agents.shutil, "which", lambda name: None)
     monkeypatch.setattr(agents, "_opencode_desktop", lambda: None)
     [note] = [note for note in OpenCode().detect().notes if "ChatGPT" in note]

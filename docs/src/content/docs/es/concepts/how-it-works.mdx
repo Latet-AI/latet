@@ -9,7 +9,7 @@ Latet se sitúa entre tu agente y el proveedor del modelo. Un único motor detec
 sensibles, los sustituye por valores ficticios a la ida y restaura los originales a la vuelta. Dónde
 ocurre esto depende del agente: dentro del agente (**modo cliente**) o en un proxy
 (**modo puerta de enlace**). Los dos se ejecutan en tu equipo o, cuando tu equipo está conectado a un
-[servidor Latet](../server/), en ese servidor.
+[servidor de Latet](../server/), en ese servidor.
 
 ## Valores ficticios
 
@@ -17,8 +17,8 @@ Un valor ficticio es un valor inventado con el mismo formato que el original:
 
 | Tipo | Original (se queda en tu equipo) | Valor ficticio (se envía al proveedor) |
 | --- | --- | --- |
-| Clave de API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Contraseña en una URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
+| Clave de API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> |
+| Contraseña en una URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:9XfKWe-pwRldxM1@db.internal/shop`</span> |
 | Correo electrónico | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Número de teléfono | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -27,10 +27,11 @@ Un valor ficticio es un valor inventado con el mismo formato que el original:
 <small>Los valores son ilustrativos. Tus valores ficticios son distintos: se derivan de una clave
 creada en tu equipo.</small>
 
-- **Conserva el formato.** Una clave mantiene su prefijo (`pk_`, `ghp_`, `sk-ant-api03-`...), su
-  longitud y su juego de caracteres. Un secreto de menos de doce caracteres, como el `1234` de
-  `password=1234`, recibe en su lugar un valor ficticio más largo de los mismos tipos, con sus
-  signos en su sitio (doce letras y dígitos, quince dígitos para un número), para que ningún
+- **Conserva el formato.** Una clave mantiene su longitud, su juego de caracteres y el prefijo que su
+  proveedor pone delante de cada clave de su tipo (`ghp_`, `sk-ant-api03-`, `AKIA`...), y ninguna de
+  sus demás letras y cifras. Un secreto de menos de doce caracteres, como el `1234` de
+  `password=1234`, recibe en su lugar un valor ficticio más largo con los mismos tipos de
+  caracteres, con sus signos en su sitio (doce letras y dígitos, quince dígitos para un número), para que ningún
   identificador ni número de otro texto lo contenga por casualidad. Un correo electrónico sigue
   siendo un correo electrónico: un dominio de webmail público como `gmail.com` se mantiene, y
   cualquier otro dominio pasa a ser uno ficticio bajo `.example`. Los IBAN, los números de tarjeta,
@@ -102,7 +103,7 @@ Esto es lo que le ocurre a una clave de un archivo `.env`:
 
 2. Claude Code lee `.env` con su herramienta Read. Antes de que el resultado de la herramienta entre
    en la conversación, el plugin se lo pasa al daemon local, que encuentra la clave y la cambia por
-   el valor ficticio <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. El par se guarda en la caja
+   el valor ficticio <span class="fake">`gd_1a2f2438f7bc60e0f872`</span>. El par se guarda en la caja
    fuerte.
 
 3. Claude Code construye la petición como de costumbre. Solo contiene el valor ficticio. Justo antes
@@ -112,11 +113,11 @@ Esto es lo que le ocurre a una clave de un archivo `.env`:
    cada una de las demás partes de la petición (su dirección, sus cabeceras, cada miembro de su cuerpo), reenvía el
    cuerpo sin cambios y registra el intercambio para el [panel](../../dashboard/).
 
-4. Anthropic recibe <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> y nada más. El modelo nunca
+4. Anthropic recibe <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> y nada más. El modelo nunca
    ve la clave real.
 
 5. El modelo responde con una llamada a una herramienta que edita `config/local.toml` y escribe
-   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Antes de que la
+   <code>api_key = "<span class="fake">gd_1a2f2438f7bc60e0f872</span>"</code>. Antes de que la
    herramienta se ejecute en tu equipo, el plugin restaura el original en los argumentos de la
    llamada, así que el archivo en el disco contiene <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>.
    El texto que se muestra en tu terminal también se restaura.
@@ -130,9 +131,9 @@ Esto es lo que le ocurre a una clave de un archivo `.env`:
 </Steps>
 
 En modo cliente, lo único que puede hacer el daemon es bloquear: nunca cambia el cuerpo de una
-petición, que llega a Anthropic byte a byte. De sus cabeceras, Latet solo quita las de telemetría y de
+petición, que llega a Anthropic idéntico byte a byte. De sus cabeceras, Latet solo quita las de telemetría y de
 trazado que añade el SDK de Claude Code (`x-stainless-*`, `traceparent`...) y las propias de Claude
-Code que pueden contener texto libre, como los id de un subagente, y las cuenta en el panel
+Code que pueden contener texto libre, como los identificadores de un subagente, y las cuenta en el panel
 ([Las cabeceras que quita Latet](../../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet)).
 
 **Si el daemon no se está ejecutando**, el plugin intenta iniciarlo. Si no lo consigue, el plugin
@@ -149,11 +150,11 @@ el daemon local el que enmascara. La misma clave de `.env`, esta vez con Codex:
 <Steps>
 
 1. Codex envía su petición a `127.0.0.1:5283` en lugar de al proveedor: por un WebSocket cuando
-   inicias sesión con ChatGPT, como petición HTTP con una clave de API.
+   inicias sesión con ChatGPT, y como petición HTTP cuando usas una clave de API.
 
 2. El daemon decodifica la petición (también los cuerpos comprimidos) y encuentra
    <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> en la salida del comando que Codex ejecutó
-   para leer `.env`. Sustituye la clave por <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> y
+   para leer `.env`. Sustituye la clave por <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> y
    reenvía la petición al proveedor.
 
 3. El modelo devuelve en streaming un parche que escribe el valor ficticio en `config/local.toml`.
@@ -167,13 +168,16 @@ el daemon local el que enmascara. La misma clave de `.env`, esta vez con Codex:
 
 </Steps>
 
-El proveedor solo ve valores ficticios; el agente solo ve originales. Los bloques de thinking, sus
-firmas y el razonamiento cifrado se devuelven tal como los produjo el proveedor: Latet los vio llegar
-del proveedor en esa conversación o, tras un reinicio, deja pasar los campos cifrados del propio
-proveedor con una regla integrada, solo en los turnos del modelo y solo hacia la dirección del
-proveedor. Cada otra parte de la petición, incluidas la dirección, la consulta y las cabeceras, se lee
-antes de salir, y una parte que Latet no conoce detiene la petición
-([Cada parte de una petición](../protection-scope/#cada-parte-de-una-petición)).
+El proveedor solo ve valores ficticios; el agente solo ve originales. Los bloques de pensamiento
+(thinking), sus firmas y el razonamiento cifrado se devuelven tal como los produjo el proveedor:
+Latet los vio llegar del proveedor en esa conversación o, tras un reinicio, deja pasar los campos
+cifrados del propio proveedor con una regla integrada, solo en los turnos del modelo y solo hacia la
+dirección del proveedor. Todas las demás partes de la petición, incluidas la dirección, la consulta
+y las cabeceras, se lee antes de salir, y una parte que Latet no conoce detiene la petición ([Cada
+parte de una petición](../protection-scope/#cada-parte-de-una-petición)), salvo un miembro del
+cuerpo que ningún perfil nombra todavía, que se lee entero y se comprueba, y pasa cuando nada en él
+se enmascararía y no nombra nada sobre lo que actúe el proveedor ([Nuevos miembros de las
+peticiones](../../getting-started/upgrading-to-0-11/#nuevos-miembros-de-las-peticiones)).
 
 Después, una comprobación final lee los textos de cada petición antes de que salga, los que Latet
 enmascara, como en el modo cliente, y detiene la que dejaría salir un valor en claro, diciendo por

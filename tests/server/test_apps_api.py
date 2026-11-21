@@ -13,7 +13,9 @@ import time
 import httpx
 import psycopg
 import pytest
+from starlette.responses import JSONResponse
 
+from latet.api.rest import API
 from latet.bridge import apps as apps_module
 from latet.bridge.apps import APPS_API, MOST_TEXTS
 from latet.config import LiveReview, LlmReview
@@ -23,7 +25,7 @@ from latet.engine.surrogates.generators import Drbg, shape
 from latet.engine.types import EntityClass
 from latet.engine.vault import Entity
 from latet.server import app as app_module
-from latet.server.app import create_server_app
+from latet.server.app import ServerGate, create_server_app
 from latet.server.machines import STORE_THREADS, StoresUnavailable, in_store
 from latet.server.operations import server_app
 from latet.server.settings import ServerSettings
@@ -312,6 +314,83 @@ async def test_the_space_gets_the_grant_and_not_the_token(server, monkeypatch):
     assert scope["latet.identity"] == key.id
     assert all(name != b"authorization" for name, _ in scope["headers"])
     assert secret.encode() not in b"".join(value for _, value in scope["headers"])
+
+
+# What the gate sets itself, by the entrance a request came in by: the rest it strips from what a client's request
+# arrives with, so that the identity's space reads only the gate's word (the dashboard's session kind, the token's
+# grant, the address a request came by) and Enterprise's hand-on into an API key's space (the person working there).
+_BY_THE_GATE = {
+    "the applications API": {"latet.grant"},
+    "an identity's address": {"latet.space"},
+    "the dashboard": {"latet.via"},
+}
+
+
+@pytest.mark.parametrize("name", ["latet.acting", "latet.grant", "latet.space"])
+@pytest.mark.parametrize("through", list(_BY_THE_GATE))
+async def test_what_only_the_servers_own_hand_on_sets_never_arrives_from_outside(server, monkeypatch, through, name):
+    """A scope that arrives with ``latet.via`` (the kind of a dashboard session), ``latet.grant`` (a token's grant),
+    ``latet.space`` (the address a request came by) or ``latet.acting`` (the person working in an API key's space,
+    which only Enterprise's hand-on into that space sets, ``ee.keys.KeySpace``) reaches the identity's space with none
+    of them, but what the entrance it came in by sets: the gate's ``_serve`` strips what its caller does not set.
+    Every entrance is tried, the dashboard's (``_dashboard``, whose ``changes`` hold ``latet.via``) too, so that none
+    is stripped only where another is not."""
+    key, secret = server.identities.add_key("Billing CI")
+    person, _ = server.identities.add_person("Daniel Okafor")
+    seen: list[dict] = []
+
+    async def stub(identity, *, launch_carrier=None):  # ``Spaces.app``'s signature (0.11's launch keys)
+        async def space(scope, receive, send):
+            seen.append(scope)
+            await JSONResponse({})(scope, receive, send)
+
+        return space
+
+    forged = {"latet.acting": "u_someoneelse", "latet.grant": {"token": "x", "permissions": ["forget"]},
+              "latet.space": "https://elsewhere.example/u/key", "latet.via": "sso"}  # fmt: skip
+    outer = create_server_app(server)
+
+    async def arrives(scope, receive, send):
+        await outer({**scope, **forged} if scope["type"] == "http" else scope, receive, send)
+
+    monkeypatch.setattr(server.spaces, "app", stub)
+    if through == "the dashboard":
+        # The entrance's own call, as ``_dashboard`` makes it once it found the person signed in.
+        gate = ServerGate(outer, server)
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "scheme": "https", "method": "GET",
+            "path": f"{API}/me", "raw_path": f"{API}/me".encode(), "query_string": b"", "root_path": "",
+            "headers": [(b"host", b"latet.acme.lan")], "client": WHERE, "server": ("latet.acme.lan", 443), **forged,
+        }  # fmt: skip
+        sent: list[dict] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        await gate._serve(scope, receive, send, person, {"latet.via": "code"}, counted=False)
+        assert sent[0]["status"] == 200
+        identity = person
+    else:
+        async with _calling(server, app=arrives) as client:
+            if through == "the applications API":
+                answer = await _post(client, secret, "mask", {"texts": ["hello"]})
+            else:
+                answer = await client.post(
+                    f"/u/{route_key(secret)}/openai/v1/chat/completions", json={}, headers=_bearer(secret)
+                )
+            assert answer.status_code == 200, answer.text
+        identity = key
+    [scope] = seen
+    assert scope["latet.identity"] == identity.id
+    assert scope.get(name) != forged[name]  # never what the request arrived with
+    if name not in _BY_THE_GATE[through]:
+        assert name not in scope
+    else:
+        assert scope[name]  # the entrance's own word, which its caller set
+    assert scope.get("latet.via") == ("code" if through == "the dashboard" else None)
 
 
 async def test_offsets_are_code_points(server):
@@ -1005,3 +1084,24 @@ async def test_metrics_count_apps_calls(server):
     ):
         assert line in text, line
     assert CANARY not in text and IBAN not in text and secret not in text
+
+
+async def test_each_scan_and_mask_reaches_the_servers_edition_as_one_apps_event(server, monkeypatch):
+    """R7: a space's applications API hands each scan and mask it answers to the server's edition, by the key and the
+    id of the token the gate checked (never its secret); an unmask is the administration log's alone."""
+    key, _ = server.identities.add_key("Billing CI")
+    token, secret = _token(server, key.id, "logs", ["scan", "mask", "unmask"])
+    events: list[dict] = []
+    monkeypatch.setattr(server.edition, "record", lambda event: events.append(dict(event)))
+    async with _calling(server) as client:
+        assert (await _post(client, secret, "scan", {"texts": [f"to {CANARY}", IBAN]})).status_code == 200
+        masked = await _post(client, secret, "mask", {"texts": [f"to {CANARY}", f"again {CANARY}", f"IBAN {IBAN}"]})
+        fakes = [result["text"] for result in masked.json()["results"]]
+        assert (await _post(client, secret, "unmask", {"texts": fakes})).status_code == 200
+    assert [(e["type"], e["outcome"], e["identity"], e["kind"], e["agent"], e["rule"]) for e in events] == [
+        ("apps", "scan", key.id, "key", "apps", token), ("apps", "mask", key.id, "key", "apps", token),
+    ]  # fmt: skip
+    assert events[0]["masked"] == {} and events[1]["masked"] == {"EMAIL": 1, "IBAN": 1}
+    written = json.dumps(events)
+    assert CANARY not in written and IBAN not in written and secret not in written
+    assert not any(fake in written for fake in fakes)

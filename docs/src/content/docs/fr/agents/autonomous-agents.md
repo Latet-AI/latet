@@ -19,7 +19,7 @@ de l'agent sur Latet et gardez la clé d'API de votre fournisseur dans l'agent, 
 | --- | --- | --- |
 | OpenAI | `http://127.0.0.1:5283/openai/v1` | Votre clé d'API OpenAI |
 | OpenRouter (Claude, Gemini et des centaines d'autres modèles) | `http://127.0.0.1:5283/openrouter/api/v1` | Votre clé d'API OpenRouter |
-| Anthropic, pour un agent qui parle le format d'Anthropic | `http://127.0.0.1:5283/anthropic` | Votre clé d'API Anthropic |
+| Anthropic, pour un agent qui utilise le format d'Anthropic | `http://127.0.0.1:5283/anthropic` | Votre clé d'API Anthropic |
 
 Un abonnement Claude Pro ou Max ne fonctionne que dans Claude Code, comme le disent les conditions
 d'Anthropic, donc ces agents utilisent une clé d'API : ils atteignent les modèles Claude via OpenRouter, ou
@@ -63,16 +63,21 @@ qu'utilise Codex. Ajoutez une ligne à `.env`, dans le dossier de Hermes :
 HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
 ```
 
-Hermes relit le fichier de lui-même : son message suivant passe par Latet. La variable déplace chaque
-requête que Hermes envoie avec cette connexion : la conversation, et le travail qu'il confie au même
-modèle à côté, comme le titre d'une session, le résumé d'un long contexte ou la lecture d'une image ou
-d'une page web. Elle passe avant `model.base_url` dans `config.yaml`, que vous pouvez laisser tel quel.
+Hermes relit le fichier de lui-même : son message suivant passe par Latet. La variable redirige chaque
+requête que Hermes envoie avec cette connexion : la conversation, et les tâches annexes qu'il confie au
+même modèle, comme le titre d'une session, le résumé d'un long contexte ou la lecture d'une image ou
+d'une page web. Elle l'emporte sur `model.base_url` dans `config.yaml`, que vous pouvez laisser tel quel.
 
 - **Un Latet 0.9.3 ou antérieur** rend à Hermes les valeurs factices à la place des vraies : mettez
   d'abord Latet à jour (`latet upgrade`).
+- **Un Latet de la 0.11.0 à la 0.12.1** refuse certaines requêtes de Hermes : celles d'une
+  conversation commencée depuis sa ligne de commande ou sa passerelle (un identifiant de session qui
+  commence par `local-`), celles d'un espace de travail ChatGPT avec une résidence des données, et
+  une conversation reprise dont les réponses portent leur phase. Latet 0.15.0 laisse passer chacune
+  sous sa forme exacte, vérifiée sur le code source de Hermes Agent 0.23.1 : mettez Latet à jour.
 - **Un fournisseur de secours avec son propre `base_url`** garde cette adresse : dans
-  `fallback_providers`, mettez-y aussi l'adresse de Latet, ou retirez la ligne. Sinon une requête qui
-  se replie sur lui part vers ChatGPT sans rien de masqué.
+  `fallback_providers`, indiquez là aussi l'adresse de Latet, ou retirez la ligne. Sinon une requête qui
+  se replie sur lui part vers ChatGPT sans que rien soit masqué.
 - Si Latet ne tourne pas, Hermes ne peut pas joindre le modèle. C'est voulu : rien ne sort sans être
   masqué.
 - Dans le tableau de bord, les requêtes de Hermes figurent sous Codex ou sous un autre agent : Hermes ne
@@ -162,7 +167,7 @@ votre machine.
   protection s'applique ; ce qui la réduit attend votre approbation dans le tableau de bord. Voir
   [Les agents et vos réglages](../../concepts/agents-and-settings/).
 
-Chacun de ces quatre agents est testé pour de vrai, configuré comme ci-dessus : il envoie une tâche
-via Latet à un fournisseur de test qui répond comme OpenAI ; le fournisseur reçoit des valeurs
-fictives, et l'agent récupère les vraies. Si un agent ne fonctionne pas via Latet, merci
+Chacun de ces quatre agents est testé en conditions réelles, configuré comme ci-dessus : il envoie une
+tâche via Latet à un fournisseur de test qui répond comme OpenAI ; le fournisseur reçoit des valeurs
+factices, et l'agent récupère les vraies. Si un agent ne fonctionne pas via Latet, merci
 d'[ouvrir un ticket](https://github.com/Latet-AI/latet/issues).

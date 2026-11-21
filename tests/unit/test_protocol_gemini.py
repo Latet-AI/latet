@@ -266,9 +266,10 @@ def test_a_part_latet_cannot_read_is_named_unreadable(part):
 
 
 def test_a_parts_unknown_member_is_left_to_the_bodys_declaration():
-    """A member no field names is refused by the body's declaration as body-unknown-member, as on every other protocol
-    (P2-8a, root's ruling 6; test_gemini_mediate's test_an_unknown_member_of_a_part_is_refused_on_either_machine), not
-    by the scanner, which reads the part's text as before."""
+    """A member no field names is left to the body's declaration, as on every other protocol: read by the new rule, or
+    refused as body-unknown-member where new members are refused (P2-8a, root's ruling 6; test_gemini_mediate's
+    test_an_unknown_member_of_a_part_is_read_by_the_new_rule_on_either_machine and its strict twin), never by the
+    scanner, which reads the part's text as before, whatever reads new members."""
     scan = gemini.scan_request({"contents": [{"role": "user", "parts": [{"text": "x", "weird": 1}]}]})
     assert not scan.unreadable
     assert _slots(scan) == [("x", SlotKind.USER_TEXT, False)]

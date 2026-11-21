@@ -82,6 +82,49 @@ def _carve(spans: list[Span], text: str) -> list[Span]:
     return out
 
 
+def _joined(holes: Iterable[Span]) -> list[tuple[int, int]]:
+    """Where ``holes`` are, those that overlap joined: disjoint and in order, so their ends are in order too."""
+    out: list[tuple[int, int]] = []
+    for start, end in sorted((hole.start, hole.end) for hole in holes):
+        if out and start < out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], end))
+        else:
+            out.append((start, end))
+    return out
+
+
+def meeting(spans: Iterable[Span], holes: Iterable[Span]) -> list[Span]:
+    """The spans of ``spans`` that overlap one of ``holes``, in time linear in both (but for sorting)."""
+    cuts = _joined(holes)
+    ends = [end for _, end in cuts]
+    out = []
+    for span in spans:
+        i = bisect.bisect_right(ends, span.start)
+        if i < len(cuts) and cuts[i][0] < span.end:
+            out.append(span)
+    return out
+
+
+def carve_around(spans: list[Span], holes: list[Span], text: str) -> list[Span]:
+    """``spans`` cut around ``holes``: the pieces of each outside them, as a value of a structure is cut around what is
+    found in it (``_piece``: without the whitespace at their ends, around a line break JSON text writes as an
+    escape). Each span weighed against the holes it may meet alone: a long text holds thousands of each."""
+    gaps = breaks(text)
+    gap_ends = [end for _, end in gaps]
+    cuts = _joined(holes)
+    ends = [end for _, end in cuts]
+    out: list[Span] = []
+    for span in spans:
+        cursor = span.start
+        i = bisect.bisect_right(ends, span.start)
+        while i < len(cuts) and cuts[i][0] < span.end:
+            out += _piece(span, cursor, max(cursor, cuts[i][0]), text, gaps, gap_ends)
+            cursor = max(cursor, cuts[i][1])
+            i += 1
+        out += _piece(span, cursor, max(cursor, span.end), text, gaps, gap_ends)
+    return out
+
+
 def _piece(
     struct: Span, start: int, end: int, text: str, gaps: list[tuple[int, int]], gap_ends: list[int]
 ) -> list[Span]:

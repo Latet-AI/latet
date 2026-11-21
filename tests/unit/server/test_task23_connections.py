@@ -100,7 +100,7 @@ class _Gate:
         )
         self.mutation_baseline = self.server.launch_mutations.retained_bytes
         self.gate = server_app.ServerGate(self.unexpected, cast(server_app.Server, self.server))
-        monkeypatch.setattr(self.gate, "_session_held", self.people.get)
+        monkeypatch.setattr(self.gate, "_session_held", self._held)
 
         async def owner(_server, token, _bucket):
             return _granted(self.people.get(token))
@@ -109,6 +109,11 @@ class _Gate:
 
     async def unexpected(self, scope, receive, send):
         pytest.fail("request bypassed the identity's space")
+
+    def _held(self, sid):
+        """A dashboard session held in memory: its person, opened with a one-time code."""
+        person = self.people.get(sid)
+        return (person, "code") if person is not None else None
 
     async def app(self, identity, *, launch_carrier=None):
         """``spaces.app``'s signature: a destination request is handed its launch-key carrier (none here: [])."""

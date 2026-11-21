@@ -155,6 +155,8 @@ counted as `unknown`. A failed mask call may have kept some of its new values
 ## Headers
 
 - Every answer says `Cache-Control: no-store`: no cache keeps a text or a value.
+- Every answer says `Content-Security-Policy: default-src 'none'; sandbox`: a browser that opens one runs
+  no script in it and never treats it as a page of the server's. HTTP clients ignore this header.
 - `Retry-After`, in seconds, comes with every 429, and with some 503s.
 
 ## Limits

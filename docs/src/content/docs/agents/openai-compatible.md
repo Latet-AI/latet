@@ -120,11 +120,16 @@ sent in clear.
   Images by their address, audio and files are refused.
 - **Listing the models and reading one** pass on OpenAI, Anthropic and OpenRouter. **Any other
   request** (files, batches, audio, image generation, moderations, fetching a stored response) is
-  refused, and so is a header, a query parameter or a body member no profile names: an SDK's
-  `default_headers` or `extra_body` of your own, say, until an
-  [exact exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it
-  through. The SDKs' own telemetry and tracing headers (`x-stainless-*`, `traceparent`...) are taken
-  off and counted. What Latet reads on Google's routes is listed in [Gemini CLI and Google GenAI](../gemini/#what-the-gateway-reads).
+  refused, and so is a header or a query parameter no profile names: an SDK's `default_headers` of
+  your own, say, until an [exact
+  exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) lets it through.
+  A body member no profile names yet, such as one in an SDK's `extra_body`, is read whole and
+  checked, and passes as it came when nothing in it would be masked and it names nothing the
+  provider acts on ([New request
+  members](../../getting-started/upgrading-to-0-11/#new-request-members)). The SDKs' own telemetry
+  and tracing headers (`x-stainless-*`, `traceparent`...) are taken off and counted. What Latet
+  reads on Google's routes is listed in [Gemini CLI and Google
+  GenAI](../gemini/#what-the-gateway-reads).
 
 A request to Anthropic that comes from Claude Code, or that carries a Claude subscription token, is
 never rewritten: it is only checked, and blocked if a sensitive value is in it. See

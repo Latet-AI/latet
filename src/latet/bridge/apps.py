@@ -21,8 +21,11 @@ before its answer is made: a log that cannot be written refuses it. ``forget`` t
 given, out of the space's vault with everything that names it (``PgVaultStore.forget_values``), its entry in the
 administration log written in the same transaction (``apps.forgotten``: a log that cannot be written forgets nothing),
 then out of the space's memory, its engine's masked texts dropped; the other instances drop it as they hear of it. A
-value forgotten is masked with a new fake the next time it is met, and its old fake restores nothing. Positions are
-Unicode code points: in the text sent for ``scan``, in the text answered for ``mask``.
+value forgotten is masked with a new fake the next time it is met, and its old fake restores nothing. Each answered
+``scan`` and ``mask`` is recorded as an ``apps`` event of counts for the server's edition (E4: the key, its token's id,
+the values a mask masked by type, each once a call, and the texts it did not answer; never a text, a value or a fake);
+``unmask`` and ``forget`` are in the administration log, which reaches the SIEM from there. Positions are Unicode code
+points: in the text sent for ``scan``, in the text answered for ``mask``.
 
 An error is ``{"error": words}``, and its words never quote a text: 400 a body that is not one, 403 a permission the
 token lacks, 404 another path under the prefix, 405 another method, 422 texts whose words name more of the vault's
@@ -35,16 +38,18 @@ be all in place, as a request over HTTP does (``request_policy.settled``, the sa
 one whose apply outlasts the wait, or that comes while the settings that ran before could not be put back
 (``Engine.stranded``), or whose answer an apply began over, is refused (503, ``SETTINGS_CHANGED``): nothing of a call is
 masked, scanned or restored under settings half applied, nor given (minors after 0.11, item 23's fix round). Nor is it
-recorded: a call refused so is counted in no metric, and an unmask refused so has no entry in the administration log,
-since the check comes before either; an unmask's entry, once written, is answered (the 0.12 merge's reviews, L2, L4).
-Each gated operation asks that check itself, and one that never asks is refused (503): the gate fails closed."""
+recorded: a call refused so is counted in no metric, a scan or a mask so refused records no ``apps`` event (E4), and an
+unmask refused so has no entry in the administration log, since the check comes before each; an unmask's entry, once
+written, is answered (the 0.12 merge's reviews, L2, L4). Each gated operation asks that check itself, and one that never
+asks is refused (503): the gate fails closed."""
 
 from __future__ import annotations
 
 import functools
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import ClientDisconnect, Request
@@ -61,6 +66,7 @@ from latet.engine.pipeline import WITHHELD_DUMP, Session
 from latet.engine.stored import StoredVault
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import MaskingError
+from latet.events import apps_event
 from latet.gateway import request_policy
 from latet.gateway.mediate import Masked, Mediator, ReviewItem
 from latet.gateway.recorder import replacement_dicts
@@ -165,26 +171,49 @@ def _withheld_reason(done: Masked) -> str:
     return "Latet withheld this text"
 
 
-def _masked_results(out: list[dict[str, Any]], degraded: list[str]) -> tuple[JSONResponse, int]:
+def _masked_results(out: list[dict[str, Any]], degraded: list[str]) -> tuple[JSONResponse, int, Counter[str], int]:
     """In the bridge's thread: ``mask``'s answer, each text with its replacements' places in the text it answers, or
     why it is not answered (``blocked``: the local reviewer stopped it, or its masking withheld it, the first time or
     once masked again with what the reviewer found), and what ran weaker on the call (``degraded``: a detector's name,
-    ``llm-review``), said only when something did; and how many values were replaced in the texts answered."""
+    ``llm-review``), said only when something did; how many values were replaced in the texts answered (every
+    replacement); the values masked by type in the texts answered, each value once a call (M8: its vault's entry, as an
+    exchange counts each once a conversation; one with no entry, a value redacted, each time); and how many texts were
+    not answered."""
     results: list[dict[str, Any]] = []
     replaced = 0
+    kinds: Counter[str] = Counter()
+    seen: set[str] = set()  # each value once a call (M8), as an exchange counts each once in a conversation
+    blocked = 0
     for entry in out:
         done: Masked = entry[MASKED]
         if entry.get("blocked") or done.withheld:
             results.append({"blocked": entry.get("blocked") or _withheld_reason(done)})
+            blocked += 1
             continue
         placed = replacement_dicts(done.replacements)
         places = [_place(r["type"], r["class"], r["masked_start"], r["masked_end"]) for r in placed]
         replaced += len(places)
+        for r in placed:
+            entity = r.get("entity")
+            if entity is None or entity not in seen:
+                kinds[r["type"]] += 1
+                if entity is not None:
+                    seen.add(entity)
         results.append({"text": done.text, "replacements": places, "counts": _counts(p["type"] for p in places)})
     answer: dict[str, Any] = {"results": results}
     if degraded:
         answer["degraded"] = sorted(set(degraded))
-    return _rendered(answer), replaced
+    return _rendered(answer), replaced, kinds, blocked
+
+
+@dataclass(frozen=True, slots=True)
+class _Answered:
+    """A scan's or a mask's answer, and the counts of its ``apps`` event (E4), which the call's endpoint records once
+    the answer is given (``Apps._call``): a call whose answer a save began over is refused, and records none."""
+
+    response: Response
+    masked: Mapping[str, int] = field(default_factory=dict)
+    stopped: int = 0
 
 
 class Apps:
@@ -197,6 +226,7 @@ class Apps:
         self._unanswered = Paced()  # calls answered 503 because a store did not answer, said once a minute
         self._failed = Paced()  # calls that failed otherwise, said once a minute by the error's type
         self._unlogged = Paced()  # unmasks and forgets refused because the administration log did not take them
+        self._unrecorded = Paced()  # events not recorded: said once a minute
         self._unsettled = Paced()  # calls refused because the space's settings were being applied, said once a minute
         self._unasked = Paced()  # gated calls refused because their operation never asked ``overtaken``: a fault
 
@@ -221,7 +251,7 @@ class Apps:
     def _call(
         self,
         operation: str,
-        work: Callable[..., Awaitable[Response]],
+        work: Callable[..., Awaitable[Response | _Answered]],
         read: Callable[[bytes], tuple[Any, ...] | str] | None = None,
     ) -> Callable[[Request], Awaitable[Response]]:
         """``work`` behind the checks of every call: the gate's grant (403), the method (405), the permission of
@@ -230,7 +260,8 @@ class Apps:
         whether an apply of the settings came over the call: 503 then, nothing of it recorded; a gated operation that
         answers without asking it is refused all the same, 503, the gate failing closed); and its failures
         answered: a full vault 507, another masking failure 500, a store that does not answer 503, anything else 500,
-        each said in the log by its words when they name no value (a masking failure's), else by the error's type."""
+        each said in the log by its words when they name no value (a masking failure's), else by the error's type. A
+        scan's or a mask's ``apps`` event is recorded once its answer is given, never for one refused."""
         reader = read if read is not None else functools.partial(_texts, kinds=operation != "unmask")
         gated = operation in _UNDER_THE_SETTINGS
 
@@ -260,9 +291,10 @@ class Apps:
 
             def overtaken() -> bool:
                 """An apply under way, or begun since the call came: what the call made is not given. ``work`` asks it
-                once its texts are read and before anything records it (its count in the metrics, an unmask's entry
-                in the administration log), so that a call refused is recorded nowhere (the 0.12 merge's reviews,
-                L2 and L4). Forget is not gated, and never overtaken."""
+                once its texts are read and before anything records it (its count in the metrics, a scan's or a mask's
+                ``apps`` event, recorded here as ``work`` returns with nothing awaited between, an unmask's entry in
+                the administration log), so that a call refused is recorded nowhere (the 0.12 merge's reviews, L2 and
+                L4). Forget is not gated, and never overtaken."""
                 asked[0] = True
                 return gated and bool(engine.applying or engine.applies != begun)
 
@@ -272,7 +304,10 @@ class Apps:
                     return _error(400, given)
                 answer = await work(request, grant, overtaken, *given)
                 if gated and not asked[0]:  # fails closed: never answered across a save it did not ask about
-                    return self._never_asked(operation)
+                    return self._never_asked(operation)  # nor recorded as answered
+                if isinstance(answer, _Answered):  # a scan's or a mask's, given: its event recorded (E4)
+                    self._recorded(operation, grant, answer.masked, answer.stopped)
+                    return answer.response
                 return answer
             except VaultFull as exc:  # nothing of the call is answered, nothing leaves in clear (R9)
                 full = f"its limit is {exc.limit} values" if exc.limit is not None else "it holds the most it may"
@@ -339,14 +374,14 @@ class Apps:
         overtaken: Callable[[], bool],
         texts: list[str],
         kind: SlotKind,
-    ) -> Response:
+    ) -> Response | _Answered:
         """``{texts, kind?}`` → ``{results: [{findings: [{type, class, start, end}], counts}]}``: counted in the
-        metrics once it is given, never when an apply came over it (503)."""
+        metrics and its ``apps`` event recorded once it is given, never when an apply came over it (503)."""
         answer, found = await self.mediator.run_bridge(self._scan, texts, kind)
         if overtaken():
             return self._settings_changed()
         observe.apps("scan", len(texts), found)
-        return answer
+        return _Answered(answer)  # its event the call alone: a scan masks nothing, and what it found is the caller's
 
     def _scan(self, texts: list[str], kind: SlotKind) -> tuple[JSONResponse, int]:
         """In the bridge's thread: where the space's rules find values in each text, by the rules ``mask`` masks it by,
@@ -379,23 +414,43 @@ class Apps:
         overtaken: Callable[[], bool],
         texts: list[str],
         kind: SlotKind,
-    ) -> Response:
+    ) -> Response | _Answered:
         """``{texts, kind?}`` → ``{results: [{text, replacements: [{type, class, start, end}], counts}], degraded?}``,
         a result ``{blocked}`` for a text the local reviewer or the dump guard stopped, and ``degraded`` the names of
         what ran weaker on the call (a detector that did not read a text, a review that did not end), when something
         did. The local reviewer reads every text, of either kind, within ``llm_review.budget_ms``, else
         ``APPS_REVIEW_SECONDS`` (R8), and nothing of them later; the Live Reviewer never holds them. Counted in the
-        metrics once it is given, never when an apply came over it (503)."""
+        metrics and its ``apps`` event recorded once it is given, never when an apply came over it (503)."""
         session, out, reviews, degraded = await self.mediator.run_bridge(self._mask, texts, kind)
         if reviews:
             degraded = await inline_review(
                 self.mediator, session, reviews, out, degraded, budget_s=APPS_REVIEW_SECONDS, background=False
             )
-        answer, replaced = await self.mediator.run_bridge(_masked_results, out, degraded)
+        answer, replaced, kinds, blocked = await self.mediator.run_bridge(_masked_results, out, degraded)
         if overtaken():
             return self._settings_changed()
         observe.apps("mask", len(texts), replaced)
-        return answer
+        return _Answered(answer, kinds, blocked)
+
+    def _recorded(self, operation: str, grant: Mapping[str, Any], masked: Mapping[str, int], stopped: int) -> None:
+        """The call's ``apps`` event, for a server's Enterprise Edition (R7): the key, its token's id, the values a mask
+        masked by type and the texts it did not answer; never a text. Never raises, and never waits: the call is
+        answered whatever its event does. Unmask and forget record none: the administration log has each."""
+        record = self.on_server.record
+        if record is None:
+            return
+        try:
+            # The token as the gate names it: anything but its id (``t_...``) is refused by ``apps_event``, and a grant
+            # that names none is refused here, never an event left without it in silence nor one with something else.
+            token = grant.get("token")
+            if not isinstance(token, str) or not token:
+                raise ValueError("the gate's grant names no token")
+            event = apps_event(operation, identity=self.on_server.identity, token=token, masked=masked, stopped=stopped)
+            record(event)
+        except Exception as exc:  # by its type: its words could quote what it was given
+            if count := self._unrecorded.due():
+                many = f" ({count} since the line before)" if count > 1 else ""
+                log.warning("an applications API call's event was not recorded (%s)%s", described(exc), many)
 
     def _mask(
         self, texts: list[str], kind: SlotKind

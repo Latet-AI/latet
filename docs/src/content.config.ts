@@ -6,7 +6,9 @@ import { docsSchema, i18nSchema } from '@astrojs/starlight/schema';
 export const collections = {
 	docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
 	// UI strings we add ourselves, one file per locale in src/content/i18n/.
-	// Starlight's own UI strings are already translated and can be overridden here too.
+	// Starlight's own UI strings are already translated and can be overridden here too. Pagefind's search strings
+	// (pagefind.*) are set here for it, de and fr: Starlight ships them only for es, and Pagefind's module build never
+	// reads the page's language, so without them the search answers in English (tests/unit/test_docs_search_texts.py).
 	i18n: defineCollection({
 		loader: i18nLoader(),
 		schema: i18nSchema({

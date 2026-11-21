@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from latet.engine.detectors.base import DetectContext
+from latet.engine.detectors.terms import is_locked
 from latet.engine.masker import Masker
 from latet.engine.merge import merge_spans
 from latet.engine.types import EntityClass, SlotKind
@@ -67,9 +68,13 @@ def findings(files: Iterable[Path], masker: Masker) -> list[Finding]:
         except OSError:
             continue
         spans = masker.detect(text, DetectContext(SlotKind.SYSTEM), skip=("ner",))
+        # A term your company locks (Latet Enterprise) is never one of your exceptions, whatever span names the place
+        # it is in once they are merged (your own entry of its value, found as well).
+        locked = [s for s in spans if is_locked(s)]
         for span in merge_spans(spans, text):
             value = span.of(text)
-            if span.eclass in NEVER_TO_REVIEWER and not masker.allow.allows(value):
+            holds_locked = any(term.start < span.end and span.start < term.end for term in locked)
+            if span.eclass in NEVER_TO_REVIEWER and (holds_locked or not masker.lets_through(span, value)):
                 out.append(Finding(path, text.count("\n", 0, span.start) + 1, span.etype, len(value)))
     return out
 

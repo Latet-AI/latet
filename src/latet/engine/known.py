@@ -156,6 +156,11 @@ class PartedValues:
     def __init__(self, parts: tuple[_Reads, ...]) -> None:
         self._parts = parts
 
+    @property
+    def empty(self) -> bool:
+        """It matches nothing: no part, or none that matches anything."""
+        return all(part.empty for part in self._parts)
+
     def plus(self, more: _Reads) -> PartedValues:
         """These parts and ``more`` (one that matches nothing left out)."""
         return self if more.empty else PartedValues((*self._parts, more))

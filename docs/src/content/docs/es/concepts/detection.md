@@ -3,7 +3,7 @@ title: Detección
 description: Cómo reconoce Latet los secretos y los datos personales, por completo en tu equipo.
 ---
 
-La detección se ejecuta en tu equipo, o en el servidor Latet al que está conectado tu equipo: nunca se
+La detección se ejecuta en tu equipo, o en el servidor de Latet al que está conectado tu equipo: nunca se
 llama a ningún servicio de detección en la nube. Varios detectores leen cada fragmento de texto que lleva una petición. Esta página los
 explica con ejemplos; la [referencia de los detectores](../../reference/detectors/) enumera todos
 los detectores y todas las reglas de secretos.
@@ -56,8 +56,8 @@ contiene un valor ficticio se detiene donde Latet puede interceptarla (consulta 
   (`password_changed=Winter2024x`, una frase de contraseña como `correct-horse-battery-staple`, un número
   más largo) se enmascara. Un nombre
   que termina en `reset`, `source`, `arg`, `option` o `flag` sigue siendo el nombre de un secreto
-  (`password_reset`, `token_source`), y solo una opción que termina así (`--pass-arg=...`) se deja como
-  está tras `--` en medio de una línea, porque toma el nombre de algo.
+  (`password_reset`, `token_source`), y una opción que termina así (`--pass-arg=...`) solo se deja como
+  está tras `--` en medio de una línea, porque su valor es el nombre de algo.
 - **Claves privadas**: todo el cuerpo de un bloque de clave privada PEM, OpenSSH o PGP. Las líneas
   `BEGIN` y `END` siguen visibles, así que el modelo sigue sabiendo que ahí hay una clave.
 - **Credenciales**: la contraseña en `postgres://user:password@host/db` y en otras URL, los JSON Web
@@ -80,20 +80,20 @@ y lo que recibe el modelo cuando el agente lo lee:
 ```sh
 APP_NAME=shop
 SMTP_HOST=mail.northwind-legal.com
-SMTP_PASSWORD=jeeepo3ixhbkw
-PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
+SMTP_PASSWORD=7vdn5d1nku0hy
+PAYMENTS_API_KEY=gd_1a2f2438f7bc60e0f872
 ```
 
 El nombre de host no es un secreto y se queda. La contraseña y la clave se sustituyen por valores
 ficticios con la misma longitud y el mismo formato (los tuyos serán otros). Un secreto de menos de
-doce caracteres recibe en su lugar un valor ficticio más largo de los mismos tipos, con sus signos
-en su sitio, de doce letras y dígitos, quince dígitos para un número: `password=1234` sale como
+doce caracteres recibe en su lugar un valor ficticio más largo con los mismos tipos de caracteres,
+con sus signos en su sitio, de doce letras y dígitos, quince dígitos para un número: `password=1234` sale como
 `password=582194736201937`, `token=ab12f3` como `token=9e04c7b1d2fa`. Un valor ficticio tan corto
 como el valor aparecería por casualidad en los identificadores y los números de los textos
 siguientes, y una restauración los cambiaría. Un valor ficticio corto dado antes de Latet 0.10.2 (de
-ocho caracteres o menos) se queda: una conversación lo restaura como antes, y `unmask` de la [API
-para aplicaciones](../../applications/#la-caja-fuerte-de-una-clave), que lee una caja fuerte entera,
-solo donde está como palabra completa.
+ocho caracteres o menos) se queda: en una conversación se sigue sustituyendo por el valor real como antes, y en el `unmask` de
+la [API para aplicaciones](../../applications/#la-caja-fuerte-de-una-clave), que lee una caja fuerte
+entera, solo donde aparece como palabra completa.
 
 ### Marcadores de posición
 
@@ -122,7 +122,7 @@ longitud: `!!!!!!!!` como contraseña, `--------------------` después de `Beare
 uno de tus [reconocedores](../custom-recognizers/) o un valor que señala el
 [revisor local](../llm-review/). El valor ficticio conserva los símbolos del original, así que sería
 el propio original. Una clave de ruta de Latet es la excepción: cada carácter de su valor ficticio
-se genera de nuevo, incluso cuando el original solo contiene `_` o `-`.
+se vuelve a generar al azar, incluso cuando el original solo contiene `_` o `-`.
 
 ## Datos personales
 
@@ -141,7 +141,7 @@ antes de enmascararla, lo que reduce las falsas alarmas en el código:
 | Dirección de Bitcoin | `bc1q...` | La suma de control Base58Check o bech32 |
 
 Los reconocedores de correos electrónicos, IBAN, tarjetas, codice fiscale y partita IVA están
-portados de [Presidio](https://github.com/data-privacy-stack/presidio).
+adaptados de [Presidio](https://github.com/data-privacy-stack/presidio).
 
 ### Números de identificación y fiscales por país
 
@@ -223,14 +223,14 @@ Una vez encontrado, un nombre pasa a los [valores conocidos](#valores-conocidos)
 enmascara en todas partes, salida de las herramientas incluida, en todos los perfiles, `secrets`
 también.
 
-El modelo no ofrece garantías:
+El modelo funciona sin garantías:
 
 - **Se le escapan nombres.** Los nombres poco comunes, las iniciales y los nombres escritos en
   minúsculas son los que más se le escapan. Los saludos y los tratamientos delante de un nombre
   (*Hi Paul*, *Dr. Sarah Mitchell*) quedan fuera de lo que se enmascara.
 - **Confunde algunas palabras con nombres.** Las palabras técnicas como *Redis* o *Postgres* se
   filtran, y `balanced` necesita al menos dos palabras.
-- **Es lento con los textos largos.** Lee unos 700 tokens por segundo en la CPU de un ordenador de
+- **Es lento con los textos largos.** Lee unos 700 tokens por segundo en la CPU de un equipo de
   sobremesa, en un hilo propio, así que las demás peticiones no lo esperan. Un texto de más de
   4096 tokens (8192 en `max`), o de 16.000 caracteres (64.000 en `max`), no se lee, y la petición
   queda marcada en el panel.
@@ -259,11 +259,11 @@ original, así que unos símbolos solos, como `--` o `###`, no se pueden enmasca
 `latet config` rechazan un término así. Uno escrito a mano en `config.yaml` o en el `latet.yaml` de
 un proyecto se deja fuera, y la página **Reglas** y `latet config validate` lo señalan.
 
-Un término tiene como máximo 8.192 caracteres: uno más largo se busca aparte, y uno de alrededor de
+Un término tiene como máximo 8192 caracteres: uno más largo se busca aparte, y uno de alrededor de
 un millón de letras no se puede buscar en absoluto. El panel, `latet config` y una importación
 rechazan un término más largo. Uno escrito a mano en `config.yaml` se deja fuera, y `latet reload`,
 el registro del daemon y `latet config validate` dicen qué entrada; uno en el `latet.yaml` de un
-proyecto también se deja fuera, y la página del proyecto lo dice.
+proyecto también se deja fuera, y la página del proyecto lo indica.
 
 Para un formato en lugar de un valor, como todos los números de acreditación escritos `AB-123456`,
 escribe un [reconocedor personalizado](../custom-recognizers/): un patrón, dígitos de control y
@@ -310,7 +310,7 @@ personales y los valores de tus reconocedores, así que también se encuentra un
 `mario.rossi%40acme.it` (un secreto o un valor de una estructura solo se encuentra tal como está
 escrito). Un valor encontrado así se guarda tal como está escrito, como un valor propio con su
 propio valor ficticio, escrito con las mismas secuencias donde forman parte del texto:
-`Paolo%20Fontana` en un enlace, `\'` en una cadena entre comillas simples. Al agente le vuelve el
+`Paolo%20Fontana` en un enlace, `\'` en una cadena entre comillas. Al agente le vuelve el
 valor exactamente como estaba escrito, así que un enlace sigue siendo un enlace y una edición vuelve
 a encontrar su línea. Donde el modelo escribe el valor ficticio tal como se lee, `Paolo Fontana`, al
 agente le vuelve el valor tal como se lee. La caja fuerte guarda cómo se encontró cada valor, tal

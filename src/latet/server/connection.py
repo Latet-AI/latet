@@ -59,7 +59,7 @@ else:
             raise
         from click.exceptions import ClickException
 
-from latet.config import _yaml_error_at, data_dir, load_config, load_yaml, write_atomic
+from latet.config import data_dir, load_config, load_yaml, write_atomic, yaml_error_at
 from latet.fileio import FileReadError, read_regular_bytes
 from latet.integrations import base as records
 from latet.logline import described
@@ -400,7 +400,7 @@ def _load_connection(selected: _SelectedConnection, *, unchecked: bool = False) 
     try:
         data = load_yaml(text)
     except yaml.YAMLError as exc:  # where, never what: PyYAML's words quote the line
-        raise NotConnected(f"{path} is not valid YAML{_yaml_error_at(exc, text)}: {_AGAIN}") from None
+        raise NotConnected(f"{path} is not valid YAML{yaml_error_at(exc, text)}: {_AGAIN}") from None
     problems = ""
     try:
         return Connection.model_validate(data if data is not None else {})

@@ -5,7 +5,7 @@ description: Ersatzwerte, Client-Modus, Gateway-Modus und reine Prüfung, mit ei
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Latet sitzt zwischen Ihrem Agenten und dem Anbieter des Modells. Eine einzige Engine erkennt sensible
+Latet sitzt zwischen Ihrem Agenten und dem Modellanbieter. Eine einzige Engine erkennt sensible
 Werte, ersetzt sie auf dem Hinweg durch Ersatzwerte und setzt auf dem Rückweg die Originale wieder
 ein. Wo das geschieht, hängt vom Agenten ab: im Agenten selbst (**Client-Modus**) oder in einem
 Proxy (**Gateway-Modus**). Beide laufen auf Ihrem Rechner oder, wenn Ihr Rechner mit einem
@@ -17,8 +17,8 @@ Ein Ersatzwert ist ein erfundener Wert im selben Format wie das Original:
 
 | Art | Original (bleibt auf Ihrem Rechner) | Ersatzwert (an den Anbieter gesendet) |
 | --- | --- | --- |
-| API-Schlüssel | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Passwort in einer URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
+| API-Schlüssel | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> |
+| Passwort in einer URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:9XfKWe-pwRldxM1@db.internal/shop`</span> |
 | E-Mail-Adresse | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Telefonnummer | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -27,11 +27,13 @@ Ein Ersatzwert ist ein erfundener Wert im selben Format wie das Original:
 <small>Die Werte sind nur Beispiele. Ihre Ersatzwerte sind andere, denn sie werden aus einem
 Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
 
-- **Formaterhaltend.** Ein Schlüssel behält sein Präfix (`pk_`, `ghp_`, `sk-ant-api03-`...), seine
-  Länge und seinen Zeichensatz. Ein Geheimnis mit weniger als zwölf Zeichen, etwa die `1234` von
-  `password=1234`, erhält stattdessen einen längeren Ersatzwert derselben Arten, seine Sonderzeichen
-  an ihrer Stelle (zwölf Buchstaben und Ziffern, fünfzehn Ziffern für eine Zahl), damit keine ID und
-  keine Zahl eines anderen Textes ihn zufällig enthält. Eine E-Mail-Adresse bleibt eine
+- **Formaterhaltend.** Ein Schlüssel behält seine Länge, seinen Zeichensatz und das Präfix, das sein
+  Anbieter jedem Schlüssel seiner Art voranstellt (`ghp_`, `sk-ant-api03-`, `AKIA`...), aber keinen
+  seiner übrigen Buchstaben und keine seiner übrigen Ziffern. Ein Geheimnis mit weniger als zwölf
+  Zeichen, etwa die `1234` von `password=1234`, erhält stattdessen einen längeren Ersatzwert aus
+  denselben Zeichenarten, mit den
+  Sonderzeichen an ihrer Stelle (zwölf Buchstaben und Ziffern, bei einer Zahl fünfzehn Ziffern), damit
+  keine ID und keine Zahl eines anderen Textes ihn zufällig enthält. Eine E-Mail-Adresse bleibt eine
   E-Mail-Adresse: Eine öffentliche Webmail-Domain wie `gmail.com` bleibt erhalten, jede andere
   Domain wird zu einer erfundenen unter `.example`. IBANs, Kartennummern, nationale
   Identifikationsnummern, Steuernummern und Umsatzsteuer-Identifikationsnummern erhalten gültige
@@ -40,7 +42,7 @@ Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
   Konfiguration rund um diese Werte weiterhin nachvollziehen.
 - **Ersatzwerte gehen nicht aus.** Wo der Tresor mehr Werte einer Art enthält, als seine Listen
   Ersatzwerte haben (Tausende Adressen in einer Kundenliste), erhält ein neuer Wert einen Ersatzwert,
-  wie Menschen solche Werte schreiben: Namen beider Sprachen, dann Ziffern nach dem Namen
+  der so geschrieben ist, wie Menschen solche Werte schreiben: Namen beider Sprachen, dann Ziffern nach dem Namen
   (`luca84@gmail.com`), ein Vorname mehr (`Marco Luca Ferri`), ein Ort aus einem Familiennamen
   (`Borgo Ferri`). Werte, die schon im Tresor sind, behalten ihre Ersatzwerte.
 - **Deterministisch.** Dasselbe Original erhält auf Ihrem Rechner immer denselben Ersatzwert,
@@ -57,7 +59,7 @@ Schlüssel abgeleitet, der auf Ihrem Rechner erzeugt wurde.</small>
 
 ### Über die Zeit hinweg gleich
 
-Ein Ersatzwert wird aus dem Wert und aus dem Stammschlüssel Ihrer Installation abgeleitet, nicht
+Ein Ersatzwert wird aus dem Wert und aus dem Root-Schlüssel Ihrer Installation abgeleitet, nicht
 zufällig gezogen, und der Tresor bleibt ohne Ablaufdatum auf der Festplatte: Der Verlauf des
 Dashboards wird nach `retention_days` bereinigt, der Tresor nicht. Ein Wert erhält also denselben
 Ersatzwert heute, nach einem Neustart und wenn Sie eine Unterhaltung Tage später fortsetzen:
@@ -68,7 +70,7 @@ Ersatzwert heute, nach einem Neustart und wenn Sie eine Unterhaltung Tage späte
 - **Ein Wert, den Latet gelernt hat, wird ab dann überall maskiert,** auch wenn die Regel, die ihn
   gefunden hat, nicht mehr existiert.
 - **Was einen Ersatzwert ändert:**
-  - **ein anderer Stammschlüssel**, auf einem neuen Rechner oder bei verlorenem
+  - **ein anderer Root-Schlüssel**, auf einem neuen Rechner oder bei verlorenem
     Anmeldedatenspeicher: neue Ersatzwerte, und für die alten in einer fortgesetzten Unterhaltung
     werden die Originale nicht mehr wieder eingesetzt. Übertragen Sie den Tresor zusammen mit
     seinem Schlüssel:
@@ -103,21 +105,21 @@ Folgendes geschieht mit einem Schlüssel aus einer `.env`-Datei:
 
 2. Claude Code liest `.env` mit seinem Tool Read. Bevor das Tool-Ergebnis Teil der Unterhaltung
    wird, übergibt das Plugin es dem lokalen Daemon, der den Schlüssel findet und durch den
-   Ersatzwert <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> ersetzt. Das Paar wird im Tresor
+   Ersatzwert <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> ersetzt. Das Paar wird im Tresor
    gespeichert.
 
 3. Claude Code erstellt die Anfrage wie gewohnt. Sie enthält nur den Ersatzwert. Kurz bevor die
    Anfrage hinausgeht, unterzieht das Plugin sie einer abschließenden Prüfung. Da
    `ANTHROPIC_BASE_URL` auf den Latet-Daemon (`127.0.0.1:5283`) zeigt, läuft die Anfrage danach
    durch den Daemon, der **nur prüft**: Er sucht nach sensiblen Werten im Klartext, prüft jeden
-   anderen Teil der Anfrage (ihre Adresse, ihre Header, jedes Element ihres Inhalts), leitet den
-   Inhalt unverändert weiter und zeichnet den Austausch für das [Dashboard](../../dashboard/) auf.
+   anderen Teil der Anfrage (ihre Adresse, ihre Header, jedes Element ihres Bodys), leitet den
+   Body unverändert weiter und zeichnet den Austausch für das [Dashboard](../../dashboard/) auf.
 
-4. Anthropic erhält <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> und sonst nichts. Das
+4. Anthropic erhält <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> und sonst nichts. Das
    Modell sieht den echten Schlüssel nie.
 
 5. Das Modell antwortet mit einem Tool-Aufruf, der `config/local.toml` bearbeitet und
-   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code> schreibt. Bevor das
+   <code>api_key = "<span class="fake">gd_1a2f2438f7bc60e0f872</span>"</code> schreibt. Bevor das
    Tool auf Ihrem Rechner läuft, setzt das Plugin das Original in die Argumente des Tool-Aufrufs
    wieder ein, sodass die Datei auf der Festplatte <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>
    enthält. Auch in dem Text, den Ihr Terminal anzeigt, wird das Original wieder eingesetzt.
@@ -129,7 +131,7 @@ Folgendes geschieht mit einem Schlüssel aus einer `.env`-Datei:
 
 </Steps>
 
-Blockieren ist das Einzige, was der Daemon im Client-Modus tun kann: Er ändert nie den Inhalt einer
+Blockieren ist das Einzige, was der Daemon im Client-Modus tun kann: Er ändert nie den Body einer
 Anfrage, der Anthropic Byte für Byte erreicht. Von ihren Headern entfernt Latet nur die Telemetrie-
 und Tracing-Header, die das SDK von Claude Code hinzufügt (`x-stainless-*`, `traceparent`...), und
 die eigenen Header von Claude Code, die freien Text enthalten können, etwa die IDs eines Subagenten,
@@ -144,17 +146,17 @@ prüfen kann, bleibt auf Ihrem Rechner.
 ## Gateway-Modus: alle anderen Agenten
 
 Codex, OpenCode, [Hermes Agent, OpenClaw und andere Agenten](../../agents/autonomous-agents/) sowie
-Ihre eigenen Skripte sprechen ihren Anbieter über eine Basis-URL an, die Sie ändern können. Hier ist
+Ihre eigenen Skripte sprechen ihren Anbieter über eine Base-URL an, die Sie ändern können. Hier ist
 der lokale Daemon die Stelle, an der maskiert wird. Derselbe Schlüssel aus `.env`, diesmal mit Codex:
 
 <Steps>
 
 1. Codex sendet seine Anfrage an `127.0.0.1:5283` statt an den Anbieter: über einen WebSocket, wenn
-   Sie sich mit ChatGPT anmelden, als HTTP-Anfrage mit einem API-Schlüssel.
+   Sie sich mit ChatGPT anmelden, mit einem API-Schlüssel als HTTP-Anfrage.
 
 2. Der Daemon dekodiert die Anfrage (auch komprimierte Bodys) und findet
    <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> in der Ausgabe des Befehls, mit dem Codex
-   `.env` gelesen hat. Er ersetzt den Schlüssel durch <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>
+   `.env` gelesen hat. Er ersetzt den Schlüssel durch <span class="fake">`gd_1a2f2438f7bc60e0f872`</span>
    und leitet die Anfrage an den Anbieter weiter.
 
 3. Das Modell streamt einen Patch zurück, der den Ersatzwert in `config/local.toml` schreibt. Der
@@ -170,14 +172,17 @@ der lokale Daemon die Stelle, an der maskiert wird. Derselbe Schlüssel aus `.en
 Der Anbieter sieht immer nur Ersatzwerte, der Agent immer nur Originale. Thinking-Blöcke, ihre
 Signaturen und verschlüsseltes Reasoning werden so zurückgesendet, wie der Anbieter sie erzeugt hat:
 Latet sah sie in dieser Unterhaltung vom Anbieter kommen oder lässt nach einem Neustart die
-verschlüsselten Felder des Anbieters selbst durch eine eingebaute Regel durch, nur in den Zügen des
-Modells und nur an die Adresse des Anbieters. Jeder andere Teil der Anfrage, auch Adresse, Abfrage und
+verschlüsselten Felder des Anbieters selbst durch eine eingebaute Regel durch, nur in den Runden des
+Modells und nur an die Adresse des Anbieters. Jeder andere Teil der Anfrage, auch Adresse, Query und
 Header, wird gelesen, bevor er hinausgeht, und ein Teil, den Latet nicht kennt, stoppt die Anfrage
-([Jeder Teil einer Anfrage](../protection-scope/#jeder-teil-einer-anfrage)).
+([Jeder Teil einer Anfrage](../protection-scope/#jeder-teil-einer-anfrage)), außer einem Element des
+Bodys, das noch kein Profil nennt: Es wird ganz gelesen und geprüft und geht durch, wenn darin
+nichts maskiert werden müsste und es nichts nennt, worauf der Anbieter handelt ([Neue Elemente in
+Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)).
 
 Eine abschließende Prüfung liest dann die Texte jeder Anfrage, bevor sie hinausgeht, die Texte,
 die Latet maskiert, wie im Client-Modus, und stoppt eine, die einen Wert im Klartext hinauslassen
-würde, mit dem Grund. Wenn der Daemon eine Anfrage nicht maskieren kann, lehnt er sie ab, statt sie
+würde, und nennt den Grund. Wenn der Daemon eine Anfrage nicht maskieren kann, lehnt er sie ab, statt sie
 unmaskiert zu senden: Ein Body, den er nicht dekodieren kann, oder ein Wert, den er nicht ersetzen
 kann, endet in einem Fehler, der besagt, dass nichts gesendet wurde.
 

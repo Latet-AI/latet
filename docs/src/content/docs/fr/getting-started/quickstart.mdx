@@ -52,12 +52,12 @@ quand vous serez prêt.
 
    - Lancez `latet dashboard` et ouvrez la dernière requête sur la page **En direct**. Là où se
      trouvait le contenu de votre `.env`, le fournisseur a reçu une valeur factice du même format,
-     par exemple `demo_9Tz6ZsM0aB8uA6vS8gA0`, étiquetée `ASSIGNED_SECRET`. Votre valeur factice sera
+     par exemple `jpxt_AmxvjKfWEB5QQDaACLqI`, étiquetée `ASSIGNED_SECRET`. Votre valeur factice sera
      différente : les valeurs factices sont dérivées d'une clé créée sur votre machine.
    - `config.local.json` sur le disque contient la vraie clé, `demo_7Hq2LmX9pR4tV8nB3cK6`, car Latet
      l'a remise en place localement avant que l'outil de l'agent n'écrive le fichier.
    - La réponse de l'agent à votre écran affiche elle aussi la vraie clé. Une exception : dans le
-     mode print de Claude Code (`claude -p`), la réponse affichée garde la valeur factice. Voir
+     mode non interactif de Claude Code (`claude -p`), la réponse affichée garde la valeur factice. Voir
      [Claude Code](../../agents/claude-code/#limites).
 
 </Steps>
@@ -97,8 +97,10 @@ quand vous serez prêt.
      1,6 Go), téléchargé avec `--ner` si vous ne l'avez pas encore téléchargé.
    - **Texte des images** : les modèles de reconnaissance de texte (environ 31 Mo), téléchargés avec
      `--ocr` si vous ne les avez pas encore téléchargés.
-   - **Port** : le port sur lequel écoute le daemon : 5283, ou un port libre voisin si un autre
-     programme l'utilise (vos agents suivent le changement).
+   - **Port** : le port sur lequel écoute le daemon : 5283, ou, si un autre programme l'utilise ou
+     si Windows l'occupe, le premier port libre au-dessus, après les ports que Windows occupe (vos
+     agents suivent le changement). Là où Windows peut prendre le port à son démarrage, la commande
+     nomme aussi `latet reserve-port`, qui le réserve pour Latet.
 
    Elle indique aussi comment tout retirer : `latet global-uninstall`. Des options permettent
    d'autres choix que ceux par défaut, comme `--agents claude --no-autostart` ; `--yes` applique le
@@ -142,7 +144,7 @@ de Latet d'une de ces autres façons :
 
 **Gemini CLI n'est pas disponible en mode global.** Lancez-le avec `latet gemini` : il ne lit son
 adresse que dans l'environnement et dans un seul fichier `.env`, et le `.env` propre à un projet
-cacherait, sans un mot, un réglage fait pour de bon. Voir
+cacherait, sans rien signaler, un réglage fait pour de bon. Voir
 [Gemini CLI et Google GenAI](../../agents/gemini/).
 
 Pour vos propres scripts et SDK, `latet run` définit `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` et
@@ -161,7 +163,8 @@ latet global-uninstall
 
 Cette commande rétablit chaque agent, octet pour octet, supprime le démarrage à l'ouverture de
 session et arrête le daemon. Vos règles restent dans `config.yaml`, pour `latet claude`. Les outils
-que vous avez pointés vers Latet dans leurs propres réglages gardent son adresse : remettez la leur.
+que vous avez pointés vers Latet dans leurs propres réglages gardent son adresse : remettez-y leur
+propre adresse.
 Voir [Désinstallation](../uninstall/).
 
 <Aside type="tip">
@@ -172,8 +175,8 @@ Voir [Désinstallation](../uninstall/).
 ## Étapes suivantes
 
 - [Comment ça marche](../../concepts/how-it-works/) : ce qui arrive à la clé, étape par étape.
-- [Ce qui est protégé et ce qui ne l'est pas](../../concepts/protection-scope/) : connaissez-en les
-  limites avant de vous y fier.
+- [Ce qui est protégé et ce qui ne l'est pas](../../concepts/protection-scope/) : prenez
+  connaissance de ses limites avant de vous y fier.
 - [Projets](../../concepts/projects/) : un `latet.yaml` avec les termes et les formats propres à un
   projet, partagé via son dépôt.
 - [Données de production](../../concepts/production-data/) : pour les agents qui lisent des bases

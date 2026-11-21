@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn, TypeGuard
 
 import typer
 
@@ -129,16 +129,47 @@ def _admin(method: str, path: str, body: dict | None = None, timeout: float = 60
         reason = answer.get("reason") if isinstance(answer, dict) else None
         if isinstance(reason, str) and re.fullmatch(r"[a-z_]{1,64}", reason):  # a code, never words to print
             refused["reason"] = reason
+        floor = answer.get("floor") if isinstance(answer, dict) else None
+        if exc.code == 409 and _floor_reasons(floor):  # a change below what the company set: the settings it names
+            refused["floor"] = floor
         return refused
     except (urllib.error.URLError, OSError, ValueError):
         return None
 
 
+# What a refusal below the company's floor names at most: its reasons, each a setting in a few words.
+_FLOOR_REASONS = 64
+_FLOOR_REASON_CHARS = 200
+
+
+def _floor_reasons(floor: Any) -> TypeGuard[list[str]]:
+    """Whether ``floor`` is what a refusal below the company's floor names: a few short reasons (a setting each)."""
+    return (
+        isinstance(floor, list)
+        and 0 < len(floor) <= _FLOOR_REASONS
+        and all(isinstance(reason, str) and 0 < len(reason) <= _FLOOR_REASON_CHARS for reason in floor)
+    )
+
+
+def refuse(reasons: list[str]) -> NoReturn:
+    """A change below what the company set: said, escaped (the daemon's words, which a terminal must not act on), and
+    exit code 2 (nothing waits for approval)."""
+    from latet.floor import refusal
+    from latet.server.client import printable
+
+    typer.secho(refusal([printable(reason) for reason in reasons]) + ".", fg="red", err=True)
+    raise typer.Exit(2)
+
+
 def _reloaded() -> dict | None:
     """The running daemon's answer to a reload, as it gave it (None: it did not answer, it is not running). One that
-    refused the reload holds ``error``, why in words that hold no value (``_refusal``), and nothing else."""
+    refused the reload holds ``error``, why in words that hold no value (``_refusal``), and nothing else. One below
+    what the company set is said and exits 2 (``refuse``)."""
     answer = _admin("POST", "/_latet/admin/reload")
     if answer is not None and "error" in answer:
+        floor = answer.get("floor")
+        if answer.get("status") == 409 and _floor_reasons(floor):
+            refuse(floor)  # below what the company set: refused by the daemon, nothing waits
         return {"error": _refusal(answer)}
     return answer
 
@@ -570,6 +601,30 @@ def global_uninstall() -> None:
         typer.echo(f"{agent.name}: {agent.revert()}")
     typer.echo(f"autostart: {autostart.uninstall()}")
     typer.echo("daemon: stopped" if daemon.stop() else "daemon: still running")
+    _offer_to_unreserve()
+
+
+def _offer_to_unreserve() -> None:
+    """The ports Latet reserved on Windows, taken away on a yes (one administrator's confirmation): all else of the
+    uninstall is done by now, so a no, a declined dialog or an error leaves it done."""
+    from latet.service import reservation
+
+    try:
+        found = reservation.read_record()
+    except reservation.RecordUnreadable as exc:  # what Windows holds of Latet's is not known: netsh shows it
+        reserve.unreadable_record(exc, failed=False)
+        return
+    if not found:
+        return
+    named, them = reserve._named(found)
+    if not reserve._console() or not typer.confirm(
+        f"Latet reserved {named} on this computer. Take {them} away too? "
+        "Windows asks for an administrator's confirmation once.",
+        default=True,
+    ):
+        typer.echo(f"Still reserved: {named}. To take {them} away later: `latet reserve-port --remove`.")
+        return
+    reserve._remove(uninstalling=True)
 
 
 @app.command()
@@ -926,8 +981,8 @@ def _upgrade_in_a_window(uv: str, release: Release, had: bool, keep: frozenset[s
 
 def _install_port(current: int, option: str | None) -> tuple[int, str | None]:
     """The port global-install keeps, and why it moves: the current one when it can be used, else a
-    free one (the agents follow)."""
-    from latet.service import ports
+    free one (the agents follow), past every administered range but those Latet reserved."""
+    from latet.service import ports, reservation
 
     if option not in (None, "auto"):
         try:
@@ -943,11 +998,13 @@ def _install_port(current: int, option: str | None) -> tuple[int, str | None]:
     if state.usable:
         return current, None
     try:
-        free = ports.choose(current)
+        free = ports.choose(current, ours=reservation.recorded())
     except ports.NoFreePortError:
-        typer.secho(f"Port {current} is {state.reason}, and so is every port up to 5335.", fg="red", err=True)
+        typer.secho(f"Port {current} is {state.reason}, and no port above it up to 49151 is free.", fg="red", err=True)
         typer.echo(
-            "Pick one with `latet global-install --port <number>` (see `netsh int ipv4 show excludedportrange`)."
+            "Pick one with `latet global-install --port <number>` (`netsh int ipv4 show excludedportrange "
+            "protocol=tcp` lists the ports Windows holds). On Windows, `latet reserve-port` then reserves the port "
+            "Latet runs on, so that Windows cannot take it."
         )
         raise typer.Exit(1) from None
     return free.port, f"{free.port}: {current} is {state.reason}, and your agents move with it"
@@ -1155,6 +1212,13 @@ def global_install(
                 )
             )
     rows.append(("Port", moved or str(new_port)))
+    from latet.service import ports as service_ports
+
+    if service_ports.reservation(new_port) == "at-risk":
+        notes.append(
+            f"Windows may take port {new_port} when it starts, and Latet then cannot start until the next restart: "
+            "`latet reserve-port` reserves it for Latet."
+        )
 
     typer.secho("latet global-install", bold=True)
     typer.echo("It routes your agents through Latet for good: every session, in the terminal and in the IDE,")
@@ -1315,11 +1379,19 @@ from latet.cli import (  # noqa: E402, F401 - registers their commands
     backup,
     connect,
     host,
+    leak,
     llm,
     ocr,
     project,
     repositories,
+    reserve,
     rules,
     server,
     tutorial,
 )
+
+try:  # the Enterprise Edition's commands when its code is there: `latet server license`, `latet policy`, each part's
+    from latet.ee import cli as _ee_cli  # noqa: F401 - registers them
+except ModuleNotFoundError as exc:  # the Community Edition alone: src/latet/ee/ is not there
+    if exc.name != "latet.ee":
+        raise

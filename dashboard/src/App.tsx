@@ -6,7 +6,19 @@ import { Shell } from './components/Shell'
 import { ToastProvider } from './components/Toast'
 import { TutorialElsewhere } from './components/tutorial/EndTutorial'
 import { ErrorState, Loading } from './components/ui'
+import { EnterpriseReadOnly, TrialEnded } from './ee/components/TrialEnded'
+import { CompanyApprovalsProvider } from './ee/lib/company-approvals-context'
+import { CompanyApprovalsPage } from './ee/pages/CompanyApprovalsPage'
+import { LicensePage } from './ee/pages/LicensePage'
+import { PeoplePage } from './ee/pages/PeoplePage'
+import { PolicyPage } from './ee/pages/PolicyPage'
+import { SignInPage } from './ee/pages/SignInPage'
+import { ReportsPage } from './ee/pages/ReportsPage'
+import { SiemPage } from './ee/pages/SiemPage'
+import { AuditPage } from './ee/pages/AuditPage'
+import { TermSyncPage } from './ee/pages/TermSyncPage'
 import { ApprovalsProvider } from './lib/approvals-context'
+import { enterpriseView } from './lib/edition'
 import { MeContext, useMe } from './lib/me'
 import { loginRefusal } from './lib/signin'
 import { homePath, tutorialElsewhere } from './lib/tutorial'
@@ -44,11 +56,14 @@ function Root() {
     <MeContext.Provider value={meState}>
       {/* One approvals stream for the app: the menu's count, the page title, Live and Approvals. */}
       <ApprovalsProvider live={config.data?.live_review}>
-        <Shell>
-          <InspectorProvider>
-            <Outlet />
-          </InspectorProvider>
-        </Shell>
+        {/* Latet Enterprise: what waits for you to decide for your company (the menu's count, Company approvals). */}
+        <CompanyApprovalsProvider>
+          <Shell>
+            <InspectorProvider>
+              <Outlet />
+            </InspectorProvider>
+          </Shell>
+        </CompanyApprovalsProvider>
       </ApprovalsProvider>
     </MeContext.Provider>
   )
@@ -66,6 +81,25 @@ function SandboxOnly({ children }: { children: ReactNode }) {
   const { me, unreachable } = useMe()
   if (!me && !unreachable) return <Loading />
   return tutorialElsewhere(me) ? <TutorialElsewhere /> : children
+}
+
+/**
+ * An Enterprise page: shown when /me lists it for this person, else the page that does not exist. Once a trial ended,
+ * every Enterprise page but License is read-only: the notice that the trial ended above it, and the page told through
+ * `EnterpriseReadOnly` to show what it holds with no editing control and no action.
+ */
+function EnterpriseOnly({ page, children }: { page: string; children: ReactNode }) {
+  const { me, unreachable } = useMe()
+  if (!me && !unreachable) return <Loading />
+  const view = enterpriseView(me, page)
+  if (view === 'none') return <NotFoundPage />
+  if (view === 'page') return children
+  return (
+    <EnterpriseReadOnly.Provider value={true}>
+      <TrialEnded />
+      {children}
+    </EnterpriseReadOnly.Provider>
+  )
 }
 
 function RouteError() {
@@ -100,6 +134,15 @@ const router = createBrowserRouter(
         { path: 'playground', element: <PlaygroundPage /> },
         { path: 'integrations', element: <IntegrationsPage /> },
         { path: 'stats', element: <StatsPage /> },
+        { path: 'license', element: <EnterpriseOnly page="license"><LicensePage /></EnterpriseOnly> },
+        { path: 'policy', element: <EnterpriseOnly page="policy"><PolicyPage /></EnterpriseOnly> },
+        { path: 'people', element: <EnterpriseOnly page="people"><PeoplePage /></EnterpriseOnly> },
+        { path: 'reports', element: <EnterpriseOnly page="reports"><ReportsPage /></EnterpriseOnly> },
+        { path: 'reports/siem', element: <EnterpriseOnly page="siem"><SiemPage /></EnterpriseOnly> },
+        { path: 'audit', element: <EnterpriseOnly page="audit"><AuditPage /></EnterpriseOnly> },
+        { path: 'sign-in', element: <EnterpriseOnly page="sign-in"><SignInPage /></EnterpriseOnly> },
+        { path: 'company-approvals', element: <EnterpriseOnly page="company-approvals"><CompanyApprovalsPage /></EnterpriseOnly> },
+        { path: 'term-sync', element: <EnterpriseOnly page="term-sync"><TermSyncPage /></EnterpriseOnly> },
         { path: '*', element: <NotFoundPage /> },
       ],
     },

@@ -1,0 +1,137 @@
+---
+title: Berichte und Administrationsprotokoll
+description: Was ein Server zählt, wer es lesen und exportieren darf, wie Personen erscheinen und was das Administrationsprotokoll festhält.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Auf einem [Latet-Server](../../getting-started/server/) speichert Enterprise stündliche Zählwerte in PostgreSQL für **Berichte** und leitet Ereignisse an konfigurierte [SIEM-Ausgaben](../siem/) weiter. Das **Administrationsprotokoll** zeigt die Administrationsaktionen des Servers. Ein Rechner ohne Server hat weder Enterprise-Berichte noch SIEM-Ausgaben.
+
+Gewöhnliche Ereignisse enthalten Zählwerte, Typcodes, IDs und Projektnamen, niemals geschützte Werte, Quelltexte, Ersatzwerte, Dateipfade, Unterhaltungsschlüssel oder Zugangsdaten. Ein Projekt, dessen Name einen dort maskierten Begriff enthält (Begriffe der Person oder des Projekts, Begriffe der [gesperrten Regeln](../locked-rules/) des Unternehmens oder seine [synchronisierten Begriffe](../term-sync/)), wird statt mit seinem Namen als `masked-` mit 8 Zeichen gesendet, für jede Person und jeden Ordner dieses Namens gleich: Die Zeichen entstehen mit dem geheimen Serverschlüssel, sodass niemand ohne ihn erkennt, für welchen Namen sie stehen (nur `masked`, wenn dieser Schlüssel nicht gelesen werden kann). In Projektnamen wird nur nach Begriffen gesucht. Administrationseinträge identifizieren berechtigterweise Handelnde und Ziele; ihre Datenschutzregeln unterscheiden sich von gewöhnlichen Berichten, wie unten erläutert.
+
+## Was gezählt wird
+
+| Ereignis | Was es festhält |
+| --- | --- |
+| `exchange` | Eine vermittelte Anfrage; maskierte Werte nach Typ, jede Entität einmal pro Unterhaltung, soweit Zählung möglich ist |
+| `stopped` | Eine nach Entstehung eines Austauschs gestoppte Anfrage mit einem Ursachencode |
+| `apps` | Jeder beantwortete `scan`- oder `mask`-Aufruf der [API für Anwendungen](../../applications/), nicht jeder Text. `scan` zählt den Aufruf, nicht die Funde. `mask` zählt jede Tresorentität einmal pro Aufruf; Schwärzungen ohne Entität zählen jede Ersetzung. `stopped` zählt unbeantwortete Texte |
+| `policy` | Änderungen an [gesperrten Regeln](../locked-rules/) (`set`, `removed`) und abgelehnte Absenkungen (`refused`) |
+| `approval` | Über einen Text des Live-Prüfers, der gewartet hat, wurde entschieden, von der Person oder vom Sicherheitsteam: sein `outcome` (`approved`, `rejected`, `abandoned`, `expired`), `stopped` 1, wenn er nicht freigegeben wurde (abgelehnt, aufgegeben, abgelaufen), und wer entschieden hat (`by`), wenn es nicht die Person war ([Zentrale Freigaben](../approvals/)) |
+| `change` | Eine Änderung, die den Schutz verringert, ist abgeschlossen: ihr `outcome` (`approved`, `rejected`, `stale`, `superseded`), woher sie kam, als `reason` (`command`, `file`, `start`, `dashboard`), und wer entschieden hat (`by`), wenn es nicht die Person war |
+| `sign-in` | Ergebnisse der Unternehmensanmeldung aus [Anmeldung, Gruppen und Rollen](../sign-in/) |
+| `sync` | Der Server hat eine Begriffsquelle synchronisiert, oder jemand hat Begriffe entfernt, die nicht mehr in ihrer Quelle stehen: ihr `outcome` (`ok`, `failed`, `removed`) und bei einer fehlgeschlagenen Synchronisierung der Grund als `reason`; die Quelle als `rule` (`term-sync:<name>`, oder nur `term-sync` bei einem Entfernen, das keine Quelle nennt: jedes Entfernen außer `latet server terms remove --source`; ein Filter auf das Präfix `term-sync` erfasst alle); die Begriffe nach Typ in `masked`, nie ein Begriff; die Person, die die Synchronisierung angefordert oder die Begriffe entfernt hat, als `by` ([Begriffssynchronisierung](../term-sync/)) |
+| `license` | Installation, Entfernung, Ungültigkeit oder geänderter Lizenzstatus mit Ursachencodes |
+| `admin` | Ein an das SIEM weitergeleiteter Eintrag des Administrationsprotokolls mit seiner Kettenposition |
+
+Unmask- und Forget-Operationen der API für Anwendungen sind Administrationsaktionen (`apps.unmasked`, `apps.forgotten`), keine zusätzlichen `apps`-Ereignisse. Entscheidungen über Freigaben werden als `approval` und `change` gezählt, nach der entscheidenden Person, wo die Personeneinstellung sie nennt; jede Synchronisierung und jedes Entfernen synchronisierter Begriffe ist ein `sync`-Ereignis.
+
+Die Zählung benötigt keinen gespeicherten Unterhaltungsverlauf. Mit `history: off` werden bei Claude Code und anderen nur geprüften Austauschen Anfragen, Stopps und Projekte gezählt, aber keine maskierten Werte: Das Plugin maskierte sie, bevor der Server sie sah. `history: metadata` kann diese Werte zählen. Deaktivierter Verlauf und vollständige Aufzeichnung unterscheiden sich auch bei Eingaben anbieterseitiger Tools und JSON-Feldern, die bereits Ersatzwerte enthalten. Ablehnungen vor Entstehung eines Austauschs, etwa Egress-Ablehnungen, 404 einer unbekannten Route oder eine ungelesene Bedrock-API, liegen außerhalb der Berichte.
+
+Als Rückfallebene `uncounted` erhält der Rekorder die Anfragezahl ohne Wertzahlen, wenn die Aufzeichnung fehlschlägt oder bereits 500 Aufgaben **in diesem Rekorder** warten. Berichte zeigen diese Zahl. Diese Rückfallebene stellt keine später in der Pipeline verlorenen Ereignisse wieder her. Eigene Typnamen werden zu ASCII-Codes in Großbuchstaben mit höchstens 64 Zeichen normalisiert: `CLIENT-NAME` wird `CLIENT_NAME`.
+
+### Warum eine Anfrage gestoppt wurde
+
+| `reason` | Bedeutung |
+| --- | --- |
+| `leak` | Die abschließende Prüfung fand einen Wert, der im Klartext hinausginge, im Body oder in einem Header oder Abfrageparameter |
+| `history` | Klartextwerte stammten aus dem früheren Unterhaltungsverlauf |
+| `auto-mode-review` | Der Prüfer des Auto-Modus von Claude Code erhielte ein unzulässiges Detail |
+| `live-reviewer` | Der Live-Prüfer lehnte ab, wurde aufgegeben oder überschritt das Zeitlimit |
+| `local-reviewer` | Der lokale Prüfer stoppte die Anfrage oder konnte sie nicht prüfen |
+| `settings-changed` | Die Einstellungen haben sich geändert, während die Anfrage vorbereitet wurde, etwa durch eine Synchronisierung der Begriffe; ihr Agent erfährt, dass sie erneut zu senden ist |
+| `unread` | Ungelesene Inhalte wie ein Bild oder Dokument unter Einstellungen, die sie stoppen |
+| `unreadable` | Ein unlesbarer Body der Anfrage, auch einer, der einen JSON-Schlüssel zweimal angibt |
+| `unread-request` | Ein Body, Header, Abfrageparameter oder eine Route der Anfrage, die Latet nicht liest: eine Form oder ein Inhalt, den Latet nicht unterstützt, oder ein Teil, den kein Anfrageprofil vorsieht |
+| `too-large` | Der dekodierte Body der Anfrage überschreitet `max_request_mb` |
+| `not-messages` | Bedrock- oder Vertex-Aufruf außerhalb von Claudes Nachrichten |
+| `masking-failed` | Maskierung fehlgeschlagen |
+| `aws-signing` | Signieren der Bedrock-Anfrage fehlgeschlagen |
+| `route-bypass` | Eine Claude-Code-Sitzung umgeht Latet |
+| `outbound-tool` | Ein anbieterseitiges Tool erhielte Ersatzwerte |
+| `other` | Andere Ursache |
+
+## Berichte und Exporte
+
+Öffnen Sie **Berichte** und wählen Sie 7, 30 oder 90 Tage oder eigene Datumsgrenzen. Die Daten müssen gültige Kalenderdaten sein, zwischen `2000-01-01` und `2999-12-31`, mit höchstens 366 Tagen einschließlich beider Grenzen. Trends vergleichen den unmittelbar vorherigen gleich langen Zeitraum. Über 92 Tage verwenden Diagramme **und Exporte** Wochenintervalle.
+
+Filter wählen Gruppe, Projekt, Agent und Werttyp. Ein Werttyp beschränkt Anfragezahlen auf Anfragen, die diesen Typ maskierten. Aufschlüsselungen zeigen Anfragen, maskierte Werte und gestoppte Anfragen nach Gruppe, Projekt, Agent, API-Schlüssel und Typ sowie Personen, wenn aktiviert. Anwendungsaufrufe erscheinen nach Operation mit Agent `apps`. Ranglisten zeigen die ersten 200 und **Weitere**-Summen; Projektoptionen sind die ersten 200 nach Anfragezahl, jeder Filter bietet höchstens 200 Optionen.
+
+Daten folgen der Zeitzone der Serverinstanz: Verwenden Sie auf allen Instanzen dasselbe `TZ` (im Container standardmäßig UTC). Zählwerte verwenden ganze UTC-Stundenintervalle. Mitternachtsgrenzen in Halb- oder Viertelstundenzonen teilen die Zählwerte einer Stunde nicht exakt auf.
+
+<Screenshot name="reports" alt="Berichte mit Zeitraumfiltern, Summen, Trend und Aufschlüsselungen" caption="Berichte aus Sicht der Rolle Sicherheit." />
+
+CSV- und JSON-Exporte enthalten Tages- oder Wochenzeilen nach Gruppe, Identitätsart/-name, Projekt und Agent, mit Zählwerten je Werttyp. Über **500.000 Zeilen** wird der Export mit 413 abgelehnt; verkleinern Sie Zeitraum oder Filter. JSON enthält Administrationseinträge nur für berechtigte Leser. Über **5.000 Einträge** fehlt das ganze Feld `administration`, und `administration_truncated: true` wird gesetzt; verwenden Sie den Export des Administrationsprotokolls. CSV schützt formelähnliche Textzellen und erhält UTF-8 mit BOM und CRLF-Zeilenenden.
+
+Berichts- und Audit-Exporte benötigen bei `company_changes: sso` eine mit dem Unternehmenskonto geöffnete Sitzung, wie [Änderungen, die für alle gelten](../sign-in/#änderungen-die-für-alle-gelten). Das Lesen der Seiten benötigt diese zusätzliche Anmeldung nicht. Exporte zeichnen `reports.exported` oder `audit.exported` mit Format und Zeitraum auf. Administratoren können die [CLI](../../reference/cli/) verwenden:
+
+```sh
+latet server reports export --from 2026-10-01 --to 2026-10-31 -o october.csv
+```
+
+`-o` erstellt eine neue reguläre Datei und erhält die zurückgegebenen Bytes; vorhandene Dateien, Links und Sonderziele werden abgelehnt. Ohne diese Option ist stdout eine Terminaldarstellung mit Escape-Sequenzen, kein bytegetreuer Export.
+
+Pro Dashboard-Person und Instanz darf eine Berichtsanfrage oder ein Berichts-/Audit-Export laufen, außerdem nur ein Export pro Instanz bis zum Ende der Übertragung. Bei gleichzeitigen Anfragen antwortet der Server mit 429. Audit-Lesezugriffe belegen den Personen-Slot nicht. Zwei Dashboard-Arbeitsthreads pro Prozess erledigen die Arbeit; Exporte entstehen vollständig im Speicher. Gemessen wurden etwa 800 MB für 500.000 Zeilen und vier Sekunden/16 Abfragen für einen großen Jahresbericht; das sind Beobachtungen, keine Zusagen zu Kapazität oder Latenz.
+
+## Zugriff und Lizenz
+
+| Rolle | Berichte | Administrationsprotokoll | SIEM-Ausgaben |
+| --- | --- | --- | --- |
+| Gruppenleitung | Eigene Gruppen | Nein | Nein |
+| Sicherheit | Alle Gruppen | Ja | Lesen, konfigurieren und testen |
+| Auditor | Alle Gruppen | Ja | Nur lesen |
+| Administrator | Nein | Ja, einschließlich Adressen | Nein |
+
+Dies sind einzelne Rollen; kombinierte Rollen vereinen Berechtigungen. Dashboard-Zugriff benötigt außerdem `roles` und die passende Funktion: **`reports` für Berichte und Audit; `siem` für SIEM-Ausgaben**. Eine reine SIEM-Lizenz gewährt keinen Berichts-/Audit-Zugriff. Ohne `roles` verwenden Sie für lizenzierte Berichte/SIEM die CLI mit Administrationstoken; `latet server log` bleibt unabhängig von Enterprise verfügbar. Ein API-Schlüsselbereich hat keine dieser Seiten; seine steuernden Personen sehen seine **Statistik**.
+
+Eine Gruppenleitung muss einer Gruppe angehören. Gewöhnliche Ereignisse werden bei Aufzeichnung der alphabetisch ersten Gruppe der Person zugeordnet. Spätere Mitgliedschaftsänderungen beeinflussen künftige Zuordnungen, nicht gespeicherte Zählwerte; Mitgliedschaftsänderungen werden protokolliert. API-Schlüssel sind Programme, unabhängig von der Personeneinstellung namentlich und ohne Gruppe gezeigt; ihr Token ist niemals ein Berichtsfeld.
+
+Wenn das, was etwas erzeugt, pausiert (nach der Kulanzzeit bei Ablauf oder Überbelegung, am Ende einer Testphase oder bei unbrauchbarer Lizenz), stoppen Berichts-/Audit-Lesezugriffe und Exporte sowie SIEM-Sendungen/Tests. Die SIEM-Konfiguration bleibt mit passendem Zugriff lesbar, Änderungen sind jedoch eingeschränkt. Siehe [Editionen und Lizenz](../). Die Zählung läuft nur weiter, solange `licensed(reports)` **oder** `licensed(siem)` wahr bleibt, einschließlich aufbewahrter verifizierter Funktionen bei unbrauchbarer Lizenz. Keine Lizenz oder ein Ersatz ohne beide Funktionen schaltet die Zählung ab. Wiederherstellung verspricht keinen vollständigen Verlauf: Aufbewahrung, Schemaablehnungen, Warteschlangenverluste und Aufzeichnungsausschlüsse gelten weiter. [SIEM-Zustellung](../siem/) erläutert pausierte Weiterleitung gesondert.
+
+Die Kulanzzeiten bei Ablauf und Benutzerüberschreitung betragen 30 Tage; eine beendete Testphase hat keine Kulanzzeit. SIEM-Konfigurationsänderungen benötigen eine gültige oder bald ablaufende Lizenz oder eine Lizenz in der Kulanzzeit. Bei deaktiviertem Verlauf zählt die Aufzeichnung nur Ersetzungen an ausstehenden Anfragefeldern; vollständigere Aufzeichnung kann auch vorhandene Ersatzwerte und Eingaben anbieterseitiger Tools untersuchen. Vergleichen Sie diese Wertsummen nicht als gleichwertige Messungen.
+
+## Personen und Aufbewahrung
+
+```sh
+latet server reports settings --people pseudonymous
+latet server reports settings --retention-days 365
+```
+
+Nur die CLI ändert diese Einstellungen; `reports.changed` zeichnet dies auf. `reports.retention_days` beträgt 1–3650 Tage, standardmäßig 365, für stündliche Ereigniszählwerte. Administrationseinträge haben eine separate Aufbewahrung über `LATET_SERVER_AUDIT_RETENTION_DAYS`.
+
+- `group-only` (Standard): Gewöhnliche Ereignisse/Berichte behalten die Gruppe statt der Person. Der Wechsel blendet auch zuvor gespeicherte Personen aus Berichten aus; ihre gespeicherten Daten werden nicht gelöscht.
+- `pseudonymous`: Ein stabiles `p_…`-Pseudonym, abgeleitet mit dem geheimen Serverschlüssel, der unter dessen Hauptschlüssel versiegelt ist. Eine Person hat ein Pseudonym in ihren Anfragen (`exchange`- und `stopped`-Ereignisse und Berichte nach Person; ein `apps`-Ereignis nennt seinen API-Schlüssel, nie eine Person), ein zweites in den übrigen Ereignissen (`sign-in`, `change`, `approval`, `policy`, `sync`, `license`) und in den Entscheidungen nach Entscheider sowie ein drittes in `admin`-Ereignissen: Über den Wert lässt sich keines einem anderen zuordnen. Behandeln Sie das zweite trotzdem wie einen Namen und diese Ereignisse sowie die Entscheidungen nach Entscheider als namentlich: Eine erste Anmeldung mit dem Unternehmenskonto, eine Entscheidung, eine Lizenz und eine Synchronisierung werden jeweils neben einem Eintrag des Administrationsprotokolls geschrieben, der die Person nennt. Was `pseudonymous` schützt, sind die Anfragen einer Person. Zeilen, die unter `named` mit ID gespeichert wurden, zeigen keine Person und nie ein Pseudonym; sie zählen zu **Weitere**.
+- `named`: Die Latet-Identität `u_…` in Ereignissen, mit aktuellem Namen im Bericht, soweit bekannt.
+
+Änderungen gelten für neu aufgezeichnete Daten; `named` identifiziert frühere Gruppenereignisse nicht nachträglich. Entfernte Personen/Gruppen bleiben durch gespeicherte IDs oder Pseudonyme vertreten, bis die Aufbewahrungsfrist ihre Zählwerte entfernt. Die entscheidende Person in `by` folgt, soweit vorhanden, der Personeneinstellung. Pseudonyme Ereignisse in einem SIEM lassen sich dennoch einem Namen zuordnen, indem man ihre Zeitpunkte mit anderen Logs abgleicht, die Personen nennen, etwa dem Administrationsprotokoll, der Seite **Unternehmensfreigaben** (wer wann angefragt hat) oder dem Anmelde-Log des Identitätsanbieters. Kleine Gruppen oder identifizierende Projektnamen können auch bei `group-only` eine Person erkennen lassen.
+
+Unterschiedliche Projekte sind auf 50 pro Person und Stunde sowie 1.000 pro Gruppe und Stunde bei `group-only` begrenzt. Gruppenlose Personen teilen einen gemeinsamen Topf. Überschüsse landen unter `other`; ein tatsächlich `other` genanntes Projekt teilt diese Summe.
+
+Beziehen Sie vor personenbezogenen Berichten Ihre Arbeitnehmervertretung und örtliche Rechtsberatung ein. Italiens [Art. 4 L. 300/1970](https://www.normattiva.it/atto/caricaDettaglioAtto?atto.articolo.numero=4&atto.codiceRedazionale=070U0300&atto.dataPubblicazioneGazzetta=1970-05-27) unterscheidet Vereinbarungs-/Genehmigungspflichten von Arbeitsmittel- und Zutritts-/Anwesenheitsausnahmen, mit Informations- und Datenschutzbedingungen. Deutschlands [BetrVG §87(1) Nr. 6](https://www.gesetze-im-internet.de/betrvg/__87.html) sieht unter seinen gesetzlichen Voraussetzungen die Mitbestimmung des Betriebsrats bei entsprechender Überwachungstechnik vor. Die Anwendbarkeit hängt vom Einsatz ab; keine Einstellung begründet Rechtskonformität. Dies ist keine Rechtsberatung.
+
+## Das Administrationsprotokoll
+
+Das **Administrationsprotokoll** nennt Handelnde, Ziel, Zeitpunkt und Administrationsdetails der Aktion unabhängig von `reports.people`. Nur Administratoren sehen Quelladressen, auch in Exporten. Akteure sind Personen/API-Schlüssel mit Namen (ID, wenn der Name nicht mehr bekannt ist), Administrationstokens, SCIM-Provisionierungstokens, der Server und vor der Identifikation abgelehnte unbekannte Aufrufer. Es erfasst auch eigene Aktionen wie Rechnerverbindung, Kontoverknüpfung oder das Unmask eines Programms.
+
+<Screenshot name="audit" alt="Administrationsprotokoll mit Akteur, Aktion, Ziel, Details und Adressen nur für Administratoren" caption="Administrationsprotokoll aus Sicht eines Administrators." />
+
+Die Seite zeigt die **neuesten 5.000 passenden Einträge**, neueste zuerst, ohne Browser-Paginierung. Aktions-/Akteuroptionen stammen aus diesen gefilterten Zeilen. Die Filter erlauben ein abschließendes `*` als Präfixsuche; andere Platzhalterzeichen sind wörtlich, jeder Filter umfasst höchstens 200 Unicode-Codepunkte. Filterdaten verwenden die Serverinstanz-Zeitzone, angezeigte Zeitstempel die Browser-Zeitzone. Ein nicht verfügbarer Zeitstempel entfernt seine Zeile nicht.
+
+Der separate CSV-/JSON-Export liest den ganzen gefilterten Zeitraum, älteste zuerst, bis **100.000 Einträge**, dann lehnt er mit 413 ab statt abzuschneiden. Verengen Sie bei Bedarf Daten/Filter; die sichtbare 5.000-Zeilen-Grenze ist nicht die Exportgrenze.
+
+Neben den [Administrationsaktionen der Anmeldung](../sign-in/#was-das-administrationsprotokoll-festhält) gibt es `reports.exported`, `audit.exported`, `reports.changed`, `siem.changed` (Namen und Ursprünge), `siem.secret.changed` (gespeicherte/entfernte Geheimnisnamen, niemals Werte), `siem.tested` (Versuch und Ausgabename, **vor** der Verbindung erfasst, nicht das Empfängerergebnis), `siem.forwarding`, `siem.gap` und `siem.skipped`, außerdem die der [zentralen Freigaben](../approvals/): `approvals.changed` (wer entscheidet), `approval.opened` (das erste Öffnen des Textes einer anderen Person durch eine entscheidende Person, nie der Text), `approval.decided`, `key.approval.decided` und `key.approval.admin-decided` (jede getroffene Entscheidung, erfasst, bevor sie ausgeführt wird), und die der [Begriffssynchronisierung](../term-sync/): `terms.source.changed`, `terms.secret.changed`, `terms.removed` und `terms.sync.asked` (Namen von Quellen und Anzahlen, nie ein Begriff oder ein geheimer Wert). Aufrufe der Administrations-API erfassen auch Routenaktionen wie `ee.reports.read` und `ee.audit.read`.
+
+### Administrationsidentitäten im SIEM
+
+Weitergeleitete `admin`-Ereignisse enthalten Aktion in `outcome`, Ziel in `rule`, Akteur in `identity` oder `reason` sowie `chain`-Hashes. Details und Quelladresse des Eintrags fehlen.
+
+- Eine Aktion, die admin/security benötigt, nennt die handelnde Person auch nach einer Herabstufung. Auch wer eine dieser Rollen innehat, wenn die Weiterleitung den Eintrag liest, wird genannt. API-Schlüsselakteure bleiben identifiziert.
+- Bei den [zentralen Freigaben](../approvals/) nennen die Entscheidungen des Sicherheitsteams (`approval.decided`) und sein Öffnen des Textes einer Person (`approval.opened`) sowie die Entscheidungen eines Administrators über einen Schlüssel, den sonst niemand steuert (`key.approval.admin-decided`), wer gehandelt hat; die Entscheidungen derer, die einen Schlüssel steuern (`key.approval.decided`), folgen der Personeneinstellung, ebenso das Zurückziehen einer eigenen Anfrage (`approval.decided` mit `withdrawn`).
+- Andere persönliche Aktionen folgen `reports.people`: null-Identität plus Gruppe bei `group-only`, Pseudonym bei `pseudonymous`, ID bei `named`.
+- Ein verspätet weitergeleiteter Eintrag (nachdem die Weiterleitung angehalten hat: Weiterleitungsnotiz unlesbar oder nicht authentisch, Valkey oder Einstellungen ohne Antwort) behandelt Personen so, wie `reports.people` beim Schreiben eingestellt war, oder wie jetzt, wenn das die Personen besser schützt: Ein Wechsel zu `named` nennt keinen der noch wartenden Einträge.
+- Andere Akteure verwenden `reason`: `admin:<id>`, `scim:<id>`, `server` oder `unknown`.
+- Personenziele folgen der Einstellung, außer bei Vergabe/Entzug von admin oder security: Diese Person wird immer genannt. Eine an eine Gruppe vergebene Rolle nennt die Gruppe, nicht sämtliche bestehenden Mitglieder.
+- Bei `pseudonymous` stammt das Pseudonym, das ein `admin`-Ereignis einer Person gibt (in `identity` oder `rule`), aus einem eigenen Bereich: in jedem `admin`-Ereignis dasselbe, aber nie das `p_…` ihrer anderen Ereignisse oder Berichtszeilen. Das Administrationsprotokoll nennt, wen jeder Eintrag betrifft, mit Zeitpunkt und der ID, die sein Ereignis trägt: Ein gemeinsames Pseudonym würde jede Anfrage dieser Person für alle offenlegen, die beides lesen.
+- Mitgliedschaftsänderungen nennen das Mitglied, wenn die Gruppe admin/security besitzt, **wenn die Weiterleitung den Eintrag liest**, gegebenenfalls nach einer Pause; sonst bleibt die Gruppe das Ziel. Der ursprüngliche Administrationseintrag bewahrt, wer eintrat oder austrat.
+
+Der Server prüft seine schlüsselgestützte Protokollkette mit `latet server log verify`; externe Kopien des Kopfs und aufbewahrte Anker helfen, ein verkürztes Protokoll zu erkennen. Die SIEM-Seite erklärt [Lücken und Verifikation](../siem/#lücken-und-verifikation), einschließlich der Beweiskraft exportierter Marker und ihrer Grenzen.

@@ -51,12 +51,12 @@ en una sesión, con una clave inventada; después actívalo para todas las sesio
 
    - Ejecuta `latet dashboard` y abre la petición más reciente en la página **En directo**. Donde
      estaba el contenido de tu `.env`, el proveedor recibió un valor ficticio con el mismo formato,
-     por ejemplo `demo_9Tz6ZsM0aB8uA6vS8gA0`, con la etiqueta `ASSIGNED_SECRET`. Tu valor ficticio
+     por ejemplo `jpxt_AmxvjKfWEB5QQDaACLqI`, con la etiqueta `ASSIGNED_SECRET`. Tu valor ficticio
      será distinto: los valores ficticios se derivan de una clave creada en tu equipo.
    - `config.local.json`, en el disco, contiene la clave real, `demo_7Hq2LmX9pR4tV8nB3cK6`, porque
      Latet la restauró en local antes de que la herramienta del agente escribiera el archivo.
    - La respuesta del agente en tu pantalla también muestra la clave real. Una excepción: en el modo
-     print de Claude Code (`claude -p`), la respuesta impresa conserva el valor ficticio. Consulta
+     de impresión de Claude Code (`claude -p`), la respuesta impresa conserva el valor ficticio. Consulta
      [Claude Code](../../agents/claude-code/#límites).
 
 </Steps>
@@ -96,8 +96,10 @@ en una sesión, con una clave inventada; después actívalo para todas las sesio
      (unos 1,6 GB), que se descarga con `--ner` si todavía no lo has descargado.
    - **Texto en imágenes**: los modelos de reconocimiento de texto (unos 31 MB), que se descargan
      con `--ocr` si todavía no los has descargado.
-   - **Puerto**: el puerto en el que escucha el daemon: el 5283, o uno libre cercano si otro
-     programa lo usa (tus agentes apuntan a él).
+   - **Puerto**: el puerto en el que escucha el daemon: el 5283 o, si otro programa lo usa o
+     Windows lo ocupa, el primero libre por encima de él, después de los que ocupa Windows (tus
+     agentes apuntan a él). Donde Windows puede quedarse con el puerto al arrancar, nombra también
+     `latet reserve-port`, que lo reserva para Latet.
 
    También dice cómo quitarlo todo: `latet global-uninstall`. Con las opciones eliges algo distinto
    de lo predeterminado, como `--agents claude --no-autostart`; `--yes` lo aplica sin preguntar.
@@ -134,8 +136,8 @@ dirección de Latet de una de estas otras maneras:
 | Cómo | Herramientas | Cuánto tiempo |
 | --- | --- | --- |
 | `latet global-install` la configura | Claude Code, Codex, OpenCode | De forma permanente |
-| La fijas una vez, en los propios ajustes de la herramienta | GitHub Copilot en VS Code y en los IDE de JetBrains, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands | De forma permanente, mientras esos ajustes lo digan; los ajustes propios de un proyecto pueden apuntar Kilo Code, Junie CLI o Continue a otro sitio |
-| Solo variables de entorno | Gemini CLI, Qwen Code, Aider, tus scripts y SDK | Para cada comando que inicias con `latet run`, o para un shell con `latet env` |
+| La fijas una vez, en los propios ajustes de la herramienta | GitHub Copilot en VS Code y en los IDE de JetBrains, Junie CLI, JetBrains AI Assistant, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Android Studio, Hermes Agent, OpenClaw, Goose, OpenHands | De forma permanente, mientras esos ajustes lo digan; los ajustes propios de un proyecto pueden hacer que Kilo Code, Junie CLI o Continue apunten a otro sitio |
+| Solo variables de entorno | Gemini CLI, Qwen Code, Aider, tus scripts y SDK | Para cada comando que inicias con `latet run`, o para una shell con `latet env` |
 | Defines sus variables en tu shell | La GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL` y las demás) | Para cada shell que las define |
 
 **Gemini CLI no está disponible en modo global.** Inícialo con `latet gemini`: lee su dirección solo

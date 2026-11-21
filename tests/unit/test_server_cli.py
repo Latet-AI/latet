@@ -352,7 +352,7 @@ def test_init_prints_the_token_once_and_says_what_follows(tmp_path, monkeypatch)
     monkeypatch.setattr(instance, "ensure_master_key", lambda settings: tmp_path / "master.key")
     monkeypatch.setattr(instance, "migrate_schema", lambda settings, database=None: ["001_identities"])
     server = _server()
-    monkeypatch.setattr("latet.server.app.open_server", lambda settings: server)
+    monkeypatch.setattr("latet.server.app.open_server", lambda settings, **options: server)
     done = run_cli("server", "init")
     assert done.exit_code == 0, done.output
     assert "latet_adm_0" in done.output and "master.key" in done.output and "latet server run" in done.output
@@ -364,11 +364,25 @@ def test_init_prints_the_token_once_and_says_what_follows(tmp_path, monkeypatch)
     assert server.closed == [1, 1]
 
 
+def test_init_opens_its_server_as_a_one_shot_command_s_whose_edition_starts_no_term_sync(tmp_path, monkeypatch):
+    """`latet server init` opens a server to issue the first token and closes it at once: a one-shot command's
+    (``open_server``'s ``one_shot``), whose edition starts nothing that would outlive it, such as a term sync that could
+    take its lease and leave it to run out once the command ends."""
+    _on_the_servers_machine(monkeypatch, _settings(tmp_path))
+    monkeypatch.setattr(instance, "ensure_master_key", lambda settings: None)
+    monkeypatch.setattr(instance, "migrate_schema", lambda settings, database=None: [])
+    opened = []
+    monkeypatch.setattr("latet.server.app.open_server", lambda settings, **options: opened.append(options) or _server())
+    done = run_cli("server", "init")
+    assert done.exit_code == 0, done.output
+    assert opened == [{"one_shot": True}]
+
+
 def test_init_makes_a_first_token_for_good_or_for_the_days_asked(tmp_path, monkeypatch):
     _on_the_servers_machine(monkeypatch, _settings(tmp_path))
     monkeypatch.setattr(instance, "ensure_master_key", lambda settings: None)
     monkeypatch.setattr(instance, "migrate_schema", lambda settings, database=None: [])
-    monkeypatch.setattr("latet.server.app.open_server", lambda settings: _server())
+    monkeypatch.setattr("latet.server.app.open_server", lambda settings, **options: _server())
     asked = []
 
     def first(server, *, again=False, days=0, never=False):
@@ -395,7 +409,7 @@ def test_init_refuses_days_or_never_where_they_would_make_no_token(tmp_path, mon
     monkeypatch.setattr(instance, "migrate_schema", lambda settings, database=None: [])
     server = _server()
     server.admin.issued("an administrator")
-    monkeypatch.setattr("latet.server.app.open_server", lambda settings: server)
+    monkeypatch.setattr("latet.server.app.open_server", lambda settings, **options: server)
     for flags in (["--never"], ["--days", "30"]):
         done = run_cli("server", "init", *flags)
         assert done.exit_code == 2 and "apply with --new-admin-token" in done.output, done.output
@@ -471,7 +485,7 @@ def test_init_and_run_say_what_stops_them_in_fixed_words(tmp_path, monkeypatch):
     assert done.exit_code == 2 and "the connection to PostgreSQL failed" in done.output, done.output
     monkeypatch.setattr(instance, "migrate_schema", lambda settings, database=None: [])
 
-    def refused(settings):
+    def refused(settings, **options):
         raise RuntimeError("Valkey (valkey_url) refused this instance or did not answer in time (ConnectionError)")
 
     monkeypatch.setattr("latet.server.app.open_server", refused)

@@ -1,12 +1,12 @@
 ---
 title: Olvidar valores
-description: Quitar los valores de una persona de la caja fuerte de una clave de API cuando pide que sus datos desaparezcan.
+description: Quita los valores de una persona de la caja fuerte de una clave de API cuando pide que sus datos salgan de ella.
 sidebar:
   label: Olvidar valores
 ---
 
 La caja fuerte de una clave de API guarda cada valor que ha enmascarado, con su valor ficticio,
-mientras la clave existe: una restauración funciona sobre una línea de registro del año pasado. Cuando
+mientras la clave existe: una restauración funciona con una línea de registro del año pasado. Cuando
 una persona pide que sus datos desaparezcan de tus registros o del índice de tu aplicación RAG, el
 servidor olvida sus valores. Cada valor sale de la caja fuerte de la clave, su valor ficticio ya no
 restaura nada a partir de ese momento, y el valor recibe un valor ficticio nuevo si un texto lo vuelve a
@@ -14,7 +14,7 @@ contener.
 
 Hay dos caminos: un administrador ejecuta `latet server keys forget`, o una aplicación llama a la API
 para aplicaciones con un token que tiene el permiso `forget`. Los dos hacen lo mismo, y los dos quedan en
-el registro de administración con cifras, nunca con un valor.
+el registro de administración con recuentos, nunca con un valor.
 
 ## El administrador
 
@@ -34,7 +34,7 @@ El comando dice cuántos valores ha leído, pregunta antes de enviarlos, y luego
 caja fuerte de la clave y cuántos no. Sin `--file`, te pide que escribas los valores en tu terminal, uno
 por línea, y una línea vacía los termina. Nunca toma un valor de la línea de comandos, donde la shell lo
 guardaría en su historial. Se niega a funcionar dentro de un agente de IA, porque los valores son datos
-de una persona, y en un script necesita `--yes`. Envía los valores en llamadas de 1.000 como máximo.
+de una persona, y en un script necesita `--yes`. Envía los valores en llamadas de 1000 como máximo.
 Cada llamada es una entrada `key.forgotten` del registro de administración, con cuántos valores se
 pidieron, se olvidaron y no estaban en la caja fuerte. Borra el archivo cuando termines: contiene los
 valores.
@@ -57,7 +57,7 @@ la clave, que puede analizar, enmascarar y restaurar, no puede olvidar:
 latet server --server https://latet.acme.lan keys add-token "Shop" erasure --forget --out erasure.token
 ```
 
-La aplicación envía hasta 1.000 valores por llamada:
+La aplicación envía hasta 1000 valores por llamada:
 
 ```sh
 printf 'Authorization: Bearer %s' "$(cat erasure.token)" | curl -sS -H @- \
@@ -95,33 +95,33 @@ Python, `latet.forget([...])` envía una lista más larga en varias llamadas y d
 - **Su valor ficticio antiguo ya no restaura nada, y ningún otro valor lo recibe nunca.** Una línea de
   registro enmascarada antes conserva el valor ficticio antiguo, y la restauración la deja como está.
   El valor ficticio se retira: la caja fuerte guarda solo su hash con clave, sin ninguna entrada,
-  mientras exista la caja fuerte, así que nunca se vuelve a sacar para otro valor y una línea antigua
+  mientras exista la caja fuerte, así que nunca se vuelve a obtener para otro valor y una línea antigua
   nunca se restaura con el valor de otra persona. Un valor ficticio retirado no ocupa sitio, porque el
   límite de la caja fuerte cuenta valores, pero se queda: el estado del servidor y
-  `latet_vault_near_limit` pesan los valores ficticios retirados de una clave junto con sus valores,
+  `latet_vault_near_limit` cuentan los valores ficticios retirados de una clave junto con sus valores,
   así que un token que enmascara y olvida en bucle se ve ahí. Da `forget` solo al proceso que atiende
-  las solicitudes de borrado.
-- **El valor recibe un valor ficticio nuevo si vuelve.** Los valores ficticios y las entradas se sacan
-  del valor, así que tras un olvido la caja fuerte de la clave los saca en una nueva generación: el
+  las peticiones de borrado.
+- **El valor recibe un valor ficticio nuevo si vuelve.** Los valores ficticios y las entradas se obtienen
+  a partir del valor, así que tras un olvido la caja fuerte de la clave los obtiene en una nueva generación: el
   valor recibe un valor ficticio nuevo y una entrada nueva, y el valor ficticio antiguo no vuelve
   nunca. Los textos enmascarados que salieron de Latet antes no se pueden unir a los nuevos por sus
   valores ficticios.
 - **Una dirección guarda aparte el dominio de su empresa.** Una dirección con el dominio de una empresa
   (`mario.rossi@acme.it`) guarda el dominio como un valor propio, y el dominio del valor ficticio es el
   valor ficticio de ese dominio. Olvidar la dirección deja el dominio, así que la parte del dominio del
-  valor ficticio antiguo todavía se restaura en `acme.it`; olvida también `acme.it` si debe desaparecer.
+  valor ficticio antiguo todavía se restaura como `acme.it`; olvida también `acme.it` si debe desaparecer.
   El dominio de un proveedor de correo, como `gmail.com`, no se guarda nunca.
 
 Qué queda:
 
-- las cifras en el registro de administración, y los intercambios del historial cuyos textos se
+- los recuentos en el registro de administración, y los intercambios del historial cuyos textos se
   quitaron, sin esos textos;
 - los textos enmascarados que ya salieron de Latet, en tu servicio de registros o en tu índice, que
   contienen el valor ficticio antiguo y que borras allí si deben desaparecer;
 - en Valkey, sellados, durante una semana después de su último uso: los textos de las conversaciones
   de los agentes de la clave tal como salieron y las respuestas del modelo tal como las escribió, que
   contienen el valor ficticio antiguo, nunca el valor. Un mensaje anterior enviado de nuevo se
-  enmascara otra vez; una respuesta del modelo le vuelve tal como la escribió;
+  enmascara otra vez; una respuesta del modelo vuelve al modelo tal como la escribió;
 - durante una semana como mucho después del último uso de una conversación, el identificador de la
   entrada antigua en esa conversación de los agentes de la clave (un hash con clave del valor, nunca el
   valor), cuando Valkey no respondió justo después del olvido, o cuando una instancia perdió el mensaje

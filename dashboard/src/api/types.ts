@@ -92,11 +92,22 @@ export interface ExchangeSummary {
   launch?: LaunchCategory | null
   /** What a request let through rested on besides a complete reading, by category; empty when every part was read. */
   passes?: PassCategory[]
+  /**
+   * How it read a member no request profile names, the mode that decided it (`unknown_members`): `check`, read whole
+   * and checked; `refuse`, refused. Null or missing in a record of an older Latet, or of a check of the plugin's.
+   */
+  unknown_members?: UnknownMembers | null
   /** The request profile its envelope was admitted by (`anthropic.messages.1`). */
   profile?: string | null
   /** What its profile removed of it as removable (D4), counted. */
   removed?: { headers: number; members: number }
 }
+
+/** How Latet reads a request member no request profile names yet (`unknown_members` in your settings): `check` reads it
+ * whole and sends it when nothing in it would be masked and it names nothing the provider acts on; `refuse` refuses it,
+ * as Latet did before, save on a request it only checks (Claude Code, Bedrock, Vertex) a member of text alone outside a
+ * provider's item, which still passes once the final check has read it. */
+export type UnknownMembers = 'check' | 'refuse'
 
 /** What a request's launch was decided as: its launch key verified; a session Latet launched whose key it could not
  * verify (decided as claimed); the Claude Code plugin's binding of a hand-configured Claude Code; anything else. */
@@ -105,6 +116,8 @@ export type LaunchCategory = 'launched' | 'launched-key-missing' | 'trusted' | '
 /** What a request let through rested on besides a complete reading (the history's `passes`). */
 export type PassCategory =
   | 'checked-only'
+  /** A member no request profile names yet, read whole and checked by the final check (`unknown_members: check`). */
+  | 'new-member'
   | 'image-remainder'
   | 'sent-before'
   | 'model-written'
@@ -124,6 +137,8 @@ export interface ExceptionComponent {
 export type ExceptionState =
   | 'pending'
   | 'needs approval again (profile revised)'
+  /** Latet Enterprise's `exceptions: company`: approved by someone else than the security team or the administration. */
+  | 'not approved by the company'
   | 'expired'
   | 'expiring'
   | 'active'
@@ -145,9 +160,12 @@ export interface RequestException {
   permanent: boolean
   /** Your own words on it. */
   description: string | null
-  /** Who approved it: you on this computer, you on a server, or a server's administration (for an API key); null
-   * while it waits. Missing from an older daemon. */
-  issuer?: 'owner' | 'person' | 'administration' | null
+  /** Who approved it: you on this computer, you on a server, a server's administration (for an API key), your
+   * company's security team or another of an API key's controllers (Latet Enterprise); null while it waits. Missing
+   * from an older daemon. */
+  issuer?: 'owner' | 'person' | 'administration' | 'security' | 'controllers' | null
+  /** With `security` or `controllers`, the name of the person who approved it. */
+  approver?: string | null
   state: ExceptionState
   /** The day it ends (ISO), and the days left; null for a permanent one or one not approved. */
   ends: string | null
@@ -217,6 +235,8 @@ export type SlotKind =
   | 'outbound_tool'
   /** The text read in an image of the request. */
   | 'image_text'
+  /** A member no request profile names yet, read and checked: a leak's kind alone, never a slot's or a block's. */
+  | 'new_member'
   | 'other'
 
 export interface Slot {
@@ -356,6 +376,12 @@ export interface IdentityView {
   /** Other host names, masked as `hostname` is: on a Latet server, those of the person's other computers. */
   hostnames?: string[]
   full_name: string | null
+  /** Read-only. `provider`: `full_name` is the name your company's identity provider gives (Latet Enterprise), which
+   * your settings cannot change; null: your own. */
+  full_name_from?: 'provider' | null
+  /** Read-only. Whether a change of the full name is refused: your company's identity provider names you, whichever
+   * name is in use (where your settings mask names, your own stays in use and is not yours to change either). */
+  full_name_locked?: boolean
   emails: string[]
 }
 
@@ -643,6 +669,10 @@ export interface ConfigView {
   /** At most this many personal values in one tool output (null: no limit). */
   dump_guard: number | null
   images: ImagesMode
+  /** How a member no request profile names yet is read (`check`, the default) or refused: your own value, what a save
+   * sends back; a company's policy that locks `refuse` raises it in use (`Locks.unknownMembers`). Missing from an older
+   * daemon. */
+  unknown_members?: UnknownMembers
   /** Reading the text in images, once the models are installed. */
   ocr: OcrMode
   /** Read-only: the text recognition models, as `ner_status` for the name model. */
@@ -744,6 +774,132 @@ export interface Integrations {
   destinations?: DestinationUse[]
 }
 
+export type LicenseState = 'none' | 'valid' | 'expiring' | 'grace' | 'paused' | 'trial-ended' | 'invalid'
+export type LicenseNotice =
+  | 'expiring'
+  | 'grace'
+  | 'paused'
+  | 'trial-week'
+  | 'trial-day'
+  | 'trial-ended'
+  | 'users-near'
+  | 'users-over'
+  | 'invalid'
+
+/** What `/me` says of the license: enough for the menu and the notice bar. */
+export interface LicenseSummary {
+  state: Exclude<LicenseState, 'none'>
+  licensee: string | null
+  users: number | null
+  /**
+   * The enabled people and API keys a server counts; null for a person on a server, where the count is the
+   * administrators'.
+   */
+  users_in_use: number | null
+  /** The license's last day, YYYY-MM-DD (a UTC day). */
+  expires: string | null
+  days_left: number | null
+  /** A trial license file (the file's `kind`): no grace, and at its end the Enterprise settings can be read, not changed. */
+  trial: boolean
+  notices: LicenseNotice[]
+  /**
+   * While a grace runs: the day reports, events and term sync pause (a trial has none). For a person on a server only
+   * the day the license's end brings, never the users' grace's.
+   */
+  pauses_on: string | null
+}
+
+/**
+ * /me.edition.policy (Latet Enterprise, locked rules): where the policy comes from, and what is wrong; null: none. A
+ * person is told how many notices it has, never their words (`notices` is a count).
+ */
+export interface PolicySummary {
+  sources: { source: 'managed' | 'server'; origin: string; received: number; notices: number }[]
+  problems: { level: 'warn' | 'fail'; text: string }[]
+}
+
+/**
+ * /me.edition.connected (Latet Enterprise, on a server): what a person's dashboard tells them of the computers connected
+ * as them and the one-time codes made for them, for 14 days or until they say they saw it (`POST /ee/notices/told`,
+ * from a session the company sign-in opened). Absent when there is nothing to tell. Never a token or a code.
+ */
+export interface ConnectedNotice {
+  /** What `POST /ee/notices/told` sends back once the notice is on screen: the newest entry told. */
+  until: number
+  /** Each computer connected as them; `label` is null once it was disconnected since. `connected`: epoch seconds. */
+  computers: { label: string | null; connected: number }[]
+  /** Each code made for them, by an administrator or by themselves (`made`: epoch seconds). */
+  codes: { made: number; by_administrator: boolean }[]
+  /** How many of the codes they made themselves are left out beyond the newest ones listed. */
+  more: number
+}
+
+/**
+ * One of /me.edition.computers (Latet Enterprise, on a server): a computer connected to the person's account now. Never
+ * a token. Times in epoch seconds.
+ */
+export interface ComputerOfYours {
+  /** The name it was connected with (`latet connect`), empty when it gave none. */
+  label: string
+  connected: number
+  /** When it last called the server; null: not yet. */
+  last_used: number | null
+  /** Whether the code it was connected with was made by an administrator; null when the server's log does not say. */
+  by_administrator: boolean | null
+}
+
+/** What /me says of central approvals (Latet Enterprise): who decides on changes and on texts, by name. */
+export interface ApprovalRoutes {
+  changes: Decides
+  live_review: Decides
+  /** Who decides on the changes, when it is not you: 20 names at most, in their order. */
+  deciders: string[]
+  /** How many more decide on the changes than `deciders` names. */
+  deciders_more?: number
+  /** Who decides on the texts, when it is not you: 20 names at most, in their order. */
+  text_deciders: string[]
+  /** How many more decide on the texts than `text_deciders` names. */
+  text_deciders_more?: number
+}
+
+/** The edition that runs: the Community Edition, or the Enterprise Edition and its license. */
+export interface Edition {
+  name: 'community' | 'enterprise'
+  license: LicenseSummary | null
+  /** The Enterprise features the license switches on. */
+  features: string[]
+  /** The Enterprise pages this person may open (`license`, and each later part's). */
+  pages: string[]
+  /** This person's roles and what they may do (E3). */
+  roles: string[]
+  actions: string[]
+  /** Locked rules (Latet Enterprise): where the policy comes from and what is wrong; null or absent: none. */
+  policy?: PolicySummary | null
+  /** The computers connected as this person and the codes made for them, until they say they saw them (E3). */
+  connected?: ConnectedNotice
+  /**
+   * The computers connected to this person's account now, newest first, listed for good (E3): absent for an API key, on
+   * a computer, in the Community Edition, while the license serves neither roles nor sso, and when it cannot be read.
+   */
+  computers?: ComputerOfYours[]
+  /**
+   * Whether this person's account holds the subject of their company sign-ins (E3, H1): their own, never what links it.
+   * Absent for an API key, on a computer, in the Community Edition, and when the server could not read it: **Link my
+   * company account** is offered only to `false`.
+   */
+  linked?: boolean
+  /**
+   * Who decides on this identity's changes that lower protection and on its Live Reviewer's texts (E5, on a server):
+   * absent in the Community Edition, on a computer, and when it cannot be read.
+   */
+  approvals?: ApprovalRoutes | null
+}
+
+/** On a Latet server: how this dashboard's session was opened. `sso`: with the company's sign-in; `code`: with the one-time code `latet dashboard` asks for. */
+export interface SessionMe {
+  via: 'sso' | 'code'
+}
+
 export interface Me {
   version: string
   profile: Profile
@@ -755,6 +911,10 @@ export interface Me {
   tutorial?: TutorialMe | null
   /** On a Latet server (null on a computer). */
   server?: ServerMe | null
+  /** On a Latet server: how this session was opened (null on a computer; absent: an older server's answer). */
+  session?: SessionMe | null
+  /** The edition that runs; absent (an older answer, a test's `Me`): the Community Edition. */
+  edition?: Edition
   /** This install serves the documentation of its own version at /_latet/docs/ (else the links go to docs.latet.ai). */
   docs: boolean
   /** What request exceptions let through since the daemon started, counted in memory alone; null when unreadable. */
@@ -798,6 +958,8 @@ export interface ProjectSettings {
   images?: ImagesMode | null
   /** Reading the text in images there (`off`: not read). */
   ocr?: OcrMode | null
+  /** A project, and its repository's file, may only refuse new request members (`check` is your settings' alone). */
+  unknown_members?: 'refuse' | null
   llm_review?: ReviewMode | null
 }
 
@@ -875,6 +1037,8 @@ export interface ProjectDetail extends ProjectSummary {
     fields: FieldRule[]
     dump_guard: number | null
     images: ImagesMode
+    /** How a member no request profile names yet is read there, every layer together. Missing from an older daemon. */
+    unknown_members?: UnknownMembers
     llm_review: ReviewMode
   }
   /** The project's recognizers as loaded (empty: the global rules apply as they are). */
@@ -993,7 +1157,14 @@ export interface Batch {
   /** When it is not sent any more (live_review.timeout_s); null: it waits until you answer. */
   expires: number | null
   items: LiveItem[]
+  /** Who decides on it: you (or missing), or your company's security team (Latet Enterprise): then you may stop it, not approve it. */
+  decides?: Decides
+  /** Who decides, by name: 20 at most, in their order (/me's `approvals.text_deciders_more` counts the others). */
+  deciders?: string[]
 }
+
+/** Who decides on what waits: you, your company's security team, or the people who control an API key (Latet Enterprise). */
+export type Decides = 'self' | 'security' | 'controllers'
 
 /** How a batch left the queue. */
 export type BatchState = 'approved' | 'rejected' | 'abandoned' | 'expired'
@@ -1018,13 +1189,14 @@ export interface ApprovalDecision {
 /**
  * A change to your settings that lowers protection: it does not apply until you approve it. Made by an
  * `latet` command an agent ran, config.yaml edited by hand, or found in config.yaml when Latet
- * started (it runs with the settings you approved until you decide). At most one waits.
+ * started (it runs with the settings you approved until you decide); with Latet Enterprise on a server, also a save
+ * in the dashboard that someone else decides on (`dashboard`). At most one waits.
  */
 export interface SettingsChange {
   id: string
   /** Epoch seconds. */
   created: number
-  source: 'command' | 'file' | 'start'
+  source: 'command' | 'file' | 'start' | 'dashboard'
   /** The agent that ran the command (hermes, claude-code...); null when unknown. */
   agent: string | null
   /** What it lowers, one English sentence each, never a value. */
@@ -1035,6 +1207,12 @@ export interface SettingsChange {
   guidance?: GuidanceChange[]
   /** The destinations it moves or removes, with their addresses before and after (null: removed). */
   destinations?: DestinationChange[]
+  /** Who decides on it: you (or missing), or someone else (Latet Enterprise): then you may undo it, not approve it. */
+  decides?: Decides
+  /** Who decides, by name: 20 at most, in their order (/me's `approvals.deciders_more` counts the others). */
+  deciders?: string[]
+  /** In an API key's space, the person who made it (who never approves it). */
+  asked_by?: string | null
   /** The request exceptions it adds, widens, renews or makes permanent: what approving it lets through. */
   exceptions?: ExceptionChange[]
 }
@@ -1061,9 +1239,14 @@ export type ApprovalEvent =
   | { type: 'pending'; batch: Batch }
   /** A batch still waiting, masked again with the rules of now (they or the values masked changed): as it will leave. */
   | { type: 'updated'; batch: Batch }
-  | { type: 'settled'; id: string; state: BatchState }
+  /** `by`: who decided, when it was not you (Latet Enterprise); null when it was you, or when nobody did. */
+  | { type: 'settled'; id: string; state: BatchState; by?: string | null }
   | { type: 'change'; change: SettingsChange }
-  | { type: 'change_settled'; id: string; state: ChangeState }
+  /** `approved-unapplied`: approved by someone else, and your settings, changed meanwhile, did not take it (`by` set). */
+  | { type: 'change_settled'; id: string; state: ChangeState | 'approved-unapplied'; by?: string | null }
+  /** A text your company's security team approved, withheld as it left: masked then, it was not what they approved
+   * (Latet Enterprise). Sent again, it waits for them again. */
+  | { type: 'withheld'; id: string }
   | { type: 'viewers'; viewers: number }
 
 /** One value the local reviewer found in a block: where it is in the block as it left, never the value. */

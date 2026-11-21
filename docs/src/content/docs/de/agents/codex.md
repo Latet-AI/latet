@@ -79,7 +79,7 @@ läuft auf dieselbe Weise über Latet. Siehe [Unternehmens-Endpunkte](../company
   einen Schlüssel aus `.env` Schritt für Schritt durch eine Runde von Codex.
 - Ein komprimierter Body einer Anfrage wird dekodiert, maskiert und wieder komprimiert. Ein Body,
   den Latet nicht dekodieren kann, wird abgelehnt, nicht ungeprüft gesendet.
-- Ihr Anmelde-Token oder API-Schlüssel wird unverändert weitergeleitet; sein Wert wird nie in Logs
+- Ihr Anmeldetoken oder API-Schlüssel wird unverändert weitergeleitet; sein Wert wird nie in Logs
   oder ins Dashboard geschrieben.
 - Wenn der Daemon nicht läuft, kann Codex den Anbieter nicht erreichen. Das ist Absicht: Nichts geht
   unmaskiert hinaus.
@@ -87,16 +87,16 @@ läuft auf dieselbe Weise über Latet. Siehe [Unternehmens-Endpunkte](../company
   [strikte Datenmodus](../../concepts/production-data/#welche-tools) auch die Dateien ab, die es
   liest. Nennen Sie sein Datenbank-Tool in `data_tools`, um nur dieses abzudecken.
 - Pfad, Remotes und Commit des Repositorys, die Codex jeder Anfrage hinzufügt, im Header
-  `x-codex-turn-metadata` und in `client_metadata` des Inhalts, werden vor dem Senden entfernt,
+  `x-codex-turn-metadata` und in `client_metadata` des Bodys, werden vor dem Senden entfernt,
   ebenso der Header `x-openai-subagent`, die Art oder freie Bezeichnung, die Codex einem Subagenten
-  gibt; das Dashboard zählt sie. Seine Modellliste geht durch; ein Aufruf, den Latet nicht liest, etwa das Abrufen einer gespeicherten
-  Antwort, wird abgelehnt.
+  gibt; das Dashboard zählt sie. Der Abruf seiner Modellliste geht durch; ein Aufruf, den Latet
+  nicht liest, etwa das Abrufen einer gespeicherten Antwort, wird abgelehnt.
 - Eigene Header in `http_headers` oder `env_http_headers` eines Anbieters werden abgelehnt, jeder beim
   Namen genannt, bis eine [genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ihn
   durchlässt (`openai.responses.1`). Über den WebSocket einer ChatGPT-Anmeldung gilt in 0.11.0 keine
-  Ausnahme: Ein Header oder ein Query-Parameter, den Latet nicht liest, schließt die Verbindung, bevor
-  sie sich öffnet, und das Schließen sagt, warum, und nennt den Header oder den Parameter, nie seinen
-  Wert. Der Verlauf hält die Ablehnung fest.
+  Ausnahme: Ein Header oder ein Abfrageparameter, den Latet nicht liest, schließt die Verbindung, bevor
+  sie sich öffnet, und die Meldung beim Schließen sagt, warum, und nennt den Header oder den
+  Parameter, nie seinen Wert. Der Verlauf hält die Ablehnung fest.
 - **Sein Projekt.** `latet codex` gibt Codex einen Startschlüssel über einen Anbieter aus
   `model_providers` (`env_http_headers`), ab Codex 0.115: Die Einstellungen seines Projekts gelten
   dann vollständig. Bei den eingebauten Anbietern von Codex (mit ChatGPT-Anmeldung oder dem eigenen

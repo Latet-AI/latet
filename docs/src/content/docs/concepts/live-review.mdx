@@ -57,8 +57,9 @@ dashboard open, and they leave that way when you approve them.
   reaches the model as a short notice instead.
 - **On an image:** drag a rectangle over any part of it, which is covered with a bar, or tick
   *Don't send this image*: the rest of the request leaves, and the model gets a short note in place
-  of the image. *As it leaves now* shows the image as Latet masked it. Your decision is kept,
-  sealed, for that image: sent again, also after a restart, it leaves the same way.
+  of the image. *As it leaves now* shows the image as Latet masked it, and while it waits it follows
+  your rules as its text does. Your decision is kept, sealed, for that image: sent again, also after
+  a restart, it leaves the same way.
 - **Approve all waiting**, as Latet masked them.
 - **With the keyboard**, once you turn its [shortcuts](../../dashboard/#keyboard-shortcuts) on: A approves, X
   does not send, M masks.
@@ -79,7 +80,8 @@ A text waits as long as it takes. Nothing of it leaves until you answer.
 
 - **You stop the agent** (Esc in Claude Code): nothing is sent, and the text leaves the queue within
   a minute.
-- **No dashboard is open:** Claude Code says so, and the text keeps waiting until you open one.
+- **No dashboard is open:** Claude Code says so, and the text keeps waiting until you open one. Where your company's
+  security team decides (below), your dashboard need not be open.
 - **A time limit,** if you want one: past `timeout_s` seconds the text is not sent.
 
 ```yaml
@@ -89,12 +91,22 @@ live_review:
   timeout_s: 300             # not set: until you answer
 ```
 
+## In a company
+
+On a Latet server with Latet Enterprise, your company can send these texts to its security team instead of you. They
+see each text as you do, values included, and approve it or stop it; the **Approvals** page and Claude Code tell you
+so, and you can still stop a text yourself. Claude Code says once a session who reviews your texts, or that nobody can
+decide yet, and it says the same when it runs with an API key's token. What they mask stays masked in your vault, where
+you can forget it. A text they approved leaves only as they saw it: if your settings change before it leaves, it is not
+sent, and it waits for them again when the agent sends it again. See [Central approvals](../../enterprise/approvals/).
+
 ## Where it happens
 
 - **In Claude Code,** in the plugin's masking step, before Claude Code builds the request. You
   review piece by piece, each prompt, file and tool output as it arrives. Claude Code then builds
   the request with the text you approved, so no request is changed after it is built. While a text
-  waits, Claude Code's status line says *waiting for your approval in the dashboard*.
+  waits, Claude Code's status line says *waiting for your approval in the dashboard*, or *waiting for
+  your company's security team to approve it* where they decide.
 - **For the agents that go through the gateway** (Codex, OpenCode, Hermes Agent...), in the daemon:
   the new texts of a request wait together, and the request leaves once you approve them. Some
   agents give up a request that takes too long, and may try it again; nothing is sent until you

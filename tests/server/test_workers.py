@@ -26,6 +26,7 @@ import pytest
 from latet.server.settings import ServerSettings
 from latet.server.workers import Supervisor, worker_main
 
+from .community_worker import community_worker, without_ee
 from .support import DATABASE, VALKEY, master_key_file
 
 pytestmark = pytest.mark.server
@@ -52,7 +53,9 @@ def running(server, schema, prefix, tmp_path):
         host="127.0.0.1", port=port, workers=2,
     )  # fmt: skip
     (tmp_path / "models").mkdir()
-    target = functools.partial(worker_main, schema=schema, prefix=prefix, data=tmp_path / "models")
+    # Run as the Community Edition alone (--without-ee), the spawned workers hide latet.ee too.
+    main = community_worker if without_ee() else worker_main
+    target = functools.partial(main, schema=schema, prefix=prefix, data=tmp_path / "models")
     supervisor = Supervisor(settings, 2, target=target)
     thread = threading.Thread(target=supervisor.run, name="test-supervisor", daemon=True)
     thread.start()
@@ -100,7 +103,8 @@ def test_two_workers_answer_on_one_port(running):
     assert set(listed) == answered
     for row in listed.values():
         assert row["worker"] in (0, 1) and row["memory"] > 0 and row["ready"] is True
-        assert set(row) == {"instance", "worker", "version", "ready", "memory", "spaces", "index"}
+        assert set(row) == {"instance", "worker", "version", "edition", "ready", "memory", "spaces", "index"}
+        assert row["edition"] in ("community", "enterprise")  # the edition each worker runs
     assert {supervisor.said(0)["instance"], supervisor.said(1)["instance"]} == answered
 
 
@@ -229,15 +233,15 @@ def test_the_status_lists_what_valkey_holds_of_the_instances_checked_and_echoes_
     bus, now = server.bus, int(time.time() * 1000)
     bus.client.zadd(bus.key("instances"), {"0123456789ab": now, "abcdef012345": now, "fedcba987654": now})
     bus.client.set(bus.key("instance:0123456789ab"), b"1", px=30_000)
-    forged = {"instance": "abcdef012345", "worker": 2, "version": CANARY + " " * 3, "ready": True, "memory": 5,
-              "spaces": 1, "index": 0, "words": CANARY}  # fmt: skip
+    forged = {"instance": "abcdef012345", "worker": 2, "version": CANARY + " " * 3, "edition": CANARY,
+              "ready": True, "memory": 5, "spaces": 1, "index": 0, "words": CANARY}  # fmt: skip
     bus.client.set(bus.key("instance:abcdef012345"), json.dumps(forged).encode(), px=30_000)
     listed = server.instances()
     assert listed == [
-        {"instance": "abcdef012345", "worker": 2, "version": None, "ready": True, "memory": 5, "spaces": 1,
-         "index": 0},
-        {"instance": "0123456789ab", "worker": None, "version": None, "ready": None, "memory": None, "spaces": None,
-         "index": None, "older": True},
+        {"instance": "abcdef012345", "worker": 2, "version": None, "edition": None, "ready": True, "memory": 5,
+         "spaces": 1, "index": 0},
+        {"instance": "0123456789ab", "worker": None, "version": None, "edition": None, "ready": None,
+         "memory": None, "spaces": None, "index": None, "older": True},
     ]  # fmt: skip
     assert CANARY not in json.dumps(listed)
 

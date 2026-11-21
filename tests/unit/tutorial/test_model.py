@@ -11,7 +11,7 @@ from latet.tutorial.chapters import Capture, Turn
 from latet.tutorial.model import MODEL_ID, PRETEND_URL, PretendModel, PretendUpstream
 
 URL = f"{PRETEND_URL}/v1/messages"
-KEY = "3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN"  # a fake, as the model gets it
+KEY = "bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA"  # a fake, as the model gets it
 
 
 def _turn(**fields) -> Turn:

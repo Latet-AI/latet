@@ -46,7 +46,7 @@ from latet.gateway.coverage import (
     Transport,
     envelope_status,
 )
-from latet.gateway.request_policy import PolicySnapshot, body_exception_ids, current
+from latet.gateway.request_policy import PolicySnapshot, body_exception_ids, current, is_current
 
 if TYPE_CHECKING:
     from latet.engine.pipeline import Session
@@ -294,6 +294,7 @@ def _state(arena: Prepared) -> tuple[object, ...]:
         arena.control_target,
         arena.control_current,
         arena.protected_current,
+        arena.unknown_members,
     )
 
 
@@ -428,6 +429,8 @@ def finalize(
             raise TypeError("a request leaves as bytes")
     if response != response_plan(arena):
         raise ValueError("an answer is read as its arena says, restored where it was rewritten")
+    if arena is not None and policy.unknown_members != arena.unknown_members:
+        raise ValueError("a decision is made under the rules of the way its request read its new members")
     seal = None
     if arena is not None:
         if arena.sealed is not None:
@@ -512,11 +515,18 @@ def response_plan(arena: Prepared | None) -> ResponsePlan:
     )
 
 
+def policy_for(arena: Prepared | None) -> PolicySnapshot:
+    """The rules in force for a request with this arena: those of the way it read a member no profile declares, as it
+    was prepared (``Prepared.unknown_members``, from the settings in use and its project, never the request); the
+    default's for one with no arena."""
+    return current(arena.unknown_members) if arena is not None else current()
+
+
 def decide(arena: Prepared | None, envelope: Envelope, *, payload: bytes | str | None = None) -> SendDecision:
     """``finalize`` under the rules in force, the answer read as its arena says: a frame's decision (``payload``, its
     exact frozen representation) and a request's without an envelope proof (refused: every request needs one)."""
     _an_arena(arena)
-    return finalize(arena, envelope, current(), response_plan(arena), payload=payload)
+    return finalize(arena, envelope, policy_for(arena), response_plan(arena), payload=payload)
 
 
 def refuse(transport: Transport, destination: str | None, code: str, reason: str, status: int) -> Block:
@@ -608,7 +618,7 @@ def sendable(decision: object, arena: Prepared | None, envelope: Envelope) -> Fo
         raise NotSendable("block")
     if decision.envelope is not envelope:
         raise NotSendable("foreign")
-    if decision.policy is not current():
+    if not is_current(decision.policy):  # the snapshot in force for its own mode, the very one
         raise NotSendable("policy")
     if envelope.transport != "ws-frame" and decision.envelope_proof is None:
         raise NotSendable("proof-incomplete")
@@ -665,7 +675,7 @@ def still_current(decision: Forward | Pass, arena: Prepared) -> None:
         raise NotSendable("unminted")
     if any(now is not was for now, was in zip(_values(decision), binding.values, strict=True)):
         raise NotSendable("tampered")
-    if decision.policy is not current():
+    if not is_current(decision.policy):  # the snapshot in force for its own mode, the very one
         raise NotSendable("policy")
     seal = binding.seal
     if seal is None or arena.sealed is not seal:

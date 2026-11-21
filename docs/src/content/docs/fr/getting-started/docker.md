@@ -124,9 +124,9 @@ modifié.
 ## Sécurité
 
 - **Ne publiez le port que sur `127.0.0.1`.** Sous Linux, les ports publiés par Docker contournent
-  le pare-feu : `-p 5283:5283` ouvrirait à votre réseau Latet et les requêtes que vos agents
-  envoient par lui. `compose.yaml` et la commande ci-dessus publient sur `127.0.0.1`.
-- Les autres conteneurs du même réseau Docker peuvent atteindre le port. Le pont du plugin, le
+  le pare-feu : `-p 5283:5283` ouvrirait Latet à votre réseau, ainsi que les requêtes que vos
+  agents envoient par lui. `compose.yaml` et la commande ci-dessus publient sur `127.0.0.1`.
+- Les autres conteneurs du même réseau Docker peuvent atteindre le port. Le bridge du plugin, le
   tableau de bord et les routes d'administration exigent quand même le jeton ou une session du
   tableau de bord, et chaque requête doit indiquer `127.0.0.1` ou `localhost` comme hôte ; les
   routes du proxy transmettent les identifiants de l'appelant lui-même.

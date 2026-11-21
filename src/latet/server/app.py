@@ -43,7 +43,8 @@ it, so each of its refusals sends it back to the dashboard's page, which says wh
 (``REFUSED``). An identity has ``requests_in_flight`` requests to its destinations in flight on an instance at most (the
 answers being restored cost the event loop that every identity shares): past it, 429 with ``Retry-After``; and as many
 of its application requests apart. Every answer says ``nosniff``, the machines' calls, the sign-in, every answer under
-an identity's address and the applications API's ``no-store`` (``AnswerHeaders``); a body is bounded on the wire
+an identity's address and the applications API's ``no-store``, and those two a sandbox for a browser, no cookie of
+Latet's nor one outside the identity's address set from them (``AnswerHeaders``); a body is bounded on the wire
 (``BodyLimit``) and once decoded (the space's mediator).
 
 Who calls: the event loop ``heard`` and ``listen`` (no lock taken, no round trip made on it but the Live Reviewer's and
@@ -81,6 +82,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from latet import __version__
 from latet.api.rest import (
     _SECURITY_HEADERS,
+    ACTING,
     API,
     COOKIE,
     DOCS,
@@ -93,8 +95,9 @@ from latet.api.rest import (
     ui_file,
 )
 from latet.config import data_dir
-from latet.edition import Community, Edition
+from latet.edition import Community, Edition, server_edition
 from latet.engine.detectors.latet import starts_a_secret
+from latet.floor import FloorUnavailable, unavailable
 from latet.gateway.coverage import EnvelopeRefused, preflight_scope
 from latet.gateway.launch_ingress import valid_launch_scope
 from latet.gateway.launch_keys import RecoveryFence, canonical_launch_key
@@ -113,7 +116,7 @@ from latet.server.launch_mutations import LAUNCH_MUTATION, LaunchMutations
 from latet.server.launch_records import check_launch_registry
 from latet.server.launch_sweep import LaunchSweep
 from latet.server.launches import LaunchAuthority
-from latet.server.live import SIGNINS, ChainVerdicts, ValkeyAwsSessions, ValkeySignIns
+from latet.server.live import SIGNINS, ChainVerdicts, ValkeyAwsSessions, ValkeySignIns, Via
 from latet.server.logs import REFUSED, RequestLog
 from latet.server.machines import (
     LOOKUP_LIMIT,
@@ -147,7 +150,7 @@ from latet.server.spaces import IdentityUnavailable, Spaces, SpaceUnavailable
 from latet.server.spaces import _long as space_long
 from latet.server.start_errors import SettingRefused, ValkeyUnavailable
 from latet.server.tokens import is_route_key
-from latet.server.workers import INSTANCE_ID, TELEMETRY, beat_checked
+from latet.server.workers import INSTANCE_ID, TELEMETRY, beat_checked, legacy_beat
 from latet.state.local import CODE_TTL, SESSION_TTL
 from latet.waiting import shielded
 
@@ -158,7 +161,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# What an instance hears: E1 appends its own channels ("ee:*").
+# What an instance hears. The Enterprise Edition hears its own channels (ee:*) on a listener of its own.
 CHANNELS = ["identity:*", "shared", "identities", SIGNINS, "approvals:*", "feed:*", "beat"]
 RETRY_SECONDS = 1.0  # after the connection to Valkey drops, before listening again
 # The events of an identity that close its space on every instance (Ruling 22): what a revoked token or a rotated key
@@ -474,9 +477,12 @@ def open_server(
     schema: str = "latet",
     prefix: str = "latet:",
     data: Path | None = None,
+    one_shot: bool = False,
 ) -> Server:
     """An instance of a Latet server: its master key, PostgreSQL in ``schema`` (which must be this Latet's: `latet
-    server migrate` brings it there), Valkey under ``prefix``, its models in ``data`` (Latet's data folder). Raises
+    server migrate` brings it there), Valkey under ``prefix``, its models in ``data`` (Latet's data folder);
+    ``one_shot``: a command's that does one thing and closes it (`latet server init`), whose edition starts no work
+    that would outlive it (``EditionContext.one_shot``). Raises
     MasterKeyError (no master key, or not the one the database was first started with), SchemaMismatch, DatabaseError
     (PostgreSQL cannot be reached or asked, by the type of its error), ValueError (an address or a schema the driver
     refuses, quoting none of it; more text recognitions than processors: ``server_reading``; an unusable
@@ -513,7 +519,7 @@ def open_server(
         _asked(bus)
         credentials = master.derive(b"credentials")
         edition = Community()  # the rules for everyone in force are the edition's: none in the Community Edition
-        return Server(
+        server = Server(
             settings, db, bus, master, Identities(db, bus, key=credentials, clock=clock),
             AdminTokens(db, key=credentials, clock=clock, default_days=settings.admin_token_days),
             AuditLog(db, key=master.derive(b"audit"), clock=clock),
@@ -527,6 +533,20 @@ def open_server(
             bus.close()
         db.close()
         raise
+    try:
+        # One edition for every space on this instance: it counts people and API keys, and gives the rules for everyone.
+        server.edition = server_edition(server, one_shot=one_shot)
+        server.shared.rules = server.edition.shared_rules
+        # A new floor (Latet Enterprise) reaches every space here through the spaces, each in its own worker: no space
+        # watches the edition itself.
+        server.edition.watch(server.spaces.floor_changed)
+    except BaseException:
+        try:
+            server.close()  # all it opened: its edition, its metrics, its spaces' threads, Valkey and PostgreSQL
+        except Exception as exc:  # the error that stopped the start is the one raised; this one by its type
+            log.warning("an instance that did not start could not close all it opened (%s)", type(exc).__name__)
+        raise
+    return server
 
 
 async def listen(server: Server) -> None:
@@ -680,6 +700,36 @@ def _from_another_site(scope: Scope) -> bool:
     )
 
 
+# What an answer under an identity's address or of the applications API says to a browser, whatever its app said: no
+# script runs in it, nothing loads from it, and it has an origin of its own, never the server's (a destination's page
+# relayed on the dashboard's origin, the final security review's dashboard L1). Agents and SDKs never read it.
+SANDBOXED = b"default-src 'none'; sandbox"
+
+
+def _cookie_kept(value: bytes, address: bytes | None, request_path: bytes) -> bool:
+    """Whether an upstream's ``set-cookie`` (``value``) may reach the client of an answer under the identity's
+    address ``address`` (``/u/<route key>``; None: no address, every cookie stays here): one that names no Latet
+    cookie (``latet_session``, ``latet_sso``, ``latet_tutorial_…``, in any case, behind a ``__Host-`` or
+    ``__Secure-``) and that a browser keeps for a path inside the address, never the dashboard's nor another
+    identity's. Read as a browser reads it (RFC 6265, 5.2 and 5.3): the name before the first ``=`` (all of it without
+    one: a browser keeps it nameless and sends it as that name); the path of every ``Path`` attribute, the request's
+    own (5.1.4) where one does not start with ``/`` or there is none."""
+    if address is None:
+        return False
+    pair, *attributes = value.split(b";")
+    name = pair.partition(b"=")[0].strip().lower().removeprefix(b"__secure-").removeprefix(b"__host-")
+    if name.startswith(b"latet") or (b"=" in pair and not name):
+        return False  # a Latet name, or none before an "=": a browser sends "=latet_session=x" as latet_session's
+    own = request_path.rpartition(b"/")[0] if request_path.count(b"/") > 1 else b"/"  # the request's own path (5.1.4)
+    paths = []
+    for attribute in attributes:
+        key, _, found = attribute.partition(b"=")
+        if key.strip().lower() == b"path":
+            found = found.strip()
+            paths.append(found if found.startswith(b"/") else own)
+    return all(path == address or path.startswith(address + b"/") for path in paths or [own])
+
+
 class AnswerHeaders:
     """Every answer of the server says ``x-content-type-options: nosniff`` (the pre-read's M4): no JSON answer, refusal
     or file is ever read by a browser as a page of its own. The machines' calls, the sign-in, every answer under an
@@ -687,7 +737,15 @@ class AnswerHeaders:
     the gate's own refusals there) and the applications API's (texts masked and restored) also say ``cache-control:
     no-store``, whatever their app said: a token, a sign-in link, a session's cookie or a value is kept by no cache on
     the way, nor by the browser. No CORS header is added anywhere: nothing of the server is to be read from another
-    origin."""
+    origin.
+
+    An answer under an identity's address relays what its destination said, and a destination can be any host a
+    person adds (a page, its cookies); a browser that sends neither ``Origin`` nor ``Sec-Fetch-Site`` (a link opened
+    in an old one) is not told from an agent. So those answers, and the applications API's, also say ``SANDBOXED`` as
+    their one ``content-security-policy``, and an upstream's ``set-cookie`` reaches the client only where
+    ``_cookie_kept`` says so: none of the applications API's, none that names a Latet cookie or leaves the identity's
+    address. A WebSocket's handshake is no browser's under ``/u/`` (a browser's always says its ``Origin``, which the
+    gate refuses there)."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -698,6 +756,12 @@ class AnswerHeaders:
             return
         path: str = scope["path"]
         unkept = path in (SERVER_API, _SIGN_IN, APPS_API) or path.startswith((f"{SERVER_API}/", "/u/", f"{APPS_API}/"))
+        relayed = path.startswith("/u/") or path == APPS_API or path.startswith(f"{APPS_API}/")
+        # The path a browser asked for, as it names it (encoded), and the identity's address in it.
+        asked: bytes = scope.get("raw_path") or path.encode()
+        route = path.removeprefix("/u/").partition("/")[0] if path.startswith("/u/") else ""
+        prefix = f"/u/{route}".encode()
+        address = prefix if is_route_key(route) and (asked == prefix or asked.startswith(prefix + b"/")) else None
 
         async def sending(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -705,6 +769,14 @@ class AnswerHeaders:
                 if unkept:
                     headers = [(name, value) for name, value in headers if name.lower() != b"cache-control"]
                     headers.append((b"cache-control", b"no-store"))
+                if relayed:
+                    headers = [
+                        (name, value)
+                        for name, value in headers
+                        if (lowered := name.lower()) not in (b"content-security-policy", b"clear-site-data")
+                        and (lowered != b"set-cookie" or _cookie_kept(value, address, asked))
+                    ]
+                    headers.append((b"content-security-policy", SANDBOXED))
                 if not any(name.lower() == b"x-content-type-options" for name, _ in headers):
                     headers.append((b"x-content-type-options", b"nosniff"))
                 message = {**message, "headers": headers}
@@ -716,7 +788,8 @@ class AnswerHeaders:
 class ServerGate:
     """In front of every request (the module's words): the server's own name only, but for health and readiness; an
     identity's address to its space, the dashboard's API to the space of the person signed in, everything else to the
-    server's own routes. The identity's app gets ``scope["latet.identity"]``. What the gate answers itself is marked in
+    server's own routes. The identity's app gets ``scope["latet.identity"]`` (and, for a dashboard's session, how it was
+    opened: ``scope["latet.via"]``, ``code`` or ``sso``). What the gate answers itself is marked in
     the request's scope (``REFUSED``, the scope ``RequestLog`` holds) before it answers."""
 
     def __init__(self, app: ASGIApp, server: Server) -> None:
@@ -1073,10 +1146,10 @@ class ServerGate:
             return
         server = self.server
         sid = cookie_parser(Headers(scope=scope).get("cookie", "")).get(COOKIE, "")
-        identity = self._session_held(sid) if sid else None
-        if sid and identity is None:
+        found = self._session_held(sid) if sid else None
+        if sid and found is None:
             try:
-                identity, limited = await server.lookups.run(
+                found, limited = await server.lookups.run(
                     "session", server.known_sessions.hashed(sid), server.sign_ins.generation,
                     functools.partial(self._session_checked, sid, bucket_of(client_of(scope))),
                 )  # fmt: skip
@@ -1087,25 +1160,26 @@ class ServerGate:
                 reason = "too many sessions refused from this address: wait a minute"
                 await self._refuse(scope, send, 429, reason, retry_after=RETRY_AFTER)
                 return
-        if identity is None:
+        if found is None:
             await self._refuse(scope, send, 401, "unauthorized")
             return
-        await self._serve(scope, receive, send, identity, {}, counted=False)
+        identity, via = found
+        await self._serve(scope, receive, send, identity, {"latet.via": via}, counted=False)
 
-    def _session_held(self, sid: str) -> Identity | None:
+    def _session_held(self, sid: str) -> tuple[Identity, Via] | None:
         """On the event loop: the enabled person a dashboard session is of, from this instance's memory alone, the
         session found open and the person found in the last few seconds (``ValkeySignIns.held``, ``Identities.held``):
         no thread, no store, so that one person's flood of dashboard requests takes one lookup of the credentials'
         threads every few seconds and no more (``Server.lookups``). A session's end, a person disabled, removed or a
         token of theirs revoked, on any instance, drops what the memory holds at once (``Server.heard``). None when it
-        holds neither."""
-        subject = self.server.sign_ins.held(sid)
-        identity = self.server.identities.held(subject) if subject else None
-        if identity is None or identity.disabled or identity.kind != "person":
+        holds neither. With how the session was opened."""
+        session = self.server.sign_ins.held_session(sid)
+        identity = self.server.identities.held(session[0]) if session else None
+        if session is None or identity is None or identity.disabled or identity.kind != "person":
             return None
-        return identity
+        return identity, session[1]
 
-    async def _session_checked(self, sid: str, bucket: str) -> tuple[Identity | None, bool]:
+    async def _session_checked(self, sid: str, bucket: str) -> tuple[tuple[Identity, Via] | None, bool]:
         """The person ``sid`` is a session of, checked by the limiter of ``bucket`` (``machines.checked``), and whether
         the limit refused it. Past its limit as this instance remembers it: refused here, no thread taken, no round
         trip, but a session found valid elsewhere (opened on another instance), read in Valkey a batch at a time
@@ -1118,13 +1192,14 @@ class ServerGate:
             self._signed_in, elsewhere,
         )  # fmt: skip
 
-    def _signed_in(self, sid: str) -> Identity | None:
-        """In the gate's threads: the enabled person a dashboard session is of, while the session lasts."""
-        subject = self.server.sign_ins.subject_of(sid)
-        identity = self.server.identities.get(subject) if subject else None
-        if identity is None or identity.disabled or identity.kind != "person":
+    def _signed_in(self, sid: str) -> tuple[Identity, Via] | None:
+        """In the gate's threads: the enabled person a dashboard session is of, while the session lasts, and how it was
+        opened."""
+        session = self.server.sign_ins.session_of(sid)
+        identity = self.server.identities.get(session[0]) if session else None
+        if session is None or identity is None or identity.disabled or identity.kind != "person":
             return None
-        return identity
+        return identity, session[1]
 
     async def _serve(
         self,
@@ -1143,6 +1218,15 @@ class ServerGate:
         applications API's requests are each held within it apart."""
         headers = changes.get("headers", scope.get("headers") or [])
         inner = {**scope, **changes, "headers": _unproxied(headers), "latet.identity": identity.id}
+        if "latet.via" not in changes:  # a dashboard session's alone, as the gate found it
+            inner.pop("latet.via", None)
+        # Never what a client's request arrives with, but what the caller sets in ``changes``: the token's grant (the
+        # applications API's ``_apps``), the address a request came by (an identity's address, ``_route``), and the
+        # person working in an API key's space, which only Enterprise's hand-on into that space sets
+        # (``ee.keys.KeySpace``), inside the person's own app, after this gate.
+        for name in (ACTING, "latet.grant", "latet.space"):
+            if name not in changes:
+                inner.pop(name, None)
         held_launch = launch_hold(inner)
         limits: list[tuple[dict[str, int], int, str]] = []
         if scope["type"] == "http" and not held_launch:
@@ -1192,6 +1276,9 @@ class ServerGate:
                 return
             except IdentityUnavailable:  # gone or disabled, as PostgreSQL has it now
                 await self._refuse(scope, send, 401, "unauthorized")
+                return
+            except FloorUnavailable as exc:  # the company's policy (or the person's account) cannot be read here
+                await self._refuse(scope, send, 503, unavailable(exc))  # no space is built below it
                 return
             except Exception as exc:  # its build failed: refused, said by its type
                 if count := self._unbuilt.due():
@@ -1460,16 +1547,41 @@ def _text(raw: object) -> str:
 
 
 def beat_said(server: Server) -> dict[str, Any]:
-    """What an instance's beat says of it (Task 10), numbers, booleans and its version alone, never an identity, a
-    setting or an error: its id, its worker's number (None: it runs alone), its version, whether its last beat found it
-    ready, its process's memory in bytes (``instance.process_memory``: None where it cannot be read), its spaces open
-    here, and what their vaults' indexes take in memory (``Spaces.index_bytes``: counts they keep, nothing read). A part
-    that cannot be read is None: what the beat says never keeps it from beating, nor ends a worker."""
+    """What an instance's beat says of it (Task 10), numbers, booleans, its version and its edition's name alone, never
+    an identity, a setting or an error: its id, its worker's number (None: it runs alone), its version, its edition
+    (``community`` or ``enterprise``: what Latet Enterprise's policy and central approvals weigh, ``instances_said``),
+    whether its last beat found it ready, its process's memory in bytes (``instance.process_memory``: None where it
+    cannot be read), its spaces open here, and what their vaults' indexes take in memory (``Spaces.index_bytes``:
+    counts they keep, nothing read). A part that cannot be read is None: what the beat says never keeps it from
+    beating, nor ends a worker."""
     return {
-        "instance": server.instance, "worker": server.worker, "version": __version__, "ready": server.ready,
+        "instance": server.instance, "worker": server.worker, "version": __version__,
+        "edition": _or_none(lambda: server.edition.name), "ready": server.ready,
         "memory": _or_none(process_memory), "spaces": _or_none(server.spaces.count),
         "index": _or_none(server.spaces.index_bytes),
     }  # fmt: skip
+
+
+# What the administration log is told once for the server, by the first instance to start with the release that brings
+# it (``server_notes``, migration 018), whatever restarts follow. 0.15.0's: a request member no request profile names is
+# read and checked by default (`unknown_members: check`), which every server moves to with no approval (the owner's
+# choice of 2026-11-16), so that an administrator who relied on the refusal finds when it changed.
+NEW_MEMBERS_NOTE = "unknown_members-default"
+NEW_MEMBERS_DEFAULTED = "setting.defaulted"
+_NOTED = "INSERT INTO server_notes (name, written) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING RETURNING name"
+
+
+def note_new_members_default(server: Server) -> bool:
+    """0.15.0's default for new request members, recorded once for the server: the note's row and its entry of the
+    administration log in one transaction, the entry last (both kept, or neither); False when an instance wrote it
+    before. Two instances that start at once write it once: the second's row waits for the first's to commit, then
+    finds it there."""
+    with server.db.transaction() as conn:
+        if conn.execute(_NOTED, (NEW_MEMBERS_NOTE, float(server.clock()))).fetchone() is None:
+            return False
+        details = {"value": "check", "version": __version__}
+        server.audit.record("server", NEW_MEMBERS_DEFAULTED, "unknown_members", details, conn=conn)
+    return True
 
 
 def _or_none(read: Callable[[], object]) -> object:
@@ -1506,14 +1618,17 @@ def _alive(server: Server) -> None:
 def alive_instances(bus: Bus) -> tuple[list[dict[str, Any]], bool]:
     """The server's instances alive now, every worker of every machine, by worker then id, and whether every key of the
     bus was read to find them (False: the scan stopped at its bound, and one may be missing). Each is listed as its last
-    beat said it (``workers.beat_checked``: its id, its worker's number, its version, whether it was ready, its memory,
-    its spaces and its vaults' indexes, what is not a number of its kind None): the ``INSTANCES_LISTED`` newest of the
-    list the beats keep (``INSTANCES``), and every other key ``instance:<id>`` of the bus a scan reads (``Bus.names``),
-    whose key has not expired (``ALIVE_MS``). A key that holds 0.10's beat (``OLDER_BEAT``) is an instance of Latet 0.10
-    or older, which says nothing more of itself: listed by its id, ``older`` True, nothing else said. A key that holds
-    no beat of its own instance (written by hand) is listed by its id alone. Nothing is changed or deleted. A beat that
-    says what is not so is anyone's who has Valkey's password, as every key there: no decision is taken on it but a
-    migration's refusal (``instance.migrate_schema``). Raises what Valkey's client raises."""
+    beat said it (``workers.beat_checked``: its id, its worker's number, its version, its edition, whether it was ready,
+    its memory, its spaces and its vaults' indexes, what is not a number of its kind None): the ``INSTANCES_LISTED``
+    newest of the list the beats keep (``INSTANCES``), and every other key ``instance:<id>`` of the bus a scan reads
+    (``Bus.names``), whose key has not expired (``ALIVE_MS``). A key that holds 0.10's beat (``OLDER_BEAT``) is an
+    instance of Latet 0.10 or older, which says nothing more of itself: listed by its id, ``older`` True, nothing else
+    said; one that holds an instance of Latet Enterprise's 0.10 line (``workers.legacy_beat``: ``<version> <edition
+    name>``) by its id, its release and its edition. A key that holds no beat of its own instance (written by hand) is
+    listed by its id alone. Nothing is changed or deleted. A beat that says what is not so is anyone's who has Valkey's
+    password, as every key there: no decision is taken on it but a migration's refusal (``instance.migrate_schema``)
+    and the warnings of Latet Enterprise's policy and central approvals (``instances_said``). Raises what Valkey's
+    client raises."""
     newest = bus.client.zrevrange(bus.key(INSTANCES), 0, INSTANCES_LISTED - 1)
     ids = dict.fromkeys(found for one in newest if INSTANCE_ID.fullmatch(found := _text(one)))
     names, whole = bus.names("instance:", pages=INSTANCE_PAGES, most=INSTANCE_KEYS)
@@ -1528,6 +1643,8 @@ def alive_instances(bus: Bus) -> tuple[list[dict[str, Any]], bool]:
             continue
         if raw == OLDER_BEAT:
             listed.append(dict.fromkeys(TELEMETRY) | {"instance": one, "older": True})
+        elif (legacy := legacy_beat(raw)) is not None:  # Latet Enterprise's 0.10 line: its release and edition alone
+            listed.append(dict.fromkeys(TELEMETRY) | {"instance": one, "version": legacy[0], "edition": legacy[1]})
         else:
             listed.append(beat_checked(raw, instance=one) or dict.fromkeys(TELEMETRY) | {"instance": one})
     return sorted(listed, key=lambda row: (row["worker"] is None, row["worker"] or 0, row["instance"])), whole
@@ -1541,6 +1658,30 @@ def _gone(server: Server) -> None:
     pipe.delete(bus.key(f"instance:{server.instance}"))
     pipe.zrem(bus.key(INSTANCES), server.instance)
     pipe.execute()
+
+
+def instances_said(server: Server) -> tuple[list[str], bool]:
+    """In a worker thread: what each instance alive says of itself (``alive_instances``, as its beat says it), as
+    ``<version> <edition name>``; ``1`` for one that says neither (a release before they said it: 0.10's, or an
+    Enterprise instance of the 0.10 line, whose key held those words and no beat), so that what applies only on
+    instances of a release and an edition (Latet Enterprise's policy, its central approvals, its synced terms) can say
+    which do not, during a rolling upgrade or in a cluster that mixes editions; and whether the listing is whole
+    (False: cut at its bound, an instance alive may be missing, so a count of those that do not is a lower bound,
+    ``some_instances``). What Valkey raises is raised."""
+    rows, whole = alive_instances(server.bus)
+    said = [f"{row['version']} {row['edition']}" if row.get("version") and row.get("edition") else "1" for row in rows]
+    return said, whole
+
+
+def some_instances(count: int, whole: bool) -> str:
+    """How many instances a warning of ``instances_said``'s says do not do something: ``1 instance does``, ``2
+    instances do``, and ``at least`` before either when the listing was cut at its bound (``whole`` False), where an
+    instance alive and not listed may not do it either; with none listed that does not, a cut listing still says that
+    one it does not show may not (``count`` 0: the caller says nothing only of a whole listing)."""
+    if not count and not whole:
+        return "an instance the list of instances does not show (it was cut at its bound) may"
+    some = "1 instance does" if count == 1 else f"{count} instances do"
+    return some if whole else f"at least {some}"
 
 
 def _audit(server: Server) -> None:
@@ -1657,7 +1798,7 @@ def create_server_app(server: Server) -> Starlette:
             return None
         if token is None or not server.identities.holds_token(identity.id, token):
             return None
-        sid = server.sign_ins.open(identity.id)
+        sid = server.sign_ins.open(identity.id, via="code")
         if not server.identities.holds_token(identity.id, token):
             server.sign_ins.end(sid=sid)
             return None
@@ -1757,6 +1898,10 @@ def create_server_app(server: Server) -> Starlette:
                 log.warning("Valkey's messages are not heard yet: /_latet/ready answers 503 until they are")
             started = {"instance": server.instance, "version": __version__}
             await in_store(server.audit.record, "server", "server.started", None, started)
+            try:
+                await in_store(note_new_members_default, server)
+            except Exception as exc:  # never a reason not to serve: nothing was written, and the next start writes it
+                log.warning("the default for new request members is not in the log yet (%s)", type(exc).__name__)
             yield
         finally:
             server.launch_mutations.stop()
@@ -1782,7 +1927,8 @@ def create_server_app(server: Server) -> Starlette:
             Route(DOCS, docs_root, methods=["GET", "HEAD"]),
             Route(f"{DOCS}/{{path:path}}", docs, methods=["GET", "HEAD"]),
             *machine_routes(server),
-            *admin_routes(server),  # last, behind the same gate, body limit and log
+            *admin_routes(server),  # behind the same gate, body limit and log; the edition's administration in them
+            *server.edition.server_routes(server),  # the edition's others: none in E1's
         ],
         middleware=[
             Middleware(RequestLog),  # outermost: the line of every request, the gate's refusals included

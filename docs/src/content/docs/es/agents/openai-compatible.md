@@ -29,14 +29,14 @@ latet run python welcome.py
 El comando ve `OPENAI_BASE_URL` y `OPENAI_API_BASE` con el valor `http://127.0.0.1:5283/openai/v1`,
 `ANTHROPIC_BASE_URL` con el valor `http://127.0.0.1:5283/anthropic`, y `GOOGLE_GEMINI_BASE_URL` y
 `GOOGLE_VERTEX_BASE_URL` con los valores `http://127.0.0.1:5283/gemini` y `http://127.0.0.1:5283/vertex`.
-Los SDK oficiales de OpenAI, de Anthropic y Google GenAI leen estas variables: para los de Google, ver
-[Gemini CLI y Google GenAI](../gemini/).
+Los SDK oficiales de OpenAI, de Anthropic y de Google GenAI leen estas variables: para los de Google,
+consulta [Gemini CLI y Google GenAI](../gemini/).
 
 Un programa que arranca `latet run` no lleva ninguna clave de lanzamiento, así que una carpeta que
 nombra (`x-latet-project`) queda declarada: las reglas de su proyecto que añaden protección se
 aplican, sus relajaciones no ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)).
 
-## Para todo un shell: `latet env`
+## Para toda una shell: `latet env`
 
 `latet env` imprime las mismas variables con la sintaxis de tu shell. Para aplicarlas a la sesión
 actual:
@@ -107,7 +107,7 @@ su `.aider.conf.yml`. Está probado de verdad de la misma manera.
 herramienta que tu agente llama por su cuenta, como una API de búsqueda web, una base de datos o un
 almacén de vectores en la nube, recibe los valores reales: el modelo la pide con valores ficticios,
 y Latet vuelve a poner los originales en su respuesta antes de que tu programa ejecute la
-herramienta. Mantén esas herramientas en tu máquina, o da por enviado en claro lo que reciben.
+herramienta. Mantén esas herramientas en tu equipo, o da por enviado en claro lo que reciben.
 
 ## Qué lee la puerta de enlace
 
@@ -121,12 +121,16 @@ herramienta. Mantén esas herramientas en tu máquina, o da por enviado en claro
   se envía. Las imágenes indicadas por su dirección, el audio y los archivos se rechazan.
 - **La lista de modelos y la lectura de un modelo** pasan en OpenAI, Anthropic y OpenRouter.
   **Cualquier otra petición** (archivos, lotes, audio, generación de imágenes, moderación, recuperar
-  una respuesta guardada) se rechaza, y también una cabecera, un parámetro de consulta o un miembro del
-  cuerpo que ningún perfil nombra: tus propios `default_headers` o `extra_body` en un SDK, por ejemplo,
-  hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) los deje pasar.
-  Las cabeceras de telemetría y de trazado de los propios SDK (`x-stainless-*`, `traceparent`...) se
-  quitan y se cuentan. Lo que Latet lee en las
-  rutas de Google está en [Gemini CLI y Google GenAI](../gemini/#qué-lee-la-puerta-de-enlace).
+  una respuesta guardada) se rechaza, y también una cabecera o un parámetro de consulta que ningún
+  perfil nombra: tus propios `default_headers` en un SDK, por ejemplo, hasta que una [excepción
+  exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) los deje pasar. Un
+  miembro del cuerpo que ningún perfil nombra todavía, como uno de los `extra_body` de un SDK, se
+  lee entero y se comprueba, y pasa tal como llegó cuando nada en él se enmascararía y no nombra
+  nada sobre lo que actúe el proveedor ([Nuevos miembros de las
+  peticiones](../../getting-started/upgrading-to-0-11/#nuevos-miembros-de-las-peticiones)). Las
+  cabeceras de telemetría y de trazado de los propios SDK (`x-stainless-*`, `traceparent`...) se
+  quitan y se cuentan. Lo que Latet lee en las rutas de Google está en [Gemini CLI y Google
+  GenAI](../gemini/#qué-lee-la-puerta-de-enlace).
 
 Una petición a Anthropic que viene de Claude Code, o que lleva el token de una suscripción de Claude,
 nunca se reescribe: solo se comprueba, y se bloquea si contiene un valor sensible. Consulta

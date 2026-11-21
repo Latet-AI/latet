@@ -5,9 +5,10 @@ Three steps, each refusing with a ``SendRefusal`` and leaving the next undone, e
 
 - ``validate_send`` authorizes one attempt of the exchange's decision: minted by ``outcome`` and never written over, not
   a refusal, for this very exchange (the arena and the envelope the forwarder holds, never those the decision names),
-  its arena unchanged since (``outcome.sendable``), under the rules in force (``request_policy.current()``), and the
-  attempt the next one, with the credentials of the first: a decision sends once, and a second time only for the AWS
-  retry of an expired token (S2), the same decision checked again. Nothing is built for a decision it refuses.
+  its arena unchanged since (``outcome.sendable``), under the rules in force (``request_policy.current`` of the way its
+  arena read new members: ``outcome.policy_for``), and the attempt the next one, with the credentials of the first: a
+  decision sends once, and a second time only for the AWS retry of an expired token (S2), the same decision checked
+  again. Nothing is built for a decision it refuses.
 - ``build`` builds the request of an authorization, once, from what was authorized alone: the decision's frozen payload
   (never the arena's body or the request's, which may have changed since), the method the request came with, the
   client's headers, Latet's signature when it signs, by a client that follows no redirect, to a URL that carries no
@@ -53,7 +54,7 @@ from websockets.http11 import USER_AGENT
 
 from latet.gateway.coverage import Envelope, EnvelopeRefused, FinalEnvelope
 from latet.gateway.outcome import Forward, NotSendable, Pass, sendable, still_current
-from latet.gateway.request_policy import PolicySnapshot, current
+from latet.gateway.request_policy import PolicySnapshot, is_current
 from latet.gateway.sigv4 import AwsCredentials, sign
 from latet.protocols.sse import MAX_DECODED
 from latet.server import egress
@@ -145,7 +146,7 @@ def validate_send(
     spends nothing."""
     if credentials not in ATTEMPTS:
         raise ValueError("not credentials Latet sends with")
-    if policy is not current():
+    if not is_current(policy):
         return SendRefusal("policy")
     if not isinstance(envelope, Envelope) or envelope.transport != "http":
         return SendRefusal("transport")
@@ -458,7 +459,10 @@ def _keyed(address: str, name: object) -> bytes:
 
 
 def _kept_first(
-    pool: httpcore.AsyncConnectionPool, url: httpcore.URL, addresses: tuple[str, ...], name: object
+    pool: httpcore.AsyncConnectionPool | httpcore.ConnectionPool,
+    url: httpcore.URL,
+    addresses: tuple[str, ...],
+    name: object,
 ) -> tuple[str, ...]:
     """``addresses`` with the first of them at which ``pool`` keeps a connection for the TLS name ``name`` free for a
     request put first, the others in their order: an address that refused costs its time once, not on every
@@ -470,6 +474,25 @@ def _kept_first(
     return addresses
 
 
+def _at(request: httpcore.Request, address: str, extensions: Any) -> httpcore.Request:
+    """``request`` sent at ``address``, kept for its TLS name (``_keyed``), with ``extensions``."""
+    url = request.url
+    return httpcore.Request(
+        request.method,
+        httpcore.URL(
+            scheme=url.scheme,
+            host=_keyed(address, request.extensions.get("sni_hostname")),
+            port=url.port,
+            target=url.target,
+        ),
+        headers=request.headers,
+        content=request.stream,
+        extensions=extensions,
+    )
+
+
+# _Reaching and _Shared have a synchronous twin each, _ReachingSync and _SharedSync (``reaching_sync``), with the same
+# rules line for line: a fix to one pair is made in the other.
 class _Reaching(httpcore.AsyncConnectionPool):
     """The pool of the client a server reaches the destinations of an identity's own with (``reaching``), with httpx's
     limits (``LIMITS``): the connections of all the identity's destinations together, as before they were kept for
@@ -482,27 +505,11 @@ class _Reaching(httpcore.AsyncConnectionPool):
     connection was made, its TLS failed or its request went unanswered, and so the body is never sent twice. A request
     past the limit waits for a connection, within its pool timeout, as on httpx's own pool."""
 
-    def _at(self, request: httpcore.Request, address: str, extensions: Any) -> httpcore.Request:
-        """``request`` sent at ``address``, kept for its TLS name (``_keyed``), with ``extensions``."""
-        url = request.url
-        return httpcore.Request(
-            request.method,
-            httpcore.URL(
-                scheme=url.scheme,
-                host=_keyed(address, request.extensions.get("sni_hostname")),
-                port=url.port,
-                target=url.target,
-            ),
-            headers=request.headers,
-            content=request.stream,
-            extensions=extensions,
-        )
-
     async def handle_async_request(self, request: httpcore.Request) -> httpcore.Response:
         host = request.url.host.decode("ascii")
         addresses = egress.checked(request.extensions, host)
         if len(addresses) < 2:
-            return await super().handle_async_request(self._at(request, host, request.extensions))
+            return await super().handle_async_request(_at(request, host, request.extensions))
         timeouts = dict(request.extensions.get("timeout") or {})
         failed: httpcore.ConnectError | httpcore.ConnectTimeout | None = None
         connect = timeouts.get("connect") or egress.CONNECT_SECONDS
@@ -517,7 +524,7 @@ class _Reaching(httpcore.AsyncConnectionPool):
             )
             token = _ATTEMPT.set(attempt)
             try:
-                return await super().handle_async_request(self._at(request, address, extensions))
+                return await super().handle_async_request(_at(request, address, extensions))
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as error:
                 if not attempt.unconnected:  # a connection was made (its TLS failed): no other address
                     raise
@@ -539,6 +546,118 @@ def reaching(context: ssl.SSLContext) -> httpx.AsyncHTTPTransport:
         network_backend=_Shared(),
     )
     return transport
+
+
+# --- the same in a worker thread: a server's own fetches made there (Latet Enterprise's term sync and syslog) ---------
+
+
+class _SharedSync(httpcore.NetworkBackend):
+    """``_Shared`` for a pool that sends in a worker thread (``reaching_sync``): ``backend`` (httpcore's own
+    ``SyncBackend`` unless given) connecting to the address of a host ``_keyed`` made (what comes before its ``|``); a
+    TCP connection to the address an attempt tries (``_ATTEMPT``) made within the attempt's time of the connect
+    timeout, and its failure kept for the attempt. TLS keeps the connect timeout whole."""
+
+    def __init__(self, backend: httpcore.NetworkBackend | None = None) -> None:
+        self._backend = backend if backend is not None else httpcore.SyncBackend()
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        address = host.partition("|")[0]
+        attempt = _ATTEMPT.get()
+        if attempt is None or address != attempt.address:
+            return self._backend.connect_tcp(address, port, timeout, local_address, socket_options)
+        seconds = attempt.seconds if timeout is None else min(timeout, attempt.seconds)
+        try:
+            made = self._backend.connect_tcp(address, port, seconds, local_address, socket_options)
+        except (httpcore.ConnectError, httpcore.ConnectTimeout):  # refused, unreachable, not made in time: no byte left
+            attempt.unconnected = True
+            raise
+        attempt.unconnected = False  # made: whatever fails after this tries no other address
+        return made
+
+    def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        return self._backend.connect_unix_socket(path, timeout, socket_options)
+
+    def sleep(self, seconds: float) -> None:
+        self._backend.sleep(seconds)
+
+
+class _ReachingSync(httpcore.ConnectionPool):
+    """``_Reaching`` in a worker thread (``reaching_sync``): each connection kept for the address it was made to and
+    the TLS name it checked (``_keyed``); a request that carries the addresses egress checked for its name
+    (``egress.checked``) sent at the first of them that answers, in their order, but at one where a connection for its
+    name is free first (``_kept_first``), the next tried only when the TCP connection to the one before failed
+    (``egress.tries``), so before any byte of the request was written: never once a connection was made, its TLS
+    failed or its request went unanswered."""
+
+    def handle_request(self, request: httpcore.Request) -> httpcore.Response:
+        host = request.url.host.decode("ascii")
+        addresses = egress.checked(request.extensions, host)
+        if len(addresses) < 2:
+            return super().handle_request(_at(request, host, request.extensions))
+        timeouts = dict(request.extensions.get("timeout") or {})
+        failed: httpcore.ConnectError | httpcore.ConnectTimeout | None = None
+        connect = timeouts.get("connect") or egress.CONNECT_SECONDS
+        name = request.extensions.get("sni_hostname")
+        for index, (address, seconds) in enumerate(
+            egress.tries(_kept_first(self, request.url, addresses, name), connect)
+        ):
+            attempt = _Attempt(address, seconds)
+            # A later address waits for a connection of the pool's within its time, as it connects.
+            extensions = (
+                request.extensions if not index else {**request.extensions, "timeout": {**timeouts, "pool": seconds}}
+            )
+            token = _ATTEMPT.set(attempt)
+            try:
+                return super().handle_request(_at(request, address, extensions))
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as error:
+                if not attempt.unconnected:  # a connection was made (its TLS failed): no other address
+                    raise
+                failed = error
+            finally:
+                _ATTEMPT.reset(token)
+        raise failed or httpcore.ConnectError("no address was tried")
+
+
+# _ReachingSync and _SharedSync are the twins of _Reaching and _Shared (``reaching``), with the same rules line for
+# line: a fix to one pair is made in the other.
+def reaching_sync(context: ssl.SSLContext, backend: httpcore.NetworkBackend | None = None) -> httpcore.ConnectionPool:
+    """The pool of httpcore's a server's own fetch sends with in a worker thread (Latet Enterprise's term sync),
+    verifying with ``context`` and connecting through ``backend`` (httpcore's own unless given), as ``_ReachingSync``
+    says: httpcore's own limits, no retry."""
+    return _ReachingSync(ssl_context=context, retries=0, network_backend=_SharedSync(backend))
+
+
+def connected(addresses: tuple[str, ...], port: int, seconds: float) -> socket.socket:
+    """In a worker thread, a TCP connection to the first of ``addresses`` that answers, in their order (egress checked
+    them for the destination's name, all written as numbers: ``egress.checked``), as ``_connected_at`` makes one: the
+    next tried only when the connection to the one before failed (refused, unreachable, not made in the time it is
+    given of ``seconds``, ``egress.tries``), before anything was sent on it, so that what goes on it then (TLS, a
+    message) never goes to another. A name among them is never connected to (it would be looked up). Raises the last
+    failure (OSError) when none answered."""
+    failed: OSError | None = None
+    for address, given in egress.tries(addresses, seconds):
+        try:
+            number = ipaddress.ip_address(address)
+        except ValueError:
+            failed = OSError(f"{address} is no address written as a number")
+            continue
+        try:
+            return socket.create_connection((str(number), port), timeout=given)
+        except OSError as error:  # refused, unreachable, not made in time (TimeoutError)
+            failed = error
+    raise failed or OSError("no address was tried")
 
 
 # --- the WebSocket adapter: S3 (the handshake) and S4 (each frame), RC-REC-9 -----------------------------------------
@@ -588,7 +707,7 @@ _REFUSED: weakref.WeakKeyDictionary[AuthorizedConnect, str] = weakref.WeakKeyDic
 def _authorized(
     decision: object, arena: Prepared | None, envelope: Envelope, policy: PolicySnapshot, transport: str
 ) -> Forward | Pass | SendRefusal:
-    if policy is not current():
+    if not is_current(policy):
         return SendRefusal("policy")
     if not isinstance(envelope, Envelope) or envelope.transport != transport:
         return SendRefusal("transport")

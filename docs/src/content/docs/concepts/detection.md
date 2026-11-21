@@ -77,8 +77,8 @@ and what the model receives when the agent reads it:
 ```sh
 APP_NAME=shop
 SMTP_HOST=mail.northwind-legal.com
-SMTP_PASSWORD=jeeepo3ixhbkw
-PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
+SMTP_PASSWORD=7vdn5d1nku0hy
+PAYMENTS_API_KEY=gd_1a2f2438f7bc60e0f872
 ```
 
 The host name is not a secret and stays. The password and the key are replaced by fakes of the

@@ -11,7 +11,7 @@ description: Reference for the latet command line.
 | `latet serve` | Run the gateway in the foreground. |
 | `latet start` | Start the background daemon (no-op when it is already running). |
 | `latet stop` | Stop the background daemon. |
-| `latet status` | Show whether the local daemon runs, or the connected server accepts this computer's token. |
+| `latet status` | Show whether the local daemon runs, or whether the connected server accepts this computer's token. |
 | `latet env` | Print the environment variables that route a client through Latet. |
 | `latet dashboard` | Open the dashboard here or on the connected server: what reached the model, and how it was masked. |
 | `latet claude` | Run Claude Code through Latet, for this session only (plugin + verify-only gateway); arguments pass through. |
@@ -29,6 +29,8 @@ description: Reference for the latet command line.
 | `latet restore` | Restore a backup here: your settings, and the vault with its key when it holds them. |
 | `latet connect` | Connect this computer to a Latet server: your agents' requests are masked there, in your own space. |
 | `latet disconnect` | Disconnect this computer from its Latet server: its token is revoked and forgotten, and your agents come back to the Latet of this computer. |
+| `latet leak` | Find the secrets in your coding agents' saved sessions, and say which may have reached a model provider. |
+| `latet reserve-port` | Reserve Latet's port on Windows, so that Hyper-V, WSL and Docker cannot take it when Windows starts. |
 | `latet tutorial` | See Latet at work in your browser, on a sandbox of its own with invented data. |
 | `latet agents status` | Show which agents are installed and whether they go through Latet. |
 | `latet agents apply` | Route the agents through Latet (backed up, revertible with `agents revert`). |
@@ -88,6 +90,8 @@ description: Reference for the latet command line.
 | `latet server people remove` | Remove a person: their tokens stop, and their space (vault, history, settings) is deleted, once you agree. |
 | `latet server people code` | A new one-time code: whoever uses it can connect as this person and open their dashboard; recorded. |
 | `latet server people tokens` | A person's computers; `--revoke` or `--revoke-all` stops their tokens. |
+| `latet server people link` | Link a person to the identity provider by their user name there: their first sign-in finds their account. |
+| `latet server people unlink` | Take the sign-in a person's account names off it, once the provider's issuer changed. |
 | `latet server keys add` | Make an API key, shown once or written privately with `--out`. |
 | `latet server keys list` | Every API key: enabled or not, when it was last used, and its vault limit if it has one of its own. |
 | `latet server keys tokens` | An API key's tokens: each one's name, what it may do, whether it serves the key's agents (has an address), and when it was last used; `--revoke` stops one. |
@@ -104,7 +108,7 @@ description: Reference for the latet command line.
 | `latet server config reset` | Replace an unreadable shared settings row with defaults; never reset settings that open. |
 | `latet server config add` | Add an item to a list of the shared settings (`--key`: of an API key's): every space has it at once. |
 | `latet server config remove` | Take an item out of a list of the shared settings (`--key`: of an API key's). |
-| `latet server rules` | An API key's own recognizers and rules (`--key`). Rules for everyone are planned for the Enterprise Edition. |
+| `latet server rules` | An API key's own recognizers and rules (`--key`). With the Enterprise Edition, rules for everyone are the company's policy (latet server policy set). |
 | `latet server rules add` | Add an API key's recognizers (or update those with the same name), checked here first as `latet rules test` does. Their examples are not checked against a vault: invent them. |
 | `latet server rules list` | An API key's recognizers, and whether each one loads. |
 | `latet server rules remove` | Remove an API key's recognizer. |
@@ -114,7 +118,48 @@ description: Reference for the latet command line.
 | `latet server admin-token list` | Every token: this marks the one in use; tampered rows open nothing; never a secret. |
 | `latet server admin-token revoke` | Revoke a token; revoking this or the last one asks and explains the way back. |
 | `latet server log` | The administration log: who did what, when, on what, from where (never a value); `verify` checks its chain. |
-| `latet server log verify` | Walk the log's chain and print its head for a copy kept elsewhere. |
+| `latet server log verify` | Walk the log's chain and print its head for a copy kept elsewhere; with Latet Enterprise, say each SIEM gap marker that is not Latet's, waiting on the server or in a SIEM's copy, and those too old to be checked. |
+| `latet server groups list` | Show the groups, where each comes from, the roles given to it and who is in it. |
+| `latet server groups add` | Add a group, made by hand. |
+| `latet server groups rename` | Rename a group made by hand (one from the identity provider is renamed there). |
+| `latet server groups remove` | Remove a group: its members keep their accounts; the roles given to it and its control of API keys go. |
+| `latet server groups join` | Put a person in a group, by hand. |
+| `latet server groups leave` | Take a person out of a group they were put in by hand. |
+| `latet server roles list` | Show who has each role: the people and the groups it is given to. |
+| `latet server roles grant` | Give a role to a person or a group. The first administrator is made this way. |
+| `latet server roles revoke` | Take a role back from a person or a group. |
+| `latet server controllers list` | Show each API key and the people and groups who control it. |
+| `latet server controllers add` | Give the control of an API key to a person or a group: they work in its space from their dashboard. |
+| `latet server controllers remove` | Take the control of an API key back. |
+| `latet server sign-in show` | Show single sign-on's settings, whether the client secret is saved, and SCIM's address and tokens. |
+| `latet server sign-in set` | Set up single sign-on from a YAML file (its sso section, or the section's keys at the top), or change the settings in use with the options alone (refused, nothing changed, when someone changed them meanwhile: run it again). |
+| `latet server sign-in off` | Turn single sign-on off: people open the dashboard with `latet dashboard` only. |
+| `latet server sign-in test` | Check that the provider answers: its discovery document and its keys. A real sign-in checks the secret. |
+| `latet server sign-in secret` | Save the client secret the provider gave Latet, or forget it (`--remove`). |
+| `latet server sign-in scim-token` | Make a token for your identity provider's SCIM provisioning, or remove one (`--remove` ID). |
+| `latet server approvals show` | Who decides now, on a change that lowers protection and on the Live Reviewer's texts. |
+| `latet server approvals set` | Change who decides. Each change is kept in the server's administration log; what waits keeps its route. |
+| `latet server reports export` | Export a report of the server's event log: requests, stopped ones and values masked, a row a day for each group, kind, name, project and agent. Counts only; people as `reports.people` says, API keys by name. Recorded in the administration log. |
+| `latet server reports settings` | Show, or change, how people appear in reports and in the events sent to the SIEM, and how long the event log keeps its counts. In several countries a tool that can follow each employee's work needs an agreement first: see Reports and SIEM in the documentation. |
+| `latet server siem show` | The SIEM outputs, and how each is doing. |
+| `latet server siem set` | Set the SIEM outputs from a file. A secret is never written there: `latet server siem secret` sets it. |
+| `latet server siem test` | Send a test event to each SIEM output, or to the one named, and say whether it arrived. |
+| `latet server siem skip` | Pass the refused entry or held run at a SIEM output's queue. Administration-log entries stand behind a gap marker, recorded as `siem.skipped` with its range; refused non-admin events are dropped and counted. Read the receiver's own log first: these entries never reach it. Refused while another instance sends to the output. |
+| `latet server siem secret` | Set the secret of a SIEM output (its token or key), asked for and hidden: kept sealed in the server's database, never in the settings, never shown again. |
+| `latet server terms status` | What each source gave and when it last synced, and how many terms the server keeps. Never a term. |
+| `latet server terms run` | Sync now: every source, or the one named, on whichever instance of the server holds the sync's turn. Waits a minute at most for it to end, and says what each source gave. |
+| `latet server terms gone` | The terms no longer in their source, still masked until they are removed. It shows the terms themselves: run it yourself, never through an agent. |
+| `latet server terms remove` | Stop masking terms no longer in their source, for everyone the server serves: this lowers protection, they leave in clear from now on. A term its source still gives is never removed. |
+| `latet server terms secret` | Set a source's secret (a token, a password, a client secret), asked for and hidden, never taken as an argument: kept sealed on the server for where the source goes and what it reads, never shown again. |
+| `latet server terms sources show` | The sources, as `latet server terms sources set` takes them (YAML): the company's addresses, directories, filters and excluded values, so run it yourself, never through an agent. A source names its secret, never holds it. |
+| `latet server terms sources set` | Use the sources the file lists, in place of those before. A source taken out leaves its terms "no longer in the source": still masked until someone removes them. A secret is never written there: `latet server terms secret`. |
+| `latet server license show` | Show the server's license: who it is for, the users bought and in use (people and API keys), the dates. |
+| `latet server license install` | Check a license file on the server and keep it in its database: every instance takes it at once. |
+| `latet server license remove` | Remove the server's license: the Enterprise features stop for everyone on it. |
+| `latet server policy set` | Make FILE this server's policy: every person and API key, on every instance, is raised to it at once. |
+| `latet server policy show` | This server's policy: when and by whom it was set, what it sets, whose exceptions count, and whether it is in force. Its text holds values (the company's terms): only `--file` writes it, to a file only you can read. |
+| `latet server policy remove` | Remove this server's policy: every person and API key may then go below what it set (a change that lowers protection still waits for their approval). It asks first. |
+| `latet policy check` | Check a policy file before it is set on a server with `latet server policy set`: what it locks, what it leaves to each person, whose exceptions count, and what in it is not read. |
 
 ## `latet version`
 
@@ -145,7 +190,7 @@ Stop the background daemon.
 
 ## `latet status`
 
-Show whether the local daemon runs, or the connected server accepts this computer's token.
+Show whether the local daemon runs, or whether the connected server accepts this computer's token.
 
 ## `latet env`
 
@@ -347,6 +392,39 @@ the computer stays connected until it can, so that it can be run again.
 | Option | Default | Description |
 | --- | --- | --- |
 | `--yes`, `-y` | off | Disconnect without asking, where no terminal is there (a script of yours). |
+
+## `latet leak`
+
+Find the secrets in your coding agents' saved sessions, and say which may have reached a model provider.
+
+Reads the sessions Claude Code, Codex, OpenCode and the other agents saved on this computer with Latet's own
+detectors. It reads and prints; it changes nothing and never shows a value. Exits 0 when nothing is found, 1 when
+something is, 2 when nothing could be read.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--agent` `TEXT` |  | Read this agent's sessions only (repeat for more). |
+| `--since` `TEXT` |  | Read records from this date on (2026-10-01). |
+| `--personal` | off | Also count personal data, by type. |
+| `--path` `PATH` |  | Also read this file or folder of JSON or JSON lines (repeat for more). |
+| `--json` | off | Print records instead of text. |
+| `--all` | off | List every secret of each list, not the first 20 (`--json` lists them all). |
+
+## `latet reserve-port`
+
+Reserve Latet's port on Windows, so that Hyper-V, WSL and Docker cannot take it when Windows starts.
+
+Windows reserves blocks of ports each time it starts, and Latet's port can be among them: Latet
+then cannot start until the next restart. This reserves the port for Latet, with one
+administrator's confirmation. Where Windows holds the port already, Latet moves to a free one and
+reserves that one, and your agents move with it. It asks once before it changes anything.
+`latet reserve-port --remove` takes Latet's reservations away.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Do it without asking: for a script, once you said yes. |
+| `--offer` | off | Ask only where Windows holds the port or may take it; else say nothing. |
+| `--remove` | off | Take away the ports Latet reserved. |
 
 ## `latet tutorial`
 
@@ -982,6 +1060,47 @@ A person's computers; `--revoke` or `--revoke-all` stops their tokens.
 | `--revoke-all` | off | Revoke every token of theirs. |
 | `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
 
+## `latet server people link`
+
+Link a person to the identity provider by their user name there: their first sign-in finds their account.
+
+A person added by hand is linked this way (or links their own account from their dashboard). `--scim` hands them to
+SCIM too. With `--all`, everyone whose account has a user name and names no sign-in (after `unlink --all`, once the
+provider's issuer changed) is linked again by that user name, SCIM managing whom it managed before; with `--all`
+`--scim`, SCIM is also handed those it did not manage, but not someone who holds a role, given to them or to a group
+made by hand: they are handed over one by one, `latet server people link <id> --user-name <name> --scim`. Someone
+whose user name SCIM changed since a sign-in or an administrator confirmed it is never linked by `--all`: they are
+listed, to link one by one once your provider confirms the user name. Whom a run before linked already, waiting
+for their first sign-in, is left out and counted.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `PERSON` | optional | The person: their id (u_…), e-mail or user name at the provider. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--user-name` `TEXT` |  | Their user name at the identity provider. |
+| `--scim` | off | Hand them to SCIM too: it manages their account. |
+| `--all` | off | Everyone whose account has a user name and names no sign-in, linked again by it, but those whose user name SCIM changed since a sign-in or an administrator confirmed it; with `--scim`, SCIM is handed those it did not manage but those who hold a role. |
+| `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
+
+## `latet server people unlink`
+
+Take the sign-in a person's account names off it, once the provider's issuer changed.
+
+Their next sign-in brings another one. Until they are linked again (`latet server people link`, or their own Link
+my company account, unless SCIM changed their user name since their last sign-in with it) no sign-in takes their
+account.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `PERSON` | optional | The person: their id (u_…), e-mail or user name. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--all` | off | Everyone whose account names a sign-in: the provider's issuer changed. |
+| `--yes`, `-y` | off | Confirm in a script; your own terminal still asks. |
+
 ## `latet server keys add`
 
 Make an API key, shown once or written privately with `--out`.
@@ -1176,7 +1295,7 @@ Take an item out of a list of the shared settings (`--key`: of an API key's).
 
 ## `latet server rules`
 
-An API key's own recognizers and rules (`--key`). Rules for everyone are planned for the Enterprise Edition.
+An API key's own recognizers and rules (`--key`). With the Enterprise Edition, rules for everyone are the company's policy (latet server policy set).
 
 Its options go before the name of one of its commands: `latet server rules [OPTIONS] COMMAND`.
 
@@ -1274,4 +1393,396 @@ The administration log: who did what, when, on what, from where (never a value);
 
 ## `latet server log verify`
 
-Walk the log's chain and print its head for a copy kept elsewhere.
+Walk the log's chain and print its head for a copy kept elsewhere; with Latet Enterprise, say each SIEM gap
+marker that is not Latet's, waiting on the server or in a SIEM's copy, and those too old to be checked.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--siem` `PATH` |  | A file of the events your SIEM received, 256 MB at most and never a link: a JSON array, one event a line, or a Splunk or Elastic export. Each gap marker in it is checked against the entries of the log that name Latet's (Latet Enterprise). |
+
+## `latet server groups list`
+
+Show the groups, where each comes from, the roles given to it and who is in it.
+
+## `latet server groups add`
+
+Add a group, made by hand.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `NAME` | required | The group's name. |
+
+## `latet server groups rename`
+
+Rename a group made by hand (one from the identity provider is renamed there).
+
+| Argument | | Description |
+| --- | --- | --- |
+| `GROUP` | required | The group: its id (g_…) or its name. |
+| `NAME` | required | Its new name. |
+
+## `latet server groups remove`
+
+Remove a group: its members keep their accounts; the roles given to it and its control of API keys go.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `GROUP` | required | The group: its id (g_…) or its name. |
+
+## `latet server groups join`
+
+Put a person in a group, by hand.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `GROUP` | required | The group: its id (g_…) or its name. |
+| `PERSON` | required | The person: their id (u_…), e-mail or user name at the provider. |
+
+## `latet server groups leave`
+
+Take a person out of a group they were put in by hand.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `GROUP` | required | The group: its id (g_…) or its name. |
+| `PERSON` | required | The person: their id (u_…), e-mail or user name at the provider. |
+
+## `latet server roles list`
+
+Show who has each role: the people and the groups it is given to.
+
+## `latet server roles grant`
+
+Give a role to a person or a group. The first administrator is made this way.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `SUBJECT` | required | A person (id, e-mail or user name) or a group (id or name). |
+| `ROLE` | required | group-lead, security, auditor or admin. |
+
+## `latet server roles revoke`
+
+Take a role back from a person or a group.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `SUBJECT` | required | A person (id, e-mail or user name) or a group (id or name). |
+| `ROLE` | required | group-lead, security, auditor or admin. |
+
+## `latet server controllers list`
+
+Show each API key and the people and groups who control it.
+
+## `latet server controllers add`
+
+Give the control of an API key to a person or a group: they work in its space from their dashboard.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id (u_…) or its name, as `latet server keys list` shows. |
+| `SUBJECT` | required | A person (id, e-mail or user name) or a group (id or name). |
+
+## `latet server controllers remove`
+
+Take the control of an API key back.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `KEY` | required | The API key: its id (u_…) or its name, as `latet server keys list` shows. |
+| `SUBJECT` | required | A person (id, e-mail or user name) or a group (id or name). |
+
+## `latet server sign-in show`
+
+Show single sign-on's settings, whether the client secret is saved, and SCIM's address and tokens.
+
+## `latet server sign-in set`
+
+Set up single sign-on from a YAML file (its sso section, or the section's keys at the top), or change the
+settings in use with the options alone (refused, nothing changed, when someone changed them meanwhile: run it
+again).
+
+While the dashboard's changes that apply to everyone take the company sign-in (`--company-changes` sso, the default),
+a session `latet dashboard`'s one-time code opened reads and changes nothing that applies to everyone. A new issuer
+needs the client secret saved again; people who signed in are then unlinked and linked again (`latet server people
+unlink --all`, `link --all`).
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | optional | A YAML file with the sso section (none: the settings in use). |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--accounts` `TEXT` |  | Who gets an account at a first sign-in: scim, group or open. |
+| `--allowed-domain` `TEXT` |  | A Google Workspace domain whose people get in (repeat it). |
+| `--company-changes` `TEXT` |  | Whether the dashboard's changes that apply to everyone take a session opened with the company sign-in (sso) or any administrator's session (any-session). |
+
+## `latet server sign-in off`
+
+Turn single sign-on off: people open the dashboard with `latet dashboard` only.
+
+## `latet server sign-in test`
+
+Check that the provider answers: its discovery document and its keys. A real sign-in checks the secret.
+
+## `latet server sign-in secret`
+
+Save the client secret the provider gave Latet, or forget it (`--remove`).
+
+The secret is asked without showing it, or read from standard input; the server keeps it sealed with its master
+key for the issuer it is saved for, never in the settings.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--remove` | off | Forget the saved secret. |
+
+## `latet server sign-in scim-token`
+
+Make a token for your identity provider's SCIM provisioning, or remove one (`--remove` ID).
+
+The token is printed once; the server keeps its keyed hash. It ends as an administration token does (90 days unless
+`--days` or `--never` says otherwise): make the next one before it ends. A token keeps serving when whoever made it no
+longer administers: remove it here.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--remove` `TEXT` |  | A token's id: SCIM stops taking it. |
+| `--days` `INT RANGE` |  | Days until it ends. |
+| `--never` | off | A token that never ends. |
+
+## `latet server approvals show`
+
+Who decides now, on a change that lowers protection and on the Live Reviewer's texts.
+
+## `latet server approvals set`
+
+Change who decides. Each change is kept in the server's administration log; what waits keeps its route.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--changes` `CHOICE` |  | Who decides on a change that lowers protection: self (whoever's settings they are) or security (the security team). |
+| `--live-review` `CHOICE` |  | Who decides on the Live Reviewer's texts: self (whoever sends them) or security (the security team, who then see each text). |
+
+## `latet server reports export`
+
+Export a report of the server's event log: requests, stopped ones and values masked, a row a day for each group,
+kind, name, project and agent. Counts only; people as `reports.people` says, API keys by name. Recorded in the
+administration log.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--from` `TEXT` |  | The first day, YYYY-MM-DD (default: 30 days ago). |
+| `--to` `TEXT` |  | The last day, YYYY-MM-DD (default: today). |
+| `--group` `TEXT` |  | One group, by its id (g_…) or its name. |
+| `--project` `TEXT` |  | One project, by its name. |
+| `--agent` `TEXT` |  | One agent: claude-code, codex, opencode, apps… |
+| `--category` `TEXT` |  | One kind of value: EMAIL, IBAN, a term's type… |
+| `--format` `TEXT` | `csv` | csv, or json (with the administration log). |
+| `--output`, `-o` `PATH` |  | Write it to a new regular file; existing destinations are refused. |
+
+## `latet server reports settings`
+
+Show, or change, how people appear in reports and in the events sent to the SIEM, and how long the event log
+keeps its counts. In several countries a tool that can follow each employee's work needs an agreement first: see
+Reports and SIEM in the documentation.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--people` `TEXT` |  | group-only, pseudonymous or named. |
+| `--retention-days` `INT` |  | Days the log keeps its counts. |
+
+## `latet server siem show`
+
+The SIEM outputs, and how each is doing.
+
+## `latet server siem set`
+
+Set the SIEM outputs from a file. A secret is never written there: `latet server siem secret` sets it.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | required | A YAML or JSON file: a list of outputs, or `siem:` and the list. |
+
+## `latet server siem test`
+
+Send a test event to each SIEM output, or to the one named, and say whether it arrived.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `NAME` | optional | The output (default: each of them). |
+
+## `latet server siem skip`
+
+Pass the refused entry or held run at a SIEM output's queue. Administration-log entries stand behind a gap
+marker, recorded as `siem.skipped` with its range; refused non-admin events are dropped and counted. Read the
+receiver's own log first: these entries never reach it. Refused while another instance sends to the output.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `NAME` | required | The output. |
+
+## `latet server siem secret`
+
+Set the secret of a SIEM output (its token or key), asked for and hidden: kept sealed in the server's database,
+never in the settings, never shown again.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `NAME` | required | The output. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--remove` | off | Remove its secret instead. |
+
+## `latet server terms status`
+
+What each source gave and when it last synced, and how many terms the server keeps. Never a term.
+
+## `latet server terms run`
+
+Sync now: every source, or the one named, on whichever instance of the server holds the sync's turn. Waits a
+minute at most for it to end, and says what each source gave.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `SOURCE` | optional | Only this source. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--no-wait` | off | Ask for it, and do not wait for it to end. |
+
+## `latet server terms gone`
+
+The terms no longer in their source, still masked until they are removed. It shows the terms themselves: run it
+yourself, never through an agent.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--source` `TEXT` |  | Only this source's. |
+
+## `latet server terms remove`
+
+Stop masking terms no longer in their source, for everyone the server serves: this lowers protection, they leave
+in clear from now on. A term its source still gives is never removed.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `IDS`... | optional | The terms' ids, as `latet server terms gone` lists them. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--source` `TEXT` |  | Every term of this source no longer in it. |
+| `--all` | off | Every term no longer in its source. |
+| `--unreadable` | off | The terms no master key of this server opens, among those no source gives any more. |
+| `--yes`, `-y` | off | Remove them without asking. |
+
+## `latet server terms secret`
+
+Set a source's secret (a token, a password, a client secret), asked for and hidden, never taken as an argument:
+kept sealed on the server for where the source goes and what it reads, never shown again.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `SOURCE` | required | The source, by its name. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--remove` | off | Remove its secret instead. |
+| `--yes`, `-y` | off | With `--remove`: remove it without asking. |
+
+## `latet server terms sources show`
+
+The sources, as `latet server terms sources set` takes them (YAML): the company's addresses, directories,
+filters and excluded values, so run it yourself, never through an agent. A source names its secret, never holds
+it.
+
+## `latet server terms sources set`
+
+Use the sources the file lists, in place of those before. A source taken out leaves its terms "no longer in the
+source": still masked until someone removes them. A secret is never written there: `latet server terms secret`.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | required | A YAML file: `sources:` and the list, as `sources show` prints it. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Set them without asking when a source with terms is taken out. |
+
+## `latet server license show`
+
+Show the server's license: who it is for, the users bought and in use (people and API keys), the dates.
+
+## `latet server license install`
+
+Check a license file on the server and keep it in its database: every instance takes it at once.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | required | The license file the licensor sent (.json). |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Install it without asking when the server's policy, its synced terms or its central approvals stop with it. |
+
+## `latet server license remove`
+
+Remove the server's license: the Enterprise features stop for everyone on it.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Remove it without asking. |
+
+## `latet server policy set`
+
+Make FILE this server's policy: every person and API key, on every instance, is raised to it at once.
+
+It is checked here first, as `latet policy check` does: a file that cannot be read changes nothing, and what in it
+is not read (a setting with a mistake is left out whole: one malformed term leaves out every term) is said, and
+asked about, before anything is sent. When the server has a policy and FILE locks fewer settings, or lets each
+person add exceptions where only the company's counted, it says so and asks first; so it does when the server's
+policy cannot be read here. It compares which settings are locked and whose exceptions count, not what is in them
+(a term added or removed is not asked about). It sets FILE in place of the policy it compared with: when someone
+changed the server's policy meanwhile, the server refuses it, and it reads that policy again, compares again and
+asks again. The change is recorded in the server's administration log, with the settings it locks and never a
+value.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | required | The policy file to set. |
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Set it without asking when something in it is not read, it locks fewer settings, it lets each person add exceptions again, it replaces a policy that cannot be read here, or the server's policy was changed while it ran. |
+
+## `latet server policy show`
+
+This server's policy: when and by whom it was set, what it sets, whose exceptions count, and whether it is in
+force. Its text holds values (the company's terms): only `--file` writes it, to a file only you can read.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--json` | off | Print it as JSON, without its text. |
+| `--file` `PATH` |  | Write its text to this file, to edit it. |
+
+## `latet server policy remove`
+
+Remove this server's policy: every person and API key may then go below what it set (a change that lowers
+protection still waits for their approval). It asks first.
+
+It removes the policy it read before asking: when someone changed the server's policy meanwhile, the server refuses
+the removal, and it reads that policy again and asks again.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Remove it without asking (once you agreed), also when the server's policy was changed while it ran. |
+
+## `latet policy check`
+
+Check a policy file before it is set on a server with `latet server policy set`: what it locks, what it leaves
+to each person, whose exceptions count, and what in it is not read.
+
+Exit code 0 when all is well, 1 when something in it is not read, 2 when it cannot be read at all.
+
+| Argument | | Description |
+| --- | --- | --- |
+| `FILE` | required | The policy file. |

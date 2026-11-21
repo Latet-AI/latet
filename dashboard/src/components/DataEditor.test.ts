@@ -30,6 +30,40 @@ describe('DataEditor', () => {
     expect(headings('personal').filter((heading) => lists.includes(heading))).toEqual(lists)
   })
 
+  it('shows how new request members are read in your settings, the value in force chosen, and in no project layer', () => {
+    for (const mode of ['check', 'refuse'] as const) {
+      const html = renderToStaticMarkup(h(DataEditor, { value: { ...draft, unknown_members: mode }, set: () => undefined, layer: 'global' }))
+      const group = html.slice(html.indexOf(`aria-label="${t('data.newMembers.title')}"`))
+      expect(group).not.toBe(html)
+      const chosen = /<input[^>]*value="(check|refuse)"[^>]*checked=""/.exec(group)?.[1] ?? /<input[^>]*checked=""[^>]*value="(check|refuse)"/.exec(group)?.[1]
+      expect(chosen).toBe(mode)
+      expect(group).toContain(t('data.newMembers.check'))
+      expect(group).toContain(t('data.newMembers.refuse'))
+    }
+    expect(headings('global')).toContain(t('data.newMembers.title'))
+    expect(headings('personal')).not.toContain(t('data.newMembers.title'))
+    expect(headings('repo')).not.toContain(t('data.newMembers.title'))
+  })
+
+  it('offers refuse alone where the company locks it (Latet Enterprise)', () => {
+    const html = renderToStaticMarkup(
+      h(DataEditor, { value: { ...draft, unknown_members: 'refuse' }, set: () => undefined, layer: 'global', newMembersLocked: true }),
+    )
+    const group = html.slice(html.indexOf(`aria-label="${t('data.newMembers.title')}"`))
+    expect(group).toContain('value="refuse"')
+    expect(group).not.toContain('value="check"')
+  })
+
+  it('shows refuse chosen while the company locks it, even where your own settings say check (fix round 1, I-4)', () => {
+    // GET /config answers your own value (what a save sends back); in use, the lock raises it to `refuse`.
+    const html = renderToStaticMarkup(
+      h(DataEditor, { value: { ...draft, unknown_members: 'check' }, set: () => undefined, layer: 'global', newMembersLocked: true }),
+    )
+    const group = html.slice(html.indexOf(`aria-label="${t('data.newMembers.title')}"`))
+    expect(/<input[^>]*value="refuse"[^>]*checked=""|<input[^>]*checked=""[^>]*value="refuse"/.test(group)).toBe(true)
+    expect(group).not.toContain('value="check"')
+  })
+
   it('lets a repository file add files and web addresses, never choose the tools', () => {
     const shown = headings('repo')
     expect(shown).toContain(t('data.files.title'))

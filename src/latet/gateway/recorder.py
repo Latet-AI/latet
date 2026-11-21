@@ -18,7 +18,7 @@ import threading
 import time
 import urllib.parse
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -44,6 +44,7 @@ from latet.gateway.response_encoding import (
     prove_zstd,
     zstd_parts,
 )
+from latet.logline import Paced
 from latet.protocols import codec
 from latet.protocols.base import tool_source
 from latet.protocols.eventstream import EventStreamDecoder
@@ -77,6 +78,14 @@ _PRUNE_EVERY = 6 * 3600
 _PRUNE_OVERDUE = 86400.0
 _PRUNE_RETRY = 60.0  # seconds after a failure of its own that the clock asks for the history's prune again
 _MAX_QUEUED = 500  # exchanges waiting to be recorded; beyond this the dashboard skips some
+
+
+class _Recorded(dict[str, Any]):
+    """What ``Recorder._record`` gives back: what the dashboards are told of the exchange (the history's public summary,
+    a dict as ever), and beside it, in this process alone, the summary its event is made from (``event``, E4's: never
+    published, never kept)."""
+
+    event: dict[str, Any] | None = None
 
 
 def agent_of(headers: dict[str, str], path: str = "") -> tuple[str, str | None]:
@@ -324,6 +333,9 @@ class ResponseCapture:
     omission: str | None = None
     safe: bool = False
     headers: tuple[tuple[str, str], ...] = ()
+    # The answer to a HEAD, which never has a body (RFC 9110, 9.3.2), whatever its content type says: ended with no
+    # byte, it is whole with nothing to show; a byte in it is malformed.
+    bodyless: bool = False
     _raw: list[bytes | str] = field(default_factory=list)
     _raw_bytes: int = 0
     _metadata: int = 2048  # owner, bounded scalar/parser/container roots
@@ -767,7 +779,12 @@ class ResponseCapture:
             self.headers = tuple((k, v) for k, v in self.headers if safe_text(k) and safe_text(v))
             if not self._ended:
                 self.omit("response-incomplete")
-            if not self.broken:
+            if not self.broken and self.bodyless and not self._websocket:
+                if self._raw:
+                    self.omit("response-malformed")
+                else:
+                    self.done = True
+            elif not self.broken:
                 if self._websocket:
                     for message in self._raw:
                         if not isinstance(message, str):
@@ -1077,12 +1094,20 @@ class _RequestSnapshot:
     # What its launch was decided as, by its fixed category (``launch_authority.LAUNCH_CATEGORIES``); None: not asked
     # (the plugin's own calls, an exchange refused before its launch was decided).
     launch: str | None = None
+    # How it read a member no request profile declares, the rules its decision was made under (``Prepared.
+    # unknown_members``: ``check`` or ``refuse``, design §3); None for what the plugin's bridge only observed.
+    unknown_members: str | None = None
     # What its decision rests on (``Outcome.passes``), its envelope's profile and what was removed of it (D4): fixed
     # categories, a profile's id and counts, never a value.
     passes: tuple[str, ...] = ()
     profile: str | None = None
     removed_headers: int = 0
     removed_members: int = 0
+    # The history as it was when the exchange ended, read once there (``full``, ``metadata``, or ``off`` when it is
+    # frozen for the edition's event alone), and whether the edition kept events then (E4: one event an exchange,
+    # whatever the history keeps).
+    recorded: str = "full"
+    events: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1196,6 +1221,48 @@ def _sent_document(sent: bytes | str, encoding: str | None, counted: bool = Fals
         return None
 
 
+def _event_beside(public: dict[str, Any], event: dict[str, Any]) -> _Recorded:
+    """``public`` as ``_record`` gives it back, its event's summary beside it."""
+    recorded = _Recorded(public)
+    recorded.event = event
+    return recorded
+
+
+def flags_of(exchange: _RequestSnapshot, error: str | None = None) -> list[str]:
+    """What the dashboard marks an exchange with, from its snapshot alone (no text is read, so it is cheap): the
+    history's record and the edition's event (E4) both take them from here."""
+    flags: list[str] = []
+    if exchange.block_reason or exchange.block_code:  # every refusal, whether its arena has words for it or not
+        flags.append("blocked")
+    if any(not leak.allowed for leak in exchange.leaks):  # details the user lets through are no leak
+        flags.append("leak")
+    flags += [f"uninspected:{u}" for u in sorted(set(exchange.uninspected))]
+    states = {image.state for image in exchange.images}
+    flags += [f"image:{s}" for s in ("masked", "withheld") if s in states]
+    flags += [f"degraded:{d}" for d in sorted(set(exchange.degraded))]
+    # A bodyless call its request profile admitted (a model list, D1) is no unknown route (P2-8a, ruling 6).
+    if exchange.protocol is None and exchange.mode == "passthrough" and exchange.profile is None:
+        flags.append("unknown-route")
+    if exchange.review:
+        flags.append("auto-mode-review")
+    if exchange.off:
+        flags.append("project-off")
+    project = exchange.restores.project
+    if project is not None and dict(project).get("binding") == "claimed":
+        flags.append("project-claimed")  # its project's rules that add protection alone applied (D7)
+    if exchange.withheld:
+        flags.append("withheld")  # the dump guard kept a tool output from the model
+    if exchange.history:
+        flags.append("history")  # the values in clear came from history Latet never masked
+    # A tool outside this computer got stand-ins: stopped by the Claude Code plugin, or run by the provider.
+    flags += [f"outbound:{tool}" for tool in sorted(set(exchange.outbound))]
+    if exchange.bypass:
+        flags.append("route-bypass")  # the plugin found the session's requests going around Latet
+    if error:
+        flags.append("error")
+    return flags
+
+
 class Recorder:
     def __init__(
         self,
@@ -1220,6 +1287,12 @@ class Recorder:
         self._last_prune = time.time()
         self._pending = 0
         self._idle = threading.Condition()
+        # The edition's events (E4): each exchange's summary, whatever the history keeps. `wanted` says whether the
+        # edition keeps events now: with the history off, the recorder counts only then.
+        self.on_summary: Callable[[dict[str, Any]], None] | None = None
+        self.wanted: Callable[[], bool] = lambda: False
+        self._unhanded = Paced()  # events the edition did not take, said once a minute by the error's type
+        self._unasked = Paced()  # editions that could not say whether they keep events, as well
 
     @property
     def enabled(self) -> bool:
@@ -1227,23 +1300,33 @@ class Recorder:
 
     def freeze_request(self, outcome: Outcome) -> _RequestSnapshot | None:
         """Synchronously freeze request observations before any response teardown/await. Never raises: an outcome
-        that cannot be read is said by the error's type, and nothing of it is kept."""
+        that cannot be read is said by the error's type, and nothing of it is kept. The history is read once, here:
+        with it off, the exchange is frozen all the same when the edition keeps events (its event alone, counted from
+        the replacements it carries, nothing of the vault read: I9); one that cannot be frozen is its event all the
+        same, uncounted."""
         try:
             outcome.ended = outcome.ended or time.time()
         except Exception as exc:  # the dashboard must never break the traffic it observes
             log.error("could not freeze an exchange: %s", type(exc).__name__)
             return None
         observe.exchange(outcome)
-        if self._executor is None or self.history == "off":
+        if self._executor is None:
+            return None
+        recorded = self.history
+        events = self.on_summary is not None and self._wanted()
+        if recorded == "off" and not events:
             return None
         try:
-            frozen = self._request_snapshot(outcome)
+            frozen = self._request_snapshot(outcome, recorded, events)
         except Exception as exc:
             log.error("could not freeze an exchange: %s", type(exc).__name__)
-            return None
-        if frozen is None:  # its arena could not make what the record needs (``Prepared.record_error``): said so
-            failure = getattr(outcome.prepared, "record_error", None)
-            log.error("could not queue an exchange for the dashboard: %s", failure or "unknown")
+            frozen = None
+        else:
+            if frozen is None:  # its arena could not make what the record needs (``Prepared.record_error``): said so
+                failure = getattr(outcome.prepared, "record_error", None)
+                log.error("could not queue an exchange for the dashboard: %s", failure or "unknown")
+        if frozen is None and events:  # one event an exchange, always: uncounted, from what it carried
+            self._uncounted(self._carried(outcome))
         return frozen
 
     def finish(self, outcome: Outcome) -> None:
@@ -1257,6 +1340,8 @@ class Recorder:
             error = "response-incomplete" if outcome.capture and capture is None else outcome.error
         except Exception as exc:
             log.error("could not queue an exchange for the dashboard: %s", type(exc).__name__)
+            if request.events:
+                self._uncounted(request)
             return
         self.submit_safe(request, capture, (), error)
 
@@ -1267,15 +1352,29 @@ class Recorder:
         headers: tuple[tuple[str, str], ...],
         error: str | None,
     ) -> None:
-        """Admit frozen request plus screened response to the existing 500-job gate."""
-        if request is None or self._executor is None or self.history == "off":
+        """Admit frozen request plus screened response to the existing 500-job gate. The history it is recorded in is
+        the one read when it was frozen, unless the history is off since: then the edition's event alone, if it keeps
+        events. Whatever is not recorded or counted, the edition is handed its event all the same, uncounted."""
+        if request is None or self._executor is None:
             return
-        if capture is not None and not capture.safe and (capture.text or capture.tools or capture._raw):
+        recorded = "off" if self.history == "off" else request.recorded
+        events = request.events
+        if recorded == "off" and not events:
             return
+        if (
+            recorded != "off"
+            and capture is not None
+            and not capture.safe
+            and (capture.text or capture.tools or capture._raw)
+        ):
+            if events:
+                self._uncounted(request)
+            return
+        handed = False  # the exchange's event is on its way, queued with it
         try:
             snapshot = RecordSnapshot(
                 **{item.name: getattr(request, item.name) for item in fields(_RequestSnapshot)},
-                capture=capture.history() if capture is not None else None,
+                capture=capture.history() if capture is not None and recorded != "off" else None,
                 response_headers=headers,
                 error=error if error is None or (len(error) <= 128 and safe_text(error)) else "response-error",
             )
@@ -1284,22 +1383,35 @@ class Recorder:
             except RuntimeError:
                 loop = None
             with self._idle:
-                if self._pending >= _MAX_QUEUED:
-                    log.warning("dashboard recording is behind: an exchange was not recorded")
-                    return
-                self._pending += 1
+                behind = self._pending >= _MAX_QUEUED
+                if not behind:
+                    self._pending += 1
+            if behind:
+                log.warning("dashboard recording is behind: an exchange was not recorded")
+                if events:
+                    self._uncounted(snapshot)  # never raises
+                return
+            counted = snapshot if events else None
+            published = recorded != "off"  # else the edition's event alone, nothing kept nor published
             try:
-                future = self._executor.submit(self._record, snapshot)
+                if published:
+                    future = self._executor.submit(self._record, snapshot)
+                else:
+                    future = self._executor.submit(self._counted, snapshot)
             except BaseException:
                 self._left()
                 raise
-            future.add_done_callback(lambda f: self._done(f, loop))
+            handed = True
+            future.add_done_callback(lambda f: self._done(f, loop, counted, published))
         except Exception as exc:
             log.error("could not queue an exchange for the dashboard: %s", type(exc).__name__)
+            if events and not handed:  # one event an exchange, always: uncounted
+                self._uncounted(request)
 
     def snapshot(self, outcome: Outcome) -> RecordSnapshot | None:
-        """Synchronous request-only snapshot; response capture requires finalizer admission."""
-        request = self._request_snapshot(outcome)
+        """Synchronous request-only snapshot; response capture requires finalizer admission. Recorded, it is kept in
+        the history as the recorder has it now (``_record``)."""
+        request = self._request_snapshot(outcome, self.history if self.history != "off" else "full")
         if request is None:
             return None
         capture = outcome.capture if outcome.capture is not None and outcome.capture.safe else None
@@ -1352,18 +1464,22 @@ class Recorder:
         self.prune_now()  # restarts the interval
         return _PRUNE_EVERY
 
-    def _request_snapshot(self, outcome: Outcome) -> _RequestSnapshot | None:
+    def _request_snapshot(
+        self, outcome: Outcome, recorded: str = "full", events: bool = False, *, texts: bool = True
+    ) -> _RequestSnapshot | None:
         """``outcome`` as the recorder's thread will read it (``RecordSnapshot``), taken now: what its arena (or the
         bridge's observation) held, its texts and where they were, its images as they were sent, and what its
         conversation's fakes restore to (``_snapshot``); nothing of the arena or the outcome kept, nothing of either
-        changed. Its large parts are shared, never copied: the texts and the images' base64 are strings already."""
+        changed. Its large parts are shared, never copied: the texts and the images' base64 are strings already.
+        ``recorded`` ``off`` (the edition's event alone): nothing of the vault is read, no fake's restore (``_bare``).
+        Without ``texts``: none of its texts or images either, whatever its arena could make (``_carried``)."""
         read: Prepared | Observation | None = outcome.prepared if outcome.prepared is not None else outcome.observed
-        restores = self._snapshot(read)
+        restores = self._snapshot(read) if recorded != "off" else self._bare(read)
         blocks: tuple[_Block, ...] = ()
         images: tuple[_Image, ...] = ()
         said: dict[str, Any] = {"protocol": None, "mode": "passthrough", "model": None, "block_reason": None}
         said |= {"leaks": (), "uninspected": (), "degraded": (), "review": False, "off": False, "withheld": 0}
-        said |= {"history": False, "outbound": (), "bypass": False, "launch": None}
+        said |= {"history": False, "outbound": (), "bypass": False, "launch": None, "unknown_members": None}
         if isinstance(read, Observation):
             said |= {"protocol": read.protocol, "mode": _OBSERVED_MODE, "block_reason": read.reason}
             said |= {"leaks": read.leaks, "uninspected": read.uninspected, "history": read.history}
@@ -1371,9 +1487,10 @@ class Recorder:
             blocks = tuple(
                 _Block(text.text, ("at", f"$[{i}]"), text.kind, text.from_model, None, None, (), False)
                 for i, text in enumerate(read.blocks)
+                if texts
             )
         elif read is not None:
-            if read.record_error is not None:
+            if read.record_error is not None and texts:
                 return None
             said |= {"protocol": read.protocol, "mode": read.mode, "model": read.model}
             said |= {"block_reason": read.block_reason, "leaks": tuple(read.leaks)}
@@ -1381,8 +1498,9 @@ class Recorder:
             said |= {"off": read.off, "withheld": read.withheld, "history": read.history}
             said |= {"outbound": tuple(read.outbound), "bypass": read.bypass}
             said["launch"] = read.launch if read.launch in LAUNCH_CATEGORIES else None
+            said["unknown_members"] = read.unknown_members if read.unknown_members in ("check", "refuse") else None
             said["removed_members"] = len(getattr(read, "body_removed", ()) or ())
-            if read.pending or read.outbound_slots or read.images:
+            if texts and (read.pending or read.outbound_slots or read.images):
                 blocks, images = _frozen_blocks(read), _frozen_images(read)
                 # Where they were is found in what left (immutable: the decision's bytes, or the frame as it was sent),
                 # in the recorder's thread; a request's in its content-encoding, a frame's as it is.
@@ -1421,8 +1539,26 @@ class Recorder:
             passes=tuple(outcome.passes),
             profile=outcome.profile,
             removed_headers=outcome.removed_headers,
+            recorded=recorded,
+            events=events,
             **said,
         )
+
+    def _carried(self, outcome: Outcome) -> _RequestSnapshot | None:
+        """What an exchange that could not be frozen carried, for its event alone (uncounted): read from the outcome and
+        its arena's flags, none of its texts and nothing of the vault. None when even that cannot be read (said by the
+        error's type)."""
+        try:
+            return self._request_snapshot(outcome, "off", True, texts=False)
+        except Exception as exc:  # by its type: its words could quote what it carried
+            self._unhanded_said(exc)
+            return None
+
+    def _bare(self, read: Prepared | Observation | None) -> _Snapshot:
+        """The conversation's key and its project, for an exchange frozen for the edition's event alone: no fake's
+        restore, so nothing of the vault is read (I9)."""
+        session = getattr(read, "session", None)
+        return _Snapshot(getattr(session, "key", None) or "unscoped", (), (), project=self._project(read, session))
 
     def _snapshot(self, read: Prepared | Observation | None) -> _Snapshot:
         session = getattr(read, "session", None)
@@ -1485,18 +1621,97 @@ class Recorder:
         finally:
             self._left()
 
-    def _done(self, future: Future[dict[str, Any]], loop: asyncio.AbstractEventLoop | None) -> None:
+    def _done(
+        self,
+        future: Future[dict[str, Any]],
+        loop: asyncio.AbstractEventLoop | None,
+        counted: _RequestSnapshot | None = None,
+        published: bool = True,
+    ) -> None:
+        """A queued exchange is over: what the history keeps published to the dashboards (``_record``'s; nothing with
+        the history off, ``published`` False, where ``_counted`` made the event alone), and its event handed to the
+        edition when it keeps events (``counted``: its snapshot), uncounted when the recording failed."""
         try:
             if self._failed(future, "could not record an exchange"):
+                if counted is not None:  # its event all the same, uncounted
+                    self._uncounted(counted)
                 return
-            summary = future.result()
+            result = future.result()
+            event = getattr(result, "event", None) if published else result
+            if counted is not None:
+                if event is None:  # a record that says no event (a stand-in's): uncounted, never lost
+                    self._uncounted(counted)
+                else:
+                    self._summarized(event)
+            if not published:  # counted for the edition only (the history off): no viewer hears of it
+                return
+            summary = dict(result)  # what the dashboards are told, and nothing of the event beside it
             if loop is None:
                 self.broadcaster.publish(summary)
                 return
             with contextlib.suppress(RuntimeError):  # the loop closed meanwhile (shutdown): no viewer left
                 loop.call_soon_threadsafe(self.broadcaster.publish, summary)
-        finally:
+        finally:  # last: `drain` returns once the edition has the event too
             self._left()
+
+    def _wanted(self) -> bool:
+        """Whether the edition keeps events now; one that cannot say is handed the event, and decides as it takes it
+        (one event an exchange, always), its failure said by its type: it never breaks the traffic."""
+        try:
+            return bool(self.wanted())
+        except Exception as exc:  # by its type: its words could quote what it holds
+            if count := self._unasked.due():
+                many = f" ({count} since the line before)" if count > 1 else ""
+                log.error("could not ask whether exchanges are events: %s%s", type(exc).__name__, many)
+            return True
+
+    def _unhanded_said(self, exc: BaseException) -> None:
+        """An exchange's event the edition was not handed, said by the error's type, once a minute."""
+        if count := self._unhanded.due():
+            many = f" ({count} since the line before)" if count > 1 else ""
+            log.error("could not hand an exchange's event over: %s%s", type(exc).__name__, many)
+
+    def _summarized(self, summary: dict[str, Any]) -> None:
+        """Hand an exchange's summary to the edition: a failure there is said by its type, never raised."""
+        hook = self.on_summary
+        if hook is None:
+            return
+        try:
+            hook(summary)
+        except Exception as exc:  # by its type: its words could quote what it was given
+            self._unhanded_said(exc)
+
+    def _event_summary(
+        self, exchange: _RequestSnapshot, new_by_type: dict[str, int], error: str | None = None
+    ) -> dict[str, Any]:
+        """The summary an exchange's event is made from (``events.exchange_event``), never kept nor published: its
+        time, agent, path, signing, flags and project, the values new to its conversation by type, and the words its
+        refusal was told in, its code and the error it was recorded with (read there for the event's code, never
+        copied: the history keeps its code alone)."""
+        return {
+            "ts": exchange.started,
+            "agent": agent_of(dict(exchange.headers), exchange.path)[0],
+            "path": exchange.path,
+            "signed": exchange.signed,
+            "flags": flags_of(exchange, error),
+            "block_reason": exchange.block_reason,
+            "block_code": exchange.block_code,
+            "error": error,
+            "new_by_type": new_by_type,
+            "project": dict(exchange.restores.project) if exchange.restores.project is not None else None,
+        }
+
+    def _uncounted(self, exchange: _RequestSnapshot | None) -> None:
+        """An exchange the recorder could not count (far behind, or failing): its event all the same, with no counts,
+        from what its snapshot carries; its texts are not read. Never raises."""
+        if exchange is None:  # nothing of it could be read: said already
+            return
+        try:
+            summary = self._event_summary(exchange, {}, getattr(exchange, "error", None)) | {"uncounted": True}
+        except Exception as exc:  # by its type: its words could quote the exchange
+            self._unhanded_said(exc)
+            return
+        self._summarized(summary)
 
     def drain(self, timeout: float = 10.0) -> bool:
         """Wait until every queued job is over: each exchange recorded and each pruning done (tests, shutdown)."""
@@ -1526,11 +1741,29 @@ class Recorder:
                 "the history's pruning was refused its lock: what was a day past its retention was pruned without it"
             )
 
+    def _counted(self, exchange: RecordSnapshot) -> dict[str, Any]:
+        """In the recorder's thread, with the history off: the exchange's summary for the edition's event alone (I9).
+        Each text's values are counted from the replacements it carries (their types: no vault, no restore of the
+        conversation, no annotator, no capture of the answer), new to the conversation as the dashboard counts them
+        (``sent.first``). A request masked before Latet saw it (the Claude Code plugin's) carries no replacement here
+        and counts no value; nothing is kept."""
+        new_by_type: Counter[str] = Counter()
+        store = self.store
+        session = exchange.restores.session
+        for block in exchange.blocks:
+            if not block.text or not block.replacements or store is None:
+                continue
+            if self.sent.first(session, store.block_id(block.text)):
+                new_by_type.update(r.etype for r in block.replacements)
+        return self._event_summary(exchange, dict(new_by_type), exchange.error)
+
     def _record(self, exchange: RecordSnapshot) -> dict[str, Any]:
         """``exchange`` given to the history (in the recorder's thread): read from its snapshot alone, never from its
-        arena or its outcome."""
+        arena or its outcome, in the history as it was when it ended (``recorded``: ``full`` or ``metadata``). What the
+        dashboards are told of it, with the summary its event is made from beside it (``_Recorded.event``)."""
         store = self.store
         assert store is not None
+        recorded = exchange.recorded
         if time.time() - self._last_prune > _PRUNE_EVERY:
             self.prune_now()  # a job of its own, after this one: its failure never loses this exchange
         snap = exchange.restores
@@ -1618,7 +1851,7 @@ class Recorder:
                     source_found = found(source, False) if source else []
                 types = self._types.get(block_id)
                 # Seen before: stored already, or (metadata history, nothing stored) its counts cached.
-                if block_id in known or (types is not None and self.history == "metadata"):
+                if block_id in known or (types is not None and recorded == "metadata"):
                     record = BlockRecord(
                         block_id, path, block.kind.value, block.from_model, new, tool=tool, source=source,
                         source_found=source_found,
@@ -1674,42 +1907,15 @@ class Recorder:
                 **({"omitted": capture.omission} if capture.omission else {}),
             }
 
-        flags: list[str] = []
-        if exchange.block_reason or exchange.block_code:  # every refusal, whether its arena has words for it or not
-            flags.append("blocked")
         leaks = [
             {"type": leak.etype, "kind": leak.kind.value, "preview": leak.preview, "new": leak.new}
             | ({"detail": leak.detail} if leak.detail else {})
             | ({"allowed": True} if leak.allowed else {})  # let through to auto mode's reviewer
-            | self._place(leak, ids)
+            | self._place(leak, ids, recorded)
             for leak in exchange.leaks
         ]
-        if any(not leak.get("allowed") for leak in leaks):  # details the user lets through are no leak
-            flags.append("leak")
-        flags += [f"uninspected:{u}" for u in sorted(set(exchange.uninspected))]
-        states = {image.state for image in exchange.images}
-        flags += [f"image:{s}" for s in ("masked", "withheld") if s in states]
-        flags += [f"degraded:{d}" for d in sorted(set(exchange.degraded))]
+        flags = flags_of(exchange, exchange.error)
         mode = exchange.mode
-        # A bodyless call its request profile admitted (a model list, D1) is no unknown route (P2-8a, ruling 6).
-        if exchange.protocol is None and mode == "passthrough" and exchange.profile is None:
-            flags.append("unknown-route")
-        if exchange.review:
-            flags.append("auto-mode-review")
-        if exchange.off:
-            flags.append("project-off")
-        if snap.project is not None and dict(snap.project).get("binding") == "claimed":
-            flags.append("project-claimed")  # its project's rules that add protection alone applied (D7)
-        if exchange.withheld:
-            flags.append("withheld")  # the dump guard kept a tool output from the model
-        if exchange.history:
-            flags.append("history")  # the values in clear came from history Latet never masked
-        # A tool outside this computer got stand-ins: stopped by the Claude Code plugin, or run by the provider.
-        flags += [f"outbound:{tool}" for tool in sorted(set(exchange.outbound))]
-        if exchange.bypass:
-            flags.append("route-bypass")  # the plugin found the session's requests going around Latet
-        if exchange.error:
-            flags.append("error")
         agent, version = agent_of(dict(exchange.headers), exchange.path)
         ended = exchange.ended or time.time()
         summary = {
@@ -1741,11 +1947,17 @@ class Recorder:
             "block_reason": exchange.block_code,  # its category code: the words stay in the private view below
             "launch": exchange.launch,  # what its launch was decided as, by its fixed category (P2-6a, root's I-5)
             "passes": list(exchange.passes),  # the rules and exceptions it was let through by, by category (P2-7)
+            # The way it read a member no profile declares, which decided it (design §3): check or refuse, nothing more.
+            "unknown_members": exchange.unknown_members,
             "profile": exchange.profile,  # its envelope's request profile, by its id
             "removed": {"headers": exchange.removed_headers, "members": exchange.removed_members},
             "verified": mode != "passthrough" and not leaks and "blocked" not in flags and "project-off" not in flags,
             "project": dict(snap.project) if snap.project is not None else None,
         }
+        # Its event's summary (E4), never kept nor published: the words of its refusal, its code and the error it was
+        # recorded with read for the event's code alone; the same summary as with the history off (``_counted``), so
+        # that one request is stopped for one reason whatever the history keeps (the security re-review's N2).
+        event = self._event_summary(exchange, dict(new_by_type), exchange.error)
         source = snap.session
         project_id = valid_project_id(dict(snap.project).get("id")) if snap.project is not None else None
         summary["session"] = store.history_group(source)
@@ -1759,7 +1971,7 @@ class Recorder:
         public["project"] = history_project(project_id)
         if destination is not None:
             public["upstream"] = "custom"
-        if self.history == "metadata":  # counts, timings and flags only: no text, no headers
+        if recorded == "metadata":  # counts, timings and flags only: no text, no headers
             store.record(
                 ExchangeRecord(
                     summary=summary,
@@ -1771,7 +1983,7 @@ class Recorder:
                     history_code=exchange.history_code,
                 )
             )
-            return public
+            return _event_beside(public, event)
         private = {
             key: summary[key]
             for key in (
@@ -1805,13 +2017,15 @@ class Recorder:
                 history_code=exchange.history_code,
             )
         )
-        return public
+        return _event_beside(public, event)
 
-    def _place(self, leak: Leak, ids: list[str]) -> dict[str, Any]:
+    def _place(self, leak: Leak, ids: list[str], recorded: str = "full") -> dict[str, Any]:
         """Where a leak's value is, so the dashboard can mark it: the block it is in and its offsets there.
         The value is not repeated: it is in the block's text, which the history keeps. A history that keeps
-        no texts has nothing to point at."""
-        if self.history != "full" or not 0 <= leak.slot < len(ids) or leak.start < 0:
+        no texts has nothing to point at. A member no request profile declares, read by the new rule, stands in no
+        block (its texts follow the slots checked, which the blocks of tools run elsewhere follow too): its leak points
+        at none, and keeps no rule, which names the member (``assignment:<key>``, R-79)."""
+        if recorded != "full" or not 0 <= leak.slot < len(ids) or leak.start < 0 or leak.kind == SlotKind.NEW_MEMBER:
             return {}
         return {
             "block": ids[leak.slot],

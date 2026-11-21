@@ -89,6 +89,24 @@ def latet_server(computer):
 
 
 @pytest.fixture
+def strict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every body walk of a request's preparation without the new rule (``unknown_members="refuse"``): a member no
+    profile declares refused as before the rule, where D6's string case and no exception take it."""
+    from latet.gateway import mediate
+
+    real_inspect, real_declared = mediate.inspect_body, mediate.declared_body_safe
+
+    def inspect(*args, **kwargs):
+        return real_inspect(*args, **{**kwargs, "unknown_members": "refuse"})
+
+    def declared(*args, **kwargs):
+        return real_declared(*args, **{**kwargs, "unknown_members": "refuse"})
+
+    monkeypatch.setattr(mediate, "inspect_body", inspect)
+    monkeypatch.setattr(mediate, "declared_body_safe", declared)
+
+
+@pytest.fixture
 def quiet(monkeypatch):
     """No agent of this computer applied again, no daemon running here, and this computer's identity known; and no
     agent around (the one these tests may run in): `latet connect` and `latet disconnect` refuse to run in one."""

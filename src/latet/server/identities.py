@@ -404,6 +404,15 @@ class TokenInfo:
     agents: bool = False
 
 
+@dataclass(frozen=True)
+class PersonHeld:
+    """A person as a transaction holds their row (``Identities.held_person``): what a one-time code made for them
+    weighs."""
+
+    disabled: bool
+    connected: bool  # a computer of theirs connected once: a token of theirs, or a use of one noted
+
+
 @dataclass(eq=False)
 class Changes:
     """A transaction for changes to identities (``Identities.changing``): its connection, on which the caller writes
@@ -822,6 +831,17 @@ class Identities:
             info, secret, _ = self._new_secret(conn, identity_id, KEY_PREFIX, label, permissions=granted)
             changes.told.append((identity_id, "rotated"))
         return info, secret, replaced
+
+    def held_person(self, identity_id: str, *, within: Changes) -> PersonHeld | None:
+        """The person ``identity_id`` as the transaction of ``within`` finds them, their row held until it ends (a
+        computer's enrolment, or a disable, meanwhile waits for it): whether they are disabled, and whether a computer
+        of theirs ever connected. None for no such person (an API key included)."""
+        row = within.conn.execute(
+            "SELECT i.disabled, i.last_seen IS NOT NULL OR EXISTS (SELECT 1 FROM tokens t WHERE t.identity_id = i.id) "
+            "FROM identities i WHERE i.id = %s AND i.kind = 'person' FOR UPDATE OF i",
+            (identity_id,),
+        ).fetchone()
+        return None if row is None else PersonHeld(bool(row[0]), bool(row[1]))
 
     def code(self, identity_id: str, *, within: Changes | None = None) -> str | None:
         """A new one-time code for 24 hours, for a person (None for an API key, or no one, as the database has it now):

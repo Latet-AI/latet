@@ -1,0 +1,51 @@
+# slapd's configuration (cn=config), loaded with slapadd -n 0 before slapd starts. TLS from the files the test makes
+# (a certificate authority of the run's own, and a certificate for localhost and 127.0.0.1). The directory's ACL: root
+# on ldapi:// changes it (the test's own changes), a password is only checked, and the service accounts read the rest
+# and change nothing; nobody else reads anything.
+
+dn: cn=config
+objectClass: olcGlobal
+cn: config
+olcPidFile: /run/slapd/slapd.pid
+olcArgsFile: /run/slapd/slapd.args
+olcLogLevel: stats
+olcTLSCACertificateFile: /etc/ldap/tls/ca.pem
+olcTLSCertificateFile: /etc/ldap/tls/server.pem
+olcTLSCertificateKeyFile: /etc/ldap/tls/server-key.pem
+
+dn: cn=module{0},cn=config
+objectClass: olcModuleList
+cn: module{0}
+olcModulePath: /usr/lib/ldap
+olcModuleLoad: back_mdb
+
+dn: cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: schema
+
+include: file:///etc/ldap/schema/core.ldif
+include: file:///etc/ldap/schema/cosine.ldif
+include: file:///etc/ldap/schema/inetorgperson.ldif
+
+dn: olcDatabase={-1}frontend,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcFrontendConfig
+olcDatabase: {-1}frontend
+olcSizeLimit: 500
+
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * none
+
+dn: olcDatabase={1}mdb,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcMdbConfig
+olcDatabase: {1}mdb
+olcDbDirectory: /var/lib/ldap
+olcSuffix: dc=acme,dc=lan
+olcRootDN: gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth
+olcDbIndex: objectClass eq
+olcDbIndex: uid eq
+olcAccess: {0}to attrs=userPassword by anonymous auth by * none
+olcAccess: {1}to dn.subtree="dc=acme,dc=lan" by dn.exact="cn=latet-sync,ou=services,dc=acme,dc=lan" read by dn.exact="cn=keycloak,ou=services,dc=acme,dc=lan" read by * none

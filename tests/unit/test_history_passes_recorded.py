@@ -126,10 +126,26 @@ async def test_a_request_records_its_profile_and_the_headers_its_profile_removed
     assert "trace-value-77" not in json.dumps((row, detail))
 
 
-async def test_an_unknown_body_member_is_refused_under_its_own_code_naming_its_category(tmp_path):
-    """Root's ruling on P2-7's concern 5: a member no profile names in a body Latet rewrites is refused under a safe
-    reason code of its own, ``body-unknown-member``, the history keeping that code and the agent told the category of
-    the object it was in, never its name's value or what it held."""
+async def test_an_unknown_body_member_is_read_and_the_history_names_its_pass(tmp_path):
+    """The new rule (notes/unknown-members-design.md §2): a member no profile names in a body Latet rewrites, holding
+    nothing the final check stops, leaves as it came, and the history says what it passed by (``new-member``), never
+    its name or what it held."""
+    body = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "ordinary request"}],
+        "zz_unknown": {"note": "SECRET-VALUE-4471"},
+    }
+    response, sent, summary = await _recorded(tmp_path, OPENAI, "/openai/v1/chat/completions", body)
+    assert response.status_code == 200, response.text
+    assert len(sent) == 1 and json.loads(sent[0].content)["zz_unknown"] == {"note": "SECRET-VALUE-4471"}
+    assert summary["passes"] == ["new-member"]
+    assert "SECRET-VALUE-4471" not in json.dumps(summary) and "zz_unknown" not in json.dumps(summary)
+
+
+async def test_strict_an_unknown_body_member_is_refused_under_its_own_code_naming_its_category(tmp_path, strict):
+    """Root's ruling on P2-7's concern 5, under ``unknown_members: refuse``: a member no profile names in a body Latet
+    rewrites is refused under a safe reason code of its own, ``body-unknown-member``, the history keeping that code and
+    the agent told the category of the object it was in, never its name's value or what it held."""
     sent: list[httpx.Request] = []
 
     def provider(request: httpx.Request) -> httpx.Response:
@@ -271,47 +287,91 @@ async def test_a_provider_item_let_through_by_the_built_in_rule_records_its_cate
     assert "gAAAAB" not in json.dumps(summary)
 
 
-async def test_an_unknown_member_no_exception_can_reach_is_refused_under_a_code_that_says_so(tmp_path):
-    """Review I-8: a member no profile names inside a provider's own item (a reasoning item here), which no exception's
-    selector can reach, is refused under ``body-unknown-member-no-exception``; a top-level one keeps
-    ``body-unknown-member``, which an exact exception can name. The dashboard offers an exception for the second
-    alone."""
-    body = {
+def _reasoning(note: str) -> dict:
+    return {
         "model": "m",
         "input": [
             {"role": "user", "content": "ordinary request"},
-            {"type": "reasoning", "id": "rs_0123456789abcdef", "summary": [], "x_note": "core"},
+            {"type": "reasoning", "id": "rs_0123456789abcdef", "summary": [], "x_note": note},
         ],
     }
-    response, sent, summary = await _recorded(tmp_path, OPENAI, "/openai/v1/responses", body)
+
+
+async def test_an_unknown_member_no_exception_can_reach_is_refused_under_a_code_that_says_so(tmp_path):
+    """Review I-8: a member no profile names inside a provider's own item (a reasoning item here), which no exception's
+    selector can reach, is refused under ``body-unknown-member-no-exception`` where the new rule refuses it (more than a
+    short token there: free text); a top-level one keeps ``body-unknown-member``, which an exact exception can name.
+    The dashboard offers an exception for the second alone. A short token there passes by the new rule."""
+    response, sent, summary = await _recorded(tmp_path / "text", OPENAI, "/openai/v1/responses", _reasoning("a note"))
+    assert response.status_code == 400 and sent == []
+    assert summary["block_reason"] == "body-unknown-member-no-exception"
+    response, sent, summary = await _recorded(tmp_path / "token", OPENAI, "/openai/v1/responses", _reasoning("core"))
+    assert response.status_code == 200 and len(sent) == 1 and "new-member" in summary["passes"]
+
+
+async def test_strict_an_unknown_member_no_exception_can_reach_is_refused_under_a_code_that_says_so(tmp_path, strict):
+    response, sent, summary = await _recorded(tmp_path, OPENAI, "/openai/v1/responses", _reasoning("core"))
     assert response.status_code == 400 and sent == []
     assert summary["block_reason"] == "body-unknown-member-no-exception"
 
 
+def _frame_with(member: dict) -> str:
+    return json.dumps({"type": "response.create", "model": "gpt-5.2-codex", "input": "hello", "zz_unknown": member})
+
+
 def test_a_websocket_frames_unknown_member_is_one_no_exception_can_reach():
-    """Review I-8, F-2: a WebSocket takes no request exception in 0.11.0, so a frame's unknown member is refused under
-    the code that says no exception reaches it."""
+    """Review I-8, F-2: a WebSocket takes no request exception in 0.11.0, so a frame's unknown member the new rule
+    refuses (a destination here) is refused under the code that says no exception reaches it; one of control values
+    passes by the new rule."""
+    from latet.gateway.body_coverage import NEW_MEMBER_RULE
+
     from .server.test_reads_or_refuses import _session_mediator
 
-    frame = json.dumps({"type": "response.create", "model": "m", "input": "hello", "zz_unknown": {"a": "b"}})
     for on_server in (True, False):
         mediator, session = _session_mediator(on_server=on_server)
-        _, prepared = mediator.mask_ws_frame(frame, session)  # type: ignore[arg-type]
+        _, prepared = mediator.mask_ws_frame(_frame_with({"to": "https://x.example"}), session)  # type: ignore[arg-type]
+        assert prepared is not None and prepared.envelope_refusal == "body-unknown-member-no-exception", on_server
+        _, prepared = mediator.mask_ws_frame(_frame_with({"a": "b"}), session)  # type: ignore[arg-type]
+        assert prepared is not None and prepared.block_reason is None, on_server
+        assert NEW_MEMBER_RULE in prepared.body_rules
+
+
+def test_strict_a_websocket_frames_unknown_member_is_one_no_exception_can_reach(strict):
+    from .server.test_reads_or_refuses import _session_mediator
+
+    for on_server in (True, False):
+        mediator, session = _session_mediator(on_server=on_server)
+        _, prepared = mediator.mask_ws_frame(_frame_with({"a": "b"}), session)  # type: ignore[arg-type]
         assert prepared is not None and prepared.envelope_refusal == "body-unknown-member-no-exception", on_server
 
 
-@pytest.mark.parametrize("member", ["x_auth_mode", "cache_token", "a*b"])
-async def test_a_member_no_selector_can_name_is_refused_under_the_no_exception_code(tmp_path, member):
-    """Re-review R-1: a member whose name holds a credential's word or a ``*`` cannot be named by an exception's body
-    selector (``latet config add`` refuses one: "credential member", "key wildcard"), so its refusal says no exception
-    reaches it. Both read one predicate, ``body_selectors.selectable``."""
+async def _no_selector(tmp_path, member: str):
     from latet.gateway.body_selectors import BodySelector, SelectorRefused, selectable
 
     with pytest.raises(SelectorRefused):
         BodySelector("/" + member, "string")
     assert selectable((member,)) is False
     body = {"model": "m", "messages": [{"role": "user", "content": "ordinary request"}], member: "plain words"}
-    response, sent, summary = await _recorded(tmp_path, OPENAI, "/openai/v1/chat/completions", body)
+    return await _recorded(tmp_path, OPENAI, "/openai/v1/chat/completions", body)
+
+
+@pytest.mark.parametrize(("member", "refused"), [("x_auth_mode", False), ("cache_token", True), ("a*b", False)])
+async def test_a_member_no_selector_can_name_is_refused_under_the_no_exception_code(tmp_path, member, refused):
+    """Re-review R-1: a member whose name holds a credential's word or a ``*`` cannot be named by an exception's body
+    selector (``latet config add`` refuses one: "credential member", "key wildcard"), so its refusal says no exception
+    reaches it. Both read one predicate, ``body_selectors.selectable``. The new rule refuses one whose name names a
+    resource (``cache``) and reads the others, which then pass."""
+    response, sent, summary = await _no_selector(tmp_path, member)
+    if refused:
+        assert response.status_code == 400 and sent == []
+        assert summary["block_reason"] == "body-unknown-member-no-exception"
+    else:
+        assert response.status_code == 200 and len(sent) == 1 and "new-member" in summary["passes"]
+
+
+@pytest.mark.parametrize("member", ["x_auth_mode", "cache_token", "a*b"])
+async def test_strict_a_member_no_selector_can_name_is_refused_under_the_no_exception_code(tmp_path, strict, member):
+    response, sent, summary = await _no_selector(tmp_path, member)
     assert response.status_code == 400 and sent == []
     assert summary["block_reason"] == "body-unknown-member-no-exception"
 

@@ -15,14 +15,14 @@ Cela n'étend pas la prise en charge connectée à Desktop, VS Code, JetBrains, 
 Sous Linux et macOS, `latet connect`, `latet claude`, `latet agents apply claude` et
 `latet global-install` le disent d'emblée, les réglages de Claude Code ne reçoivent pas le
 jeton, et le plugin retient chaque prompt ; `latet codex` et `latet opencode` passent par le
-serveur. Suivez le [guide de connexion](../../getting-started/server/) pour `latet connect`,
+serveur. Suivez le [guide de connexion à un serveur](../../getting-started/server/) pour `latet connect`,
 `latet agents apply claude`, le stockage du jeton et `latet disconnect`.
 
 Sur une machine connectée, `LATET_BRIDGE_TOKEN`, dans les réglages et l'environnement de Claude
 Code, contient le jeton de cette machine, et chaque commande que Claude Code exécute peut le lire. De
 partout où le serveur est joignable, le jeton ouvre le bridge du plugin et le proxy de votre espace :
-qui le détient peut faire masquer des textes dans votre espace, faire restaurer les valeurs factices
-qu'il possède et envoyer des requêtes par lui. Il n'ouvre jamais votre tableau de bord, où chaque
+qui le détient peut faire masquer des textes dans votre espace, faire remplacer par les originaux les
+valeurs factices qu'ils contiennent, et envoyer des requêtes par ce proxy. Il n'ouvre jamais votre tableau de bord, où chaque
 original peut être affiché, ne change jamais votre identité et ne réduit jamais votre protection : la
 seule modification qu'il peut apporter à vos réglages est l'ajout d'une destination pour une adresse,
 qui ne réduit rien. Pour le tableau de bord et l'identité, le serveur demande aussi la clé de la
@@ -33,16 +33,16 @@ les deux dans le magasin d'identifiants. Sur une machine connectée, `latet dash
 `latet identity send` refusent de s'exécuter dans un agent. Si le jeton a pu fuiter, `latet disconnect`
 le révoque.
 
-Sur une machine connectée, le mode d'impression (`claude -p`) n'est pas pris en charge : le
+Sur une machine connectée, le mode non interactif (`claude -p`) n'est pas pris en charge : le
 plugin retient ses requêtes. Utilisez le terminal interactif. Quand le plugin retient une
-requête, il dit pourquoi : le mode d'impression ou une autre interface ; une liaison du
+requête, il dit pourquoi : le mode non interactif ou une autre interface ; une liaison du
 processus auxiliaire absente ou périmée (`latet agents apply claude`) ; un serveur qui n'a pas
 répondu (`latet status`) ; ou un jeton que le serveur n'accepte plus (`latet disconnect`, puis
 `latet connect` avec un nouveau code d'un administrateur).
 Le plugin masque les descriptions des outils de Claude Code ; sur un serveur, la vérification
-finale lit aussi leurs descriptions, schémas de paramètres et exemples, et une valeur restée en
+finale lit aussi leurs descriptions, schémas de paramètres et exemples, et une valeur qui y reste en
 clair arrête la requête ([périmètre de protection](../../concepts/protection-scope/)). Les tableaux de couverture et
-instructions du daemon ci-dessous décrivent **Latet local** ; ils n'élargissent pas
+les instructions relatives au daemon ci-dessous décrivent **Latet local** ; ils n'élargissent pas
 cette prise en charge du processus auxiliaire connecté.
 
 ## Couverture
@@ -101,7 +101,7 @@ ses requêtes par lui, comme par n'importe quelle passerelle : Anthropic documen
 [guide des passerelles](https://code.claude.com/docs/en/llm-gateway-protocol) demande à une passerelle de
 transmettre les requêtes inchangées et de les inspecter sans les modifier. C'est ce que fait le daemon :
 le corps de chaque requête arrive chez Anthropic octet pour octet, et ses en-têtes tels que Claude Code
-les a écrits, votre jeton dedans, moins deux sortes que Latet retire et compte dans le tableau de bord :
+les a écrits, avec votre jeton, à l'exception de deux sortes d'en-têtes que Latet retire et compte dans le tableau de bord :
 les en-têtes de télémétrie et de traçage qu'ajoute son SDK (`x-stainless-*`, `traceparent`...), et
 ceux de Claude Code lui-même qui peuvent contenir du texte libre (les identifiants d'un sous-agent,
 qui peuvent contenir son nom, des valeurs que Claude Code copie de son environnement, et une
@@ -167,12 +167,14 @@ Quand `ANTHROPIC_BASE_URL` pointe vers lui, chaque requête passe par le daemon,
 
 - cherche dans la requête sortante des valeurs sensibles en clair, et la bloque s'il en trouve une : Claude
   Code affiche alors une erreur d'API avec le message `Latet: sensitive values would leave in clear` ;
-- lit chacune de ses autres parties : un en-tête, un paramètre de requête ou un membre du corps
-  qu'aucun profil ne nomme est refusé
-  ([Chaque partie d'une requête](../../concepts/protection-scope/#chaque-partie-dune-requête)), sauf un
-  nouveau membre du corps qui contient du texte, un nouvel en-tête `anthropic-*` ou une nouvelle
-  valeur d'`anthropic-beta`, qui passent une fois lus par la vérification finale, et un nouvel en-tête
-  `x-claude-code-*`, qu'il retire et compte ;
+- lit chacune de ses autres parties : un en-tête ou un paramètre de requête qu'aucun profil ne nomme
+  est refusé ([Chaque partie d'une
+  requête](../../concepts/protection-scope/#chaque-partie-dune-requête)), sauf un nouvel en-tête
+  `anthropic-*` ou une nouvelle valeur d'`anthropic-beta`, qui passent une fois lus par la
+  vérification finale, et un nouvel en-tête `x-claude-code-*`, qu'il retire et compte ; un membre du
+  corps qu'aucun profil ne nomme encore est lu en entier et vérifié, et passe tel quel quand rien en
+  lui ne serait masqué et qu'il ne nomme rien sur quoi le fournisseur agit ([Nouveaux membres des
+  requêtes](../../getting-started/upgrading-to-0-11/#nouveaux-membres-des-requêtes)) ;
 - sinon, transmet le corps octet pour octet, et les en-têtes moins ceux qu'il retire et compte
   ([Les en-têtes que Latet retire](../../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire)) ;
 - enregistre l'échange pour le [tableau de bord](../../dashboard/), sans ses identifiants.
@@ -216,7 +218,7 @@ comme de confiance ([Projets](../../concepts/projects/#de-confiance-et-déclaré
   réglages gérés ou de projet, ou les sources de réglages que vous choisissez en ligne de commande,
   rendraient incertain quels réglages l'emportent, il n'en ajoute aucune, le dit, et le projet de la
   session est déclaré.
-- **Configuré par `latet global-install`,** le plugin lie chaque session à son projet ; le lien prend
+- **Avec `latet global-install`,** le plugin lie chaque session à son projet ; la liaison prend
   fin après 30 minutes sans appel du plugin. Les appels que Claude Code fait au démarrage, avant le
   premier appel du plugin, sont jugés avec vos seules règles.
 
@@ -251,8 +253,8 @@ commence par `x-claude-code-` est retiré.
 
 - `ANTHROPIC_BASE_URL` fait passer chaque requête par le daemon. Avec la passerelle de votre entreprise,
   Amazon Bedrock, Google Vertex ou Microsoft Foundry, Latet écrit à sa place la variable de cette route
-  (voir [Points de terminaison d'entreprise](../company-endpoints/)) ; avec une adresse sur cet
-  ordinateur, il laisse la vôtre telle quelle.
+  (voir [Points de terminaison d'entreprise](../company-endpoints/)) ; avec une adresse sur cette
+  machine, il laisse la vôtre telle quelle.
 - `LATET_BRIDGE_URL` et `LATET_BRIDGE_TOKEN` indiquent au plugin où se trouve le daemon, et prouvent au
   daemon que le plugin est le vôtre.
 - `ENABLE_TOOL_SEARCH` garde activée la recherche d'outils MCP : Claude Code la désactive quand l'URL de
@@ -327,7 +329,7 @@ votre nom d'utilisateur. Quand ils sont identiques, les chemins contiennent de t
 
 ## Limites
 
-- **Le mode print affiche les valeurs factices.** Avec `claude -p`, la réponse affichée contient des
+- **Le mode non interactif affiche les valeurs factices.** Avec `claude -p`, la réponse affichée contient des
   valeurs factices, car seule l'interface interactive remet les vraies valeurs à l'écran. Les fichiers
   écrits par les outils reçoivent quand même les vraies valeurs.
 - **Claude Desktop connecté à un compte Claude** : l'onglet Code a le plugin et sa vérification

@@ -3,5 +3,15 @@
   "latet.footer.privacy": "Datenschutzerklärung",
   "latet.footer.legal": "Impressum",
   "latet.video.label": "Das Produktvideo von Latet: Die Anfrage eines KI-Agenten trägt echte Werte zu einem Modell in der Cloud; an der Grenze zwischen Ihrem Rechner und der Cloud verwandelt Latet jeden dieser Werte in einen Ersatzwert im selben Format und setzt die echten Werte wieder ein, wenn die Antwort zurückkommt",
-  "latet.video.watch": "Das Produktvideo von Latet auf docs.latet.ai ansehen"
+  "latet.video.watch": "Das Produktvideo von Latet auf docs.latet.ai ansehen",
+  "pagefind.clear_search": "Löschen",
+  "pagefind.load_more": "Weitere Ergebnisse laden",
+  "pagefind.search_label": "Diese Website durchsuchen",
+  "pagefind.filters_label": "Filter",
+  "pagefind.zero_results": "Keine Ergebnisse für [SEARCH_TERM]",
+  "pagefind.many_results": "[COUNT] Ergebnisse für [SEARCH_TERM]",
+  "pagefind.one_result": "[COUNT] Ergebnis für [SEARCH_TERM]",
+  "pagefind.alt_search": "Keine Ergebnisse für [SEARCH_TERM]. Stattdessen Ergebnisse für [DIFFERENT_TERM]",
+  "pagefind.search_suggestion": "Keine Ergebnisse für [SEARCH_TERM]. Versuchen Sie eine dieser Suchen:",
+  "pagefind.searching": "Suche nach [SEARCH_TERM]..."
 }

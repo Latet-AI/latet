@@ -77,8 +77,9 @@ def _keyring_on() -> bool:
     return os.environ.get("LATET_KEYRING", "").lower() not in ("off", "0", "false", "no")
 
 
-def load_root_key(data_dir: Path) -> bytes:
-    """The root key, created on first use. Losing it only makes new surrogates differ."""
+def find_root_key(data_dir: Path) -> bytes | None:
+    """The root key where ``load_root_key`` finds it (LATET_ROOT_KEY, LATET_ROOT_KEY_FILE, the keyring when it is on,
+    ``root.key``), or None where there is none: never one made (``latet leak`` reads the vault with it, read-only)."""
     env = os.environ.get("LATET_ROOT_KEY")
     if env:
         return base64.b64decode(env)
@@ -90,6 +91,15 @@ def load_root_key(data_dir: Path) -> bytes:
     fallback = data_dir / "root.key"
     if fallback.exists():
         return base64.b64decode(fallback.read_text().strip())
+    return None
+
+
+def load_root_key(data_dir: Path) -> bytes:
+    """The root key, created on first use. Losing it only makes new surrogates differ."""
+    key = find_root_key(data_dir)
+    if key is not None:
+        return key
+    fallback = data_dir / "root.key"
     key = secrets.token_bytes(32)
     if not _keyring_on() or not _to_keyring(key):
         make_private_folder(data_dir)

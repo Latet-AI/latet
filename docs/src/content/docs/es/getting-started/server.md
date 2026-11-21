@@ -4,9 +4,9 @@ description: Desplegar un servidor, conectar un equipo y gestionar personas, cla
 ---
 
 Ejecuta los comandos de administración en tu propio terminal, en un equipo con Latet instalado.
-Lee [los espacios y la confianza](../../concepts/server/) antes de conceder acceso.
+Lee [cómo funcionan los espacios y la confianza](../../concepts/server/) antes de conceder acceso.
 Un administrador prepara el despliegue; cada persona conecta su propio equipo.
-Un agente de IA puede explicarte los pasos y revisar la máquina, pero los comandos que cambian la
+Un agente de IA puede explicarte los pasos y comprobar la máquina, pero los comandos que cambian la
 administración, `config get`, `rules export`, `latet server init`, `latet server service install`
 y `latet connect` se niegan a ejecutarse dentro de un agente: indícale [`llms-server.md`](https://github.com/Latet-AI/latet/blob/main/llms-server.md).
 No des nunca un token de administración a un agente: con uno, los comandos que solo leen (el estado,
@@ -14,9 +14,9 @@ las listas de personas y de claves, el registro) se ejecutan para él.
 
 ## Preparar el despliegue
 
-Elige el [servicio del sistema o Compose](../../concepts/server-operations/).
+Elige el despliegue [como servicio del sistema o con Compose](../../concepts/server-operations/).
 El servicio necesita una instalación de confianza para todo el sistema y una configuración
-protegida; el perfil servidor de Compose incluye PostgreSQL, Valkey, dos instancias y Caddy.
+protegida; el perfil de servidor de Compose incluye PostgreSQL, Valkey, dos instancias y Caddy.
 En Linux una instancia puede ejecutarse como varios workers, uno por cada núcleo que la
 máquina da al servidor (`latet server run --workers N`, o `LATET_SERVER_WORKERS` en el `.env`
 de Compose): cada uno es una instancia propia, con su propia memoria y sus propias conexiones
@@ -25,10 +25,11 @@ a PostgreSQL y Valkey
 Un primer servidor puede empezar con uno.
 Configura la dirección HTTPS pública y prepara primero la clave maestra y los archivos secretos.
 La inicialización imprime un token de administración: guárdalo en un terminal privado y en
-un almacén de secretos. Para un contenedor, sigue la inicialización con los registros Docker
-desactivados de la guía operativa; una inicialización con registros puede conservar ese token.
+un almacén de secretos. Para un contenedor, sigue la inicialización de la guía de operaciones, con
+los registros de Docker desactivados; una inicialización normal, con registros, puede conservar ese
+token.
 
-Usa un certificado en el que confíen los equipos. Para una primera prueba, crea un certificado
+Usa un certificado en el que confíen tus equipos. Para una primera prueba, crea un certificado
 de servidor autofirmado y comprueba su huella digital:
 
 ```sh
@@ -37,7 +38,8 @@ latet server certificate certs/server.crt
 ```
 
 Mantén privado `server.key`. Compose monta `certs/server.crt` y `certs/server.key` en Caddy;
-sin contenedores, configura TLS en la instancia o en su proxy inverso de confianza.
+en un despliegue como servicio del sistema, TLS se configura en la instancia o en su proxy inverso
+de confianza.
 Entrega la huella verificada por un canal de confianza separado. Una huella obtenida de una
 conexión de red sin verificar no autentica por sí sola al servidor.
 
@@ -49,18 +51,18 @@ export LATET_SERVER_FINGERPRINT="<fingerprint>"
 latet server --server https://latet.acme.lan status
 ```
 
-Introduce el token de administración en la entrada oculta. La respuesta informa sobre
+Introduce el token de administración cuando te lo pida; no se muestra al escribirlo. La respuesta informa sobre
 la base de datos, Valkey, las identidades, la instancia que ha respondido y cada instancia
 viva, cada worker en una línea propia con su disponibilidad, su memoria y su versión. No comprueba
 cada agente ni demuestra que todo el tráfico de un equipo pase por Latet.
 
-Para administrar el servidor repetidamente, `--admin-token-file FILE` lee un archivo
+Para las tareas de administración habituales, `--admin-token-file FILE` lee un archivo
 privado con el token o un registro vinculado a este servidor. Guárdalo fuera de los
 repositorios y de los espacios de trabajo de los agentes. Sigue las comprobaciones de
 permisos y origen de [Administración del servidor](../../reference/server-administration/).
 No exportes un token de administración al entorno de la shell de una cuenta donde se ejecuten agentes.
 
-En la respuesta, `database` es siempre verdadero, porque una instancia que no alcanza PostgreSQL no da
+En la respuesta, `database` es siempre verdadero, porque una instancia que no puede conectarse a PostgreSQL no da
 ningún estado, y `valkey` suele serlo por la misma razón: consulta su salud en las métricas
 (`latet_database_up`, `latet_valkey_up`). `audit` da el último veredicto de la cadena (`ok`, `broken` o
 `unknown`), y `vault` enumera las identidades al 90 % o más del límite de su caja fuerte.
@@ -74,7 +76,7 @@ latet server --server https://latet.acme.lan people list
 
 El primer comando muestra un código de un solo uso. Entrégaselo en privado a esa
 persona: quien lo use puede conectarse como ella y abrir su panel. La emisión del código
-se anota en el registro de administración. El código funciona una sola vez, en 24 horas.
+se anota en el registro de administración. El código funciona una sola vez, durante 24 horas.
 `people code "Emily Carter"` emite otro cuando ha caducado o se ha perdido, y el anterior deja de
 funcionar; nunca pongas un código en una incidencia, un canal compartido o una conversación con un agente.
 
@@ -85,12 +87,13 @@ Para consultar los tokens de los equipos, usa:
 latet server --server https://latet.acme.lan people tokens "Emily Carter"
 ```
 
-Revoca el token de un equipo perdido mediante su id en la lista con `--revoke TOKEN_ID`.
+Revoca el token de un equipo perdido mediante su ID en la lista con `--revoke TOKEN_ID`.
 `people disable "Emily Carter"` detiene en segundos todos sus tokens y conserva su espacio
 (`people enable` se lo devuelve); `people remove "Emily Carter"` borra su espacio activo en el
 servidor, incluidos caja fuerte, historial y ajustes, una vez que lo confirmas. `keys disable`,
-`enable` y `remove` hacen lo mismo con una clave de API. Ninguna operación borra copias en
-copias de seguridad, navegadores o proveedores del modelo. Lee la confirmación antes de eliminarla.
+`enable` y `remove` hacen lo mismo con una clave de API. Ninguna de las dos operaciones borra las
+copias que haya en copias de seguridad, navegadores o proveedores de modelos. Lee la confirmación
+antes de eliminar nada.
 
 Al eliminar a una persona, sus datos en PostgreSQL se van con ella, sus datos en Valkey se borran una vez desde
 una instancia (de nuevo en la siguiente comprobación si no puede terminar), lo que quede allí caduca por sí solo,
@@ -105,12 +108,12 @@ latet connect https://latet.acme.lan
 ```
 
 Introduce el código de un solo uso cuando se solicite. Con un certificado autofirmado, añade
-`--fingerprint FINGERPRINT` con la huella verificada con el administrador. No elimines la
-vinculación al certificado para evitar un error. El registro de conexión, incluido el archivo
-elegido por `LATET_CONNECTION`, contiene metadatos y la huella; el token personal y la clave
-del equipo se guardan juntos, por separado, en el almacén de credenciales o en un archivo privado.
+`--fingerprint FINGERPRINT` con la huella verificada con el administrador. No quites la huella
+fijada para esquivar un error de certificado. El registro de la conexión, incluido el archivo
+elegido por `LATET_CONNECTION`, contiene metadatos y la huella fijada; el token personal y la clave
+del equipo se guardan en otro sitio, juntos, en el almacén de credenciales o en un archivo privado.
 
-El proceso auxiliar conectado de Claude Code está admitido en un **terminal Windows**.
+El proceso auxiliar conectado de Claude Code está admitido en un **terminal de Windows**.
 Aplica la integración y reinicia Claude Code, o inicia una sola sesión:
 
 ```sh
@@ -121,8 +124,8 @@ latet claude
 `latet agents apply claude` y `latet global-install` escriben el token personal en el
 `settings.json` del usuario de Claude como `LATET_BRIDGE_TOKEN`; el comando indica dónde.
 Es la excepción de instalación a la regla que excluye el token de los archivos de los agentes.
-La vinculación privada del proceso auxiliar contiene metadatos; recibe el token existente
-por stdin. Un programa que pueda observar esa entrada puede leerlo. Este contrato no admite
+La vinculación privada del proceso auxiliar contiene metadatos, y el proceso auxiliar recibe el
+token existente por stdin. Un programa que pueda observar esa entrada puede leerlo. Este contrato no admite
 el proceso auxiliar conectado en Claude Desktop, VS Code, JetBrains, Linux ni macOS: en Linux
 y macOS estos comandos lo dicen de entrada y no escriben el token, y el plugin retiene cada prompt.
 
@@ -146,17 +149,17 @@ latet disconnect
 `status` y `doctor` ofrecen diagnósticos acotados, no una prueba de cada ruta de los agentes.
 `dashboard` abre el panel de la persona en el servidor; en un equipo conectado, un agente no puede
 ejecutarlo. Solo imprime el enlace privado de
-inicio de sesión con `--print-url`; mantenlo privado. Mientras hay conexión, `config`, `rules`,
+inicio de sesión con `--print-url`; mantenlo privado. Mientras el equipo está conectado, `config`, `rules`,
 `llm`, `project`, `identity` y `reload` rechazan tanto leer los ajustes como cambiarlos; solo
 funcionan `config schema`, `rules test` e `identity send`. Usa el panel del servidor o los
 comandos de administración. `latet identity send` reenvía explícitamente los datos de identidad
-de este equipo. `latet start` también se niega: mientras hay conexión, nada usa el daemon de
+de este equipo. `latet start` también se niega: mientras está conectado, nada usa el daemon de
 este equipo.
 
 `latet disconnect` revoca el token de este equipo y elimina las vinculaciones de los agentes
 a la conexión, incluido el token de Claude guardado. La revocación también termina las
 sesiones del panel de la persona en sus otros equipos. Si no puedes confirmar la revocación,
-lee el resultado y pide a un administrador que compruebe los id de los tokens antes de
+lee el resultado y pide a un administrador que compruebe los ID de los tokens antes de
 reintentar. En un equipo conectado, el modo de impresión (`claude -p`) no se admite: el plugin
 retiene sus peticiones y lo dice. Usa el terminal interactivo. La
 [guía de Claude Code](../../agents/claude-code/) distingue el uso conectado de las superficies locales.
@@ -168,13 +171,13 @@ elimina; un llavero bloqueado puede pedir que lo desbloquees. Si una conexión o
 interrumpe, un archivo temporal de token que haya quedado se borra sin leerlo, así que el equipo no puede
 revocar el token que contenía. En ese caso, o cuando `latet disconnect` indica que queda una copia, lo
 revoca un administrador en el servidor: lista los tokens de la persona como arriba, encuentra el correcto
-por su id (la etiqueta con el nombre del equipo es solo una pista: dos equipos pueden llamarse igual) y lo
+por su ID (la etiqueta con el nombre del equipo es solo una pista: dos equipos pueden llamarse igual) y lo
 revoca con `--revoke TOKEN_ID`. Si no se puede distinguir el token correcto, `--revoke-all` revoca todos
 los tokens de la persona, y cada uno de sus equipos tendrá que conectarse de nuevo.
 
 ## Dar una clave de API a un programa
 
-Una clave de API tiene su propio espacio, sin panel personal ni registro de equipos.
+Una clave de API tiene su propio espacio, y no tiene el panel de una persona ni equipos conectados.
 Su administrador gestiona sus ajustes y sus reglas. Crea el secreto en un archivo privado nuevo:
 
 ```sh
@@ -182,7 +185,7 @@ latet server --server https://latet.acme.lan keys add "Billing CI" --out billing
 latet server --server https://latet.acme.lan keys list
 ```
 
-Usa una carpeta protegida fuera del repositorio. El comando muestra la identidad y la
+Usa para ese archivo una carpeta protegida fuera del repositorio. El comando muestra la identidad y la
 ruta del archivo sin mostrar el secreto. Guarda la clave en el almacén de secretos del
 programa. `keys rotate "Billing CI" --out replacement.key` sustituye su credencial;
 actualiza a la vez la clave y las direcciones de ruta del programa. Una clave de ruta
@@ -203,7 +206,7 @@ caja fuerte de la clave, se da a un token propio ([olvidar valores](../../applic
 el primer token de la clave tiene una dirección para modelos: un token creado con `keys add-token`,
 tenga los permisos que tenga, se rechaza allí y solo llama a la API para aplicaciones, donde cada
 restauración queda en el registro de administración. En
-cuanto una clave tiene varios tokens, `keys rotate` necesita `--token` con el id que muestra
+cuanto una clave tiene varios tokens, `keys rotate` necesita `--token` con el ID que muestra
 `keys tokens`, y `keys tokens "Billing CI" --revoke TOKEN_ID` detiene uno. `keys limit "Billing CI" 1000000`
 da a la caja fuerte de la clave un límite propio, por encima o por debajo del `vault_limit` del
 servidor.
@@ -234,18 +237,19 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" import tea
 las indicaciones para el revisor): mantén privada su salida. Las reglas propias de una persona se
 gestionan en su panel, donde ella misma las establece.
 
-Para dar las mismas reglas a un equipo de trabajo, compártelas a mano: expórtalas desde un sitio
+Para dar las mismas reglas a tus compañeros, compártelas a mano: expórtalas desde un sitio
 (`latet rules export FILE` en un equipo no conectado a un servidor, o **Exportar reglas** en la
 página **Reglas** de un panel) e importa el archivo en cada uno de los demás (`latet rules import
 FILE`, o **Importar reglas** en el panel); las de una clave de API con
 `latet server rules --key KEY import FILE`. En los equipos no conectados a un servidor, el
-`latet.yaml` de un proyecto las lleva en su repositorio. Las reglas establecidas para todos, que
-nadie puede relajar, están previstas para la Enterprise Edition.
+`latet.yaml` de un proyecto las lleva en su repositorio. Con la Enterprise Edition, las reglas
+establecidas para todos, que nadie puede relajar, son las directrices de la empresa, un archivo de
+reglas fijado con `latet server policy set`.
 
 Un cambio en los ajustes compartidos que reduce la protección de una persona, como un destino
-movido a otra dirección o el revisor apagado, espera su aprobación. Guardar sus
-propios cambios no aprueba un cambio compartido pendiente. Un guardado puede conservar
-esos cambios sin conseguir actualizar la propuesta pendiente; lee el resultado y recarga
+movido a otra dirección o el revisor desactivado, espera su aprobación. Guardar sus
+propios cambios no aprueba un cambio compartido pendiente. Al guardar, esos cambios pueden
+conservarse aunque no se consiga actualizar la propuesta pendiente; lee el resultado y recarga
 antes de hacer otro cambio.
 Una clave de API no tiene a nadie que apruebe un cambio así: llega al espacio de la clave de inmediato,
 también un cambio que reduce la protección, así que comprueba qué hace en tus programas un cambio en

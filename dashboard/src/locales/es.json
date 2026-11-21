@@ -1,53 +1,54 @@
 {
   "deployment": {
-    "verifyNote": "En modo cliente, el plugin de Claude Code pide al servidor Latet conectado que restaure los valores de la caja fuerte de tu espacio y luego los devuelve a Claude Code. Aquí Latet los reconstruye a partir de esa misma caja fuerte para compararlos.",
-    "liveDescription": "Las peticiones que tus agentes conectados envían a través del servidor Latet, en tiempo real. Abre una para examinar la petición registrada y su resultado en la ruta protegida hacia el proveedor.",
-    "sessionNewNote": "Muestra los bloques enviados por primera vez en cada petición registrada que recibió el servidor Latet.",
+    "verifyNote": "En modo cliente, el plugin de Claude Code pide al servidor de Latet conectado que restaure los valores de la caja fuerte de tu espacio y luego los devuelve a Claude Code. Aquí Latet los reconstruye a partir de esa misma caja fuerte para compararlos.",
+    "liveDescription": "Las peticiones que tus agentes conectados envían a través del servidor de Latet, en tiempo real. Abre una para examinar la petición registrada y su resultado en la ruta protegida hacia el proveedor.",
+    "sessionNewNote": "Muestra los bloques enviados por primera vez en cada petición registrada que recibió el servidor de Latet.",
     "requestNotSentDetail": "Esta petición no se reenvió por la ruta protegida hacia el proveedor. El texto registrado incluye los valores que la detuvieron. Se conserva cifrado en el historial de esta identidad en el servidor durante el plazo de conservación configurado; esta vista lo muestra en tu navegador.",
     "requestNotSentText": "Esta petición no se reenvió por la ruta protegida hacia el proveedor. El texto registrado se conserva cifrado en el historial de esta identidad en el servidor durante el plazo de conservación configurado; esta vista lo muestra en tu navegador.",
     "hostNameHelp": "El nombre de host comunicado por el agente conectado, cuando aparece en su CLAUDE.md o en la acción.",
     "recognizerUnsupported": "Este formulario no puede editar este reconocedor porque contiene claves no admitidas.",
-    "nerInactive": "Instalado en el servidor Latet, pero no activo. Pide a los administradores del servidor que revisen la detección de nombres.",
+    "nerInactive": "Instalado en el servidor de Latet, pero no activo. Pide a los administradores del servidor que revisen la detección de nombres.",
     "projectNoFile": "No hay ningún archivo del repositorio disponible en esta vista del servidor.",
-    "projectRepoReadOnly": "El agente conectado proporcionó estos ajustes del repositorio. Esta vista del servidor no puede leer, crear ni modificar archivos en ese ordenador.",
+    "projectRepoReadOnly": "El agente conectado proporcionó estos ajustes del repositorio. Esta vista del servidor no puede leer, crear ni modificar archivos en ese equipo.",
     "stoppedHelp": "Latet detuvo esta petición protegida antes de reenviar este valor en claro al proveedor del modelo. Haz clic para examinarlo o marcarlo como No sensible.",
     "stopped": "Detenido antes de reenviar este valor en claro por la ruta protegida hacia el modelo o su proveedor.",
     "statsBlockedHelp": "Peticiones protegidas detenidas antes de reenviarlas al proveedor del modelo",
-    "profileBalanced": "Secretos, términos propios, datos personales (correos, teléfonos, IBAN, codice fiscale, partita IVA, tarjetas) e identidad proporcionada a este espacio del servidor. El ajuste predeterminado para trabajar con código.",
-    "nerDescription": "Cuando su modelo está disponible, la detección de nombres en el servidor Latet puede encontrar nombres de personas y direcciones que los patrones no identifican.",
+    "profileBalanced": "Secretos, tus propios términos, datos personales (correos, teléfonos, IBAN, codice fiscale, partita IVA, tarjetas) e identidad proporcionada a este espacio del servidor. El perfil predeterminado para trabajar con código.",
+    "nerDescription": "Cuando su modelo está disponible, la detección de nombres en el servidor de Latet puede encontrar nombres de personas y direcciones postales que los patrones no identifican.",
     "nerToggleHelp": "Usa el modelo de detección de nombres del servidor cuando está disponible. Los administradores lo instalan y mantienen.",
-    "reviewerDescription": "El servicio del revisor configurado por los administradores puede leer el texto original que los detectores dejaron en claro antes del reenvío al proveedor del modelo. Puede añadir enmascarado, nunca quitarlo.",
-    "ocrOn": "El reconocimiento de texto se ejecuta en el servidor Latet cuando está disponible y cubre los valores detectados con valores ficticios.",
+    "reviewerDescription": "El servicio del revisor configurado por los administradores puede leer el texto original que los detectores dejaron en claro antes del reenvío al proveedor del modelo. Puede añadir enmascaramiento, nunca quitarlo.",
+    "ocrOn": "El reconocimiento de texto se ejecuta en el servidor de Latet cuando está disponible y cubre los valores detectados con valores ficticios.",
     "reviewBlock": "Excluir estos detalles del revisor (predeterminado)",
     "reviewBlockHelp": "Latet detiene estas peticiones de revisión del modo automático antes de reenviarlas al revisor. Claude Code lo considera no disponible, rechaza esas acciones y no te pide confirmación. Los datos que Latet ya recibió no se borran.",
-    "imagesHelp": "Las imágenes se procesan en el servidor Latet; los administradores proporcionan el reconocimiento de texto. Enviar no evita una comprobación activa del servidor que rechaza imágenes no leídas. Solo enmascaradas exige imágenes legibles y enmascaradas y excluye los PDF. No enviar excluye imágenes y PDF. Las demás comprobaciones del servidor siguen vigentes.",
-    "destinationsHelp": "Destinos comunicados por los agentes conectados o configurados en el servidor. Un registro no es una auditoría de los agentes instalados ni de su configuración actual.",
-    "destinationInUse": "Registro comunicado",
+    "imagesHelp": "Las imágenes se procesan en el servidor de Latet; los administradores proporcionan el reconocimiento de texto. Enviar no anula una comprobación activa del servidor que rechaza imágenes no leídas. Solo enmascaradas exige imágenes legibles y enmascaradas y excluye los PDF. No enviar excluye imágenes y PDF. Las demás comprobaciones del servidor siguen vigentes.",
+    "destinationsHelp": "Destinos comunicados por los agentes conectados o configurados en el servidor. Un registro no es una auditoría de los agentes instalados ni de sus ajustes actuales.",
+    "destinationInUse": "Comunicado como registrado",
     "destinationUnused": "No se comunica ningún registro actual",
     "destinationsEmpty": "Aquí no se comunican destinos adicionales. Esto no confirma cómo se enruta cada agente conectado.",
     "integrationsCli": "En cada equipo conectado, estos comandos comprueban su conexión y configuran sus agentes para usar Latet.",
     "tagline": "Cortafuegos de privacidad en el servidor",
     "unknownTagline": "Cortafuegos de privacidad",
-    "pending": "No se ha podido cargar la información del servicio. Reintenta la conexión para cargarla.",
+    "pending": "No se ha podido cargar la información del despliegue. Reintenta la conexión para cargarla.",
     "ocrUnavailable": "El reconocimiento de texto no está disponible en el servidor de Latet. Pide a los administradores del servidor que revisen su entorno de ejecución y su modelo.",
     "nerUnavailable": "La detección de nombres no está disponible en el servidor de Latet. Pide a los administradores del servidor que revisen su entorno de ejecución y su modelo.",
-    "historyClear": "Se borra cada intercambio registrado en el historial de esta identidad en el servidor. La caja fuerte se conserva, por lo que el enmascarado y la restauración siguen como antes. Esta acción no se puede deshacer.",
+    "historyClear": "Se borra cada intercambio registrado en el historial de esta identidad en el servidor. La caja fuerte se conserva, por lo que el enmascaramiento y la restauración siguen como antes. Esta acción no se puede deshacer.",
     "identityHelp": "Identidad proporcionada por los equipos conectados: nombres de usuario en rutas, nombres de host, nombres y correos de git.",
-    "reviewerHelp": "Encontrado por el revisor configurado por los administradores, que puede leer el texto original que los detectores dejaron en claro. Una línea discontinua indica un juicio, no una coincidencia de patrón.",
-    "nerHelp": "Encontrado por el modelo de detección de nombres en el servidor Latet: nombres, direcciones y ciudades. Una línea discontinua indica un juicio, no una coincidencia de patrón.",
+    "reviewerHelp": "Encontrado por el revisor configurado por los administradores, que puede leer el texto original que los detectores dejaron en claro. Una línea discontinua indica una valoración, no una coincidencia con un patrón.",
+    "nerHelp": "Encontrado por el modelo de detección de nombres en el servidor de Latet: nombres, direcciones postales y ciudades. Una línea discontinua indica una valoración, no una coincidencia con un patrón.",
     "outboundKind": "Herramienta del proveedor o externa",
     "blockedHelp": "Latet detuvo esta petición protegida antes de reenviarla al proveedor del modelo. Esto no describe otro tráfico de red.",
-    "imageHelp": "Se leyó una imagen en el servidor Latet ({{detail}}). Enmascarada: los valores detectados se cubrieron con valores ficticios. Retenida: no se pudo leer y se excluyó de la petición al modelo.",
+    "imageHelp": "Se leyó una imagen en el servidor de Latet ({{detail}}). Enmascarada: los valores detectados se cubrieron con valores ficticios. Retenida: no se pudo leer y se excluyó de la petición al modelo.",
     "outboundHelp": "Una herramienta del proveedor o externa recibió, o habría recibido, un valor ficticio. Actúa sobre este, no sobre el original. Esto no inspecciona el tráfico arbitrario de las herramientas.",
     "uninspectedHelp": "No se inspeccionó una parte de esta petición ({{detail}}). El indicador por sí solo no demuestra que se reenviara. Una comprobación activa del servidor rechaza imágenes no leídas; una petición reescrita puede retenerlas. Las llamadas sin protección siguen su propia política.",
-    "pluginHelp": "El flujo compatible del plugin de Claude Code detuvo esta petición al modelo. El texto puede haber llegado ya a Latet mediante el auxiliar o el puente; esto no significa que no hubiera tráfico de red.",
+    "pluginHelp": "El flujo admitido del plugin de Claude Code detuvo esta petición al modelo. El texto puede haber llegado ya a Latet mediante su proceso auxiliar o su bridge; esto no significa que no hubiera tráfico de red.",
     "reviewHappened": "Claude Code pidió a su revisor del modo automático que evaluara una acción. La petición contenía {{details}} comunicados por el agente conectado, que tus reglas excluyen de ese revisor, por lo que no se le reenvió.",
     "notForwarded": "Esta petición protegida no se reenvió al proveedor del modelo. Esto no describe otro tráfico de red ni borra datos que Latet ya haya recibido.",
+    "toolInputMeant": "Esta petición protegida no se reenvió al proveedor del modelo. Esto no describe otro tráfico de red ni borra datos que Latet ya haya recibido. Claude Code envía el esquema de una herramienta con cada petición desde que la ha cargado, y tras un error el de todas las herramientas: sus peticiones se detienen aquí hasta que cambies algo.",
     "imagesTodo": "Quita el adjunto no leído o pide a los administradores del servidor que revisen el reconocimiento de texto. Tu política de imágenes no puede hacer que una comprobación activa del servidor reenvíe una imagen que no pudo leer.",
     "doctorTodo": "Ejecuta latet doctor en el equipo conectado para comprobar su conexión. Pide a los administradores del servidor que investiguen un fallo del servidor.",
-    "imagesHappened": "Tu política exige imágenes legibles y enmascaradas. Latet no pudo leer {{what}}: la disponibilidad, la capacidad, los plazos o el formato pueden impedirlo.",
+    "imagesHappened": "Tu política de imágenes exige imágenes legibles y enmascaradas. Latet no pudo leer {{what}}: la disponibilidad, la capacidad, los plazos o el formato pueden impedirlo.",
     "reviewerHappened": "Tus reglas exigen que el revisor configurado compruebe el texto nuevo. Su servicio no pudo completar una comprobación fiable, o pidió detener esta petición.",
-    "reviewerTodo": "Pide a los administradores del servidor que revisen el servicio del revisor. Tu política sigue en Reglas; los administradores definen el endpoint, el modelo, el certificado y la clave.",
+    "reviewerTodo": "Pide a los administradores del servidor que revisen el servicio del revisor. Tu propia política del revisor sigue en Reglas; los administradores definen el punto de conexión, el modelo, el certificado y la clave.",
     "outboundHappened": "El modelo pidió a {{tools}} que usara {{types}} sustituidos por Latet. Esta herramienta del proveedor o externa habría actuado sobre el valor ficticio: buscado a otra persona, abierto la página equivocada o usado una dirección inventada.",
     "outboundTodo": "Solo si el original puede enviarse a este proveedor o herramienta externa, márcalo como No sensible y pide al modelo que reintente. En caso contrario, mantenlo enmascarado.",
     "outboundRanTitle": "{{tools}} usó un valor ficticio",
@@ -57,7 +58,7 @@
     "flowBlocks_other": "{{count}} bloques registrados",
     "flowBlocks_many": "{{count}} bloques registrados",
     "original": "Original del almacenamiento de la identidad",
-    "vault": "Los originales y valores ficticios de esta identidad se guardan cifrados en el servidor Latet. Las vistas autorizadas del panel pueden entregar los originales a este navegador. Borrar el historial conserva la caja fuerte.",
+    "vault": "Los originales y valores ficticios de esta identidad se guardan sellados en el servidor de Latet. Las vistas autorizadas del panel pueden entregar los originales a este navegador. Borrar el historial conserva la caja fuerte.",
     "integrations": "Destinos registrados y comprobaciones de conexión para este espacio del servidor. El servidor no examina los agentes instalados en los equipos conectados.",
     "reviewerEnabled": "Los administradores configuran este servicio del revisor. Cuando se selecciona, puede leer el texto original que los detectores dejaron en claro.",
     "tutorial": "Inicia un tutorial local separado en tu equipo. Usa un entorno aislado con un agente y un modelo simulados; tu espacio del servidor sigue separado. En un terminal de ese equipo:"
@@ -81,6 +82,20 @@
     "playground": "Banco de pruebas",
     "integrations": "Agentes protegidos",
     "tutorial": "Tutorial",
+    "ee": {
+      "license": "Licencia",
+      "policy": "Directrices",
+      "people": "Personas y grupos",
+      "signIn": "Inicio de sesión",
+      "reports": "Informes",
+      "siem": "Salidas SIEM",
+      "audit": "Registro de administración",
+      "companyApprovals": "Aprobaciones de la empresa",
+      "companyWaiting_one": "{{count}} en espera de tu decisión",
+      "companyWaiting_many": "{{count}} en espera de tu decisión",
+      "companyWaiting_other": "{{count}} en espera de tu decisión",
+      "termSync": "Sincronización de términos"
+    },
     "sections": "En esta página"
   },
   "shell": {
@@ -133,10 +148,10 @@
   "errors": {
     "title": "No se ha podido cargar esta página",
     "network": "Latet no responde. Comprueba que el daemon está en marcha con `latet status`, o inícialo con `latet start`.",
-    "networkServer": "Latet no responde. Comprueba la conexión y reintenta. Si sigue sin estar disponible, contacta con quien gestione este servicio Latet.",
+    "networkServer": "Latet no responde. Comprueba la conexión y reintenta. Si sigue sin estar disponible, contacta con quien gestione este servicio de Latet.",
     "unauthorized": "Tu sesión del panel ha terminado. Ejecuta `latet dashboard` para abrir una nueva.",
     "http": "El daemon ha respondido {{status}}: {{message}}",
-    "httpServer": "El servidor Latet ha respondido {{status}}: {{message}}",
+    "httpServer": "El servidor de Latet ha respondido {{status}}: {{message}}",
     "unexpected": "Ha ocurrido algo inesperado: {{message}}",
     "settingsStale": "Tus ajustes cambiaron después de que esta página los leyera, así que tu cambio no se ha guardado. Vuelve a hacerlo sobre tus ajustes tal como están ahora.",
     "settingsTooLarge": "Estos ajustes superan lo que el servidor guarda para una persona, así que no se ha guardado nada. Quita algunos términos u otras entradas y vuelve a guardar.",
@@ -144,10 +159,12 @@
     "settingsTooManyRules": "Estos ajustes contienen más reconocedores, reglas de campo o patrones de la lista de permitidos de los que el servidor guarda para una persona, contando los de tus proyectos, así que no se ha guardado nada. Quita algunos y vuelve a guardar.",
     "settingsUnavailable": "El servidor no ha podido guardar tus ajustes ahora mismo, así que no ha cambiado nada. Inténtalo de nuevo en un momento.",
     "settingsChangeWaits": "Un cambio en tus ajustes espera tu aprobación, así que no se ha guardado nada. Apruébalo o deshazlo y vuelve a hacer el cambio.",
+    "settingsWaitingForOthers": "Reduce la protección, así que espera a quien debe decidirlo (Aprobaciones). Los ajustes en uso se quedan como están.",
     "repositoriesUnchecked": "Latet no ha podido leer ahora mismo todos los repositorios que ha visto (uno puede estar en una carpeta compartida que no responde, o en un archivo que no puede leer), así que no ha cambiado nada. Inténtalo de nuevo cuando se puedan leer.",
     "repoFileUnreadable": "El latet.yaml de este proyecto no es un archivo normal, o es más grande de lo que puede ser el archivo de un proyecto, así que no se ha guardado nada en su lugar. Corrígelo en la carpeta del proyecto y vuelve a cargar la página.",
     "repoFileUnavailable": "El latet.yaml de este proyecto no se puede leer ahora mismo, así que no se ha guardado nada en su lugar. Inténtalo de nuevo en un momento.",
     "settingsSavedChangePending": "Tus ajustes se han guardado, pero no se ha podido actualizar el cambio pendiente. Actualiza el panel antes de hacer otro cambio.",
+    "companySignIn": "Este cambio se aplica a todos en este servidor, así que necesita una sesión abierta con tu cuenta de empresa. Cierra sesión, inicia sesión con tu cuenta de empresa y vuelve a hacer el cambio.",
     "settingsTooManyProjects": "Estos ajustes nombran más proyectos de los que el servidor guarda para una persona, así que no se ha guardado nada. Quita tus ajustes de algunos proyectos y vuelve a guardar.",
     "settingsDropsShared": "Esto quitaría lo que está establecido para todos en este servidor ({{items}}), así que no se ha guardado nada. Solo los administradores del servidor pueden quitarlo.",
     "dropped": {
@@ -157,7 +174,7 @@
     },
     "destinationRefused": "{{url}}: en este servidor, un destino tuyo necesita una dirección que se pueda usar, alcanzada por https, que no lleve ni al propio servidor ni al interior de su red. Sus administradores pueden establecer para todos un destino alcanzado en claro o dentro de la red.",
     "reviewerKeyServer": "{{setting}}: en un servidor ningún ajuste indica de dónde se lee la clave del revisor local. La da el servidor, como la establecen sus administradores.",
-    "repoInClear": "{{setting}}: un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro (un reconocedor que deja pasar lo que encuentra, o un reconocedor, un término o una regla de campo de un tipo que se deja pasar). Ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección espera tu aprobación."
+    "repoInClear": "{{setting}}: un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro (un reconocedor que deja pasar lo que encuentra, o un reconocedor, un término o una regla de campo de un tipo que se deja pasar). Ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección queda pendiente de aprobación."
   },
   "auth": {
     "title": "Abre el panel desde tu terminal",
@@ -170,9 +187,20 @@
     "tutorialWhy": "El tutorial es un entorno aislado en este equipo. Nada de lo que contiene es tuyo, y se borra cuando termina.",
     "serverBody": "Este panel está en un servidor de Latet y solo se abre con un enlace de un solo uso creado para ti. En un equipo conectado al servidor, este comando inicia tu sesión y lo abre:",
     "serverWhy": "Las sesiones terminan tras 12 horas sin uso. Cada persona tiene su propio panel en el servidor.",
-    "serverExpired": "Ese enlace no ha iniciado tu sesión: ya se había usado, tiene más de dos minutos, o se abrió desde una página de otro sitio, que nunca inicia la sesión de nadie. Cada enlace funciona una sola vez, durante dos minutos.",
+    "serverExpired": "Ese enlace no ha iniciado tu sesión: ya se había usado, tiene más de dos minutos, o se abrió desde una página de otro sitio, y así nunca se inicia la sesión de nadie. Cada enlace funciona una sola vez, durante dos minutos.",
     "limited": "Se han probado demasiados enlaces de inicio de sesión desde esta dirección: espera un minuto y vuelve a abrir tu enlace.",
-    "busy": "El servidor está ocupado y no ha podido iniciar tu sesión: inténtalo de nuevo en un momento."
+    "busy": "El servidor está ocupado y no ha podido iniciar tu sesión: inténtalo de nuevo en un momento.",
+    "company": {
+      "button": "Iniciar sesión con tu cuenta de empresa",
+      "or": "O abre el panel desde tu terminal:",
+      "expired": "Ese inicio de sesión ha tardado más de diez minutos, o ya se ha usado. Inicia sesión de nuevo.",
+      "failed": "No se ha podido completar el inicio de sesión. Inténtalo de nuevo; si falla otra vez, el registro del servidor dice por qué.",
+      "notAllowed": "Tu cuenta de empresa no te da acceso a Latet. Pide a tu administrador que te añada al grupo de Latet.",
+      "notProvisioned": "Esta cuenta de empresa no está vinculada a ninguna cuenta de este servidor. Pide a tu administrador que la vincule a la tuya, o que el proveedor de identidad de tu empresa cree tu cuenta.",
+      "disabled": "Tu cuenta en este servidor está desactivada. Consulta a tu administrador.",
+      "unavailable": "El inicio de sesión único no está disponible ahora mismo. Inténtalo más tarde o consulta a tu administrador.",
+      "trialEnded": "El inicio de sesión único se detuvo cuando terminó la prueba de Latet Enterprise. Abre el panel desde tu terminal con latet dashboard, o consulta a tu administrador."
+    }
   },
   "shared": {
     "title": "Establecido para todos en este servidor"
@@ -243,9 +271,12 @@
     "tool_result": "Resultado de una herramienta",
     "attachment": "Adjunto",
     "tool_description": "Descripción de una herramienta",
+    "tool_schema": "Esquema de parámetros de una herramienta",
+    "tool_examples": "Ejemplos de entrada de una herramienta",
     "other": "Otro",
     "outbound_tool": "Herramienta fuera de tu equipo",
-    "image_text": "Texto en una imagen"
+    "image_text": "Texto en una imagen",
+    "new_member": "Nuevo miembro de la petición"
   },
   "flags": {
     "withDetail": "{{label}}: {{detail}}",
@@ -271,7 +302,7 @@
     },
     "uninspected": {
       "label": "No inspeccionado",
-      "help": "Una parte de esta solicitud no se leyó ({{detail}}): documentos, imágenes indicadas por su dirección e imágenes mientras el reconocimiento de texto está desactivado o sin instalar. Latet 0.11 rechaza una solicitud así; una versión anterior la enviaba tal cual."
+      "help": "Una parte de esta petición no se leyó ({{detail}}): documentos, imágenes indicadas por su dirección e imágenes mientras el reconocimiento de texto está desactivado o sin instalar. Latet 0.11 rechaza una petición así; una versión anterior la enviaba tal cual."
     },
     "degraded": {
       "label": "Degradado",
@@ -283,11 +314,11 @@
     },
     "project-off": {
       "label": "Latet desactivado",
-      "help": "Latet está desactivado en este proyecto (en tu propia configuración para él). Latet 0.11 rechaza una solicitud así en lugar de enviarla sin enmascarar; una versión anterior la enviaba tal cual."
+      "help": "Latet está desactivado en este proyecto (en tus propios ajustes para él). Latet 0.11 rechaza una petición así en lugar de enviarla sin enmascarar; una versión anterior la enviaba tal cual."
     },
     "project-claimed": {
       "label": "Proyecto declarado",
-      "help": "Una cabecera o una carpeta en el texto de la solicitud nombra su proyecto, y Latet no puede verificarlo: solo se aplicaron las reglas del proyecto que añaden protección, nunca sus relajaciones ni sus excepciones."
+      "help": "Una cabecera o una carpeta en el texto de la petición nombra su proyecto, y Latet no puede verificarlo: solo se aplicaron las reglas del proyecto que añaden protección, nunca sus relajaciones ni sus excepciones."
     },
     "withheld": {
       "label": "Retenido",
@@ -366,7 +397,7 @@
     "pinHint": "Haz clic o pulsa Intro para mantenerlo abierto.",
     "keepInProject": "No enmascarar {{field}} en este proyecto",
     "keep": "No enmascarar {{field}} en ningún sitio",
-    "keepDone": "Se deja en claro",
+    "keepDone": "Dejado en claro",
     "keptInProject": "A partir de ahora, {{field}} se deja en claro en las salidas de herramientas de este proyecto.",
     "kept": "A partir de ahora, {{field}} se deja en claro en las salidas de herramientas.",
     "technical": {
@@ -452,6 +483,7 @@
     }
   },
   "approvals": {
+    "descriptionSecurity": "Con el Revisor en directo activado, cada texto nuevo que tus agentes están a punto de enviar espera aquí al equipo de seguridad de tu empresa. Puedes detener uno antes de que salga.",
     "title": "Aprobaciones",
     "description": "Con el Revisor en directo activado, cada texto nuevo que tus agentes están a punto de enviar espera aquí. Apruébalo tal como lo ha enmascarado Latet, enmascara algo más antes, o no lo envíes.",
     "documentTitle": "({{count}}) {{name}}",
@@ -461,11 +493,14 @@
     "open": "Abrir Aprobaciones",
     "settings": "Ajustes del Revisor en directo",
     "tabs": {
+      "labelOthers": "Lo que espera una decisión",
       "label": "Lo que te espera",
       "texts": "Textos",
       "settings": "Ajustes"
     },
     "settingsEmpty": {
+      "bodySecurity": "Un cambio en tus ajustes que reduce la protección espera aquí hasta que el equipo de seguridad de tu empresa lo apruebe o tú lo deshagas, lo haya hecho quien lo haya hecho.",
+      "bodyControllers": "Un cambio en los ajustes de esta clave de API que reduce la protección espera aquí hasta que una de las personas que la controlan lo apruebe o tú lo deshagas, lo haya hecho quien lo haya hecho.",
       "title": "No tienes ningún cambio en tus ajustes pendiente",
       "body": "Un cambio en tus ajustes que reduce la protección espera aquí hasta que lo apruebes o lo deshagas, lo haya hecho quien lo haya hecho."
     },
@@ -491,15 +526,39 @@
         "help": "Esta lista"
       }
     },
+    "whoDecides": {
+      "changesSecurity": "Los cambios en tus ajustes que reducen la protección van al equipo de seguridad de tu empresa: {{names}}.",
+      "changesControllers": "Los cambios en los ajustes de esta clave de API que reducen la protección van a las personas que la controlan: {{names}}.",
+      "texts": "Tus textos nuevos en el Revisor en directo van al equipo de seguridad de tu empresa: {{names}}. Ven cada texto como tú, con los valores incluidos.",
+      "nobody": "por ahora nadie puede decidir, pregunta a tu administrador de Latet",
+      "more_one": "una persona más",
+      "more_many": "{{count}} personas más",
+      "more_other": "{{count}} personas más",
+      "tag": "Equipo de seguridad",
+      "batch": "El equipo de seguridad de tu empresa revisa este texto antes de que salga: {{names}}. Lo ven como tú, con los valores incluidos. Puedes detenerlo, pero no aprobarlo.",
+      "titleSecurity": "Un cambio en tus ajustes espera al equipo de seguridad de tu empresa",
+      "titleControllers": "Un cambio en los ajustes de esta clave de API espera a las personas que la controlan",
+      "changeHelp": "Se aplica en cuanto una de estas personas lo apruebe: {{names}}. Puedes deshacerlo, pero no aprobarlo.",
+      "notice": "Un cambio en estos ajustes espera la aprobación de otra persona. Todavía no se ha aplicado: estos son los ajustes en uso.",
+      "sent": "Reduce la protección, así que espera al equipo de seguridad de tu empresa (Aprobaciones). El formulario muestra los ajustes en uso.",
+      "sentControllers": "Reduce la protección, así que espera a las demás personas que controlan esta clave de API (Aprobaciones). El formulario muestra los ajustes en uso.",
+      "approvedBy": "{{name}} ha aprobado el cambio: los ajustes en uso han cambiado.",
+      "rejectedBy": "{{name}} no ha aprobado el cambio: los ajustes en uso se quedan como están.",
+      "unappliedBy": "{{name}} ha aprobado el cambio, pero tus ajustes han cambiado mientras tanto y no lo han incorporado: vuelve a pedirlo.",
+      "withheldChanged": "El equipo de seguridad de tu empresa ha aprobado un texto tuyo, pero se detuvo antes de salir: no se ha enviado. Si se vuelve a enviar, volverá a esperar su decisión."
+    },
     "change": {
       "title": "Un cambio en tus ajustes te espera",
       "source": {
+        "serverFileOthers": "Encontrado cuando el servidor volvió a aplicar tus ajustes, tras un cambio en lo establecido para todos o en tus ajustes en otra de sus instancias: mientras no se decida, funciona con los ajustes que aprobaste.",
+        "serverStartOthers": "Encontrado cuando se creó tu espacio en el servidor: mientras no se decida, funciona con los ajustes que aprobaste.",
         "command": "{{agent}} ha ejecutado un comando latet.",
         "commandNoAgent": "Se ha ejecutado un comando latet.",
         "file": "Se ha editado config.yaml.",
         "serverFile": "Encontrado cuando el servidor volvió a aplicar tus ajustes, tras un cambio en lo establecido para todos o en tus ajustes en otra de sus instancias: mientras no decidas, funciona con los ajustes que aprobaste.",
         "serverStart": "Encontrado cuando se creó tu espacio en el servidor: mientras no decidas, funciona con los ajustes que aprobaste.",
         "start": "Encontrado en config.yaml cuando se inició Latet: mientras no decidas, funciona con los ajustes que aprobaste.",
+        "dashboard": "Guardado en el panel.",
         "other": "Se han cambiado tus ajustes."
       },
       "loosened": "Reduce la protección:",
@@ -566,10 +625,12 @@
     "arrived": "Llegó {{time}}",
     "expires": "No se envía si no respondes {{time}}",
     "off": {
+      "bodySecurity": "Actívalo arriba y cada texto nuevo que tus agentes estén a punto de enviar esperará aquí al equipo de seguridad de tu empresa, que lo ve con los valores incluidos: tus prompts, los archivos que leen, lo que obtienen sus herramientas. Podrás detener uno antes de que salga.",
       "title": "El Revisor en directo está desactivado",
       "body": "Actívalo arriba y cada texto nuevo que tus agentes estén a punto de enviar esperará aquí hasta que lo apruebes: tus prompts, los archivos que leen, lo que obtienen sus herramientas. Verás lo que ha enmascarado Latet y podrás enmascarar más."
     },
     "empty": {
+      "bodySecurity": "Los textos nuevos que tus agentes están a punto de enviar aparecen aquí mientras el equipo de seguridad de tu empresa decide sobre ellos. Puedes detener uno antes de que salga.",
       "title": "No tienes nada pendiente",
       "body": "Los textos nuevos que tus agentes están a punto de enviar aparecen aquí y esperan hasta que los apruebes. Deja esta página abierta o activa las notificaciones.",
       "noTexts": "No tienes ningún texto pendiente"
@@ -588,6 +649,7 @@
       "body_other": "{{agent}}: {{count}} textos nuevos para aprobar."
     },
     "queue": {
+      "labelSecurity": "En espera del equipo de seguridad de tu empresa",
       "label": "En espera de tu aprobación",
       "title_one": "{{count}} en espera, por orden de llegada",
       "title_many": "{{count}} en espera, por orden de llegada",
@@ -751,9 +813,9 @@
       "partlyUnread": "Nada sensible en claro en lo que Latet leyó.",
       "partlyUnreadDetail": "No se leyeron todas sus partes: lo que pasó sin leerse, y por qué regla, figura abajo.",
       "notRecorded": "Registrada por una versión anterior de Latet.",
-      "notRecordedDetail": "No consta cuánto de esta solicitud leyó, así que no figura como verificada.",
+      "notRecordedDetail": "No consta cuánto de esta petición leyó, así que no figura como verificada.",
       "pluginCheck": "Una comprobación del plugin de Claude Code.",
-      "pluginCheckDetail": "Se hizo dentro de Claude Code y no envió nada por sí misma; la solicitud que leyó es un intercambio aparte.",
+      "pluginCheckDetail": "Se hizo dentro de Claude Code y no envió nada por sí misma; la petición que leyó es un intercambio aparte.",
       "uninspected": "La comprobación solo cubre el texto: Latet ha enviado {{what}} tal cual.",
       "reviewAllowed": "Enviada al revisor del modo automático.",
       "reviewAllowedDetail": "Llevaba {{what}}, que tus reglas dejan pasar al revisor. Los secretos y los datos personales nunca pasan."
@@ -817,6 +879,13 @@
         "todo": "Saca el valor: empieza una conversación nueva (en Claude Code, /clear) e indica al agente el archivo o la variable que lo contiene, en lugar de pegarlo. Solo si no es un secreto en absoluto, como un valor de prueba o de ejemplo, haz clic en él en la petición de abajo y elige No sensible.",
         "todoUnmarked": "Saca el valor: empieza una conversación nueva (en Claude Code, /clear) e indica al agente el archivo o la variable que lo contiene, en lugar de pegarlo. Abajo se indican los valores por tipo y longitud, no dónde están: solo si uno no es un secreto en absoluto, como un valor de prueba o de ejemplo, añádelo a la lista de permitidos en Reglas."
       },
+      "toolInput": {
+        "title": "No se ha enviado: {{types}} en el esquema de parámetros de una herramienta",
+        "happened": "La comprobación final ha encontrado {{types}} en claro en el esquema de parámetros de una herramienta o en sus ejemplos de entrada, tal como los escribió un servidor MCP o un plugin. Latet comprueba peticiones como esta sin cambiarlas, como las de Claude Code, y el plugin de Latet para Claude Code enmascara la descripción de una herramienta, pero no llega al esquema de sus parámetros. El motivo que Latet dio al agente, abajo, nombra la herramienta.",
+        "meant": "No ha salido nada de tu equipo, y el agente ha recibido un error. Claude Code envía el esquema de una herramienta con cada petición desde que la ha cargado, y tras un error el de todas las herramientas: sus peticiones se detienen aquí hasta que cambies algo.",
+        "todo": "Si el valor no es sensible, como una dirección de ejemplo en la documentación de la herramienta, haz clic en él en la petición de abajo y elige No sensible. Si lo es, desactiva el servidor MCP o el plugin que ofrece la herramienta (en Claude Code, /mcp o /plugin), o pide a su autor que quite el valor del esquema.",
+        "todoUnmarked": "Si el valor no es sensible, como una dirección de ejemplo en la documentación de la herramienta, añádelo a la lista de permitidos en Reglas. Si lo es, desactiva el servidor MCP o el plugin que ofrece la herramienta (en Claude Code, /mcp o /plugin), o pide a su autor que quite el valor del esquema."
+      },
       "other": {
         "title": "No se ha enviado",
         "happened": "Latet no ha podido procesar esta petición: {{reason}}.",
@@ -824,6 +893,24 @@
         "todo": "Si vuelve a ocurrir, latet doctor comprueba qué falla."
       },
       "live": {
+        "rejectedTeam": {
+          "title": "El equipo de seguridad de tu empresa la ha detenido",
+          "happened": "El equipo de seguridad de tu empresa ha elegido No enviar para los textos nuevos de la petición en el Revisor en directo.",
+          "todo": "Si tiene que enviarse, pregunta al equipo de seguridad de tu empresa por qué la ha detenido. Si el agente lo vuelve a intentar, volverá a esperar al equipo."
+        },
+        "expiredTeam": {
+          "title": "Ha esperado demasiado al equipo de seguridad de tu empresa",
+          "happened": "Ha esperado al equipo de seguridad de tu empresa en el Revisor en directo más tiempo del que permite tu límite.",
+          "todo": "Pide al equipo de seguridad de tu empresa que decida antes, o aumenta o quita el límite de tiempo en Revisor en directo."
+        },
+        "changedTeam": {
+          "title": "El equipo de seguridad de tu empresa la ha aprobado, pero tus ajustes han cambiado antes de que saliera",
+          "happened": "El equipo de seguridad de tu empresa ha aprobado los textos nuevos de la petición tal como los veía, pero tus ajustes han cambiado antes de que salieran, y habrían salido enmascarados de otra forma.",
+          "todo": "Si el agente los vuelve a enviar, volverán a esperar al equipo de seguridad de tu empresa, mostrados tal como saldrían ahora."
+        },
+        "abandonedTeam": {
+          "happened": "El agente ha abandonado la petición mientras esperaba al equipo de seguridad de tu empresa: lo has detenido tú, o ha desistido por su cuenta."
+        },
         "meant": "No ha salido nada de tu equipo: se le ha dicho al agente que no se ha enviado.",
         "rejected": {
           "title": "La has detenido en el Revisor en directo",
@@ -882,7 +969,7 @@
       "sentToHelp": "Adónde fue la petición después de Latet",
       "signed": "Firmada por Latet",
       "signedProfile": "con el perfil de AWS {{profile}}",
-      "signedSession": "con las credenciales de AWS del shell de `latet claude`"
+      "signedSession": "con las credenciales de AWS de la shell de `latet claude`"
     },
     "flow": {
       "label": "De tu equipo al modelo, y de vuelta",
@@ -1145,6 +1232,7 @@
       "title": "¿Olvidar este valor?",
       "body": "Latet elimina este valor {{type}} de la caja fuerte:",
       "consequence": "Desaparece de todo el historial: las peticiones anteriores muestran el valor ficticio en su lugar, y las respuestas que contienen el valor ficticio ya no se restauran. Si el valor vuelve a aparecer, se enmascara de nuevo, con el mismo valor ficticio, salvo que ese ya esté en la conversación.",
+      "consequenceKey": "En el espacio de una clave de API se olvida como lo olvida `latet server keys forget`: sale de la caja fuerte de la clave, de las peticiones de su historial que lo contienen y de las respuestas recordadas del revisor local, y el registro de administración anota que lo olvidaste. Si el valor vuelve a aparecer, recibe un valor ficticio nuevo.",
       "confirm": "Olvidar",
       "done": "Valor {{type}} olvidado."
     },
@@ -1203,7 +1291,7 @@
       "title": "Datos personales",
       "description": "Qué tipos de datos personales detectar y de qué países reconocer los números de identificación.",
       "secretsOnly": "El perfil Solo secretos no detecta datos personales.",
-      "useDefault": "Usar lo predeterminado del perfil",
+      "useDefault": "Usar los valores predeterminados del perfil",
       "useDefaultHelp": "Los tipos generales y los números de identificación de los países de arriba. Desactívalo para elegir tipo por tipo.",
       "types": {
         "EMAIL": "Direcciones de correo electrónico",
@@ -1341,6 +1429,8 @@
       "hostname": "Nombre de host",
       "hostnames": "Nombres de host",
       "fullName": "Nombre completo",
+      "fullNameProvider": "Lo da el proveedor de identidad de tu empresa.",
+      "fullNameLocked": "El proveedor de identidad de tu empresa fija tu nombre, así que no puedes cambiarlo aquí.",
       "emails": "Correos electrónicos",
       "detected": "Detectado en este equipo a partir del sistema y de tu configuración de git.",
       "detectedServer": "Los envía cada uno de tus equipos cuando se conecta al servidor: sus nombres de usuario y su nombre de host, y tu nombre y tu correo electrónico de git."
@@ -1369,7 +1459,7 @@
       "noModel": "El texto de las imágenes todavía no se lee: descarga los modelos de reconocimiento de texto (unos 31 MB, una sola vez).",
       "toggle": "Leer el texto de las imágenes",
       "on": "Las capturas de pantalla se leen en este equipo y lo que enmascaran tus reglas se cubre con su valor ficticio.",
-      "off": "Las imágenes no se leen: una solicitud que lleva una imagen se rechaza."
+      "off": "Las imágenes no se leen: una petición que lleva una imagen se rechaza."
     },
     "ner": {
       "title": "Detección de nombres local",
@@ -1607,7 +1697,7 @@
       "reason": {
         "empty": "no tiene valor.",
         "yesNo": "case_sensitive y whole_word aceptan true o false.",
-        "noLetterOrDigit": "un término necesita una letra o una cifra.",
+        "noLetterOrDigit": "un término necesita una letra o un dígito.",
         "tooLong": "es más largo de lo que puede ser un término.",
         "quote": "unas comillas se abren y nunca se cierran.",
         "kind": "la clase es value o pattern.",
@@ -1720,16 +1810,16 @@
   "stats": {
     "title": "Estadísticas",
     "description": "Cuánto tráfico ha pasado por Latet, qué ha enmascarado y cuánto tiempo ha costado.",
-    "period": "Periodo",
+    "period": "Período",
     "today": "Hoy",
     "lastDays_one": "Último día",
     "lastDays_many": "Últimos {{count}} días",
     "lastDays_other": "Últimos {{count}} días",
     "other": "Otros tipos",
-    "noneMasked": "No se ha enmascarado nada en este periodo.",
-    "partial": "Este periodo contiene más intercambios de los que las estadísticas leen de una vez: estas cifras cuentan los últimos {{latest}}.",
+    "noneMasked": "No se ha enmascarado nada en este período.",
+    "partial": "Este período contiene más intercambios de los que las estadísticas leen de una vez: estas cifras cuentan los últimos {{latest}}.",
     "empty": {
-      "title": "No hay tráfico en este periodo",
+      "title": "No hay tráfico en este período",
       "body": "Las estadísticas aparecen cuando los agentes envían peticiones a través de Latet."
     },
     "tiles": {
@@ -1830,7 +1920,7 @@
     "repoCannotSet": "un archivo del repositorio no puede establecerlo, así que ponlo en tus ajustes para el proyecto.",
     "repoWholeLatet": "un ajuste de todo Latet, así que solo tu config.yaml lo establece.",
     "repoUnknown": "no es un ajuste que Latet conozca.",
-    "repoInClear": "un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro: ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección espera tu aprobación.",
+    "repoInClear": "un archivo del repositorio no puede contenerlo, porque allí dejaría valores en claro: ponlo en tus ajustes para el proyecto, donde un cambio que reduce la protección queda pendiente de aprobación.",
     "recognizerApart": "aplicado en este proyecto como {{name}}, tipo {{type}}: un reconocedor tuyo tiene su nombre o su tipo, así que se aplican los dos, y ambos tipos toman la más estricta de las dos políticas.",
     "recognizerRenamed": "aplicado en este proyecto como {{name}}, porque una entrada tuya ya tiene su nombre: el del archivo se aplica con el suyo, con su tipo ({{type}}) y su política; el tuyo, donde está en uso, se aplica como antes.",
     "scope": {
@@ -1855,7 +1945,7 @@
       "off": "Desactivada",
       "onHelp": "Tus reglas globales, con las del proyecto por encima.",
       "secretsHelp": "Aquí solo se enmascaran los secretos: claves, tokens, contraseñas. Los datos personales se envían tal cual.",
-      "offHelp": "Las solicitudes de los agentes que trabajan en este proyecto se rechazan: Latet nunca las envía sin enmascarar. Para llegar directamente a un proveedor desde esta carpeta, inicia el agente sin Latet, con una configuración que apunte al proveedor."
+      "offHelp": "Las peticiones de los agentes que trabajan en este proyecto se rechazan: Latet nunca las envía sin enmascarar. Para llegar directamente a un proveedor desde esta carpeta, inicia el agente sin Latet, con unos ajustes que apunten al proveedor."
     },
     "effective": {
       "title": "En vigor",
@@ -1883,6 +1973,9 @@
       "imagesBlocked": "No se envían",
       "imagesMasked": "Solo enmascaradas",
       "imagesSent": "Se envían",
+      "newMembers": "Nuevos miembros de las peticiones",
+      "newMembersChecked": "Leídos y comprobados",
+      "newMembersRefused": "Rechazados",
       "reviewer": "Revisor local"
     },
     "repo": {
@@ -1914,7 +2007,7 @@
       "remove": "Quitar tus ajustes"
     },
     "suggest": {
-      "unavailableServer": "El servidor Latet no puede analizar los archivos de los repositorios en los equipos conectados. Aquí no están disponibles las sugerencias de reconocedores.",
+      "unavailableServer": "El servidor de Latet no puede analizar los archivos de los repositorios en los equipos conectados. Aquí no están disponibles las sugerencias de reconocedores.",
       "help": "Busca en los archivos del proyecto valores con aspecto de código que ninguna regla cubre, y crea borradores de reconocedores para ellos. No sale nada de este equipo y no se muestra ningún valor.",
       "run": "Sugerir reconocedores",
       "looked_one": "Se ha revisado {{count}} archivo.",
@@ -1936,6 +2029,7 @@
       "inline": "Antes de que salga"
     },
     "live": {
+      "helpSecurity": "Si los textos nuevos de este proyecto esperan al equipo de seguridad de tu empresa, que los ve con los valores incluidos. Solo depende de ti: un archivo del repositorio nunca lo activa.",
       "title": "Revisor en directo aquí",
       "help": "Si los textos nuevos de este proyecto esperan tu aprobación en el panel. Solo depende de ti: un archivo del repositorio nunca lo activa.",
       "inheritOn": "Como en tus ajustes (activado)",
@@ -2017,6 +2111,12 @@
       "block": "No enviar",
       "mask": "Solo enmascaradas",
       "allow": "Enviar"
+    },
+    "newMembers": {
+      "title": "Nuevos miembros de las peticiones",
+      "help": "Un campo de una petición que ningún perfil de petición prevé todavía, como uno que añade una nueva versión de un agente. Leídos y comprobados: Latet lo lee entero y lo envía tal como llegó cuando nada en él se enmascararía y no nombra ningún archivo, dirección, conversación guardada ni modelo; si no, la petición se rechaza. Rechazados: la petición se rechaza, como hacía Latet hasta ahora; en una petición que Latet solo comprueba, un campo hecho solo de texto sigue pasando una vez comprobado. Los ajustes de un proyecto, y el latet.yaml de su repositorio, solo pueden rechazarlos (`unknown_members: refuse`).",
+      "check": "Leídos y comprobados",
+      "refuse": "Rechazados"
     },
     "ruleStrict": "Modo de datos estricto: {{field}}",
     "ruleField": "Regla de campo: {{field}}"
@@ -2181,6 +2281,12 @@
     "visionUnknown": "El servidor no indica si su modelo ve imágenes (llama.cpp sí lo indica)."
   },
   "liveReview": {
+    "kindsSecurity": "Qué espera al equipo de seguridad",
+    "timeoutHelpSecurity": "Cuando se acaba el tiempo, no se envía. Vacío: hasta que responda el equipo de seguridad.",
+    "descriptionSecurity": "El equipo de seguridad de tu empresa aprueba cada texto nuevo antes de que salga: lo ve junto al original, con los valores incluidos, y puede enmascarar más. No se envía nada mientras espera.",
+    "enabledSecurity": "Que se apruebe cada texto nuevo antes de que salga",
+    "switchOnSecurity": "Los textos nuevos esperan al equipo de seguridad de tu empresa, que los ve con los valores incluidos",
+    "turnedOnSecurity": "Revisor en directo activado: los textos nuevos esperan al equipo de seguridad de tu empresa.",
     "title": "Revisor en directo",
     "description": "Apruebas en el panel cada texto nuevo antes de que salga: lo que ha enmascarado Latet se muestra junto al original, y puedes enmascarar más. No se envía nada mientras espera.",
     "enabled": "Preguntarme antes de que salga cada texto nuevo",
@@ -2246,7 +2352,7 @@
       "intro": "Fuera del entorno aislado, Latet funciona igual delante de tu propio agente.",
       "agents": "Inicia tu agente a través de Latet, para una sesión: no cambia ninguno de sus ajustes.",
       "global": "Cuando encaje en tu trabajo, de forma permanente: tus agentes pasan por Latet en el terminal y en el IDE.",
-      "company": "¿Tu empresa tiene su propio punto de conexión, como una puerta de enlace, Amazon Bedrock o Google Vertex? `latet claude` y `latet codex` lo encuentran en los ajustes del agente y se sitúan delante. Para añadir uno a mano:"
+      "company": "¿Tu empresa tiene su propio punto de conexión, como una pasarela, Amazon Bedrock o Google Vertex? `latet claude` y `latet codex` lo encuentran en los ajustes del agente y se sitúan delante. Para añadir uno a mano:"
     },
     "chapter": {
       "back": "Todos los capítulos",
@@ -2356,6 +2462,951 @@
       "body": "Este es tu propio Latet. El tutorial se ejecuta en su propio entorno aislado, con un agente simulado y un modelo simulado, y se abre en tu navegador. En un terminal:"
     }
   },
+  "ee": {
+    "audit": {
+      "title": "Registro de administración",
+      "description": "Acciones registradas de personas, claves de API, tokens y el servidor: quién actuó, sobre qué y cuándo. Los valores protegidos nunca se registran.",
+      "exportCsv": "Exportar CSV",
+      "exportJson": "Exportar JSON",
+      "exported": "Guardado: {{name}}",
+      "companyExport": "Exportar el registro de administración requiere una sesión abierta con tu cuenta de empresa.",
+      "filters": { "action": "Acción", "actor": "Quién", "all": "Todos", "hint": "Las opciones proceden de las entradas coincidentes mostradas. Los filtros activos siguen visibles aunque no haya resultados; elige Todos para quitar cada uno. Un * final en una acción busca por prefijo." },
+      "columns": { "time": "Cuándo", "actor": "Quién", "action": "Acción", "target": "Sobre qué", "details": "Detalles", "address": "Desde" },
+      "token": "Token de administración {{id}}",
+      "scim": "Aprovisionamiento (token SCIM {{id}})",
+      "server": "El propio servidor",
+      "unknown": "Una llamada cuyo token no se reconoció",
+      "timeUnavailable": "Hora no disponible",
+      "timezone": "Los filtros de fechas usan la zona horaria de la instancia del servidor; las horas de las entradas usan la de tu navegador.",
+      "truncated": "Solo se muestran las 5000 entradas coincidentes más recientes. Acota el período o los filtros, o exporta todo el período coincidente.",
+      "empty": { "title": "Nada en este período", "body": "No se registró ninguna acción para estas fechas y estos filtros." },
+      "note": "Los nombres de quién actuó y sobre qué se muestran a todas las personas que leen este registro, sin depender del ajuste de personas de Informes. Solo los administradores ven las direcciones. Una entrada siem.gap registra una laguna; no es un resultado de verificación criptográfica.",
+      "errors": {
+        "filter": "Cada filtro de acción o actor puede contener como máximo 200 caracteres. Borra o acorta el filtro.",
+        "malformed": "El servidor devolvió un registro de administración ilegible. Vuelve a cargarlo antes de exportar.",
+        "forbidden": "Esta cuenta no puede leer ni exportar el registro de administración con sus permisos actuales.",
+        "large": "La exportación es demasiado grande. Admite como máximo 100.000 entradas; acota el período o los filtros y vuelve a intentarlo.",
+        "busy": "Todavía se está preparando un informe o una exportación. Espera a que termine y vuelve a intentarlo.",
+        "failed": "No se pudo leer o exportar el registro de administración. Vuelve a intentarlo."
+      }
+    },
+    "license": {
+      "title": "Licencia",
+      "descriptionServer": "Latet Enterprise: la licencia que activa las funciones Enterprise para todas las personas de este servidor.",
+      "states": {
+        "none": "Sin licencia",
+        "valid": "Válida",
+        "expiring": "Termina pronto",
+        "grace": "Período de gracia",
+        "paused": "En pausa",
+        "trialEnded": "Prueba terminada",
+        "invalid": "No se puede usar"
+      },
+      "stateText": {
+        "none": "No hay ninguna licencia instalada: Latet funciona como Community Edition.",
+        "valid": "Las funciones Enterprise que enumera están activas.",
+        "expiring": "Las funciones Enterprise que enumera están activas hasta que termine.",
+        "grace": "Todo sigue funcionando hasta el {{date}}. Después, los informes, los eventos a tus sistemas de seguridad y la sincronización de términos se pausan; lo que protege sigue funcionando.",
+        "graceUndated": "El período de gracia está en curso: todo sigue funcionando. Cuando termine, los informes, los eventos a tus sistemas de seguridad y la sincronización de términos se pausan; lo que protege sigue funcionando.",
+        "paused": "Los informes, los eventos a tus sistemas de seguridad y la sincronización de términos están en pausa. Lo que protege sigue funcionando: no se desbloquea ninguna regla y no se deja fuera a nadie.",
+        "trialEnded": "La prueba ha terminado. Los ajustes Enterprise se pueden consultar, pero no cambiar; lo que protege sigue funcionando como antes, y el tráfico de los agentes continúa, enmascarado. Los administradores del servidor instalan una licencia de Latet Enterprise, o quitan la de la prueba con latet server license remove para volver a la Community Edition.",
+        "invalidServer": "Este archivo no es una licencia que Latet pueda usar: {{reason}} Lo que gestiona, produce o decide para la empresa está desactivado; cada instancia mantiene lo que protege como lo fijaron las funciones que verificó la instancia que instaló la licencia, hasta que los administradores del servidor la instalen de nuevo.",
+        "invalidServerDown": "No se pudo evaluar la licencia: la base de datos del servidor no respondió. Lo que gestiona, produce o decide para la empresa está desactivado hasta que responda; lo que protege sigue como lo fijaron las funciones que verificó la instancia que instaló la licencia."
+      },
+      "fields": {
+        "licensee": "Titular",
+        "id": "Número de licencia",
+        "users": "Usuarios comprados",
+        "inUse": "Usuarios activos",
+        "features": "Funciones",
+        "issued": "Emitida el",
+        "expires": "Válida hasta el"
+      },
+      "trial": "Prueba",
+      "inUseHint": "Las personas y las claves de API activadas en este servidor: cada una cuenta como un usuario.",
+      "daysLeft_one": "dentro de {{count}} día",
+      "daysLeft_many": "dentro de {{count}} días",
+      "daysLeft_other": "dentro de {{count}} días",
+      "endsToday": "su último día",
+      "endedAgo_one": "terminó hace {{count}} día",
+      "endedAgo_many": "terminó hace {{count}} días",
+      "endedAgo_other": "terminó hace {{count}} días",
+      "features": {
+        "lockedRules": "Reglas bloqueadas",
+        "approvals": "Aprobaciones centrales",
+        "reports": "Informes de auditoría",
+        "siem": "Eventos a tus sistemas de seguridad",
+        "termSync": "Términos sincronizados",
+        "sso": "Inicio de sesión único (SSO)",
+        "roles": "Roles"
+      },
+      "notices": {
+        "expiring_one": "Tu licencia de Latet Enterprise termina el {{date}}, dentro de {{count}} día.",
+        "expiring_many": "Tu licencia de Latet Enterprise termina el {{date}}, dentro de {{count}} días.",
+        "expiring_other": "Tu licencia de Latet Enterprise termina el {{date}}, dentro de {{count}} días.",
+        "trialWeek_one": "Tu prueba de Latet Enterprise termina el {{date}}, dentro de {{count}} día. Una prueba no tiene período de gracia: después, la gestión Enterprise se detiene, y lo que protege sigue funcionando.",
+        "trialWeek_many": "Tu prueba de Latet Enterprise termina el {{date}}, dentro de {{count}} días. Una prueba no tiene período de gracia: después, la gestión Enterprise se detiene, y lo que protege sigue funcionando.",
+        "trialWeek_other": "Tu prueba de Latet Enterprise termina el {{date}}, dentro de {{count}} días. Una prueba no tiene período de gracia: después, la gestión Enterprise se detiene, y lo que protege sigue funcionando.",
+        "trialTomorrow": "Tu prueba de Latet Enterprise termina mañana, el {{date}}. Después, la gestión Enterprise se detiene hasta que se instale una licencia; lo que protege sigue funcionando.",
+        "trialToday": "Tu prueba de Latet Enterprise termina hoy, el {{date}}. Después, la gestión Enterprise se detiene hasta que se instale una licencia; lo que protege sigue funcionando.",
+        "grace": "Tu licencia de Latet Enterprise terminó el {{date}}. Todo sigue funcionando hasta el {{pausesOn}}; después, los informes, los eventos a tus sistemas de seguridad y la sincronización de términos se pausan.",
+        "expiredPaused": "Tu licencia de Latet Enterprise terminó el {{date}}. Los informes, los eventos a tus sistemas de seguridad y la sincronización de términos están en pausa; lo que protege sigue funcionando.",
+        "trialEnded": "Tu prueba de Latet Enterprise terminó el {{date}}. Los ajustes Enterprise se pueden consultar, pero no cambiar: los administradores del servidor instalan una licencia de Latet Enterprise, o quitan la de la prueba con latet server license remove para volver a la Community Edition. Lo que protege sigue funcionando.",
+        "usersNear": "{{inUse}} de los {{users}} usuarios que cubre tu licencia están activos, personas y claves de API juntas.",
+        "usersOver": "{{inUse}} usuarios están activos, personas y claves de API juntas, y tu licencia cubre {{users}}. Todo sigue funcionando hasta el {{pausesOn}}; después, los informes, los eventos a tus sistemas de seguridad y la sincronización de términos se pausan, hasta que se libere una plaza o se amplíe la licencia.",
+        "usersOverPaused": "{{inUse}} usuarios están activos, personas y claves de API juntas, y tu licencia cubre {{users}}. Los informes, los eventos a tus sistemas de seguridad y la sincronización de términos están en pausa hasta que se libere una plaza o se amplíe la licencia; lo que protege sigue funcionando.",
+        "invalid": "El archivo de licencia no se puede usar: lo que gestiona, produce o decide para la empresa está desactivado. La página Licencia dice qué pasa con lo que protege, y cómo se sustituye el archivo."
+      },
+      "reasons": {
+        "unreadable": "el archivo no se puede leer.",
+        "format": "no es un archivo de licencia.",
+        "noKeys": "esta copia de Latet no incluye ninguna clave para comprobar licencias. Instala Latet desde su versión oficial.",
+        "key": "el archivo está firmado con una clave que esta versión de Latet no conoce. Instala la última versión.",
+        "signature": "su firma no coincide: el archivo se cambió después de crearlo.",
+        "version": "el archivo se hizo para una versión más reciente de Latet. Instala la última versión.",
+        "content": "su contenido no es válido.",
+        "ended": "la licencia ha terminado. Instala la licencia que la renueva."
+      },
+      "elsewhere": {
+        "server": "En un servidor, sus administradores instalan la licencia desde la línea de comandos:"
+      },
+      "bar": {
+        "label": "Aviso sobre la licencia",
+        "open": "Abrir Licencia"
+      },
+      "change": {
+        "title": "Cambiar la licencia",
+        "description": "Instala un archivo de licencia para sustituir a esta, o quita la licencia. El cambio se aplica al instante a todos en este servidor, y el registro de administración anota quién lo hizo.",
+        "rolesNote": "Una licencia que no incluye los roles abre en lectura las páginas Enterprise a todas las personas de este servidor.",
+        "install": "Instalar un archivo de licencia",
+        "remove": "Quitar la licencia",
+        "installed": "Licencia instalada",
+        "removed": "Licencia quitada",
+        "removeTitle": "¿Quitar la licencia?",
+        "removeBody": "Las funciones Enterprise se detienen para todos en este servidor, y esta página desaparece con ellas. Las personas abren su panel con latet dashboard.",
+        "stopsTitle": "Las directrices del servidor dejan de estar en vigor",
+        "stopsBody": "El servidor tiene unas directrices, y la licencia que quedaría no incluye las reglas bloqueadas, así que las directrices dejarían de aplicarse a cada persona y clave de API. No cambia nada si no lo confirmas.",
+        "stopsInstall": "Instalar de todos modos",
+        "stopsRemove": "Quitar de todos modos",
+        "termsStopTitle": "Los términos sincronizados dejan de enmascararse",
+        "termsStopBody": "El servidor guarda términos sincronizados desde las fuentes de tu empresa, y la licencia que quedaría no incluye los términos sincronizados, así que esos términos dejarían de enmascararse para cualquier persona y clave de API. No cambia nada si no lo confirmas.",
+        "bothStopTitle": "Las directrices del servidor y los términos sincronizados dejan de aplicarse",
+        "bothStopBody": "El servidor tiene unas directrices y guarda términos sincronizados desde las fuentes de tu empresa, y la licencia que quedaría no incluye ni las reglas bloqueadas ni los términos sincronizados, así que las directrices dejarían de aplicarse a cada persona y clave de API, y los términos sincronizados dejarían de enmascararse. No cambia nada si no lo confirmas.",
+        "approvalsStopTitle": "Las aprobaciones centrales dejan de aplicarse",
+        "approvalsStopBody": "Sobre los cambios que reducen la protección, o sobre los textos del Revisor en directo, deciden el equipo de seguridad de tu empresa o las demás personas que controlan una clave de API, y la licencia que quedaría no incluye las aprobaciones centrales, así que en su lugar decidiría quien pide la aprobación. No cambia nada si no lo confirmas.",
+        "approvalsStopAlso": "Las aprobaciones centrales también dejan de aplicarse: la licencia que quedaría no las incluye, así que decidiría quien pide la aprobación, en lugar del equipo de seguridad de tu empresa o de las demás personas que controlan una clave de API.",
+        "tooLarge": "Ese archivo es demasiado grande para ser un archivo de licencia.",
+        "unreadable": "No se ha podido leer el archivo.",
+        "notLicense": "Este archivo no es una licencia que Latet pueda usar, así que no se ha cambiado nada: {{reason}}",
+        "commandOnly": "En este estado la licencia se instala o se quita desde la línea de comandos, no desde esta página:"
+      }
+    },
+    "roles": {
+      "user": "Usuario",
+      "groupLead": "Responsable de grupo",
+      "security": "Seguridad",
+      "auditor": "Auditor",
+      "admin": "Administrador",
+      "sees": {
+        "user": "Sus propios datos y las claves de API que controla",
+        "groupLead": "Los informes de sus grupos",
+        "security": "Todos los informes",
+        "auditor": "Los informes, el historial de las directrices y el registro de administración, en solo lectura",
+        "admin": "Personas, grupos y claves de API"
+      },
+      "decides": {
+        "user": "Sus ajustes, por encima del mínimo de la empresa; los de una clave que controla",
+        "nothing": "Nada",
+        "security": "Las directrices, los términos, las aprobaciones, el SIEM",
+        "admin": "El inicio de sesión, los roles, la licencia, las claves de API y quién las controla"
+      }
+    },
+    "trialEnded": {
+      "title": "La prueba de Latet Enterprise ha terminado",
+      "body": "Lo que contiene esta página se puede consultar, pero no cambiar: los administradores del servidor instalan una licencia de Latet Enterprise, o quitan la de la prueba con latet server license remove para volver a la Community Edition. Las reglas bloqueadas siguen en vigor tal como estaban, y el tráfico de los agentes continúa, enmascarado.",
+      "open": "Abrir Licencia"
+    },
+    "policy": {
+      "title": "Directrices",
+      "description": "Los ajustes que define tu empresa: nadie puede quedar por debajo de ellos, y cualquiera puede añadir protección.",
+      "none": "No hay directrices en vigor.",
+      "source": {
+        "managed": "De un archivo de directrices",
+        "server": "De tu servidor de Latet"
+      },
+      "written": "Escritas el {{date}}",
+      "setOn": "Definidas el {{date}}",
+      "exceptions": {
+        "personal": "Cada persona puede seguir marcando valores como No sensibles para sí misma.",
+        "company": "Solo cuentan las excepciones de tu empresa."
+      },
+      "notRead_one": "En las directrices, {{count}} ajuste no se lee.",
+      "notRead_many": "En las directrices, {{count}} ajustes no se leen.",
+      "notRead_other": "En las directrices, {{count}} ajustes no se leen.",
+      "sets": "Lo que definen",
+      "setsNothing": "No bloquean ningún ajuste.",
+      "below": "Tus ajustes por debajo del mínimo, subidos mientras están en uso",
+      "inForce": "Las directrices de tu empresa están en vigor: un ajuste con candado no puede bajar más.",
+      "open": "Ver las directrices",
+      "setBy": "Definido por tu empresa",
+      "refused": "Definido por tu empresa, no cambiado:",
+      "refusedHint": "Cámbialo para que quede al menos en el ajuste de tu empresa, o descarta el cambio.",
+      "protectionRaised": "Definido por tu empresa: Latet sigue activado en este proyecto, se guarde lo que se guarde aquí.",
+      "edit": {
+        "title": "Cambiar las directrices",
+        "description": "El texto de las directrices, en el formato de un archivo de reglas. Una vez guardadas, son al instante el mínimo de cada persona y clave de API de este servidor; un texto que el servidor no puede leer no cambia nada.",
+        "text": "El texto de las directrices",
+        "save": "Guardar",
+        "saved": "Directrices guardadas: cada persona y clave de API queda subida al mínimo",
+        "remove": "Quitar",
+        "removeTitle": "¿Quitar las directrices?",
+        "removeBody": "Ya no queda nada bloqueado: cada persona y clave de API conserva los ajustes que tiene, y puede bajarlos. El registro de administración anota quién las quitó.",
+        "removed": "Directrices quitadas",
+        "changed": "Otra persona ha cambiado las directrices desde que las abriste. Se muestran de nuevo tal como están ahora: vuelve a hacer tu cambio.",
+        "companySignIn": "El texto de las directrices contiene los términos y los valores de tu empresa, así que se muestra en una sesión abierta con tu cuenta de empresa."
+      },
+      "lock": {
+        "profile": "Al menos {{profile}}",
+        "pii": "Siempre detectados: {{types}}",
+        "regions": "Números de identificación siempre reconocidos: {{regions}}",
+        "phones": "Números de teléfono siempre reconocidos: {{regions}}",
+        "privateIps": "Direcciones IP privadas siempre enmascaradas",
+        "ner": "La detección de nombres sigue activada",
+        "terms_one": "{{count}} término de tu empresa sigue enmascarado",
+        "terms_many": "{{count}} términos de tu empresa siguen enmascarados",
+        "terms_other": "{{count}} términos de tu empresa siguen enmascarados",
+        "recognizers": "Siempre en uso: {{names}}",
+        "company": "Solo cuentan las excepciones de tu empresa",
+        "exceptions_one": "{{count}} excepción definida por tu empresa",
+        "exceptions_many": "{{count}} excepciones definidas por tu empresa",
+        "exceptions_other": "{{count}} excepciones definidas por tu empresa",
+        "termsStay": "Los términos de tu empresa siguen enmascarados, se marque lo que se marque aquí",
+        "policies": "Al menos: {{policies}}",
+        "guidance": "Las indicaciones de tu empresa se dan siempre al revisor local",
+        "data": "El modo de datos estricto sigue activado",
+        "dataSources": "El modo de datos estricto también cubre los archivos y las direcciones web de tu empresa (reglas de archivos: {{files}}, reglas de direcciones: {{hosts}})",
+        "fields": "Reglas de campo siempre en uso: {{names}}",
+        "fieldsClear_one": "{{count}} regla de campo de tu empresa deja un campo en claro",
+        "fieldsClear_many": "{{count}} reglas de campo de tu empresa dejan campos en claro",
+        "fieldsClear_other": "{{count}} reglas de campo de tu empresa dejan campos en claro",
+        "dumpGuard": "Protección contra volcados en {{limit}} o menos",
+        "images": "Imágenes y PDF, al menos: {{images}}",
+        "ocr": "El texto de las imágenes se lee siempre",
+        "unknownMembers": "Los nuevos miembros de las peticiones siguen rechazados (unknown_members: refuse)",
+        "project": "Latet sigue activado en este proyecto"
+      }
+    },
+    "shown": {
+      "command": "Comando",
+      "code": "Código",
+      "key": "Clave",
+      "address": "Dirección",
+      "token": "Token"
+    },
+    "company": {
+      "needed": "Este cambio se aplica a todos en este servidor, así que necesita una sesión abierta con tu cuenta de empresa."
+    },
+    "people": {
+      "title": "Personas y grupos",
+      "description": "Quién tiene una cuenta en este servidor, con sus grupos y roles, y las claves de API de los programas que usan el servidor. Aquí nadie ve los datos de otra persona.",
+      "list": {
+        "title": "Personas",
+        "description_one": "{{count}} cuenta activada. Cada persona y cada clave de API cuenta una vez en la licencia.",
+        "description_many": "{{count}} cuentas activadas. Cada persona y cada clave de API cuenta una vez en la licencia.",
+        "description_other": "{{count}} cuentas activadas. Cada persona y cada clave de API cuenta una vez en la licencia."
+      },
+      "columns": {
+        "person": "Persona",
+        "groups": "Grupos",
+        "roles": "Roles",
+        "lastSeen": "Última actividad",
+        "actions": "Acciones"
+      },
+      "source": {
+        "local": "Añadida a mano",
+        "scim": "Desde tu proveedor de identidad (SCIM)",
+        "oidc": "Creada en su primer inicio de sesión"
+      },
+      "name": "Nombre",
+      "namePlaceholder": "Emily Carter",
+      "email": "Correo electrónico",
+      "emailPlaceholder": "emily.carter@acme.com",
+      "add": "Añadir una persona",
+      "added": "Persona añadida",
+      "code": "Código",
+      "codeFor": "{{name}} conecta un equipo con este comando y este código, una sola vez, en un plazo de 24 horas. El código solo se muestra ahora:",
+      "codeConnected": "Esta persona ya ha conectado un equipo: un código nuevo se crea con latet server people code",
+      "disabled": "Desactivada",
+      "disabledBy": {
+        "local": "Desactivada por un administrador: SCIM no la reactiva.",
+        "scim": "Desactivada por tu proveedor de identidad (SCIM)."
+      },
+      "account": {
+        "linked": "Vinculada a la cuenta de empresa",
+        "waiting": "Pendiente de su primer inicio de sesión",
+        "scim": "Gestionada por SCIM"
+      },
+      "never": "Nunca",
+      "roles": "Roles",
+      "role": "Rol",
+      "grant": "Dar el rol",
+      "granted": "Rol dado",
+      "revoke": "Quitar {{role}}",
+      "revoked": "Rol quitado",
+      "through": "{{role}}, a través de {{group}}",
+      "lastAdmin": "El último administrador: primero haz administrador a otra persona",
+      "disable": "Desactivar",
+      "enable": "Activar",
+      "enabledDone": "La cuenta de {{name}} está activada de nuevo",
+      "disabledDone": "La cuenta de {{name}} está desactivada",
+      "disableTitle": "¿Desactivar a {{name}}?",
+      "disableBody": "Los tokens de sus equipos y sus sesiones del panel se detienen al instante, y su plaza en la licencia queda libre. Sus datos siguen en el servidor, y puedes volver a activar su cuenta.",
+      "tokensStill_one": "El token SCIM {{ids}} lo creó alguien que ya no es administrador, y sigue funcionando. No deja de valer cuando quien lo creó pierde el rol de administrador o se desactiva su cuenta: quítalo en la página Inicio de sesión si debe dejar de funcionar.",
+      "tokensStill_many": "Los tokens SCIM {{ids}} los creó alguien que ya no es administrador, y siguen funcionando. No dejan de valer cuando quien los creó pierde el rol de administrador o se desactiva su cuenta: quítalos en la página Inicio de sesión si deben dejar de funcionar.",
+      "tokensStill_other": "Los tokens SCIM {{ids}} los creó alguien que ya no es administrador, y siguen funcionando. No dejan de valer cuando quien los creó pierde el rol de administrador o se desactiva su cuenta: quítalos en la página Inicio de sesión si deben dejar de funcionar.",
+      "table": {
+        "title": "Roles",
+        "description": "Todo el mundo es usuario. Los demás roles se asignan aquí, a una persona o a un grupo.",
+        "role": "Rol",
+        "sees": "Ve",
+        "decides": "Decide"
+      }
+    },
+    "groups": {
+      "title": "Grupos",
+      "description": "Los grupos dan a sus miembros roles y el control de claves de API. Un grupo viene de tu proveedor de identidad, por SCIM o por el inicio de sesión, o se crea aquí.",
+      "from": {
+        "local": "Creado aquí",
+        "scim": "De SCIM",
+        "oidc": "Del inicio de sesión"
+      },
+      "name": "Nombre del grupo",
+      "namePlaceholder": "Payments",
+      "add": "Añadir un grupo",
+      "added": "Grupo añadido",
+      "none": "No hay grupos.",
+      "roles": "Roles:",
+      "noRole": "ninguno",
+      "members": "Miembros:",
+      "nobody": "nadie",
+      "fromProvider": "{{name}} (de tu proveedor)",
+      "grant": "Dar el rol",
+      "pickPerson": "Elige una persona",
+      "join": "Añadir al grupo",
+      "joined": "Añadida al grupo",
+      "leave": "Sacar a {{name}} del grupo",
+      "left": "Sacada del grupo",
+      "remove": "Quitar",
+      "removeTitle": "¿Quitar el grupo {{name}}?",
+      "removeBody": "Sus miembros conservan sus cuentas; los roles dados al grupo y su control de claves de API desaparecen. Un grupo que nombran tus ajustes de inicio de sesión vuelve en el siguiente inicio de sesión de sus miembros.",
+      "removed": "Grupo quitado",
+      "scimRole": "Un rol dado a un grupo de SCIM se da también a quien tenga un token SCIM: un token puede poner personas en estos grupos."
+    },
+    "keys": {
+      "title": "Claves de API",
+      "description": "Los programas que no pertenecen a ninguna persona usan una clave de API. Cada clave activada cuenta una vez en la licencia. Las personas y los grupos que controlan una clave abren su espacio desde su panel.",
+      "name": "Nombre de la clave",
+      "namePlaceholder": "Billing CI",
+      "make": "Crear una clave",
+      "made": "La clave de {{name}}, mostrada una sola vez: dale al programa la clave y la dirección.",
+      "rotated": "La clave nueva de {{name}}, mostrada una sola vez: la anterior ha dejado de funcionar.",
+      "none": "No hay claves de API.",
+      "lastUsed": "Usada por última vez {{when}}",
+      "neverUsed": "Nunca usada",
+      "open": "Abrir su espacio",
+      "rotate": "Clave nueva",
+      "rotateTitle": "¿Dar a {{name}} una clave nueva?",
+      "rotateBody": "La clave actual del programa deja de funcionar al instante: dale la nueva y su dirección.",
+      "disable": "Desactivar",
+      "enable": "Activar",
+      "disabledDone": "La clave está desactivada",
+      "enabledDone": "La clave está activada de nuevo",
+      "controllers": "Controlada por:",
+      "administratorsOnly": "solo administradores",
+      "pickController": "Dar el control a…",
+      "groupOption": "{{name}} (grupo)",
+      "control": "Dar el control",
+      "controlled": "Control dado",
+      "release": "Quitar el control a {{name}}",
+      "released": "Control quitado"
+    },
+    "signIn": {
+      "title": "Inicio de sesión",
+      "description": "Cómo inician sesión las personas en este servidor con su cuenta de empresa, y cómo tu proveedor de identidad crea y desactiva sus cuentas.",
+      "readOnly": "Solo lectura: un administrador cambia estos ajustes.",
+      "changed": "Otra persona ha cambiado los ajustes de inicio de sesión desde que abriste esta página. Se muestran de nuevo tal como están ahora: vuelve a hacer tu cambio.",
+      "connect": {
+        "title": "Conectar un equipo",
+        "description": "Tus equipos usan este servidor cuando están conectados. Crea un código y ejecuta el comando en el equipo: te pide el código.",
+        "make": "Crear un código",
+        "shown": "Ejecuta este comando en el equipo y dale este código cuando lo pida. El código funciona una vez, durante 24 horas, y se muestra solo ahora:",
+        "most": "Tienes {{most}} equipos o más conectados a tu cuenta, el máximo que una persona puede conectar con sus propios códigos. Desconecta uno que ya no uses, con `latet disconnect` en ese equipo o pidiéndoselo a un administrador, y luego crea un código. Tus equipos aparecen en la página Reglas, en Avanzado.",
+        "tooMany": "Has creado {{most}} códigos en la última hora, el máximo para una persona. Vuelve a intentarlo más tarde."
+      },
+      "link": {
+        "title": "Vincular mi cuenta de empresa",
+        "description": "Tu cuenta en este servidor no está vinculada a tu cuenta de empresa. Inicia sesión una vez con tu cuenta de empresa, desde aquí, para vincularlas. Funciona cuando tu cuenta de empresa tiene el mismo nombre de usuario que tu cuenta aquí o, si tu cuenta aquí no tiene nombre de usuario, la misma dirección de correo electrónico, siempre que el proveedor de identidad de tu empresa la haya verificado; si no, la vincula un administrador.",
+        "button": "Vincular mi cuenta de empresa"
+      },
+      "sso": {
+        "title": "Inicio de sesión único",
+        "description": "OpenID Connect con el proveedor de identidad de tu empresa: Microsoft Entra ID, Okta, Google, Keycloak, Authentik o Auth0.",
+        "off": "El inicio de sesión único está desactivado: las personas abren el panel desde su terminal.",
+        "redirect": "URI de redirección que registrar en tu proveedor",
+        "issuer": "Issuer",
+        "issuerHelp": "Cuando alguien ya ha iniciado sesión con él, el issuer se cambia con latet server sign-in set, no aquí.",
+        "clientId": "ID de cliente",
+        "scopes": "Scopes",
+        "userNameClaim": "Claim del nombre de usuario",
+        "userNameClaimHelp": "Cuando alguien ya ha iniciado sesión, o mientras una cuenta espera su primer inicio de sesión, el claim del nombre de usuario se cambia con latet server sign-in set, no aquí.",
+        "groupsClaim": "Claim de los grupos",
+        "accounts": "Quién obtiene una cuenta en el primer inicio de sesión",
+        "accountsScim": "Las personas creadas por SCIM, o vinculadas por un administrador",
+        "accountsScimHelp": "Nadie más obtiene una cuenta al iniciar sesión. Es la opción más restrictiva.",
+        "accountsGroup": "Los miembros del grupo de acceso",
+        "accountsGroupHelp": "Todos los del grupo de acceso obtienen una cuenta en su primer inicio de sesión.",
+        "accountsOpen": "Todas las personas a las que tu proveedor deja iniciar sesión",
+        "accountsOpenHelp": "Todas las personas a las que tu proveedor de identidad deja iniciar sesión obtienen una cuenta en su primer inicio de sesión, y cada una cuenta en la licencia. Elige esta opción solo si tu proveedor ya limita quién puede iniciar sesión en Latet.",
+        "accessGroup": "Grupo de acceso",
+        "accessGroupHelp": "Solo los miembros de este grupo del token de ID pueden iniciar sesión: su nombre o ID, como lo envía tu proveedor. Vacío: no limita quién inicia sesión.",
+        "allowedDomains": "Dominios permitidos",
+        "allowedDomainsHelp": "Los dominios de Google Workspace cuyas personas pueden iniciar sesión, separados por espacios: los tokens de ID de Google indican el dominio de la persona.",
+        "groups": "Grupos del inicio de sesión",
+        "groupsHelp": "Un grupo del token de ID, por su ID cuando tu proveedor tiene uno, y el grupo de Latet en el que se pone a sus miembros. Los roles se asignan a ese grupo en la página Personas y grupos. No se usa cuando las cuentas vienen de SCIM: SCIM envía los grupos.",
+        "claim": "Grupo del token de ID",
+        "group": "Grupo de Latet",
+        "addGroup": "Añadir un grupo",
+        "removeGroup": "Quitar este grupo",
+        "adminByName": "{{claim}} se identifica por su nombre, y el grupo de Latet {{group}} tiene el rol Administrador. En un proveedor donde las personas crean grupos, cualquiera que cree un grupo con ese nombre pasa a ser administrador. Indica el grupo por su ID cuando tu proveedor tenga uno.",
+        "secret": "Secreto del cliente",
+        "secretSaved": "Guardado, sellado en el servidor. No se vuelve a mostrar nunca.",
+        "secretOtherIssuer": "Guardado para otro issuer: guárdalo de nuevo para este antes de que alguien inicie sesión.",
+        "secretMissing": "No guardado: sin él el inicio de sesión no puede funcionar.",
+        "secretNew": "Nuevo secreto del cliente",
+        "saveSecret": "Guardar el secreto",
+        "secretSavedDone": "Secreto del cliente guardado",
+        "removeSecret": "Olvidar el secreto",
+        "secretRemoved": "Secreto del cliente olvidado",
+        "save": "Guardar",
+        "saved": "Ajustes de inicio de sesión guardados",
+        "test": "Probar",
+        "testOk_one": "El proveedor responde: issuer {{issuer}}, {{count}} clave de firma.",
+        "testOk_many": "El proveedor responde: issuer {{issuer}}, {{count}} claves de firma.",
+        "testOk_other": "El proveedor responde: issuer {{issuer}}, {{count}} claves de firma.",
+        "testFailed": "El proveedor no responde como necesita el inicio de sesión único: {{error}}",
+        "turnOff": "Desactivar el inicio de sesión único",
+        "turnOffCommand": "Mientras estos cambios necesiten el inicio de sesión de empresa, el inicio de sesión único se desactiva en el servidor, con latet server sign-in off.",
+        "turnOffTitle": "¿Desactivar el inicio de sesión único?",
+        "turnOffBody": "Las personas abren entonces el panel solo desde su terminal. Las pertenencias que vienen del inicio de sesión desaparecen; los grupos creados aquí y los de SCIM se quedan.",
+        "turnedOff": "El inicio de sesión único está desactivado"
+      },
+      "scim": {
+        "title": "Aprovisionamiento",
+        "description": "SCIM 2.0: tu proveedor crea, cambia y desactiva personas en este servidor, y envía sus grupos.",
+        "url": "Dirección SCIM",
+        "noToken": "Sin token: tu proveedor no puede crear, cambiar ni desactivar personas aquí.",
+        "tokenMade": "creado el {{date}}",
+        "madeBy": "creado por {{name}}",
+        "madeByAdministration": "creado con latet server",
+        "makerLeft": "Quien lo creó ya no es administrador. El token sigue funcionando: no deja de valer cuando quien lo creó pierde el rol de administrador o se desactiva su cuenta, así que quítalo si debe dejar de funcionar.",
+        "tokenUsed": "usado por última vez {{when}}",
+        "tokenUnused": "nunca usado",
+        "tokenEnds": "caduca el {{date}}",
+        "tokenNeverEnds": "no caduca nunca",
+        "make": "Crear un token",
+        "newToken": "El token nuevo, mostrado una sola vez: cópialo ahora en tu proveedor. Caduca, como un token de administración: crea el siguiente antes de esa fecha.",
+        "remove": "Quitar",
+        "removeTitle": "¿Quitar el token {{id}}?",
+        "removeBody": "Tu proveedor ya no puede usarlo. Si es el último, tu proveedor ya no puede crear, cambiar ni desactivar personas aquí; las cuentas que creó se quedan.",
+        "removed": "El token SCIM se ha quitado"
+      },
+      "company": {
+        "title": "Cambios que se aplican a todos",
+        "description": "Las directrices, las personas, los grupos y los roles, las claves de API, estos ajustes de inicio de sesión, la licencia y los códigos para conectar un equipo se aplican a todos en este servidor.",
+        "sso": "Estos cambios necesitan una sesión abierta con tu cuenta de empresa. Una sesión abierta con latet dashboard los consulta, y solo cambia lo que es tuyo.",
+        "anySession": "La sesión de cualquier administrador hace estos cambios, también una abierta con latet dashboard.",
+        "none": "El inicio de sesión único no está configurado, así que la sesión de cualquier administrador hace estos cambios. Cuando lo esté, necesitarán una sesión abierta con tu cuenta de empresa.",
+        "thisSession": "Esta sesión se abrió con latet dashboard, así que no puede hacer estos cambios. Inicia sesión con tu cuenta de empresa para hacerlos.",
+        "command": "Los administradores de un servidor lo establecen en el servidor:",
+        "issuer": "Cuando alguien ya ha iniciado sesión, el issuer también se cambia en el servidor:"
+      },
+      "problems": {
+        "issuer": "El issuer debe ser una dirección https:// (http:// solo en este equipo, para una prueba).",
+        "clientId": "Hace falta el ID de cliente.",
+        "openid": "Los scopes deben incluir openid.",
+        "claimEmpty": "Un grupo del token de ID necesita su nombre o ID.",
+        "claimTwice": "Un grupo del token de ID está escrito dos veces.",
+        "groupName": "El nombre de un grupo de Latet debe tener de 1 a 80 caracteres.",
+        "accessGroup": "Hace falta el grupo de acceso cuando sus miembros obtienen una cuenta.",
+        "accessGroupOpen": "Todos obtienen una cuenta: deja vacío el grupo de acceso.",
+        "domains": "El inicio de sesión de Google necesita los dominios de Workspace cuyas personas pueden entrar.",
+        "domainsNotGoogle": "Los dominios permitidos son de Google: en otro proveedor, usa un grupo de acceso.",
+        "domain": "Un dominio permitido debe ser un nombre de dominio, como acme.com."
+      }
+    },
+    "space": {
+      "label": "Espacio",
+      "yours": "El tuyo",
+      "key": "Clave de API: {{name}}",
+      "bar": "Estás en el espacio de la clave de API {{name}}: el historial, los valores y los ajustes que ves son los de la clave.",
+      "barUnnamed": "Estás en el espacio de una clave de API: el historial, los valores y los ajustes que ves son los de la clave.",
+      "back": "Volver a tu espacio"
+    },
+    "notice": {
+      "title": "Equipos conectados a tu cuenta",
+      "computer": "{{label}}, conectado {{when}}",
+      "computerGone": "Un equipo, conectado {{when}} y desconectado después",
+      "codeByAdministrator": "Un código para conectar un equipo, creado para ti por un administrador {{when}}",
+      "codeByYou": "Un código para conectar un equipo, creado por ti {{when}}",
+      "more_one": "{{count}} código anterior creado por ti no aparece en la lista.",
+      "more_many": "{{count}} códigos anteriores creados por ti no aparecen en la lista.",
+      "more_other": "{{count}} códigos anteriores creados por ti no aparecen en la lista.",
+      "advice": "Si alguno de estos no lo hiciste tú, díselo a tu administrador: al desactivar tu cuenta, los tokens de tus equipos dejan de funcionar.",
+      "seen": "Marcar como visto",
+      "goesByItself": "Se puede marcar como visto desde una sesión abierta con tu cuenta de empresa. Si no, desaparece por sí solo 14 días después de cada entrada."
+    },
+    "computers": {
+      "title": "Tus equipos",
+      "description": "Los equipos conectados ahora a tu cuenta. Si alguno no es tuyo, díselo a tu administrador: al desactivar tu cuenta, los tokens de tus equipos dejan de funcionar.",
+      "none": "Ningún equipo está conectado a tu cuenta.",
+      "unnamed": "Un equipo sin nombre",
+      "connectedByAdministrator": "Conectado {{when}}, con un código que creó un administrador",
+      "connectedByYou": "Conectado {{when}}, con un código que creaste tú",
+      "connected": "Conectado {{when}}",
+      "lastUsed": "Usado por última vez {{when}}",
+      "neverUsed": "Aún sin usar"
+    },
+    "reports": {
+      "title": "Informes",
+      "description": "Qué ha hecho Latet por tu empresa: peticiones, valores enmascarados y peticiones detenidas, por grupo, proyecto, agente, clave de API y tipo de valor. Solo recuentos, nunca un valor.",
+      "siemLink": "SIEM",
+      "exportCsv": "Exportar CSV",
+      "exportJson": "Exportar JSON",
+      "exported": "Informe guardado: {{name}}",
+      "companyExport": "Para exportar los informes de tu empresa necesitas una sesión abierta con tu cuenta de empresa.",
+      "period": "Período",
+      "lastDays_one": "Último {{count}} día",
+      "lastDays_other": "Últimos {{count}} días",
+      "dates": "Fechas",
+      "from": "Desde",
+      "to": "Hasta",
+      "range": {
+        "format": "Introduce fechas válidas como YYYY-MM-DD, entre 2000 y 2999.",
+        "order": "El primer día debe ser anterior o igual al último.",
+        "length": "Un informe abarca como máximo 366 días, incluidas ambas fechas."
+      },
+      "filters": {
+        "group": "Grupo",
+        "project": "Proyecto",
+        "agent": "Agente",
+        "category": "Tipo de valor",
+        "all": "Todos"
+      },
+      "tiles": {
+        "exchanges": "Peticiones",
+        "masked": "Valores enmascarados",
+        "stopped": "Peticiones detenidas",
+        "stoppedShare": "{{value}} de las peticiones",
+        "decisions": "Decisiones del Revisor en directo",
+        "decisionsHelp": "{{approved}} aprobadas, {{refused}} no enviadas; {{changes}} cambios resueltos que reducen la protección",
+        "apps": "Llamadas a la API para aplicaciones",
+        "appsHelp": "{{mask}} para enmascarar textos, {{scan}} para analizarlos"
+      },
+      "trend": {
+        "up": "Un {{value}} más que en el período anterior",
+        "down": "Un {{value}} menos que en el período anterior",
+        "same": "Igual que en el período anterior",
+        "new": "Sin actividad en el período anterior"
+      },
+      "charts": {
+        "exchanges": "Peticiones",
+        "exchangesHelp": "Cada petición de un agente o programa a través de Latet, incluidas las detenidas",
+        "masked": "Valores enmascarados",
+        "maskedHelp": "Los intercambios cuentan los valores nuevos de una conversación. Las llamadas a la API para aplicaciones cuentan cada valor enmascarado una vez por llamada; los valores suprimidos cuentan en cada sustitución.",
+        "stopped": "Peticiones detenidas",
+        "stoppedHelp": "Peticiones que Latet no ha enviado",
+        "day": "Día",
+        "week": "Semana",
+        "weekOf": "Semana del {{day}}",
+        "byGroup": "Por grupo",
+        "byProject": "Por proyecto",
+        "byAgent": "Por agente",
+        "byKey": "Por clave de API",
+        "byPerson": "Por persona",
+        "byApprover": "Decisiones por autor",
+        "byApproverHelp": "Textos decididos en el Revisor en directo y cambios que reducen la protección, por la persona que decidió",
+        "approvals": "Decisiones del Revisor en directo",
+        "changes": "Cambios en los ajustes",
+        "decidedHelp": "{{approvals}} en el Revisor en directo, {{changes}} cambios en los ajustes",
+        "byCategory": "Por tipo de valor",
+        "byReason": "Por qué se detuvieron las peticiones",
+        "breakdownHelp": "Los primeros 200 por peticiones; la tabla incluye valores enmascarados, peticiones detenidas y los totales restantes",
+        "rowHelp": "{{masked}} valores enmascarados, {{stopped}} peticiones detenidas",
+        "name": "Nombre",
+        "category": "Tipo de valor",
+        "values": "Valores",
+        "reason": "Motivo",
+        "count": "Peticiones"
+      },
+      "noGroup": "Sin grupo",
+      "noProject": "Sin proyecto",
+      "none": "Sin actividad en este período.",
+      "noneStopped": "No se detuvo ninguna petición en este período.",
+      "others": "Otros ({{count}})",
+      "typeCodes": "Los informes usan códigos de tipo: una etiqueta personalizada como CLIENT-NAME aparece como CLIENT_NAME.",
+      "reasons": {
+        "leak": "Un valor habría salido en claro",
+        "history": "Valores en claro de turnos anteriores de la conversación",
+        "autoModeReview": "El revisor del modo automático de Claude Code",
+        "unread": "Una parte que Latet no pudo leer",
+        "unreadable": "Una petición que Latet no pudo leer",
+        "unreadRequest": "Un cuerpo, una cabecera, un parámetro o una ruta que Latet no lee",
+        "tooLarge": "La petición decodificada era demasiado grande",
+        "notMessages": "Una llamada a la nube que Latet no lee",
+        "maskingFailed": "Error de enmascaramiento",
+        "localReviewer": "El revisor local",
+        "liveReviewer": "No aprobado en el Revisor en directo",
+        "settingsChanged": "Los ajustes cambiaron mientras se preparaba",
+        "awsSigning": "Firma de AWS",
+        "routeBypass": "Una sesión que se salta Latet",
+        "outboundTool": "Una herramienta fuera del equipo",
+        "other": "Otro"
+      },
+      "people": {
+        "groupOnly": "No aparece ninguna persona: tu empresa genera informes solo por grupo. Las claves de API aparecen por nombre.",
+        "pseudonymous": "Las personas aparecen con un seudónimo, el mismo en cada informe. Las claves de API aparecen por nombre.",
+        "named": "Las personas y las claves de API aparecen por nombre, según la elección de tu empresa."
+      },
+      "uncounted_one": "No se contó {{count}} petición: Latet llevaba demasiado retraso para contarla.",
+      "uncounted_other": "No se contaron {{count}} peticiones: Latet llevaba demasiado retraso para contarlas.",
+      "empty": {
+        "title": "Sin actividad en este período",
+        "body": "No se registraron peticiones, decisiones ni cambios para estas fechas y estos filtros."
+      },
+      "paused": {
+        "title": "Los informes están en pausa",
+        "expired": "La licencia venció el {{date}} y han terminado sus 30 días de gracia. Los informes vuelven al renovarla; el registro sigue contando mientras tanto.",
+        "users": "Desde hace más de 30 días usan Latet más personas y claves de API de las que cubre la licencia. Los informes vuelven al liberar una plaza o ampliar la licencia; el registro sigue contando mientras tanto.",
+        "trialEnded": "La prueba de Latet Enterprise terminó el {{date}}. Los informes vuelven al instalar una licencia; el registro conserva lo contado.",
+        "unusable": "El archivo de licencia no se puede usar o no existe: latet server license show indica por qué. Los informes vuelven al instalar una licencia utilizable."
+      },
+      "errors": {
+        "forbidden": "Ya no tienes acceso a este informe. Recarga para comprobar tu acceso actual.",
+        "large": "Esta exportación es demasiado grande. Reduce el período o los filtros y vuelve a intentarlo.",
+        "busy": "Todavía se está generando un informe o una exportación. Espera un momento y vuelve a intentarlo.",
+        "failed": "No se pudo cargar el informe actual. Vuelve a intentarlo."
+      },
+      "lastDays_many": "Últimos {{count}} días",
+      "uncounted_many": "No se contaron {{count}} peticiones: Latet llevaba demasiado retraso para contarlas.",
+      "siem": {
+        "title": "Eventos a tu SIEM",
+        "description": "Envía eventos y entradas del registro de administración a Splunk, un receptor JSON o syslog sobre TLS. Los eventos en cola esperan su entrega; cada salida muestra su estado actual.",
+        "back": "Informes",
+        "add": "Añadir una salida",
+        "empty": {
+          "title": "Aún no hay salidas",
+          "body": "Añade una salida para enviar eventos a tu SIEM."
+        },
+        "readOnly": "Solo las personas con el rol Seguridad modifican y prueban las salidas, mientras la licencia lo permita.",
+        "changedMeanwhile": "Las salidas han cambiado mientras tanto. Se ha descartado la edición anterior. Cuando se carguen las salidas actuales, vuelve a editar o a confirmar la eliminación.",
+        "unknownDate": "hora no disponible",
+        "paused": {
+          "expired": "Entrega en pausa: la licencia venció el {{date}} y terminó el período de gracia. Renuévala para reanudar la entrega de la cola.",
+          "users": "Entrega en pausa: el uso supera las plazas de la licencia desde hace más de 30 días. Libera una plaza o amplía la licencia para reanudarla.",
+          "trialEnded": "Entrega en pausa: la prueba Enterprise terminó el {{date}}. Instala una licencia para reanudar la entrega de la cola.",
+          "unusable": "Entrega en pausa: no hay ninguna licencia utilizable instalada. `latet server license show` indica el motivo."
+        },
+        "kinds": {
+          "webhook": "Webhook JSON",
+          "splunk": "Splunk HEC",
+          "syslog": "Syslog sobre TLS"
+        },
+        "fields": {
+          "name": "Nombre",
+          "kind": "Tipo",
+          "url": "Dirección",
+          "headers": "Cabeceras",
+          "headerName": "Cabecera",
+          "headerValue": "Valor",
+          "addHeader": "Añadir una cabecera",
+          "removeHeader": "Quitar esta cabecera",
+          "format": "Cuerpo",
+          "json": "Una matriz JSON",
+          "ndjson": "Un evento por línea",
+          "secret": "Secreto",
+          "secretKept": "Se conserva un secreto para esta salida.",
+          "secretNone": "No se conserva ningún secreto utilizable para esta salida.",
+          "secretPlaceholder": "Pega el token o la clave",
+          "removeSecret": "Quitar el secreto guardado",
+          "secretMoved": "El secreto se definió para otro destino u otra cabecera que lo contiene. Vuelve a definirlo para usarlo aquí."
+        },
+        "help": {
+          "name": "Letras minúsculas, dígitos y guiones, hasta 40 caracteres.",
+          "immutableName": "Para renombrar una salida, quítala y añade otra. Al quitarla se descartan sus eventos en cola.",
+          "webhook": "Usa https://. Se permite la red de la empresa; se rechazan las direcciones link-local. Escribe {secret} en la ruta, la consulta o la cabecera que lo necesite. Cada guardado y cada prueba quedan en el registro de administración.",
+          "splunk": "Usa la dirección HTTPS del Event Collector. El secreto es su token HEC.",
+          "syslog": "Usa tls://host:port, puerto 6514 por defecto. Syslog sobre TLS no confirma la entrega.",
+          "secret": "Se guarda sellado en el servidor. Cambiar el destino, la ruta, la consulta o una cabecera que contiene el secreto requiere sustituirlo. Quitar un secreto aún referenciado no puede desactivar en silencio la firma del webhook.",
+          "local": "Edita esta salida local con `latet server siem set` y pruébala con `latet server siem test`.",
+          "skip": "Un administrador puede saltar la secuencia retenida con `{{command}}`. Se descartan los eventos ordinarios; las entradas del registro de administración dejan una laguna registrada."
+        },
+        "errors": {
+          "name": "Usa hasta 40 letras minúsculas, dígitos y guiones, empezando por una letra o un dígito.",
+          "nameTaken": "Otra salida tiene este nombre.",
+          "url": "Usa una dirección válida para este tipo: ASCII visible sin espacios, hasta 2048 caracteres, sin datos de usuario ni fragmento.",
+          "local": "Las salidas HTTP y locales se editan con latet server siem set.",
+          "token": "La ruta o consulta contiene un token. Sustitúyelo por {secret} e introduce su valor en Secreto.",
+          "header": "Usa hasta 32 cabeceras distintas, nombres de 1–64 letras, dígitos o guiones y valores de hasta 4096 caracteres ASCII visibles. Se rechazan las cabeceras reservadas a proxies, navegadores y Latet.",
+          "credential": "Las credenciales van en Secreto. Escribe {secret} en su lugar.",
+          "secretNeeded": "Define un secreto utilizable para esta vinculación. Un secreto referenciado no puede quitarse sin sustituirlo.",
+          "secret": "Un secreto es una línea no vacía de hasta 4096 caracteres ASCII visibles.",
+          "outputs": "Se pueden guardar hasta 50 salidas."
+        },
+        "status": {
+          "ok": "Último envío {{time}}",
+          "idle": "Aún no se ha enviado nada",
+          "failing": "Falla desde {{time}}",
+          "held": "Retenida en una secuencia de eventos rechazados desde {{time}}. Los siguientes esperan.",
+          "heldAdmin": "Retenida en una entrada del registro de administración desde {{time}}. Los eventos siguientes esperan.",
+          "queued_one": "{{count}} evento en espera",
+          "queued_many": "{{count}} eventos en espera",
+          "queued_other": "{{count}} eventos en espera",
+          "dropped_one": "{{count}} evento descartado",
+          "dropped_many": "{{count}} eventos descartados",
+          "dropped_other": "{{count}} eventos descartados",
+          "collapsed_one": "{{count}} entrada del registro de administración sustituida por un marcador de laguna",
+          "collapsed_many": "{{count}} entradas del registro de administración sustituidas por un marcador de laguna",
+          "collapsed_other": "{{count}} entradas del registro de administración sustituidas por un marcador de laguna"
+        },
+        "test": "Enviar un evento de prueba",
+        "testOk": "El envío de prueba terminó correctamente. Syslog no confirma la entrega.",
+        "testFail": "El envío de prueba falló. Revisa el estado de la salida antes de volver a intentarlo.",
+        "edit": "Editar",
+        "remove": {
+          "action": "Quitar",
+          "title": "¿Quitar {{name}}?",
+          "body_one": "Se descarta su {{count}} evento en espera, se quita su secreto guardado y su copia del registro de administración termina aquí.",
+          "body_many": "Se descartan sus {{count}} eventos en espera, se quita su secreto guardado y su copia del registro de administración termina aquí.",
+          "body_other": "Se descartan sus {{count}} eventos en espera, se quita su secreto guardado y su copia del registro de administración termina aquí.",
+          "nothing": "No hay eventos en espera. Se quita su secreto guardado y su copia del registro de administración termina aquí.",
+          "confirm": "Quitar"
+        },
+        "save": "Guardar",
+        "saved": "Salidas SIEM guardadas.",
+        "failure": {
+          "read": "No se pudieron leer las salidas actuales. Recarga antes de editar o probar.",
+          "failed": "La operación no se completó. Recarga y revisa las salidas actuales antes de volver a intentarlo.",
+          "forbidden": "El servidor rechazó la operación. Revisa tu rol y la licencia y recarga.",
+          "byCommand": "Una salida en http:// o en el propio equipo del servidor, y su secreto, se configuran con `latet server siem set` y `latet server siem secret`, nunca desde esta página. Recarga para ver las salidas como están.",
+          "large": "La petición es demasiado grande. Recarga y reduce el cambio antes de enviarlo de nuevo.",
+          "rate": "El servidor está ocupado o se alcanzó un límite de frecuencia. Espera, recarga y vuelve a enviarlo a propósito."
+        }
+      }
+    },
+    "companyApprovals": {
+      "title": "Aprobaciones de la empresa",
+      "description": "Los cambios que reducen la protección, y los textos del Revisor en directo, sobre los que decides para tu empresa. Un cambio muestra lo que reduce, nunca un valor; un texto se ve como lo ve la persona, con los valores incluidos.",
+      "empty": {
+        "title": "Nada espera tu decisión",
+        "body": "Aquí aparecen los cambios que reducen la protección y los textos que tu empresa envía al equipo de seguridad. El menú muestra cuántos esperan; con las notificaciones activadas, el navegador te avisa cuando llega uno."
+      },
+      "changes": {
+        "title": "Cambios en los ajustes",
+        "loosened": "Reduce la protección:",
+        "keys": "Cambia",
+        "moreReasons_one": "{{count}} más, sin listar",
+        "moreReasons_many": "{{count}} más, sin listar",
+        "moreReasons_other": "{{count}} más, sin listar"
+      },
+      "batches": {
+        "title": "Textos en el Revisor en directo",
+        "label": "Textos en espera"
+      },
+      "group": "Grupo {{group}}",
+      "apiKey": "Clave de API",
+      "route": {
+        "security": "Equipo de seguridad",
+        "controllers": "Quienes la controlan"
+      },
+      "source": {
+        "file": "Encontrado cuando el servidor volvió a aplicar los ajustes afectados, tras un cambio en lo establecido para todos o en esos ajustes en otra de sus instancias: mientras no se decida, siguen en uso los ajustes aprobados.",
+        "start": "Encontrado cuando se creó en el servidor el espacio afectado: mientras no se decida, siguen en uso los ajustes aprobados.",
+        "dashboard": "Guardado en su panel."
+      },
+      "mine": "Lo pediste tú: decide otra persona.",
+      "mineTag": "Pedido por ti",
+      "askedBy": "Hecho en el espacio de esta clave de API por {{name}}.",
+      "approve": "Aprobar",
+      "approveHelp": "Se aplica al instante a sus ajustes.",
+      "reject": "Rechazar",
+      "rejectHelp": "Sus ajustes se quedan como están.",
+      "withdraw": "Retirar",
+      "withdrawHelp": "Deja de esperar, y los ajustes se quedan como están.",
+      "approved": "Aprobado: se aplica a los ajustes de {{name}}.",
+      "rejected": "Rechazado: los ajustes de {{name}} se quedan como están.",
+      "withdrawn": "Retirado: los ajustes se quedan como están.",
+      "textApproved": "Aprobado: el texto de {{name}} ya está en camino.",
+      "textRejected": "No se ha enviado: se ha avisado al agente de {{name}}.",
+      "textWithdrawn": "No se ha enviado: se ha avisado a tu agente.",
+      "more_one": "Además de los 200 de la lista, {{count}} más espera tu decisión: aparecerá aquí a medida que se decidan estos.",
+      "more_many": "Además de los 200 de la lista, {{count}} más esperan tu decisión: aparecerán aquí a medida que se decidan estos.",
+      "more_other": "Además de los 200 de la lista, {{count}} más esperan tu decisión: aparecerán aquí a medida que se decidan estos.",
+      "companySignIn": "Un texto contiene lo que envía el agente de alguien, con los valores incluidos, así que solo se abre en una sesión abierta con tu cuenta de empresa.",
+      "companySignInDecide": "Una decisión para tu empresa necesita una sesión abierta con tu cuenta de empresa.",
+      "textAfterTrial": "La prueba ha terminado: nadie puede decidir sobre un texto, así que no se abre ninguno. Quien lo envió todavía puede detenerlo.",
+      "readFailed": "No se ha podido volver a leer la lista: lo que se ve aquí puede haber cambiado mientras tanto.",
+      "answer": {
+        "yours": "Lo pediste tú: lo decide otra persona. Puedes retirarlo.",
+        "notYours": "Ya no te corresponde decidirlo: mientras tanto ha cambiado quién lo decide.",
+        "gone": "Ya no está en espera: otra persona ha decidido, o {{name}} lo ha retirado.",
+        "changed": "El texto se ha vuelto a enmascarar mientras lo mirabas, así que no se ha decidido nada: revísalo tal como está ahora y luego decide.",
+        "stale": "Los ajustes de {{name}} han cambiado desde que lo pidió: se ha descartado y no se ha aplicado nada. Puede volver a pedirlo.",
+        "approvedUnapplied": "Aprobado, pero los ajustes de {{name}} han cambiado mientras tanto y no lo han incorporado: no se ha aplicado nada. Puede volver a pedirlo.",
+        "belowFloor": "Rechazado: quedaría por debajo de las directrices de tu empresa ({{reasons}}).",
+        "unrecorded": "No se ha podido escribir la decisión en el registro de administración, así que no se ha decidido nada: inténtalo de nuevo.",
+        "openingUnrecorded": "No se ha podido escribir la apertura de este texto en el registro de administración, así que no se muestra: inténtalo de nuevo.",
+        "unreached": "Ahora no se puede llegar al espacio de {{name}} desde esta instancia del servidor, así que sigue en espera: inténtalo de nuevo.",
+        "unkept": "Ahora no se han podido guardar los ajustes de {{name}}, así que no se ha decidido nada: inténtalo de nuevo.",
+        "floorUnavailable": "Ahora no se pueden leer las directrices de tu empresa, así que no se ha decidido nada: inténtalo de nuevo.",
+        "accountUnavailable": "Ahora no se puede leer la cuenta de {{name}}, así que no se ha decidido nada: inténtalo de nuevo.",
+        "unexpected": "La decisión ha terminado de una forma que este servidor no espera: mira más abajo lo que se ha decidido últimamente.",
+        "trialEnded": "La prueba de Latet Enterprise ha terminado, así que aquí ya no se puede decidir nada."
+      },
+      "history": {
+        "title": "Decidido últimamente",
+        "empty": "Todavía no se ha decidido nada.",
+        "when": "Cuándo",
+        "what": "Qué",
+        "who": "Pedido por",
+        "decision": "Decisión",
+        "by": "Decidido por",
+        "nobody": "Nadie",
+        "unrecorded": "Sin registrar",
+        "change": "Un cambio en los ajustes",
+        "batch_one": "{{count}} texto de {{agent}}",
+        "batch_many": "{{count}} textos de {{agent}}",
+        "batch_other": "{{count}} textos de {{agent}}"
+      },
+      "state": {
+        "approved": "Aprobado",
+        "rejected": "Rechazado",
+        "stale": "Descartado: los ajustes han cambiado",
+        "superseded": "Sustituido por uno más reciente",
+        "withdrawn": "Retirado por quien lo pidió",
+        "expired": "No enviado: se le acabó el tiempo",
+        "abandoned": "Abandonado por el agente, o perdido",
+        "gone": "Ya no existe: la cuenta se desactivó o se eliminó",
+        "approvedUnapplied": "Aprobado, no aplicado: los ajustes han cambiado mientras tanto",
+        "approvedChanged": "Aprobado, no enviado: se detuvo antes de salir"
+      },
+      "notification": {
+        "title": "Algo espera tu decisión",
+        "change": "{{name}}: un cambio que reduce la protección",
+        "batch": "{{name}}: un texto en el Revisor en directo"
+      },
+      "notify": {
+        "help": "Una notificación del navegador cuando algo nuevo espera tu decisión y esta pestaña está en segundo plano.",
+        "onHelp": "Recibes una notificación del navegador cuando algo nuevo espera tu decisión y esta pestaña está en segundo plano."
+      }
+    },
+    "termSync": {
+      "title": "Sincronización de términos",
+      "description": "Las listas de clientes, compañeros y nombres en clave de proyectos de tu empresa, enmascaradas para todos los que atiende el servidor, sin que nadie tenga que escribirlas.",
+      "runAll": "Sincronizar todo ahora",
+      "run": "Sincronizar ahora",
+      "running": "Sincronizando…",
+      "asked": "Solicitado: el servidor la sincroniza ahora.",
+      "stillRunning": "La sincronización sigue en curso: la página muestra su resultado cuando termine.",
+      "notShown": "Sin resultado después de 15 minutos: la página ha dejado de esperar. Vuelve a abrir la página más tarde para ver cómo ha ido la sincronización.",
+      "ran_one": "{{source}}: {{n}} término; nuevos: {{added}}; ya no están en la fuente: {{gone}}",
+      "ran_many": "{{source}}: {{n}} términos; nuevos: {{added}}; ya no están en la fuente: {{gone}}",
+      "ran_other": "{{source}}: {{n}} términos; nuevos: {{added}}; ya no están en la fuente: {{gone}}",
+      "runFailed": "{{source}}: no sincronizada. {{reason}}",
+      "paused": "La sincronización de términos está en pausa por la licencia: no se lee ninguna fuente; los términos sincronizados hasta ahora siguen enmascarados.",
+      "unreadable_one": "{{n}} término sincronizado se selló con otra clave maestra y no se puede leer: el servidor necesita la clave maestra con la que se selló.",
+      "unreadable_many": "{{n}} términos sincronizados se sellaron con otra clave maestra y no se pueden leer: el servidor necesita la clave maestra con la que se sellaron.",
+      "unreadable_other": "{{n}} términos sincronizados se sellaron con otra clave maestra y no se pueden leer: el servidor necesita la clave maestra con la que se sellaron.",
+      "kept_one": "{{n}} término guardado de un máximo de {{most}}",
+      "kept_many": "{{n}} términos guardados de un máximo de {{most}}",
+      "kept_other": "{{n}} términos guardados de un máximo de {{most}}",
+      "every_one": "cada minuto",
+      "every_many": "cada {{count}} minutos",
+      "every_other": "cada {{count}} minutos",
+      "kind": {
+        "file": "Archivo",
+        "url": "Dirección web",
+        "graph": "Microsoft Entra ID",
+        "ldap": "Directorio LDAP"
+      },
+      "state": {
+        "ok": "Sincronizada {{when}}",
+        "failed": "Falló {{when}}: {{reason}}",
+        "never": "Aún no sincronizada",
+        "retired": "Ya no está configurada"
+      },
+      "sources": {
+        "title": "Fuentes",
+        "empty": "Aún no hay ninguna fuente configurada.",
+        "howTo": "Edita las fuentes aquí, o con `latet server terms sources set`.",
+        "name": "Fuente",
+        "kind": "Origen",
+        "last": "Última sincronización",
+        "terms": "Términos",
+        "edit": "Editar las fuentes",
+        "save": "Guardar",
+        "cancel": "Cancelar",
+        "saved": "Fuentes guardadas. Añadidas: {{added}}; quitadas: {{removed}}; cambiadas: {{changed}}.",
+        "changed": "Las fuentes han cambiado desde que las abriste.",
+        "reload": "Volver a leerlas",
+        "signIn": "Las fuentes se muestran en una sesión abierta con tu cuenta de empresa.",
+        "editorLabel": "Las fuentes, en YAML",
+        "byCommand": "Una fuente en este equipo (localhost, 127.0.0.1, [::1]) se configura con `latet server terms sources set`, nunca desde el panel.",
+        "tooMany": "El panel añade o mueve como mucho 10 destinos de fuentes por hora para cada persona: vuelve a intentarlo más tarde."
+      },
+      "secret": {
+        "button": "Secreto",
+        "title": "El secreto de {{source}}",
+        "value": "Su valor",
+        "save": "Guardar",
+        "remove": "Quitar",
+        "removeConfirm": "¿Quitar el secreto de {{source}}? La fuente deja de sincronizarse hasta que se vuelva a definir un secreto.",
+        "saved": "Guardado para {{source}} tal como está configurada ahora: si la diriges a otro sitio o cambias lo que lee, vuelve a definirlo.",
+        "removed": "Se ha quitado el secreto de {{source}}.",
+        "never": "Un secreto nunca se vuelve a mostrar.",
+        "where": "Se conecta a {{addresses}}: el secreto se guarda para ese lugar y para lo que la fuente lee ahora. Defínelo solo si es ahí donde debe ir.",
+        "signsInAs": "Inicia sesión como {{bind}}.",
+        "whereUnknown": "No se puede mostrar adónde se conecta esta fuente: vuelve a leer las fuentes antes de definir su secreto.",
+        "byCommand": "El secreto de una fuente en este equipo (localhost, 127.0.0.1, [::1]) se configura con `latet server terms secret`, nunca desde el panel."
+      },
+      "gone": {
+        "title": "Ya no están en la fuente",
+        "description": "Los términos quitados de su fuente siguen enmascarados hasta que los quites aquí: quitar uno reduce la protección.",
+        "empty": "Todos los términos sincronizados siguen en su fuente.",
+        "signIn": "Los términos se muestran en una sesión abierta con tu cuenta de empresa.",
+        "count_one": "{{n}} ya no está en su fuente",
+        "count_many": "{{n}} ya no están en su fuente",
+        "count_other": "{{n}} ya no están en su fuente",
+        "value": "Término",
+        "type": "Tipo",
+        "source": "Fuente",
+        "since": "Ausente desde",
+        "selectAll": "Seleccionar todos",
+        "select": "Seleccionar {{value}}",
+        "remove_one": "Quitar {{count}} término",
+        "remove_many": "Quitar {{count}} términos",
+        "remove_other": "Quitar {{count}} términos",
+        "confirmTitle_one": "¿Quitar {{count}} término?",
+        "confirmTitle_many": "¿Quitar {{count}} términos?",
+        "confirmTitle_other": "¿Quitar {{count}} términos?",
+        "confirmBody": "Latet deja de enmascararlos para todos los que atiende el servidor. Una persona cuyas peticiones ya tenían uno enmascarado lo conserva en su caja fuerte hasta que lo olvide.",
+        "confirm": "Quitar",
+        "removed_one": "{{count}} término quitado",
+        "removed_many": "{{count}} términos quitados",
+        "removed_other": "{{count}} términos quitados",
+        "more": "Se muestran los primeros {{shown}} de {{total}}."
+      }
+    }
+  },
   "coverage": {
     "title": "Cobertura",
     "blocked": {
@@ -2363,42 +3414,45 @@
       "attempted": "Detenida tras un intento: un intento anterior puede haber llegado ya al proveedor."
     },
     "refusal": {
-      "header": "Llevaba una cabecera que ningún perfil de solicitud prevé.",
-      "query": "Llevaba un parámetro de consulta que ningún perfil de solicitud prevé.",
-      "body-member": "Su cuerpo llevaba un campo que ningún perfil de solicitud prevé.",
-      "body-member-closed": "Su cuerpo llevaba un campo que ningún perfil de solicitud prevé, donde ninguna excepción puede llegar (dentro de un elemento del proveedor, la fuente de una imagen o un turno WebSocket).",
-      "route": "Ningún perfil de solicitud integrado cubre su ruta.",
+      "header": "Llevaba una cabecera que ningún perfil de petición prevé.",
+      "query": "Llevaba un parámetro de consulta que ningún perfil de petición prevé.",
+      "body-member": "Su cuerpo llevaba un miembro que ningún perfil de petición prevé.",
+      "body-member-closed": "Su cuerpo llevaba un miembro que ningún perfil de petición prevé, donde ninguna excepción puede llegar (dentro de un elemento del proveedor, la fuente de una imagen o un turno WebSocket).",
+      "route": "Ningún perfil de petición integrado cubre su ruta.",
       "expired": "La excepción que la dejaba pasar ha caducado.",
       "resource": "Nombraba un modelo, un recurso o una región que Latet no reconoce por su forma.",
       "sensitive": "Su dirección o sus cabeceras contenían un valor sensible.",
       "auth": "Las credenciales no se pudieron leer, o fueron rechazadas.",
-      "egress": "Su destino no se puede alcanzar desde esta máquina.",
-      "parse": "Una parte no se podía leer como indica su protocolo, así que Latet no podía dar cuenta de toda la solicitud.",
-      "limit": "Superaba lo que Latet lee de una solicitud, o Latet estaba demasiado ocupado.",
+      "egress": "Su destino es uno al que este equipo no tiene permitido llegar.",
+      "parse": "Una parte no se podía leer como indica su protocolo, así que Latet no podía tener en cuenta toda la petición.",
+      "limit": "Superaba lo que Latet lee de una petición, o Latet estaba demasiado ocupado.",
       "state": "No se pudo leer un estado que Latet necesita para decidir.",
       "settings": "Los ajustes cambiaron mientras se preparaba, así que no se envió.",
       "masking": "El enmascaramiento falló.",
       "other": "Las reglas de Latet no la dejan salir."
     },
     "remedy": {
-      "exception": "Una excepción exacta la deja pasar: nombra la cabecera o el parámetro en request_exceptions de tu configuración y aprueba el cambio en la página Aprobaciones.",
-      "exception-docs": "Una excepción exacta, nombrada en tu configuración y aprobada por ti, puede dejar pasar un campo así:",
+      "exception": "Una excepción exacta la deja pasar: nombra la cabecera o el parámetro en request_exceptions de tus ajustes y aprueba el cambio en la página Aprobaciones.",
+      "exception-docs": "Una excepción exacta, nombrada en tus ajustes y aprobada por ti, puede dejar pasar un miembro así:",
       "exceptionDocsLink": "cómo aprobar una",
-      "renew": "Renovarla es una nueva aprobación: cambia la excepción en tu configuración y aprueba el cambio.",
-      "resource": "Añade el valor a request_resources en tu configuración para este destino.",
+      "renew": "Renovarla es una nueva aprobación: cambia la excepción en tus ajustes y aprueba el cambio.",
+      "resource": "Añade el valor a request_resources en tus ajustes para este destino.",
       "again": "Enviada de nuevo, sale con los ajustes ahora en vigor.",
-      "websocket": "En esta versión de Latet, un WebSocket no admite excepciones de solicitudes.",
+      "websocket": "En esta versión de Latet, un WebSocket no admite excepciones de petición.",
+      "strict": "`unknown_members: refuse`, en tus ajustes, en los de este proyecto o en las directrices de tu empresa, rechaza miembros así. Con `unknown_members: check`, Latet lee un miembro así entero y lo envía cuando nada en él se enmascararía y no nombra ningún archivo, dirección, conversación guardada ni modelo.",
+      "strictDocsLink": "Qué hace este ajuste",
       "none": "Ninguna excepción puede dejarla pasar."
     },
     "outcome": {
-      "read": "Se leyó cada parte de la solicitud y nada salió sin leerse.",
+      "read": "Se leyó cada parte de la petición y nada salió sin leerse.",
       "passed": "Leída y dejada pasar por:",
       "unread": "Una parte salió sin leerse, como permiten las reglas nombradas aquí, así que no figura como verificada.",
-      "unknown": "No consta cuánto de esta solicitud leyó Latet: la registró una versión anterior de Latet."
+      "unknown": "No consta cuánto de esta petición leyó Latet: la registró una versión anterior de Latet."
     },
     "allowedByRule": "permitida por una regla",
     "pass": {
       "checked-only": "solo comprobada (valores que la comprobación final leyó sin tener que enmascararlos)",
+      "new-member": "un campo que ningún perfil de petición prevé todavía, leído y comprobado",
       "image-remainder": "permitida por una regla: el resto de una imagen cuyo texto se leyó",
       "sent-before": "texto ya enviado en esta conversación",
       "model-written": "texto que escribió el modelo",
@@ -2412,9 +3466,9 @@
       "trusted": "Vinculado por el plugin de Claude Code",
       "claimed": "No iniciado por Latet",
       "launchedHelp": "Latet inició este agente y verificó la clave que le dio: se aplican las relajaciones y las excepciones del proyecto.",
-      "keyMissingHelp": "Latet inició este agente, pero sus solicitudes no llevaban la clave que Latet le dio, así que se trataron como declaradas: se aplicaron las reglas del proyecto que añaden protección, no sus relajaciones ni sus excepciones.",
+      "keyMissingHelp": "Latet inició este agente, pero sus peticiones no llevaban la clave que Latet le dio, así que se trataron como declaradas: se aplicaron las reglas del proyecto que añaden protección, no sus relajaciones ni sus excepciones.",
       "trustedHelp": "El plugin de Claude Code vinculó esta sesión a su proyecto: se aplican las relajaciones y las excepciones del proyecto.",
-      "claimedHelp": "Nada que Latet pueda verificar dice de dónde viene esta solicitud: un proyecto que nombre solo puede añadir protección."
+      "claimedHelp": "Nada que Latet pueda verificar dice de dónde viene esta petición: un proyecto que nombre solo puede añadir protección."
     },
     "project": {
       "trusted": "Proyecto {{name}}, de confianza: se aplican todas sus reglas.",
@@ -2424,18 +3478,18 @@
       "headers_one": "Latet quitó {{count}} cabecera que su perfil declara eliminable.",
       "headers_many": "Latet quitó {{count}} cabeceras que su perfil declara eliminables.",
       "headers_other": "Latet quitó {{count}} cabeceras que su perfil declara eliminables.",
-      "members_one": "Latet quitó {{count}} campo del cuerpo que su perfil declara eliminable.",
-      "members_many": "Latet quitó {{count}} campos del cuerpo que su perfil declara eliminables.",
-      "members_other": "Latet quitó {{count}} campos del cuerpo que su perfil declara eliminables.",
+      "members_one": "Latet quitó {{count}} miembro del cuerpo que su perfil declara eliminable.",
+      "members_many": "Latet quitó {{count}} miembros del cuerpo que su perfil declara eliminables.",
+      "members_other": "Latet quitó {{count}} miembros del cuerpo que su perfil declara eliminables.",
       "authAfter": "El proveedor respondió {{status}} después de que Latet quitara una cabecera: quizá sea una que necesita."
     },
-    "profile": "Perfil de solicitud"
+    "profile": "Perfil de petición"
   },
   "exceptions": {
-    "title": "Excepciones de solicitudes",
-    "help": "Cada una deja pasar exactamente lo que nombra, en el perfil de solicitud de un destino, y que Latet rechazaría si no. Las apruebas tú, una a una, y duran los días que indican (30 si no indican ninguno, 90 como máximo), salvo las que hiciste permanentes.",
-    "empty": "No hay excepciones de solicitudes.",
-    "yoursAlone": "Son solo tuyas: las excepciones de otras personas o de otras claves no se aplican a tus solicitudes.",
+    "title": "Excepciones de petición",
+    "help": "Cada una deja pasar, en el perfil de petición de un destino, exactamente lo que nombra y que Latet rechazaría de otro modo. Las apruebas tú, una a una, y duran los días que indican (30 si no indican ninguno, 90 como máximo), salvo las que hiciste permanentes.",
+    "empty": "No hay excepciones de petición.",
+    "yoursAlone": "Son solo tuyas: las excepciones de otras personas o de otras claves no se aplican a tus peticiones.",
     "expiryWarning_one": "{{count}} excepción termina en los próximos 7 días. Renovarla es una nueva aprobación.",
     "expiryWarning_many": "{{count}} excepciones terminan en los próximos 7 días. Renovar una es una nueva aprobación.",
     "expiryWarning_other": "{{count}} excepciones terminan en los próximos 7 días. Renovar una es una nueva aprobación.",
@@ -2448,11 +3502,11 @@
     "component": {
       "header": "Cabecera",
       "query": "Parámetro de consulta",
-      "body": "Campo del cuerpo"
+      "body": "Miembro del cuerpo"
     },
     "role": {
       "credential": "La credencial propia del destino, enviada tal cual y nunca leída",
-      "checked": "Su valor se comprueba antes de salir"
+      "checked": "Antes de salir, se comprueba si su valor contiene valores sensibles"
     },
     "reason": {
       "destination-credential": "Credencial de un destino",
@@ -2461,13 +3515,16 @@
       "other": "Otro"
     },
     "scope": {
-      "identity": "Cada solicitud tuya, en cada proyecto",
-      "project": "Solicitudes del proyecto {{name}}, cuando Latet confía en su proyecto"
+      "identity": "Cada petición tuya, en cada proyecto",
+      "project": "Peticiones del proyecto {{name}}, cuando Latet confía en su proyecto"
     },
     "issuer": {
       "owner": "Aprobada por ti",
       "person": "Aprobada por ti, en el servidor",
-      "administration": "Aprobada por la administración del servidor"
+      "administration": "Aprobada por la administración del servidor",
+      "security": "Aprobada por {{name}}, del equipo de seguridad de tu empresa",
+      "controllers": "Aprobada por {{name}}, para esta clave de API",
+      "controllersUnnamed": "Aprobada en el espacio de esta clave de API por una de las personas que la controlan"
     },
     "state": {
       "pending": "Esperando tu aprobación",
@@ -2476,6 +3533,7 @@
       "expiringLabel": "Caduca pronto",
       "activeLabel": "Activa",
       "forbidden": "No está en vigor: esta edición no permite excepciones permanentes",
+      "notCompany": "No está en vigor: sobre las excepciones de petición decide el equipo de seguridad de tu empresa, que no aprobó esta",
       "expiring_one": "Queda {{count}} día",
       "expiring_many": "Quedan {{count}} días",
       "expiring_other": "Quedan {{count}} días",
@@ -2487,7 +3545,7 @@
     "revoke": "Revocar",
     "revokeOne": "Revocar la excepción {{id}}",
     "revoking": "Revocando…",
-    "revoked": "Excepción {{id}} revocada: las solicitudes que la necesitan vuelven a rechazarse.",
+    "revoked": "Excepción {{id}} revocada: las peticiones que la necesitan vuelven a rechazarse.",
     "status": {
       "uses_one": "{{count}} uso de una excepción desde que arrancó el daemon, contado en memoria y borrado cuando se reinicia.",
       "uses_many": "{{count}} usos de excepciones desde que arrancó el daemon, contados en memoria y borrados cuando se reinicia.",
@@ -2500,13 +3558,13 @@
       "overflow_other": "{{count}} usos no se pudieron contar: los recuentos están llenos."
     },
     "change": {
-      "title": "Excepciones de solicitudes que este cambio deja pasar",
+      "title": "Excepciones de petición que este cambio deja pasar",
       "added": "Nueva",
       "widened": "Ampliada",
       "madePermanent": "Hecha permanente",
       "renewed": "Renovada",
-      "identityWarning": "Cubre toda tu identidad: cada solicitud tuya, en cada proyecto, no un solo proyecto.",
-      "projectOnly": "Solo para solicitudes del proyecto {{name}}, cuando Latet confía en su proyecto.",
+      "identityWarning": "Cubre toda tu identidad: cada petición tuya, en cada proyecto, no un solo proyecto.",
+      "projectOnly": "Solo para peticiones del proyecto {{name}}, cuando Latet confía en su proyecto.",
       "permanent": "Permanente: nunca caduca. Apruébala solo si lo elegiste a propósito.",
       "lasts_one": "Dura {{count}} día una vez aprobada.",
       "lasts_many": "Dura {{count}} días una vez aprobada.",

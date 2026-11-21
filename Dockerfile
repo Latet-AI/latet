@@ -36,6 +36,7 @@ FROM ${PYTHON_IMAGE} AS build
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /src
 COPY pyproject.toml uv.lock README.md LICENSE LICENSING.md ./
+COPY ee/LICENSE ee/LICENSE
 COPY src/ src/
 COPY --from=dashboard /src/src/latet/web/ src/latet/web/
 COPY --from=docs /src/src/latet/docs/ src/latet/docs/
@@ -44,7 +45,7 @@ COPY --from=docs /src/src/latet/docs/ src/latet/docs/
 COPY scripts/check_docs_bundle.py scripts/
 RUN python scripts/check_docs_bundle.py --root src/latet/docs
 RUN uv build --wheel --out-dir /dist \
-    && uv export --frozen --no-dev --extra ner --extra ocr --extra server --no-emit-project --format requirements-txt --output-file /dist/requirements.txt
+    && uv export --frozen --no-dev --extra ner --extra ocr --extra server --extra ldap --no-emit-project --format requirements-txt --output-file /dist/requirements.txt
 
 # 4. The runtime: no compiler, no uv, a user without privileges.
 FROM ${PYTHON_IMAGE}

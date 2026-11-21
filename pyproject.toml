@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "latet"
-version = "0.12.1"
+version = "0.15.0"
 description = "A local privacy firewall for AI agents: masks secrets and personal data before they reach the model and restores them locally."
 readme = "README.md"
 requires-python = ">=3.12"
-license = "LicenseRef-Latet-Sustainable-Use-1.0"
-license-files = ["LICENSE", "LICENSING.md"]
+license = "LicenseRef-Latet-Sustainable-Use-1.0 AND LicenseRef-Latet-Enterprise-1.0"
+license-files = ["LICENSE", "LICENSING.md", "ee/LICENSE"]
 authors = [{ name = "Emanuele Casabona", email = "siphion@gmail.com" }]
 keywords = ["privacy", "llm", "pii", "secrets", "redaction", "pseudonymization", "claude-code", "codex", "opencode", "proxy"]
 classifiers = [
@@ -30,6 +30,7 @@ dependencies = [
     "brotli>=1.2.0",
     "cryptography>=50.0.2",
     "google-re2>=1.1.20251105",
+    "httpcore>=1,<2",
     "httpx>=0.28.1",
     "keyring>=25.7.0",
     "phonenumbers>=9.0.40",
@@ -62,10 +63,17 @@ ocr = [
 # The floors are the versions the server was written against and is tested with: it leans on how psycopg and libpq take
 # an address (`latet.server.db`), on how redis-py bounds a handshake and reads a blocking subscription
 # (`latet.server.bus`), and on numpy 2's arrays for the prints of a vault each instance holds (`latet.server.index`).
+# PyJWT (MIT) checks the signature of an ID token in single sign-on (`latet.ee.oidc`).
 server = [
     "numpy>=2.0",
     "psycopg[binary,pool]>=3.3",
+    "pyjwt[crypto]>=2.15.1",
     "redis>=8.1",
+]
+# Synced terms from an LDAP directory or Active Directory (Latet Enterprise, on a server): ldap3, LGPL-3.0-or-later,
+# used as a separate, unmodified package.
+ldap = [
+    "ldap3>=2.9.1",
 ]
 
 [project.urls]
@@ -124,6 +132,7 @@ markers = [
     "live: tests that hit real upstream providers (never in CI)",
     "agents: real AI agents and tools against fake providers on this computer (LATET_AGENT_TESTS=1)",
     "server: tests of the server's PostgreSQL and Valkey backends (LATET_TEST_DATABASE_URL, LATET_TEST_VALKEY_URL)",
+    "providers: Latet Enterprise against real Keycloak, OpenLDAP and Prometheus in Docker (LATET_PROVIDER_TESTS=1)",
     "timing: bounds on time (how long the event loop waits, overhead budgets), which the noise of GitHub's macOS and Windows runners breaks (CI runs them on Linux)",
 ]
 
@@ -138,7 +147,7 @@ latet-client = { path = "sdk/python", editable = true }
 
 [dependency-groups]
 dev = [
-    "latet[ner,ocr,server]",
+    "latet[ner,ocr,server,ldap]",
     # The official SDKs (OpenAI, Anthropic, Google GenAI) and the frameworks built on them (LangChain, LangGraph),
     # which tests/e2e/test_sdks_e2e.py runs through Latet; AutoGen and CrewAI do not fit this environment and run in
     # their own (tests/agents/test_frameworks.py). latet-client, the applications API's Python client (sdk/python),

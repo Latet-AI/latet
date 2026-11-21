@@ -120,9 +120,6 @@ _WORDS_KEPT = frozenset(
 _CAUSE = "The above exception was the direct cause of the following exception:"
 _CONTEXT = "During handling of the above exception, another exception occurred:"
 _GROUP_WIDTH, _GROUP_DEPTH = 15, 10  # as Python shows a group: its first 15 members, 10 groups deep
-# A dashboard project's id, in the dashboard's paths: a hash of the project's folder, which a list of usual folders
-# gives back.
-_PROJECT = re.compile(r"(/_latet/api/v1/projects/)[^/?#]+")
 # A route key wherever a path places it (``//u//<key>``, ``/u;x/<key>``, right after an escape, a byte that is no text,
 # a letter or a digit): every run of 26 characters or more of its alphabet, in either case, read in the path as the
 # router reads it (its escapes decoded), before what a line cannot hold is escaped again, whose hex digits would sit
@@ -778,6 +775,8 @@ _AREAS = (
     ("/_latet/api/", "the dashboard"),
     ("/_latet/ui/", "the dashboard"),
     ("/_latet/admin/", "the dashboard"),
+    ("/scim/", "SCIM"),  # Latet Enterprise's: a provider's users and groups (fix round 2, the review's L6)
+    ("/_latet/sso/", "single sign-on"),
 )
 # What anyone can make happen at will, one a request: said once a minute with how many, each status and kind apart. A
 # request with no credential (401), with a method its route does not take (405), or that says a body too large (413)

@@ -29,7 +29,7 @@ latet run python welcome.py
 La commande voit `OPENAI_BASE_URL` et `OPENAI_API_BASE` valant `http://127.0.0.1:5283/openai/v1`,
 `ANTHROPIC_BASE_URL` valant `http://127.0.0.1:5283/anthropic`, et `GOOGLE_GEMINI_BASE_URL` et
 `GOOGLE_VERTEX_BASE_URL` valant `http://127.0.0.1:5283/gemini` et `http://127.0.0.1:5283/vertex`. Les
-SDK officiels d'OpenAI, d'Anthropic et Google GenAI lisent ces variables : pour ceux de Google, voir
+SDK officiels d'OpenAI, d'Anthropic et de Google GenAI lisent ces variables : pour ceux de Google, voir
 [Gemini CLI et Google GenAI](../gemini/).
 
 Un programme que lance `latet run` ne porte aucune clé de lancement, donc un dossier qu'il nomme
@@ -52,7 +52,7 @@ latet env | Invoke-Expression    # Windows PowerShell
 `--shell bash`, `--shell powershell` ou `--shell cmd` choisit la syntaxe ; par défaut, elle suit votre
 système. Pour garder les variables, ajoutez les lignes affichées au profil de votre shell. Claude Code
 lancé avec `claude` dans un tel shell atteint alors Latet sans son plugin : ses requêtes sont seulement
-vérifiées, et chacune de celles qui portent une valeur sensible en clair est arrêtée. Démarrez-le avec
+vérifiées, et toute requête qui porte une valeur sensible en clair est arrêtée. Démarrez-le avec
 `latet claude`, ou configurez-le avec `latet global-install`, qui lui donnent aussi le plugin.
 
 ## Exemple
@@ -78,7 +78,7 @@ Lancez-le avec `latet run python welcome.py` :
 3. Au retour, le daemon remet l'original en place : le script affiche donc un e-mail adressé à
    `emily.carter@northwind-legal.com`.
 
-Seule la valeur factice elle-même est remise en place. Si le modèle a aussi écrit *Dear Laura*, un prénom
+Seule la valeur factice elle-même est remplacée par l'original. Si le modèle a aussi écrit *Dear Laura*, un prénom
 qu'il a deviné à partir de l'adresse factice, ce mot reste tel que le modèle l'a écrit.
 
 Les réponses en streaming fonctionnent de la même façon, fragment par fragment.
@@ -87,7 +87,7 @@ Les réponses en streaming fonctionnent de la même façon, fragment par fragmen
 
 LangChain, LangGraph, AutoGen et CrewAI atteignent le modèle par les SDK officiels ou par LiteLLM,
 qui lisent les variables que `latet run` définit : lancez votre programme avec `latet run`, comme
-n'importe quel script. Chacun est testé pour de vrai via Latet, configuré comme ci-dessous :
+n'importe quel script. Chacun est testé en conditions réelles avec Latet, configuré comme ci-dessous :
 
 | Framework | Configuration | Testé |
 | --- | --- | --- |
@@ -95,7 +95,7 @@ n'importe quel script. Chacun est testé pour de vrai via Latet, configuré comm
 | AutoGen | `OpenAIChatCompletionClient`, sans URL de base | Un `AssistantAgent` |
 | CrewAI | `LLM(model="openai/gpt-5.1")`, sans URL de base | Son `LLM`, et une crew avec une tâche |
 
-Pour définir l'adresse dans votre code, indiquez-la comme `base_url` : `http://127.0.0.1:5283/openai/v1`
+Pour définir plutôt l'adresse dans votre code, indiquez-la comme `base_url` : `http://127.0.0.1:5283/openai/v1`
 pour les clients d'OpenAI, `http://127.0.0.1:5283/anthropic` pour ceux d'Anthropic.
 
 Aider atteint le modèle par LiteLLM, qui lit `OPENAI_API_BASE` : lancez-le avec
@@ -120,14 +120,17 @@ envoyé en clair.
   [reconnaissance de texte](../../concepts/images/) facultative ; sans elle, une requête avec une
   image n'est pas envoyée. Les images désignées par leur adresse, l'audio et les fichiers sont refusés.
 - **La liste des modèles et la lecture d'un modèle** passent chez OpenAI, Anthropic et OpenRouter.
-  **Toute autre requête** (fichiers, lots, audio, génération d'images, modération, récupération d'une
-  réponse enregistrée) est refusée, de même qu'un en-tête, un paramètre de requête ou un membre du
-  corps qu'aucun profil ne nomme : vos propres `default_headers` ou `extra_body` dans un SDK, par
-  exemple, tant qu'une [exception exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne les
-  laisse pas passer. Les en-têtes de télémétrie et de traçage des SDK eux-mêmes
-  (`x-stainless-*`, `traceparent`...) sont retirés et comptés. Ce
-  que Latet lit sur les routes de Google figure dans
-  [Gemini CLI et Google GenAI](../gemini/#ce-que-lit-la-passerelle).
+  **Toute autre requête** (fichiers, lots, audio, génération d'images, modération, récupération
+  d'une réponse enregistrée) est refusée, de même qu'un en-tête ou un paramètre de requête qu'aucun
+  profil ne nomme : vos propres `default_headers` dans un SDK, par exemple, tant qu'une [exception
+  exacte](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) ne les laisse pas
+  passer. Un membre du corps qu'aucun profil ne nomme encore, comme l'un des `extra_body` d'un SDK,
+  est lu en entier et vérifié, et passe tel quel quand rien en lui ne serait masqué et qu'il ne
+  nomme rien sur quoi le fournisseur agit ([Nouveaux membres des
+  requêtes](../../getting-started/upgrading-to-0-11/#nouveaux-membres-des-requêtes)). Les en-têtes
+  de télémétrie et de traçage des SDK eux-mêmes (`x-stainless-*`, `traceparent`...) sont retirés et
+  comptés. Ce que Latet lit sur les routes de Google figure dans [Gemini CLI et Google
+  GenAI](../gemini/#ce-que-lit-la-passerelle).
 
 Une requête vers Anthropic qui vient de Claude Code, ou qui porte un jeton d'abonnement Claude, n'est
 jamais réécrite : elle est seulement vérifiée, et bloquée si elle contient une valeur sensible. Voir

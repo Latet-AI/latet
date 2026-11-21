@@ -50,15 +50,20 @@ export const BLOCK_DOCS: Record<Exclude<BlockKind, 'live'>, DocsTarget> = {
   imagesMask: 'why.imagesMask',
   localReviewer: 'why.localReviewer',
   leak: 'why.blocked',
+  toolInput: 'why.toolInput',
   outbound: 'why.outbound',
   other: 'why.blocked',
 }
 
-/** A text the Live Reviewer did not send: you stopped it, it waited past its time, or its agent gave up. */
+/**
+ * A text the Live Reviewer did not send: you stopped it, it waited past its time, its agent gave up, or (Latet
+ * Enterprise) your company's security team approved it and your settings changed before it left.
+ */
 export const LIVE_DOCS: Record<LiveEnd, DocsTarget> = {
   rejected: 'why.liveRejected',
   expired: 'why.liveTimeout',
   abandoned: 'why.liveTimeout',
+  changed: 'why.liveChanged',
 }
 
 /**

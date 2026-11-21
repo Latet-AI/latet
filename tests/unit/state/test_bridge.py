@@ -14,14 +14,19 @@ import redis
 from starlette.applications import Starlette
 
 from latet.bridge.api import Bridge, a_store_not_answering
+from latet.config import Config, IdentityConfig, LiveReview
 from latet.engine import wellformed
 from latet.engine.types import EntityClass
 from latet.engine.vault import MaskingError
 from latet.gateway import approvals as approvals_module
-from latet.gateway.approvals import EXPIRED, REJECTED
+from latet.gateway.approvals import EXPIRED, REJECTED, batch_version
+from latet.runtime import make_runtime
+from latet.state import IdentityRef
 from latet.vision.masking import ImageMasking
 
+from ...conftest import ROOT_KEY
 from ...fake_ocr import FakeOcr
+from ...synced import SyncedEdition
 from .conftest import EMAIL, PROMPT, _until
 
 
@@ -181,6 +186,43 @@ def _keep(live, value):
     live.mediator.engine.vault.intern("ORG", EntityClass.CUSTOM, value, rule="human:org")
 
 
+async def _shown_as_it_leaves(live, batch_id):
+    """The image of ``batch_id``'s first text as the dashboards show it "As it leaves now"."""
+    found = await live.mediator.approvals.image(batch_id, 0, sent=True)
+    assert found is not None
+    return found
+
+
+async def test_an_image_waiting_is_shown_as_it_leaves_now_once_its_texts_are_masked_again(live, plugin):
+    """The final security review's approvals L4. A value in an image is covered with a bar when it first waits; let
+    through meanwhile (Not sensitive: always allow), or a value of it kept in the vault, its texts are masked again, and
+    its picture "As it leaves now" is painted again with them, never the one painted when it first waited: what you see
+    there is what leaves once you approve."""
+    reader = FakeOcr()
+    live.mediator.vision = ImageMasking(reader, live.store)
+    picture = reader.screenshot([f"Email: {EMAIL}", "Account of Orion since 2019"])
+    pending = await plugin.mask([{"image": {"data": picture, "media_type": "image/png"}, "kind": "tool_result"}])
+    covered = await _shown_as_it_leaves(live, pending)
+    assert covered[0] != picture  # the address under a bar
+
+    def allowed(config):
+        config = config.model_copy(deep=True)
+        config.allow_values.append(EMAIL)
+        return config
+
+    live.update_config(allowed)
+    await _first_preview(live, pending, lambda masked: EMAIL in masked)
+    clear = await _shown_as_it_leaves(live, pending)
+    assert clear != covered  # nothing covers the address any more
+    await live.mediator.run(_keep, live, "Orion")  # and a value of its second line is masked now
+    await _first_preview(live, pending, lambda masked: "Orion" not in masked)
+    shown = await _shown_as_it_leaves(live, pending)
+    assert shown not in (covered, clear)
+    assert await live.mediator.approvals.decide(pending, True)
+    [item] = (await plugin.wait(pending)).json()["items"]
+    assert (item["image"]["data"], item["image"]["media_type"]) == shown  # it left as it was shown
+
+
 async def test_a_value_kept_that_no_text_waiting_holds_does_not_mask_them_again(live, plugin, monkeypatch):
     """Every request keeps values in the vault: the texts waiting are masked again only where one of them is in clear
     in their previews, never each time (a name model over every text waiting, for each value kept)."""
@@ -221,11 +263,11 @@ async def test_a_preview_the_queue_did_not_keep_is_made_again_at_the_next_change
     approvals, refused = live.mediator.approvals, []
     real = approvals.update
 
-    async def once_refused(batch_id, items):
+    async def once_refused(batch_id, items, pictures=None):
         if not refused:
             refused.append(batch_id)
             return False
-        return await real(batch_id, items)
+        return await real(batch_id, items, pictures)
 
     monkeypatch.setattr(approvals, "update", once_refused)
 
@@ -255,6 +297,227 @@ async def test_the_text_latet_sent_after_your_approval_does_not_wait_again(live,
     assert not again.get("pending"), again
     assert await live.mediator.approvals.pending() == []
     assert again["items"][0]["text"] == sent
+
+
+MARK = IdentityRef("u_markellisx", "Mark Ellis", "person")  # a decider of the company (Latet Enterprise)
+
+
+def _allowed(config):
+    """The address let through (Not sensitive: always allow): a change that lowers protection."""
+    config = config.model_copy(deep=True)
+    config.allow_values.append(EMAIL)
+    return config
+
+
+async def _read(live, pending):
+    """The version of the text waiting, as a decider reads it (the Company approvals route's ``version``)."""
+    batch = await live.mediator.approvals.backend.fetch(pending)
+    assert batch is not None
+    return batch_version(batch.items)
+
+
+async def test_a_text_a_decider_approved_leaves_as_they_read_it(live, plugin):
+    """Nothing changed between the reading and the sending: the text masked with the rules of sending is the one they
+    approved, and it leaves."""
+    pending = await plugin.mask()
+    assert await live.mediator.approvals.decide(pending, True, by=MARK, version=await _read(live, pending))
+    answer = await plugin.wait(pending)
+    [item] = answer.json()["items"]
+    assert answer.status_code == 200 and EMAIL not in item["text"] and "Orion" in item["text"]
+
+
+async def test_a_text_masked_otherwise_when_it_is_sent_than_a_decider_approved_it_is_withheld_and_waits_again(
+    live, plugin, monkeypatch
+):
+    """The review of Task 10 (fix round 2): a decider approved the text as they read it; a change of the rules that
+    lowers protection lands between their approval and its sending (the address let through). Masked as it would
+    leave, it is not what they approved: it is withheld (nothing of it in clear reaches the plugin), it is not taken
+    as approved, and the agent's next call with it waits again. The person's own approval leaves masked with the rules
+    of now, as before (``test_a_value_you_let_through_while_a_text_waits_leaves_in_clear_once_you_approve``)."""
+    pending = await plugin.mask()
+    version = await _read(live, pending)
+    real = plugin.bridge._decided
+
+    def lowered_first(waiting, decision):
+        live.update_config(_allowed)  # between the approval and the sending
+        return real(waiting, decision)
+
+    monkeypatch.setattr(plugin.bridge, "_decided", lowered_first)
+    feed = await live.mediator.approvals.watch()  # her dashboard
+    assert await live.mediator.approvals.decide(pending, True, by=MARK, version=version)
+    answer = await plugin.wait(pending)
+    assert EMAIL not in answer.text and "masked otherwise" in answer.json()["error"], answer.text
+    told = [feed.get_nowait() for _ in range(feed.qsize())]
+    assert ("withheld", {"id": pending}) in told, told  # her dashboard is told, in her own words (fix round 3, m3)
+    live.mediator.approvals.unwatch(feed)
+    again = await plugin.mask()  # the agent tries again: it waits again
+    assert again != pending
+
+
+async def test_a_lowering_between_the_comparison_and_the_masking_still_withholds_the_text(live, plugin, monkeypatch):
+    """The review of Task 10, fix round 4 (I-a): the rules change right after the sending's comparison and before its
+    real masking (another request saved them on its own thread). The text is withheld all the same, nothing of it in
+    clear, never taken as approved: the agent's next call with it waits again."""
+    pending = await plugin.mask()
+    version = await _read(live, pending)
+    mediator = live.mediator
+    compared = mediator._views_now
+
+    def lowered_after(*args, **kwargs):
+        views = compared(*args, **kwargs)
+        live.update_config(_allowed)  # right after the comparison's masking, before the real one
+        return views
+
+    monkeypatch.setattr(mediator, "_views_now", lowered_after)
+    assert await mediator.approvals.decide(pending, True, by=MARK, version=version)
+    answer = await plugin.wait(pending)
+    assert EMAIL not in answer.text and "masked otherwise" in answer.json().get("error", ""), answer.text
+    monkeypatch.setattr(mediator, "_views_now", compared)
+    again = await plugin.mask()  # the agent tries again: it waits again
+    assert again != pending
+
+
+async def test_a_masker_swapped_before_its_rules_are_counted_still_withholds_the_text(live, plugin, monkeypatch):
+    """The review of Task 10, fix round 5 (m-c): ``Engine.use`` puts the new masker in place, then counts the new rules;
+    a masking in between uses the new masker under the old count. Here the masker is swapped and not counted right
+    after the comparison, and the decider's own mask keeps the real masking off every cache: the text is withheld all
+    the same (the stamp holds the masker itself, compared by identity), and waits again."""
+    pending = await plugin.mask()
+    version = await _read(live, pending)
+    mediator = live.mediator
+    compared = mediator._views_now
+
+    def swapped_after(*args, **kwargs):
+        views = compared(*args, **kwargs)
+        with monkeypatch.context() as patch:
+            patch.setattr(mediator.engine, "rules_changed", lambda: None)  # the new masker, its rules not counted yet
+            live.update_config(_allowed)
+        return views
+
+    monkeypatch.setattr(mediator, "_views_now", swapped_after)
+    start = PROMPT.index("Orion")
+    mask = {"item": 0, "start": start, "end": start + len("Orion"), "category": "org", "value": "Orion"}
+    assert await mediator.approvals.decide(pending, True, [mask], by=MARK, version=version)
+    answer = await plugin.wait(pending)
+    assert EMAIL not in answer.text and "masked otherwise" in answer.json().get("error", ""), answer.text
+    monkeypatch.setattr(mediator, "_views_now", compared)
+    again = await plugin.mask()
+    assert again != pending
+
+
+@pytest.fixture
+def synced_live(tmp_path):
+    """A runtime as ``live`` (the Live Reviewer on), made with an edition that syncs terms (Latet Enterprise, on a
+    server): the client the conftest's PROMPT names, `Orion`, among them."""
+    edition = SyncedEdition()
+    edition.live.use([("Orion", "CLIENT")], "1.1")
+    config = Config(identity=IdentityConfig(enabled=False), live_review=LiveReview(enabled=True))
+    rt = make_runtime(
+        config, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY, edition=edition
+    )
+    yield rt
+    rt.close()
+
+
+@pytest.fixture
+async def synced_plugin(synced_live, monkeypatch):
+    """``plugin``, asking the bridge of ``synced_live``."""
+    monkeypatch.setattr("latet.bridge.api.HOLD", 5.0)
+    async with Plugin(synced_live) as asking:
+        yield asking
+
+
+async def test_a_sync_between_the_comparison_and_the_masking_still_withholds_the_text(
+    synced_live, synced_plugin, monkeypatch
+):
+    """R7: the terms a company syncs change in place, under the same masker and the same count of the rules; a sync
+    right after the sending's comparison and before its real masking withholds the text all the same (the terms' tag is
+    in the stamp of the rules), nothing of it in clear, never taken as approved: the agent's next call waits again."""
+    pending = await synced_plugin.mask()
+    version = await _read(synced_live, pending)
+    mediator = synced_live.mediator
+    compared = mediator._views_now
+
+    def synced_after(*args, **kwargs):
+        views = compared(*args, **kwargs)
+        synced_live.edition.live.use([], "2.1")  # right after the comparison's masking, before the real one
+        return views
+
+    monkeypatch.setattr(mediator, "_views_now", synced_after)
+    assert await mediator.approvals.decide(pending, True, by=MARK, version=version)
+    answer = await synced_plugin.wait(pending)
+    assert "Orion" not in answer.text and "masked otherwise" in answer.json().get("error", ""), answer.text
+    monkeypatch.setattr(mediator, "_views_now", compared)
+    again = await synced_plugin.mask()  # the agent tries again: it waits again
+    assert again != pending
+
+
+async def test_a_text_waiting_is_shown_masked_again_after_a_sync_and_a_change_of_the_vault_that_misses_it(
+    synced_live, synced_plugin
+):
+    synced_live.edition.live.use([], "1.0")  # no synced term yet: Orion in clear in the preview
+    pending = await synced_plugin.mask()
+    assert "Orion" in (await _first_preview(synced_live, pending, lambda masked: True))
+    synced_live.edition.live.use([("Orion", "CLIENT")], "2.1")
+    await synced_live.mediator.run(_keep, synced_live, "Vega Systems")  # a value no preview holds
+    await _first_preview(synced_live, pending, lambda masked: "Orion" not in masked)
+
+
+def test_the_previews_and_a_deciders_stamps_move_when_the_same_terms_come_back(synced_live):
+    """The re-review's R1: the terms taken away and the same ones given again come back under the same tag, never the
+    same stamp: the previews are made again (``_live_stamp``) and a decider's approval of before is withheld
+    (``_rules_stamp``)."""
+    from latet.gateway.mediate import _same_rules
+
+    mediator = synced_live.mediator
+    session = mediator.engine.session("live-1")
+    previews, rules = mediator._live_stamp(), mediator._rules_stamp(session)
+    synced_live.edition.live.use([], "")
+    synced_live.edition.live.use([("Orion", "CLIENT")], "1.1")
+    assert mediator.engine.masker.tag.endswith("1.1")
+    assert mediator._live_stamp() != previews and not _same_rules(mediator._rules_stamp(session), rules)
+
+
+async def test_a_text_quoting_a_fake_of_an_earlier_answer_leaves_as_a_decider_approved_it(live, plugin):
+    """The review of Task 10, fix round 4 (m-a): Claude Code's prompts quote the fakes of earlier answers, which the
+    plugin's masking keeps as they are (``keep``). The sending's comparison masks the text the same way: a decider's
+    approval of it lets it leave, the fake as it was and the new value masked."""
+    first = await plugin.mask()
+    assert await live.mediator.approvals.decide(first, True)  # the person's own, earlier
+    [said] = (await plugin.wait(first)).json()["items"]
+    fake = said["text"].split()[1]  # "ask <fake> about the Orion contract"
+    assert fake != EMAIL and "@" in fake
+    text = f"also copy {fake} on the mail to grace.hopper@acme.com"  # a fake of before, and a new value
+    quoted = {"session": "live-1", "items": [{"text": text, "kind": "user_text"}]}
+    pending = (await plugin.client.post("/_latet/engine/v1/mask", json=quoted, headers=plugin.token)).json()["pending"]
+    assert await live.mediator.approvals.decide(pending, True, by=MARK, version=await _read(live, pending))
+    answer = await plugin.wait(pending)
+    [sent] = answer.json()["items"]
+    assert fake in sent["text"] and "grace.hopper@acme.com" not in sent["text"] and EMAIL not in sent["text"], sent
+
+
+async def test_a_preview_that_could_not_be_made_again_is_never_taken_for_current(live, plugin, monkeypatch):
+    """The rules changed while the text waited, and its preview could not be made again (its masking failed): the old
+    preview is not said to be made as of now (the next change tries again), and a decider's approval of it is withheld
+    when it is sent, never leaving under the rules of now."""
+    pending = await plugin.mask()
+    version = await _read(live, pending)
+    mediator, real, tried = live.mediator, live.mediator.mask_value, []
+
+    def failing(*args, **kwargs):
+        tried.append(True)
+        raise RuntimeError("the masking failed")
+
+    monkeypatch.setattr(mediator, "mask_value", failing)
+    live.update_config(_allowed)
+    await _until(lambda: tried)
+    await asyncio.sleep(0.2)  # the refresh's pass ends after the failure
+    assert mediator._held_live[pending].made_at != mediator._live_stamp()  # not taken for made as of now
+    monkeypatch.setattr(mediator, "mask_value", real)
+    assert EMAIL not in (await mediator.approvals.pending())[0]["items"][0]["masked"]  # the old preview, still stored
+    assert await mediator.approvals.decide(pending, True, by=MARK, version=version)
+    answer = await plugin.wait(pending)
+    assert EMAIL not in answer.text and "masked otherwise" in answer.json()["error"], answer.text
 
 
 @pytest.mark.parametrize("live", [{"timeout_s": 10}], indirect=True, ids=["ten-second-limit"])

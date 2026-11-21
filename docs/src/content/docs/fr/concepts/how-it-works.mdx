@@ -8,7 +8,7 @@ import { Aside, Steps } from '@astrojs/starlight/components';
 Latet se place entre votre agent et le fournisseur du modèle. Un même moteur détecte les valeurs
 sensibles, les remplace par des valeurs factices à l'aller et remet les originaux en place au retour.
 L'endroit où cela se passe dépend de l'agent : dans l'agent (**mode client**) ou dans un proxy
-(**mode passerelle**). Les deux s'exécutent sur votre machine ou, quand votre ordinateur est connecté
+(**mode passerelle**). Les deux s'exécutent sur votre machine ou, quand votre machine est connectée
 à un [serveur Latet](../server/), sur ce serveur.
 
 ## Valeurs factices
@@ -17,8 +17,8 @@ Une valeur factice est une fausse valeur du même format que l'original :
 
 | Type | Original (reste sur votre machine) | Valeur factice (envoyée au fournisseur) |
 | --- | --- | --- |
-| Clé d'API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> |
-| Mot de passe dans une URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:K9sk9r-Ul24x7mt@db.internal/shop`</span> |
+| Clé d'API | <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> | <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> |
+| Mot de passe dans une URL | <span class="real">`postgres://app:S3cr3t-Pa55w0rd@db.internal/shop`</span> | <span class="fake">`postgres://app:9XfKWe-pwRldxM1@db.internal/shop`</span> |
 | Adresse e-mail | <span class="real">`emily.carter@northwind-legal.com`</span> | <span class="fake">`laura.bennett@contoso-4f1a.example`</span> |
 | Numéro de téléphone | <span class="real">`+44 20 7946 0958`</span> | <span class="fake">`+44 20 3318 4452`</span> |
 | IBAN | <span class="real">`GB82WEST12345698765432`</span> | <span class="fake">`GB87QQAV21922168089985`</span> |
@@ -27,10 +27,12 @@ Une valeur factice est une fausse valeur du même format que l'original :
 <small>Les valeurs sont données à titre d'exemple. Vos valeurs factices sont différentes : elles sont
 dérivées d'une clé créée sur votre machine.</small>
 
-- **Même format.** Une clé garde son préfixe (`pk_`, `ghp_`, `sk-ant-api03-`...), sa longueur et son
-  jeu de caractères. Un secret de moins de douze caractères, comme le `1234` de `password=1234`,
-  reçoit à la place une valeur factice plus longue des mêmes sortes, ses signes à leur place (douze
-  lettres et chiffres, quinze chiffres pour un nombre), pour qu'aucun identifiant ni aucun nombre
+- **Même format.** Une clé garde sa longueur, son jeu de caractères et le préfixe que son fournisseur
+  met devant chaque clé de ce type (`ghp_`, `sk-ant-api03-`, `AKIA`...), mais aucune de ses autres
+  lettres ni aucun de ses autres chiffres. Un secret de moins de douze caractères, comme le `1234` de
+  `password=1234`, reçoit à la place une valeur factice plus longue, faite des mêmes sortes de
+  caractères, ses signes
+  restant à leur place (douze lettres et chiffres, quinze chiffres pour un nombre), pour qu'aucun identifiant ni aucun nombre
   d'un autre texte ne la contienne par hasard. Une adresse e-mail reste une adresse e-mail : un
   domaine de messagerie publique comme `gmail.com` est conservé, tout autre domaine devient un
   domaine factice sous `.example`. Les IBAN, les numéros de carte, les numéros d'identité nationaux,
@@ -38,11 +40,11 @@ dérivées d'une clé créée sur votre machine.</small>
   adresses IP publiques passent dans des plages jamais routées sur internet, celles réservées à la
   documentation et aux tests de performance. Le modèle peut toujours raisonner sur le code et la
   configuration qui les entourent.
-- **Des valeurs factices qui ne manquent pas.** Là où le coffre-fort contient plus de valeurs d'une
-  sorte que ses listes n'ont de valeurs factices (des milliers d'adresses dans une liste de clients),
+- **Jamais à court de valeurs factices.** Là où le coffre-fort contient plus de valeurs d'un même
+  type que ses listes n'ont de valeurs factices (des milliers d'adresses dans une liste de clients),
   une nouvelle valeur reçoit une valeur factice écrite comme on écrit ces valeurs : des noms des deux
   langues, puis des chiffres après le nom (`luca84@gmail.com`), un prénom de plus
-  (`Marco Luca Ferri`), une ville faite d'un nom de famille (`Borgo Ferri`). Les valeurs déjà dans le
+  (`Marco Luca Ferri`), un nom de ville formé sur un nom de famille (`Borgo Ferri`). Les valeurs déjà dans le
   coffre-fort gardent leurs valeurs factices.
 - **Déterministe.** Sur votre machine, le même original reçoit toujours la même valeur factice : le
   modèle peut ainsi suivre une valeur d'un fichier et d'un tour à l'autre, et Latet peut retrouver
@@ -105,22 +107,22 @@ Voici ce qui arrive à une clé tirée d'un fichier `.env` :
 
 2. Claude Code lit `.env` avec son outil Read. Avant que le résultat de l'outil n'entre dans la
    conversation, le plugin le passe au daemon local, qui trouve la clé et la remplace par la valeur
-   factice <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>. La paire est enregistrée dans le
+   factice <span class="fake">`gd_1a2f2438f7bc60e0f872`</span>. La paire est enregistrée dans le
    coffre-fort.
 
 3. Claude Code construit la requête comme d'habitude. Elle ne contient que la valeur factice. Juste
-   avant que la requête ne parte, le plugin effectue sur elle une vérification finale. Comme
+   avant que la requête ne parte, le plugin la soumet à une vérification finale. Comme
    `ANTHROPIC_BASE_URL` pointe vers le daemon de Latet (`127.0.0.1:5283`), la requête passe ensuite
    par le daemon, qui fonctionne **en vérification seule** : il cherche des valeurs sensibles en
    clair, vérifie chaque autre partie de la requête (son adresse, ses en-têtes, chaque membre de son
    corps), transmet le corps sans le modifier et enregistre l'échange pour le
    [tableau de bord](../../dashboard/).
 
-4. Anthropic reçoit <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span> et rien d'autre. Le modèle ne
+4. Anthropic reçoit <span class="fake">`gd_1a2f2438f7bc60e0f872`</span> et rien d'autre. Le modèle ne
    voit jamais la vraie clé.
 
 5. Le modèle répond par un appel d'outil qui modifie `config/local.toml` et écrit
-   <code>api_key = "<span class="fake">pk_3a8d1f6b0e9c2a7d4b5e</span>"</code>. Avant que l'outil ne
+   <code>api_key = "<span class="fake">gd_1a2f2438f7bc60e0f872</span>"</code>. Avant que l'outil ne
    s'exécute sur votre machine, le plugin remet l'original en place dans les arguments de l'appel
    d'outil : le fichier sur le disque contient donc <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span>.
    Le texte affiché dans votre terminal retrouve lui aussi la vraie valeur.
@@ -153,11 +155,11 @@ changer. Ici, c'est le daemon local qui masque. La même clé du `.env`, cette f
 <Steps>
 
 1. Codex envoie sa requête à `127.0.0.1:5283` au lieu du fournisseur : par un WebSocket quand vous
-   vous connectez avec ChatGPT, sous forme de requête HTTP avec une clé d'API.
+   vous connectez avec ChatGPT, par une requête HTTP avec une clé d'API.
 
 2. Le daemon décode la requête (corps compressés compris) et trouve
    <span class="real">`pk_9f2c4e7a1b3d5f8e0a6c`</span> dans la sortie de la commande que Codex a
-   exécutée pour lire `.env`. Il remplace la clé par <span class="fake">`pk_3a8d1f6b0e9c2a7d4b5e`</span>
+   exécutée pour lire `.env`. Il remplace la clé par <span class="fake">`gd_1a2f2438f7bc60e0f872`</span>
    et transmet la requête au fournisseur.
 
 3. Le modèle renvoie en streaming un patch qui écrit la valeur factice dans `config/local.toml`. Le
@@ -171,14 +173,17 @@ changer. Ici, c'est le daemon local qui masque. La même clé du `.env`, cette f
 
 </Steps>
 
-Le fournisseur ne voit jamais que des valeurs factices ; l'agent ne voit jamais que des originaux. Les
-blocs de réflexion, leurs signatures et le raisonnement chiffré sont renvoyés tels que le fournisseur
-les a produits : Latet les a vus arriver du fournisseur dans cette conversation ou, après un
-redémarrage, laisse passer les champs chiffrés du fournisseur lui-même par une règle intégrée,
-seulement dans les tours du modèle et seulement vers l'adresse du fournisseur. Chaque autre partie de
-la requête, adresse, paramètres et en-têtes compris, est lue avant de partir, et une partie que Latet
-ne connaît pas arrête la requête
-([Chaque partie d'une requête](../protection-scope/#chaque-partie-dune-requête)).
+Le fournisseur ne voit jamais que des valeurs factices ; l'agent ne voit jamais que des originaux.
+Les blocs de raisonnement, leurs signatures et le raisonnement chiffré sont renvoyés tels que le
+fournisseur les a produits : Latet les a vus arriver du fournisseur dans cette conversation ou,
+après un redémarrage, laisse passer les champs chiffrés du fournisseur lui-même par une règle
+intégrée, seulement dans les tours du modèle et seulement vers l'adresse du fournisseur. Toute autre
+partie de la requête, son adresse, ses paramètres de requête et ses en-têtes compris, est lue avant
+de partir, et une partie que Latet ne connaît pas arrête la requête ([Chaque partie d'une
+requête](../protection-scope/#chaque-partie-dune-requête)), sauf un membre du corps qu'aucun profil
+ne nomme encore, qui est lu en entier et vérifié, et passe quand rien en lui ne serait masqué et
+qu'il ne nomme rien sur quoi le fournisseur agit ([Nouveaux membres des
+requêtes](../../getting-started/upgrading-to-0-11/#nouveaux-membres-des-requêtes)).
 
 Une vérification finale lit ensuite les textes de chaque requête avant son départ, ceux que Latet
 masque, comme en mode client, et arrête celle qui laisserait sortir une valeur en clair, en disant

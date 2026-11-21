@@ -40,7 +40,7 @@ quel qu'en soit l'auteur :
 - `config.yaml` trouvé modifié au démarrage du daemon : tant que vous n'avez pas décidé, il fonctionne
   avec les derniers réglages que vous avez approuvés.
 
-Réduire la protection, c'est par exemple une valeur à ne jamais masquer, un profil plus bas, un terme
+Réduire la protection, c'est par exemple une valeur à ne jamais masquer, un profil moins strict, un terme
 ou un reconnaisseur supprimé, une politique définie sur `allow`, un terme ou une règle de champ d'un
 type dont la politique est `allow` (ce qu'il trouve resterait en clair), le relecteur local ou le
 Relecteur en direct désactivé ou qui lit moins, Latet désactivé dans un projet, le serveur du
@@ -60,7 +60,7 @@ vous, c'est la commande qui vous pose la question.
 L'agent apprend ce que la modification réduit, jamais une valeur, et qu'elle vous attend : le guide
 lui demande de vous dire ce qu'il a changé et pourquoi.
 
-**Un dépôt que Latet ne peut pas lire pour le moment.** Une modification est aussi pesée dans chaque
+**Un dépôt que Latet ne peut pas lire pour le moment.** Une modification est aussi évaluée dans chaque
 dépôt doté de son propre `latet.yaml` que Latet a vu. Un processus auxiliaire relit leurs fichiers,
 avec 10 secondes pour tous et 2 pour chacun, à un rechargement ou à un démarrage dont la
 modification pourrait réduire la protection dans un dépôt, et à une importation dans le tableau de
@@ -71,14 +71,19 @@ la protection ne s'applique pas et n'attend pas non plus votre approbation : `la
 ne change rien, de même qu'une importation dans le tableau de bord, jusqu'à ce que le dépôt puisse
 de nouveau être lu. Une modification qui ne peut rien réduire dans un dépôt (un terme ajouté, le
 port, l'historique) s'applique comme d'habitude. Un démarrage qui trouve `config.yaml` modifié sans
-pouvoir le peser ainsi exécute les réglages que vous avez approuvés en dernier.
+pouvoir l'évaluer ainsi fonctionne avec les derniers réglages que vous avez approuvés.
 `latet repositories` indique de quel dépôt il s'agit, et `latet repositories forget` le retire de la
 liste, dans un terminal à vous.
+
+**Sur un serveur Latet avec Latet Enterprise,** une modification qui réduit la protection (là, vos propres
+enregistrements dans le tableau de bord, et ce que le serveur trouve réduit quand il applique de nouveau vos réglages)
+peut aller plutôt à l'équipe de sécurité de votre entreprise : le tableau de bord indique qui décide, et vous pouvez
+annuler la modification, pas l'approuver. Voir [Approbations centralisées](../../enterprise/approvals/).
 
 ## Ce que les agents ne peuvent pas faire
 
 `latet global-uninstall`, `latet agents revert` et `latet service uninstall` retirent la protection à
-tous les agents d'un coup : lancées dans un agent, elles refusent, et vous demandent de les lancer dans
+tous les agents d'un coup : lancées dans un agent, elles refusent de s'exécuter, et vous demandent de les lancer dans
 un terminal à vous. Il en va de même pour `latet repositories forget`, `latet backup` et
 `latet restore` (votre coffre-fort et sa clé), `latet connect` et `latet disconnect` (là où les
 requêtes de vos agents sont masquées), `latet dashboard` et `latet identity send` sur une machine
@@ -91,7 +96,7 @@ Un agent marque les shells dans lesquels il lance des commandes avec ses propres
 reconnaît : Claude Code, Codex, OpenCode, Gemini CLI, Cursor, Hermes Agent, Goose, OpenClaw, et tout
 agent qui définit `AGENT`. Le daemon nomme aussi l'agent dans la modification qu'il vous présente.
 
-Ce sont des protections contre les erreurs, pas des verrous :
+Ce sont des garde-fous contre les erreurs, pas des verrous :
 
 - **La vérification qui compte est celle du daemon.** Il compare chaque nouvelle configuration avec
   la dernière que vous avez approuvée, quel qu'en soit l'auteur. Un agent qui modifie `config.yaml` au
@@ -105,23 +110,24 @@ Ce sont des protections contre les erreurs, pas des verrous :
 
 Pour un agent que vous supervisez, cela suffit : il ne peut pas affaiblir Latet par erreur, et vous
 voyez chaque modification qui réduit la protection avant qu'elle ne s'applique. Voir
-[Sécurité](../../security/) pour le reste du modèle de menaces.
+[Sécurité](../../security/) pour le reste du modèle de menace.
 
 ## Sur une machine connectée
 
 Les réglages partagés et les réglages et règles propres à chaque identité résident sur le
-serveur. Utilisez `latet dashboard` pour une personne et l'administration `latet server` pour
-les réglages partagés ou ceux d'une clé d'API. Pendant la connexion, `config`, `rules`,
+serveur. Utilisez `latet dashboard` pour les réglages d'une personne et l'administration
+`latet server` pour les réglages partagés ou ceux d'une clé d'API. Sur une machine connectée, `config`, `rules`,
 `llm`, `project`, `identity`, `repositories` et `reload` refusent de lire les réglages comme de les
 modifier ; seuls `config schema`, `rules test` et `identity send` s'exécutent.
 `latet identity send` renvoie explicitement les informations d'identité de cette machine.
 
-Métadonnées de connexion, empreinte du certificat, identifiants et liaisons d'agents restent
-sur la machine. `LATET_CONNECTION` choisit des métadonnées, pas un fichier de jeton personnel.
-L'intégration Claude écrit le jeton sous Windows dans les réglages utilisateur Claude comme
-exception d'installation documentée (sous Linux et macOS aucun jeton n'est écrit, puisque Claude Code
-passe par un serveur depuis Windows seulement) ; la déconnexion retire la liaison. Points de connexion du
-relecteur serveur, clés, certificats et installation OCR/NER relèvent des administrateurs.
+Les métadonnées de connexion, l'empreinte du certificat, les identifiants et les liaisons des agents
+restent sur la machine. `LATET_CONNECTION` choisit des métadonnées, pas un fichier de jeton personnel.
+Sous Windows, appliquer l'intégration de Claude écrit le jeton dans les réglages utilisateur de
+Claude : c'est l'exception d'installation documentée (sous Linux et macOS, aucun jeton n'est écrit,
+puisque Claude Code ne passe par un serveur que depuis Windows) ; la déconnexion retire cette liaison.
+Les points de terminaison du relecteur sur le serveur, ses clés, les certificats et l'installation de
+la reconnaissance de texte (OCR) et de la détection des noms (NER) relèvent des administrateurs.
 Un projet dans le tableau de bord ne permet pas au serveur de parcourir le dépôt de la machine.
 Voir [configuration du serveur](../../getting-started/server/) et
 [réglages partagés et règles propres](../server/).

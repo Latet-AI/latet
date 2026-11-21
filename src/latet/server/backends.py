@@ -58,6 +58,19 @@ class SpaceBackends:
     history: PgHistoryStore
 
 
+def _company_decides(server: Server) -> bool:
+    """Whether the company decides on request exceptions now (Latet Enterprise's `exceptions: company`: the server's
+    floor, the same for every identity), as an approval's save writes the index of an identity's exceptions. A floor
+    that cannot be said counts as one that does: nothing is built while it cannot be (``FloorUnavailable``), so no
+    exception grants then, and the space writes the index again by the floor it is built on."""
+    from latet.floor import company_decides
+
+    try:
+        return company_decides(server.edition.floor(None))
+    except Exception:  # its words can quote the policy's store: the stricter reading, said nowhere
+        return True
+
+
 def vault_limit_of(server: Server, own: int | None) -> int:
     """How many values an identity's vault may hold: its own limit (``Identity.vault_limit``) when it has one, else the
     server's (``vault_limit``)."""
@@ -162,9 +175,10 @@ def space_backends(
         changed=lambda counter: announce({"kind": "settings", "from": source, "counter": counter}),
         counted=lambda counter: count("settings", counter),
         # Its approved request exceptions' index, kept with what approves them (root's ruling on F-3, Minor 4), by
-        # what this edition allows (Minor 1).
+        # what this edition allows (Minor 1) and whether the company decides on them (the quality re-review's N1).
         index=lambda conn, config: index_exceptions(
-            conn, identity_id, config, permanent_allowed=server.edition.permanent_exceptions()
+            conn, identity_id, config, permanent_allowed=server.edition.permanent_exceptions(),
+            company=_company_decides(server),
         ),
     )  # fmt: skip
     history = PgHistoryStore(

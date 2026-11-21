@@ -1,11 +1,16 @@
 <#
 .SYNOPSIS
-    Install Latet on Windows: uv if missing, then Latet as an isolated tool. Nothing else changes.
+    Install Latet on Windows: uv if missing, then Latet as an isolated tool; at the end, where
+    Windows may take Latet's port, it offers to reserve it.
 
 .DESCRIPTION
     irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | iex
 
-    Nothing here needs administrator rights, and none of your agents' settings change: start an agent
+    Nothing here needs administrator rights, and none of your agents' settings change unless you say
+    yes at the end. The one step that asks for an administrator's confirmation is the reservation of
+    Latet's port, offered at the end where Windows may take it, and only when you say yes. Where
+    Windows holds the port already, that yes also moves Latet to a free port: config.yaml and the
+    agents `latet global-install` set up follow it, and Latet starts on it. Start an agent
     through Latet with `latet claude` (or `latet codex`, `latet opencode`), and route your
     agents for good with `latet global-install` once it fits your work. Latet lives in uv's tool
     directory and is removed with `latet global-uninstall` followed by `uv tool uninstall latet`.
@@ -175,6 +180,20 @@ if (-not (Test-Path $latet)) { throw "Latet was installed but $latet is missing.
 if (-not (($env:Path -split ";") -contains $bin)) { $env:Path = "$bin;$env:Path" }
 
 & $latet version
+
+# The port's reservation, offered where Windows may take it (it says nothing elsewhere): its question is the last
+# one asked. Its exit code is no failure of the install, and "Stop" must not make it one.
+$offerErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & $latet reserve-port --offer
+} catch {
+    Write-Host "The offer to reserve Latet's port could not be made: 'latet reserve-port' does it later."
+} finally {
+    $ErrorActionPreference = $offerErrorAction
+}
+$global:LASTEXITCODE = 0
+
 Write-Host ""
 Write-Host "Installed. New to Latet? 'latet tutorial' shows it at work in about 30 minutes."
 Write-Host "Start your agent through Latet: 'latet claude' (or 'latet codex', 'latet opencode')."

@@ -1,22 +1,22 @@
 ---
 title: L'API per le applicazioni
-description: Analizza, maschera e ripristina testo dai tuoi programmi, con una chiave API di un server Latet.
+description: Analizza, maschera e ripristina testo dai tuoi programmi, con una chiave API di un server di Latet.
 sidebar:
   label: Panoramica
 ---
 
 Latet protegge ciò che un agente invia a un modello. Ma i programmi mandano testo sensibile anche
 altrove: i loro log a Datadog, Splunk o Elastic, i loro documenti all'indice di un'applicazione RAG.
-L'API per le applicazioni permette a un programma di chiedere a un server Latet, con il token di una
+L'API per le applicazioni permette a un programma di chiedere a un server di Latet, con il token di una
 chiave API, di:
 
 - **analizzare** un testo (`scan`): che cosa contiene di sensibile, e dove;
 - **mascherarlo** (`mask`): lo stesso testo con valori fittizi realistici al posto dei suoi valori;
 - **ripristinarlo** (`unmask`): i valori reali di nuovo al posto di quelli fittizi;
 - **dimenticare** dei valori (`forget`): toglierli dalla cassaforte della chiave, quando una persona
-  chiede che i suoi dati spariscano ([dimenticare dei valori](forget/)).
+  chiede che i suoi dati ne vengano tolti ([dimenticare dei valori](forget/)).
 
-È una funzione del server Latet: le chiavi API e i loro token esistono solo lì, e un computer senza
+È una funzione del server di Latet: le chiavi API e i loro token esistono solo lì, e un computer senza
 server non ne ha nulla. Per provarla sul tuo computer, avvia lì un server Community con il profilo
 server di `compose.yaml` ([gestione del server](../concepts/server-operations/)).
 
@@ -24,7 +24,7 @@ Che cosa dà in più di una regola di oscuramento:
 
 - **Lo stesso valore fittizio ogni volta.** Un valore riceve lo stesso valore fittizio in ogni
   chiamata, su ogni istanza del server, finché la cassaforte della chiave lo conserva. In un servizio
-  di log grafici e ricerche continuano a funzionare, e si può seguire un cliente per giorni di log
+  di log, grafici e ricerche continuano a funzionare, e si può seguire un cliente per giorni di log
   senza che nessuno veda chi è. In un indice RAG, una persona resta la stessa persona da un documento
   all'altro.
 - **Una sola cassaforte per tutto il flusso.** Documenti e domande mascherati con la stessa chiave
@@ -34,7 +34,7 @@ Che cosa dà in più di una regola di oscuramento:
   della chiave, e ogni ripristino attraverso l'API per le applicazioni viene scritto nel registro
   amministrativo del server.
 
-Due pagine seguono i due usi per cui è nata: i [log](logs/) e il [RAG](rag/). Il
+Due pagine descrivono passo per passo i due usi per cui è nata: i [log](logs/) e il [RAG](rag/). Il
 [riferimento HTTP](../reference/apps-api/) dà il contratto per i programmi in qualunque linguaggio, e
 la [descrizione OpenAPI](../../apps-api.openapi.json) dell'API permette di generarne un client. I
 programmi Python possono usare il pacchetto [`latet-client`](https://pypi.org/project/latet-client/),
@@ -58,8 +58,8 @@ printf 'Authorization: Bearer %s' "$(cat shop.key)" | curl -sS -H @- \
   "counts": {"EMAIL": 1, "IBAN": 1}}]}
 ```
 
-`shop.key` contiene il primo token della chiave, che scrive `keys add` ([più sotto](#chiavi-api-e-token)).
-`printf`, che la shell esegue da sé, passa l'intestazione a curl sul suo standard input (`-H @-`):
+`shop.key` contiene il primo token della chiave, quello che `keys add` scrive ([più sotto](#chiavi-api-e-token)).
+`printf`, che la shell esegue da sé, passa l'header a curl sul suo standard input (`-H @-`):
 così il token non compare nella riga di comando di curl, dove altri utenti del computer potrebbero
 leggerlo. I valori fittizi sono quelli della chiave: un'altra chiave, o un altro server, ne dà altri.
 Con un token che può ripristinare, lo stesso testo inviato a `/_latet/apps/v1/unmask` torna com'era,
@@ -90,25 +90,26 @@ latet server --server https://latet.acme.lan keys add-token "Shop" support --unm
 latet server --server https://latet.acme.lan keys tokens "Shop"
 ```
 
-Il primo token di una chiave, quello che crea `keys add`, ha `scan`, `mask` e `unmask`, e così il
-token di ogni chiave creata prima che i token avessero permessi: quelle chiavi funzionano come prima.
-Nessuno di loro può dimenticare: `forget` si dà a un token tutto suo
+Il primo token di una chiave, quello che crea `keys add`, ha `scan`, `mask` e `unmask`, e lo stesso
+vale per il token di ogni chiave creata prima che i token avessero dei permessi: quelle chiavi
+funzionano come prima. Nessuno di questi token può dimenticare: `forget` va dato a un token apposito
 (`keys add-token "Shop" erasure --forget`). Il primo token della chiave ha anche un indirizzo per i
 modelli, il [gateway](../getting-started/server/#dare-una-chiave-api-a-un-programma), e attraverso di
 esso serve gli agenti della chiave: `keys tokens` lo indica con `serves agents (has an address)`, così
-che non venga revocato al posto di un token aggiunto con gli stessi permessi. Un token creato con `keys add-token` non ha indirizzo, qualunque
-siano i suoi permessi, `--mask --unmask` compresi: il gateway e il bridge del plugin lo rifiutano
-(403), e chiama soltanto l'API per le applicazioni.
+che non venga revocato al posto di un token aggiunto con gli stessi permessi.
+Un token creato con `keys add-token` non ha indirizzo, quali che siano i suoi permessi,
+`--mask --unmask` compresi: il gateway e il bridge del plugin lo rifiutano (403), e può chiamare
+soltanto l'API per le applicazioni.
 
-Ogni token si ferma per conto suo: `keys tokens "Shop" --revoke t_4kxq2m7zap` ne revoca uno per l'id
-che `keys tokens` elenca, entro pochi secondi su ogni istanza. `keys rotate "Shop" --token
+Ogni token si ferma indipendentemente dagli altri: `keys tokens "Shop" --revoke t_4kxq2m7zap` ne
+revoca uno tramite l'id elencato da `keys tokens`, entro pochi secondi su ogni istanza. `keys rotate "Shop" --token
 t_4kxq2m7zap --out shipper.token` sostituisce quel token con uno nuovo, con un nuovo segreto e un nuovo
 id, lo stesso nome e gli stessi permessi; una chiave con un solo token non ha bisogno di `--token`.
 Ogni modifica finisce nel registro amministrativo (`token.added`, `token.revoked`, `key.rotated`), con
 gli id dei token, mai un segreto.
 
 L'API per le applicazioni accetta solo i token delle chiavi API: il token del computer di una persona
-viene rifiutato (403), e così una richiesta fatta da una pagina web. Le persone usano la loro
+viene rifiutato (403), e così pure una richiesta fatta da una pagina web. Le persone usano la loro
 dashboard.
 
 ## Prosa e dati
@@ -122,11 +123,11 @@ dashboard.
 
 La differenza sta in ciò che è probabile: nel profilo `balanced` i nomi vengono cercati solo nella
 prosa (con il [modello locale dei nomi](../concepts/server-operations/#modelli-di-riconoscimento-su-un-server)
-installato sul server), e una sequenza di cifre conta come numero di telefono solo nella prosa, dove
-in un log è molto più spesso un id. Con `phone_regions: [IT]` nelle regole della chiave, il numero in
+installato sul server), e una sequenza di cifre conta come numero di telefono solo nella prosa,
+mentre in un log è molto più spesso un id. Con `phone_regions: [IT]` nelle regole della chiave, il numero in
 `Chiamami domani al 3471234567.` riceve un valore fittizio come prosa e resta com'è come dati.
-Un documento JSON inviato come testo viene mascherato come testo, con la sua impaginazione, così le
-posizioni nella risposta sono posizioni in esso.
+Un documento JSON inviato come testo viene mascherato come testo, mantenendone la formattazione, così
+le posizioni nella risposta sono posizioni al suo interno.
 
 ## Che cosa legge un mascheramento
 
@@ -141,20 +142,21 @@ della chiave. Non ci sono regole solo per l'API. Si impostano con `latet server 
   un'applicazione non ha un momento successivo. Ha a disposizione `llm_review.budget_ms` se
   impostato, altrimenti 30 secondi. Un testo la cui revisione fallisce segue `llm_review.on_failure`:
   con `stop` (il predefinito) la risposta è `blocked`, con `send` è il testo come lo hanno mascherato
-  le regole. Quindi, con un revisore fermo, ogni testo viene bloccato finché non torna a rispondere.
+  le regole. Quindi, con un revisore che non risponde, ogni testo viene bloccato finché non torna a
+  rispondere.
 - **`scan` non esegue il revisore locale.** Il revisore insegna alla cassaforte ciò che trova, e
-  l'analisi non cambia nulla. Su una chiave con un revisore, `scan` può riportare meno di quanto
+  l'analisi non cambia nulla. Su una chiave con un revisore, `scan` può segnalare meno di quanto
   `mask` sostituisce.
 - **Il Revisore Live non trattiene mai il testo di un'applicazione.** Un'applicazione non può
   aspettare una persona: un testo viene mascherato solo dalle regole e dal revisore locale, anche
   quando le regole della chiave attivano il Revisore Live.
 - **La protezione dai dump** vale per i testi `data` come per l'output di uno strumento: uno che
-  contiene più valori personali di quanti ne permetta `dump_guard` riceve `blocked`.
+  contiene più valori personali di quanti ne permetta `dump_guard` riceve come risposta `blocked`.
 
 Un testo bloccato torna come `{"blocked": "<motivo>"}` senza testo, e il motivo non nomina alcun
-valore. Quando qualcosa ha funzionato in modo ridotto durante la chiamata (un rilevatore che non ha
-potuto leggere un testo, una revisione che non è finita), la risposta lo dice in `"degraded"`, con i
-nomi di ciò che lo ha fatto, come `ner` o `llm-review`.
+valore. Quando durante la chiamata qualcosa ha funzionato in modo ridotto (un rilevatore che non ha
+potuto leggere un testo, una revisione che non si è conclusa), la risposta lo segnala in
+`"degraded"`, con il nome di ciò che ha funzionato in modo ridotto, come `ner` o `llm-review`.
 
 ## Mascherato due volte, ripristinato due volte
 
@@ -180,12 +182,12 @@ RAG invia il testo mascherato direttamente al modello e ripristina la risposta c
 **Il ripristino** dà i valori reali dei valori fittizi della chiave, qualunque chiamata o conversazione
 della chiave li abbia creati, anche quelli dell'anno scorso. Non raggiunge i valori fittizi di altre
 chiavi né quelli di una persona: il testo che non è un valore fittizio della chiave resta com'è. Il nome
-di una persona torna solo intero: una sua parte da sola (un nome di battesimo) può essere una parola
+di una persona torna solo intero: una sua parte da sola (il nome senza il cognome) può essere una parola
 comune, o il nome di un'altra persona, e resta com'è. Ogni ripristino viene scritto nel registro
 amministrativo prima che parta la risposta (`apps.unmasked`, con il token, quanti testi e quanti valori;
-mai un testo o un valore), e un registro che non riesce a scriverlo rifiuta la chiamata (503). Il primo
-token della chiave, che può analizzare, mascherare e ripristinare, serve anche agli agenti attraverso il
-gateway: le loro risposte vengono ripristinate come quelle di ogni agente, senza una voce del registro
+mai un testo o un valore), e se il registro non può accogliere la voce la chiamata viene rifiutata (503).
+Il primo token della chiave, che può analizzare, mascherare e ripristinare, serve anche agli agenti
+attraverso il gateway: le loro risposte vengono ripristinate come quelle di ogni agente, senza una voce del registro
 amministrativo per ogni ripristino. Un token creato con `keys add-token` non lo fa mai, quindi ogni suo
 ripristino è una voce `apps.unmasked`. Dai `unmask` agli strumenti delle persone che possono vedere i dati
 reali, e leggi il registro con `latet server log --action apps.unmasked`.
@@ -194,7 +196,7 @@ reali, e leggi il registro con `latet server log --action apps.unmasked`.
 mascherati, qualcuno può confermare un'ipotesi: maschera `mario.rossi@acme.it` e cerca nei log il suo
 valore fittizio. Se c'è, Mario Rossi è un cliente. Per questo dai `mask` solo ai programmi che ne
 hanno bisogno, conserva il token dove tengono i loro segreti, e tratta i log mascherati come dati
-pseudonimi, non anonimi.
+pseudonimizzati, non come dati anonimi.
 
 **Anche l'analisi rivela qualcosa.** Non crea valori fittizi e non cambia nulla, ma riporta i valori
 che la cassaforte della chiave conosce già, ovunque compaiano. Un token che può solo analizzare può
@@ -224,8 +226,8 @@ cassaforte di una chiave. Tiene i valori usati più di recente dalla chiave (`ke
 5.000 per impostazione predefinita, circa 10 MiB per chiave) e le impronte di tutta la cassaforte:
 un'impronta di 64 bit di ogni parola dei suoi valori e dei suoi valori fittizi, calcolata con una
 chiave segreta, circa 15 MB per un milione di valori. Le parole di una chiamata vengono cercate prima
-tra le impronte: una parola senza impronta non è di nessun valore né di nessun valore fittizio, e a
-PostgreSQL non viene chiesta. I valori e i valori fittizi le cui parole ne hanno una vengono letti da
+tra le impronte: una parola senza impronta non appartiene a nessun valore né a nessun valore fittizio,
+e a PostgreSQL non viene chiesta. I valori e i valori fittizi le cui parole ne hanno una vengono letti da
 PostgreSQL, tutti quelli della chiamata in una volta, e ognuno viene decifrato e confrontato con il
 testo prima di mascherare o ripristinare qualcosa, perché due parole possono avere la stessa
 impronta. Né le impronte né l'indice delle parole in PostgreSQL contengono una parola in chiaro.
@@ -237,32 +239,33 @@ valori funziona allo stesso modo: solo la cassaforte di una persona con 35.000 v
 tenuta intera in memoria ([gestione del server](../concepts/server-operations/)).
 
 **Segreti attaccati ad altre lettere.** Da PostgreSQL, un segreto scritto come un'unica sequenza di lettere e
-cifre, senza spazi né punteggiatura, viene trovato dalla sua parola, e dai suoi primi e ultimi sei caratteri
-quando altre lettere o cifre vi sono attaccate: su un lato, al bordo della sequenza del testo che lo contiene, e
-su entrambi i lati (`xhunter2y`), dentro quella sequenza, che una chiamata legge sei caratteri alla volta. Una
-chiamata legge al massimo un milione di queste posizioni: oltre, le sue sequenze successive vengono lette solo
-per le loro parole e i loro bordi. Un segreto di sei caratteri o meno, o la cui parola a un bordo attaccato ha
-sei caratteri o meno, non viene trovato da nessuna parola del testo quando è attaccato. Per questo un'istanza
-tiene in memoria per sempre i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o
+cifre, senza spazi né punteggiatura, viene trovato tramite la sua parola, e tramite i suoi primi e ultimi sei
+caratteri quando altre lettere o cifre vi sono attaccate: su un lato, al bordo della sequenza del testo che lo
+contiene, e su entrambi i lati (`xhunter2y`), dentro quella sequenza, che una chiamata legge sei caratteri alla
+volta. Una chiamata legge al massimo un milione di queste posizioni: oltre questo limite, le sue sequenze
+successive vengono lette solo in base alle parole e ai bordi. Un segreto di sei caratteri o meno, o la cui parola
+a un bordo attaccato ha sei caratteri o meno, quando è attaccato non viene trovato tramite nessuna parola del
+testo. Per questo un'istanza tiene in memoria in modo permanente i segreti brevi di una chiave, quelli di un'unica sequenza di 16 caratteri o meno o
 con una parola così breve a un bordo: i `key_held_secrets` più recenti (1.000, se le impostazioni del server non
 dicono altro), trovati comunque siano attaccati, anche oltre il milione di posizioni di una chiamata. Uno più
 vecchio, o uno più lungo, viene trovato dove niente gli è attaccato, attaccato su un lato quando la parola a
 quel bordo ha sette caratteri o più, e attaccato su entrambi i lati quando è un'unica sequenza di sette
 caratteri o più, entro il milione di posizioni della chiamata. Aumenta `key_held_secrets` per una chiave che
-vede molti segreti brevi, come un token di sessione in ogni riga di log: ognuno tenuto occupa circa 23 KB su
-ogni istanza che serve la chiave, per lo più nel rilevatore che lo trova, e ogni testo che la chiave maschera o
-ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate. Misurata con Latet 0.10.0 sul
-computer di [quanto è veloce](#quanto-è-veloce), con un token di sessione proprio in ogni riga (un valore in più
-da conservare in ognuna), una chiave nuova con 1.000 di questi segreti tenuti ha mascherato 73 righe al secondo
-e ne ha ripristinate 1.935, contro 75 e 2.103 senza segreti tenuti. Un valore fittizio viene trovato attaccato
+vede molti segreti brevi, come un token di sessione in ogni riga di log: ognuno di quelli tenuti in memoria
+occupa circa 23 KB su ogni istanza che serve la chiave, per lo più nel rilevatore che lo trova, e ogni testo che
+la chiave maschera o ripristina viene letto per cercarlo, il che rallenta un po' le sue chiamate. In una
+misurazione con Latet 0.10.0 sul computer di [quanto è veloce](#quanto-è-veloce), con un token di sessione
+diverso in ogni riga (un valore in più da conservare in ognuna), una chiave nuova con 1.000 di questi segreti
+tenuti in memoria ha mascherato 73 righe al secondo e ne ha ripristinate 1.935, contro 75 e 2.103 senza segreti
+tenuti in memoria. Un valore fittizio viene trovato attaccato
 come il suo segreto: ne mantiene i segni al loro posto, così un valore fittizio attaccato in modo che nessuna
 delle sue parole resti a sé è quello di un segreto tenuto in memoria, e viene trovato finché il segreto è
-tenuto. Come ovunque in Latet, un valore viene riconosciuto di nuovo da quattro caratteri, il nome di una
-persona da tre ([valori noti](../concepts/detection/#valori-noti)).
+tenuto. Come ovunque in Latet, un valore viene riconosciuto di nuovo a partire da quattro caratteri, il nome di
+una persona a partire da tre ([valori noti](../concepts/detection/#valori-noti)).
 
 **Segreti brevi.** Un segreto di meno di dodici caratteri (`password=1234`, un token breve) riceve
-un valore fittizio più lungo degli stessi tipi, con i suoi segni al loro posto: quindici cifre per
-un numero (con il suo segno e il suo punto decimale, così che un numero JSON resti un numero),
+un valore fittizio più lungo con gli stessi tipi di caratteri, con i suoi segni al loro posto: quindici
+cifre per un numero (con il suo segno e il suo punto decimale, così che un numero JSON resti un numero),
 dodici cifre esadecimali per un valore esadecimale, altrimenti dodici lettere e cifre. Un valore
 fittizio breve quanto il suo valore comparirebbe per caso negli id e nei numeri di altre righe di
 log, e un ripristino cambierebbe righe che non hanno mai contenuto il segreto.
@@ -282,8 +285,9 @@ istanza.
 507, un commit che non arriva a PostgreSQL) non conserva nessuno dei suoi valori nuovi quando teneva
 per essi una delle transazioni dell'istanza, tre alla volta con il `database_pool` predefinito: lo
 spazio della chiave li dimentica. Quando quelle erano occupate, la chiamata ha conservato ogni valore
-nuovo man mano, e quelli restano nella cassaforte della chiave. Un errore dopo il mascheramento, nella revisione locale o nel preparare la risposta,
-arriva dopo il commit, quindi anche in quel caso i valori nuovi della chiamata restano. Mascherare di
+nuovo man mano, e quelli restano nella cassaforte della chiave. Un errore dopo il mascheramento, nella
+revisione locale o nel preparare la risposta, arriva dopo il commit, quindi anche in quel caso i valori
+nuovi della chiamata restano. Mascherare di
 nuovo i testi è sicuro in ogni caso: un valore che la cassaforte ha conservato ha il suo valore
 fittizio, e uno che ha dimenticato ne riceve di nuovo uno. Un agente della stessa chiave che nel
 frattempo ha usato un valore dimenticato attraverso il gateway ha già inviato il suo valore fittizio,
@@ -291,15 +295,15 @@ che nessun ripristino rimetterà a posto.
 
 ## Limiti
 
-- **La cassaforte.** La cassaforte di una chiave contiene i valori di `vault_limit` del server (200.000
-  se le impostazioni del server non dicono altro), oppure un limite proprio:
+- **La cassaforte.** La cassaforte di una chiave contiene al massimo `vault_limit` valori, il limite del
+  server (200.000 se le impostazioni del server non dicono altro), oppure ha un limite proprio:
   `latet server keys limit "Shop" 5000000` (da 1.000 a 100.000.000; `default` le ridà quello del
   server). Una cassaforte piena rifiuta con 507 la chiamata `mask` che aggiungerebbe un valore: della
   chiamata non torna nulla, e nulla esce in chiaro. Lo stato del server elenca le identità al 90% del
   loro limite, e la metrica `latet_vault_near_limit` le conta, quindi alza un limite prima che venga
   raggiunto. Ogni istanza conta i valori nuovi di una chiamata prima di confermarli: due istanze, o
-  una chiamata e un agente della stessa chiave, possono superare il limite dei valori nuovi di una
-  chiamata ciascuna prima che il valore successivo venga rifiutato. Un indice delle impronte di una
+  una chiamata e un agente della stessa chiave, possono superare il limite, ciascuna di tanti valori
+  quanti sono i valori nuovi di una chiamata, prima che il valore successivo venga rifiutato. Un indice delle impronte di una
   cassaforte viene costruito fino a 16.777.216 impronte, circa otto milioni di valori del tipo che
   [quanto è veloce](#quanto-è-veloce) misura: oltre, nessun indice viene costruito finché lo spazio
   della chiave dura, e le sue chiamate cercano le loro parole solo in PostgreSQL, più lentamente.
@@ -307,14 +311,14 @@ che nessun ripristino rimetterà a posto.
   impostazioni non dicono altro, mai più del suo `max_request_mb`): una chiamata attende in memoria il
   thread della chiave, e `latet-client` divide una lista più lunga in chiamate di 8 MiB al massimo. I
   testi le cui parole nominano più di 100.000 valori o valori fittizi della cassaforte vengono
-  rifiutati per intero con 422, con parole fisse che non nominano alcun valore: della chiamata non
+  rifiutati per intero con 422, con un messaggio fisso che non nomina alcun valore: della chiamata non
   viene mascherato né ripristinato nulla, quindi invia meno testi per chiamata. Un 503 è un'altra
   cosa: un archivio del server (PostgreSQL, Valkey) non ha risposto, oppure le impostazioni della
   chiave venivano applicate all'arrivo della chiamata o mentre se ne preparava la risposta
   (`the settings of this space changed while the call was answered: send it again`), e la stessa
   chiamata si può inviare di nuovo più tardi ([riferimento HTTP](../reference/apps-api/)).
 - **Chiamate contemporanee.** Una chiave ha al massimo `requests_in_flight` richieste di applicazioni
-  su un'istanza (16 se le impostazioni non dicono altro); oltre, 429 con `Retry-After`.
+  su un'istanza (16 se le impostazioni non dicono altro); oltre, la risposta è 429 con `Retry-After`.
 
 ## Quanto è veloce
 
@@ -363,7 +367,7 @@ altri viene comunque cercato e confrontato con ciò che la chiave ha mascherato:
 mascherati e uno nuovo hanno richiesto 168 ms, quello nuovo da solo 6,1 ms (mediane di tre
 esecuzioni).
 
-Su una macchina Linux i worker si sommano. Misurato in Docker sullo stesso computer (una macchina
+Su una macchina Linux, le prestazioni dei worker si sommano. Misurato in Docker sullo stesso computer (una macchina
 virtuale Linux con 20 processori e 16 GB, PostgreSQL 18.6 e Valkey 9.1.2 in container accanto), con
 `latet server run --workers` e una chiave API da 200.000 valori: 200.000 righe distinte del tipo
 descritto sopra in chiamate da 62, quattro connessioni per worker, ogni numero di worker per 20
@@ -411,23 +415,23 @@ istanza poi costruisce il proprio indice delle impronte e lo usa. Fino ad allora
 mascherano gli stessi valori, più lentamente ([quanto è veloce](#quanto-è-veloce): 494 righe al secondo a
 200.000 valori con le impronte disattivate, in una misurazione precedente), e nessuna viene rifiutata per
 questo. Quando le impronte non sono ancora tutte calcolate o un indice non si può costruire (PostgreSQL o Valkey
-che non rispondono, un aggiornamento dell'indice fallito), le chiamate restano sulla ricerca in PostgreSQL
+che non rispondono, un recupero delle modifiche non riuscito), le chiamate restano sulla ricerca in PostgreSQL
 finché l'indice non viene costruito di nuovo: subito quando le impronte sono calcolate, da quell'istanza o da
 un'altra, altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto. Il log dice una volta
 quando un indice smette di essere usato e una volta quando viene usato di nuovo. Una cassaforte oltre la
 dimensione per cui si costruisce un indice ([limiti](#limiti)) resta sulla ricerca in PostgreSQL finché il suo
 spazio dura. Le parole stesse restano come le ha fatte la 0.10: la 0.11 non le rifà.
 
-Una versione che cambia il modo in cui sono fatte le parole di una cassaforte (il changelog lo dice)
+Una release che cambia il modo in cui sono fatte le parole di una cassaforte (il changelog lo dice)
 rifà le parole di una chiave nella prima istanza che ne costruisce lo spazio, prima che quello spazio
 risponda alla prima chiamata della chiave: Latet 0.10.0 impiegava circa 40 secondi per 200.000 valori
 e quattro minuti e mezzo per 1.000.000 sul computer indicato sopra. Una chiamata che arriva nel
 frattempo aspetta, e un'istanza costruisce quattro spazi alla volta, quindi poche chiavi grandi
-ritardano le prime chiamate delle altre chiavi su quell'istanza: dopo una versione del genere, invia
+ritardano le prime chiamate delle altre chiavi su quell'istanza: dopo una release del genere, invia
 a ogni chiave grande una chiamata, con un timeout abbastanza lungo, prima che i suoi programmi
 ripartano.
 
-Mentre istanze di due versioni girano insieme, cosa che una versione che non cambia le tabelle
+Mentre istanze di due versioni girano insieme, cosa che una release che non cambia le tabelle
 consente, un valore scritto da un'istanza più vecchia viene trovato dalle più nuove finché lo tengono
 in memoria, ma non in PostgreSQL finché lo spazio della chiave non viene ricostruito. Quando l'API per
 le applicazioni è in uso, ferma ogni istanza più vecchia prima che partano quelle nuove, anche quando

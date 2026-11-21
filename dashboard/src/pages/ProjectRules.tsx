@@ -7,6 +7,9 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../api/client'
 import type { ConfigView, ProjectDetail, ProjectNotice, RecognizerEntry, ReviewMode, SuggestResult } from '../api/types'
 import { DocsWhyLink } from '../components/DocsLinks'
+import { Locked } from '../ee/components/Locked'
+import { lockLines, locksOf, protectionAllowed } from '../ee/lib/policy'
+import { usePolicy } from '../ee/usePolicy'
 import { Icon } from '../components/Icon'
 import { PROJECT_DOCS } from '../lib/docsPlaces'
 import { GuidanceField, ReviewerInstructions, TryReviewer } from '../components/ReviewerEditor'
@@ -23,9 +26,11 @@ import { useFormat } from '../lib/useFormat'
 import { RulesTabs, shownSections, TAB_LABEL, useRulesTabs, type RulesSection, type RulesTabsState } from '../components/RulesTabs'
 import { SaveBar, SaveRow } from '../components/SaveBar'
 import { useToast } from '../components/Toast'
+import { WhoDecidesNote } from '../components/WhoDecides'
 import { ErrorState, errorText, Loading, Segmented, Switch } from '../components/ui'
 import { pendingKey } from '../lib/deployment'
 import { PROFILE_LABEL } from '../lib/labels'
+import { liveReviewWords } from '../lib/approvals'
 import { useDeploymentKey, useMe } from '../lib/me'
 import { keepUnsaved } from '../lib/panelSave'
 import {
@@ -87,6 +92,9 @@ const BAR_SECTIONS: readonly ProjectAnchor[] = [
   PROJECT_ANCHORS.reviewer,
   PROJECT_ANCHORS.live,
 ]
+
+/** Who decides, said under the project's header (Latet Enterprise): on the changes to its settings, and on its texts. */
+const WHO_DECIDES = 'both' as const
 
 export function ProjectRules({ id }: { id: string }) {
   const config = useAsync('rules', (signal) => api.config(signal))
@@ -150,6 +158,8 @@ export function ProjectForm({
   const { me } = useMe()
   const key = useDeploymentKey()
   const format = useFormat()
+  // The company's policy (Latet Enterprise): what it locks, and the protections it leaves a project.
+  const locks = locksOf(usePolicy().view)
   const localRepo = me !== undefined && !me.server
   const canEditRepo = localRepo && project.repo.writable
   // The settings as read (bases) and as edited (drafts). Read again after any save, the drafts keep each edit whose
@@ -159,6 +169,9 @@ export function ProjectForm({
   const [repo, setRepo] = useState<SettingsDraft>(repoBase)
   const [personalBase, setPersonalBase] = useState<PersonalDraft>(() => personalDraftOf(project.personal))
   const [personal, setPersonal] = useState<PersonalDraft>(personalBase)
+  // A protection your settings hold that the policy does not allow is in use raised to on: shown so, and said.
+  const raisedProtection = !protectionAllowed(locks, protectionOf(personal))
+  const shownProtection: Protection = raisedProtection ? 'on' : protectionOf(personal)
   const [lost, setLost] = useState<readonly ProjectTab[]>([])
   if (madeFrom !== project) {
     setMadeFrom(project)
@@ -233,15 +246,18 @@ export function ProjectForm({
       title: t('projects.personal.title'),
       description: t(key('projects.personal.description')),
       body: (
-        <div className="flex flex-wrap items-center gap-2">
-          <RulesTransfer project={project.id} dirty={personalDirty} onImported={onSaved} />
-          {project.personal && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void removePersonal()}>
-              <Icon name="trash" size={14} />
-              {t('projects.personal.remove')}
-            </button>
-          )}
-        </div>
+        <>
+          <Locked lines={locks ? [{ key: tk('ee.policy.lock.project') }, ...Object.values(lockLines(locks)).flat()] : undefined} />
+          <div className="flex flex-wrap items-center gap-2">
+            <RulesTransfer project={project.id} dirty={personalDirty} onImported={onSaved} />
+            {project.personal && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void removePersonal()}>
+                <Icon name="trash" size={14} />
+                {t('projects.personal.remove')}
+              </button>
+            )}
+          </div>
+        </>
       ),
     },
     [PROJECT_ANCHORS.protection]: {
@@ -251,24 +267,25 @@ export function ProjectForm({
         <div className="space-y-2">
           <Segmented<Protection>
             label={t('projects.protection.title')}
-            value={protectionOf(personal)}
+            value={shownProtection}
             onChange={(next) => setPersonal((d) => setProtection(d, next))}
             options={[
-              { value: 'on', label: t('projects.protection.on') },
-              { value: 'secrets', label: t('projects.protection.secrets') },
-              { value: 'off', label: t('projects.protection.off') },
-            ]}
+              { value: 'on' as const, label: t('projects.protection.on') },
+              { value: 'secrets' as const, label: t('projects.protection.secrets') },
+              { value: 'off' as const, label: t('projects.protection.off') },
+            ].filter((option) => protectionAllowed(locks, option.value))}
           />
-          <p className={`max-w-[80ch] text-meta ${protectionOf(personal) === 'off' ? 'text-crit-ink' : 'text-ink-3'}`}>
-            {t(PROTECTION_HELP[protectionOf(personal)])}
+          <p className={`max-w-[80ch] text-meta ${shownProtection === 'off' ? 'text-crit-ink' : 'text-ink-3'}`}>
+            {t(PROTECTION_HELP[shownProtection])}
           </p>
+          {raisedProtection && <p className="max-w-[80ch] text-meta text-ink-2">{t('ee.policy.protectionRaised')}</p>}
         </div>
       ),
     },
     [PROJECT_ANCHORS.projectData]: {
       title: t('data.title'),
       description: t('data.description'),
-      body: <DataEditor value={personal} set={(key, value) => set(key, value as never)} layer="personal" />,
+      body: <DataEditor value={personal} set={(key, value) => set(key, value as never)} layer="personal" imagesAtLeast={locks?.images ?? null} />,
     },
     [PROJECT_ANCHORS.terms]: {
       title: t('rules.terms.title'),
@@ -313,7 +330,7 @@ export function ProjectForm({
     },
     [PROJECT_ANCHORS.live]: {
       title: t('projects.live.title'),
-      description: t('projects.live.help'),
+      description: t(liveReviewWords(me?.edition?.approvals).projectHelp), // for you, or for the security team
       body: <LiveHere value={personal.live_review} global={config.live_review?.enabled ?? false} onChange={(live) => set('live_review', live)} />,
     },
     [PROJECT_ANCHORS.repo]: {
@@ -366,6 +383,8 @@ export function ProjectForm({
         </dl>
         {project.notices.length > 0 && <Notices notices={project.notices} />}
       </header>
+
+      <WhoDecidesNote show={WHO_DECIDES} />
 
       {lost.length > 0 && (
         <div role="status" className="mb-4 flex items-start gap-2 rounded-lg border border-warn/60 bg-warn/10 p-3 text-ui text-ink">
@@ -580,6 +599,15 @@ function Effective({ project }: { project: ProjectDetail }) {
           ? t('projects.effective.imagesMasked')
           : t('projects.effective.imagesSent'),
     ],
+    // How a member no request profile names yet is read there (missing from an older daemon: not said).
+    ...(e.unknown_members
+      ? [
+          [
+            t('projects.effective.newMembers'),
+            e.unknown_members === 'refuse' ? t('projects.effective.newMembersRefused') : t('projects.effective.newMembersChecked'),
+          ] satisfies [string, string],
+        ]
+      : []),
     [t('projects.effective.reviewer'), t(REVIEW_MODE_LABEL[e.llm_review ?? 'off'])],
   ]
   return (

@@ -1,0 +1,421 @@
+---
+title: Synchronisation des termes
+description: Les listes de clients, de collègues et de noms de code de projets de votre entreprise, lues là où elles se trouvent déjà et masquées par votre serveur Latet pour tous ceux qu'il sert, sans que personne n'ait à les saisir.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Certaines listes sont sensibles en elles-mêmes : les clients d'une entreprise, ses collaborateurs, les noms de code de
+ses projets. La synchronisation des termes les lit là où elles se trouvent déjà, à intervalles réguliers, et votre
+[serveur Latet](../../getting-started/server/) masque chaque nom qu'elles contiennent comme il masque vos propres
+[termes](../../concepts/detection/#vos-propres-termes), dans l'espace de chaque personne et de chaque clé d'API qu'il
+sert. Personne ne les saisit, et personne ne peut en omettre un.
+
+La synchronisation des termes fait partie de Latet Enterprise : elle fonctionne sur un serveur Latet dont la licence
+inclut `term-sync` ([Éditions et licence](../)).
+
+## D'où viennent les termes
+
+| Source | `kind` | Ce qu'elle lit |
+| --- | --- | --- |
+| Un fichier | `file` | Un export CSV, JSON ou YAML que votre CRM, votre ERP ou votre système RH écrit à intervalles réguliers |
+| Une adresse web | `url` | Les mêmes formats depuis une adresse https |
+| Microsoft Entra ID | `graph` | Les noms et adresses des personnes, ou les noms des groupes, via Microsoft Graph |
+| LDAP et Active Directory | `ldap` | Les attributs des entrées qu'une recherche trouve |
+
+HubSpot, Salesforce et les autres CRM sont lus au moyen d'un export : un rapport qu'ils écrivent dans un fichier, ou
+publient à une adresse, à intervalles réguliers.
+
+Chaque source fait correspondre les champs de ses enregistrements à un type de terme : `CLIENT`, `PERSON`, `PROJECT`, ou
+un autre nom en majuscules. Le type est l'étiquette qu'affiche le tableau de bord, et il détermine la valeur factice : un
+nom de personne pour une personne, une entreprise pour une entreprise, une adresse pour une adresse.
+
+## Configurer les sources
+
+Les sources s'écrivent en YAML :
+
+```yaml
+sources:
+  - name: customers
+    kind: file
+    path: customers.csv
+    every_minutes: 60
+    mapping: {company: CLIENT, contact: PERSON}
+  - name: colleagues
+    kind: graph
+    tenant: acme.onmicrosoft.com
+    client_id: 6f1c2b9e-4d3a-4c1e-9b7f-2a5d8e0c1f34
+    filter: accountEnabled eq true
+    mapping: {"{givenName} {surname}": PERSON, mail: EMAIL}
+```
+
+Une source de type fichier ne lit que dans le dossier de la synchronisation des termes du serveur : `term-sync` dans son
+dossier de données (`/data/term-sync/` dans le conteneur, le volume que les instances partagent). Déposez-y les exports
+destinés à la synchronisation des termes, ou montez-y un dossier où votre système les écrit : qui définit les sources
+peut lire comme termes n'importe quel fichier du dossier de la synchronisation des termes ; donnez donc à la
+synchronisation un dossier qui lui soit propre, qui ne contienne que ces exports. Une source désigne un fichier de ce
+dossier par son seul nom, sans indiquer de dossier ; un chemin vers un autre emplacement est refusé, tout comme un lien
+qui sort du dossier.
+
+Les personnes du rôle Sécurité modifient les sources et définissent le secret de chaque source sur la page
+**Synchronisation des termes**, depuis une session ouverte avec votre compte d'entreprise lorsque les réglages de
+connexion l'exigent, comme pour toute
+[modification qui s'applique à tout le monde](../sign-in/#modifications-qui-sappliquent-à-tout-le-monde). Les
+administrateurs du serveur font de même avec `latet server terms`, depuis n'importe quelle machine disposant d'un jeton
+d'administration, comme pour les autres commandes `latet server` :
+
+```sh
+latet server terms sources set term-sync.yaml   # the server uses these sources from now on
+latet server terms secret colleagues            # asks for the value; it is never on the command line
+latet server terms run                          # syncs every source now; `latet server terms run customers` syncs one
+latet server terms status                       # what each source gave, and when it last synced
+latet server terms sources show                 # the sources, in the format `sources set` takes
+```
+
+Le serveur conserve les sources dans ses réglages Enterprise (la section `term_sync`), jamais dans un fichier à part, et
+chaque instance les utilise aussitôt. Les définir remplace les sources précédentes : les termes d'une source retirée
+deviennent des termes retirés de la source ([plus bas](#un-terme-retiré-de-sa-source)), et
+`latet server terms sources set` demande d'abord confirmation lorsque cette source avait des termes. Un serveur accepte
+20 sources au plus, tenant en 64 Ko.
+
+Chaque source a au plus un secret, le sien : `latet server terms secret colleagues` en demande la valeur et le serveur la
+conserve scellée avec sa clé principale, pour cette source telle qu'elle est configurée maintenant. Faites pointer la
+source ailleurs (une autre adresse, une autre adresse de connexion, un autre annuaire ou un autre compte), ou changez ce qu'elle lit avec le
+secret (son filtre, sa base, ses enregistrements, ses objets ou son groupe, ou les champs que nomme sa correspondance), et
+le secret doit être défini à nouveau : le serveur n'envoie jamais un secret à un endroit pour lequel il n'a pas été
+défini, et ne lit pas d'autres données avec lui. Les en-têtes d'une adresse web comptent aussi, chacun d'eux, de même
+que le certificat d'un annuaire. L'enregistrement des sources indique quels secrets doivent être définis à nouveau, et
+la personne qui modifie les sources sur la page **Synchronisation des termes** redéfinit alors le secret ; le journal
+d'administration nomme les champs modifiés, jamais leurs valeurs. Définir un secret demande aussitôt une synchronisation
+de cette source. Avant de demander le secret, `latet server terms secret` et la boîte de dialogue **Secret** de la
+page disent où la source se connecte, et le compte sous lequel un annuaire s'authentifie : ne le définissez que s'il
+doit aller là.
+
+Une synchronisation demandée s'exécute aussitôt sur l'instance qui détient le tour de la synchronisation ;
+`latet server terms run` l'attend jusqu'à une minute et en affiche le résultat (avec `--no-wait`, la commande se
+contente de la demander). Sinon, le serveur synchronise chaque source toutes les `every_minutes` minutes (60 par défaut,
+de 5 à 10080), la première fois dans la minute qui suit sa configuration, et de même à nouveau quand elle est modifiée
+ou retirée puis configurée à nouveau ; une source en échec est réessayée après 15 minutes, ou après son propre
+intervalle s'il est plus court.
+
+Une modification des sources, et un secret défini ou supprimé, nomment les sources à partir desquelles ils ont été
+faits. Si quelqu'un a modifié les sources entre-temps, la modification est refusée, avec un message indiquant que les
+sources ont changé, et rien n'est écrit : relisez-les, puis refaites-la. `latet server terms` dit de relancer la
+commande, et la page propose **Les relire**.
+
+Une source à l'adresse du serveur lui-même (`localhost`, `127.0.0.1` ou `[::1]`) se définit avec `latet server terms`
+seulement : sur la page **Synchronisation des termes**, personne n'ajoute, ne modifie ni ne retire une telle source, ni
+n'en définit ou supprime le secret, et la page la laisse telle quelle lorsqu'elle modifie les autres.
+
+Toutes les clés qu'une source accepte :
+
+| Clé | Types | Ce qu'elle indique |
+| --- | --- | --- |
+| `name` | tous | Le nom de la source : lettres minuscules, chiffres et tirets, 40 au plus |
+| `kind` | tous | `file`, `url`, `graph` ou `ldap` |
+| `mapping` | tous | Quel champ devient un terme de quel type, 32 champs au plus : `{company: CLIENT}` ; un champ peut être un gabarit qui en combine plusieurs, `"{givenName} {sn}": PERSON` |
+| `every_minutes` | tous | Les minutes entre deux synchronisations, de 5 à 10080 (60) |
+| `exclude` | tous | Des valeurs jamais prises comme termes, quelle que soit la casse, 1 000 au plus |
+| `min_length` | tous | La plus courte valeur prise comme terme, de 2 à 50 (4) ; un nom de personne dès 3 caractères, quelle que soit la valeur plus haute indiquée |
+| `path` | `file` | Le fichier, par son nom dans le dossier de la synchronisation des termes |
+| `url` | `url`, `ldap` | L'adresse |
+| `headers` | `url` | Les en-têtes envoyés avec la requête ; `{secret}` tient lieu du secret de la source |
+| `format` | `file`, `url` | `csv`, `json` ou `yaml` ; s'il manque, l'extension du fichier ou du chemin de l'adresse le détermine, sinon `json` |
+| `records` | `file`, `url` | Où se trouve la liste des enregistrements dans un document JSON ou YAML (`data.items`) ; s'il manque, le document lui-même |
+| `delimiter` | `file`, `url` | Le séparateur des champs d'un fichier CSV (`,`) |
+| `encoding` | `file`, `url` | L'encodage du texte (`utf-8` ; une marque d'ordre des octets est ignorée) |
+| `tenant` | `graph` | Le locataire (tenant) Microsoft Entra : son ID ou l'un de ses domaines |
+| `client_id` | `graph` | L'ID d'application (client) de l'application inscrite pour Latet |
+| `objects` | `graph` | `users` (par défaut) ou `groups` |
+| `group` | `graph` | Avec `users` : seulement les membres de ce groupe, désigné par son ID |
+| `filter` | `graph`, `ldap` | Un filtre OData qu'applique Microsoft Graph ; un filtre LDAP (`(objectClass=person)`) |
+| `login_url`, `graph_url` | `graph` | L'adresse de connexion de Microsoft Entra et celle de Microsoft Graph, pour un cloud souverain |
+| `start_tls` | `ldap` | Avec `ldap://` : chiffrer avec STARTTLS avant la connexion (`true`) |
+| `bind` | `ldap` | Sous quelle identité Latet se connecte ; s'il manque, il se connecte de façon anonyme |
+| `base` | `ldap` | Où la recherche commence |
+| `certificate` | `ldap` | Le fichier PEM d'une autorité de certification, par son nom dans le dossier de la synchronisation des termes |
+
+### Un fichier ou une adresse web
+
+La première ligne d'un fichier CSV nomme ses colonnes, 1 000 au plus. Un document JSON ou YAML est une liste
+d'enregistrements, ou en contient une là où l'indique `records` (`records: data.items`). Un document liste
+200 000 enregistrements au plus et se lit jusqu'à 50 Mo, un document YAML jusqu'à 5 Mo, car lire du YAML demande bien
+plus de mémoire au serveur : la synchronisation d'un document qui dépasse ces limites échoue et ne change rien. Un
+fichier qu'Excel exporte dans une grande partie de l'Europe a des points-virgules entre ses champs et l'encodage de
+Windows :
+
+```yaml
+  - name: customers
+    kind: file
+    path: customers.csv
+    delimiter: ";"
+    encoding: cp1252
+    mapping: {Company: CLIENT}
+```
+
+Une adresse web fournit les mêmes formats :
+
+```yaml
+  - name: projects
+    kind: url
+    url: https://intranet.acme.com/api/projects
+    headers: {Authorization: "Bearer {secret}"}
+    records: items
+    mapping: {code_name: PROJECT}
+```
+
+`{secret}` tient lieu du secret de la source, dans un en-tête, le chemin ou les paramètres de requête ; un en-tête ou un
+paramètre de requête qui porte des identifiants doit l'utiliser, et une adresse dans laquelle un jeton est
+écrit est refusée. Ici, `latet server terms secret projects` conserve le jeton seul.
+
+L'adresse doit être en https ; un export local va dans le dossier de la synchronisation des termes. Le serveur se
+connecte à une adresse que donne sa propre résolution du nom à ce moment-là (la première qui accepte la connexion ; la
+suivante seulement quand la connexion à la précédente est refusée ou n'aboutit pas à temps, et tant que rien n'a
+été envoyé), y compris dans votre réseau, jamais à une adresse link-local ou de métadonnées, et ne suit aucune
+redirection. Il demande une réponse non compressée, et refuse une réponse compressée. Le certificat de l'adresse est vérifié avec le
+magasin de certificats du serveur : ajoutez-y l'autorité de votre entreprise si elle signe les certificats de votre
+intranet.
+
+Ce que donne une adresse se lit dans le format qu'indique le `format` de sa source, sinon dans celui que donne
+l'extension de son chemin (`/export/customers.csv` est du CSV), sinon comme du JSON : la réponse ne le choisit jamais.
+Une réponse dont le type de contenu nomme un autre format, comme `text/csv` pour une source lue comme du JSON, est
+refusée, avec l'indication de définir `format`.
+
+### Microsoft Entra ID
+
+1. Dans le centre d'administration Microsoft Entra, inscrivez une application pour Latet.
+2. Donnez-lui l'autorisation d'application `User.Read.All`, et `Group.Read.All` et `GroupMember.Read.All` pour lire des
+   noms de groupes ou les membres d'un groupe ; accordez le consentement administrateur.
+3. Ajoutez un secret du client, et conservez-le sur le serveur : `latet server terms secret colleagues`.
+4. Dans les sources : `tenant` est l'ID du locataire ou l'un de ses domaines, et `client_id` l'ID de l'application.
+
+`objects: users`, la valeur par défaut, lit des personnes ; `objects: groups` lit des groupes, avec la correspondance
+`{displayName: TEAM}`. `group` ne lit que les membres d'un groupe et des groupes qu'il contient : donnez à Latet vos
+employés, pas vos invités. `filter` est un filtre OData, comme `accountEnabled eq true`. La correspondance nomme les
+propriétés de Microsoft Graph : `displayName`, `givenName`, `surname`, `mail`, `userPrincipalName`, `jobTitle`,
+`department`. Dans un cloud souverain, `login_url` et `graph_url` en donnent les adresses.
+
+Latet se connecte en tant qu'application, sans qu'aucune personne ne se connecte, et n'envoie le jeton qu'à l'adresse de
+Microsoft Graph elle-même. Un refus indique le code d'erreur de Microsoft Entra, comme `invalid_client`, jamais sa
+description.
+
+### LDAP et Active Directory
+
+LDAP demande le composant optionnel `ldap` de Latet, que l'image du conteneur contient. Il installe ldap3, une
+bibliothèque sous LGPL-3.0-or-later, utilisée comme paquet séparé et non modifié. Un serveur installé comme service
+système le reçoit parmi ses composants optionnels avec la commande qui l'a installé, relancée avec les mêmes dossiers
+`UV_*` (ici ceux d'[Exploitation du serveur](../../concepts/server-operations/) sous Linux) et le numéro de version à
+la place de `X.Y.Z` ; retirez `ner` et `ocr` s'il ne les a pas. Ensuite, `latet upgrade` conserve le composant
+optionnel `ldap`. Une instance sans ce composant laisse une source LDAP aux instances qui l'ont, et le dit quand les sources sont enregistrées par elle,
+dans son état sur la page **Synchronisation des termes** et dans `latet server status` ; là où aucune instance ne
+l'a, la source échoue avec `not-installed`.
+
+```sh
+UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[ner,ocr,server,ldap] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+```
+
+```yaml
+  - name: directory
+    kind: ldap
+    url: ldaps://dc1.acme.lan
+    bind: latet-sync@acme.lan
+    base: OU=Staff,DC=acme,DC=lan
+    filter: "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+    mapping: {"{givenName} {sn}": PERSON, mail: EMAIL}
+```
+
+Le mot de passe de `bind` est le secret de la source : `latet server terms secret directory`. Sans `bind`, Latet se
+connecte de façon anonyme. Le filtre ci-dessus ne prend que les comptes activés d'Active Directory.
+
+L'adresse est `ldaps://`, ou `ldap://` avec STARTTLS (`start_tls: true`, la valeur par défaut) : les noms et le mot de
+passe ne traversent jamais le réseau en clair. Seul un annuaire sur la machine du serveur lui-même, écrit `127.0.0.1`,
+`[::1]` ou `localhost`, peut être lu sans TLS, en `ldap://` avec `start_tls: false`, et une telle source se définit avec
+`latet server terms` seulement ; tout autre annuaire demande `ldaps://` ou STARTTLS. Le serveur joint l'annuaire à la
+première des adresses données par sa résolution du nom qui accepte la connexion, et ne passe à la suivante que si la
+connexion à la précédente est refusée ou n'aboutit pas à temps, donc jamais une fois que TLS, STARTTLS ou
+l'authentification ont commencé. En LDAPS ou avec STARTTLS, un annuaire sur la machine du serveur fonctionne avec
+`localhost` comme avec `127.0.0.1`, car son certificat est vérifié quelle que soit l'adresse : un annuaire dans Docker
+qui n'écoute que sur 127.0.0.1 est joint aussi avec `localhost`. Sans TLS, écrivez l'adresse sur laquelle l'annuaire
+écoute (`127.0.0.1` ou `[::1]`), jamais `localhost` : `localhost` est d'abord essayé sur `::1`, et tout programme du
+serveur qui y écouterait recevrait le mot de passe de `bind`. Le serveur vérifie le certificat avec le nom écrit dans `url` (jamais avec l'adresse jointe) et ne suit aucune référence (referral). Pour un
+annuaire dont le certificat vient de l'autorité de votre entreprise, `certificate` nomme le fichier PEM de cette
+autorité dans le dossier de la synchronisation des termes, par son nom.
+
+## Ce qui devient un terme
+
+- Chaque valeur d'un champ mis en correspondance ; un champ à plusieurs valeurs (une liste, un attribut multivalué)
+  donne chacune d'elles.
+- Un gabarit réunit des champs : `"{givenName} {sn}": PERSON` produit "Emily Carter" à partir d'un annuaire dont les noms
+  d'affichage sont "Carter, Emily". Un enregistrement dont l'un des champs manque ou a plusieurs valeurs ne donne
+  rien par le gabarit, et rien n'est compté : une entrée sans `sn` ne donne aucun terme par `"{givenName} {sn}"`.
+- Les espaces sont réduits à un seul : "Acme  Corp" devient "Acme Corp".
+- Laissées de côté : les valeurs plus courtes que `min_length`, plus longues que 200 caractères, sans lettre ni chiffre,
+  ou listées dans le `exclude` de la source. Chaque synchronisation les compte, par raison.
+- Un terme est reconnu en mots entiers, quelle que soit la casse : "Halden Insurance" masque aussi "HALDEN INSURANCE",
+  mais pas "Haldenville".
+
+Un groupe nommé `Sales` masquerait le mot "sales" partout : listez de tels noms dans `exclude`. Un client appelé `SAP`
+demande `min_length: 3`.
+
+Un serveur conserve 50 000 termes synchronisés au plus, y compris ceux retirés de leur source : une synchronisation qui
+dépasserait ce nombre ne change rien et le dit.
+
+Un terme synchronisé est masqué comme un terme que votre entreprise verrouille : aucune exception d'une personne (une
+valeur ou un motif marqué non sensible, une politique qui laisse passer son type) ne le laisse en clair. Dans
+l'historique d'une personne, sa règle est `synced:` suivi de son type, comme `synced:client`.
+
+## Un terme retiré de sa source
+
+Lorsqu'une source cesse de donner un terme, le terme reste masqué et apparaît sous **Retirés de la source** : le
+supprimer réduit la protection, c'est donc une personne qui décide. Les personnes du rôle Sécurité, donné à elles ou à
+l'un de leurs groupes, voient ces termes sur la page **Synchronisation des termes** et les y suppriment, depuis une
+session ouverte avec votre compte d'entreprise lorsque les réglages de connexion l'exigent. Les administrateurs du
+serveur les listent avec `latet server terms gone` et les suppriment avec `latet server terms remove` : par leurs ID,
+tous ceux d'une source (`--source`), ou tous (`--all`).
+
+<Screenshot name="term-sync" alt="La page Synchronisation des termes : quatre sources avec leur type, leur dernière synchronisation et leurs termes par type, l'une en échec avec la raison, des boutons pour synchroniser chacune, définir son secret et modifier les sources, et en dessous trois termes retirés de leur source, avec des cases pour les sélectionner et un bouton Supprimer" caption="Synchronisation des termes : les sources, et les termes retirés de leur source." />
+
+Une source en échec, ou qui ne donne soudain plus aucun terme là où elle en donnait (un export tronqué, un filtre qui ne
+trouve plus rien), ne change rien : ses termes restent tels qu'ils étaient, et la synchronisation est marquée en échec
+avec la raison. Quand une source est retirée de la liste des sources, tous ses termes deviennent des termes retirés de
+la source.
+
+Supprimer un terme fait que Latet cesse de le chercher. Une personne dont les requêtes l'avaient déjà masqué le garde
+dans son coffre-fort, où elle peut l'oublier sur la page **Coffre-fort**.
+
+## Comment le serveur l'exécute
+
+Une seule instance lit à la fois, pendant 15 minutes au plus : une lecture qui les dépasse s'arrête et ne change rien.
+Une instance qui s'arrête en cours de lecture rend son tour en s'arrêtant ; une instance qui s'arrête brutalement laisse
+la source à une autre une fois son tour écoulé. Chaque synchronisation d'une source lit pendant ce tour et 50 Mo au plus en tout.
+
+Chaque instance prend les nouveaux termes dans les 30 secondes, quoi qu'elle soit en train de lire. Celle qui n'y
+parvient pas (sa base de données injoignable, ou des termes que sa clé principale n'ouvre pas, qu'elle n'abandonne
+jamais : elle masque ceux qu'elle avait) le dit dans ses propres métriques (plus bas). Un rechargement qui ne peut pas
+lire les termes ne masque jamais moins de termes : une instance qui rencontre des termes que sa clé principale n'ouvre pas garde les termes qu'elle a, et une
+instance qui ne les a jamais chargés n'ouvre aucun nouvel espace tant qu'elle n'y parvient pas, et répond 503 en
+demandant de réessayer.
+
+Une synchronisation qui change les termes ferme chaque WebSocket ouvert à son message suivant (code de fermeture 1008),
+et le client de l'agent se reconnecte. Une requête qui a déjà passé ses relectures quand les termes changent est
+refusée, sans que rien n'en soit envoyé, et son agent est informé que les réglages ont changé et qu'il faut l'envoyer
+de nouveau (*the settings changed while this request was prepared: send it again*) : avant que Latet ne décide de
+l'envoyer, et aussi après cette décision, juste avant son envoi (par exemple pendant que son adresse est résolue ou,
+pour Bedrock, pendant que ses identifiants AWS sont lus). Envoyée à nouveau, elle est masquée avec les nouveaux termes. Une
+synchronisation qui ne change aucun terme masqué ne touche à rien, pas plus qu'une qui trouve seulement des termes qui
+ne sont plus dans leur source ou qui y sont revenus, ni le retrait d'une source, dont les termes restent masqués.
+
+Tant que le serveur masque des termes synchronisés, il lit chaque texte d'un appel à l'API pour les applications séparément,
+comme le faisait Latet 0.10 et comme pour les termes que votre entreprise verrouille, là où il lit sinon les textes d'un
+appel ensemble : le masquage reste le même, et un appel de nombreux textes prend plus de temps. Un serveur dont la
+licence indique la synchronisation des termes mais qui ne masque aucun terme synchronisé continue de les lire ensemble.
+
+Les métriques rendent compte de chaque instance, alors que `latet server status` et `latet server terms status` ne
+rendent compte que de l'instance qui leur répond : c'est par des alertes sur les métriques que vous apprenez qu'une autre instance est en
+retard ou qu'il lui manque une version de clé. Configurez une alerte pour chaque instance où `latet_terms_masked` manque (ses termes synchronisés n'ont jamais été chargés),
+où `latet_terms_behind_seconds` dépasse 60 (elle masque des termes synchronisés plus anciens que ceux du serveur), ou
+où `latet_terms_unreadable` dépasse 0, à côté des règles d'[Exploitation du serveur](../../concepts/server-operations/) :
+
+```yaml
+groups:
+  - name: latet-terms
+    rules:
+      - alert: LatetTermsNeverLoaded
+        expr: up{job="latet"} == 1 unless on(instance) latet_terms_masked
+        for: 5m
+      - alert: LatetTermsBehind
+        expr: latet_terms_behind_seconds > 60
+      - alert: LatetTermsUnreadable
+        expr: latet_terms_unreadable > 0
+```
+
+`latet server status` dit la même chose de l'instance qui lui répond : qu'elle est en retard, et combien de termes n'y
+sont ouverts par aucune clé du serveur. Un terme
+qu'aucune clé du serveur n'ouvre (une version de clé retirée de tous les fichiers de clés, une ligne modifiée à la main)
+est scellé à nouveau de lui-même la prochaine fois que sa source le donne. Un terme qu'aucune source ne donne plus se
+supprime avec `latet server terms remove --unreadable`, qui ne supprime jamais un terme qu'une source donne encore, et
+ne supprime rien tant qu'un terme qu'elle supprimerait nomme une version de clé plus récente que celles de l'instance qui
+répond.
+
+Une instance d'une version antérieure, ou sans l'édition Enterprise, ne masque aucun terme synchronisé :
+`latet server terms status` et `latet server status` le disent, d'après la version et l'édition que chaque instance en
+fonctionnement annonce. `latet server init` ne lance pas la synchronisation des
+termes : seul un serveur en fonctionnement synchronise. Rien ne va aux machines : c'est le serveur qui masque.
+
+## Où les termes sont conservés
+
+- Dans la base de données PostgreSQL du serveur, chaque terme scellé avec la clé principale du serveur ; l'ID d'un terme
+  est un hachage à clé, de sorte que la base ne dit ni quels termes elle contient, ni si un terme deviné en fait partie.
+  Les secrets des sources sont conservés avec les autres secrets Enterprise du serveur, scellés eux aussi avec la clé
+  principale.
+- Jamais dans `config.yaml`, dans un fichier de règles ou dans les réglages d'une personne : une liste de clients est
+  sensible en elle-même.
+- Quiconque détient à la fois la base de données et la clé principale peut les lire, comme tout secret du serveur
+  ([Exploitation du serveur](../../concepts/server-operations/)). Avec une autre clé principale, les termes ne peuvent
+  pas être lus : les synchronisations échouent jusqu'au retour de la bonne clé, chaque instance continue de masquer les termes
+  qu'elle avait, et `latet server terms status` dit combien ne s'ouvrent pas sur l'instance qui lui répond (les
+  métriques le disent pour chaque instance).
+- Le journal d'administration enregistre chaque modification des sources (`terms.source.changed`), chaque secret défini
+  ou supprimé (`terms.secret.changed`), chaque suppression (`terms.removed`) et chaque synchronisation demandée
+  (`terms.sync.asked`), avec des noms de sources et des comptages, jamais un terme ni un secret
+  ([Administration du serveur](../../reference/server-administration/)).
+- Chaque synchronisation et chaque suppression est un événement (`sync`), avec la source quand il y en a une, le résultat et les comptages
+  par type ([Rapports et journal d'administration](../reports/)).
+- Les métriques du serveur, `latet_terms_*`, comptent par type de source et par résultat, sans jamais indiquer le nom
+  d'une source, un type de terme ou un terme ([Événements vers votre SIEM](../siem/#métriques-et-contrôles)).
+
+Quiconque définit les sources (les administrateurs du serveur, et les personnes du rôle Sécurité) peut faire lire au serveur
+n'importe quel fichier du dossier de la synchronisation des termes, ou un document https ou un annuaire de votre réseau
+(de façon anonyme, ou avec le compte dont le secret est défini pour la source), puis voir les champs que nomme la
+correspondance, comme termes, une fois qu'ils sont retirés de leur source : il suffit de retirer une source après une
+synchronisation pour que ses valeurs apparaissent parmi les termes retirés de leur source. La raison d'une
+synchronisation en échec indique aussi si un fichier d'un nom donné se trouve dans le dossier. Le serveur ne se connecte qu'à travers ses propres vérifications : jamais à une adresse
+link-local, de métadonnées ou réservée, à sa propre boucle locale seulement là où l'adresse la nomme (définie avec
+`latet server terms` seulement), et sans redirection. Dans votre réseau, il joint ce que joint le réseau du serveur, y
+compris l'adresse du serveur lui-même, ses autres instances et les hôtes de sa base de données et de Valkey. Une
+personne ajoute ou déplace au plus 10 destinations de sources par heure depuis la page (une source de type fichier n'en a pas), et chaque modification des
+sources et chaque synchronisation demandée figurent dans le journal d'administration : donnez ces rôles à des personnes
+à qui vous confieriez les fichiers de ce dossier et ce que votre intranet met à disposition. Un annuaire se lit avec ldap3, qui garde en mémoire une page entière
+de la réponse de l'annuaire avant que Latet puisse en compter la taille : un annuaire vers lequel pointe une source peut
+faire garder à l'instance qui le lit une réponse très volumineuse.
+
+Le masquage montre ce qu'il masque : qui envoie un texte par son espace peut savoir si un nom qu'il connaît déjà fait
+partie des termes synchronisés, comme pour un terme que votre entreprise verrouille. Personne d'autre que le rôle
+Sécurité et les administrateurs du serveur ne peut les lister.
+
+## Quand la licence prend fin
+
+La synchronisation des termes continue pendant les 30 jours de délai de grâce qui suivent la fin de la licence. Ensuite,
+ou quand plus de personnes et de clés d'API que la licence n'en couvre utilisent Latet depuis plus longtemps que le
+délai de grâce, ou à la fin d'un essai, la synchronisation des termes se met en pause : aucune source n'est lue, rien
+n'est supprimé ni modifié (**Synchroniser maintenant** et **Supprimer** sont refusés), et les termes synchronisés
+jusque-là restent masqués. Supprimer la licence, ou en installer une qui n'inclut pas la synchronisation des termes,
+met fin à leur masquage : Latet demande d'abord confirmation.
+
+## Ce qui a été testé
+
+Les tests automatisés de Latet lisent chaque type de source : des fichiers, un faux serveur web, un faux Microsoft Entra
+ID et un faux Microsoft Graph, l'annuaire simulé de ldap3, et leur propre annuaire pour le TLS ; deux instances d'un
+serveur y partagent PostgreSQL et Valkey.
+
+Ils ont aussi été exécutés avec OpenLDAP 2.6.10, le paquet `slapd` de Debian, dans Docker sur un poste de développement,
+deux fois, avec l'annuaire écrit d'abord `127.0.0.1`, puis `localhost` (Windows donne d'abord `::1`, et l'annuaire n'écoutait
+que sur 127.0.0.1) : une source en LDAPS et une en STARTTLS, chacune connectée avec un compte de service que l'annuaire
+autorise à lire et à rien d'autre, son mot de passe réglé avec `latet server terms secret`, chacune avec une `base`, un
+`filter` et un `mapping` des personnes (`"{givenName} {sn}": PERSON`, `mail: EMAIL`) ou des groupes (`cn: TEAM`), et le
+fichier PEM de l'autorité de certification dans le dossier de la synchronisation des termes. Les noms et les adresses
+des personnes et les noms des groupes ont été masqués sur les deux instances ; une personne retirée de l'annuaire a
+laissé ses termes sous Retirés de la source, toujours masqués ; une source `ldap://` avec `start_tls: false` a été
+refusée quand les sources ont été définies ; et avec une autorité qui n'avait pas signé le certificat de l'annuaire, les
+deux sources ont été refusées, avec un message indiquant que le certificat de l'annuaire n'était pas approuvé, sans
+donner de terme.
+
+Les trois alertes ci-dessus ont été chargées telles qu'elles sont écrites dans Prometheus 3.16.0, avec le job de scrape
+`latet` d'[Exploitation du serveur](../../concepts/server-operations/) et une cible pour chacune de deux instances. Sur
+une instance dont la clé principale n'avait pas la version avec laquelle les termes étaient scellés,
+`LatetTermsUnreadable` s'est déclenchée aussitôt, et `LatetTermsNeverLoaded` est restée en attente pendant ses cinq
+minutes, puis s'est déclenchée ; l'instance qui masquait les termes n'en a déclenché aucune.
+
+Les annuaires se configurent de bien des façons : si l'un des vôtres se lit autrement que ne le dit cette page, ouvrir
+un ticket décrivant ce que vous avez constaté nous aide.

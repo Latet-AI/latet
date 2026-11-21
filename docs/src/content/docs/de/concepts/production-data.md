@@ -25,7 +25,7 @@ sagt, welche Werte darin stehen. Drei Dinge nutzen das:
   Accessibility-Snapshot eines Browsers (`columnheader`, `cell`) und mit Rahmenzeichen gezeichnete
   Tabellen (`console.table` von Node, der Unicode-Stil von psql).
 - **`key=value`-Paare:** zwei oder mehr in einer Zeile, wie in einem Log. Ein Wert ohne Anführungszeichen endet
-  am ersten Leerzeichen, außer eine Telefonnummer steht am Anfang: deren Gruppen gehören dann dazu
+  am ersten Leerzeichen, außer eine Telefonnummer steht am Anfang: Deren Gruppen gehören dann dazu
   (`phone=+39 347 123 4567`).
 - **JSON:** ein ganzes Dokument Wert für Wert, jeder mit seinem Pfad (`items[].sku`); ein Fragment
   `"key": value` in anderem Text, etwa in einer Log-Zeile, anhand seines Schlüssels.
@@ -61,7 +61,7 @@ data: strict
 
 `data: normal` schaltet ihn auch mit `max` aus; lassen Sie `data` weg, entscheidet das Profil. Ihn
 dort auszuschalten, wo er eingeschaltet ist, verringert den Schutz: Kommt das von einem Agenten
-oder über die Kommandozeile, wartet die Änderung auf Ihre Freigabe.
+oder über die Befehlszeile, wartet die Änderung auf Ihre Freigabe.
 
 Jeder Wert einer Tabelle, eines JSON-Dokuments oder von `key=value`-Paaren in der Ausgabe eines
 Tools wird maskiert; die Namen von Spalten und Schlüsseln bleiben, außer einem Schlüssel, der selbst
@@ -145,7 +145,7 @@ data: strict
 data_files: ["exports/**", "data/*.csv", ".env*"]
 ```
 
-Eine Datei, die ein Muster nennt, gilt als Daten, ob der strikte Datenmodus an ist oder nicht: Sie zu nennen genügt. Eine Datei, die der Agent liest und deren Pfad zu einem Muster passt, gilt als Daten: Jeder Wert
+Eine Datei, die ein Muster nennt, gilt als Daten, ob der strikte Datenmodus eingeschaltet ist oder nicht: Sie zu nennen genügt. Eine Datei, die der Agent liest und deren Pfad zu einem Muster passt, gilt als Daten: Jeder Wert
 darin wird maskiert, wie in der Ausgabe eines Tools. Ein Muster ohne Schrägstrich nennt eine Datei
 bei ihrem Namen (`*.json`, `.env*`), eines mit Schrägstrich das Ende ihres Pfads (`exports/**`,
 `**/*.csv`); `*` steht für beliebige Zeichen, und Groß- und Kleinschreibung spielen keine Rolle. Die
@@ -169,13 +169,13 @@ Tool zeigt und die der Agent vielleicht nie gelesen hat, wie die Datei maskiert,
 `data_tools` andere Tools nennt.
 
 - **Ein breites Muster deckt mehr als Daten ab.** `*.json` deckt auch `package.json` und
-  `tsconfig.json` ab, deren Werte dann überall im Gespräch maskiert würden: Nennen Sie die Ordner,
+  `tsconfig.json` ab, deren Werte dann überall in der Unterhaltung maskiert würden: Nennen Sie die Ordner,
   die Daten enthalten (`exports/**`).
 - **Markdown gilt nur, wenn ein Muster es nennt** (`*.md`, `docs/**/*.md`): Agenten lesen ihre
   Anweisungen und Dokumente in Markdown, und ein Muster für jede Datei (`*`) lässt sie unberührt. In
   einer Markdown-Datei, die ein Muster nennt, werden nur die Tabellen maskiert, nie der Fließtext.
-- **PDF-Dateien sind nicht abgedeckt:** Latet liest den Text einer PDF nicht, daher wird eine
-  Anfrage, die eine als Dokument enthält, nicht gesendet ([Bilder](../images/)).
+- **PDF-Dateien sind nicht abgedeckt:** Latet liest den Text eines PDF nicht, daher wird eine
+  Anfrage, die eines als Dokument enthält, nicht gesendet ([Bilder](../images/)).
 
 ### Webadressen, die als Daten gelten
 
@@ -184,7 +184,7 @@ data: strict
 data_hosts: [api.internal.example.com, "*.salesforce.com"]
 ```
 
-Eine Adresse, die ein Muster nennt, gilt als Daten, ob der strikte Datenmodus an ist oder nicht. Eine Seite, die ein Web-Tool (`WebFetch`) von einem Host abruft, der zu einem Muster passt, gilt als
+Eine Adresse, die ein Muster nennt, gilt als Daten, ob der strikte Datenmodus eingeschaltet ist oder nicht. Eine Seite, die ein Web-Tool (`WebFetch`) von einem Host abruft, der zu einem Muster passt, gilt als
 Daten, wie die Ausgabe eines Tools: Jeder Wert ihrer Tabellen, ihres JSON und ihrer
 `key=value`-Paare wird maskiert. `*` steht für beliebige Zeichen; Groß- und Kleinschreibung und der
 Port spielen keine Rolle. Ein Muster für jede Subdomain nennt auch die Domain selbst:
@@ -193,11 +193,11 @@ derselbe Host wie ohne ihn. Eine Suche (`WebSearch`) hat keine eigene Adresse. U
 nehmen Sie `WebSearch` zusammen mit den anderen Tools, die Sie abdecken wollen, in `data_tools` auf,
 oder schreiben Sie `data_tools: ["*"]` für jedes Tool außer denen, die Dateien lesen: Ein
 `data_tools`, das nur `WebSearch` nennt, deckt nur Suchen ab und lässt Ihre Datenbank- und
-Shell-Tools aus. Wenn der strikte Datenmodus an ist, schränkt es ihn ein, `data_tools` zu setzen,
-wo es leer war, und wartet daher auf Ihre Freigabe.
+Shell-Tools aus. Ist der strikte Datenmodus eingeschaltet, schränkt ihn das Setzen von `data_tools`,
+wo es leer war, ein; diese Änderung wartet daher auf Ihre Freigabe.
 
 Ein Muster oder eine Adresse hinzuzufügen gilt sofort; eines zu entfernen deckt weniger ab und
-verringert damit den Schutz: Kommt das von einem Agenten oder über die Kommandozeile, wartet die
+verringert damit den Schutz: Kommt das von einem Agenten oder über die Befehlszeile, wartet die
 Änderung auf Ihre Freigabe. Im Dashboard werden sie unter **Regeln** → **Schutz** →
 **Produktionsdaten** festgelegt, neben den Tools.
 
@@ -238,7 +238,8 @@ fields:
 
 Für ein Feld werden Ihre erste Regel, die darauf passt (zuerst Ihre Einstellungen für ein Projekt,
 dann Ihre globalen Regeln), und die erste der `latet.yaml` des Projekts, die darauf passt,
-verglichen: Es gilt die strengere (geschwärzt, dann maskiert, dann im Klartext), bei gleicher Ihre.
+verglichen: Es gilt die strengere (geschwärzt, dann maskiert, dann im Klartext), bei gleicher
+Strenge Ihre.
 
 ## Die Spalten wählen, die im Klartext bleiben
 
@@ -254,7 +255,7 @@ seiner Begründung:
 | Vorschlag | Für |
 | --- | --- |
 | **Im Klartext lassen** | ein Name, der auf IDs oder Codes hinweist, Datumsangaben von Ereignissen (`created_at`, `order_date`), Status (`status`, `state`), Ja oder Nein (`active`), Anzahlen (`qty`) |
-| **Maskiert lassen** | personenbezogene Daten oder ein geheimer Wert in ihren Werten gefunden; ein Name, der Personen betrifft (`customer`, `created_by`, `doctor`), geheime Werte (`api_key`), Gesundheit, Überzeugungen oder Privatleben (`hiv_status`, `marital_status`); Freitext; Geburts- oder Sterbedaten |
+| **Maskiert lassen** | in ihren Werten gefundene personenbezogene Daten oder ein geheimer Wert; ein Name, der Personen betrifft (`customer`, `created_by`, `doctor`), geheime Werte (`api_key`), Gesundheit, Überzeugungen oder Privatleben (`hiv_status`, `marital_status`); Freitext; Geburts- oder Sterbedaten |
 | **Ihre Entscheidung** | Beträge; Datumsangaben, Ja oder Nein oder wenige Werte, die sich wiederholen, wenn der Name nicht sagt, was sie sind; die Spalten, zu denen es keinen Hinweis gibt |
 
 Eine Spalte wird nur dann im Klartext vorgeschlagen, wenn ihr Name sagt, was sie enthält, und nichts
@@ -304,7 +305,7 @@ kurzen Hinweis, der es auffordert, weniger Zeilen oder Zählungen abzufragen. Da
 den Austausch mit *Zurückgehalten*. Nicht gesetzt oder 0: keine Grenze.
 
 Im Profil `max` wird eine Tool-Ausgabe, wenn das [lokale Namensmodell](../../getting-started/installation/)
-installiert ist, auch nach Namen und Adressen gelesen: Die Texte und Schlüssel einer JSON-Ausgabe
+installiert ist, auch nach Namen und Anschriften gelesen: Die Texte und Schlüssel einer JSON-Ausgabe
 werden auf einmal gelesen, und eine, die das Modell nicht innerhalb von fünf Sekunden lesen kann, wird
 ebenso zurückgehalten, mit einem Hinweis, der das Modell auffordert, weniger Zeilen oder Felder
 abzufragen. Nichts, was es darin gefunden hätte, geht im Klartext hinaus.

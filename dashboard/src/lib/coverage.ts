@@ -21,6 +21,7 @@ export type CoverageOutcome =
 /** The order the passes are said in: what was read first, what passed unread after. */
 export const PASS_ORDER: readonly PassCategory[] = [
   'checked-only',
+  'new-member',
   'sent-before',
   'model-written',
   'image-remainder',
@@ -130,8 +131,20 @@ export function refusalCategory(code: string | null | undefined): RefusalCategor
 /** What the page offers as the way through a refusal. An exact request exception only where it can name what was
  * refused (a header or a query parameter no profile names) or renew one that ended: never for a failure of
  * authorization, egress, reading or a work limit, nor for a route (an exception names components of a profile that
- * exists, F-4). */
-export type Remedy = 'exception' | 'exception-docs' | 'renew' | 'resource' | 'again' | 'websocket' | 'none'
+ * exists, F-4). `strict`: a body member no profile names, refused under `unknown_members: refuse` (your settings', the
+ * project's or your company's policy), which the page names with a link to its section; `strict-exception`: the same,
+ * where an exact exception can still reach the member, which is read before the setting and so still lets it through
+ * under `refuse`: the page says how to approve one too. */
+export type Remedy =
+  | 'exception'
+  | 'exception-docs'
+  | 'renew'
+  | 'resource'
+  | 'again'
+  | 'websocket'
+  | 'strict'
+  | 'strict-exception'
+  | 'none'
 
 /** A body member is let through by an exception named in your settings: the page says where that is explained, and
  * offers no action of its own (exceptions come from config.yaml or a command, and wait for your approval). */
@@ -145,8 +158,14 @@ export function remedyFor(category: RefusalCategory | null): Remedy {
 }
 
 /** The remedy of one exchange's refusal: on a WebSocket none that an exception would be, since a WebSocket takes no
- * request exception in 0.11.0 (F-2), the page then saying so. */
+ * request exception in 0.11.0 (F-2), the page then saying so. A body member no profile names, refused under
+ * `unknown_members: refuse` (the mode its record says decided it), names that setting, on a WebSocket too: under `check`
+ * Latet would have read such a member; where an exact exception can reach the member (over HTTP, outside a provider's
+ * item), the way to approve one too. Under `check`, or in an older record that says no mode, the remedy is today's. */
 export function remedyOf(summary: ExchangeSummary, category: RefusalCategory | null): Remedy {
+  if ((category === 'body-member' || category === 'body-member-closed') && summary.unknown_members === 'refuse') {
+    return category === 'body-member' && summary.transport !== 'ws' ? 'strict-exception' : 'strict'
+  }
   const remedy = remedyFor(category)
   const excepting = remedy === 'exception' || remedy === 'exception-docs' || remedy === 'renew'
   return summary.transport === 'ws' && excepting ? 'websocket' : remedy

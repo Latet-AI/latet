@@ -17,28 +17,29 @@ i dati originali possono prima raggiungere quel server. Questo copre:
   strumenti e ogni risultato di uno strumento: contenuto dei file, output dei comandi, output degli
   hook. Un controllo finale legge poi i testi di ogni richiesta prima che venga inviata. Ciò che ha
   scritto il modello non ferma niente quando torna esattamente come il modello l'ha scritto, cosa che
-  Latet sa dalle risposte che ha fatto passare e dalle chiamate agli strumenti che il plugin ha fatto
-  ripristinare; ogni altro testo al posto del modello viene letto come tuo. Su un computer il daemon
+  Latet sa dalle risposte che ha fatto passare e dalle chiamate agli strumenti in cui il plugin aveva
+  rimesso i valori reali; ogni altro testo presentato come del modello viene letto come tuo. Su un computer il daemon
   tiene tutto questo in memoria: dopo un riavvio, un testo che il modello ha scritto prima nella
   conversazione viene letto come tuo, e uno che contiene un valore che Latet maschera ferma la
-  richiesta, quindi in quel caso inizia una nuova conversazione. Un server Latet lo conserva per ogni
+  richiesta, quindi in quel caso inizia una nuova conversazione. Un server di Latet lo conserva per ogni
   istanza, per un'ora dal suo ultimo uso.
 - **In modalità gateway:** il prompt di sistema o le istruzioni, e ogni messaggio della conversazione:
   il tuo testo, le risposte precedenti del modello, le chiamate agli strumenti e i loro risultati.
   Anche l'input degli embedding. Un controllo finale legge poi quei testi prima che la richiesta
   venga inviata, come in modalità client.
 
-Risposte gateway, stream e argomenti degli strumenti vengono ripristinati dove gira Latet:
-sul computer per l'uso locale, sul server per un gateway connesso. Il plugin di Claude Code
-ripristina argomenti degli strumenti e testo interattivo sullo schermo del computer;
-stdout di `claude -p` contiene ancora valori fittizi. OCR/NER vengono eseguiti dove gira
-il motore Latet interessato; un revisore configurato può ricevere testo originale.
+Le risposte del gateway, gli stream e gli argomenti delle chiamate agli strumenti vengono
+ripristinati dove è in esecuzione Latet: sul computer per l'uso locale, sul server per un gateway
+connesso. Il plugin di Claude Code ripristina sul computer gli argomenti degli strumenti e il testo
+interattivo sullo schermo; lo stdout di `claude -p` contiene comunque valori fittizi. L'elaborazione
+OCR/NER avviene dove è in esecuzione il motore di Latet interessato; un revisore configurato può
+ricevere il testo originale.
 
 Le chiavi di un documento JSON, come l'output di uno strumento, vengono mascherate come i suoi
 valori: un indirizzo email, un numero di telefono, un segreto, un nome o uno dei tuoi termini scritto
 come chiave viene sostituito con il valore fittizio che ha ovunque, e una chiave in cui il modello
 scrive un valore fittizio viene ripristinata per l'agente. Una regola di campo e la modalità dati
-rigorosa trovano ancora un valore dalla sua chiave così com'era, e una chiave che dà soltanto il nome
+rigorosa trovano comunque un valore in base alla sua chiave così com'era arrivata, e una chiave che dà soltanto il nome
 a un campo, come `id` o `email`, resta così com'è.
 
 Con il [revisore locale](../llm-review/) attivo, anche un modello linguistico sul tuo computer legge
@@ -50,31 +51,40 @@ mostrata: i rilevatori la leggono come leggono ogni chiave.
 ## Ogni parte di una richiesta
 
 Latet legge ogni parte di una richiesta prima di inviarla, su un computer come su un server, e non
-invia niente di cui non abbia reso conto:
+invia niente che non sappia spiegare:
 
-- **Il percorso** deve corrispondere a una rotta che uno dei profili di richiesta di Latet conosce, e
+- **Il percorso** deve corrispondere a un percorso noto a uno dei profili di richiesta di Latet, e
   ogni sua parte deve avere la sua forma: l'id di un modello, una regione, una risorsa che hai
   elencato. Ogni altra chiamata viene rifiutata, anche una senza corpo.
 - **I parametri di query** sono nominati dal profilo, e ogni valore deve avere la sua forma. Uno che
   nessun profilo nomina viene rifiutato.
-- **Le intestazioni.** Una credenziale viene inviata com'è arrivata, mai scritta nei log né
-  registrata. Ogni altra intestazione deve avere la forma che le dà il suo agente, o viene letta dal
-  controllo finale quando può contenere testo libero (`user-agent`). Le intestazioni che aggiungono
-  gli SDK e il tracing (`x-stainless-*`, `traceparent`...), e quelle degli agenti stessi che possono
-  contenere testo libero (gli id di un subagente di Claude Code, i metadati del turno di Codex...),
-  vengono tolte e contate nella dashboard: [Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie) le elenca per
-  agente. Ogni altra intestazione viene rifiutata, e il suo nome viene detto solo all'agente, tranne
-  in una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex): lì
-  un'intestazione `anthropic-*` nuova, o un valore nuovo di `anthropic-beta`, viene letto dal
-  controllo finale e passa, e un'intestazione `x-claude-code-*` nuova viene tolta.
+- **Gli header.** Una credenziale viene inviata com'è arrivata, mai scritta nei log né registrata.
+  Ogni altro header deve avere la forma che gli dà il suo agente, o viene letto dal controllo finale
+  quando può contenere testo libero (`user-agent`). Gli header che aggiungono gli SDK e il tracing
+  (`x-stainless-*`, `traceparent`...), e quelli degli agenti stessi che possono contenere testo
+  libero (gli id di un subagente di Claude Code, i metadati del turno di Codex...), vengono tolti e
+  contati nella dashboard: [Gli header che Latet toglie](../../getting-started/upgrading-to-0-11/#gli-header-che-latet-toglie) li elenca per
+  agente. Ogni altro header viene rifiutato, e il suo nome viene detto solo all'agente, tranne in una
+  richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex): lì un header
+  `anthropic-*` nuovo, o un valore nuovo di `anthropic-beta`, viene letto dal controllo finale e
+  passa, e un header `x-claude-code-*` nuovo viene tolto.
 - **Il corpo.** I suoi testi vengono mascherati, o verificati dove Latet si limita a verificare la
-  richiesta. Ogni altro membro deve avere la sua forma (l'id di un modello, il nome di uno strumento,
-  un'impostazione) e viene letto dal controllo finale dove contiene testo. Un membro che nessun
-  profilo nomina viene rifiutato, e all'agente viene detto dove si trovava, mai il suo nome.
+  richiesta. Ogni altro membro deve avere la sua forma (l'id di un modello, il nome di uno
+  strumento, un'impostazione) e viene letto dal controllo finale dove contiene testo. Un membro che
+  nessun profilo nomina ancora viene letto per intero e controllato: esce così com'è quando nulla al
+  suo interno andrebbe mascherato e non indica file, indirizzi, conversazioni salvate né modelli, e
+  altrimenti la richiesta viene rifiutata, e all'agente viene detto dove si trovava il membro, mai
+  il suo nome ([Nuovi membri delle
+  richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)).
+  `unknown_members: refuse` rifiuta membri del genere come prima della 0.15.0: una richiesta che ne
+  ha uno viene rifiutata, a meno che, in una richiesta che Latet si limita a verificare, il membro
+  contenga un testo o un elenco di testi fuori da un elemento del provider, che il controllo finale
+  legge.
 
 Nella dashboard, ogni scambio dice se ogni parte della sua richiesta è stata letta, o cosa ha
 lasciato passare una parte: *solo controllato* (un valore che il controllo finale ha letto senza
-doverlo mascherare), *consentito da una regola* (una delle regole integrate di Latet, come per i
+doverlo mascherare), *un campo che nessun profilo di richiesta prevede ancora, letto e controllato*,
+*consentito da una regola* (una delle regole integrate di Latet, come per i
 campi cifrati che il provider stesso restituisce), o
 un'[eccezione](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) che hai
 approvato. Un rifiuto dice all'agente che non è stato inviato niente. Quando un
@@ -90,15 +100,15 @@ il [revisore locale](../llm-review/), che riceve i testi originali perché l'hai
 
 **Valori che i rilevatori non riconoscono.** Latet maschera solo ciò che rileva. Un segreto in un
 formato insolito, diviso su più righe o codificato (per esempio in base64 sotto un nome qualunque) può
-passare. Nomi e indirizzi nel testo libero vengono trovati solo con il
+passare. Nomi e indirizzi stradali nel testo libero vengono trovati solo con il
 [modello locale dei nomi](../../getting-started/installation/) facoltativo o con il
-[revisore locale](../llm-review/), entrambi senza garanzie; senza di loro vengono mascherati solo il
+[revisore locale](../llm-review/), e nessuno dei due è infallibile; senza di loro vengono mascherati solo il
 nome del tuo autore git, i tuoi termini e i valori già nella cassaforte. Le date di nascita non
 vengono rilevate. Il rilevamento ha sempre dei falsi negativi.
 
 **Immagini.** Con il [riconoscimento del testo](../images/) facoltativo, il testo di uno screenshot
-viene letto sul tuo computer e ogni valore trovato viene coperto con il suo valore fittizio. Non dà
-garanzie, come per i nomi: il testo che non legge esce così com'è. Senza il riconoscimento del testo,
+viene letto sul tuo computer e ogni valore trovato viene coperto con il suo valore fittizio. Non è
+infallibile, come il rilevamento dei nomi: il testo che non legge esce così com'è. Senza il riconoscimento del testo,
 una richiesta che contiene un'immagine non viene inviata. In una richiesta che Latet si limita a verificare,
 come quelle di Claude Code, vengono rifiutate anche la posizione di una foto, le note del produttore
 di una fotocamera e un'immagine dentro l'immagine
@@ -107,7 +117,7 @@ non vengono decodificati: i dati che contengono escono con l'immagine.
 
 **PDF e altri documenti, immagini indicate dal loro indirizzo, clip audio.** Il loro contenuto non
 viene letto, quindi una richiesta che ne contiene uno non viene inviata, su un computer come su un
-server, qualunque cosa dica `images`. Dai all'agente il testo, invece. Le pagine di un browser,
+server, qualunque cosa dica `images`. Dai invece all'agente il testo. Le pagine di un browser,
 lette come testo, vengono mascherate come qualsiasi output di uno strumento
 ([dati di produzione](../production-data/)); i suoi screenshot sono immagini.
 
@@ -119,7 +129,7 @@ qualcun altro, e un connettore a cui si chiede di scrivere a `emily.carter@north
 riceverebbe l'indirizzo fittizio, quindi una chiamata a uno strumento web o a un connettore che
 contiene un valore fittizio viene fermata prima di essere eseguita: il modello si rivolge a te, e
 *Non sensibile* nella dashboard lascia uscire il valore in chiaro. I risultati dei connettori di
-claude.ai tornano attraverso i server di Anthropic, dove gira il connettore: qualunque cosa
+claude.ai tornano attraverso i server di Anthropic, dove viene eseguito il connettore: qualunque cosa
 contengano è già lì prima che Latet possa mascherarla.
 
 **Strumenti eseguiti dal provider (agenti in modalità gateway).** Una ricerca web o un server MCP
@@ -128,10 +138,10 @@ valore fittizio. Latet vede una chiamata del genere solo dopo che è stata esegu
 della richiesta successiva: la dashboard la segnala (*Valore fittizio a uno strumento esterno*), con
 *Non sensibile* per ogni valore, così la volta successiva il modello usa quello reale.
 
-**Ambienti che Latet non può vedere:**
+**Superfici che Latet non può vedere:**
 
 - Chat e Cowork di Claude Desktop, con l'accesso a Claude;
-- le sessioni cloud, che girano sull'infrastruttura del provider invece che sul tuo computer;
+- le sessioni cloud, che vengono eseguite sull'infrastruttura del provider invece che sul tuo computer;
 - Cursor, Windsurf e gli altri strumenti le cui richieste al modello partono dai server del
   produttore ([l'elenco](../../agents/other-tools/#cosa-latet-non-può-proteggere));
 - i suggerimenti inline di GitHub Copilot e le edit prediction di Zed, che arrivano dai servizi dei
@@ -140,7 +150,7 @@ della richiesta successiva: la dashboard la segnala (*Valore fittizio a uno stru
 - ciò che gli strumenti di un agente inviano quando vengono eseguiti, come un'API di ricerca sul
   web, un database o un vector store nel cloud: ricevono i valori reali (vedi
   [Framework per agenti](../../agents/openai-compatible/#framework-per-agenti));
-- qualsiasi agente o ambiente che non hai configurato per usare Latet.
+- qualsiasi agente o superficie che non hai configurato per usare Latet.
 
 Con l'accesso a Claude, nella scheda Code di Claude Desktop il plugin maschera i contenuti, ma l'app
 ignora `ANTHROPIC_BASE_URL`: dietro il plugin non c'è il controllo del daemon, e nella dashboard non
@@ -153,21 +163,22 @@ sé un valore sensibile in chiaro, ma maschera solo nella scheda Code, con il pl
 **Contesto e metadati.** I nomi dei file, i percorsi, la struttura del codice, i commenti e la logica
 di business vengono inviati così come sono, a parte i valori che Latet vi rileva, come il tuo nome
 utente in un percorso della cartella home. I valori fittizi mantengono la forma dell'originale
-(lunghezza, formato, prefisso; un segreto di meno di dodici caratteri riceve un valore fittizio più
-lungo), e il testo intorno può rivelare che cos'è un valore ("la password del database di
-produzione").
+(lunghezza, formato, il prefisso che un fornitore mette davanti a ogni chiave del suo tipo, come
+`ghp_`; un segreto di meno di dodici caratteri riceve un valore fittizio più lungo), e il testo
+intorno può rivelare che cos'è un valore ("la password del database di produzione").
 
 **Ciò che un documento JSON contiene dove il mascheramento non arriva.** Un numero di carta scritto
 come numero JSON, che il profilo `balanced` non maschera, viene trovato dal controllo finale, che
 allora ferma la richiesta: all'agente viene detto perché, e la dashboard mostra dov'è il valore.
-Finché un output del genere resta nella conversazione, ogni sua richiesta si ferma: inizia una nuova
+Finché un output del genere resta nella conversazione, ogni richiesta della conversazione viene
+fermata: inizia una nuova
 conversazione e chiedi all'agente i dati in un'altra forma. Il valore fittizio estratto per una chiave
 non è mai un'altra chiave del suo oggetto; una chiamata a uno strumento il cui input contiene come due
 chiavi un valore e il suo valore fittizio, che diventerebbero una sola una volta mascherate, ferma la
 richiesta, perché un oggetto contiene una chiave una volta sola, e due chiavi così restano come le ha
 scritte il modello quando Latet ripristina la sua risposta per l'agente. Un oggetto JSON che ripete
 una chiave viene letto con la sua ultima copia, ed esce riscritto con quella copia sola, così la copia
-che Latet non ha letto non esce mai; una richiesta che Latet si limita a controllare, come quelle di
+che Latet non ha letto non esce mai; una richiesta che Latet si limita a verificare, come quelle di
 Claude Code, viene fermata quando è il suo stesso corpo a ripetere una chiave.
 
 **Chiamate con chiavi in conflitto nella cronologia.** Conservare entrambe le chiavi in una chiamata
@@ -187,12 +198,12 @@ completamento non viene registrata come output completo del modello.
 **Registrazioni accettate dell'output del modello.** Dopo aver convalidato un gruppo di risposte,
 Latet accetta le registrazioni dell'output e ne accoda il salvataggio prima di restituire l'output di
 quel gruppo. Il salvataggio avviene in background: l'accettazione non prova né la consegna al client
-né che i dati siano già stati salvati. Una cancellazione prima dell'accettazione non pubblica
+né che i dati siano già stati salvati. Un annullamento prima dell'accettazione non pubblica
 registrazioni; dopo l'accettazione, il salvataggio può terminare anche se la consegna viene annullata.
 
 In una singola istanza, il gateway di ogni identità ammette al massimo 32 MiB di queste registrazioni
 e 256 gruppi fra le sue sessioni, contando sia il lavoro in coda sia quello in esecuzione.
-Contano il testo mascherato e ripristinato,
+Ai fini dell'ammissione contano il testo mascherato e ripristinato,
 gli identificatori delle risposte e il costo delle strutture di registrazione. È un limite al nuovo
 lavoro trattenuto, non alla memoria totale del processo (RSS): la permanenza più lunga dei dati in
 chiaro e il costo dell'interprete consumano comunque memoria. Se l'ammissione è piena o chiusa, o
@@ -200,8 +211,8 @@ l'accodamento fallisce, l'output di quel gruppo viene rifiutato. Il testo già t
 non può essere ritirato.
 
 Le registrazioni diventano visibili in seguito. Le richieste accodate dopo sullo stesso processo di
-lavoro del gateway seguono il tentativo di registrazione. Su un server Latet ciò non garantisce che
-Valkey li abbia scritti, né che un'altra istanza li veda, né il loro ordine rispetto al lavoro del
+lavoro del gateway seguono il tentativo di registrazione. Su un server di Latet ciò non garantisce
+che Valkey le abbia scritte, né che un'altra istanza le veda, né il loro ordine rispetto al lavoro del
 plugin di Claude Code. L'arresto può scartare le registrazioni in coda. Un errore di salvataggio dopo la consegna
 produce un messaggio diagnostico con frequenza limitata, contenente solo una categoria fissa e il
 tipo di eccezione; non può annullare la consegna né ripristinare atomicamente lo stato precedente.
@@ -211,15 +222,17 @@ mascheramento e rifiuto.
 **Campi della richiesta fuori dalla conversazione.** In modalità gateway, le descrizioni degli
 strumenti, gli schemi dei loro parametri e gli esempi del loro input vengono mascherati come la
 conversazione, e così lo schema di un output strutturato, un output previsto e ciò che una richiesta
-dice di chi la fa (`user`, `safety_identifier`, `metadata`). I nomi degli strumenti, ciò che permette
-al provider di eseguire uno strumento suo (l'indirizzo e le intestazioni di un server MCP remoto, la
-posizione di una ricerca web) e le altre impostazioni della richiesta devono avere ciascuno la forma
-che gli dà il suo profilo, e vengono letti dal controllo finale dove contengono testo; uno che nessun
-profilo nomina ferma la richiesta ([Ogni parte di una richiesta](#ogni-parte-di-una-richiesta)). In
-Claude Code il plugin maschera le descrizioni degli strumenti, e il controllo finale legge
-`metadata`, lo schema di un output strutturato e gli schemi dei parametri degli strumenti (vedi
-sotto). Un client
-diverso da Claude Code su una via che Latet si limita a controllare (l'accesso di un abbonamento,
+dice della persona per cui è fatta (`user`, `safety_identifier`, `metadata`). I nomi degli
+strumenti, ciò che permette al provider di eseguire uno strumento proprio (l'indirizzo e gli header
+di un server MCP remoto, la posizione di una ricerca web) e le altre impostazioni della richiesta
+devono avere ciascuno la forma che gli dà il suo profilo, e vengono letti dal controllo finale dove
+contengono testo; uno che nessun profilo nomina ancora viene letto per intero e controllato, e ferma
+la richiesta quando qualcosa al suo interno andrebbe mascherato o indica un file, un indirizzo, una
+conversazione salvata o un modello ([Nuovi membri delle
+richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)). In Claude Code
+il plugin maschera le descrizioni degli strumenti, e il controllo finale legge `metadata`, lo schema
+di un output strutturato e gli schemi dei parametri degli strumenti (vedi sotto). Un client diverso
+da Claude Code su un percorso che Latet si limita a verificare (l'accesso di un abbonamento,
 Bedrock, Vertex) non ha un plugin: il controllo finale legge anche le descrizioni, i parametri e gli
 esempi dei suoi strumenti, e ferma una richiesta che vi lascerebbe uscire un valore in chiaro.
 
@@ -230,18 +243,18 @@ schema dei suoi parametri e gli esempi del suo input, come per un client senza p
 richiesta che vi lascerebbe uscire un valore in chiaro. Uno strumento MCP il cui schema nomina
 l'indirizzo di un cliente ferma quindi le richieste di Claude Code, finché il valore non
 viene tolto dallo schema o consentito nelle tue impostazioni. Una definizione di strumento in una
-forma che Latet non legge viene rifiutata, come per ogni client. Restano i controlli di metadati,
-output strutturati e schemi di fallback descritti qui.
+forma che Latet non legge viene rifiutata, come per ogni client. Restano validi i controlli di
+metadati, output strutturati e schemi di fallback descritti qui.
 
 Per Anthropic, la lettura degli output strutturati comprende anche descrizioni, chiavi e valori degli
-schemi in ogni `fallbacks[].output_config.format`. Il mascheramento protegge gli schemi sensibili;
-nelle richieste solo controllate, gli schemi sensibili vengono rifiutati e i byte sicuri restano
-invariati. Restano supportati i fallback che indicano solo il modello. Un server con protezione attiva
+schemi in ogni `fallbacks[].output_config.format`. Nelle richieste che Latet riscrive, gli schemi
+sensibili vengono mascherati; in quelle che si limita a verificare, gli schemi sensibili vengono
+rifiutati e i byte sicuri restano invariati. Restano supportati i fallback che indicano solo il modello. Un server con protezione attiva
 rifiuta contenitori di fallback e schemi di output in forme non valide.
 
 **Ciò che Latet non legge.** Latet rifiuta ciò che non legge, su un computer come su un server, con
 un errore che dice perché. Rifiuta una chiamata che nessun profilo nomina: files o batches, per
-esempio, o un metodo che la rotta non accetta. Rifiuta dei contenuti in una forma che Latet non legge: un prompt di
+esempio, o un metodo che il percorso non accetta. Rifiuta i contenuti in una forma che Latet non legge: un prompt di
 completamento dato come token; una variabile di un prompt, una definizione di strumento o il formato
 di una risposta di un tipo che non conosce; una parte di contenuto, un blocco di un messaggio o un
 elemento dell'input di un tipo che non conosce, nelle chat completions come nei messaggi di Anthropic
@@ -249,16 +262,16 @@ e nella Responses API, o uno che non è un oggetto; un campo che Latet legge dat
 come l'input di una chiamata a uno strumento che non è un oggetto o un prompt di sistema che non è né
 testo né blocchi; e, nella Responses API, l'audio di una conversazione dal vivo (`audio`,
 `output_audio`) e ciò che è stato sentito in una clip audio. Rifiuta un frame WebSocket che non è un
-turno (`response.create`; `response.cancel` passa) e, su una richiesta che si limita a controllare
+turno (`response.create`; `response.cancel` passa) e, su una richiesta che Latet si limita a verificare
 (Claude Code, Bedrock, Vertex), un'immagine di cui non ha potuto leggere il testo, qualunque cosa
 dica `images`. Ciò che il provider ha prodotto e gli viene restituito così come l'ha prodotto passa
 quando Latet l'ha visto arrivare dal provider in quella conversazione: il ragionamento del modello e
-le sue firme, una compattazione, le chiamate agli strumenti del provider e i loro risultati. Dove
+le sue firme, una compattazione, le chiamate agli strumenti propri del provider e i loro risultati. Dove
 Latet non l'ha visto (il daemon di un computer è stato riavviato, per esempio), una regola integrata
 lascia passare i campi cifrati del provider stesso, solo nei turni del modello e solo verso
 l'indirizzo del provider, mai attraverso un gateway aziendale; la dashboard li mostra come
-*consentito da una regola*. Passa anche ciò che non contiene nulla, come un riferimento a un elemento
-precedente, e una richiesta senza corpo su una rotta che un profilo nomina, ad esempio l'elenco dei
+*consentito da una regola*. Passa anche ciò che non ha contenuto, come un riferimento a un elemento
+precedente, e una richiesta senza corpo su un percorso che un profilo nomina, ad esempio l'elenco dei
 modelli.
 
 Latet rifiuta inoltre messaggi chat con `name`, blocchi Anthropic `search_result` e blocchi documento
@@ -287,6 +300,7 @@ stati inviati, e bloccarli fermerebbe la conversazione. Inizia una nuova convers
 alle spalle.
 
 **Dati inviati in precedenza.** Tutto ciò che è stato inviato prima dell'installazione di Latet o,
-prima della 0.11, da un progetto in cui era disattivato, è già presso il provider.
+prima della 0.11, da un progetto in cui era disattivato, è già presso il provider. I tuoi agenti
+tengono le loro conversazioni sul disco: [`latet leak`](../leaks/) elenca i segreti che contengono.
 
 Vedi il [modello di sicurezza e delle minacce](../../security/) per le ragioni dietro questi limiti.

@@ -1,21 +1,21 @@
 ---
 title: Riferimento dell'API per le applicazioni
-description: Il contratto HTTP dell'API per le applicazioni di un server Latet, le sue risposte, i suoi errori e i suoi limiti.
+description: Il contratto HTTP dell'API per le applicazioni di un server di Latet, le sue risposte, i suoi errori e i suoi limiti.
 sidebar:
   label: API per le applicazioni
 ---
 
-L'[API per le applicazioni](../../applications/) di un server Latet risponde a quattro operazioni sotto
+L'[API per le applicazioni](../../applications/) di un server di Latet risponde a quattro operazioni sotto
 `https://<il tuo server>/_latet/apps/v1/`. Questa è la versione 1: una modifica che romperebbe un
-programma scritto per essa arriva come `v2`, accanto. La [descrizione OpenAPI](../../../apps-api.openapi.json)
+programma scritto per essa arriva come `v2`, accanto a essa. La [descrizione OpenAPI](../../../apps-api.openapi.json)
 dice le stesse cose per gli strumenti che generano un client; i programmi Python possono usare
-`latet-client` ([log](../../applications/logs/), [RAG](../../applications/rag/)). Un server Latet serve
+`latet-client` ([log](../../applications/logs/), [RAG](../../applications/rag/)). Un server di Latet serve
 anche la descrizione della propria versione, senza token, all'indirizzo
 `https://<il tuo server>/_latet/docs/apps-api.openapi.json`.
 
 ## Autenticazione
 
-Ogni chiamata porta il token di una chiave API in un'unica intestazione:
+Ogni chiamata porta il token di una chiave API in un unico header:
 
 ```http
 Authorization: Bearer latet_key_...
@@ -26,14 +26,14 @@ Un token è `latet_key_` seguito da 43 caratteri, e lo crea l'amministratore (`l
 `unmask` o `forget` (che nessun altro comprende, e che il primo token di una chiave non ha). Il server
 rifiuta:
 
-- con **401** e `WWW-Authenticate: Bearer`, una chiamata senza intestazione `Authorization`, con due,
+- con **401** e `WWW-Authenticate: Bearer`, una chiamata senza header `Authorization`, con due,
   con uno schema diverso da `Bearer`, o con un token che non conosce (revocato, ruotato, di una chiave
   disattivata o rimossa);
 - con **403**, il token del computer di una persona, un token senza il permesso dell'operazione, e
-  qualsiasi richiesta che porta un'intestazione `Origin` o `Sec-Fetch-Site`, come quelle di un
+  qualsiasi richiesta che porta un header `Origin` o `Sec-Fetch-Site`, come quelle di un
   browser: l'API è per i programmi, mai per una pagina web.
 
-I token rifiutati dal server contano contro l'indirizzo da cui arrivano, come su ogni percorso del
+I token rifiutati dal server contano sull'indirizzo da cui arrivano, come su ogni percorso del
 server: oltre il limite, 429. Chiama il server in HTTPS; altrimenti il token e i testi viaggiano in
 chiaro.
 
@@ -50,9 +50,9 @@ chiaro.
   torna com'è, senza risultati e con `restored: 0`.
 - `values` è una lista da 1 a 1.000 stringhe, i valori da togliere dalla cassaforte della chiave,
   ognuno cercato esattamente com'è scritto ([dimenticare dei valori](../../applications/forget/)).
-- `kind` è `prose` (testo scritto da persone, il predefinito) o `data` (log, record, l'output di un
+- `kind` è `prose` (testo scritto da persone, il valore predefinito) o `data` (log, record, l'output di un
   programma); vedi [prosa e dati](../../applications/#prosa-e-dati). `null` o un'altra parola vengono
-  rifiutati. Il ripristino non prende un kind.
+  rifiutati. Il ripristino non accetta alcun kind.
 - Il corpo è un oggetto JSON di al massimo `apps_request_mb` del server (8 MiB se le sue impostazioni
   non dicono altro, mai più del suo `max_request_mb`).
 
@@ -133,13 +133,13 @@ nomi), `llm` (il revisore locale) o `struct` (la modalità dati rigorosa).
 ## Errori
 
 Un errore è `{"error": "<parole>"}`. Le parole, in inglese, sono per le persone: non citano mai un
-testo inviato, e i rifiuti del fronte del server (autenticazione, limiti) iniziano con `latet: `.
+testo inviato, e i rifiuti del front-end del server (autenticazione, limiti) iniziano con `latet: `.
 Decidi in base allo stato.
 
 | Stato | Quando | Che cosa fare |
 | --- | --- | --- |
 | 400 | Il corpo non è un oggetto JSON con `texts` una lista da 1 a 1.000 stringhe e, per analisi e mascheramento, un `kind` che sia `prose` o `data`; per l'oblio, con `values` una lista da 1 a 1.000 stringhe. | Correggi la chiamata. |
-| 401 | Nessun token, due intestazioni `Authorization`, un altro schema, o un token che il server non conosce. | Controlla il token; chiedine uno nuovo. |
+| 401 | Nessun token, due header `Authorization`, un altro schema, o un token che il server non conosce. | Controlla il token; chiedine uno nuovo. |
 | 403 | Al token manca il permesso (`this token lacks the mask permission`), è il token di una persona, o la richiesta l'ha fatta una pagina web. | Usa un token con il permesso. |
 | 404 | Un altro percorso sotto `/_latet/apps/v1/`. | |
 | 405 | Un metodo diverso da `POST` (`Allow: POST`). | |
@@ -148,7 +148,7 @@ Decidi in base allo stato.
 | 429 | Troppi token rifiutati da questo indirizzo, oppure la chiave ha `requests_in_flight` richieste di applicazioni su questa istanza (16 se le impostazioni non dicono altro). | Aspetta `Retry-After`, poi riprova. |
 | 500 | Un altro errore; le sue parole non nominano alcun valore. | Riprova; avvisa l'amministratore se continua. |
 | 503 | Un archivio del server non ha risposto, lo spazio della chiave non è disponibile ora su questa istanza, oppure il registro amministrativo non ha accettato la voce: per il ripristino non è stato ripristinato nulla, per l'oblio non è stato dimenticato nulla. Analisi, mascheramento e ripristino rispondono 503 anche quando le impostazioni della chiave venivano applicate all'arrivo della chiamata o mentre se ne preparava la risposta (`the settings of this space changed while the call was answered: send it again`): della chiamata non è tornato nulla. | Aspetta (`Retry-After` se presente), poi riprova. |
-| 507 | Solo per il mascheramento: la cassaforte della chiave contiene il massimo dei valori consentiti. Della chiamata non è tornato nulla, e nulla è uscito in chiaro. | Un amministratore alza il limite con `latet server keys limit`. |
+| 507 | Solo per il mascheramento: la cassaforte della chiave contiene già il numero massimo di valori consentito. Della chiamata non è tornato nulla, e nulla è uscito in chiaro. | Un amministratore alza il limite con `latet server keys limit`. |
 
 Un mascheramento o un ripristino si possono ripetere senza rischi: un valore che la cassaforte ha
 conservato ha di nuovo lo stesso valore fittizio, e un valore che una chiamata fallita non ha
@@ -157,9 +157,12 @@ in `unknown`. Una chiamata `mask` fallita può aver conservato alcuni dei suoi
 valori nuovi ([la cassaforte di una chiave](../../applications/#la-cassaforte-di-una-chiave) dice
 quando).
 
-## Intestazioni
+## Header
 
 - Ogni risposta dice `Cache-Control: no-store`: nessuna cache conserva un testo o un valore.
+- Ogni risposta dice `Content-Security-Policy: default-src 'none'; sandbox`: un browser che ne apre una
+  non vi esegue alcuno script e non la tratta mai come una pagina del server. I client HTTP ignorano questo
+  header.
 - `Retry-After`, in secondi, accompagna ogni 429, e alcuni 503.
 
 ## Limiti
@@ -178,7 +181,7 @@ quando).
 - **Il registro amministrativo** riceve una voce `apps.unmasked` per ogni chiamata di ripristino a
   cui Latet risponde, prima che parta la risposta: l'id del token, quanti testi e quanti valori sono
   stati ripristinati (`{"token": "t_...", "texts": 3, "restored": 5}`), e l'indirizzo del client.
-  Mai un testo o un valore. Analisi e mascheramento non ci finiscono. Leggile con
+  Mai un testo o un valore. Analisi e mascheramento non ci finiscono. Leggi queste voci con
   `latet server log --action apps.unmasked`. Ogni chiamata di oblio è una voce `apps.forgotten`,
   scritta nella stessa transazione dell'oblio: l'id del token, quanti valori sono stati chiesti,
   dimenticati e non trovati (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), e
@@ -187,9 +190,8 @@ quando).
   stato, e i suoi testi e valori per operazione: `latet_apps_texts_total{operation}` e
   `latet_apps_values_total{operation}` (i valori che l'analisi ha trovato, il mascheramento ha
   sostituito e il ripristino ha rimesso a posto; per l'oblio, i valori chiesti e quelli dimenticati).
-  Non hanno un'etichetta per la chiave: chi ha fatto
-  che cosa è nel registro amministrativo.
+  Non hanno un'etichetta per la chiave: chi ha fatto che cosa è nel registro amministrativo.
 - **Il log del server** ha una riga per ogni chiamata: il metodo, il percorso, lo stato e quanto ci ha
-  messo, mai un'intestazione, il corpo o un valore. I rifiuti (401, 403, 404, 405, 413, 429, e quelli
+  messo, mai un header, il corpo o un valore. I rifiuti (401, 403, 404, 405, 413, 429, e quelli
   del server stesso) vengono riassunti una volta al minuto, con quanti erano, invece di una riga
   ciascuno.

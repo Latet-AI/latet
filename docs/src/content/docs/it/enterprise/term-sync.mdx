@@ -1,0 +1,413 @@
+---
+title: Sincronizzazione dei termini
+description: Gli elenchi di clienti, colleghi e nomi in codice dei progetti della tua azienda, letti dove si trovano già e mascherati dal tuo server di Latet per tutti quelli che serve, senza che nessuno debba scriverli a mano.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Alcuni elenchi sono sensibili di per sé: i clienti di un'azienda, le sue persone, i nomi in codice dei suoi progetti. La
+sincronizzazione dei termini li legge dove si trovano già, a intervalli regolari, e il tuo
+[server di Latet](../../getting-started/server/) maschera ogni nome che contengono come maschera i tuoi
+[termini](../../concepts/detection/#i-tuoi-termini), nello spazio di ogni persona e di ogni chiave API che serve.
+Nessuno li scrive a mano, e nessuno può lasciarne fuori uno.
+
+La sincronizzazione dei termini fa parte di Latet Enterprise: funziona su un server di Latet la cui licenza elenca
+`term-sync` ([Edizioni e licenza](../)).
+
+## Da dove vengono i termini
+
+| Fonte | `kind` | Cosa legge |
+| --- | --- | --- |
+| Un file | `file` | Un'esportazione CSV, JSON o YAML che il tuo CRM, ERP o sistema del personale scrive a intervalli regolari |
+| Un indirizzo web | `url` | Gli stessi formati da un indirizzo https |
+| Microsoft Entra ID | `graph` | I nomi e gli indirizzi delle persone, o i nomi dei gruppi, tramite Microsoft Graph |
+| LDAP e Active Directory | `ldap` | Gli attributi delle voci trovate da una ricerca |
+
+HubSpot, Salesforce e gli altri CRM si leggono tramite un'esportazione: un report che scrivono in un file, o pubblicano
+a un indirizzo, a intervalli regolari.
+
+Ogni fonte associa i campi dei suoi record a un tipo di termine: `CLIENT`, `PERSON`, `PROJECT`, o un altro nome in
+maiuscolo. Il tipo è l'etichetta che mostra la dashboard, e sceglie il valore fittizio: il nome di una persona per una
+persona, un'azienda per un'azienda, un indirizzo per un indirizzo.
+
+## Impostare le fonti
+
+Le fonti si scrivono in YAML:
+
+```yaml
+sources:
+  - name: customers
+    kind: file
+    path: customers.csv
+    every_minutes: 60
+    mapping: {company: CLIENT, contact: PERSON}
+  - name: colleagues
+    kind: graph
+    tenant: acme.onmicrosoft.com
+    client_id: 6f1c2b9e-4d3a-4c1e-9b7f-2a5d8e0c1f34
+    filter: accountEnabled eq true
+    mapping: {"{givenName} {surname}": PERSON, mail: EMAIL}
+```
+
+Una fonte di tipo file legge soltanto dentro la cartella della sincronizzazione dei termini del server: `term-sync`
+nella sua cartella dei dati (`/data/term-sync/` nel container, il volume che le istanze condividono). Metti lì
+le esportazioni destinate alla sincronizzazione dei termini, oppure monta una cartella in cui il tuo sistema le scrive:
+chi imposta le fonti può leggere come termini qualsiasi file della cartella della sincronizzazione dei termini, quindi
+dai alla sincronizzazione una cartella tutta sua, che contenga soltanto quelle esportazioni. Una fonte indica un file di quella cartella
+soltanto con il suo nome, senza una cartella propria; un percorso altrove viene rifiutato, e così un collegamento che
+esce dalla cartella.
+
+Le persone con il ruolo Sicurezza modificano le fonti e impostano il segreto di ogni fonte nella pagina
+**Sincronizzazione dei termini**, da una sessione aperta con il tuo account aziendale quando le impostazioni di
+accesso lo chiedono, come per ogni [modifica che vale per tutti](../sign-in/#modifiche-che-valgono-per-tutti). Gli
+amministratori del server fanno lo stesso con `latet server terms`, da qualsiasi computer con un token amministrativo,
+come per gli altri comandi `latet server`:
+
+```sh
+latet server terms sources set term-sync.yaml   # the server uses these sources from now on
+latet server terms secret colleagues            # asks for the value; it is never on the command line
+latet server terms run                          # syncs every source now; `latet server terms run customers` syncs one
+latet server terms status                       # what each source gave, and when it last synced
+latet server terms sources show                 # the sources, in the format `sources set` takes
+```
+
+Il server conserva le fonti nelle sue impostazioni Enterprise (la sezione `term_sync`), mai in un file a parte, e ogni
+istanza le usa subito. Impostarle sostituisce le fonti di prima: i termini di una fonte tolta risultano non più nella
+fonte ([più avanti](#un-termine-rimosso-dalla-sua-fonte)), e `latet server terms sources set` chiede conferma quando
+quella fonte aveva dei termini. Un server accetta al massimo 20 fonti, in 64 KB.
+
+Ogni fonte ha al massimo un segreto, il proprio: `latet server terms secret colleagues` ne chiede il valore e il server
+lo conserva sigillato con la sua chiave principale, per quella fonte così come è impostata ora. Se punti la fonte
+altrove (un altro indirizzo, indirizzo di accesso, directory o account), o cambi ciò che legge con il segreto (il suo
+filtro, la base, i record, gli oggetti o il gruppo, o i campi che la sua mappatura nomina), il segreto va impostato di
+nuovo: il server non manda mai un segreto a un posto per cui non è stato impostato, né lo usa per leggere altri dati.
+Contano anche gli header di un indirizzo web, ognuno di essi, e il certificato di una directory. Il salvataggio delle
+fonti dice quali segreti vanno impostati di nuovo, e chi modifica le fonti nella pagina **Sincronizzazione dei
+termini** imposta di nuovo il segreto in quel momento; il registro amministrativo nomina i campi cambiati, mai i loro
+valori. Impostare un segreto fa partire subito una sincronizzazione di quella fonte. Prima di chiedere il segreto,
+`latet server terms secret` e la finestra **Segreto** della pagina dicono dove si connette la fonte e, per una
+directory, l'account con cui accede: impostalo solo se è lì che deve andare.
+
+Una sincronizzazione chiesta parte subito sull'istanza che ha il turno della sincronizzazione; `latet server terms run`
+la attende fino a un minuto e ne stampa il risultato (con `--no-wait` si limita a chiederla). Per il resto il server
+sincronizza ogni fonte ogni `every_minutes` (60 per impostazione predefinita, da 5 a 10080), la prima volta entro un
+minuto da quando l'hai impostata, e così di nuovo quando la cambi o la togli e la imposti di nuovo; una fonte non
+riuscita viene riprovata dopo 15 minuti, o dopo il suo intervallo se è più breve.
+
+Una modifica delle fonti, e un segreto impostato o rimosso, nominano le fonti da cui sono stati fatti. Se nel frattempo
+qualcuno ha cambiato le fonti, la modifica viene rifiutata, dicendo che le fonti sono cambiate, e non viene scritto
+nulla: rileggile, poi rifalla. `latet server terms` dice di eseguire di nuovo il comando, e la pagina offre
+**Rileggile**.
+
+Una fonte all'indirizzo del server stesso (`localhost`, `127.0.0.1` o `[::1]`) si imposta soltanto con
+`latet server terms`: nella pagina **Sincronizzazione dei termini** nessuno aggiunge, cambia o toglie una fonte del
+genere, né ne imposta o rimuove il segreto, e la pagina la lascia com'è mentre cambia le altre.
+
+Tutte le chiavi che una fonte accetta:
+
+| Chiave | Tipi | Cosa dice |
+| --- | --- | --- |
+| `name` | tutti | Il nome della fonte: lettere minuscole, cifre e trattini, al massimo 40 |
+| `kind` | tutti | `file`, `url`, `graph` o `ldap` |
+| `mapping` | tutti | Quale campo diventa un termine di quale tipo, al massimo 32 campi: `{company: CLIENT}`; un campo può essere un template di più campi, `"{givenName} {sn}": PERSON` |
+| `every_minutes` | tutti | I minuti fra due sincronizzazioni, da 5 a 10080 (60) |
+| `exclude` | tutti | Valori mai presi come termini, in qualsiasi maiuscola o minuscola, al massimo 1.000 |
+| `min_length` | tutti | Il valore più corto preso come termine, da 2 a 50 (4); per il nome di una persona bastano 3 caratteri, anche se il valore è più alto |
+| `path` | `file` | Il file, con il suo nome nella cartella della sincronizzazione dei termini |
+| `url` | `url`, `ldap` | L'indirizzo |
+| `headers` | `url` | Gli header mandati con la richiesta; `{secret}` sta per il segreto della fonte |
+| `format` | `file`, `url` | `csv`, `json` o `yaml`; se manca, lo dice l'estensione del file o del percorso dell'indirizzo, altrimenti `json` |
+| `records` | `file`, `url` | Dove si trova l'elenco dei record in un documento JSON o YAML (`data.items`); se manca, il documento stesso |
+| `delimiter` | `file`, `url` | Il separatore dei campi di un file CSV (`,`) |
+| `encoding` | `file`, `url` | La codifica del testo (`utf-8`; un BOM viene saltato) |
+| `tenant` | `graph` | Il tenant di Microsoft Entra: il suo ID o uno dei suoi domini |
+| `client_id` | `graph` | L'ID dell'applicazione (client) registrata per Latet |
+| `objects` | `graph` | `users` (il predefinito) o `groups` |
+| `group` | `graph` | Con `users`: soltanto i membri di questo gruppo, indicato dal suo ID |
+| `filter` | `graph`, `ldap` | Un filtro OData che applica Microsoft Graph; un filtro LDAP (`(objectClass=person)`) |
+| `login_url`, `graph_url` | `graph` | L'indirizzo di accesso di Microsoft Entra e quello di Microsoft Graph, per un cloud sovrano |
+| `start_tls` | `ldap` | Con `ldap://`: cifra con STARTTLS prima dell'accesso (`true`) |
+| `bind` | `ldap` | L'account con cui accede Latet; se manca, accede in forma anonima |
+| `base` | `ldap` | Dove comincia la ricerca |
+| `certificate` | `ldap` | Il file PEM di un'autorità di certificazione, con il suo nome nella cartella della sincronizzazione dei termini |
+
+### Un file o un indirizzo web
+
+La prima riga di un file CSV nomina le sue colonne, al massimo 1.000. Un documento JSON o YAML è un elenco di record, o
+ne contiene uno dove dice `records` (`records: data.items`). Un documento elenca al massimo 200.000 record e viene
+letto fino a 50 MB, un documento YAML fino a 5 MB, perché leggere lo YAML costa molta più memoria al server: la
+sincronizzazione di un documento che supera questi limiti fallisce e non cambia nulla. Un file che Excel esporta in gran parte
+d'Europa ha il punto e virgola fra i campi e la codifica di Windows:
+
+```yaml
+  - name: customers
+    kind: file
+    path: customers.csv
+    delimiter: ";"
+    encoding: cp1252
+    mapping: {Company: CLIENT}
+```
+
+Un indirizzo web dà gli stessi formati:
+
+```yaml
+  - name: projects
+    kind: url
+    url: https://intranet.acme.com/api/projects
+    headers: {Authorization: "Bearer {secret}"}
+    records: items
+    mapping: {code_name: PROJECT}
+```
+
+`{secret}` sta per il segreto della fonte, in un header, nel percorso o nella query; un header o un parametro della
+query che porta una credenziale deve usarlo, e un indirizzo con un token scritto dentro viene rifiutato. Qui
+`latet server terms secret projects` conserva soltanto il token.
+
+Un indirizzo deve essere https; un'esportazione locale va nella cartella della sincronizzazione dei termini. Il server
+si connette a un indirizzo restituito in quel momento dalla sua risoluzione del nome (il primo che accetta la connessione: il successivo
+solo quando la connessione al precedente viene rifiutata o non si stabilisce in tempo, prima di inviare qualsiasi cosa),
+anche dentro la tua rete, mai a un indirizzo link-local o di metadati, e non segue alcun reindirizzamento. Chiede una
+risposta non compressa, e rifiuta quella che lo è. Il certificato dell'indirizzo viene verificato con l'archivio dei
+certificati del server: aggiungi lì l'autorità della tua azienda se firma i certificati della tua intranet.
+
+Ciò che dà un indirizzo si legge nel formato indicato dal `format` della sua fonte, altrimenti in quello che dice
+l'estensione del suo percorso (`/export/customers.csv` è CSV), altrimenti come JSON: la risposta non lo sceglie mai. Una
+risposta il cui tipo di contenuto indica un altro formato, come `text/csv` per una fonte letta come JSON, viene
+rifiutata, con l'invito a impostare `format`.
+
+### Microsoft Entra ID
+
+1. Nell'interfaccia di amministrazione di Microsoft Entra, registra un'applicazione per Latet.
+2. Dalle l'autorizzazione dell'applicazione `User.Read.All`, e `Group.Read.All` e `GroupMember.Read.All` per leggere i
+   nomi dei gruppi o i membri di un gruppo; concedi il consenso dell'amministratore.
+3. Aggiungi un segreto del client, e conservalo sul server: `latet server terms secret colleagues`.
+4. Nelle fonti: `tenant` è l'ID del tenant o uno dei suoi domini, e `client_id` l'ID dell'applicazione.
+
+`objects: users`, il predefinito, legge le persone; `objects: groups` legge i gruppi, associati come
+`{displayName: TEAM}`. `group` legge soltanto i membri di un gruppo e dei gruppi che contiene: dai a Latet i tuoi
+dipendenti, non i tuoi ospiti. `filter` è un filtro OData, come `accountEnabled eq true`. La mappatura nomina le
+proprietà di Microsoft Graph: `displayName`, `givenName`, `surname`, `mail`, `userPrincipalName`, `jobTitle`,
+`department`. In un cloud sovrano, `login_url` e `graph_url` ne danno gli indirizzi.
+
+Latet accede come l'applicazione, senza che nessuna persona acceda, e manda il token soltanto all'indirizzo di Microsoft
+Graph. Un rifiuto riporta il codice di errore di Microsoft Entra, come `invalid_client`, mai la sua descrizione.
+
+### LDAP e Active Directory
+
+LDAP richiede l'extra `ldap` di Latet, che l'immagine del container contiene. L'extra installa ldap3, una
+libreria sotto licenza LGPL-3.0-or-later, usata come pacchetto separato e non modificato. Un server installato come
+servizio di sistema lo riceve fra i suoi extra con il comando con cui è stato installato, eseguito di nuovo con le
+stesse cartelle `UV_*` (qui quelle di [Gestione del server](../../concepts/server-operations/) su Linux) e la
+versione della release al posto di `X.Y.Z`; togli `ner` e `ocr` se non li ha. Da lì in poi `latet upgrade`
+mantiene l'extra `ldap`. Un'istanza senza l'extra lascia una fonte LDAP alle istanze che ce l'hanno, e lo dice
+quando le fonti si salvano attraverso di essa, nel suo stato nella pagina **Sincronizzazione dei termini** e in
+`latet server status`; dove nessuna istanza ce l'ha, la fonte non riesce con `not-installed`.
+
+```sh
+UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
+  uv tool install --upgrade --python ">=3.12,<3.15" "latet[ner,ocr,server,ldap] @ https://github.com/Latet-AI/latet/releases/download/vX.Y.Z/latet-X.Y.Z-py3-none-any.whl"
+```
+
+```yaml
+  - name: directory
+    kind: ldap
+    url: ldaps://dc1.acme.lan
+    bind: latet-sync@acme.lan
+    base: OU=Staff,DC=acme,DC=lan
+    filter: "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+    mapping: {"{givenName} {sn}": PERSON, mail: EMAIL}
+```
+
+La password di `bind` è il segreto della fonte: `latet server terms secret directory`. Senza `bind`, Latet accede in
+forma anonima. Il filtro qui sopra prende soltanto gli account attivi di Active Directory.
+
+L'indirizzo è `ldaps://`, oppure `ldap://` con STARTTLS (`start_tls: true`, il predefinito): i nomi e la password non
+attraversano mai la rete in chiaro. Solo una directory sul computer stesso del server, scritta `127.0.0.1`, `[::1]` o
+`localhost`, può essere letta senza TLS, con `ldap://` e `start_tls: false`, e una fonte così si imposta soltanto con
+`latet server terms`; ogni altra directory richiede `ldaps://` o STARTTLS. Il server raggiunge la directory al primo
+indirizzo dato dalla sua risoluzione del nome che accetta la connessione, e passa al successivo solo quando la
+connessione al precedente viene rifiutata o non si stabilisce in tempo, quindi mai dopo che TLS, STARTTLS o l'accesso
+sono cominciati. Con LDAPS o STARTTLS, una directory sul computer del server funziona con `localhost` come con
+`127.0.0.1`, perché il suo certificato viene verificato a ogni indirizzo: una in Docker che ascolta solo su 127.0.0.1 si
+raggiunge anche con `localhost`. Senza TLS, scrivi l'indirizzo su cui la directory ascolta (`127.0.0.1` o `[::1]`), mai
+`localhost`: `localhost` viene provato prima su `::1`, e qualunque programma sul server in ascolto lì riceverebbe la
+password di `bind`. Il server verifica il certificato rispetto al nome scritto in `url` (mai rispetto all'indirizzo raggiunto), e
+non segue alcun referral. Per una directory il cui certificato viene dall'autorità della tua azienda, `certificate`
+nomina il file PEM di quell'autorità nella cartella della sincronizzazione dei termini, con il suo nome.
+
+## Cosa diventa un termine
+
+- Ogni valore di un campo associato; un campo con più valori (un elenco, un attributo a più valori) dà ognuno di essi.
+- Un template unisce più campi: `"{givenName} {sn}": PERSON` ricava "Emily Carter" da una directory i cui nomi
+  visualizzati sono "Carter, Emily". Un record in cui uno dei suoi campi manca o ha più valori non dà nulla dal
+  template, e nulla viene contato: una voce senza `sn` non dà alcun termine da `"{givenName} {sn}"`.
+- Gli spazi diventano singoli: "Acme  Corp" diventa "Acme Corp".
+- Restano fuori: i valori più corti di `min_length`, più lunghi di 200 caratteri, senza una lettera o una cifra, o
+  elencati in `exclude` della fonte. Ogni sincronizzazione li conta, per motivo.
+- Un termine viene cercato come parole intere, in qualsiasi maiuscola o minuscola: "Halden Insurance" maschera anche
+  "HALDEN INSURANCE", ma non "Haldenville".
+
+Un gruppo chiamato `Sales` maschererebbe la parola "sales" ovunque: elenca nomi del genere in `exclude`. Un cliente che
+si chiama `SAP` richiede `min_length: 3`.
+
+Un server conserva al massimo 50.000 termini sincronizzati, compresi quelli non più nella fonte: una sincronizzazione
+che supererebbe il limite non cambia nulla e lo dice.
+
+Un termine sincronizzato viene mascherato come un termine che la tua azienda blocca: nessuna eccezione di una persona
+(un valore o un pattern segnato come non sensibile, un criterio che lascia passare il suo tipo) lo lascia in chiaro.
+Nella cronologia di una persona la sua regola è `synced:` seguito dal tipo, come `synced:client`.
+
+## Un termine rimosso dalla sua fonte
+
+Quando una fonte smette di dare un termine, il termine resta mascherato ed è segnato **Non più nella fonte**:
+rimuoverlo riduce la protezione, quindi decide una persona. Le persone con il ruolo Sicurezza, dato a loro o a uno dei
+loro gruppi, vedono questi termini nella pagina **Sincronizzazione dei termini** e li rimuovono lì, da una sessione
+aperta con il tuo account aziendale quando le impostazioni di accesso lo chiedono. Gli amministratori del server li
+elencano con `latet server terms gone` e li rimuovono con `latet server terms remove`: per ID, tutti quelli di una
+fonte (`--source`), o tutti (`--all`).
+
+<Screenshot name="term-sync" alt="La pagina Sincronizzazione dei termini: quattro fonti con il loro tipo, l'ultima sincronizzazione e i termini per tipo, una delle quali non riuscita con il motivo, i pulsanti per sincronizzare ognuna, impostarne il segreto e modificare le fonti, e sotto tre termini non più nella fonte, con le caselle per selezionarli e un pulsante Rimuovi" caption="Sincronizzazione dei termini: le fonti, e i termini non più nella fonte." />
+
+Una fonte che non riesce, o che all'improvviso non dà più alcun termine dove ne dava (un'esportazione troncata, un
+filtro che non trova più nulla), non cambia nulla: i suoi termini restano come erano, e la sincronizzazione è segnata
+come non riuscita con il motivo. Quando una fonte viene tolta dalle fonti, tutti i suoi termini risultano non più
+nella fonte.
+
+Rimuovere un termine fa sì che Latet smetta di cercarlo. Una persona le cui richieste lo avevano già mascherato lo
+mantiene nella sua cassaforte, dove può dimenticarlo nella pagina **Cassaforte**.
+
+## Come la esegue il server
+
+Una sola istanza alla volta legge le fonti, per al massimo 15 minuti: una lettura che li supera si ferma e non cambia nulla.
+Un'istanza che si ferma a metà restituisce il suo turno mentre si ferma; una che si interrompe di colpo lascia la fonte a un'altra quando
+il suo turno finisce. Ogni sincronizzazione di una fonte legge entro quel turno e al massimo 50 MB in tutto.
+
+Ogni istanza prende i nuovi termini entro 30 secondi, qualunque cosa stia leggendo. Quella che non ci riesce (il suo
+database irraggiungibile, o termini che la sua chiave principale non apre, che non scarta mai: maschera quelli che
+aveva) lo dice nelle proprie metriche (più sotto). Un nuovo caricamento che non riesce a leggere i termini non
+maschera mai meno termini: un'istanza che trova termini
+che la sua chiave principale non apre tiene i termini che ha, e una che non li ha mai caricati non apre nuovi spazi
+finché non ci riesce, rispondendo 503 con la richiesta di riprovare.
+
+Una sincronizzazione che cambia i termini chiude ogni WebSocket aperto al suo messaggio successivo (codice di chiusura
+1008), e il client dell'agente si riconnette. Una richiesta che ha già passato le sue revisioni quando i termini
+cambiano viene rifiutata, senza che nulla ne venga inviato, e al suo agente viene detto che le impostazioni sono
+cambiate e di inviarla di nuovo (*the settings changed while this request was prepared: send it again*): prima che Latet
+decida di inviarla, e anche dopo quella decisione, appena prima di essere inviata (per esempio mentre se ne cerca
+l'indirizzo o, per Bedrock, mentre se ne leggono le credenziali AWS). Inviata di nuovo, viene mascherata con i nuovi
+termini. Una sincronizzazione che non cambia alcun termine mascherato non tocca nulla, né una che trova soltanto termini
+non più nella loro fonte o tornati in essa, né togliere una fonte, i cui termini restano mascherati.
+
+Finché il server maschera termini sincronizzati, legge separatamente ogni testo di una chiamata dell'API per le applicazioni,
+come faceva Latet 0.10 e come per i termini che la tua azienda blocca, dove altrimenti legge insieme i testi di una
+chiamata: il mascheramento resta lo stesso, e una chiamata con molti testi richiede più tempo. Un server la cui licenza
+elenca la sincronizzazione dei termini ma che non maschera alcun termine sincronizzato continua a leggerli insieme.
+
+Le metriche parlano per ogni istanza, mentre `latet server status` e `latet server terms status` parlano per l'istanza
+che risponde: è con gli avvisi sulle metriche che sai che un'altra istanza è rimasta indietro o le manca una versione
+della chiave. Imposta un avviso per ogni istanza in cui manca `latet_terms_masked` (i suoi termini sincronizzati non sono mai stati
+caricati), in cui `latet_terms_behind_seconds` supera 60 (maschera termini sincronizzati più vecchi di quelli che ha il
+server), o in cui `latet_terms_unreadable` supera 0, accanto alle regole di
+[Gestione del server](../../concepts/server-operations/):
+
+```yaml
+groups:
+  - name: latet-terms
+    rules:
+      - alert: LatetTermsNeverLoaded
+        expr: up{job="latet"} == 1 unless on(instance) latet_terms_masked
+        for: 5m
+      - alert: LatetTermsBehind
+        expr: latet_terms_behind_seconds > 60
+      - alert: LatetTermsUnreadable
+        expr: latet_terms_unreadable > 0
+```
+
+`latet server status` dice lo stesso dell'istanza che gli risponde: che è rimasta indietro, e quanti termini lì
+nessuna chiave del server apre. Un
+termine che nessuna chiave del server apre (una versione della chiave tolta da ogni file di chiavi, una riga cambiata a
+mano) viene sigillato di nuovo da solo la prossima volta che la sua fonte lo dà. Uno che nessuna fonte dà più si rimuove
+con `latet server terms remove --unreadable`, che non rimuove mai un termine che una fonte dà ancora, e non rimuove
+nulla finché un termine che rimuoverebbe nomina una versione della chiave più recente di quelle dell'istanza che
+risponde.
+
+Un'istanza di una release precedente, o senza l'Enterprise Edition, non maschera alcun termine sincronizzato:
+`latet server terms status` e `latet server status` lo dicono, dalla release e dall'edizione che ogni istanza attiva
+annuncia. `latet server init` non avvia la sincronizzazione dei
+termini: sincronizza soltanto un server in esecuzione. Ai computer non arriva nulla: è il server a mascherare.
+
+## Dove sono conservati i termini
+
+- Nel database PostgreSQL del server, ogni termine sigillato con la chiave principale del server; l'ID di un termine è
+  un hash con chiave, così il database non dice né quali termini contiene né se uno indovinato è fra questi. I segreti
+  delle fonti sono conservati con gli altri segreti Enterprise del server, anch'essi sigillati con la chiave principale.
+- Mai in `config.yaml`, in un file di regole o nelle impostazioni di una persona: un elenco di clienti è sensibile di
+  per sé.
+- Chi ha sia il database sia la chiave principale può leggerli, come ogni segreto del server
+  ([Gestione del server](../../concepts/server-operations/)). Con un'altra chiave principale i termini non si possono
+  leggere: le sincronizzazioni non riescono finché non torna la chiave giusta, ogni istanza continua a mascherare i
+  termini che aveva, e `latet server terms status` dice quanti non si possono aprire sull'istanza che gli risponde (le
+  metriche lo dicono per ogni istanza).
+- Il registro amministrativo registra ogni modifica delle fonti (`terms.source.changed`), ogni segreto impostato o
+  rimosso (`terms.secret.changed`), ogni rimozione (`terms.removed`) e ogni sincronizzazione chiesta
+  (`terms.sync.asked`), con nomi di fonti e conteggi, mai un termine o un segreto
+  ([Amministrazione del server](../../reference/server-administration/)).
+- Ogni sincronizzazione e ogni rimozione è un evento (`sync`), con la fonte quando c'è, l'esito e i conteggi per tipo
+  ([Report e registro amministrativo](../reports/)).
+- Le metriche del server, `latet_terms_*`, contano per tipo di fonte ed esito, mai il nome di una fonte, un tipo di
+  termine o un termine ([Eventi al tuo SIEM](../siem/#metriche-e-controlli)).
+
+Chi imposta le fonti (gli amministratori del server, e le persone con il ruolo Sicurezza) può far leggere al server
+qualsiasi file della cartella della sincronizzazione dei termini, o un documento https o una directory della tua rete
+(in forma anonima, o con l'account di cui imposta il segreto), e poi vedere i campi che la mappatura nomina, come
+termini, una volta che non sono più nella loro fonte: basta togliere una fonte dopo una sincronizzazione perché i suoi
+valori compaiano fra i termini non più nella fonte. Il motivo di una sincronizzazione non riuscita dice anche se nella
+cartella c'è un file con un certo nome. Il server si connette soltanto attraverso i propri controlli: mai a un indirizzo link-local, di
+metadati o riservato, al proprio loopback soltanto dove l'indirizzo lo nomina (impostato soltanto con
+`latet server terms`), e senza reindirizzamenti. Dentro la tua rete raggiunge ciò che raggiunge la rete del server,
+compresi l'indirizzo del server stesso, le sue altre istanze e gli host del suo database e di Valkey. Una persona
+aggiunge o sposta al massimo 10 destinazioni di fonti all'ora dalla pagina (una fonte di tipo file non ne ha), e ogni modifica delle fonti e ogni
+sincronizzazione chiesta sono nel registro amministrativo: dai questi ruoli a persone a cui affideresti i file di quella
+cartella e ciò che la tua intranet mette a disposizione. Una directory si legge con ldap3, che tiene in memoria un'intera pagina della risposta della directory prima che
+Latet possa contarne la dimensione: una directory a cui punta una fonte può far tenere all'istanza che la legge una
+risposta molto grande.
+
+Il mascheramento mostra ciò che maschera: chi manda un testo attraverso il proprio spazio può capire se un nome che
+conosce già è uno dei termini sincronizzati, come per un termine che la tua azienda blocca. Nessuno, tranne il ruolo
+Sicurezza e gli amministratori del server, può elencarli.
+
+## Quando la licenza termina
+
+La sincronizzazione dei termini continua durante i 30 giorni di tolleranza che seguono la fine della licenza. Dopo di
+essi, con più persone e chiavi API di quante ne copra la licenza per più del periodo di tolleranza, o alla fine di una
+prova, la sincronizzazione dei termini va in pausa: nessuna fonte viene letta, nulla viene rimosso o cambiato
+(**Sincronizza ora** e **Rimuovi** vengono rifiutati), e i termini sincronizzati fin lì restano mascherati. Rimuovere la
+licenza, o installarne una che non elenca la sincronizzazione dei termini, fa sì che non vengano più mascherati: Latet
+chiede conferma prima.
+
+## Cosa è stato provato
+
+I test automatici di Latet leggono ogni tipo di fonte: file, un server web simulato, un Microsoft Entra ID e un
+Microsoft Graph simulati, la directory simulata di ldap3, e una directory propria per il TLS; due istanze di un server
+vi condividono PostgreSQL e Valkey.
+
+Sono stati eseguiti anche con OpenLDAP 2.6.10, il pacchetto `slapd` di Debian, in Docker su un computer di sviluppo, due
+volte, con la directory scritta prima `127.0.0.1` e poi `localhost` (Windows dà per primo `::1`, e la directory
+ascoltava solo su 127.0.0.1): una fonte su LDAPS e una su STARTTLS, ciascuna con l'accesso di un account di servizio a
+cui la directory permette di leggere e nient'altro, la sua password impostata con `latet server terms secret`, ciascuna
+con `base`, `filter` e un `mapping` delle persone (`"{givenName} {sn}": PERSON`, `mail: EMAIL`) o dei gruppi (`cn:
+TEAM`), e il file PEM dell'autorità di certificazione nella cartella della sincronizzazione dei termini. I nomi e gli
+indirizzi delle persone e i nomi dei gruppi sono stati mascherati su entrambe le istanze; una persona tolta dalla
+directory ha lasciato i suoi termini non più nella fonte, e ancora mascherati; una fonte `ldap://` con
+`start_tls: false` è stata rifiutata quando le fonti sono state impostate; e con un'autorità che non aveva firmato il
+certificato della directory, entrambe le fonti sono state rifiutate, dicendo che il certificato della directory non era
+attendibile, senza dare alcun termine.
+
+I tre avvisi qui sopra sono stati caricati così come sono scritti in Prometheus 3.16.0, con il job di scrape `latet` di
+[Gestione del server](../../concepts/server-operations/) e un target per ciascuna di due istanze. Su un'istanza la cui
+chiave principale non aveva la versione con cui erano sigillati i termini, `LatetTermsUnreadable` è scattato subito, e
+`LatetTermsNeverLoaded` è rimasto in attesa per i suoi cinque minuti, poi è scattato; l'istanza che mascherava i termini
+non ne ha fatto scattare nessuno.
+
+Le directory sono impostate in molti modi: se una delle tue si legge in modo diverso da come dice questa pagina, una
+issue con ciò che hai visto aiuta.

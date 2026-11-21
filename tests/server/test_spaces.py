@@ -20,12 +20,13 @@ from PIL import Image
 
 from latet.api.rest import API
 from latet.config import Config, Destination, LlmReview, Profile, ProjectEntry, TermConfig
+from latet.edition import Community
 from latet.engine.known import LET_GO
 from latet.engine.pipeline import SPACE_CACHE_BYTES
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import Entity, MaskingError, Vault
 from latet.gateway.app import OnServer
-from latet.gateway.approvals import Batch, Decision
+from latet.gateway.approvals import Batch, Change, Decision
 from latet.gateway.sigv4 import AwsCredentials
 from latet.projects import masker_weight
 from latet.protocols.base import ImageRef
@@ -112,6 +113,37 @@ async def test_a_space_is_built_once_at_its_first_use_and_kept(server):
         assert runtime is again and server.spaces.count() == 1  # two requests at once: one space
         assert runtime.identity == emily.ref() and runtime.gateway.on_server == OnServer(URL, emily.id)
         assert await server.spaces.runtime(emily) is runtime
+
+
+class _Counting(Community):
+    """An edition that counts how often it is closed, and keeps who watches its floor."""
+
+    def __init__(self) -> None:
+        self.closed = 0
+        self.watchers: list = []
+
+    def watch(self, changed):
+        self.watchers.append(changed)
+        return lambda: self.watchers.remove(changed)
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+async def test_every_space_runs_the_servers_edition_and_leaves_it_open(server):
+    """No space loads an edition of its own (a computer's, reading the server's data folder): each runtime holds the
+    server's and never closes it. No space watches its floor itself: the spaces do, once, and apply a new floor in each
+    space's own worker (``Spaces.floor_changed``)."""
+    server.edition.close()  # the server's own, replaced in this test
+    counting = server.edition = _Counting()
+    emily, _ = server.identities.add_person("Emily Carter")
+    billing, _ = server.identities.add_key("Billing CI")
+    async with listening(server):
+        first, second = await server.spaces.runtime(emily), await server.spaces.runtime(billing)
+        assert first.edition is counting is second.edition and not first.owns_edition and not second.owns_edition
+        assert counting.watchers == []
+        await server.spaces.drop(emily.id)
+        assert counting.closed == 0
 
 
 async def test_a_space_reads_through_the_instances_pool_with_its_settings_bounds(server, schema, prefix, monkeypatch):
@@ -263,6 +295,80 @@ async def test_ones_own_settings_changed_on_one_instance_apply_on_the_other_as_i
         await asyncio.to_thread(here.update_config, _add_term("Mercury Labs"))
         await until(lambda: "Mercury Labs" in _terms(there))
         assert await b.spaces.runtime(emily) is there  # applied to it (Runtime.apply_config), not made again
+
+
+async def test_a_space_s_settings_read_again_on_request_hold_a_save_its_instance_never_heard(instances):
+    """R41 (the plan review's M3): what a decision taken here decides against is the space's settings as PostgreSQL has
+    them now, read again in its own worker (``Spaces.reapplied``), never a copy that missed a save made elsewhere."""
+    a, b = instances
+    emily, _ = a.identities.add_person("Emily Carter")
+    b.listening.set()  # B builds spaces and hears nothing: what A saves reaches it only when it reads again
+    try:
+        async with listening(a):
+            there = await b.spaces.runtime(emily)
+            here = await a.spaces.runtime(emily)
+            await asyncio.to_thread(here.update_config, _add_term("Mercury Labs"))
+            assert "Mercury Labs" not in _terms(there)  # B never heard the save
+            again = await b.spaces.reapplied(emily)
+            assert again is there and "Mercury Labs" in _terms(again)  # read again in place, not made again
+            assert b.spaces.count() == 1
+    finally:
+        await b.spaces.close()
+
+
+async def test_a_space_closed_while_its_settings_wait_to_be_read_again_says_so_at_once(instances, monkeypatch):
+    """Whoever waits for a space's settings read again (a decision) is answered SpaceUnavailable when the space closes
+    first, never left waiting for a worker that stopped."""
+    a, _ = instances
+    emily, _ = a.identities.add_person("Emily Carter")
+    async with listening(a):
+        await a.spaces.runtime(emily)
+        reading, held = threading.Event(), threading.Event()
+
+        def slow(space):
+            reading.set()
+            held.wait(5)
+
+        monkeypatch.setattr(spaces_module, "_reapply", slow)
+        waiting = asyncio.create_task(a.spaces.reapplied(emily))
+        await asyncio.to_thread(reading.wait, 5)
+        queued = asyncio.create_task(a.spaces.reapplied(emily))  # behind the one being read
+        await asyncio.sleep(0.05)
+        await a.spaces.close(wait=False)
+        try:
+            for task in (waiting, queued):
+                with pytest.raises(SpaceUnavailable):
+                    await asyncio.wait_for(task, 5)
+        finally:
+            held.set()
+
+
+async def test_a_reading_asked_of_a_space_closed_meanwhile_leaves_no_answer_unread(instances, monkeypatch):
+    """The review of Task 6, M3: a space closed after it was handed out and before its reading is queued (its close
+    still to run) answers SpaceUnavailable at once, and its close then finds that caller gone: asyncio says of no
+    answer that nobody read it."""
+    a, _ = instances
+    emily, _ = a.identities.add_person("Emily Carter")
+    unread = []
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(lambda _loop, context: unread.append(context.get("message")))
+    try:
+        async with listening(a):
+            await a.spaces.runtime(emily)
+            enqueue = a.spaces._enqueue
+
+            def closed_first(space, channel, message):
+                a.spaces._discard(space)  # closed meanwhile: its close runs later, in the background
+                enqueue(space, channel, message)
+
+            monkeypatch.setattr(a.spaces, "_enqueue", closed_first)
+            with pytest.raises(SpaceUnavailable):
+                await a.spaces.reapplied(emily)
+            monkeypatch.undo()
+        gc.collect()
+        assert not [message for message in unread if message and "never retrieved" in message]
+    finally:
+        loop.set_exception_handler(None)
 
 
 async def test_a_shared_change_reaches_every_space_on_every_instance(instances):
@@ -1962,6 +2068,32 @@ async def test_a_keys_change_opened_after_the_administrations_save_is_settled_at
         assert runtime.mediator.approvals.settled[change.id] == "superseded"
 
 
+async def test_a_key_s_change_that_waits_for_someone_else_outlives_a_re_application(server):
+    """R53: a re-application that finds a key's settings lowered nothing keeps a change that waits for the key's other
+    controllers (Latet Enterprise): a save made since makes it stale at its decision. One that waits for nobody else
+    (a rollback of its own part) is superseded, as before."""
+    key, _ = server.identities.add_key("Billing CI")
+    async with listening(server):
+        runtime = await server.spaces.runtime(key)
+        approvals = runtime.mediator.approvals
+
+        def opened(decides, values):
+            config = runtime.config.model_copy(update={"allow_values": values})
+            reasons = [f"values never to mask: {len(values)} added"]
+            change = Change(
+                config, digest(runtime.config), "dashboard", None, reasons, ["allow_values"], decides=decides
+            )
+            with runtime._lock:
+                return approvals.open_change(change)
+
+        theirs = await asyncio.to_thread(opened, "controllers", [CANARY])
+        await asyncio.to_thread(spaces_module._settle_obsolete, runtime, every=True)
+        assert list(approvals.changes) == [theirs.id]  # still waiting for the key's other controllers
+        ours = await asyncio.to_thread(opened, "self", [CANARY, "billing@acme.com"])
+        await asyncio.to_thread(spaces_module._settle_obsolete, runtime, every=True)
+        assert not list(approvals.changes) and approvals.settled[ours.id] == "superseded"
+
+
 async def test_a_change_settled_on_another_instance_is_no_longer_there_to_supersede(instances, monkeypatch):
     from latet.server.queue import PgChanges
 
@@ -2585,7 +2717,7 @@ async def test_what_waits_for_a_person_reaches_her_dashboards_and_her_waits_on_e
         decision = await asyncio.wait_for(waiting, 2)  # sooner than the wait's own reading (every five seconds)
         assert isinstance(decision, Decision) and decision.approved
         settled = await asyncio.wait_for(viewer.get(), 5)  # {"feed"}: an event small enough to travel inline
-        assert settled == ("settled", {"id": batch.id, "state": "approved"})
+        assert settled == ("settled", {"id": batch.id, "state": "approved", "by": None})
         polled = asyncio.create_task(there.mediator.approvals.answer(batch.id, 5))
         await asyncio.sleep(0.2)
         here.mediator.approvals.give(batch.id, {"ok": True})  # {"answered"}: the plugin's poll on B gets it

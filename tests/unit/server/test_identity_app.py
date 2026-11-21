@@ -28,6 +28,7 @@ from starlette.websockets import WebSocketDisconnect
 from websockets.exceptions import InvalidStatus
 
 from latet.config import Config, Destination, IdentityConfig, ProjectEntry, TermConfig
+from latet.edition import Community
 from latet.engine.build import build
 from latet.engine.detectors import recognizers as recognizers_module
 from latet.engine.reviewer import Answer
@@ -193,7 +194,9 @@ def test_a_spaces_start_weighs_its_settings_against_the_ones_approved(tmp_path):
     settings.approved = settings.load()
     settings.own = {"allow_values": ["emily.carter@acme.com"]}
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     try:
         assert "emily.carter@acme.com" not in rt.config.allow_values
         [waiting] = rt.mediator.approvals.changes.values()
@@ -373,8 +376,9 @@ def test_a_space_whose_models_come_later_reads_through_its_servers_pool_and_boun
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
     reading = ServerReading(readers=3, wait=50, budget=40)
     rt = make_runtime(
-        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, reading=reading
-    )
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, reading=reading,
+        edition=Community(),
+    )  # fmt: skip
     try:
         assert rt.mediator.vision is None and rt.reading == reading  # no models yet
         monkeypatch.setattr(models, "runtime_available", lambda: True)
@@ -677,7 +681,9 @@ def _space_over(tmp_path, shared):
     """A space as the ``space`` fixture makes it, over these shared settings; and the store of its settings."""
     settings = MemorySettings(shared)
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     try:
         yield rt, settings
@@ -1145,7 +1151,9 @@ def test_a_websocket_to_a_shared_destination_is_answered_a_clear_error_for_a_red
     relay = Destination(name="relay", url=f"http://127.0.0.1:{moved.port}")
     settings = MemorySettings(SHARED.model_copy(update={"upstreams": [relay]}))
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     try:
         denied = pytest.raises(WebSocketDenialResponse)
@@ -1307,8 +1315,9 @@ def test_a_history_that_counts_as_empty_is_recorded_and_read(tmp_path):
     history = Uncounted(tmp_path / "data" / "exchanges.db", ROOT_KEY)
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY, record=False), settings=settings)
     rt = make_runtime(
-        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=replace(backends, history=history), identity=EMILY
-    )
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=replace(backends, history=history), identity=EMILY,
+        edition=Community(),
+    )  # fmt: skip
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     _upstream(rt)
     try:

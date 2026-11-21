@@ -20,7 +20,8 @@ plain words; where the two differ, the licenses win.
 
 ## What needs a commercial license
 
-Write to [info@latet.ai](mailto:info@latet.ai) before you do any of these:
+Commercial and OEM licenses are on request: write to [info@latet.ai](mailto:info@latet.ai) before
+you do any of these:
 
 - **Selling Latet**, or a changed copy of it.
 - **Offering it to others as a service**: running Latet for other companies or for your customers,
@@ -39,14 +40,36 @@ Some examples:
 
 ## The Enterprise Edition
 
-The files in `ee` directories are the Enterprise Edition. Using them in production needs a valid
-Latet Enterprise license; developing and testing with them is free. Write to
-[info@latet.ai](mailto:info@latet.ai) with your company's name and how many people will use Latet.
+The files in `ee` directories are the Enterprise Edition: what a company's security team needs to
+manage Latet centrally (locked rules and rules set for everyone, central approvals, audit reports,
+events to its security systems, synced terms, single sign-on, roles). Using them in production
+needs a valid Latet Enterprise license; developing and testing with them is free. You need it only
+for those features: the Community Edition, Latet on a server included, needs none.
+
+- **The license file.** A Latet Enterprise license comes as a small file signed by the licensor: it
+  names your company, the number of users bought, the features it switches on and its last day.
+  Latet checks it on the Latet server that runs the features, offline.
+- **Users,** counted as Jira counts them: each person whose account is enabled, once whatever their
+  computers, and each enabled API key, which a program uses in place of a person. A Latet server
+  counts them.
+- **A free trial.** To try the Enterprise features on real work first, write to
+  [info@latet.ai](mailto:info@latet.ai) with your company's name: you get a trial license file,
+  valid for 32 days, once per company.
+- **When a license ends, protection stays.** A paid license is announced 30 days before its end and
+  keeps everything working for 30 more days; then reports, events and term sync pause, and more
+  users than bought works the same way. A trial is announced 7 days and 1 day before its end and has
+  no grace: at its end the Enterprise settings can be read, not changed, until a license is
+  installed or the trial's license is removed. Neither ever unlocks a rule or lets anything leave
+  unmasked.
+
+To buy it, write to [info@latet.ai](mailto:info@latet.ai) with your company's name and how many
+people will use Latet.
 
 ## Good to know
 
-- **No calls home.** The Community Edition has no license keys and never contacts anyone to check
-  anything.
+- **No calls home.** Latet never contacts anyone to check anything. The Community Edition has no
+  license keys; the Enterprise features check their license file offline, with the licensor's public
+  key that Latet carries.
 - **Contributing.** Contributions are accepted under the [contributor license agreement](CLA.md):
   you keep your copyright and allow your contribution to be part of Latet under every license it is
   offered under, the commercial ones included.

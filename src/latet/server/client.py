@@ -91,16 +91,23 @@ _UNPRINTABLE = frozenset(
 
 class ServerError(Exception):
     """The server refused (``status``, its reason, the ``details`` it gave, the seconds its ``Retry-After`` asked), or
-    nothing usable answered (status 0)."""
+    nothing usable answered (status 0). ``floor``: on a 409, why a change goes below what the company set (Latet
+    Enterprise's locked rules), each reason a text as the server gave it, to be checked and escaped where it is said."""
 
     def __init__(
-        self, status: int, message: str, details: tuple[str, ...] = (), retry_after: int | None = None
+        self,
+        status: int,
+        message: str,
+        details: tuple[str, ...] = (),
+        retry_after: int | None = None,
+        floor: tuple[str, ...] = (),
     ) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
         self.details = tuple(details)
         self.retry_after = retry_after
+        self.floor = tuple(floor)
 
 
 class ReceiveBudget:
@@ -164,7 +171,11 @@ def _refusal(answer: httpx.Response) -> ServerError:
     found = _object(answer.content) or {}
     said = found.get("error")
     message = printable(said) if isinstance(said, str) and said else f"HTTP {answer.status_code}"
-    return ServerError(answer.status_code, message, _details(found.get("details")), _retry_after(answer.headers))
+    floor = found.get("floor") if answer.status_code == 409 else None
+    reasons = tuple(floor) if isinstance(floor, list) and all(isinstance(r, str) for r in floor) else ()
+    return ServerError(
+        answer.status_code, message, _details(found.get("details")), _retry_after(answer.headers), floor=reasons
+    )
 
 
 class _Gate:

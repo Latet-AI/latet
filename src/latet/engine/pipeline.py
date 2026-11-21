@@ -64,6 +64,16 @@ def shows_known(masker: Masker, text: str, masked: str, replacements: Sequence[R
     return masker.known_outside(text, replacements)
 
 
+def classes_shown(
+    masker: Masker, text: str, masked: str, replacements: Sequence[Replacement]
+) -> frozenset[EntityClass]:
+    """The classes of every value ``shows_known`` finds, in its one reading (``Masker.classes_outside``): none when it
+    finds none."""
+    if not replacements and masked != text:
+        return frozenset(span.eclass for span in masker.known_in(masked))
+    return masker.classes_outside(text, replacements)
+
+
 def personal_values(replacements: Iterable[Replacement]) -> int:
     """How many different values about people the replacements stand for."""
     return len({r.entity_id or r.original for r in replacements if r.eclass in PERSONAL})
@@ -235,6 +245,9 @@ class Scope:
     review: LlmReview | None = None  # the local reviewer here (None: as the global settings say)
     live: LiveReview | None = None  # the Live Reviewer here (None: as the global settings say)
     ocr: bool = True  # the text in images is read here, when the models are installed
+    # How a request member no request profile declares is read here: `refuse` where the project says so (its rules are
+    # the global ones raised by it: a project may only refuse), `check` otherwise.
+    unknown_members: Literal["check", "refuse"] = "check"
 
 
 @dataclass(slots=True)
@@ -515,7 +528,13 @@ class Engine:
         # An applications call reads a short fake of 0.10.0 inside a word as no fake, a conversation as one
         # (``Vault.whole_vault_call``): one engine serves both in a key's space, and neither gets the other's reading.
         flags = f"{int(from_model)}{int(keep_surrogates)}{int(self.vault.whole_vault_call())}"
-        return self._key(f"F{self.rules_version}|{scope_key}|{kind}|{flags}|{where}", text)
+        # The masker's stamp (``Masker.stamp``: this process's change of the terms a company syncs, which change in
+        # place under the same masker), the masker ``mask_text`` and ``cached`` pick: a block masked before a sync is
+        # masked again after it, and one masked across a change is never served when the same terms come back. Joined
+        # only when not empty, so that a space that syncs nothing keeps its keys.
+        tag = (scope.masker if scope is not None else self.masker).stamp
+        rules = f"F{self.rules_version}.{tag}" if tag else f"F{self.rules_version}"  # as before while none is synced
+        return self._key(f"{rules}|{scope_key}|{kind}|{flags}|{where}", text)
 
     def cached(
         self,

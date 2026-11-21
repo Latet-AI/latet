@@ -4,8 +4,8 @@ description: Bereiche, Speicherung, gemeinsame Einstellungen und die Vertrauensg
 ---
 
 Ein Latet-Server empfängt geschützte Anfragen verbundener Agenten. Im Gateway-Modus
-maskiert er sie vor der Weiterleitung an den Modellanbieter und stellt den geschützten
-Rückweg wieder her; als Claude Code erkannte Anfragen nutzen das Plugin und die unten
+maskiert er sie vor der Weiterleitung an den Modellanbieter und setzt auf dem geschützten
+Rückweg die echten Werte wieder ein; als Claude Code erkannte Anfragen nutzen das Plugin und die unten
 beschriebene reine Prüfung. Originaldaten können den Latet-Server erreichen. Ein Server
 verändert, wem Sie vertrauen müssen. Er macht die Erkennung nicht unfehlbar und schützt
 keinen Verkehr, der Latet nicht erreicht.
@@ -14,9 +14,9 @@ keinen Verkehr, der Latet nicht erreicht.
 
 Der Rechner muss die Serverroute verwenden und Verbindungs- und Zugangsdatenbindungen
 privat halten. Die serverseitige Maskierung deckt Gateway-Clients ab. Claude Code braucht
-zusätzlich das Plugin: im unterstützten verbundenen Windows-Terminal wählen die private
+zusätzlich das Plugin: Im unterstützten verbundenen Windows-Terminal wählen die private
 Hilfsprozessbindung und vertrauenswürdige Einstellungen die Server-Bridge aus.
-Das persönliche Token wird über stdin übergeben; die Metadatenbindung ist kein Tokenspeicher.
+Das persönliche Token des Hilfsprozesses wird über stdin übergeben; die Metadatenbindung ist kein Tokenspeicher.
 Eine fehlende oder unsichere Bindung stoppt diesen Weg.
 
 Bei als Claude erkannten Anfragen maskiert das Plugin Tool-Beschreibungen, und die
@@ -24,7 +24,7 @@ abschließende Prüfung des Servers liest auch Beschreibungen, Parameterschemas 
 der Tools: Ein darin im Klartext gebliebener Wert stoppt die Anfrage. Anfragemarker belegen nicht,
 dass das Plugin lief. Der [Schutzumfang](../protection-scope/) erklärt diese enge Ausnahme
 und die getrennten Ausgabeschema-Prüfungen. [Einen Rechner verbinden](../../getting-started/server/)
-beschreibt Anwendung, Diagnosen, erneutes Senden der Identität und Trennung.
+beschreibt das Einrichten der Agenten, Diagnosen, erneutes Senden der Identität und Trennung.
 
 Ist Latet in einem Ordner ausgeschaltet, wird eine Anfrage, die eine Instanz dafür erhält, bevor das Plugin es
 dem Server mitgeteilt hat, so maskiert, als wäre Latet eingeschaltet: Im Zweifel schützt es.
@@ -35,13 +35,13 @@ Wenn sich ein Rechner verbindet, gibt ihm der Server zwei Geheimnisse, jedes nur
 **Token** geht an die Agenten: Claude Code hält es in seinen Einstellungen und seiner Umgebung
 (`LATET_BRIDGE_TOKEN`), wo jeder Befehl, den es ausführt, es lesen kann. Von überall, wo der Server
 erreichbar ist, öffnet das Token die Bridge des Plugins und den Proxy des Bereichs (wer es besitzt, kann
-im Bereich Texte maskieren und die Ersatzwerte, die er hat, wiederherstellen lassen), sagt, wem es gehört,
-und widerruft sich selbst. Der **Rechnerschlüssel** bleibt im Anmeldedatenspeicher des Rechners oder in
+im Bereich Texte maskieren und für deren Ersatzwerte die echten Werte wieder einsetzen lassen), sagt, wem
+es gehört, und widerruft sich selbst. Der **Rechnerschlüssel** bleibt im Anmeldedatenspeicher des Rechners oder in
 der privaten Tokendatei, und kein Agent erhält ihn: Der Server verlangt ihn zusätzlich, bevor er einen
 Anmeldelink zum Dashboard ausgibt oder der Identität der Person etwas hinzufügt. So öffnet das Token
 allein nie das Dashboard, in dem jedes Original angezeigt werden kann, und verringert nie den Schutz der
-Person: Die einzige Änderung, die es an ihren Einstellungen vornehmen kann, ist ein Ziel für eine Adresse
-hinzuzufügen, was nichts verringert. Der Schlüssel hindert ein nach außen gelangtes Token (aus der
+Person: Die einzige Änderung, die es an ihren Einstellungen vornehmen kann, ist, ein Ziel für eine
+Adresse hinzuzufügen, was nichts verringert. Der Schlüssel hindert ein nach außen gelangtes Token (aus der
 Umgebung, den Einstellungen, einem Log oder mit einem einzigen `curl`) daran, das Dashboard zu öffnen;
 einen Befehl, der geschrieben wurde, um beide aus dem Anmeldedatenspeicher zu lesen, hält er nicht auf.
 Auf einem verbundenen Rechner verweigern `latet dashboard` und `latet identity send` die Ausführung in
@@ -51,25 +51,25 @@ einem Agenten, und `latet disconnect` vergisst beides.
 
 - **Die `latet.yaml` eines Repositorys gilt nicht.** Der Server liest keine Datei des Rechners: Was
   ein Team in seiner Projektdatei teilt (ein strengeres Profil, seine Begriffe und Erkenner), erreicht
-  die Anfragen einer verbundenen Person nicht. In einem solchen Projekt sagen `latet doctor` und
-  `latet claude` das. Legen Sie es in Ihrem Dashboard fest: Importieren Sie die `latet.yaml` des
+  die Anfragen einer verbundenen Person nicht. In einem solchen Projekt weisen `latet doctor` und
+  `latet claude` darauf hin. Legen Sie es in Ihrem Dashboard fest: Importieren Sie die `latet.yaml` des
   Projekts unter **Regeln** mit **Regeln importieren**.
 - **Die Prüfung der CLAUDE.md-Dateien**, die Claude Code seinem Prüfer des Auto-Modus gibt, läuft
   auf dem Rechner, in `latet doctor`.
 - **Claude Code über einen Server braucht in dieser Version ein Windows-Terminal.** Unter Linux und
-  macOS hält sein Plugin jeden Prompt zurück, und Latet sagt das vorab, wo es es anwenden würde. Der
+  macOS hält sein Plugin jeden Prompt zurück, und Latet weist schon beim Einrichten darauf hin. Der
   Print-Modus (`claude -p`) wird auf jedem verbundenen Rechner zurückgehalten.
 
 ### Zertifikate und eigene Verbindungen der Agenten
 
 Jeder Agent vertraut dem Zertifikat des Servers über eine eigene Variable, die Latet setzt:
-`NODE_EXTRA_CA_CERTS` für Claude Code und OpenCode, `CODEX_CA_CERTIFICATE` für Codex. Sie ergänzt, was der Agent
-schon vertraut, und die Kopie, die Latet schreibt, behält die Zertifikate, die die Person dort angegeben hatte,
+`NODE_EXTRA_CA_CERTS` für Claude Code und OpenCode, `CODEX_CA_CERTIFICATE` für Codex. Sie ergänzt das, dem der
+Agent schon vertraut, und die Kopie, die Latet schreibt, behält die Zertifikate, die die Person dort angegeben hatte,
 etwa die Zertifizierungsstelle ihres Unternehmens. Ein selbstsigniertes Zertifikat erreicht die Agenten nur in
 der Form, die `latet server certificate --make` ihm gibt, beschränkt auf den eigenen Namen oder die Adresse des
 Servers; ein Zertifikat der Zertifizierungsstelle des Unternehmens funktioniert so, wie es ist.
 
-Beim Start rufen die Agenten auch ihre eigenen Anbieter auf, außerhalb von Latet: Claude Code `api.anthropic.com`
+Beim Start rufen die Agenten auch ihre eigenen Hersteller auf, außerhalb von Latet: Claude Code `api.anthropic.com`
 mit seinem API-Schlüssel, sofern sein nicht notwendiger Datenverkehr in seinen Einstellungen nicht abgeschaltet ist;
 Codex `chatgpt.com` und `api.github.com` für seine Plugins; OpenCode die npm-Registry und GitHub. Keiner dieser
 Aufrufe enthält die Adresse des Bereichs, seinen Routenschlüssel oder das Token. Wo der Server der einzige Weg zu
@@ -109,7 +109,7 @@ enthält, die vor Latet 0.10.0 gespeichert wurden, wird bedient, wie 0.10.0 sie 
 Bereich neu aufgebaut wird, nachdem deren Wörter erzeugt sind: Ihr Bereich hält ihren ganzen Tresor im
 Speicher, gleich wie groß, und liest keinen Änderungszähler, sodass ein Wert, den eine andere Instanz
 speichert, ihn über seine Nachricht erreicht oder, wenn die Nachricht verloren geht, über die nächste
-Prüfung des Herzschlags.
+Prüfung des Heartbeats.
 
 ## Was der Server speichert
 
@@ -122,25 +122,25 @@ auf. Ohne den passenden Schlüssel lassen sich verschlüsselte Daten nicht wiede
 Einige Metadaten bleiben in PostgreSQL lesbar: Identitätsnamen und E-Mail-Adressen, externe Kennungen,
 Tokenbezeichnungen, Berechtigungen und Zeitpunkte, Regelnamen im Tresor, Zähler und Zeitpunkte sowie Akteure,
 Aktionen, Ziele, Kennungen, Anzahlen und Clientadressen des Administrationsprotokolls. Projekt- und
-Gesprächskennungen im Verlauf verwenden Hashes mit Schlüssel. Jeder Tresor, der einer Person wie der eines
-API-Schlüssels, speichert außerdem die Wörter seiner Werte und Ersatzwerte als Hashes mit Schlüssel, über die
+Unterhaltungskennungen im Verlauf verwenden schlüsselabhängige Hashes. Jeder Tresor, der einer Person wie der eines
+API-Schlüssels, speichert außerdem die Wörter seiner Werte und Ersatzwerte als schlüsselabhängige Hashes, über die
 ein Text sie findet, und neben jedem Wort seinen Fingerabdruck, einen 64-Bit-Fingerabdruck unter einem vom
-Schlüssel der Identität abgeleiteten Schlüssel, den die Instanzen im Speicher halten, mit der Zählung der
+Schlüssel der Identität abgeleiteten Schlüssel, den die Instanzen im Speicher halten, mit dem Zählerstand der
 Änderung, die die Zeile zuletzt geschrieben hat. Ein Hash oder ein Fingerabdruck zeigt kein Wort: Wer die
 Datenbank liest, sieht, welche Zeilen einer Identität ein Wort gemeinsam haben, wie viele es sind, und an den
-Zählungen, welche Zeilen sich in welcher Reihenfolge geändert haben. Die Fingerabdrücke desselben Wortes sind
+Zählerständen, welche Zeilen sich in welcher Reihenfolge geändert haben. Die Fingerabdrücke desselben Wortes sind
 bei einer anderen Identität andere. Die Zeilen des Verlaufs eines API-Schlüssels und die gemerkten Antworten
-seines lokalen Prüfers speichern Hashes mit Schlüssel der Einträge und Werte des Tresors, die sie nennen, damit
+seines lokalen Prüfers speichern schlüsselabhängige Hashes der Einträge und Werte des Tresors, die sie nennen, damit
 ein Vergessen sie findet: Wer die Datenbank liest, kann erkennen, welche Zeilen denselben Eintrag oder denselben
-Wert nennen, nie, welcher Wert es ist. Die Zeilen einer Person speichern keine. Jeder Tresor speichert den Hash
-mit Schlüssel jedes Ersatzwerts, den er stillgelegt hat (den eines vergessenen Werts oder einen ersetzten),
+Wert nennen, nie, welcher Wert es ist. Die Zeilen einer Person speichern keine. Jeder Tresor speichert den
+schlüsselabhängigen Hash jedes Ersatzwerts, den er stillgelegt hat (den eines vergessenen Werts oder einen ersetzten),
 damit kein anderer Wert ihn erhält: Er zeigt, wie viele Ersatzwerte stillgelegt wurden, nie welche. Valkey
 verwendet mit Schlüssel abgeleitete Namen, verschlüsselte sensible Nutzdaten und signierte
 Koordinationsnachrichten.
 
 Die Verschlüsselung gespeicherter Daten verbirgt Originale nicht vor dem laufenden
 Server oder seinem Betreiber. Berechtigte Dashboardansichten erhalten Originale im
-Browser. Ein Administrator kann den Registrierungscode einer Person ausstellen und
+Browser. Ein Administrator kann den Einmalcode einer Person ausstellen und
 damit auf ihr Dashboard zugreifen; dieser Vorgang wird protokolliert. Er kann auch einen
 Prüfdienst konfigurieren, der Originaltext erhält. Vertrauen Sie entsprechend den
 Serveradministratoren, dem Betreiber und diesem Prüfdienst. Verschlüsselung und Signaturen
@@ -163,12 +163,13 @@ Ein Team teilt seine Regeln von Hand: Eine Person exportiert sie (**Regeln expor
 Seite **Regeln** des Dashboards oder `latet rules export` auf einem Rechner, der mit keinem Server
 verbunden ist), und jede Person importiert die Datei in ihr eigenes Dashboard.
 [Export und Import](../export-import/) beschreibt die Datei. Regeln, die für alle festgelegt sind
-und die niemand lockern kann, sind für die Enterprise Edition geplant.
+und die niemand lockern kann, sind die [gesperrten Regeln](../../enterprise/locked-rules/) der
+Enterprise Edition eines Servers.
 
-Eine gemeinsame Änderung, die den Schutz verringert, etwa ein verschobenes Ziel oder ein
-ausgeschalteter Prüfer, wartet auf die Freigabe der Person. Bis dahin gelten ihre zuvor
-genehmigten, strengeren Einstellungen. Das Speichern eigener Änderungen genehmigt die wartende
-gemeinsame Änderung nicht, auch wenn derselbe Eintrag enthalten ist. Ein persönlicher
+Eine gemeinsame Änderung, die den Schutz verringert, etwa ein auf eine andere Adresse verlegtes Ziel
+oder ein ausgeschalteter Prüfer, wartet auf die Freigabe der Person. Bis dahin gelten ihre zuvor
+freigegebenen, strengeren Einstellungen. Das Speichern eigener Änderungen gibt die wartende
+gemeinsame Änderung nicht frei, auch wenn derselbe Eintrag enthalten ist. Ein persönlicher
 Speichervorgang kann kein für alle festgelegtes Ziel unbemerkt entfernen.
 
 Bei einem API-Schlüssel gibt es niemanden, der eine solche Änderung freigibt: Sie erreicht den
@@ -180,7 +181,7 @@ Unterscheiden Sie diese Speicherergebnisse:
 | Ergebnis | Bedeutung |
 | --- | --- |
 | `409 settings_stale` | Die Einstellungen wurden seit dem Laden der Seite geändert; von diesem Speichervorgang wurde nichts übernommen. Laden Sie vor weiteren Änderungen neu. |
-| `409 settings_change_waits` | Die wartende Änderung lässt sich derzeit nicht mit den genehmigten Einstellungen verbinden; von diesem Speichervorgang wurde nichts übernommen. |
+| `409 settings_change_waits` | Die wartende Änderung lässt sich derzeit nicht mit den freigegebenen Einstellungen verbinden; von diesem Speichervorgang wurde nichts übernommen. |
 | `409 settings_saved_change_pending`, `saved: true` | Ihre Änderungen wurden gespeichert, aber der wartende Vorschlag konnte nicht aktualisiert werden. Laden Sie neu und prüfen Sie die wartende Änderung; wiederholen Sie den Speichervorgang nicht ungeprüft. |
 | `409 settings_terms_too_long` | Ein Begriff überschreitet die zulässige Länge; von diesem Speichervorgang wurde nichts übernommen. |
 
@@ -190,7 +191,7 @@ zurückgegebenen Grund und einen möglichen Hinweis auf teilweise gespeicherte �
 
 ### Eigene Ziele einer Person
 
-Ein Ziel, das eine Person in ihren eigenen Einstellungen festlegt, führt nie in das Netz des Servers. Eine private,
+Ein Ziel, das eine Person in ihren eigenen Einstellungen festlegt, führt nie in das eigene Netz des Servers. Eine private,
 Unique-Local-, Carrier-Grade-NAT-, Loopback-, Link-Local-, Multicast- oder reservierte Adresse wird abgelehnt, als
 Adresse geschrieben oder als Name, der dorthin auflöst; ebenso die IPv6-Formen, die eine IPv4-Adresse tragen oder zu
 einem Gateway führen (6to4, Teredo, NAT64-Präfixe). In einem Netz mit NAT64 erfährt der Server dessen Präfixe, wie
@@ -201,8 +202,8 @@ Verbindung zuerst); die nächste wird nur versucht, wenn die Verbindung zur vori
 Anfrage gesendet wurde. Für diese Ziele wird kein Proxy verwendet. Nur ein Administrator legt in den gemeinsamen
 Einstellungen ein Ziel innerhalb des Netzes fest.
 
-Ein reiner IPv6-Server hinter DNS64 mit dem bekannten Präfix erreicht daher kein eigenes Ziel, das nur über
-IPv4 erreichbar ist.
+Ein reiner IPv6-Server hinter DNS64 mit dem bekannten Präfix erreicht daher kein eigenes Ziel einer Person,
+das nur über IPv4 erreichbar ist.
 
 ## Die Grenzen eines Bereichs
 
@@ -211,13 +212,13 @@ IPv4 erreichbar ist.
   Speichern darüber hinaus wird abgelehnt.
 - **Projekte:** höchstens 200 pro Person.
 - **Werte:** Ein Wert mit mehr als 16.384 Zeichen wird geschwärzt statt durch einen Ersatzwert ersetzt und
-  weder aufbewahrt noch wiederhergestellt; ein Begriff hat höchstens 8.192 Zeichen.
+  weder aufbewahrt noch wieder eingesetzt; ein Begriff hat höchstens 8.192 Zeichen.
 - **Speicher:** Eine Instanz, auch jeder Worker, gibt ihren Bereichen feste 2 GiB, und ein Bereich nutzt
-  höchstens die Hälfte davon, dazu bis zu einem Achtel dieser Hälfte für seine Detektoren (128 MiB). Ein Bereich
-  an seinem Anteil lernt keinen neuen Wert: Eine Anfrage, die einen bringt, wird mit einem Hinweis darauf
-  angehalten, bis im Dashboard Werte vergessen werden, Regeln oder Projekte weniger werden oder der Server mehr
-  hat. Kein Bereich einer anderen Person wird geschlossen, um Platz zu schaffen. Was die Detektoren mehr
-  belegen, hält nie einen Wert an.
+  höchstens die Hälfte davon, dazu bis zu einem Achtel dieser Hälfte für seine Detektoren (128 MiB). Ein Bereich,
+  der seinen Anteil ausschöpft, lernt keinen neuen Wert: Eine Anfrage, die einen bringt, wird mit einem Hinweis
+  darauf gestoppt, bis im Dashboard Werte vergessen werden, Regeln oder Projekte weniger werden oder der Server
+  mehr hat. Kein Bereich einer anderen Person wird geschlossen, um Platz zu schaffen. Was die Detektoren darüber
+  hinaus belegen, stoppt nie einen Wert.
 - **Statistiken** zählen die letzten 100.000 Austausche, und eine Person behält ihre zehn neuesten
   Dashboard-Sitzungen.
 
@@ -227,7 +228,7 @@ Latet kann nur unterstützte Anfragen prüfen, die durch Latet geleitet werden. 
 die Firmenrichtlinie, dass sämtlicher Modellverkehr über den Server läuft, muss das
 Netzwerk direkte Verbindungen der Rechner zu Modellanbietern verhindern. Richten Sie
 diese Einschränkung an der Netzwerkgrenze ein und pflegen Sie sie dort; Latet installiert
-und erzwingt sie nicht. Beliebiger Netzwerkverkehr von Werkzeugen ist von dieser Zusage nicht abgedeckt.
+und erzwingt sie nicht. Beliebiger Netzwerkverkehr von Tools ist von dieser Zusage nicht abgedeckt.
 
 [Was geschützt ist und was nicht](../protection-scope/) beschreibt Erkennungs-, Bild-
 und Protokollgrenzen. Nicht unterstützte Inhalte können auf einem geschützten Serverpfad
@@ -236,4 +237,4 @@ Anbieterendpunkt belegt keine Unterstützung. Ein Server kann das Repository ein
 verbundenen Rechners nicht lesen, nur weil ein Projekt im Dashboard erscheint. Er kennt
 nur die Projektinformationen, die ihm übermittelt wurden.
 
-Für Verwaltungsbefehle beginnen Sie mit [Einen Latet-Server verwalten](../../getting-started/server/).
+Für Administrationsbefehle beginnen Sie mit [Einen Latet-Server verwalten](../../getting-started/server/).

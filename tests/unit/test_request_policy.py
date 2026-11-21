@@ -236,8 +236,55 @@ def test_only_an_approved_exception_in_its_lifetime_is_in_force():
     expired = _approved(id="x1111111111", granted=NOW - timedelta(days=31))
     permanent = _approved(id="x2222222222", granted=NOW - timedelta(days=400), permanent=True)
     revised = _approved(id="x3333333333", revision="http-envelope-0")
-    found = request_policy.in_force(_with(pending, approved, expired, permanent, revised), NOW)
+    found = request_policy.in_force(_with(pending, approved, expired, permanent, revised), NOW, company=False)
     assert [row.id for row in found] == [approved.id, permanent.id]
+
+
+# Who can have approved an exception (``RequestException.issuer``): you on your computer, you on a server, another of
+# an API key's controllers, nobody Latet named (an exception approved before it named who), the company's security
+# team and a server's administration (its save of an API key's settings).
+ISSUERS = ("owner", "person", "controllers", None, "security", "administration")
+
+
+def test_where_the_company_decides_only_the_exceptions_it_approved_are_in_force():
+    """The quality re-review's N1: where the company decides on request exceptions (Latet Enterprise's `exceptions:
+    company`, ``Floor.decides_exceptions``), only those its security team or the administration approved grant
+    anything; one approved by its owner or by an API key's controllers (under `personal`, before the policy said
+    company), a permanent one included, grants nothing, and the dashboard's list says so."""
+    from latet.runtime import approved_exceptions
+
+    rows = [_approved(id=f"x{i:010d}", issuer=issuer, permanent=True) for i, issuer in enumerate(ISSUERS)]
+    config = _with(*rows)
+    assert request_policy.in_force(config, NOW, company=False) == tuple(rows)  # each person decides: every approved one
+    assert approved_exceptions(config, company=False) == tuple(rows)
+    companys = tuple(row for row in rows if row.issuer in ("security", "administration"))
+    assert request_policy.in_force(config, NOW, company=True) == companys
+    assert approved_exceptions(config, company=True) == companys
+    states = [row["state"] for row in request_policy.listed(config, NOW, company=True)]
+    assert states == ["not approved by the company"] * 4 + ["permanent"] * 2
+    assert [row["state"] for row in request_policy.listed(config, NOW, company=False)] == ["permanent"] * 6
+    pending = _exception()  # one that waits is pending, whoever decides
+    assert [row["state"] for row in request_policy.listed(_with(pending), NOW, company=True)] == ["pending"]
+
+
+def test_every_reader_of_approved_exceptions_must_say_whether_the_company_decides():
+    """Fix round 2 of the release minors (the review's L8): ``company`` has no default in the readers of approved
+    exceptions, so that one that forgets it fails at once instead of granting a person's approvals under `exceptions:
+    company`."""
+    import inspect
+
+    from latet.runtime import approved_exceptions
+    from latet.server.space_settings import index_exceptions
+    from latet.server.spaces import _index_again
+
+    config = _with(_approved())
+    for reader in (lambda: approved_exceptions(config), lambda: request_policy.in_force(config, NOW),
+                   lambda: request_policy.listed(config, NOW)):  # fmt: skip
+        with pytest.raises(TypeError, match="company"):
+            reader()
+    for writer in (index_exceptions, _index_again):
+        company = inspect.signature(writer).parameters["company"]
+        assert company.kind is inspect.Parameter.KEYWORD_ONLY and company.default is inspect.Parameter.empty
 
 
 def _runtime(tmp_path, monkeypatch, config: Config):
@@ -255,14 +302,14 @@ def test_an_exception_added_waits_for_approval_and_is_stamped_by_latet(tmp_path,
         wanted = runtime.config.model_copy(update={"request_exceptions": [_approved(id="x5555555555")]})
         change = runtime.propose(wanted, "file")
         assert change is not None and any("request exception" in reason for reason in change.loosened)
-        assert request_policy.in_force(runtime.config, NOW) == ()  # pending: nothing in force
+        assert request_policy.in_force(runtime.config, NOW, company=False) == ()  # pending: nothing in force
         runtime.exception_clock = lambda: NOW + timedelta(hours=1)
         assert runtime.decide_change(change.id, approve=True) == "approved"
         [row] = runtime.config.request_exceptions
         assert row.approved and row.id != "x5555555555" and row.granted == NOW + timedelta(hours=1)
         assert row.issuer == "owner"  # who approved it, recorded by Latet, never taken from the settings written
         assert row.revision == request_profiles.REVISION
-        assert request_policy.in_force(runtime.config, NOW + timedelta(hours=2)) == (row,)
+        assert request_policy.in_force(runtime.config, NOW + timedelta(hours=2), company=False) == (row,)
         # Removing it needs no approval and applies at once.
         assert runtime.propose(runtime.config.model_copy(update={"request_exceptions": []}), "file") is None
     finally:
@@ -276,7 +323,10 @@ def test_a_rejected_exception_authorizes_nothing(tmp_path, monkeypatch):
         change = runtime.propose(wanted, "file")
         assert change is not None
         assert runtime.decide_change(change.id, approve=False) == "rejected"
-        assert runtime.config.request_exceptions == [] and request_policy.in_force(runtime.config, NOW) == ()
+        assert (
+            runtime.config.request_exceptions == []
+            and request_policy.in_force(runtime.config, NOW, company=False) == ()
+        )
     finally:
         runtime.close()
 
@@ -288,7 +338,7 @@ def test_stamps_with_no_approval_behind_them_wait_for_you(tmp_path, monkeypatch)
     stamped = _approved(permanent=True, granted=NOW - timedelta(days=1), issuer="administration")
     runtime = _runtime(tmp_path, monkeypatch, _with(stamped).model_copy(update={"ner": "off"}))
     try:
-        assert request_policy.in_force(runtime.config, NOW) == ()
+        assert request_policy.in_force(runtime.config, NOW, company=False) == ()
         [pending] = runtime.config.request_exceptions  # R-3: no stamp of its own left, nor who it says approved it
         assert (pending.id, pending.granted, pending.revision, pending.issuer) == (None, None, None, None)
         [change] = list(runtime.mediator.approvals.changes.values())
@@ -341,20 +391,20 @@ def test_no_legacy_rule_remains():
 
 
 def _states(*rows: RequestException, now: datetime = NOW) -> dict[str | None, str]:
-    return {row["id"]: row["state"] for row in request_policy.listed(_with(*rows), now)}
+    return {row["id"]: row["state"] for row in request_policy.listed(_with(*rows), now, company=False)}
 
 
 def test_an_exception_warns_seven_days_before_it_expires():
     row = _approved()
     assert _states(row, now=NOW + timedelta(days=22))[row.id] == "active"
-    [listed] = request_policy.listed(_with(row), NOW + timedelta(days=23, hours=1))
+    [listed] = request_policy.listed(_with(row), NOW + timedelta(days=23, hours=1), company=False)
     assert listed["state"] == "expiring" and listed["days_left"] == 6
     assert _states(row, now=NOW + timedelta(days=30))[row.id] == "expired"
 
 
 def test_a_listed_exception_says_its_scope_category_never_its_description_or_what_it_names():
     rows = (_approved(description="for the acme team"), _approved(id="x2222222222", project="/repo", permanent=True))
-    listed = request_policy.listed(_with(*rows), NOW)
+    listed = request_policy.listed(_with(*rows), NOW, company=False)
     assert [(row["scope"], row["permanent"]) for row in listed] == [("identity", False), ("project", True)]
     shown = repr(listed)
     assert "acme team" not in shown and "x-team" not in shown and "/repo" not in shown
@@ -364,14 +414,14 @@ def test_a_profile_revision_that_keeps_the_selected_components_keeps_the_excepti
     rows = (_approved(), _approved(id="x2222222222", permanent=True))
     monkeypatch.setattr(request_profiles, "REVISION", "http-envelope-9")
     monkeypatch.setattr(request_profiles, "CARRIES_FROM", frozenset({rows[0].revision}))
-    assert [row.id for row in request_policy.in_force(_with(*rows), NOW)] == [rows[0].id, rows[1].id]
+    assert [row.id for row in request_policy.in_force(_with(*rows), NOW, company=False)] == [rows[0].id, rows[1].id]
 
 
 def test_a_profile_revision_that_changes_a_selected_component_suspends_the_exception(monkeypatch):
     rows = (_approved(), _approved(id="x2222222222", permanent=True))
     monkeypatch.setattr(request_profiles, "REVISION", "http-envelope-9")
     monkeypatch.setattr(request_profiles, "CARRIES_FROM", frozenset())
-    assert request_policy.in_force(_with(*rows), NOW) == ()  # refuses, the permanent one too
+    assert request_policy.in_force(_with(*rows), NOW, company=False) == ()  # refuses, the permanent one too
     assert set(_states(*rows).values()) == {"needs approval again (profile revised)"}
 
 
@@ -381,7 +431,7 @@ def test_no_exception_widens_by_an_upgrade(monkeypatch):
     row = _approved()
     monkeypatch.setattr(request_profiles, "REVISION", "http-envelope-9")
     monkeypatch.setattr(request_profiles, "CARRIES_FROM", frozenset({row.revision}))
-    [kept] = request_policy.in_force(_with(row), NOW)
+    [kept] = request_policy.in_force(_with(row), NOW, company=False)
     assert kept is row and kept.expires() == row.expires() and kept.components == row.components
 
 
@@ -390,8 +440,8 @@ def test_an_edition_can_forbid_permanent_exceptions():
 
     assert Community().permanent_exceptions() is True  # the Community Edition allows them
     rows = (_approved(), _approved(id="x2222222222", permanent=True))
-    allowed = request_policy.in_force(_with(*rows), NOW, permanent_allowed=True)
-    forbidden = request_policy.in_force(_with(*rows), NOW, permanent_allowed=False)
+    allowed = request_policy.in_force(_with(*rows), NOW, permanent_allowed=True, company=False)
+    forbidden = request_policy.in_force(_with(*rows), NOW, permanent_allowed=False, company=False)
     assert [row.id for row in allowed] == [rows[0].id, rows[1].id] and [row.id for row in forbidden] == [rows[0].id]
     assert _states(*rows)["x2222222222"] == "permanent"
 

@@ -49,6 +49,7 @@ from latet.server.spaces import Space, Spaces, _AuditFence, space_size
 from latet.state.protocols import VaultStore
 
 from ..conftest import ROOT_KEY
+from ..owned import owned
 from .support import DATABASE, VALKEY, listening, open_test_server, scanned_once, until
 
 if TYPE_CHECKING:
@@ -204,8 +205,8 @@ async def test_real_space_retained_ceiling_sees_unweighed_reservations_and_exclu
 
 @pytest.fixture
 def budget_namespaces(request):
-    schema = "latet_t_" + secrets.token_hex(5)
-    prefix = "latet_t_" + secrets.token_hex(5) + ":"
+    schema = owned("latet_t_" + secrets.token_hex(5), "schema", DATABASE)
+    prefix = owned("latet_t_" + secrets.token_hex(5) + ":", "prefix", VALKEY)
     with psycopg.connect(DATABASE, connect_timeout=5) as connection:
         if connection.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is not None:
             raise RuntimeError("budget schema was not absent before ownership")

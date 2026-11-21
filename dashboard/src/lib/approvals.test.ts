@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ApiError } from '../api/client'
 import type { Batch, SettingsChange } from '../api/types'
 import {
   applyEvent,
@@ -6,17 +7,27 @@ import {
   batchKinds,
   changeOrigin,
   checkSelection,
+  decidedBy,
+  decidersText,
   inProject,
+  moreDeciders,
+  othersDecide,
+  pendingOf,
   projectsWaiting,
   EMPTY_QUEUE,
   findValues,
+  heldSaveWords,
+  liveReviewWords,
   openSuggestions,
   placeholder,
   previewSent,
   selectedBatch,
+  settingsEmptyWords,
   shortSession,
+  tabsLabel,
   waitingCount,
   withoutChange,
+  yourBatches,
   type AddedMask,
 } from './approvals'
 
@@ -50,6 +61,12 @@ describe('the queue', () => {
     state = applyEvent(state, { type: 'settled', id: 'c', state: 'approved' })
     expect(state.batches.map((b) => b.id)).toEqual(['a', 'b'])
     expect(applyEvent(state, { type: 'viewers', viewers: 3 }).viewers).toBe(3)
+  })
+
+  it('leaves the queue as it is when a text approved by the team is withheld as it leaves (Latet Enterprise)', () => {
+    const state = applyEvent(EMPTY_QUEUE, { type: 'snapshot', batches: [batch('a', 10)], changes: [], viewers: 1 })
+    expect(applyEvent(state, { type: 'withheld', id: 'gone-already' })).toBe(state) // settled before: nothing to drop
+    expect(applyEvent(state, { type: 'withheld', id: 'a' }).batches).toEqual([])
   })
 
   it('shows a batch masked again in its place, and none that no longer waits', () => {
@@ -152,6 +169,155 @@ describe('a change to your settings', () => {
     expect(changeOrigin(t, { source: 'file', agent: null }, true)).toBe('approvals.change.source.serverFile')
     expect(changeOrigin(t, { source: 'start', agent: null }, true)).toBe('approvals.change.source.serverStart')
     expect(changeOrigin(t, { source: 'command', agent: null }, true)).toBe('approvals.change.source.commandNoAgent')
+  })
+})
+
+describe('what someone else decides on', () => {
+  const team = { decides: 'security' as const, deciders: ['Mark Ellis'] }
+
+  it('does not count as waiting for you', () => {
+    const state = applyEvent(EMPTY_QUEUE, {
+      type: 'snapshot',
+      batches: [{ ...batch('a', 10), ...team }, batch('b', 20)],
+      changes: [change('c1', 5, team)],
+      viewers: 1,
+    })
+    expect(waitingCount(state)).toBe(1)
+    expect(othersDecide(state.changes[0]!)).toBe(true)
+    expect(othersDecide(batch('b', 20))).toBe(false)
+    expect(othersDecide({ decides: 'controllers' })).toBe(true)
+    expect(othersDecide({ decides: 'self' })).toBe(false)
+  })
+
+  it('names who decides, or says nobody can yet', () => {
+    const t = (key: string) => key
+    const list = (items: readonly string[]) => items.join(' and ')
+    expect(decidersText(t, list, ['Daniel Hayes', 'Mark Ellis'])).toBe('Daniel Hayes and Mark Ellis')
+    expect(decidersText(t, list, [])).toBe('approvals.whoDecides.nobody')
+    expect(decidersText(t, list, undefined)).toBe('approvals.whoDecides.nobody')
+  })
+
+  it('says how many more decide past the names the server gives', () => {
+    // The server names 20 at most (MOST_NAMED) and counts the others (/me's deciders_more): the count is said, translated.
+    const t = (key: string, options?: Record<string, unknown>) => (options ? `${key} ${JSON.stringify(options)}` : key)
+    const list = (items: readonly string[]) => items.join(', ')
+    expect(decidersText(t, list, ['Daniel Hayes', 'Mark Ellis'], 7)).toBe('Daniel Hayes, Mark Ellis, approvals.whoDecides.more {"count":7}')
+    expect(decidersText(t, list, ['Daniel Hayes'], 0)).toBe('Daniel Hayes')
+    // A count with no name is no one to ask.
+    expect(decidersText(t, list, [], 3)).toBe('approvals.whoDecides.nobody')
+  })
+
+  it('takes /me’s count for an item whose names fill the server’s list', () => {
+    // An item names 20 at most and carries no count: a full list takes the count /me gives for the same route.
+    const twenty = Array.from({ length: 20 }, (_, i) => `Person ${i}`)
+    expect(moreDeciders(twenty, 7)).toBe(7)
+    expect(moreDeciders(twenty.slice(1), 7)).toBe(0) // fewer than 20: the whole team is named
+    expect(moreDeciders(twenty, undefined)).toBe(0) // an older server's /me
+    expect(moreDeciders(undefined, 7)).toBe(0)
+  })
+
+  it('finds the change a save made, waiting for the team', () => {
+    const waiting = change('c9', 5, { ...team, source: 'dashboard' })
+    expect(pendingOf(new ApiError(409, 'it lowers protection', [], { error: 'x', pending: waiting }))?.id).toBe('c9')
+    expect(pendingOf(new ApiError(409, 'not in the tutorial’s sandbox', [], { error: 'x' }))).toBeNull()
+    expect(pendingOf(new ApiError(400, 'invalid configuration', [], { pending: waiting }))).toBeNull()
+    expect(pendingOf(new Error('boom'))).toBeNull()
+  })
+
+  it('tells who decided on your change when it was someone else, and nothing for your own decisions', () => {
+    const settled = (state: 'approved' | 'rejected' | 'stale' | 'superseded' | 'approved-unapplied', by: string | null) =>
+      decidedBy({ type: 'change_settled', id: 'c1', state, by })
+    expect(settled('approved', 'Mark Ellis')).toEqual({ key: 'approvals.whoDecides.approvedBy', tone: 'ok' })
+    expect(settled('rejected', 'Mark Ellis')).toEqual({ key: 'approvals.whoDecides.rejectedBy', tone: 'info' })
+    // R60: approved, and the settings did not take it; or approved after they moved on (stale): nothing applied.
+    expect(settled('approved-unapplied', 'Mark Ellis')).toEqual({ key: 'approvals.whoDecides.unappliedBy', tone: 'fail' })
+    expect(settled('stale', 'Mark Ellis')).toEqual({ key: 'approvals.whoDecides.unappliedBy', tone: 'fail' })
+    // Your own decisions, a newer change, and ends nobody decided name nobody.
+    expect(settled('approved', null)).toBeNull()
+    expect(settled('rejected', null)).toBeNull()
+    expect(settled('superseded', null)).toBeNull()
+    expect(decidedBy({ type: 'change_settled', id: 'c1', state: 'approved' })).toBeNull()
+  })
+
+  it('counts on the Live page only the texts waiting for you', () => {
+    // The security team's texts do not wait for your approval: the banner that says so leaves them out.
+    const batches = [{ ...batch('a', 10), ...team }, batch('b', 20), batch('c', 30)]
+    expect(yourBatches(batches).map((b) => b.id)).toEqual(['b', 'c'])
+    expect(yourBatches([{ ...batch('a', 10), ...team }])).toEqual([])
+  })
+
+  it('says where the Live Reviewer sends the texts: to you, or to your company’s security team', () => {
+    const team = liveReviewWords({ live_review: 'security' })
+    expect(team).toEqual({
+      team: true,
+      description: 'liveReview.descriptionSecurity',
+      enabled: 'liveReview.enabledSecurity',
+      kinds: 'liveReview.kindsSecurity',
+      timeoutHelp: 'liveReview.timeoutHelpSecurity',
+      switchOn: 'liveReview.switchOnSecurity',
+      turnedOn: 'liveReview.turnedOnSecurity',
+      page: 'approvals.descriptionSecurity',
+      empty: 'approvals.empty.bodySecurity',
+      off: 'approvals.off.bodySecurity',
+      queue: 'approvals.queue.labelSecurity',
+      projectHelp: 'projects.live.helpSecurity',
+    })
+    const yours = {
+      team: false,
+      description: 'liveReview.description',
+      enabled: 'liveReview.enabled',
+      kinds: 'liveReview.kinds',
+      timeoutHelp: 'liveReview.timeoutHelp',
+      switchOn: 'liveReview.switchOn',
+      turnedOn: 'liveReview.turnedOn',
+      page: 'approvals.description',
+      empty: 'approvals.empty.body',
+      off: 'approvals.off.body',
+      queue: 'approvals.queue.label',
+      projectHelp: 'projects.live.help',
+    }
+    // Yours on the Community Edition, on a computer, and wherever /me says nothing of it.
+    expect(liveReviewWords({ live_review: 'self' })).toEqual(yours)
+    expect(liveReviewWords(null)).toEqual(yours)
+    expect(liveReviewWords(undefined)).toEqual(yours)
+  })
+
+  it('says who a change waits for while none does: you, your company’s security team, or an API key’s controllers', () => {
+    expect(settingsEmptyWords({ changes: 'security' })).toBe('approvals.settingsEmpty.bodySecurity')
+    expect(settingsEmptyWords({ changes: 'controllers' })).toBe('approvals.settingsEmpty.bodyControllers')
+    expect(settingsEmptyWords({ changes: 'self' })).toBe('approvals.settingsEmpty.body')
+    expect(settingsEmptyWords(null)).toBe('approvals.settingsEmpty.body')
+    expect(settingsEmptyWords(undefined)).toBe('approvals.settingsEmpty.body')
+  })
+
+  it('names the tabs of Approvals for what waits on a decision when someone else decides on any of it', () => {
+    expect(tabsLabel({ changes: 'self', live_review: 'self' })).toBe('approvals.tabs.label')
+    expect(tabsLabel({ changes: 'security', live_review: 'self' })).toBe('approvals.tabs.labelOthers')
+    expect(tabsLabel({ changes: 'self', live_review: 'security' })).toBe('approvals.tabs.labelOthers')
+    expect(tabsLabel({ changes: 'controllers', live_review: 'self' })).toBe('approvals.tabs.labelOthers')
+    expect(tabsLabel(null)).toBe('approvals.tabs.label')
+    expect(tabsLabel(undefined)).toBe('approvals.tabs.label')
+  })
+
+  it('says a change found on a server runs as you approved it until someone else decides, when it is theirs', () => {
+    const t = (key: string) => key
+    const others = { decides: 'security' as const, agent: null }
+    expect(changeOrigin(t, { ...others, source: 'file' }, true)).toBe('approvals.change.source.serverFileOthers')
+    expect(changeOrigin(t, { ...others, source: 'start' }, true)).toBe('approvals.change.source.serverStartOthers')
+    expect(changeOrigin(t, { decides: 'self', source: 'start', agent: null }, true)).toBe('approvals.change.source.serverStart')
+  })
+
+  it('says a held save reset the form only when the settings in use could be read again', () => {
+    expect(heldSaveWords({ decides: 'security' }, true)).toBe('approvals.whoDecides.sent')
+    expect(heldSaveWords({ decides: 'controllers' }, true)).toBe('approvals.whoDecides.sentControllers')
+    // Not read again: the form still holds the change, and only its waiting is said.
+    expect(heldSaveWords({ decides: 'security' }, false)).toBe('errors.settingsWaitingForOthers')
+    expect(heldSaveWords({ decides: 'controllers' }, false)).toBe('errors.settingsWaitingForOthers')
+  })
+
+  it('says a save in the dashboard is where a change came from', () => {
+    const t = (key: string) => key
+    expect(changeOrigin(t, { source: 'dashboard', agent: null })).toBe('approvals.change.source.dashboard')
   })
 })
 

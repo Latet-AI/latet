@@ -12,6 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from latet.config import Config, IdentityConfig, Profile, ProjectEntry, TermConfig, load_config, save_config
+from latet.edition import Community
 from latet.engine.types import SlotKind
 from latet.gateway.app import create_app
 from latet.projects import SeenRepositories
@@ -177,7 +178,7 @@ def _over_recording_settings(tmp_path, config=None):
     backends = local_backends(tmp_path / "data", tmp_path / "config.yaml", ROOT_KEY)
     settings = RecordingSettings(backends.settings)
     rt = make_runtime(config, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY,
-                      backends=replace(backends, settings=settings))  # fmt: skip
+                      backends=replace(backends, settings=settings), edition=Community())  # fmt: skip
     return rt, settings
 
 

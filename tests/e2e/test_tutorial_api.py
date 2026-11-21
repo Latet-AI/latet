@@ -48,7 +48,7 @@ from .tutorial_sandbox import (
 pytestmark = pytest.mark.e2e
 
 KEY = "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ"
-FAKE_KEY = "3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN"  # the sandbox's fixed key makes it: the same at every run
+FAKE_KEY = "bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA"  # the sandbox's fixed key makes it: the same at every run
 EMAIL = "james.wilson@acme.com"
 PHONE = "+44 20 7946 0958"
 NAME = "Emily Carter"  # a customer's name: no detector knows it

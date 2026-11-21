@@ -22,68 +22,72 @@ i termini che aggiungi e l'identità di questo computer. La
 In una distribuzione connessa vale anche il [confine di fiducia del server](../concepts/server/):
 gli originali possono raggiungere il server e le viste autenticate della dashboard.
 Gli amministratori gestiscono la configurazione del server e le impostazioni che condivide, come
-le sue destinazioni e il suo revisore; impronte, credenziali e associazioni degli agenti restano
-sui computer. Imposta separatamente i limiti di accesso
-ai provider se il server deve essere il punto di controllo aziendale. Un server non prende i
+le sue destinazioni e il suo revisore; le impronte delle connessioni, le credenziali e le
+associazioni degli agenti restano su ciascun computer. Applica a parte i limiti del traffico in
+uscita verso i provider se il server deve essere il punto di controllo dell'azienda. Un server non prende i
 marcatori di una richiesta come prova che il plugin di Claude Code sia stato eseguito: controlla
 anche le descrizioni, gli schemi e gli esempi degli strumenti.
 
-- **Il tuo computer** è considerato affidabile: l'agente, i suoi strumenti, il plugin e il daemon di
+- **Il tuo computer** è considerato attendibile: l'agente, i suoi strumenti, il plugin e il daemon di
   Latet, e i tuoi file.
-- **Il provider del modello** non è considerato affidabile per quei valori. Latet non presume nulla su
-  come le richieste vengono registrate, conservate o usate una volta arrivate, quindi tiene gli
-  originali lontani da lui.
+- **Il provider del modello** non è considerato attendibile per quei valori. Latet non presume nulla
+  su come le richieste vengono registrate, conservate o usate una volta arrivate, quindi tiene gli
+  originali lontani dal provider.
 - **La rete** in mezzo è protetta da TLS, come al solito.
 
 ## Conversazioni, progetti e ripristino
 
-Gli ID di conversazione raggruppano le richieste; non autenticano una persona e non creano un vault.
+Gli ID di conversazione raggruppano le richieste; non autenticano una persona e non creano una
+cassaforte.
 Il gateway usa il primo header non vuoto in quest'ordine: `x-claude-code-session-id`, `session-id`,
 `session_id`, `thread-id`, `x-session-id`. Per la Responses API segue un `previous_response_id`
 conosciuto, poi un `prompt_cache_key` di tipo stringa. Questi nomi vengono cercati nello spazio
-dell'identità corrente sul server o nell'istanza locale.
+dell'identità corrente sul server o nel runtime locale.
 
 Senza uno di questi identificatori, Latet ricava una chiave dall'inizio della cronologia della
 richiesta, usando solo i primi 8.192 caratteri della sua serializzazione compatta. Chat distinte con
 inizi identici, o con differenze solo dopo quel prefisso, possono quindi condividere una
-conversazione. È il riuso dello stesso input, non una collisione crittografica dell'hash. Tiene
-insieme le richieste successive dei client senza stato, ma non può stabilire quale chat logica il
-client intendesse.
+conversazione. È il riuso dello stesso input, non una collisione di un hash crittografico. Tiene
+insieme le richieste successive senza stato, ma non può stabilire quale chat logica il client
+intendesse.
 
-In quella conversazione condivisa, la risposta può ripristinare valori registrati da entrambe le
-chat. Se, per esempio, il provider risponde nella chat B con un sostituto emesso prima nella chat A,
-Latet può ripristinare localmente l'originale di A. ID espliciti distinti evitano questo raggruppamento
-accidentale quando il client li usa coerentemente. Non sono un confine di autorizzazione. Nel testo
-delle normali richieste HTTP, un sostituto incollato dal client viene mascherato come nuovo valore
-letterale; non indica l'originale che rappresentava. Una risposta del provider con un sostituto
-sconosciuto non dà accesso agli originali di un altro spazio sul server.
+In quella conversazione condivisa, la risposta può ripristinare valori registrati dall'una o
+dall'altra chat. Se, per esempio, il provider risponde nella chat B con un valore fittizio emesso
+prima nella chat A, Latet può ripristinare localmente l'originale di A. ID espliciti distinti evitano
+questo raggruppamento accidentale quando il client li usa coerentemente. Non sono un confine di
+autorizzazione. Nel testo delle normali richieste HTTP, un valore fittizio incollato dal client viene
+mascherato come nuovo valore letterale; non sta più per l'originale che rappresentava un tempo. Una
+risposta del provider con un valore fittizio sconosciuto non dà accesso agli originali di un altro
+spazio sul server.
 
-Ogni identità sul server ha il proprio vault e i propri record di conversazione. Header, ID di
-risposta, chiavi di cache o inizi uguali non attraversano quel confine. Gli stessi byte di un sostituto
-possono esistere in vault separati; il ripristino usa l'associazione del vault ricevente. Sul computer,
-i progetti di una stessa istanza Latet condividono il vault: dove supportato, `x-latet-project` seleziona le impostazioni
-del progetto, non un archivio separato o una nuova conversazione. Cartelle dati e vault configurati
-separatamente offrono archivi separati; lavorare in repository diversi non basta. Vedi
+Ogni identità sul server ha la propria cassaforte e i propri record di conversazione. Header, ID di
+risposta, chiavi di cache o inizi uguali non attraversano quel confine. Gli stessi byte di un valore
+fittizio possono esistere in casseforti separate; il ripristino usa l'associazione della cassaforte
+che li riceve. Su un computer, i progetti di uno stesso runtime di Latet condividono la sua
+cassaforte: dove supportato, `x-latet-project` seleziona le impostazioni
+del progetto, non un archivio separato o una nuova conversazione. Cartelle dei dati e casseforti
+configurate separatamente offrono archivi separati; lavorare in repository diversi non basta. Vedi
 [Progetti](../concepts/projects/) e [Latet su un server](../concepts/server/).
 
-**Quali regole di progetto si applicano.** Una cartella che una richiesta nomina (l'intestazione
+**Quali regole di progetto si applicano.** Una cartella che una richiesta nomina (l'header
 `x-latet-project`, o la cartella di lavoro che un agente scrive nelle sue richieste) è solo
 *dichiarata*: le regole del suo progetto che aggiungono protezione si applicano, i suoi allentamenti e
 le sue eccezioni di richiesta no, e un progetto dichiarato in cui Latet è disattivato viene rifiutato.
 Un progetto è *attendibile* solo quando Latet lo conosce da sé, da due fonti:
 
-- **Il legame del plugin di Claude Code.** Il plugin lega una sessione al progetto di una cartella che
-  Latet conosce; ogni sua chiamata mantiene il legame, che finisce dopo 30 minuti senza chiamate. Ha
-  un limite accettato: una richiesta Anthropic Messages che porta l'id di una tua sessione attiva
-  legata dal plugin viene decisa con quel progetto, allentamenti ed eccezioni compresi, da qualunque
-  tuo client la invii. Viene comunque letta dal controllo finale e mai riscritta, e le richieste di
-  nessun'altra persona raggiungono il legame. Le chiamate che Claude Code fa prima della prima chiamata
-  del plugin che lega la sessione (le sue chiamate di avvio) vengono decise con le tue regole
-  soltanto, né le regole aggiunte dal progetto né i suoi allentamenti.
-- **Una chiave di avvio.** Un agente che Latet avvia porta una chiave segreta di quell'avvio, legata
-  al progetto della cartella e a te; Latet la verifica, la toglie prima di inoltrare qualsiasi cosa, e
-  ne conserva solo un hash con chiave. Qualsiasi programma che possiede la chiave conta come
-  quell'avvio: gira con lo stesso utente, e Latet non pretende di legare una chiave a un processo. Una
+- **L'associazione del plugin di Claude Code.** Il plugin associa una sessione al progetto di una
+  cartella che Latet conosce; ogni sua chiamata mantiene l'associazione, che finisce dopo 30 minuti
+  senza chiamate. Ha un limite accettato: una richiesta Anthropic Messages che porta l'id di una tua
+  sessione attiva associata dal plugin viene decisa con quel progetto, allentamenti ed eccezioni
+  compresi, da qualunque tuo client la invii. Viene comunque letta dal controllo finale e mai
+  riscritta, e nessuna richiesta di un'altra persona raggiunge l'associazione. Le chiamate che Claude
+  Code fa prima della prima chiamata del plugin che associa la sessione (le sue chiamate di avvio)
+  vengono decise solo con le tue regole, senza le regole aggiunte dal progetto né i suoi allentamenti.
+- **Una chiave di avvio.** Un agente che Latet avvia porta una chiave segreta di quell'avvio,
+  associata al progetto della cartella e a te; Latet la verifica, la toglie prima di inoltrare
+  qualsiasi cosa, e ne conserva solo un hash con chiave. Qualsiasi programma che possiede la chiave
+  conta come quell'avvio: gira con lo stesso utente, e Latet non pretende di associare una chiave a
+  un processo. Una
   sessione avviata da `latet claude` richiede la sua chiave, quindi il suo id di sessione da solo non
   raggiunge nessun allentamento del progetto.
 
@@ -96,7 +100,7 @@ Vedi [Progetti](../concepts/projects/#attendibili-e-dichiarati).
 - Le richieste che in modalità client uscirebbero con un valore sensibile in chiaro, per esempio
   attraverso una via che il plugin non copre: il controllo finale del plugin e il daemon le bloccano.
 - Le pagine web che cercano di usare il daemon locale (DNS rebinding, richieste cross-site).
-- Una parte di una richiesta che Latet non legge: il percorso, la query, le intestazioni e il corpo
+- Una parte di una richiesta che Latet non legge: il percorso, la query, gli header e il corpo
   vengono ciascuno letti, tolti da una regola dichiarata o lasciati passare da un'eccezione che hai
   approvato, altrimenti la richiesta non viene inviata, su un computer come su un server
   ([Ogni parte di una richiesta](../concepts/protection-scope/#ogni-parte-di-una-richiesta)).
@@ -156,7 +160,7 @@ Vedi [Progetti](../concepts/projects/#attendibili-e-dichiarati).
 **Il tutorial**
 
 - `latet tutorial` esegue la sua sandbox dentro il comando, su `127.0.0.1` e una porta libera,
-  protetta come la dashboard: un link monouso, poi un cookie suo, che non prende mai il posto
+  protetta come la dashboard: un link monouso, poi un cookie proprio, che non prende mai il posto
   dell'accesso alla tua dashboard.
 - La sandbox ha i suoi dati, le sue impostazioni e la sua cassaforte, in una cartella temporanea, e
   nessuna delle tue chiavi o dei tuoi token. Il suo unico percorso porta a un modello simulato nello
@@ -232,7 +236,7 @@ impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Lat
   *Dimentica* toglie un valore da ogni copia, cancellare la cronologia
   cancella anche la loro, e la loro cronologia non viene conservata più a lungo della tua. Una copia
   che non si può ripulire viene cancellata, o messa da parte e non più proposta.
-- **Tre al massimo, e tornare indietro spetta a te.** Rimettere una copia viene proposto solo in un
+- **Tre al massimo, e tornare indietro spetta a te.** Ripristinare una copia viene proposto solo in un
   tuo terminale, e un agente non può eseguire `latet upgrade --to` verso una versione più vecchia.
 
 **Il revisore locale** (opzionale, [disattivato finché non lo attivi](../concepts/llm-review/))
@@ -244,7 +248,7 @@ impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Lat
   sul testo (un valore che inventa, o uno dentro un segnaposto, viene scartato).
 - Un output di uno strumento con istruzioni rivolte al revisore può al massimo fargli trovare meno; i
   rilevatori si applicano comunque, e una risposta vuota a un testo che si rivolge al revisore non è
-  considerata affidabile (la richiesta viene fermata).
+  considerata attendibile (la richiesta viene fermata).
 - La chiave API del suo server è conservata nell'archivio delle credenziali del sistema operativo (o
   arriva da una variabile o da un file), viene inviata solo a quel server, e non viene mai scritta nei
   log, nella dashboard o in config.yaml. La dashboard può salvarla o rimuoverla, mai mostrarla.
@@ -276,26 +280,25 @@ impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Lat
   il token di Latet: verificata, tolta, mai scritta nei log né registrata. Trovata nell'output di uno
   strumento o in un messaggio, viene mascherata; dove non può essere mascherata, la richiesta viene
   rifiutata.
-- Un'intestazione che nessun profilo nomina viene rifiutata: il suo nome viene detto solo all'agente,
-  e i log e la cronologia ne conservano solo il tipo. In una richiesta che Latet si limita a
-  verificare (Claude Code, Bedrock, Vertex), un'intestazione `anthropic-*` nuova o un valore nuovo di
-  `anthropic-beta` passa una volta letto dal controllo finale, il nome di un'intestazione nuova come
-  il suo valore (un segreto, un valore che la cassaforte conosce o uno che il controllo rileva
-  nell'uno o nell'altro fa rifiutare la richiesta), e un'intestazione `x-claude-code-*` nuova viene
-  tolta. Nessuna parola del nome di un'intestazione nuova, tra i suoi trattini, può superare i 16
-  caratteri. Il nome di un'intestazione arriva in minuscolo: il controllo finale lo legge in
-  minuscolo, in maiuscolo e con l'iniziale di ogni parola maiuscola. Un valore scritto nel nome di
-  un'intestazione con un'altra combinazione di maiuscole e minuscole, che sia un tuo valore come
-  `ACME-Payroll-7731` o un segreto la cui forma le mescola, come una chiave API di Google
-  (`AIza…`), lì non viene trovato: il nome viene rifiutato solo quando esce da uno dei limiti di
-  un'intestazione nuova, cioè con una parola di oltre 16 caratteri (come di solito accade per una
-  chiave o un token), con oltre 48 caratteri dopo `anthropic-` o con un carattere che non sia una
-  lettera minuscola, una cifra o un trattino. In una richiesta che Latet riscrive
-  vengono rifiutate prima che se ne mascheri qualcosa. Le intestazioni che un profilo dichiara
-  rimovibili vengono tolte e contate nella dashboard: la telemetria e il tracing degli SDK
-  (`x-stainless-*`, `traceparent`...), e quelle degli agenti stessi che possono contenere testo
-  libero, come gli id di un subagente di Claude Code o i metadati del turno di Codex, che contengono
-  il percorso e i remote del tuo repository ([Le intestazioni che Latet toglie](../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie)). In una
+- Un header che nessun profilo nomina viene rifiutato: il suo nome viene detto solo all'agente, e i
+  log e la cronologia ne conservano solo il tipo. In una richiesta che Latet si limita a verificare
+  (Claude Code, Bedrock, Vertex), un header `anthropic-*` nuovo o un valore nuovo di
+  `anthropic-beta` passa una volta letto dal controllo finale, che legge il nome di un header nuovo
+  come il suo valore (un segreto, un valore che la cassaforte conosce o uno che il controllo rileva
+  nell'uno o nell'altro fa rifiutare la richiesta), e un header `x-claude-code-*` nuovo viene tolto.
+  Nessuna parola del nome di un header nuovo, tra i suoi trattini, può superare i 16 caratteri. Il
+  nome di un header arriva in minuscolo: il controllo finale lo legge in minuscolo, in maiuscolo e
+  con l'iniziale di ogni parola maiuscola. Un valore scritto nel nome di un header con un'altra
+  combinazione di maiuscole e minuscole, che sia un tuo valore come `ACME-Payroll-7731` o un segreto
+  la cui forma le mescola, come una chiave API di Google (`AIza…`), lì non viene trovato: il nome
+  viene rifiutato solo quando esce da uno dei limiti di un header nuovo, cioè con una parola di oltre
+  16 caratteri (come di solito accade per una chiave o un token), con oltre 48 caratteri dopo
+  `anthropic-` o con un carattere che non sia una lettera minuscola, una cifra o un trattino. In una
+  richiesta che Latet riscrive, questi header vengono rifiutati prima che se ne mascheri qualcosa.
+  Gli header che un profilo dichiara rimovibili vengono tolti e contati nella dashboard: la
+  telemetria e il tracing degli SDK (`x-stainless-*`, `traceparent`...), e quelli degli agenti stessi
+  che possono contenere testo libero, come gli id di un subagente di Claude Code o i metadati del turno di Codex, che contengono
+  il percorso e i remote del tuo repository ([Gli header che Latet toglie](../getting-started/upgrading-to-0-11/#gli-header-che-latet-toglie)). In una
   richiesta che Latet si limita a verificare sono l'unica modifica: il suo corpo esce byte per byte.
 - Un'eccezione, quando usi Amazon Bedrock con il tuo login AWS: Claude Code non invia credenziali, e
   Latet firma ogni richiesta per Amazon (SigV4) con il tuo profilo AWS. Legge il profilo come fa la AWS
@@ -326,7 +329,7 @@ impostazioni in `backups/before-<versione>-<ora>` nella cartella dei dati di Lat
   attivi (`latet serve --capture <folder>`), gli header con le credenziali vengono oscurati, ma le
   catture contengono comunque il contenuto delle conversazioni: tienile sul tuo computer. I log di
   Latet, i metadati della cronologia e le registrazioni delle decisioni di un server conservano
-  categorie fisse e modelli di rotta, mai un valore, il nome di un'intestazione o di uno strumento, o
+  categorie fisse e modelli di percorso, mai un valore, il nome di un header o di uno strumento, o
   il percorso a cui è stata inviata una richiesta: la cattura e la cronologia completa sono le
   registrazioni che contengono il contenuto.
 
@@ -336,33 +339,33 @@ locale, su questo computer o su un altro dei tuoi. Quando firma per Amazon Bedro
 può contattare il servizio di accesso di AWS per rinnovare il tuo login, come fa quando la usi tu. I
 comandi usano la rete solo per quello che chiedi: `latet ner install` e `latet ocr install` scaricano
 i loro modelli da huggingface.co, e `latet upgrade` cerca l'ultima release su GitHub e la scarica. Non
-ci sono telemetria né analytics: né nel daemon, né nella dashboard, né in questo sito di
+c'è telemetria e non ci sono analytics: né nel daemon, né nella dashboard, né in questo sito di
 documentazione.
 
-**Su un server Latet** ([Latet su un server](../concepts/server/))
+**Su un server di Latet** ([Latet su un server](../concepts/server/))
 
 - L'amministrazione risponde solo su HTTPS, a un programma: una richiesta da una pagina web viene
-  rifiutata, e un token di amministrazione viene controllato solo dopo che il suo indirizzo ha passato
-  un limite di tentativi rifiutati.
+  rifiutata, e un token amministrativo viene controllato solo dopo che il suo indirizzo ha superato il
+  controllo di un limite di tentativi rifiutati.
 - Il server non conserva nessun segreto che emette: solo un hash con chiave di ogni token, chiave e
   codice. La chiave di ogni spazio è sigillata con la chiave principale del server, tenuta separata
   dai backup del database.
-- Ogni chiamata amministrativa viene registrata in un log a catena, anche le letture e i rifiuti;
+- Ogni chiamata amministrativa viene registrata in un registro a catena, anche le letture e i rifiuti;
   `latet server log verify` controlla la catena.
 - Il token in mano agli agenti di un computer apre il bridge del plugin e il proxy dello spazio, mai
   la dashboard: per quella serve anche la chiave del computer, che nessun agente riceve.
 - Un'eccezione di richiesta fa parte delle impostazioni di una persona e si applica quando quella
-  persona la approva. Approvarne una permanente scrive una voce nel registro dell'amministrazione con
+  persona la approva. Approvarne una permanente scrive una voce nel registro amministrativo con
   il suo id e il tipo del suo ambito soltanto, mai la sua descrizione; `latet server status` elenca
   quelle permanenti allo stesso modo. Le legge da un indice che PostgreSQL tiene accanto alle
   impostazioni sigillate: per ogni eccezione approvata il suo id, il tipo del suo ambito, se è
-  permanente, la sua fine, e se è in vigore, attende una nuova approvazione dopo una revisione del
+  permanente, la sua scadenza, e se è in vigore, attende una nuova approvazione dopo una revisione del
   profilo o non è consentita dall'edizione; mai la sua descrizione, la sua destinazione, la cartella di
   un progetto o ciò che indica.
 - Con la cronologia disattivata, le eccezioni usate vengono contate in memoria, e condivise tramite
   Valkey per istanza e identità, solo id e numeri, per la dashboard. Valkey come lo fornisce Latet non
   conserva niente su disco; un operatore che ne attiva la persistenza scrive questi conteggi su disco.
-- Con più worker su Linux, la porta resta tenuta per il server per tutto il tempo, anche mentre
+- Con più worker su Linux, la porta resta riservata al server per tutto il tempo, anche mentre
   nessun worker è in ascolto, e solo un programma che gira con l'utente stesso del server può
   ascoltare su di essa accanto ai worker; un programma così potrebbe prendersi le sue connessioni:
   fai girare il server con un utente che non esegue nient'altro ([Gestione del

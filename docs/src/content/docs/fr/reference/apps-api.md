@@ -33,7 +33,7 @@ d'une clé n'a pas). Le serveur refuse :
   toute requête qui porte un en-tête `Origin` ou `Sec-Fetch-Site`, comme celles d'un navigateur : l'API
   est faite pour les programmes, jamais pour une page web.
 
-Les jetons que le serveur refuse comptent contre l'adresse d'où ils viennent, comme sur toutes les
+Les jetons que le serveur refuse comptent pour l'adresse d'où ils viennent, comme sur toutes les
 routes du serveur : au-delà de la limite, 429. Appelez le serveur en HTTPS ; sinon le jeton et les
 textes circulent en clair.
 
@@ -46,7 +46,7 @@ textes circulent en clair.
 | Restauration | `POST /_latet/apps/v1/unmask` | `unmask` | `{"texts": [...]}` |
 | Oubli | `POST /_latet/apps/v1/forget` | `forget` | `{"values": [...]}` |
 
-- `texts` est une liste de 1 à 1 000 chaînes, auxquelles la réponse suit le même ordre. Un texte vide
+- `texts` est une liste de 1 à 1 000 chaînes, et la réponse suit le même ordre. Un texte vide
   revient tel quel, sans résultat et avec `restored: 0`.
 - `values` est une liste de 1 à 1 000 chaînes, les valeurs à retirer du coffre-fort de la clé, chacune
   cherchée exactement telle qu'elle est écrite ([oublier des valeurs](../../applications/forget/)).
@@ -147,8 +147,8 @@ jamais un texte envoyé, et les refus de l'entrée du serveur (authentification,
 | 422 | Analyse, masquage et restauration : les textes nomment plus de 100 000 valeurs ou valeurs factices du coffre-fort, plus qu'un appel ne peut en examiner. Rien n'a été masqué ni restauré. | Envoyer moins de textes par appel. |
 | 429 | Trop de jetons refusés depuis cette adresse, ou la clé a `requests_in_flight` requêtes d'applications sur cette instance (16 si les réglages ne disent pas autre chose). | Attendre `Retry-After`, puis réessayer. |
 | 500 | Une autre erreur ; ses mots ne nomment aucune valeur. | Réessayer ; prévenir l'administrateur si cela dure. |
-| 503 | Un stockage du serveur n'a pas répondu, l'espace de la clé n'est pas disponible sur cette instance pour le moment, ou le journal d'administration n'a pas pris l'entrée : pour la restauration rien n'a été restauré, pour l'oubli rien n'a été oublié. Analyse, masquage et restauration répondent aussi 503 quand les réglages de la clé étaient en train d'être appliqués à l'arrivée de l'appel ou pendant qu'on y répondait (`the settings of this space changed while the call was answered: send it again`) : rien de l'appel n'a été renvoyé. | Attendre (`Retry-After` s'il est donné), puis réessayer. |
-| 507 | Masquage seulement : le coffre-fort de la clé contient le plus de valeurs qu'il peut. Rien de l'appel n'a été renvoyé, et rien n'est sorti en clair. | Un administrateur relève la limite avec `latet server keys limit`. |
+| 503 | Un stockage du serveur n'a pas répondu, l'espace de la clé n'est pas disponible sur cette instance pour le moment, ou le journal d'administration n'a pas pris l'entrée : pour la restauration rien n'a été restauré, pour l'oubli rien n'a été oublié. Analyse, masquage et restauration répondent aussi 503 quand les réglages de la clé étaient en train d'être appliqués à l'arrivée de l'appel ou pendant qu'on y répondait (`the settings of this space changed while the call was answered: send it again`) : l'appel n'a reçu aucune réponse, même partielle. | Attendre (`Retry-After` s'il est donné), puis réessayer. |
+| 507 | Masquage seulement : le coffre-fort de la clé contient le plus de valeurs qu'il peut. L'appel n'a reçu aucune réponse, même partielle, et rien n'est sorti en clair. | Un administrateur relève la limite avec `latet server keys limit`. |
 
 Un masquage ou une restauration peut être répété sans risque : une valeur que le coffre-fort a
 conservée reçoit de nouveau la même valeur factice, et une valeur qu'un appel qui a échoué n'a pas
@@ -160,6 +160,9 @@ quand).
 ## En-têtes
 
 - Chaque réponse dit `Cache-Control: no-store` : aucun cache ne garde un texte ou une valeur.
+- Chaque réponse dit `Content-Security-Policy: default-src 'none'; sandbox` : un navigateur qui en ouvre
+  une n'y exécute aucun script et ne la traite jamais comme une page du serveur. Les clients HTTP ignorent
+  cet en-tête.
 - `Retry-After`, en secondes, accompagne chaque 429, et certains 503.
 
 ## Limites
@@ -175,8 +178,8 @@ quand).
 
 ## Ce que le serveur enregistre
 
-- **Le journal d'administration** reçoit une entrée `apps.unmasked` par appel de restauration qui
-  reçoit sa réponse, avant l'envoi de celle-ci : l'identifiant du jeton, le nombre de textes et de
+- **Le journal d'administration** reçoit une entrée `apps.unmasked` par appel de restauration auquel
+  le serveur répond, avant l'envoi de la réponse : l'identifiant du jeton, le nombre de textes et de
   valeurs restaurés (`{"token": "t_...", "texts": 3, "restored": 5}`), et l'adresse du client.
   Jamais un texte ni une valeur. L'analyse et le masquage n'y figurent pas. Lisez ces entrées avec
   `latet server log --action apps.unmasked`. Chaque appel d'oubli est une entrée `apps.forgotten`,
@@ -186,7 +189,7 @@ quand).
 - **Les métriques** comptent les requêtes de l'API comme `latet_http_requests_total{kind="apps"}`, par
   statut, et ses textes et valeurs par opération : `latet_apps_texts_total{operation}` et
   `latet_apps_values_total{operation}` (les valeurs que l'analyse a trouvées, que le masquage a
-  remplacées et que la restauration a remises ; pour l'oubli, les valeurs demandées et celles oubliées).
+  remplacées et que la restauration a remises en place ; pour l'oubli, les valeurs demandées et celles oubliées).
   Elles n'ont pas d'étiquette pour la clé : qui a fait
   quoi se trouve dans le journal d'administration.
 - **Le journal du serveur** a une ligne par appel : la méthode, le chemin, le statut et la durée,

@@ -35,6 +35,7 @@ export const REPO_KEYS = [
   'dump_guard',
   'images',
   'ocr',
+  'unknown_members',
   'llm_review',
 ] as const
 
@@ -61,6 +62,9 @@ export interface SettingsDraft {
   images: ImagesMode | null
   /** No editor sets it here: kept as the file or your config.yaml says, so that a save never drops it. */
   ocr: OcrMode | null
+  /** Neither: a refusal of new request members kept as the file or your config.yaml says it, so that a save never
+   * takes it away (a project may only refuse). */
+  unknown_members: 'refuse' | null
   llm_review: ReviewMode | null
 }
 
@@ -98,6 +102,7 @@ export function draftOf(settings: ProjectSettings | null | undefined): SettingsD
     dump_guard: s.dump_guard ?? null,
     images: s.images ?? null,
     ocr: s.ocr ?? null,
+    unknown_members: s.unknown_members === 'refuse' ? 'refuse' : null,
     llm_review: s.llm_review ?? null,
   }
 }
@@ -132,6 +137,7 @@ export function settingsOf(draft: SettingsDraft, repo: boolean): ProjectSettings
   if (draft.dump_guard !== null) out.dump_guard = draft.dump_guard
   if (draft.images) out.images = draft.images
   if (draft.ocr) out.ocr = draft.ocr
+  if (draft.unknown_members === 'refuse') out.unknown_members = 'refuse'
   if (draft.llm_review) out.llm_review = draft.llm_review
   if (repo) {
     for (const key of Object.keys(out)) {

@@ -676,6 +676,24 @@ class ApprovalsContract:
         with pytest.raises(KeyError):
             await b.answer(handed.id, 0.05)
 
+    async def test_giving_an_answer_says_whether_the_plugin_will_get_it(self, pair):
+        """The re-review of the final security review's fix rounds, R1: ``give`` says whether the answer was kept as
+        given, for the call that waits for it; a decider's approval is taken only then (``Bridge._answer``). Not kept:
+        no call waits for this id, the batch was never the plugin's, or its answer was handed over already."""
+        a, b = pair
+        answer = {"items": [{"text": "masked", "count": 1}], "degraded": []}
+        assert a.give("nothing-with-this-id", answer) is False
+        unasked = _batch()
+        await a.store(unasked)
+        a.settle(unasked.id, Decision(True))
+        assert b.give(unasked.id, answer) is False
+        handed = _batch(polled=True)
+        await a.store(handed)
+        a.settle(handed.id, Decision(True))
+        assert a.give(handed.id, answer) is True
+        assert await b.answer(handed.id, 5) == answer
+        assert a.give(handed.id, answer) is False  # handed over: nobody asks for it again
+
     async def test_a_poll_counts_as_a_sign_of_life(self, pair):
         a, b = pair
         batch = _batch(polled=True)
@@ -730,6 +748,30 @@ class ApprovalsContract:
         assert await b.fetch("nope") is None and await b.fetch_image(batch.id, 1, sent=False) is None
         assert a.settle(batch.id, Decision(True))
         assert await b.fetch(batch.id) is None and await b.fetch_image(batch.id, 0, sent=True) is None
+
+    async def test_an_image_painted_again_with_its_batchs_previews_is_shown_as_it_leaves_now(self, pair):
+        """``replace`` with pictures (the final security review's approvals L4): the rules or the vault changed while
+        the batch waits, its previews are made again and each image whose text changed is painted again; every process
+        shows it as it leaves now, an image not painted again as it was, the last painting of each kept; nothing of a
+        decided batch is replaced."""
+        a, b = pair
+        batch = _batch()
+        batch.items.append(dict(batch.items[0]))
+        batch.images = {0: _Image("b3JpZ2luYWw=", "c2VudA=="), 1: _Image("c2Vjb25k", "c2Vjb25kIHNlbnQ=")}
+        await a.store(batch)
+        again = [dict(item, masked=TEXT) for item in batch.items]
+        assert await a.replace(batch.id, again, {0: ("YWdhaW4=", "image/jpeg")}) is not None
+        assert b.image(batch.id, 0, sent=True) == ("YWdhaW4=", "image/jpeg")
+        assert b.image(batch.id, 0, sent=False) == ("b3JpZ2luYWw=", "image/png")  # as it came, always
+        assert b.image(batch.id, 1, sent=True) == ("c2Vjb25kIHNlbnQ=", "image/png")  # not painted again: as it was
+        assert await a.replace(batch.id, again, {1: ("c2Vjb25k", "image/png")}) is not None  # nothing covers it now
+        assert b.image(batch.id, 1, sent=True) == ("c2Vjb25k", "image/png")
+        assert await b.fetch_image(batch.id, 0, sent=True) == ("YWdhaW4=", "image/jpeg")  # its last painting
+        assert await a.replace(batch.id, again) is not None  # texts alone: the pictures stay
+        assert b.image(batch.id, 0, sent=True) == ("YWdhaW4=", "image/jpeg")
+        assert b.settle(batch.id, Decision(True))
+        assert await a.replace(batch.id, again, {0: ("bm8=", "image/png")}) is None
+        assert b.image(batch.id, 0, sent=True) is None
 
     async def test_an_image_is_shown_while_its_batch_waits_and_not_once_it_is_decided(self, pair):
         a, b = pair

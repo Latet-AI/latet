@@ -146,7 +146,8 @@ administrator sets an API key's with `latet server config --key` and `latet serv
 A team shares its rules by hand: one person exports them (**Export rules** on the dashboard's
 **Rules** page, or `latet rules export` on a computer not connected to a server) and each person
 imports the file in their own dashboard. [Export and import](../export-import/) describes the
-file. Rules set for everyone, which nobody can lower, are planned for the Enterprise Edition.
+file. Rules set for everyone, which nobody can lower, are the [locked rules](../../enterprise/locked-rules/)
+of the Enterprise Edition of a server.
 
 A shared change that reduces protection, such as a destination moved or the reviewer turned
 off, waits for the person's approval. Until then, their previously approved, stricter settings

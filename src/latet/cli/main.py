@@ -219,7 +219,21 @@ def _cannot_start(current: object) -> None:
     reason = getattr(current, "reason", None)
     if reason:
         typer.secho(f"Latet cannot listen on 127.0.0.1:{port}: {reason}.", fg="red", err=True)
-        typer.echo("Run `latet global-install` to move it to a free port (your agents are updated too).", err=True)
+        if str(reason).startswith("reserved by Windows") and os.environ.get("LATET_PORT"):
+            # `latet reserve-port` never moves a port that LATET_PORT sets
+            typer.echo(
+                "The port comes from LATET_PORT: set LATET_PORT to a port Windows does not hold (`netsh int ipv4 show "
+                "excludedportrange protocol=tcp` lists the ports it holds).",
+                err=True,
+            )
+        elif str(reason).startswith("reserved by Windows"):
+            typer.echo(
+                "Run `latet reserve-port`: it moves Latet to a free port and reserves that port, so that Windows "
+                "cannot take it again (your agents are updated too).",
+                err=True,
+            )
+        else:
+            typer.echo("Run `latet global-install` to move it to a free port (your agents are updated too).", err=True)
     else:
         from latet.config import data_dir
 
@@ -279,7 +293,7 @@ def stop() -> None:
 
 @app.command()
 def status() -> None:
-    """Show whether the local daemon runs, or the connected server accepts this computer's token."""
+    """Show whether the local daemon runs, or whether the connected server accepts this computer's token."""
     from latet.config import load_config
     from latet.doctor.checks import FAIL, _diagnostic_connection, check_server, server_refusal
     from latet.service import daemon

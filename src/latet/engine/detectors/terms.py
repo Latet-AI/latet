@@ -3,11 +3,13 @@ and every value already in the vault (so a value detected once is masked everywh
 
 from __future__ import annotations
 
+import itertools
 import re
 import unicodedata
 from bisect import bisect_right
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
+from typing import ClassVar, Final
 
 import re2
 
@@ -253,7 +255,8 @@ class _Alternation:
     least ``BOUNDED_SMALLEST``), not ``RE2_MEMORY``; ``memory`` is what it may use, program and automaton,
     which C++ holds where Python's own count does not see it, and ``extra`` what was granted past
     ``BOUNDED_PER_BYTE``'s budget (``SCALED_PER_BYTE``'s parts), from ``room`` when one is given (``Room``: all of it
-    or none). ``escaped``: each value as the pattern writes it, when the caller has it already."""
+    or none). ``escaped``: each value as the pattern writes it, when the caller has it already. ``every``: every term
+    at every place, one inside or across another too (``_each``)."""
 
     def __init__(
         self,
@@ -263,11 +266,13 @@ class _Alternation:
         *,
         bounded: bool = False,
         escaped: Mapping[str, str] | None = None,
+        every: bool = False,
         per_byte: int | None = None,
         room: Room | None = None,
     ) -> None:
         self._case = case_sensitive
         self._whole_word = whole_word
+        self._every = every
         self._lookup: dict[str, _Plain] = {self._key(t.value): _plain(t) for t in terms}
         values = sorted({t.value for t in terms})
         parts = [escaped[value] for value in values] if escaped is not None else [re2.escape(v) for v in values]
@@ -306,6 +311,9 @@ class _Alternation:
         line's overlaps looked for within the bound of that line alone, as each text alone."""
         data = text.encode() if data is None else data
         offset = _Offsets(text, data)
+        if self._every:
+            yield from self._each(data, offset)
+            return
         bounds = _line_starts(data) if lines else [0]
         line_end = bounds[1] if len(bounds) > 1 else len(data)
         searches, read = _overlap_bound(line_end)  # what the searches for overlaps may cost (the bound above)
@@ -359,6 +367,24 @@ class _Alternation:
                 return None
             end = shorter.end()
 
+    def _each(self, data: bytes, offset: _Offsets) -> Iterator[tuple[int, int, _Plain]]:
+        """Every term at every place where it stands: at a place, the longest and each shorter one; then from the next
+        place on, so that a term inside another, or across its end, is found too."""
+        pos = 0
+        while (m := self._pattern.search(data, pos)) is not None:
+            start, end = m.span()
+            first = offset(start)  # asked for in increasing order: each place once
+            while True:
+                found = data[start:end].decode()
+                term = self._lookup.get(self._key(found))
+                if term is not None and (not self._whole_word or _whole_utf8(data, start, end)):
+                    yield first, first + len(found), term
+                shorter = self._pattern.match(data, start, end - 1) if end - 1 > start else None
+                if shorter is None:
+                    break
+                end = shorter.end()
+            pos = start + 1  # in the middle of a character, no term starts: RE2 goes on to the next one
+
 
 # A term in the word index, a plain tuple as a term is (``_Plain``): its words as compared, the characters before its
 # first word (`@acme`), those after its last word (`C++ Guild`), the whole term as compared, the term, and what looking
@@ -370,8 +396,9 @@ _Entry = tuple[tuple[str, ...], int, int, str, _Plain, int]
 class _WordIndex:
     """Whole-word terms looked up by their words: the cost follows the length of the text, not the number of terms."""
 
-    def __init__(self, terms: list[Term], case_sensitive: bool) -> None:
+    def __init__(self, terms: list[Term], case_sensitive: bool, *, every: bool = False) -> None:
         self._case = case_sensitive
+        self._every = every  # every term at every word, one inside or across another too
         starts: dict[str, list[tuple[tuple[str, ...], int, int, str, _Plain]]] = {}  # a first word → its terms
         for term in terms:
             found = list(_WORDS.finditer(term.value))
@@ -402,6 +429,10 @@ class _WordIndex:
         if self._first.isdisjoint(words if self._case else map(str.casefold, words)):
             return  # most texts hold none of the terms: one look at their words says so
         tokens = [(m.start(), m.end(), self._key(m.group())) for m in _WORDS.finditer(text)]
+        if self._every:
+            for i in range(len(tokens)):
+                yield from self._all_at(text, tokens, i)
+            return
         bounds = _line_starts(text) if lines else [0]
         line_end = bounds[1] if len(bounds) > 1 else len(text)
         chain: list[_Found] = []  # the terms one after the other, 0.9.8's
@@ -535,6 +566,18 @@ class _WordIndex:
             return [], spent
         return ([first, furthest] if furthest[1] > first[1] else [first]), spent
 
+    def _all_at(self, text: str, tokens: list[tuple[int, int, str]], i: int) -> Iterator[_Found]:
+        """Every term that starts with the text's i-th word, wherever the terms before it end (``every``: a company's
+        terms, none hiding another), the one that starts first and the longest first."""
+        for words, lead, trail, whole, term, _ in self._starts.get(tokens[i][2], ()):
+            last = i + len(words) - 1
+            if last >= len(tokens) or any(tokens[i + j][2] != words[j] for j in range(1, len(words))):
+                continue
+            start, end = tokens[i][0] - lead, tokens[last][1] + trail
+            # The words are \w (no combining accent): `_whole` says whether a mark next to the term joins its word.
+            if start >= 0 and end <= len(text) and self._key(text[start:end]) == whole and _whole(text, start, end):
+                yield start, end, term
+
 
 def forms(value: str) -> list[str]:
     """A term as given, composed and decomposed: a keyboard composes "ë", macOS writes file names decomposed (an "e"
@@ -575,7 +618,8 @@ class _TermSet:
     """Terms grouped by how they match (case, whole words), each group matched the fastest way for its size, each
     term in every form it can be written in. ``bounded``: each alternation's RE2 memory in proportion to it.
     ``parted``: an alternation larger than ``PART_CHARS`` is matched in parts, each compiled on its own under a budget
-    sized to it (the user's terms; a vault's values come in parts of their own, ``latet.engine.known``)."""
+    sized to it (the user's terms; a vault's values come in parts of their own, ``latet.engine.known``). ``every``:
+    every term at every place, one inside or across another too (a company's: none may hide another)."""
 
     def __init__(
         self,
@@ -585,6 +629,7 @@ class _TermSet:
         parted: bool = False,
         per_byte: int | None = None,
         room: Room | None = None,
+        every: bool = False,
     ) -> None:
         groups: dict[tuple[bool, bool], list[Term]] = {}
         self._given: dict[_Plain, _Plain] = {}  # a term written in another form → the term as given
@@ -608,17 +653,19 @@ class _TermSet:
                 wordy = whole_word and _WORDS.search(t.value) is not None
                 (indexed if wordy and big else rest).append(t)
             if indexed:
-                self._matchers.append(_WordIndex(indexed, case_sensitive))
+                self._matchers.append(_WordIndex(indexed, case_sensitive, every=every))
             if rest and parted:
                 parts, escaped = _in_parts(rest, case_sensitive)
                 for part in parts:  # each compiled on its own: the GIL is let go between two
                     sized = bounded or len(parts) > 1  # one of many: a budget sized to it
                     self._matchers.append(
-                        _Alternation(part, case_sensitive, whole_word, bounded=sized, escaped=escaped)
+                        _Alternation(part, case_sensitive, whole_word, bounded=sized, escaped=escaped, every=every)
                     )
             elif rest:
                 self._matchers.append(
-                    _Alternation(rest, case_sensitive, whole_word, bounded=bounded, per_byte=per_byte, room=room)
+                    _Alternation(
+                        rest, case_sensitive, whole_word, bounded=bounded, per_byte=per_byte, room=room, every=every
+                    )
                 )
 
     def __bool__(self) -> bool:
@@ -652,6 +699,7 @@ class TermsDetector:
 
     id = "terms"
     mandatory = True
+    locks: ClassVar[bool] = False  # a company's terms: no exception of yours lets one through
 
     def __init__(
         self,
@@ -660,8 +708,10 @@ class TermsDetector:
         rule: str = "terms",
         *,
         bounded: bool = False,
+        every: bool = False,
     ) -> None:
-        self._set = _TermSet(terms, bounded=bounded, parted=True)  # in parts past PART_CHARS, as a vault's values are
+        # In parts past PART_CHARS, as a vault's values are. ``every``: one inside or across another found too.
+        self._set = _TermSet(terms, bounded=bounded, parted=True, every=every)
         self._eclass = eclass
         self._rule = rule
 
@@ -676,6 +726,103 @@ class TermsDetector:
         for start, end, term in self._set.finditer(text, lines=ctx.joined):
             etype = term[_ETYPE]
             yield Span(start, end, etype, self._eclass, f"{self._rule}:{etype.lower()}")
+
+
+# The rule of the terms a company locks (Latet Enterprise): ``company:<type>``, by which the masking knows them.
+LOCKED_RULE = "company"
+# The terms a company syncs from its own systems (Latet Enterprise, on a server): ``synced:<type>``, matched by one live
+# detector an instance shares (``LiveTerms``), masked as a company's locked terms are.
+SYNCED_RULE: Final = "synced"
+SYNCED_ID: Final = "synced-terms"
+
+
+class LockedTermsDetector(TermsDetector):
+    """The terms a company locks (``Config.locked_terms``): found by a detector of their own, so that no exception of
+    yours lets one through (``Masker.mask``); each wherever it stands, inside another of them too (one of a type the
+    company leaves in clear around one it masks)."""
+
+    id = "locked-terms"
+    locks = True
+    # A text is never read joined with others where they are (``Masker.joined``): what is left in clear around one is
+    # cut around it, and the term it holds raises how strictly the value is replaced, each text as its own text says.
+    joinable = False
+
+    def __init__(self, terms: Iterable[Term], *, bounded: bool = False) -> None:
+        super().__init__(terms, rule=LOCKED_RULE, bounded=bounded, every=True)
+
+
+def is_locked(span: Span) -> bool:
+    """Whether ``span`` is a company's term: one it locks (``company:``) or one it syncs (``synced:``)."""
+    return span.rule.startswith((f"{LOCKED_RULE}:", f"{SYNCED_RULE}:"))
+
+
+# Every change of the live terms in this process draws the next number: a stamp (``LiveTerms.stamp``) is never given
+# twice in a process, whatever the terms and their tag.
+_CHANGES: Final = itertools.count(1)
+
+
+class LiveTerms:
+    """The terms a company syncs (Latet Enterprise): one detector for every masker of a server's instance, never
+    rebuilt with them. ``use`` swaps its terms whole. ``tag`` names the terms in use, the same on every instance for the
+    same terms (the texts each conversation was given, kept in Valkey for every instance, hold it); ``stamp`` names this
+    process's change of them, never the same twice, and what this process keeps or checks under the rules holds it
+    (``Masker.stamp`` says where), so that a sync masks again, or refuses, what was taken under the terms before, even
+    when the same terms, and so the same tag, come back (the re-review's R1). Not a ``TermsDetector``: a space's share
+    of memory never counts it (it is the instance's). Matched in any case, as whole words; a span is ``synced:<type>``,
+    which the masking treats as a company's locked term (``is_locked``)."""
+
+    id = SYNCED_ID
+    mandatory = True
+    locks = True
+
+    def __init__(self) -> None:
+        # The matcher, how many terms it holds, their tag and the stamp of the change that put them there, swapped
+        # together in one assignment: no reader sees a matcher under another's tag or stamp (a decider's stamps on
+        # either side of a change always tell them apart).
+        self._state: tuple[TermsDetector, int, str, str] = (
+            TermsDetector((), EntityClass.CUSTOM, SYNCED_RULE, every=True),
+            0,
+            "",
+            "",
+        )
+
+    @property
+    def tag(self) -> str:
+        return self._state[2]
+
+    @property
+    def stamp(self) -> str:
+        """Empty while the terms never changed in this process (a space that syncs nothing keeps 0.11's keys: A-M4);
+        after, their tag and the number of the change, ``<tag>#<n>``, which no later change gives again."""
+        return self._state[3]
+
+    @property
+    def count(self) -> int:
+        return self._state[1]
+
+    @property
+    def joinable(self) -> bool:
+        """Read with an applications call's other texts as one text (``Masker.joined``) only while it holds no term: a
+        joined reading's answers carry no locked span, which a synced term is, as ``LockedTermsDetector.joinable`` says;
+        and its terms change in place, so the masker asks again before it answers from a part (``Masker._answer``)."""
+        return self._state[1] == 0
+
+    def use(self, terms: Iterable[tuple[str, str]], tag: str) -> None:
+        """Mask these terms (value, type) from now on, in place of those before, named ``tag``: the matcher is built
+        first, then it, its count and its tag are put in place together. Every term at every place, one inside or
+        across another too (``every``), as a company's locked terms: none may hide another. Each type upper-cased, as
+        the settings' types are (``build.detectors_for``), so that your company's policy of it applies. Any term needs
+        a tag (ValueError, nothing taken): while the tag is empty the keys keep 0.11's form, and would serve what was
+        masked or checked before the terms. A new set of terms needs a new tag; a new tag, the same as one before
+        included, is a change: it gets a stamp of its own (the same tag again changes nothing, nor the stamp)."""
+        listed = [Term(value, etype.upper()) for value, etype in terms]
+        if listed and not tag:
+            raise ValueError("synced terms are used under a tag that names them")
+        stamp = self._state[3] if tag == self._state[2] else f"{tag}#{next(_CHANGES)}"
+        self._state = (TermsDetector(listed, EntityClass.CUSTOM, SYNCED_RULE, every=True), len(listed), tag, stamp)
+
+    def detect(self, text: str, ctx: DetectContext) -> Iterator[Span]:
+        return self._state[0].detect(text, ctx)
 
 
 @dataclass(frozen=True, slots=True)

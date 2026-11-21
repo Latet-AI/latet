@@ -23,7 +23,7 @@ s'en chargent.
   [`upstreams`](../../reference/configuration/#upstreams-items), avec un nom tiré de l'adresse
   (`https://llm.acme.com` devient `llm-acme-com`), et l'agent envoie ses requêtes à
   `http://127.0.0.1:5283/llm-acme-com` à la place. La même adresse reçoit toujours la même destination.
-  Certains noms sont ceux des routes de Latet, et une destination ne peut pas les prendre :
+  Latet réserve certains noms à ses propres routes, et une destination ne peut pas les prendre :
   `anthropic`, `openai`, `chatgpt`, `openrouter`, `gemini`, `bedrock`, `vertex` et `backend-api`.
 - **Bedrock et Vertex ont leurs propres routes**, `/bedrock/<region>/` et `/vertex/`, qui n'atteignent que
   les adresses d'Amazon et de Google.
@@ -82,7 +82,7 @@ rôles, ou à partir des clés écrites dans `~/.aws`. Latet cherche `aws` dans 
 pas le PATH de votre shell. Si votre AWS CLI est ailleurs, démarrez Latet depuis un shell où `aws`
 fonctionne. Les identifiants restent dans la mémoire de Latet, ne sont jamais écrits nulle part, et ne
 signent que les requêtes vers Amazon Bedrock. Quand votre connexion expire, Claude Code le dit en termes
-simples : `run aws sso login --profile work` ; une fois cette commande lancée, tout refonctionne sans rien
+simples : `run aws sso login --profile work` ; une fois cette commande lancée, tout fonctionne de nouveau sans rien
 redémarrer.
 Les réglages `awsAuthRefresh` et `awsCredentialExport` de Claude Code ne sont pas utilisés tant que Latet
 signe : Latet lit lui-même votre profil AWS, lancez donc vous-même la connexion qu'ils auraient lancée.
@@ -194,7 +194,7 @@ local et sur internet passent toujours par Latet.
   qu'un.
 - **Une adresse que deux programmes pourraient lire différemment** (contenant une barre oblique inverse, un
   espace, un nom d'utilisateur ou un mot de passe), ou un serveur hors de votre réseau local joint en
-  `http` : Latet ne la prend pas en charge, et dit pourquoi.
+  `http` : Latet ne la redirige pas, et dit pourquoi.
 - **L'onglet Code de Claude Desktop** ignore ces variables : le plugin y masque, mais le daemon ne voit pas
   les requêtes (voir [Claude Code](../claude-code/#couverture)).
 - **OpenCode** passe par Latet avec Anthropic, OpenAI et OpenRouter ; ses autres fournisseurs, non.
@@ -213,10 +213,10 @@ comme destination :
 latet config add upstreams "{name: llm-acme-com, url: https://llm.acme.com}"
 ```
 
-Chaque ordinateur a encore besoin du plugin de Latet pour Claude Code : lancez-y `latet global-install`,
+Chaque machine a encore besoin du plugin de Latet pour Claude Code : lancez-y `latet global-install`,
 ou démarrez Claude Code avec `latet claude`. Sans le plugin, les requêtes de Claude Code arrivent chez
-Latet sans être masquées : Latet ne fait alors que les vérifier, et arrête chacune de celles qui portent
-une valeur sensible en clair. L'adresse nomme le port 5283 : sur un ordinateur dont le Latet tourne sur un
+Latet sans être masquées : Latet ne fait alors que les vérifier, et arrête toute requête qui porte
+une valeur sensible en clair. L'adresse nomme le port 5283 : sur une machine dont le Latet tourne sur un
 autre port, Latet dit que les réglages gérés envoient Claude Code ailleurs, et ne le démarre pas.
 
 ## Vérifications en chemin

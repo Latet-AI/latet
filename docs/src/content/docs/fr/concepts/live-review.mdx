@@ -63,8 +63,9 @@ approuvez.
 - **Sur une image :** tracez un rectangle sur n'importe quelle partie de l'image, qui est alors
   recouverte d'une barre, ou cochez *Ne pas envoyer cette image* : le reste de la requête part, et le
   modèle reçoit une courte note à la place de l'image. *Telle qu'elle part* affiche l'image telle que
-  Latet l'a masquée. Votre décision est conservée, scellée, pour cette image : renvoyée, même après un
-  redémarrage, elle part de la même façon.
+  Latet l'a masquée ; tant qu'elle attend, elle suit vos règles comme son texte. Votre décision est
+  conservée, scellée, pour cette image : renvoyée, même après un redémarrage, elle part de la même
+  façon.
 - **Tout approuver** : tous les textes en attente, tels que Latet les a masqués.
 - **Au clavier**, une fois ses [raccourcis](../../dashboard/#raccourcis-clavier) activés : A approuve, X
   n'envoie pas, M masque.
@@ -79,7 +80,7 @@ retenu à la place. Une valeur que vous masquez est conservée dans le coffre-fo
 trouvent les détecteurs. Elle est masquée partout où elle apparaît à partir de ce moment, dans chaque
 conversation, et la vérification finale l'arrête si elle s'apprête à partir en clair.
 *Toujours masquer* en fait aussi l'un de vos termes, pour un projet ou partout, pour qu'elle reste
-masquée même après que vous l'avez oubliée du coffre-fort.
+masquée même après que vous l'avez oubliée dans le coffre-fort.
 
 ## Quand vous ne répondez pas
 
@@ -88,7 +89,8 @@ Un texte attend aussi longtemps qu'il le faut. Rien n'en part tant que vous n'av
 - **Vous arrêtez l'agent** (Esc dans Claude Code) : rien n'est envoyé, et le texte quitte la file
   d'attente en moins d'une minute.
 - **Aucun tableau de bord n'est ouvert :** Claude Code vous le signale, et le texte continue d'attendre
-  jusqu'à ce que vous en ouvriez un.
+  jusqu'à ce que vous en ouvriez un. Là où l'équipe de sécurité de votre entreprise décide (plus bas),
+  votre tableau de bord n'a pas besoin d'être ouvert.
 - **Un délai,** si vous en voulez un : au-delà de `timeout_s` secondes, le texte n'est pas envoyé.
 
 ```yaml
@@ -98,13 +100,25 @@ live_review:
   timeout_s: 300             # not set: until you answer
 ```
 
+## Dans une entreprise
+
+Sur un serveur Latet avec Latet Enterprise, votre entreprise peut envoyer ces textes à son équipe de sécurité plutôt
+qu'à vous. L'équipe voit chaque texte comme vous, valeurs comprises, et l'approuve ou l'arrête ; la page
+**Approbations** et Claude Code vous le disent, et vous pouvez toujours arrêter un texte vous-même. Claude Code indique
+une fois par session qui relit vos textes, ou que personne ne peut encore décider, et il le dit aussi quand il travaille
+avec le jeton d'une clé d'API. Ce que l'équipe masque reste masqué dans votre coffre-fort, où vous pouvez l'oublier. Un
+texte que l'équipe a approuvé ne part que tel qu'elle l'a vu : si vos réglages changent avant son envoi, il n'est pas
+envoyé, et il attend de nouveau l'équipe quand l'agent l'envoie à nouveau. Voir
+[Approbations centralisées](../../enterprise/approvals/).
+
 ## Où cela se passe
 
 - **Dans Claude Code,** à l'étape de masquage du plugin, avant que Claude Code ne construise la
   requête. Vous relisez morceau par morceau chaque prompt, chaque fichier et chaque sortie d'outil, à
   mesure qu'ils arrivent. Claude Code construit ensuite la requête avec le texte que vous avez
   approuvé : aucune requête n'est donc modifiée après sa construction. Pendant qu'un texte attend, la
-  ligne d'état de Claude Code affiche *waiting for your approval in the dashboard*.
+  ligne d'état de Claude Code affiche *waiting for your approval in the dashboard*, ou *waiting for your
+  company's security team to approve it* là où l'équipe de sécurité de votre entreprise décide.
 - **Pour les agents qui passent par la passerelle** (Codex, OpenCode, Hermes Agent...), dans le
   daemon : les nouveaux textes d'une requête attendent ensemble, et la requête part une fois que vous
   les avez approuvés. Certains agents abandonnent une requête qui prend trop de temps, et peuvent la

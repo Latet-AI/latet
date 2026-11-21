@@ -19,12 +19,12 @@ La [tabla generada de ajustes del servidor](../../../reference/configuration/#se
 inglés, enumera cada ajuste de la instancia, su valor predeterminado y su función.
 
 Proporciona la clave maestra mediante `master_key_file` o la entrada de entorno compatible
-para esta clave. Prefiere un archivo secreto protegido; no la pongas en un repositorio
+para esta clave. Usa preferiblemente un archivo secreto protegido; no la pongas en un repositorio
 ni en una línea de comandos. Todas las instancias necesitan la misma clave. Guarda una
 copia separada con acceso restringido: sustituir el archivo por una clave aleatoria
-nueva no rota los datos cifrados y vuelve ilegibles los datos existentes. Una entrada de la
+nueva no cambia la clave de los datos cifrados y vuelve ilegibles los datos existentes. Una entrada de la
 caja fuerte que no se abre (sellada con otra clave, o cambiada en la base de datos) se deja
-fuera: el registro da su id, nunca su valor, y el enmascaramiento sigue con las demás entradas.
+fuera: el registro da su ID, nunca su valor, y el enmascaramiento sigue con las demás entradas.
 
 Usa `database_password_file`, `valkey_password_file`, `metrics_token_file` y
 `reviewer_key_file` para sus respectivos secretos. La clave del revisor se lee una vez
@@ -35,7 +35,7 @@ guardada de una persona.
 
 ## Servicios del sistema
 
-Instala el paquete servidor en una ubicación de confianza para todo el sistema, fuera
+Instala el paquete del servidor en una ubicación de confianza para todo el sistema, fuera
 de las carpetas personales. Prepara `server.yaml` con las URL, rutas de archivos secretos
 y configuración TLS descritas arriba; el servicio debe poder leer esos archivos protegidos.
 Crea antes la clave maestra e inicializa desde tu terminal privado de administrador:
@@ -72,8 +72,8 @@ certificate: /etc/latet/server.crt
 key: /etc/latet/server.key
 ```
 
-Da `server.yaml` y cada archivo secreto que nombra, `key` incluido, a root y al grupo `latet`,
-legibles solo por ellos (`0640`, o `0440`):
+Haz que `server.yaml` y cada archivo secreto que nombra, `key` incluido, pertenezcan a root y al
+grupo `latet`, legibles solo por ellos (`0640`, o `0440`):
 
 ```sh
 cd /etc/latet
@@ -82,7 +82,7 @@ chmod 0640 server.yaml master.key db.password valkey.password server.key
 ```
 
 Añade `ner` y `ocr` al extra para la detección de nombres y el reconocimiento de texto. La
-instalación del servicio dice cuál de estas cosas falta: una instalación bajo una carpeta
+instalación del servicio indica cuál de estos problemas encuentra: una instalación bajo una carpeta
 personal, ningún usuario o grupo `latet`, o un archivo con otro propietario u otro modo.
 
 La configuración predeterminada es `/etc/latet/server.yaml`, la unidad es `latet-server` y
@@ -109,7 +109,7 @@ Start-Service LatetServer
 
 `--print` muestra el plan sin instalar. La instalación requiere root en Linux o privilegios
 de administrador en Windows y habilita el servicio al arrancar; inícialo explícitamente
-cuando esté listo. Las invocaciones de agentes se rechazan incluso con `--print` o
+cuando esté listo. Desde un agente se rechaza, incluso con `--print` o
 `--yes`. En tu propio terminal, la instalación pregunta antes de cambiar nada, con `--yes` o sin él;
 `--yes` permite que un script tuyo, sin terminal, instale sin la pregunta. La instalación en un
 contenedor se rechaza. Estos comandos describen el procedimiento, no un servicio ya instalado en tu equipo.
@@ -156,7 +156,10 @@ printf 'LATET_SERVER_URL=https://latet.acme.lan\nLATET_SERVER_HOST=latet.acme.la
 Este ejemplo para shell POSIX elige el proyecto `latet`, con la red interna
 `latet_latet-back`. La inicialización usa `--log-driver none` de Docker porque imprime
 el token de administración; mantén privado el terminal y transfiere el token a tu almacén
-de secretos. Comprueba que haya terminado correctamente antes de iniciar las instancias:
+de secretos. La inicialización la ejecuta una persona, en su propio terminal, nunca un agente de
+IA: quien la ejecuta tiene el token de administración, y dentro de un contenedor la protección de
+Latet contra los agentes que ejecutan comandos de administración no puede ver quién la ejecuta.
+Comprueba que haya terminado correctamente antes de iniciar las instancias:
 
 ```sh
 # --wait returns only once PostgreSQL and Valkey are healthy (at most 120 s): go on only if it succeeds
@@ -185,29 +188,29 @@ Cuando la inicialización termine correctamente, inicia las instancias y Caddy:
 docker compose -p latet --profile server up -d latet-server-1 latet-server-2 caddy
 ```
 
-En el perfil servidor, solo Caddy publica un puerto: `443`. El servicio local separado
-`latet` sigue en el archivo Compose; la lista explícita anterior no lo inicia.
+En el perfil servidor, solo Caddy publica un puerto: `443`. El servicio aparte
+`latet`, el predeterminado para un equipo, sigue en el archivo Compose; la lista explícita anterior no lo inicia.
 La red frontal es `172.28.0.0/24`, con asignación automática de `172.28.0.128/25`;
 la dirección fija de Caddy, `172.28.0.2`, queda fuera de ese rango y es el único proxy
-de confianza. La red posterior es interna.
+de confianza. La red de back-end es interna.
 
 Caddy usa los archivos TLS proporcionados, un límite de petición de **32 MiB**, envío
-inmediato de los flujos y cambios a WebSocket. Mantén desactivados los registros de acceso
+inmediato de los flujos y el paso a WebSocket. Mantén desactivados los registros de acceso
 y conserva la exclusión global `log default { exclude http.log.error }`: de lo contrario,
 los errores del proxy pueden registrar URI y cabeceras de autenticación personalizadas.
 Caddy no incluye un limitador de frecuencia; los límites por cliente corresponden a un
 proxy externo o a un WAF.
 
-Los contenedores servidor usan registros JSON-file acotados y no bloqueantes.
+Los contenedores del servidor usan registros JSON-file acotados y no bloqueantes.
 Las instancias se ejecutan con el usuario sin privilegios de la imagen, uid y gid `10001`,
-nunca como root. Tienen raíz de solo lectura, capacidades eliminadas y `/tmp` temporal;
-este ejemplo no impone un límite de memoria a las instancias de producción. Dimensiona
-espacios, modelos y OCR concurrente sin copiar los límites de las pruebas de humo.
-Valkey tiene memoria acotada con `noeviction`. La imagen incluye los avisos de terceros.
+nunca como root. Tienen el sistema de archivos raíz de solo lectura, las capacidades eliminadas y un `/tmp`
+temporal; este ejemplo no impone un límite de memoria a las instancias de producción. Calcula la
+memoria para los espacios, los modelos y el trabajo de OCR simultáneo, en lugar de copiar los
+límites de las pruebas de humo. Valkey tiene una asignación de memoria acotada con `noeviction`. La imagen incluye los avisos de terceros.
 
 ## PostgreSQL y Valkey
 
-Para PostgreSQL fuera del equipo de la instancia, usa TLS verificado en la URL de
+Para PostgreSQL fuera de la máquina de la instancia, usa TLS verificado en la URL de
 conexión, por ejemplo `?sslmode=verify-full&sslrootcert=system`, o indica el archivo del
 certificado de confianza. Aquí `verify-full` sin `sslrootcert` no basta. Las URL sin
 host y las conexiones por nombre de servicio se rechazan; las variables `PG*` no completan
@@ -220,16 +223,16 @@ pero no Cluster. Sus scripts operan entre varios prefijos de clave. Establece
 `maxmemory-policy` en `noeviction`, reserva memoria para los espacios previstos y vigila
 la capacidad. Perder estado de coordinación no equivale a descartar una caché de aplicación inocua.
 
-Exige autenticación y TLS verificado (`rediss://`) cuando Valkey esté fuera del equipo
+Exige autenticación y TLS verificado (`rediss://`) cuando Valkey esté fuera de la máquina
 de la instancia. Las excepciones `database_private_network`, `valkey_private_network`
-y `valkey_unauthenticated` son decisiones explícitas de instalación para servicios a
+y `valkey_unauthenticated` son decisiones explícitas de despliegue para servicios a
 los que solo pueden acceder las instancias previstas; no las uses para ocultar un error
 de certificado o autenticación en una red compartida ordinaria.
 
 Antes de usar esta receta, comprueba que el usuario de Valkey `latet` no exista. La receta
 crea un usuario nuevo; si ya existe, detente y pide al operador que revise su ACL,
 contraseñas y selectores. Aplicar el comando a un usuario existente añade reglas a su
-configuración; esta receta no la restablece ni realiza la rotación de sus contraseñas.
+configuración; esta receta no la restablece ni cambia sus contraseñas.
 
 Asigna a la aplicación un usuario Valkey propio con esta ACL. Utiliza el espacio de
 nombres predeterminado `latet:`; sustituye el marcador `password` mediante una conexión
@@ -242,8 +245,8 @@ ACL SETUSER latet on >password ~latet:* resetchannels &latet:identity:* &latet:a
 
 Conserva los patrones de suscripción literalmente: las suscripciones por patrón necesitan
 esos permisos exactos. Los scripts Lua y `SCAN` siguen disponibles para la coordinación
-y la limpieza selectiva; `MONITOR`, `CONFIG`, `KEYS` y `DEBUG` se deniegan. Un test automático
-aislado comprueba esta receta sustituyendo solo usuario, contraseña y espacio de nombres;
+y la limpieza selectiva; `MONITOR`, `CONFIG`, `KEYS` y `DEBUG` se deniegan. Una prueba automática
+aislada comprueba esta receta sustituyendo solo usuario, contraseña y espacio de nombres;
 no examina ni configura tu servicio desplegado.
 
 Ejecuta las migraciones como propietario del esquema. La primera crea el esquema y
@@ -265,7 +268,7 @@ Las marcas de bloques comprobados y registrados admiten 200.000 entradas cada un
 los textos inversos y las asociaciones de respuestas, 50.000 cada uno; las sesiones
 AWS, 200, y las sesiones del panel, 10 por persona.
 Los textos inversos son salidas del modelo guardadas para reconocerlas cuando vuelven
-en una solicitud posterior.
+en una petición posterior.
 
 Son ejemplos de planificación, no mediciones. Se suponen 256 bytes asignados por entrada
 de conversación y 192 por marca de bloque. Los otros tamaños indican texto en claro
@@ -278,27 +281,27 @@ bytes ya cuentan estos costes.
 | Textos / cola / eventos | 8 / 8 / 1 MiB | 32 / 64 / 16 MiB |
 | Entradas de conversación | 20.000 de 256 bytes | 1.000.000 de 256 bytes |
 | Marcas comprobadas / registradas | 10.000 cada una de 192 bytes | 200.000 cada una de 192 bytes |
-| Textos inversos | 5.000 de 2 KiB | 50.000 de 2 KiB |
-| Asociaciones de respuestas | 5.000 de 64 bytes | 50.000 de 64 bytes |
+| Textos inversos | 5000 de 2 KiB | 50.000 de 2 KiB |
+| Asociaciones de respuestas | 5000 de 64 bytes | 50.000 de 64 bytes |
 | Sesiones AWS | 10 de 2 KiB | 200 de 2 KiB |
 | Sesiones del panel | 2 de 128 bytes | 10 de 128 bytes |
 | **Subtotal modelado por identidad** | **40,76 MiB** | **581,75 MiB** |
 
-Con una reserva ilustrativa del 50% resultan 61,13 y 872,62 MiB por identidad, o unos
+Con una reserva ilustrativa del 50 % resultan 61,13 y 872,62 MiB por identidad, o unos
 5,97 y 85,22 GiB para 100 identidades. Presupuesta por separado la memoria base de Valkey,
 las conexiones, la replicación/persistencia y las estructuras restantes o fragmentación
 que superen esa reserva. Cuenta las identidades cuyos datos siguen retenidos, no solo
-las que hacen solicitudes ahora. Las cachés de la aplicación y los modelos OCR requieren
+las que hacen peticiones ahora. Las cachés del proceso de la aplicación y los modelos OCR requieren
 RAM separada.
 
-El ejemplo saturado **no es el peor caso absoluto**: los registros pequeños siguen siendo
-una suposición. La cola de escrituras pendientes de 4 MiB no limita a 4 MiB la familia
+El ejemplo saturado **no es el peor caso absoluto**: los tamaños pequeños de sus registros
+son suposiciones. La cola de escrituras pendientes de 4 MiB no limita a 4 MiB la familia
 persistente de textos inversos. Una sucesión de registros cercanos a 4 MiB puede aproximarse
 a 195 GiB solo para 50.000 registros inversos, antes de otras familias. Es una estimación
 amplia derivada del código, no una carga medida ni una cuota total. Una clave de conversación
 o una ruta de carpeta larga también puede superar el tamaño supuesto. Conserva `noeviction`,
-vigila los tamaños y la ocupación reales y dimensiona para la carga admitida: los recuentos
-por sí solos no garantizan un pequeño techo de memoria por identidad.
+vigila los tamaños y la ocupación reales y planifica para la carga admitida; no prometas un techo
+de memoria reducido por identidad basándote solo en el número de entradas.
 
 Latet 0.11 añade tres tipos de claves, cada uno acotado, ninguno con un texto, un valor o un valor
 ficticio:
@@ -313,7 +316,7 @@ ficticio:
   sellado de 16 KiB como máximo por cada lanzamiento abierto en ese momento, como máximo 64 a la vez
   por identidad.
 - **Las excepciones de petición usadas con el historial desactivado**: una fila por instancia e
-  identidad, solo con ids y números, actualizada cuando la instancia revisa sus espacios y borrada 30
+  identidad, solo con identificadores y números, actualizada cuando la instancia revisa sus espacios y borrada 30
   segundos después de que la instancia se detiene. Valkey tal como lo entrega el perfil de Compose no
   guarda nada en disco (`save ""`, `appendonly no`); un operador que active su persistencia escribe
   estos recuentos en disco.
@@ -326,8 +329,8 @@ desde otras direcciones. Mantén los relojes sincronizados, con una diferencia m
 de 60 segundos. Restringe por separado el acceso directo a los proveedores si el servidor
 es el punto de control obligatorio de la empresa.
 
-El límite predeterminado del cuerpo de una solicitud es de 32 MiB. `requests_in_flight`
-vale 16 por identidad en una instancia, con cuotas separadas para solicitudes a destinos,
+El límite predeterminado del cuerpo de una petición es de 32 MiB. `requests_in_flight`
+vale 16 por identidad en una instancia, con cuotas separadas para las peticiones a destinos,
 al panel, al bridge y a la API para aplicaciones. Las esperas largas y los flujos tienen sus propios límites. Un
 rechazo por capacidad exige revisar carga y límites, no desactivar la protección.
 Al apagarse, una instancia tiene 30 segundos para terminar; los flujos largos pueden
@@ -344,7 +347,7 @@ Latet 0.11 lee cada parte de cada petición que reenvía
 Medido con una instancia en Windows en ese equipo, como mediana, frente a la misma versión sin esa
 lectura: una petición de chat pequeña tardó 6,99 ms en lugar de 5,95, la primera petición de una
 clave nueva 104 ms en lugar de 97, un cuerpo JSON de 1 MiB 391 ms en lugar de 373, una petición de
-4.000 huecos 1.088 ms en lugar de 779, y una petición de 500 textos ya enmascarados y uno nuevo
+4000 huecos 1088 ms en lugar de 779, y una petición de 500 textos ya enmascarados y uno nuevo
 183 ms en lugar de 158.
 
 El OCR usa lectores limitados, cada uno con sus modelos en memoria. `ocr_readers` vale
@@ -352,21 +355,21 @@ El OCR usa lectores limitados, cada uno con sus modelos en memoria. `ocr_readers
 un worker: los procesadores de la máquina divididos entre los workers).
 `ocr_read_seconds` vale 30; `ocr_wait_seconds` vale 35 y no puede ser menor que el tiempo
 de lectura. Aumentar los lectores consume memoria además de CPU. Una imagen no leída
-se retiene o se rechaza su solicitud verificada, según la ruta protegida; aumentar los
+se retiene, o se rechaza su petición si es una que solo se comprueba, según la ruta protegida; aumentar los
 tiempos de espera no mejora la precisión del reconocimiento.
 
 El espacio de una clave de API guarda en memoria los valores que la clave usó por última vez
-(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave), las huellas de las palabras de
+(`key_working_values`, 5000 por defecto, unos 10 MiB por clave), las huellas de las palabras de
 toda su caja fuerte (unos 15 MB por un millón de valores) y, para siempre, sus secretos cortos más
 recientes que ninguna palabra de un texto encuentra cuando otras letras están pegadas a ellos
-(`key_held_secrets`, 1.000 por defecto, unos 23 KB cada uno, la mayor parte en el detector que los
+(`key_held_secrets`, 1000 por defecto, unos 23 KB cada uno, la mayor parte en el detector que los
 encuentra). Cada instancia y cada worker que sirve a la clave guarda todo eso. Mientras construye
 el índice de las huellas de una caja fuerte, una instancia guarda más por un momento: 49 MB más para
 1.000.000 de valores, durante unos 1,4 segundos, dentro de los 64 MB que reserva antes, y dos
 construcciones a la vez como mucho. Sube `key_held_secrets` para una clave que ve muchos secretos
 cortos, como un token de sesión en cada línea de registro: cada texto que la clave enmascara o
 restaura se recorre para buscar cada uno de los que se guardan, así que sus llamadas también se
-vuelven un poco más lentas (restaurar es alrededor de una décima parte más lento con 1.000
+vuelven un poco más lentas (restaurar es alrededor de una décima parte más lento con 1000
 guardados, medido con Latet 0.10.0)
 ([la caja fuerte de una clave](../../applications/#la-caja-fuerte-de-una-clave)).
 
@@ -385,11 +388,11 @@ caja fuerte grande. Una caja fuerte guardada por una versión anterior de Latet 
 la memoria, como antes, hasta que sus palabras se crean, una sola vez, en segundo plano en
 una instancia; el espacio construido después trabaja con PostgreSQL.
 
-Medido con Latet 0.11 en el equipo de [velocidad](../../applications/#velocidad), en el motor (el
-enmascaramiento de la pasarela solo, no a través de HTTP), una línea cada vez, en turnos de 500 líneas
+Medido con Latet 0.11 en el equipo de [velocidad](../../applications/#velocidad), en el motor (solo el
+enmascaramiento de la puerta de enlace, no a través de HTTP), una línea cada vez, en turnos de 500 líneas
 alternados con la caja fuerte de Latet 0.10.0 en el mismo proceso, cinco cada uno (medianas de los turnos): la
 caja fuerte de una persona de 20.000 valores, guardada entera, enmascaró 851 líneas por segundo frente a 558 de
-la 0.10.0, 1,52 veces donde esta versión se proponía llegar al doble; una de 5.000 valores 885 frente a 1.094,
+la 0.10.0, 1,52 veces donde esta versión se proponía llegar al doble; una de 5000 valores 885 frente a 1094,
 0,81 veces, porque la lectura del contador de cambios hecha antes de cada línea, de alrededor de medio
 milisegundo allí, es una parte grande del tiempo de una línea; una de 200.000 valores, sobre su almacén, 385
 frente a 59. Con 200.000 valores, el espacio de una persona ocupaba 24 MB más tras sus líneas, donde la caja
@@ -410,16 +413,16 @@ hacía Latet 0.10.2.
 ### Conexiones, límites y confianza
 
 - **Las credenciales rechazadas** cuentan para la dirección de la que llegan: una dirección IPv4 o, en IPv6, su
-  /64 y, en conjunto, su /48. Una credencial reconocida como válida en la última hora, y un enlace de acceso emitido
-  por el servidor, no cuentan para ese límite, así que los intentos fallidos de un vecino tras el mismo NAT solo frenan las
+  /64 y, en conjunto, su /48. Una credencial reconocida como válida en la última hora, y un enlace de inicio de sesión
+  emitido por el servidor, no cuentan para ese límite, así que los intentos fallidos de un vecino tras el mismo NAT solo frenan las
   credenciales no reconocidas como válidas recientemente, mientras duren los intentos; un proxy o un cortafuegos
-  delante que limite a cada cliente lo evita. Mientras los hilos que comprueban credenciales están ocupados, los
-  registros de equipos y las credenciales nuevas para todas las instancias reciben 503 con `Retry-After`, y un
-  enlace de acceso al panel se envía a `?login=busy`.
+  delante que limite a cada cliente lo evita. Mientras los hilos que comprueban credenciales están ocupados, las
+  altas de equipos y las credenciales nuevas para todas las instancias reciben 503 con `Retry-After`, y un
+  enlace de inicio de sesión al panel se envía a `?login=busy`.
 - **El token y la clave de un equipo:** el token que guardan los agentes de un equipo abre el bridge del plugin,
   el proxy del espacio y las dos llamadas del equipo al iniciar un agente (un destino añadido para una
   dirección, lo que no reduce nada, y el valor ficticio del nombre de usuario), dice de quién es y se revoca
-  a sí mismo; un enlace de acceso al panel y un cambio de la
+  a sí mismo; un enlace de inicio de sesión al panel y un cambio de la
   identidad de la persona piden también la clave del equipo (cabecera `x-latet-computer-key`), que se queda en
   el almacén de credenciales de ese equipo. Una clave ausente o incorrecta se rechaza (403
   `computer_key_required`) y cuenta para su dirección como una credencial rechazada.
@@ -435,24 +438,27 @@ hacía Latet 0.10.2.
   cierran al terminar la construcción: cuéntalas también en `max_connections`. Si no queda ninguna libre, la
   construcción usa una conexión del pool. Una llamada a la API para aplicaciones que conserva valores nuevos
   ocupa una hasta que termina, como mucho tres décimas partes del pool (tres de diez); por encima, las llamadas
-  conservan cada valor nuevo enseguida, más despacio. Sube `database_pool`, y con él `max_connections`, para una
+  guardan cada valor nuevo en el momento, lo que es más lento. Sube `database_pool`, y con él `max_connections`, para una
   instancia que enmascara para muchas claves nuevas a la vez.
 - **Valkey:** cada instancia, y también cada worker, mantiene hasta `valkey_connections` conexiones (100 por
   defecto), y por encima una llamada espera cinco segundos como máximo. El `maxclients` de Valkey debe cubrir las
   conexiones de todas las instancias. La conexión a Valkey, su TLS y su primera respuesta comparten un único
   límite de cinco segundos.
-- **Memoria:** cada instancia, y también cada worker, da a los espacios que guarda 2 GiB, pesados según los
-  recuentos que llevan sus partes en lugar de leídos del proceso. Un espacio ocupa como mucho la mitad, y sus
+- **Memoria:** cada instancia, y también cada worker, da a los espacios que guarda 2 GiB, calculados a partir de
+  los recuentos que llevan sus partes en lugar de leídos del proceso. Un espacio ocupa como mucho la mitad, y sus
   detectores hasta una octava parte de esa mitad más (128 MiB), que un espacio ocupado conserva mientras sus
   peticiones están en curso: varios espacios ocupados pueden superar los 2 GiB en eso cada uno. El propio
-  proceso, los modelos de reconocimiento y los índices en construcción van aparte. Un worker se vuelve a
-  arrancar cuando termina o se queda en silencio, nunca por su memoria: planifica la memoria de la máquina para
-  N workers ([varias instancias en una máquina](#varias-instancias-en-una-máquina)).
+  proceso, los modelos de reconocimiento y los índices en construcción van aparte. Con la sincronización de
+  términos de Latet Enterprise, cada instancia, y también cada worker, guarda una sola copia de los términos
+  sincronizados para todos los espacios que atiende: unos 30 MB con 50.000 términos, además de los 2 GiB, y otro
+  tanto durante un momento mientras los sustituyen términos nuevos. Un worker se vuelve a arrancar cuando termina
+  o se queda en silencio, nunca por su memoria: planifica la memoria de la máquina para N workers
+  ([varias instancias en una máquina](#varias-instancias-en-una-máquina)).
 - **Los certificados de los proveedores:** una instancia confía en el almacén de certificados del sistema
   operativo; en Linux, en las rutas predeterminadas de OpenSSL, que `SSL_CERT_FILE` y `SSL_CERT_DIR` cambian para
   todo el proceso. Cámbialas solo para añadir la autoridad de tu empresa.
 - **`SSLKEYLOGFILE`** no debe definirse para una instancia: las conexiones TLS que la leen, entre ellas la de
-  Valkey, escriben sus claves de sesión en ese archivo, y quien lo lee lee ese tráfico. Una instancia arrancada con
+  Valkey, escriben sus claves de sesión en ese archivo, y quien lo lee puede leer ese tráfico. Una instancia arrancada con
   ella lo indica en su registro.
 
 ## Actualizar y añadir instancias
@@ -472,14 +478,14 @@ La 0.11 también cambia las tablas, así que el servidor se detiene para su migr
    la 0.10 deja su clave en Valkey al detenerse, y cuenta como viva hasta que la clave caduca, 30
    segundos después de su último latido. Mientras una instancia de la 0.10 o de la 0.11 está viva, no
    migra nada, dice cuántas están vivas y de qué versión (`1 instance of the server is alive (1 of
-   Latet 0.10 or older): nothing was migrated`) y termina con 2: detenlas y vuelve a ejecutarlo. Con
+   Latet 0.10 or older): nothing was migrated`) y termina con el código 2: detenlas y vuelve a ejecutarlo. Con
    una migración pendiente, ni él ni `latet server init` migran nada tampoco mientras Valkey no
    responde. La migración añade a cada fila de palabra de cada caja fuerte un sitio vacío para su
    huella y para el número del cambio que la escribió por última vez, con sus índices: en una base de
    datos con cajas fuertes grandes tarda más que las migraciones anteriores, y las huellas mismas se
    calculan después, en segundo plano (más abajo). Una vez aplicadas las migraciones, vuelve a
-   preguntar a Valkey, y cuando una instancia se ha puesto viva entretanto lo dice tras lo que ha
-   aplicado y termina con 1 (`The tables are migrated, and 1 instance of the server is alive (1 of
+   preguntar a Valkey, y cuando una instancia se ha activado entretanto lo dice tras lo que ha
+   aplicado y termina con el código 1 (`The tables are migrated, and 1 instance of the server is alive (1 of
    Latet 0.10 or older): stop it, then start it with this version of Latet`).
 4. Arranca cada instancia con la 0.11. Entre la parada y este arranque no se responde ninguna
    llamada.
@@ -489,7 +495,7 @@ primera instancia que construye su espacio, una vez, una instancia cada vez, y c
 construye su propio índice de esas huellas, para la caja fuerte de una persona como para la de una
 clave de API. Hasta entonces, las peticiones y las llamadas de esa identidad se responden buscando
 sus palabras en PostgreSQL, como hacía la 0.10, más despacio, y ninguna se rechaza por ello. Una
-instancia cuyo índice no puede construirse (las huellas aún no todas calculadas, PostgreSQL o Valkey
+instancia cuyo índice no puede construirse (no todas las huellas calculadas todavía, PostgreSQL o Valkey
 que no responden, una actualización del índice que falló) deja esa identidad en la búsqueda en
 PostgreSQL y vuelve a construir el índice: enseguida cuando termina el cálculo de las huellas, en esa
 instancia o en otra, y si no 10, 20 y 30 segundos después de cada intento y luego una vez por minuto,
@@ -500,21 +506,25 @@ fuerte por encima de 16.777.216 huellas, unos ocho millones de valores, no tiene
 su espacio: sus búsquedas van a PostgreSQL, y un espacio nuevo lo intenta una vez más. La caja fuerte
 de una persona guardada antes de Latet 0.10.0, cuyos valores aún no tienen palabras, se guarda entera
 en memoria, como antes, hasta que sus palabras y sus huellas se crean, una vez, en una instancia; el
-espacio de la persona construido después trabaja con PostgreSQL. La 0.11 no vuelve a hacer las
+espacio de la persona construido después trabaja con PostgreSQL. La 0.11 no vuelve a generar las
 palabras de ninguna clave ([actualizar un servidor](../../applications/#actualizar-un-servidor)).
 
 Latet lee cada petición según el perfil de su ruta, que nombra cada campo, cabecera y parámetro de
-consulta que lleva. En cada versión de Latet, y al menos cada dos semanas, las versiones más recientes
-de los agentes que Latet admite pasan por las peticiones que estos perfiles describen. En una
+consulta que lleva. En cada versión de Latet, y al menos cada dos semanas, se prueban las versiones más
+recientes de los agentes que Latet admite con las peticiones que describen estos perfiles. Un miembro
+nuevo del cuerpo se lee entero y se comprueba, y pasa tal como llegó cuando nada en él se enmascararía y
+no nombra nada sobre lo que actúe el proveedor ([Nuevos miembros de las
+peticiones](../../getting-started/upgrading-to-0-11/#nuevos-miembros-de-las-peticiones)). En una
 petición que Latet solo comprueba (Claude Code, Bedrock, Vertex), pasan, leídos por la comprobación
-final, un miembro nuevo del cuerpo que contiene texto, una cabecera `anthropic-*` nueva o un valor
-nuevo de `anthropic-beta`, y se quita una cabecera `x-claude-code-*` nueva. Cuando la actualización
-de un agente envía cualquier otra cosa que ningún perfil nombra, la nueva revisión del perfil sale en
-una versión de corrección; hasta que la instales, esa petición se rechaza, nombrando su categoría, y no
-sale nada de ella. Mantén las instancias en la última versión de corrección de su versión.
+final, una cabecera `anthropic-*` nueva o un valor nuevo de `anthropic-beta`, y se quita una cabecera
+`x-claude-code-*` nueva. Cuando la actualización de un agente envía cualquier otra cosa que ningún
+perfil nombra, como otra cabecera o un miembro del cuerpo que nombra un recurso, la nueva revisión del
+perfil sale en una versión de corrección; hasta que la instales, esa petición se rechaza, nombrando su
+categoría, y no sale nada de ella. Mantén las instancias en la última versión de corrección de su
+versión.
 
-Las instancias comparten las mismas tablas, y una instancia solo arranca sobre tablas de su versión. La
-base de datos es tuya de guardar: Latet no copia nada de ella. Antes de descargar una imagen nueva y de
+Las instancias comparten las mismas tablas, y una instancia solo arranca sobre tablas de su versión. Las
+copias de la base de datos son cosa tuya: Latet no copia nada de ella. Antes de descargar una imagen nueva y de
 ejecutar `latet server migrate`, haz una copia con `pg_dump`, que es coherente incluso mientras las
 instancias escriben:
 
@@ -549,6 +559,12 @@ latet server migrate --check
   vez, de personas y de claves, así que varias claves grandes construidas a la vez tras un reinicio retienen las
   primeras llamadas de todos los demás espacios de esa instancia: envía una llamada a cada clave grande, una
   clave tras otra, antes de que vuelva el tráfico.
+
+Con Latet Enterprise, las [directrices](../../enterprise/locked-rules/) del servidor se aplican en cada instancia a
+medida que se actualiza: una instancia de una versión anterior, o sin la Enterprise Edition, no aplica ninguna.
+Mientras sustituyes las instancias una a una, define las directrices solo cuando todas las instancias ejecuten esta
+versión, o vuelve a definirlas entonces; `latet server policy set` avisa mientras una instancia activa aún no las
+aplica.
 
 En el ejemplo de Compose, cuando las tablas cambian, los mismos pasos se ejecutan en contenedores de la
 nueva imagen (la pausa deja caducar las claves de las instancias de la 0.10 detenidas; una instancia
@@ -614,7 +630,7 @@ núcleo que la máquina da al servidor.
 - **El proceso que los arranca:** no construye ningún espacio ni abre ninguna base de datos, clave
   maestra o certificado; cada worker lo hace en su propio proceso. Arranca con los ajustes y el
   entorno del servidor y se los pasa a los workers, así que protégelo como una instancia.
-- **Métricas:** el worker 0 responde a Prometheus en `metrics_port`, cada otro worker en el puerto
+- **Métricas:** el worker 0 responde a Prometheus en `metrics_port`, cada uno de los demás workers en el puerto
   siguiente (7283, 7284 y así sucesivamente): consulta cada uno. `latet_process_memory_bytes` es la
   memoria de un worker (su memoria residente en Linux, sus bytes privados en Windows), y
   `latet_vault_index_bytes` la parte que ocupan los índices de sus cajas fuertes.
@@ -624,7 +640,8 @@ núcleo que la máquina da al servidor.
   workers y el servidor, como se detiene una instancia sola, para que decida el gestor de servicios.
   Un worker que no está listo (PostgreSQL o Valkey no responden) se queda: decide la comprobación de
   disponibilidad del equilibrador. `latet server status` lista cada instancia viva, cada worker de
-  cada máquina, con su número de worker, si está lista, su memoria y su versión; un worker que murió
+  cada máquina, con su número de worker, si está lista, su memoria, su versión y su edición (Community
+  o Enterprise); un worker que murió
   sigue en la lista hasta 30 segundos después de que arranque el que lo sustituye. Una petición que un
   worker estaba sirviendo cuando terminó no recibe respuesta: su cliente recibe un error y tiene que
   volver a enviarla, y ninguna recibe una respuesta sin enmascarar. En Linux, las conexiones que
@@ -665,8 +682,8 @@ carpetas que ha encontrado.
 
 Hasta la 0.10.4, `latet upgrade` solo nombraba la detección de nombres y la lectura de texto en
 imágenes, y uv quitaba los demás extras: un servidor actualizado así perdía `server` (psycopg y
-redis), y `latet server run` se negaba después a arrancar. Un servidor con la 0.10.4 o anterior pasa
-por eso una vez a una versión posterior con el comando de arriba, nombrando `server`, o con el
+redis), y `latet server run` se negaba después a arrancar. Por eso, un servidor con la 0.10.4 o anterior
+pasa una vez a una versión posterior con el comando de arriba, nombrando `server`, o con el
 instalador descargado de nuevo desde GitHub y ejecutado con las mismas variables `UV_*`. Un servidor
 que ya ha perdido `server` lo recupera con el comando de arriba: el instalador no puede saber de un
 extra que ya no está.
@@ -674,7 +691,7 @@ extra que ya no está.
 ## Modelos de reconocimiento en un servidor
 
 La detección de nombres y el reconocimiento de texto leen sus modelos de la carpeta de datos del
-servidor, no del ordenador del administrador. Instálalos allí, con la cuenta con la que se ejecutan las
+servidor, no del equipo del administrador. Instálalos allí, con la cuenta con la que se ejecutan las
 instancias: `latet ner install` y `latet ocr install` con `LATET_DATA_DIR` apuntando a esa carpeta. En
 el ejemplo de Compose, la carpeta es el volumen `latet-server-data`, montado en `/data` en cada
 instancia: instálalos desde un contenedor de una instancia y después reinicia las instancias.
@@ -714,7 +731,7 @@ en un perfil compartido. Solo el primer token de la clave tiene estas direccione
 y lo dice.
 
 El programa debe confiar en el certificado del servidor: uno de una autoridad en la que ya confía, o el
-certificado añadido a su propia configuración de confianza.
+certificado añadido a sus propios ajustes de confianza.
 
 Un programa que enmascara sus propios registros o documentos llama en su lugar a la
 [API para aplicaciones](../../applications/): sin variables, con un token de la clave en su cabecera
@@ -726,8 +743,8 @@ administración de cada restauración se escribe antes de su respuesta, una a la
 registro, por dos hilos de cada instancia para las restauraciones de todas las claves; y los olvidos se
 ejecutan de dos en dos en cada instancia, para todas las claves. Una clave que envía muchas
 restauraciones a la vez, u olvida una lista larga, retrasa las restauraciones o los olvidos de las
-demás claves, nunca una inscripción, una revocación ni lo que envían los agentes. El registro de
-administración crece una fila por cada llamada de restauración.
+demás claves, nunca un alta de equipo, una revocación ni lo que envían los agentes. El registro de
+administración crece en una fila por cada llamada de restauración.
 
 ## Registros, métricas y recuperación
 
@@ -735,24 +752,28 @@ Los registros de la aplicación van a la salida estándar en `text` o `json`. Pr
 y rota los archivos de registro de la instalación. El registro de administración es
 separado y anota operaciones, incluidas emisiones de códigos y cambios de credenciales.
 Léelo con `latet server log` y comprueba su cadena con `latet server log verify`. Guarda
-la cabecera devuelta fuera de la base de datos: borrar el final puede dejar válida la cadena restante.
+la cabeza devuelta fuera de la base de datos: borrar el final puede dejar válida la cadena restante.
 
-El resultado sobre la cadena del comando status está en caché y puede ser desconocido;
-no es una nueva comprobación completa. Las métricas Prometheus usan un listener separado,
-`127.0.0.1:7283` por defecto, y requieren `metrics_token_file`. Distingue un resultado desconocido de una cadena rota.
+El veredicto sobre la cadena que da el comando status está en caché y puede ser desconocido;
+no es una nueva comprobación completa. Las métricas de Prometheus usan un receptor aparte,
+`127.0.0.1:7283` por defecto, y requieren `metrics_token_file`. Distingue un veredicto desconocido de una cadena rota.
 La [referencia de administración](../../reference/server-administration/) define la
 paginación del registro y el significado preciso de `latet_ocr_unread_total{reason}`.
+
+Con la sincronización de términos de Latet Enterprise, pon una alerta en cada instancia a la que le falte
+`latet_terms_masked`, cuyo `latet_terms_behind_seconds` supere 60 o cuyo `latet_terms_unreadable` supere 0: esa
+instancia nunca cargó los términos sincronizados, o enmascara términos más antiguos que los del servidor.
 
 Cada restauración a través de la API para aplicaciones es una entrada `apps.unmasked` del registro de
 administración, con el token y cuántos valores restauró, y cada olvido una entrada `apps.forgotten`,
 con el token y cuántos valores quitó de la caja fuerte de la clave; el análisis y el enmascaramiento
 solo se
 cuentan en las métricas (`latet_apps_texts_total` y `latet_apps_values_total`, por operación, y las
-solicitudes como `latet_http_requests_total{kind="apps"}`), sin etiqueta para la clave
+peticiones como `latet_http_requests_total{kind="apps"}`), sin etiqueta para la clave
 ([qué registra el servidor](../../reference/apps-api/#qué-registra-el-servidor)).
 
 En esta configuración Compose, consulta `127.0.0.1:7283` desde dentro de cada instancia con
-su token de métricas. No hay puerto publicado, ruta Caddy ni red de monitorización incluida.
+su token de métricas. No hay puerto publicado, ruta de Caddy ni red de monitorización incluida.
 Otro despliegue debe preparar explícitamente una ruta de consulta protegida y autenticada;
 el puerto HTTPS de la aplicación no sirve estas métricas. El receptor de las métricas solo
 responde a `GET /_latet/metrics`, y a cualquier otra ruta con `404`: Prometheus pide `/metrics`
@@ -766,7 +787,7 @@ base de datos desde una copia de seguridad si el registro se alteró.
 
 Un Prometheus junto a una instancia la consulta así, cada 30 segundos; sirve cualquier intervalo de hasta
 dos minutos. Las alertas esperan más de una consulta, porque la primera tras un arranque aún no tiene
-las lecturas de los servicios:
+las lecturas de los almacenes:
 
 ```yaml
 scrape_configs:
@@ -797,7 +818,7 @@ groups:
 ```
 
 Haz copias de seguridad de PostgreSQL, la clave maestra correspondiente y la configuración
-con controles de acceso adecuados. Prueba la restauración en un entorno aislado antes
+del despliegue, con controles de acceso adecuados. Prueba la restauración en un entorno aislado antes
 de confiar en la copia. Restaurar una base de datos antigua puede restaurar también
 autorizaciones antiguas: reconcilia credenciales y revocaciones antes de reabrir el
 servicio. La conservación del historial y su borrado desde el panel no eliminan copias

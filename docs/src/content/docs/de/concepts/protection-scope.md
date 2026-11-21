@@ -3,7 +3,7 @@ title: Was geschützt ist und was nicht
 description: Die Grenzen von Latet. Lesen Sie dies, bevor Sie sich darauf verlassen.
 ---
 
-Latet verringert, was Ihr Agent dem Anbieter des Modells preisgibt. Es ist keine Garantie dafür,
+Latet verringert, was Ihr Agent dem Modellanbieter preisgibt. Es ist keine Garantie dafür,
 dass nie etwas Sensibles Ihren Rechner verlässt. Diese Seite listet auf, was abgedeckt ist und was
 nicht.
 
@@ -18,8 +18,8 @@ Originaldaten zuerst diesen Server erreichen. Das umfasst:
   Tool-Beschreibungen und jedes Tool-Ergebnis: Dateiinhalte, Befehlsausgaben, Hook-Ausgaben. Eine
   abschließende Prüfung liest dann die Texte jeder Anfrage, bevor sie gesendet wird. Was das Modell
   geschrieben hat, stoppt nichts, wenn es genau so zurückkommt, wie das Modell es geschrieben hat, was
-  Latet aus den Antworten weiß, die es weitergegeben hat, und aus den Tool-Aufrufen, die das Plugin
-  hat wiederherstellen lassen; jeder andere Text an der Stelle des Modells wird wie Ihrer gelesen.
+  Latet aus den Antworten weiß, die es weitergegeben hat, und aus den Tool-Aufrufen, in die das
+  Plugin die echten Werte wieder eingesetzt hat; jeder andere Text an der Stelle des Modells wird wie Ihrer gelesen.
   Auf einem Rechner hält der Daemon das im Speicher: Nach einem Neustart wird ein Text, den das
   Modell früher in der Unterhaltung geschrieben hat, wie Ihrer gelesen, und einer, der einen Wert
   enthält, den Latet maskiert, stoppt die Anfrage; beginnen Sie dann eine neue Unterhaltung. Ein
@@ -29,10 +29,10 @@ Originaldaten zuerst diesen Server erreichen. Das umfasst:
   Eingaben für Embeddings. Eine abschließende Prüfung liest dann diese Texte, bevor die Anfrage
   gesendet wird, wie im Client-Modus.
 
-Gateway-Antworten, Streams und Tool-Argumente werden dort wiederhergestellt, wo Latet läuft:
-lokal auf dem Rechner, bei einem verbundenen Gateway auf dem Server. Das Claude-Code-Plugin
-stellt Tool-Argumente und interaktiven Bildschirmtext auf dem Rechner wieder her;
-stdout von `claude -p` enthält weiterhin Ersatzwerte. OCR/NER laufen dort, wo die zuständige
+In Gateway-Antworten, Streams und Tool-Argumenten werden die echten Werte dort wieder eingesetzt,
+wo Latet läuft: lokal auf dem Rechner, bei einem verbundenen Gateway auf dem Server. Das
+Claude-Code-Plugin setzt sie in Tool-Argumenten und im interaktiven Bildschirmtext auf dem Rechner
+wieder ein; stdout von `claude -p` enthält weiterhin Ersatzwerte. OCR/NER laufen dort, wo die zuständige
 Latet-Engine läuft; ein konfigurierter Prüfer kann Originaltext erhalten.
 
 Die Schlüssel eines JSON-Dokuments, etwa einer Tool-Ausgabe, werden wie seine Werte maskiert: Eine
@@ -51,31 +51,39 @@ auch `mario_rossi`), wird ihm nicht gezeigt: Die Detektoren lesen ihn, wie sie j
 ## Jeder Teil einer Anfrage
 
 Latet liest jeden Teil einer Anfrage, bevor es sie sendet, auf einem Rechner wie auf einem Server, und
-sendet nichts, worüber es nicht Rechenschaft ablegen kann:
+sendet nichts, was es nicht erfasst hat:
 
 - **Der Pfad** muss einer Route entsprechen, die eines der Anfrageprofile von Latet kennt, und jeder
   seiner Teile muss seine Form haben: die ID eines Modells, eine Region, eine Ressource, die Sie
-  aufgelistet haben. Jeder andere Aufruf wird abgelehnt, auch einer ohne Inhalt.
+  aufgelistet haben. Jeder andere Aufruf wird abgelehnt, auch einer ohne Body.
 - **Abfrageparameter** werden vom Profil genannt, und jeder Wert muss seine Form haben. Einer, den kein
   Profil nennt, wird abgelehnt.
 - **Header.** Zugangsdaten werden gesendet, wie sie kamen, nie protokolliert oder aufgezeichnet. Jeder
   andere Header muss die Form haben, die sein Agent ihm gibt, oder wird von der abschließenden Prüfung
   gelesen, wenn er freien Text enthalten kann (`user-agent`). Die Header, die SDKs und Tracing
   hinzufügen (`x-stainless-*`, `traceparent`...), und die eigenen Header der Agenten, die freien Text
-  enthalten können (die IDs eines Subagenten von Claude Code, die Turn-Metadaten von Codex...),
+  enthalten können (die IDs eines Subagenten von Claude Code, die Rundenmetadaten von Codex...),
   werden entfernt und im Dashboard gezählt: [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie nach Agent
   auf. Jeder andere Header wird abgelehnt, und sein Name wird nur dem Agenten genannt, außer bei
   einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex): Dort wird ein neuer
   `anthropic-*`-Header oder ein neuer `anthropic-beta`-Wert von der abschließenden Prüfung gelesen und
   geht durch, und ein neuer `x-claude-code-*`-Header wird entfernt.
-- **Der Inhalt.** Seine Texte werden maskiert, oder geprüft, wo Latet die Anfrage nur prüft. Jedes
-  andere Element muss seine Form haben (die ID eines Modells, der Name eines Tools, eine Einstellung)
-  und wird von der abschließenden Prüfung gelesen, wo es Text enthält. Ein Element, das kein Profil
-  nennt, wird abgelehnt, und dem Agenten wird gesagt, wo es stand, nie sein Name.
+- **Der Body.** Seine Texte werden maskiert, oder geprüft, wo Latet die Anfrage nur prüft. Jedes
+  andere Element muss seine Form haben (die ID eines Modells, der Name eines Tools, eine
+  Einstellung) und wird von der abschließenden Prüfung gelesen, wo es Text enthält. Ein Element, das
+  noch kein Profil nennt, wird ganz gelesen und geprüft: Es geht unverändert hinaus, wenn darin
+  nichts maskiert werden müsste und es keine Datei, keine Adresse, keine gespeicherte Unterhaltung
+  und kein Modell nennt, und sonst wird die Anfrage abgelehnt, und dem Agenten wird gesagt, wo das
+  Element stand, nie sein Name ([Neue Elemente in
+  Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)). `unknown_members:
+  refuse` lehnt solche Elemente ab wie vor 0.15.0: Eine Anfrage, die eines enthält, wird abgelehnt,
+  außer das Element enthält bei einer Anfrage, die Latet nur prüft, einen Text oder eine Liste von
+  Texten außerhalb eines Elements des Anbieters, die die abschließende Prüfung liest.
 
 Im Dashboard zeigt jeder Austausch, ob jeder Teil seiner Anfrage gelesen wurde oder was einen Teil
 durchgelassen hat: *nur geprüft* (ein Wert, den die abschließende Prüfung gelesen hat und nicht
-maskieren musste), *durch eine Regel erlaubt* (eine der eingebauten Regeln von Latet, etwa für die
+maskieren musste), *ein Feld, das noch kein Anfrageprofil vorsieht, gelesen und geprüft*, *durch eine
+Regel erlaubt* (eine der eingebauten Regeln von Latet, etwa für die
 verschlüsselten Felder, die der Anbieter selbst zurückgibt) oder eine
 [Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen), die Sie
 genehmigt haben. Eine Ablehnung sagt dem Agenten, dass nichts gesendet wurde. Wird ein
@@ -100,14 +108,15 @@ werden nicht erkannt. Bei der Erkennung gibt es immer falsch negative Ergebnisse
 **Bilder.** Mit der optionalen [Texterkennung](../images/) wird der Text in einem Screenshot auf
 Ihrem Rechner gelesen, und jeder gefundene Wert wird mit seinem Ersatzwert überdeckt. Das geschieht
 ohne Gewähr, wie bei Namen: Text, den sie nicht liest, geht unverändert hinaus. Ohne sie wird eine
-Anfrage mit einem Bild nicht gesendet. Bei einer Anfrage, die Latet nur prüft, wie denen von Claude
+Anfrage mit einem Bild nicht gesendet. Bei einer Anfrage, die Latet nur prüft, etwa einer von Claude
 Code, werden auch der Standort eines Fotos, die Herstellerangaben einer Kamera und ein Bild im Bild
 abgelehnt ([Fotos und ihre Metadaten](../images/#fotos-und-ihre-metadaten)). QR-Codes und Strichcodes
-werden nicht entschlüsselt: Die Daten, die sie enthalten, gehen mit dem Bild hinaus.
+werden nicht dekodiert: Die Daten, die sie enthalten, gehen mit dem Bild hinaus.
 
 **PDFs und andere Dokumente, per Adresse eingebundene Bilder, Audioclips.** Ihr Inhalt wird nicht
 gelesen, daher wird eine Anfrage, die ein solches enthält, nicht gesendet, auf einem Rechner wie auf
-einem Server, was immer `images` sagt. Geben Sie dem Agenten stattdessen den Text. Die Seiten eines Browsers, als Text gelesen, werden wie jede Tool-Ausgabe maskiert
+einem Server, unabhängig davon, was `images` festlegt. Geben Sie dem Agenten stattdessen den Text.
+Die Seiten eines Browsers, als Text gelesen, werden wie jede Tool-Ausgabe maskiert
 ([Produktionsdaten](../production-data/)); seine Screenshots sind Bilder.
 
 **Web-Tools, Subagenten und claude.ai-Connectors behalten die Ersatzwerte (Claude Code).** WebFetch,
@@ -153,22 +162,23 @@ sensiblen Wert im Klartext enthalten würde, maskiert aber nur im Code-Tab, mit 
 **Kontext und Metadaten.** Dateinamen, Pfade, Codestruktur, Kommentare und Geschäftslogik werden
 unverändert gesendet, abgesehen von den Werten, die Latet darin erkennt, etwa Ihrem Benutzernamen in
 einem Pfad des Home-Verzeichnisses. Ersatzwerte behalten die Form des Originals (Länge, Format,
-Präfix; ein Geheimnis mit weniger als zwölf Zeichen erhält einen längeren Ersatzwert), und der
-umgebende Text kann verraten, was ein Wert ist ("das Passwort der Produktionsdatenbank").
+das Präfix, das ein Anbieter jedem Schlüssel seiner Art voranstellt, etwa `ghp_`; ein Geheimnis
+mit weniger als zwölf Zeichen erhält einen längeren Ersatzwert), und der umgebende Text kann
+verraten, was ein Wert ist ("das Passwort der Produktionsdatenbank").
 
-**Was ein JSON-Dokument dort enthält, wo das Maskieren nicht hinreicht.** Eine Kartennummer, die als
+**Was ein JSON-Dokument dort enthält, wo das Maskieren nicht greift.** Eine Kartennummer, die als
 JSON-Zahl geschrieben ist und die das Profil `balanced` nicht maskiert, wird von der abschließenden
 Prüfung gefunden, die die Anfrage dann stoppt: Der Agent erfährt den Grund, und das Dashboard zeigt,
 wo der Wert steht. Solange eine solche Ausgabe in der Unterhaltung steht, wird jede ihrer Anfragen
 gestoppt: Beginnen Sie eine neue Unterhaltung, und bitten Sie den Agenten um die Daten in einer
-anderen Form. Der für einen Schlüssel gezogene Ersatzwert ist nie ein anderer Schlüssel seines
+anderen Form. Der für einen Schlüssel erzeugte Ersatzwert ist nie ein anderer Schlüssel seines
 Objekts; ein Tool-Aufruf, dessen Eingabe einen Wert und seinen Ersatzwert als zwei Schlüssel enthält,
 die nach dem Maskieren einer wären, stoppt die Anfrage, denn ein Objekt enthält jeden Schlüssel nur
-einmal, und zwei solche Schlüssel bleiben, wie das Modell sie geschrieben hat, wenn Latet seine
-Antwort für den Agenten wiederherstellt. Ein JSON-Objekt, das einen Schlüssel zweimal angibt, wird
+einmal, und zwei solche Schlüssel bleiben, wie das Modell sie geschrieben hat, wenn Latet in seiner
+Antwort für den Agenten die echten Werte wieder einsetzt. Ein JSON-Objekt, das einen Schlüssel zweimal angibt, wird
 mit seiner letzten Kopie gelesen und geht neu geschrieben mit dieser Kopie allein hinaus, sodass die
-Kopie, die Latet nicht gelesen hat, nie hinausgeht; eine Anfrage, die Latet nur prüft, etwa von
-Claude Code, wird gestoppt, wenn ihr eigener Body einen Schlüssel zweimal angibt.
+Kopie, die Latet nicht gelesen hat, nie hinausgeht; eine Anfrage, die Latet nur prüft, etwa eine
+von Claude Code, wird gestoppt, wenn ihr eigener Body einen Schlüssel zweimal angibt.
 
 **Tool-Aufrufe mit Schlüsselkonflikten im Verlauf.** Beide Schlüssel in einem wiederhergestellten
 Aufruf zu behalten bewahrt seine Daten, doch erneutes Maskieren kann die Schlüssel gleich machen.
@@ -194,8 +204,7 @@ Aufzeichnungen; nach der Annahme kann ihre Speicherung auch bei abgebrochener Zu
 
 Innerhalb einer Instanz lässt das Gateway jeder Identität über deren Sitzungen hinweg höchstens
 32 MiB solcher Aufzeichnungen und 256 Pakete zu, einschließlich wartender und laufender Arbeit.
-Maskierter und wiederhergestellter
-Text, Antwortkennungen und der Verwaltungsaufwand der Aufzeichnungen zählen mit. Das begrenzt die neu
+Maskierter und wiederhergestellter Text, Antwortkennungen und der Verwaltungsaufwand der Aufzeichnungen zählen mit. Das begrenzt die neu
 zurückgehaltene Arbeit, nicht den gesamten Prozessspeicher (RSS); länger vorgehaltene Klartextdaten
 und der Interpreter benötigen weiterhin Speicher. Ist die Annahme voll oder geschlossen oder
 schlägt das Einreihen fehl, wird die Ausgabe dieses Pakets abgelehnt. Bereits gestreamter Text
@@ -204,8 +213,8 @@ lässt sich nicht zurücknehmen.
 Die Aufzeichnungen werden erst später sichtbar. Danach beim selben Gateway-Worker eingereihte
 Anfragen folgen dessen Speicherungsversuch. Auf einem Latet-Server garantiert das weder, dass
 Valkey sie geschrieben hat, noch dass eine andere Instanz sie sieht, noch ihre Reihenfolge
-gegenüber der Arbeit des Plugins für Claude Code. Beim Herunterfahren können wartende Aufzeichnungen verloren gehen. Ein Speicherfehler
-nach der Zustellung erzeugt eine in ihrer Häufigkeit begrenzte Diagnose nur mit einer festen
+gegenüber der Arbeit des Plugins für Claude Code. Beim Herunterfahren können wartende
+Aufzeichnungen verloren gehen. Ein Speicherfehler nach der Zustellung erzeugt eine in ihrer Häufigkeit begrenzte Diagnose nur mit einer festen
 Kategorie und dem Ausnahmetyp; er kann weder die Zustellung zurücknehmen noch eine Transaktion
 zurückrollen. Bei fehlenden Aufzeichnungen gelten weiterhin die üblichen Regeln für Sitzungssuche,
 Maskierung und Ablehnung.
@@ -217,18 +226,21 @@ darüber sagt, für wen sie ist (`user`, `safety_identifier`, `metadata`). Die N
 womit der Anbieter ein eigenes Tool ausführt (Adresse und Header eines entfernten MCP-Servers, der
 Standort einer Websuche) und die übrigen Einstellungen der Anfrage müssen jeweils die Form haben,
 die ihr Profil ihnen gibt, und werden von der abschließenden Prüfung gelesen, wo sie Text enthalten;
-eines, das kein Profil nennt, stoppt die Anfrage ([Jeder Teil einer Anfrage](#jeder-teil-einer-anfrage)).
-In Claude Code maskiert das Plugin die Beschreibungen der Tools, und die abschließende Prüfung liest
-`metadata`, das Schema einer strukturierten Ausgabe und die Schemas der Tool-Parameter (siehe unten).
-Ein anderer Client als Claude Code auf einem Weg, den Latet nur prüft (die Anmeldung eines
-Abonnements, Bedrock, Vertex), hat kein Plugin: Die abschließende Prüfung liest auch die
-Beschreibungen, Parameter und Beispiele seiner Tools und stoppt eine Anfrage, die darin einen Wert im
-Klartext hinauslassen würde.
+eines, das noch kein Profil nennt, wird ganz gelesen und geprüft und stoppt die Anfrage, wenn darin
+etwas maskiert werden müsste oder es eine Datei, eine Adresse, eine gespeicherte Unterhaltung oder
+ein Modell nennt ([Neue Elemente in
+Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)). In Claude Code
+maskiert das Plugin die Beschreibungen der Tools, und die abschließende Prüfung liest `metadata`,
+das Schema einer strukturierten Ausgabe und die Schemas der Tool-Parameter (siehe unten). Ein
+anderer Client als Claude Code auf einem Weg, den Latet nur prüft (die Anmeldung eines Abonnements,
+Bedrock, Vertex), hat kein Plugin: Die abschließende Prüfung liest auch die Beschreibungen,
+Parameter und Beispiele seiner Tools und stoppt eine Anfrage, die darin einen Wert im Klartext
+hinauslassen würde.
 
 **Die Tools von Claude Code.** Das Plugin maskiert die Beschreibungen der Tools, auch die von
 `tool_addition`. Latet nimmt die Marker der Anfrage nicht als Beleg dafür, dass das Plugin ausgeführt
-wurde, auf einem Rechner wie auf einem Server: Seine abschließende Prüfung liest die Beschreibung jedes Tools, das Schema
-seiner Parameter und die Beispiele seiner Eingabe, wie bei einem Client ohne Plugin, und stoppt eine
+wurde, auf einem Rechner wie auf einem Server: Seine abschließende Prüfung liest die Beschreibung
+jedes Tools, das Schema seiner Parameter und die Beispiele seiner Eingabe, wie bei einem Client ohne Plugin, und stoppt eine
 Anfrage, die darin einen Wert im Klartext hinauslassen würde. Ein MCP-Tool, dessen Schema die Adresse
 eines Kunden nennt, stoppt deshalb die Anfragen von Claude Code, bis der Wert aus dem
 Schema entfernt oder in Ihren Einstellungen erlaubt ist. Eine Tool-Definition in einer Form, die Latet
@@ -238,7 +250,7 @@ strukturierten Ausgaben und Fallback-Schemas gelten weiterhin.
 Bei Anthropic umfasst die Prüfung strukturierter Ausgaben auch Beschreibungen und die Schlüssel
 und Werte der Schemas in jedem `fallbacks[].output_config.format`. Beim Umschreiben werden sensible
 Schemas maskiert; bei nur geprüften Anfragen werden sie abgelehnt, sichere Bytes bleiben unverändert.
-Fallbacks mit nur einem Modell bleiben unterstützt. Ein Server mit aktivem Schutz lehnt fehlerhafte
+Fallbacks, die nur ein Modell angeben, werden weiterhin unterstützt. Ein Server mit aktivem Schutz lehnt fehlerhafte
 Fallback-Container und Ausgabeschemas ab.
 
 **Was Latet nicht liest.** Latet lehnt ab, was es nicht liest, auf einem Rechner wie auf einem
@@ -250,15 +262,15 @@ Nachricht oder ein Element der Eingabe einer Art, die Latet nicht kennt, in Chat
 Nachrichten von Anthropic und der Responses API gleichermaßen, oder eines, das kein Objekt ist; ein
 Feld, das Latet liest, in einer anderen Form, etwa die Eingabe eines Tool-Aufrufs, die kein Objekt
 ist, oder einen System-Prompt, der weder Text noch Blöcke ist; und in der Responses API das Audio
-einer Live-Unterhaltung (`audio`, `output_audio`) und das, was in einem Audioclip gehört wurde. Er
+einer Live-Unterhaltung (`audio`, `output_audio`) und das, was in einem Audioclip gehört wurde. Es
 lehnt einen WebSocket-Frame ab, der keine Runde ist (`response.create`; `response.cancel` geht
-durch), und bei einer Anfrage, die er nur prüft (Claude Code, Bedrock, Vertex), ein Bild, dessen
-Text er nicht lesen konnte, was immer `images` sagt. Was der Anbieter erzeugt hat und ihm so
+durch), und bei einer Anfrage, die es nur prüft (Claude Code, Bedrock, Vertex), ein Bild, dessen
+Text es nicht lesen konnte, unabhängig davon, was `images` festlegt. Was der Anbieter erzeugt hat und ihm so
 zurückgegeben wird, wie er es erzeugt hat, geht durch, wenn Latet es in dieser Unterhaltung vom
 Anbieter kommen sah: das Reasoning des Modells und seine Signaturen, eine Kompaktierung, die Aufrufe
 der eigenen Tools des Anbieters und ihre Ergebnisse. Wo Latet es nicht sah (der Daemon eines Rechners
 wurde zum Beispiel neu gestartet), lässt eine eingebaute Regel die verschlüsselten Felder des
-Anbieters selbst durch, nur in den Zügen des Modells und nur an die Adresse des Anbieters, nie über
+Anbieters selbst durch, nur in den Runden des Modells und nur an die Adresse des Anbieters, nie über
 ein Unternehmens-Gateway; das Dashboard zeigt sie als *durch eine Regel erlaubt*. Ebenso geht durch,
 was nichts enthält, etwa ein Verweis auf ein früheres Element, und eine Anfrage ohne Body auf einer
 Route, die ein Profil nennt, etwa die Liste der Modelle.
@@ -289,6 +301,7 @@ denn sie wurden bereits gesendet, und Blockieren würde die Unterhaltung anhalte
 neue Unterhaltung, um sie hinter sich zu lassen.
 
 **Früher gesendete Daten.** Alles, was gesendet wurde, bevor Latet installiert war oder, vor 0.11,
-aus einem Projekt, in dem es ausgeschaltet war, liegt bereits beim Anbieter.
+aus einem Projekt, in dem es ausgeschaltet war, liegt bereits beim Anbieter. Ihre Agenten bewahren
+ihre Unterhaltungen auf der Festplatte auf: [`latet leak`](../leaks/) führt die Geheimnisse darin auf.
 
 Die Überlegungen hinter diesen Grenzen stehen unter [Sicherheit und Bedrohungsmodell](../../security/).

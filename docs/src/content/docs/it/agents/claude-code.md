@@ -4,44 +4,46 @@ description: La modalità client per Claude Code, con gli abbonamenti Pro e Max 
 ---
 
 Claude Code usa la **modalità client**: il plugin di Latet maschera i contenuti dentro Claude Code, e
-il daemon locale si limita a verificare. Funziona con gli abbonamenti Pro e Max senza una chiave API,
-e anche con le chiavi API.
+il daemon locale funziona in sola verifica. Funziona con gli abbonamenti Pro e Max senza una chiave
+API, e anche con le chiavi API.
 
 ## Terminale Windows connesso
 
-Il processo ausiliario connesso al server è supportato per Claude Code in un terminale
-Windows, con impostazioni utente attendibili e l'associazione privata installata da Latet.
-Questo non estende il supporto connesso a Desktop, VS Code, JetBrains, Linux o macOS.
-Su Linux e macOS `latet connect`, `latet claude`, `latet agents apply claude` e
-`latet global-install` lo dicono subito, le impostazioni di Claude Code non ricevono il token
-e il plugin trattiene ogni prompt; `latet codex` e `latet opencode` passano dal server.
-Segui [la guida di connessione](../../getting-started/server/) per `latet connect`,
-`latet agents apply claude`, conservazione del token e `latet disconnect`.
+Il processo ausiliario per il server connesso è supportato per Claude Code in un terminale
+Windows, con impostazioni utente attendibili e l'associazione privata del processo ausiliario
+installata da Latet. Il supporto con un server connesso non si estende per questo a Desktop,
+VS Code, JetBrains, Linux o macOS. Su Linux e macOS `latet connect`, `latet claude`,
+`latet agents apply claude` e `latet global-install` lo dicono subito, nelle impostazioni di
+Claude Code non viene scritto alcun token e il plugin trattiene ogni prompt; `latet codex` e
+`latet opencode` passano dal server. Segui [la guida alla connessione al server](../../getting-started/server/)
+per `latet connect`, `latet agents apply claude`, la conservazione del token e `latet disconnect`.
 
-Su un computer connesso `LATET_BRIDGE_TOKEN`, nelle impostazioni e nell'ambiente di Claude Code,
-contiene il token di questo computer, e ogni comando che Claude Code esegue può leggerlo. Da ovunque
-il server sia raggiungibile, il token apre il bridge del plugin e il proxy del tuo spazio: chi lo
+Su un computer connesso, `LATET_BRIDGE_TOKEN`, nelle impostazioni e nell'ambiente di Claude Code,
+contiene il token di questo computer, e ogni comando che Claude Code esegue può leggerlo. Ovunque il
+server sia raggiungibile, il token apre il bridge del plugin e il proxy del tuo spazio: chi lo
 possiede può far mascherare testi nel tuo spazio, far ripristinare i valori fittizi che ha e inviare
-richieste attraverso di esso. Non apre mai la tua dashboard, dove ogni originale può essere mostrato,
+richieste attraverso quel proxy. Non apre mai la tua dashboard, dove ogni originale può essere mostrato,
 non cambia mai la tua identità e non riduce mai la tua protezione: l'unica modifica che può fare alle
 tue impostazioni è aggiungere una destinazione per un indirizzo, che non riduce nulla. Per la dashboard
 e l'identità il server chiede anche la chiave del computer, che resta nell'archivio delle credenziali
 (o nel file privato del token) e non viene mai data a un agente. La chiave impedisce a un token
 trapelato (dall'ambiente, dalle impostazioni, da un log o con un solo `curl`) di aprire la dashboard;
 non ferma un comando scritto per leggerli entrambi dall'archivio delle credenziali. Su un computer
-connesso `latet dashboard` e `latet identity send` rifiutano di essere eseguiti da un agente. Se il
-token può essere trapelato, `latet disconnect` lo revoca.
+connesso, `latet dashboard` e `latet identity send` si rifiutano di funzionare dentro un agente. Se
+pensi che il token possa essere trapelato, `latet disconnect` lo revoca.
 
-Su un computer connesso la modalità di stampa (`claude -p`) non è supportata: il plugin
+Su un computer connesso la modalità print (`claude -p`) non è supportata: il plugin
 trattiene le sue richieste. Usa il terminale interattivo. Quando il plugin trattiene una
-richiesta dice perché: la modalità di stampa o un'altra superficie; un'associazione del processo
+richiesta dice perché: la modalità print o un'altra superficie; un'associazione del processo
 ausiliario mancante o non aggiornata (`latet agents apply claude`); un server che non ha
-risposto (`latet status`); un token che il server non accetta più (`latet disconnect`, poi
-`latet connect` con un nuovo codice di un amministratore).
+risposto (`latet status`); oppure un token che il server non accetta più (`latet disconnect`, poi
+`latet connect` con un nuovo codice ricevuto da un amministratore).
 Il plugin maschera le descrizioni degli strumenti di Claude Code; su un server il controllo
 finale legge anche le loro descrizioni, gli schemi dei parametri e gli esempi, e un valore
-rimasto in chiaro ferma la richiesta ([perimetro della protezione](../../concepts/protection-scope/)). Le tabelle e le istruzioni del daemon
-sotto descrivono **Latet locale**; non ampliano il supporto del processo ausiliario connesso.
+rimasto in chiaro al loro interno ferma la richiesta
+([perimetro della protezione](../../concepts/protection-scope/)). Le tabelle di copertura e le
+istruzioni sul daemon qui sotto descrivono **Latet locale**; non ampliano questo supporto del
+processo ausiliario connesso.
 
 ## Copertura
 
@@ -60,9 +62,9 @@ ogni richiesta. L'app però ignora `ANTHROPIC_BASE_URL`, quindi nessun daemon co
 dietro il plugin, e nella dashboard non viene registrato niente. Chat e Cowork non caricano i plugin
 di Claude Code e non passano da Latet: non sono coperte.
 
-Su un gateway di terze parti Claude Desktop non ha l'accesso a Claude, quindi non c'è un abbonamento
-Pro o Max: le richieste si pagano a consumo, con una chiave API di Anthropic o attraverso il provider
-della tua azienda. Se imposti Latet come gateway, Chat, Cowork e Code gli inviano ogni richiesta.
+Su un gateway di terze parti Claude Desktop non ha effettuato l'accesso a Claude, quindi non c'è un
+abbonamento Pro o Max: le richieste si pagano a consumo, con una chiave API di Anthropic o attraverso
+il provider della tua azienda. Se imposti Latet come gateway, Chat, Cowork e Code gli inviano ogni richiesta.
 Queste richieste le costruisce il motore di Claude Code, quindi Latet le controlla una per una e
 ferma quella che porterebbe con sé un segreto o un dato personale in chiaro, ma non la maschera: la
 [guida ai gateway](https://code.claude.com/docs/en/llm-gateway-protocol) di Anthropic chiede a un
@@ -75,8 +77,8 @@ o da Microsoft Foundry: Latet legge quel percorso dalle tue impostazioni e si me
 comprese. Vedi [Endpoint aziendali](../company-endpoints/).
 
 Provato dal vivo: la CLI con un abbonamento. Le estensioni per gli IDE e la scheda Code di Claude
-Desktop usano lo stesso plugin e le stesse impostazioni; se lì qualcosa non funziona,
-[apri una issue](https://github.com/Latet-AI/latet/issues), per favore. Cursor non è coperto: le sue
+Desktop usano lo stesso plugin e le stesse impostazioni; se lì qualcosa non funziona, per favore
+[apri una issue](https://github.com/Latet-AI/latet/issues). Cursor non è coperto: le sue
 richieste al modello partono dai server di Cursor, non dal tuo computer.
 
 ## Abbonamenti Pro e Max
@@ -103,18 +105,18 @@ Claude Code, con dentro il tuo token, tranne due tipi che Latet toglie e conta n
 header di telemetria e di tracing che aggiunge il suo SDK (`x-stainless-*`, `traceparent`...), e
 quelli di Claude Code stesso che possono contenere testo libero (gli id di un subagente, che possono
 contenerne il nome, valori che Claude Code copia dal suo ambiente e un suggerimento per i gateway che
-nomina gli strumenti eseguiti).
-[Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie) li elenca tutti. Il token non viene mai salvato, scritto nei
-log o mostrato nella dashboard.
+nomina gli strumenti eseguiti). La sezione
+[Gli header che Latet toglie](../../getting-started/upgrading-to-0-11/#gli-header-che-latet-toglie)
+li elenca tutti. Il token non viene mai salvato, scritto nei log o mostrato nella dashboard.
 
 **Perché non serve riscrivere niente.** Claude Code aggiunge al prompt di sistema di ogni richiesta un
 blocco di attribuzione con un'impronta derivata dalla conversazione. Un proxy che riscrivesse le
 richieste cambierebbe quello che Claude Code ha inviato. Il plugin invece maschera dentro Claude Code,
-prima che la richiesta venga costruita, così il daemon si limita a controllarla: può lasciar passare
+prima che la richiesta venga costruita, così il daemon si limita a verificarla: può lasciar passare
 una richiesta o bloccarla, mai cambiarla. Vedi [Come funziona](../../concepts/how-it-works/) per un
 esempio passo per passo.
 
-Questo descrive come funziona Latet; non è una consulenza legale, e il riferimento sono i termini di
+Questa pagina descrive come funziona Latet; non è una consulenza legale, e fanno fede i termini di
 Anthropic.
 
 ## Cosa fa il plugin
@@ -130,7 +132,7 @@ rilevato niente.
   venga eseguito, così Read, Edit, Write, Bash e i tuoi server MCP locali lavorano sui valori reali e
   i file su disco sono corretti.
 - **Lascia i valori fittizi dove gli argomenti escono dal tuo computer**: WebFetch, WebSearch e i
-  connettori di claude.ai ricevono i valori fittizi che ha scritto il modello. Anche i subagent li
+  connettori di claude.ai ricevono i valori fittizi che ha scritto il modello. Anche i subagenti li
   ricevono, e ci lavorano come fa il modello.
 - **Ferma uno strumento fuori dal tuo computer che lavorerebbe su un valore fittizio**: una chiamata a
   WebSearch, a WebFetch o a un connettore di claude.ai con dentro un valore fittizio cercherebbe
@@ -148,8 +150,8 @@ rilevato niente.
   sent in clear. Nothing was sent.
   ```
 
-  La dashboard mostra la richiesta, con il valore che l'ha fermata riquadrato in rosso: se non è
-  sensibile, fai clic sul valore e scegli *Non sensibile*, poi riprova il turno.
+  La dashboard mostra la richiesta, con il valore che l'ha fermata incorniciato in rosso: se non è
+  sensibile, fai clic sul valore e scegli *Non sensibile*, poi ripeti il turno.
 
   Quando i valori in chiaro sono in una conversazione iniziata prima che Latet fosse attivo, il
   messaggio lo dice, e ti chiede di iniziare una nuova conversazione con `/clear` (vedi
@@ -158,7 +160,7 @@ rilevato niente.
 Se il daemon non è in esecuzione, il plugin lo avvia. Se non ci riesce, il plugin trattiene i
 contenuti invece di inviarli senza mascherarli: il tuo prompt non viene inviato, i risultati degli
 strumenti vengono sostituiti da un avviso e le chiamate agli strumenti vengono rifiutate, finché il
-daemon non torna. `latet doctor` ti dice cosa non va.
+daemon non torna disponibile. `latet doctor` ti dice cosa non va.
 
 ## Cosa fa il daemon
 
@@ -167,14 +169,16 @@ Con `ANTHROPIC_BASE_URL` che punta al daemon, ogni richiesta passa dal daemon, c
 - controlla se la richiesta in uscita contiene valori sensibili in chiaro, e la blocca se ne trova
   uno: Claude Code mostra allora un errore dell'API con il messaggio
   `Latet: sensitive values would leave in clear`;
-- legge ogni altra sua parte: un header, un parametro di query o un membro del corpo che nessun
-  profilo nomina viene rifiutato
-  ([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)), tranne
-  un membro nuovo del corpo che contiene testo, un header `anthropic-*` nuovo o un valore nuovo di
-  `anthropic-beta`, che passano dopo che il controllo finale li ha letti, e un header
-  `x-claude-code-*` nuovo, che toglie e conta;
+- legge ogni altra sua parte: un header o un parametro di query che nessun profilo nomina viene
+  rifiutato ([Ogni parte di una
+  richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)), tranne un header
+  `anthropic-*` nuovo o un valore nuovo di `anthropic-beta`, che passano dopo che il controllo
+  finale li ha letti, e un header `x-claude-code-*` nuovo, che toglie e conta; un membro del corpo
+  che nessun profilo nomina ancora viene letto per intero e controllato, e passa così com'è quando
+  nulla al suo interno andrebbe mascherato e non indica nulla su cui il provider agisce ([Nuovi
+  membri delle richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste));
 - altrimenti inoltra il corpo byte per byte, e gli header tranne quelli che toglie e conta
-  ([Le intestazioni che Latet toglie](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-latet-toglie));
+  ([Gli header che Latet toglie](../../getting-started/upgrading-to-0-11/#gli-header-che-latet-toglie));
 - registra lo scambio per la [dashboard](../../dashboard/), senza le sue credenziali.
 
 Non riscrive mai una richiesta di Claude Code, né una che contiene il token di un abbonamento Claude,
@@ -205,7 +209,7 @@ latet claude --continue
 vengono solo controllate. `latet run claude` equivale a `latet claude`: Claude Code ha bisogno del
 plugin oltre che dell'indirizzo, e `latet run` da solo gli darebbe solo l'indirizzo.
 
-### Il suo progetto, e gli header tuoi
+### Il suo progetto e i tuoi header
 
 Latet applica per intero le impostazioni di un progetto solo a una sessione di cui considera
 attendibile il progetto ([Progetti](../../concepts/projects/#attendibili-e-dichiarati)):
@@ -215,14 +219,14 @@ attendibile il progetto ([Progetti](../../concepts/projects/#attendibili-e-dichi
   impostazioni gestite o di progetto, o le fonti di impostazioni che scegli dalla riga di comando,
   renderebbero poco chiaro quali impostazioni valgono, non ne aggiunge nessuna, lo dice, e il progetto
   della sessione è dichiarato.
-- **Configurato con `latet global-install`,** il plugin lega ogni sessione al suo progetto; il legame
+- **Configurato con `latet global-install`,** il plugin associa ogni sessione al suo progetto; l'associazione
   finisce dopo 30 minuti senza una chiamata del plugin. Le chiamate che Claude Code fa mentre si
-  avvia, prima della prima chiamata del plugin, vengono decise con le tue regole soltanto.
+  avvia, prima della prima chiamata del plugin, vengono decise soltanto con le tue regole.
 
-Gli header che imposti in `ANTHROPIC_CUSTOM_HEADERS` vengono rifiutati, nominandoli uno per uno,
+Gli header che imposti in `ANTHROPIC_CUSTOM_HEADERS` vengono rifiutati, ciascuno indicato per nome,
 finché un'eccezione esatta non li lascia passare, una per ogni tipo di chiamata che li invia
 (`anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`): vedi
-[Passare alla 0.11](../../getting-started/upgrading-to-0-11/#le-intestazioni-che-imposti-per-i-tuoi-agenti).
+[Passare alla 0.11](../../getting-started/upgrading-to-0-11/#gli-header-che-imposti-per-i-tuoi-agenti).
 Uno il cui nome inizia con `anthropic-` non ne ha bisogno: passa dopo che il controllo finale l'ha
 letto, come un header nuovo di Claude Code stesso; uno il cui nome inizia con `x-claude-code-` viene
 tolto.
@@ -271,17 +275,17 @@ vengono inviati il tuo CLAUDE.md, l'azione, il tuo nome utente del sistema opera
 (come *User identity*) e i percorsi della tua cartella home e della cartella di lavoro, in un testo
 che il plugin non può raggiungere. Il revisore li usa per distinguere le tue cose da quelle degli
 altri: un push su un branch `yourname/...` è tuo, uno su `someone-else/...` no. Il daemon controlla
-queste richieste come tutte le altre, e `auto_mode_review` decide, dettaglio per dettaglio, cosa della
-tua identità può arrivare al revisore:
+queste richieste come tutte le altre, e `auto_mode_review` decide, dettaglio per dettaglio, quali
+elementi della tua identità possono arrivare al revisore:
 
 | Dettaglio | Cos'è |
 | --- | --- |
 | `user_name` | Il tuo nome utente del sistema operativo, la *User identity* del revisore. |
 | `paths` | Il nome della tua cartella utente nei percorsi della tua cartella home e della cartella di lavoro. |
 | `host_name` | Il nome host di questo computer, quando è nel tuo CLAUDE.md o nell'azione. |
-| `git_author` | Il tuo nome e la tua email come nel tuo autore git, e il dominio di quell'email quando è quello della tua azienda, quando sono nel tuo CLAUDE.md o nell'azione. |
+| `git_author` | Il tuo nome e la tua email come compaiono nel tuo autore git, e il dominio di quell'email quando è quello della tua azienda, quando sono nel tuo CLAUDE.md o nell'azione. |
 
-Ogni dettaglio è `block` (il predefinito) o `allow`. Una revisione che conterrebbe un dettaglio
+Ogni dettaglio è `block` (l'impostazione predefinita) o `allow`. Una revisione che conterrebbe un dettaglio
 bloccato viene fermata, così il dettaglio resta in locale, e la modalità auto non può approvare
 l'azione. Claude Code allora la rifiuta, segnalando il suo revisore come temporaneamente non
 disponibile, e non ti chiede nulla: esegui l'azione tu stesso, o passa Claude Code a una modalità dei
@@ -310,18 +314,18 @@ quando inizia una sessione, e `latet doctor` elenca ogni valore per riga e tipo,
 
 Per impostazione predefinita ogni dettaglio resta in locale;
 `latet global-install --auto-mode-review user_name,paths` li lascia passare uno per uno. In seguito
-puoi cambiarlo dalla pagina **Regole** della dashboard e in `config.yaml`. Quando una revisione viene
+puoi cambiarlo dalla pagina **Regole** della dashboard o in `config.yaml`. Quando una revisione viene
 fermata, la dashboard mostra i dettagli che conteneva e l'impostazione che li lascia passare.
 
 **Un nome utente fittizio.** Con `user_name: surrogate`, Latet dà a Claude Code il valore fittizio del
 tuo nome utente in `USERNAME` e `USER`. Claude Code comunica al revisore quel nome, lo stesso nome
-fittizio che il modello vede ovunque altrove, e una revisione che contiene ancora il tuo vero nome
-utente viene fermata. Dopo averlo scelto, esegui `latet agents apply claude`, poi riavvia Claude Code.
+fittizio che il modello vede ovunque altrove, e una revisione che contiene ancora il tuo nome utente
+reale viene fermata. Dopo averlo scelto, esegui `latet agents apply claude`, poi riavvia Claude Code.
 Anche i comandi che Claude Code esegue vedono il nome fittizio, in `%USERNAME%`, `$USER` e nel
-`getpass.getuser()` di Python; `whoami`, la tua cartella home e l'autore di git restano come sono. È
-utile quando il tuo nome utente e la tua cartella utente sono diversi, cosa comune su Windows,
-insieme a `paths: allow`: il revisore riceve allora il nome della tua cartella ma mai il tuo nome
-utente. Quando sono uguali, i percorsi contengono comunque il nome reale.
+`getpass.getuser()` di Python; `whoami`, la tua cartella home e l'autore di git restano come sono.
+Insieme a `paths: allow`, è utile quando il tuo nome utente e il nome della tua cartella utente sono
+diversi, cosa comune su Windows: il revisore riceve allora il nome della tua cartella ma mai il tuo
+nome utente. Quando sono uguali, i percorsi contengono comunque il nome reale.
 
 ## Limiti
 
@@ -336,7 +340,7 @@ utente. Quando sono uguali, i percorsi contengono comunque il nome reale.
   disattiva quando l'URL di base è personalizzato.
 - **Gli strumenti web e i connettori di claude.ai non possono usare un valore mascherato.** I loro
   argomenti escono dal tuo computer, quindi riceverebbero quello fittizio: una chiamata del genere
-  viene fermata, e scegli tu se il valore può uscire in chiaro (*Non sensibile*). I subagent restano
+  viene fermata, e scegli tu se il valore può uscire in chiaro (*Non sensibile*). I subagenti restano
   sul tuo computer e lavorano sui valori fittizi come fa il modello. I risultati dei connettori
   arrivano a Claude Code attraverso i server di Anthropic, quindi il loro contenuto è già lì prima che
   Latet lo veda. Vedi
@@ -345,8 +349,8 @@ utente. Quando sono uguali, i percorsi contengono comunque il nome reale.
   restituiscono gli strumenti vengono sostituite dalla loro copia mascherata; uno screenshot che
   incolli con dei valori dentro viene tolto dal prompt, e Claude riceve il percorso di una copia
   mascherata da aprire con Read. Senza il riconoscimento del testo, una richiesta con un'immagine non
-  viene inviata. Poiché Latet si limita a verificare le richieste di Claude Code, una foto con una
-  posizione, le note del produttore della fotocamera o un'immagine al suo interno, e un'immagine WebP
-  originale, vengono rifiutate
+  viene inviata. Poiché Latet si limita a verificare le richieste di Claude Code, una foto che
+  contiene una posizione, le note del produttore della fotocamera o un'immagine incorporata, e
+  un'immagine WebP originale, vengono rifiutate
   ([Le foto e i loro metadati](../../concepts/images/#le-foto-e-i-loro-metadati)). I **PDF** non
   vengono letti: una richiesta che ne contiene uno non viene inviata.

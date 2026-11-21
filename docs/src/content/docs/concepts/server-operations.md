@@ -148,7 +148,10 @@ printf 'LATET_SERVER_URL=https://latet.acme.lan\nLATET_SERVER_HOST=latet.acme.la
 The following POSIX-shell example selects project `latet`, whose internal network is
 `latet_latet-back`. Initialization uses Docker's `--log-driver none` because it prints
 the administrator token; keep the attached terminal private and transfer that token
-to your secret store. Check initialization succeeded before starting the instances:
+to your secret store. A person runs the initialization, in a terminal of their own, never
+an AI agent: whoever runs it holds the administration token, and inside a container
+Latet's guard against agents running administration commands cannot see who runs it.
+Check initialization succeeded before starting the instances:
 
 ```sh
 # --wait returns only once PostgreSQL and Valkey are healthy (at most 120 s): go on only if it succeeds
@@ -414,9 +417,11 @@ them, and the reading held about 380 MB on the instance or worker that made it, 
 - **Memory:** each instance, each worker too, gives the spaces it holds 2 GiB, weighed from the counts their parts
   keep rather than read from the process. One space takes at most half of it, and its detectors up to an eighth of
   that half more (128 MiB), which a busy space keeps while its requests run: several busy spaces can pass the 2 GiB
-  by that much each. The process itself, the recognition models and the indexes being built come on top. A worker
-  is started again when it ends or goes silent, never for its memory: plan the machine's memory for N workers
-  ([several instances on one machine](#several-instances-on-one-machine)).
+  by that much each. The process itself, the recognition models and the indexes being built come on top. With Latet
+  Enterprise's term sync, each instance, each worker too, holds one copy of the synced terms for all the spaces it
+  serves: about 30 MB at 50,000 terms, on top of the 2 GiB, and as much again for a moment while new terms replace
+  them. A worker is started again when it ends or goes silent, never for its memory: plan the machine's memory for N
+  workers ([several instances on one machine](#several-instances-on-one-machine)).
 - **The providers' certificates:** an instance trusts the operating system's certificate store; on Linux,
   OpenSSL's default paths, which `SSL_CERT_FILE` and `SSL_CERT_DIR` change for the whole process. Change them
   only to add your company's authority.
@@ -468,12 +473,15 @@ again ([upgrading a server](../../applications/#upgrading-a-server)).
 
 Latet reads each request by the profile of its route, which names every field, header and query
 parameter it carries. At each Latet release, and at least every two weeks, the newest versions of the
-agents Latet supports run through the requests these profiles describe. On a request Latet only
-checks (Claude Code, Bedrock, Vertex), a new body member that holds text, a new `anthropic-*` header
-or a new `anthropic-beta` value passes once the final check has read it, and a new `x-claude-code-*`
-header is taken off. When an agent's update sends anything else no profile names, the profile's new
-revision ships in a patch release; until you install it, that request is refused, naming its
-category, and nothing of it is sent. Keep the instances on the newest patch release of their version.
+agents Latet supports run through the requests these profiles describe. A new body member is read whole
+and checked, and passes as it came when nothing in it would be masked and it names nothing the provider
+acts on ([New request members](../../getting-started/upgrading-to-0-11/#new-request-members)). On a
+request Latet only checks (Claude Code, Bedrock, Vertex), a new `anthropic-*` header or a new
+`anthropic-beta` value passes once the final check has read it, and a new `x-claude-code-*` header is
+taken off. When an agent's update sends anything else no profile names, such as another header or a body
+member that names a resource, the profile's new revision ships in a patch release; until you install it,
+that request is refused, naming its category, and nothing of it is sent. Keep the instances on the
+newest patch release of their version.
 
 The instances share one set of tables, and an instance starts only on tables of its own version. The
 database is yours to keep: Latet copies nothing of it. Before you pull a new image and run
@@ -509,6 +517,11 @@ latet server migrate --check
   people's and keys' alike, so several large keys built together after a restart hold back the first
   calls of every other space on that instance: send each large key one call, one key after the other,
   before the traffic comes back.
+
+With Latet Enterprise, the server's [policy](../../enterprise/locked-rules/) applies on each instance as it is
+upgraded: an instance of an earlier release, or one without the Enterprise Edition, applies none. While you replace
+the instances one at a time, set the policy only once every instance runs this release, or set it again then;
+`latet server policy set` warns while a live instance still does not apply it.
 
 In the Compose example, the same steps run in containers of the new image, when the tables change
 (the pause lets the keys of stopped instances of 0.10 end; an instance of 0.11 removes its own as it
@@ -578,8 +591,8 @@ instances on N machines would, and the load balancer stays as it is. In the Comp
   database or its certificate refuse it) stops every worker and the server, as a single instance
   stops, so that the service manager decides. A worker that is not ready (PostgreSQL or Valkey away)
   stays: the load balancer's readiness check decides. `latet server status` lists every instance
-  alive, each worker of each machine, with its worker number, whether it is ready, its memory and its
-  version; a worker that died stays listed for up to 30 seconds after the one that replaces it
+  alive, each worker of each machine, with its worker number, whether it is ready, its memory, its
+  version and its edition (Community or Enterprise); a worker that died stays listed for up to 30 seconds after the one that replaces it
   starts. A request a worker was serving when it ended is not answered: its client gets an error and
   must send it again, and none is answered unmasked. On Linux, the connections still waiting for a worker
   that ended are cut, and their clients must connect again, and a worker that goes silent keeps its
@@ -690,6 +703,10 @@ and require `metrics_token_file`.
 Distinguish an unknown chain verdict from a broken one. The
 [administration reference](../../reference/server-administration/) defines log pagination
 and the precise meaning of `latet_ocr_unread_total{reason}`.
+
+With Latet Enterprise's term sync, alert on each instance whose `latet_terms_masked` is missing, whose
+`latet_terms_behind_seconds` is above 60 or whose `latet_terms_unreadable` is above 0: that instance never loaded the
+synced terms, or masks older ones than the server holds.
 
 Every unmask through the applications API is an `apps.unmasked` entry of the administration log, with
 the token and how many values it restored, and every forget an `apps.forgotten` entry, with the token

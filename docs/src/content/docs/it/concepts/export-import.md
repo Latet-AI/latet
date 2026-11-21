@@ -19,12 +19,12 @@ latet rules import acme-rules.yaml     # on your colleague's machine
 
 Oppure **Esporta le regole** e **Importa le regole** in cima a **Regole** nella dashboard:
 l'importazione mostra cosa farebbe prima che cambi qualcosa. Le tabelle di *Termini*,
-*Riconoscitori* e *Valori consentiti* hanno un *Esporta* e un *Importa* tutti loro, solo per
+*Riconoscitori* e *Valori consentiti* hanno un proprio *Esporta* e un proprio *Importa*, solo per
 quell'elenco: i termini e i valori in CSV, i riconoscitori come file di regole. Un'esportazione così
-ha le stesse cautele: un riconoscitore i cui esempi contengono un valore che Latet ha visto davvero
-resta fuori, e una cella CSV che un foglio di calcolo eseguirebbe come formula è scritta dopo un
-apice. Un'importazione così passa dalla stessa anteprima, aggiunge e non sostituisce mai, e
-trattiene allo stesso modo ciò che abbassa la protezione; la tabella dei *Riconoscitori* accetta un
+ha le stesse cautele: un riconoscitore i cui esempi contengono un valore che Latet ha visto come
+valore reale resta fuori, e una cella CSV che un foglio di calcolo eseguirebbe come formula viene
+scritta preceduta da un apice. Un'importazione così passa dalla stessa anteprima, aggiunge e non
+sostituisce mai, e trattiene allo stesso modo ciò che riduce la protezione; la tabella dei *Riconoscitori* accetta un
 file di soli riconoscitori.
 
 **Cosa contiene il file:**
@@ -40,13 +40,13 @@ file di soli riconoscitori.
 
 Mai l'identità, la porta, le cartelle dei progetti o i server di questo computer.
 
-Un file di regole contiene al massimo 2 MB. Oltre 5.000 termini, 500 riconoscitori, 500 regole di
+Un file di regole occupa al massimo 2 MB. Oltre 5.000 termini, 500 riconoscitori, 500 regole di
 campo, 5.000 valori o 500 pattern da non mascherare mai, vengono letti solo i primi, e l'importazione
-lo dice. Un file fatto da un Latet più recente viene rifiutato.
+lo segnala. Un file creato da una versione più recente di Latet viene rifiutato.
 
 **I termini sono valori in chiaro.** Il nome di un cliente tra i tuoi termini è nel file così com'è:
 invia il file come invieresti i nomi stessi. Un riconoscitore i cui esempi contengono valori che
-Latet ha visto davvero viene escluso, perché gli esempi devono essere inventati.
+Latet ha visto come valori reali viene escluso, perché gli esempi devono essere inventati.
 
 **Un'importazione aggiunge protezione, e questa si applica subito:**
 - i nuovi termini, riconoscitori e regole di campo vengono aggiunti, e i tuoi restano;
@@ -62,7 +62,7 @@ ciò che trova), un campo lasciato in chiaro. `--all`, o *Applica anche queste* 
 applica anche quelle. Se a eseguire l'importazione è un agente o uno script, `--all` fa dell'intera
 importazione una sola modifica, che attende la tua approvazione come qualsiasi
 [modifica che riduce la protezione](../agents-and-settings/): ciò che aggiunge protezione attende
-con lei, e nulla dell'importazione si applica finché non la approvi. `--dry-run` dice soltanto cosa
+insieme a essa, e nulla dell'importazione si applica finché non la approvi. `--dry-run` dice soltanto cosa
 farebbe un'importazione.
 
 ```text
@@ -80,16 +80,16 @@ saved C:\Users\you\AppData\Roaming\latet\config.yaml
 Rules reloaded.
 ```
 
-**Ciò che si è applicato è la risposta del daemon.** Il comando dice prima cosa aggiungerebbe, poi
-salva `config.yaml`, chiede al daemon di ricaricarlo e dice com'è andata: *Rules reloaded.* (codice
-di uscita `0`), una modifica che attende la tua approvazione (`3`) oppure, se il daemon non ha
-risposto, che il file è salvato e che non è confermato che si applichi (`1`: `latet reload` lo
-applica quando il daemon è in esecuzione). Il comando non legge i repository con un `latet.yaml`
-proprio che Latet ha visto: il daemon vi pesa l'importazione quando ricarica, e un'aggiunta che
+**Ciò che è stato applicato lo dice la risposta del daemon.** Il comando dice prima cosa
+aggiungerebbe, poi salva `config.yaml`, chiede al daemon di ricaricarlo e dice com'è andata:
+*Rules reloaded.* (codice di uscita `0`), una modifica che attende la tua approvazione (`3`) oppure,
+se il daemon non ha risposto, che il file è stato salvato ma non è confermato che venga applicato
+(`1`: `latet reload` lo applica quando il daemon è in esecuzione). Il comando non legge i repository
+con un `latet.yaml` proprio che Latet ha visto: il daemon vi valuta l'importazione quando ricarica, e un'aggiunta che
 riduce la protezione in uno di essi attende anch'essa la tua approvazione.
 
 Si possono importare anche un `config.yaml` o il `latet.yaml` di un progetto: ciò che contengono e
-che non è una regola (la porta, l'identità...) viene escluso, e l'importazione lo dice.
+che non è una regola (la porta, l'identità...) viene escluso, e l'importazione lo segnala.
 
 ### Le regole di un progetto
 
@@ -108,10 +108,10 @@ latet rules import shop-rules.yaml --project D:\work\shop
 Nella dashboard, li ha anche la pagina **Regole** di un progetto, sotto *Le tue, per il progetto*:
 *Esporta queste impostazioni* e *Importa impostazioni*.
 
-### Su un server Latet
+### Su un server di Latet
 
-Su un computer connesso a un [server Latet](../server/), le tue regole sono nel tuo spazio sul
-server, e `latet rules export` e `import` si rifiutano di funzionare. **Esporta le regole** e
+Su un computer connesso a un [server di Latet](../server/), le tue regole sono nel tuo spazio sul
+server, e `latet rules export` e `import` si rifiutano di essere eseguiti. **Esporta le regole** e
 **Importa le regole** in cima a **Regole** nella tua dashboard sul server funzionano come sopra,
 sulle tue regole: un team condivide le sue regole come file, e ciascuno lo importa. Il `latet.yaml`
 di un progetto lì non si applica: importalo allo stesso modo per usarne le regole.
@@ -123,8 +123,9 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" export bil
 latet server --server https://latet.acme.lan rules --key "Billing CI" import team-rules.yaml
 ```
 
-Le regole impostate per tutti su un server, che nessuno può allentare, sono previste per la
-Enterprise Edition.
+Con l'Enterprise Edition, le regole impostate per tutti su un server, che nessuno può allentare,
+sono le direttive dell'azienda: un file di regole in questo stesso formato, impostato con
+`latet server policy set`.
 
 ## La tua installazione, per un altro computer
 
@@ -145,9 +146,9 @@ ricordare e difficile da indovinare), e scrive un unico file:
 
 - **Con la cassaforte**, l'altro computer produce gli stessi valori fittizi di questo, ricorda ogni
   valore trovato finora (dai rilevatori, dal revisore locale, da te nel Revisore Live), e continua a
-  ripristinare le conversazioni iniziate qui. Il file contiene allora i tuoi valori reali, cifrati:
+  rimettere i valori reali nelle conversazioni iniziate qui. Il file contiene allora i tuoi valori reali, cifrati:
   conservalo dove conserveresti i valori stessi.
-- **Senza**, l'altro computer produce valori fittizi suoi.
+- **Senza**, l'altro computer produce valori fittizi propri.
 - **Mai nel file:** la chiave API del revisore locale, il token del bridge (tra il plugin di
   Claude Code e il daemon), i log, il modello locale dei nomi, i modelli di riconoscimento del testo
   e le impostazioni dei tuoi agenti. Ogni computer ha i suoi.
@@ -161,7 +162,7 @@ impostazioni riduce la protezione rispetto alle tue, e ti chiede se procedere. P
 - **Cartelle dei progetti in un altro posto:** `--paths C:\Users\anna\dev=D:\work` sposta sotto la
   seconda cartella quelle che si trovano sotto la prima. Le cartelle che qui non ci sono vengono
   elencate.
-- **Una cassaforte già presente qui:** se la cassaforte di questo computer ha valori suoi, viene
+- **Una cassaforte già presente qui:** se la cassaforte di questo computer ha valori propri, viene
   sostituita solo con `--replace`. Prima vengono salvati in `before-restore-<date>.latet` accanto
   alla cassaforte, con la stessa passphrase, così `latet restore` può riportarli indietro.
 - **Il daemon** viene fermato prima e riavviato dopo, e niente lo avvia mentre è in corso un
@@ -175,7 +176,7 @@ Poi: `latet llm key` per la chiave API del revisore, `latet ner install` per il 
 dei nomi, `latet ocr install` per il testo nelle immagini (fino ad allora una richiesta che contiene
 un'immagine non viene inviata), e `latet global-install` (o `latet claude`) per i tuoi agenti.
 
-**Solo nel tuo terminale.** Entrambi i comandi si rifiutano di funzionare dentro un agente: gestiscono
+**Solo nel tuo terminale.** Entrambi i comandi si rifiutano di essere eseguiti dentro un agente: gestiscono
 la tua cassaforte e la sua chiave. `latet restore` ha anche bisogno di un terminale per farti le
 domande, e si rifiuta quando la chiave radice viene da `LATET_ROOT_KEY` o `LATET_ROOT_KEY_FILE`, che
 una chiave ripristinata non potrebbe sostituire.

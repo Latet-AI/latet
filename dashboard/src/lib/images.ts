@@ -68,3 +68,18 @@ export function imageChanges(choices: Readonly<Record<number, ImageChoice>>): { 
   const all = Object.values(choices)
   return { rects: all.reduce((n, c) => n + (c.withhold ? 0 : c.rects.length), 0), withheld: all.filter((c) => c.withhold).length }
 }
+
+/**
+ * A mark of an image of the Live Reviewer as it leaves now: its text as masked, which its painting follows. The image's
+ * address carries it, so that a page already open asks for the image again once its texts are masked again while it
+ * waits: a browser keeps an image of the same address for as long as the page is open, whatever the server says of
+ * caching it.
+ */
+export function sentMark(masked: string): string {
+  let hash = 0x811c9dc5 // FNV-1a, 32 bits
+  for (let i = 0; i < masked.length; i++) {
+    hash ^= masked.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}

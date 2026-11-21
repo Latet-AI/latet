@@ -17,6 +17,17 @@ Anthropic, así que primero preguntamos: una incidencia explica el caso con la p
 se la enviamos a Anthropic, y la pull request solo se integra con su conformidad, adjunta a la
 incidencia.
 
+## Herramientas MCP enmascaradas antes de que Claude Code las lea
+
+El esquema de parámetros de una herramienta MCP puede contener un valor que Latet enmascara, como
+una dirección de ejemplo, y Claude Code lo envía con sus peticiones, donde el plugin de Latet no
+llega: hoy Latet detiene esas peticiones (consulta [Solución de problemas](../troubleshooting/)).
+Latet se pondría en cambio entre Claude Code y los servidores MCP que configures: enmascararía las
+descripciones y los esquemas de las herramientas en la lista que lee Claude Code, y devolvería los
+valores reales a las llamadas del modelo, de modo que las peticiones de Claude Code quedarían tal
+como Claude Code las construyó. Cubriría los servidores que añades tú, no los conectores que vienen
+de claude.ai.
+
 ## Un instalador firmado para Windows
 
 Los antivirus comprueban los programas que no conocen cada vez que arrancan, y los lanzadores de una
@@ -37,12 +48,12 @@ GLiNER o Presidio. Varios podrían trabajar juntos, cada uno añadiendo lo que e
 
 Leer el resto de lo que envían los clientes de Gemini: la Interactions API, la Live API, la Batch API,
 la subida de archivos, la generación de imágenes y las peticiones `:predict` de Vertex (sus propios
-modelos de embeddings y de imágenes). Hasta entonces Latet los rechaza en sus rutas de Gemini en
-lugar de enviarlos sin enmascarar (ver [Gemini CLI y Google GenAI](../agents/gemini/)).
+modelos de embeddings y de imágenes). Hasta entonces, Latet rechaza esas peticiones en sus rutas de
+Gemini en lugar de enviarlas sin enmascarar (consulta [Gemini CLI y Google GenAI](../agents/gemini/)).
 
 ## Más agentes
 
-OpenCode con inicio de sesión de ChatGPT, o con sus modelos en Amazon Bedrock o Azure. La API Mantle
+OpenCode con la sesión iniciada con ChatGPT, o con sus modelos en Amazon Bedrock o Azure. La API Mantle
 de Amazon Bedrock para Claude Code, y Bedrock a través de un punto de conexión de VPC o de su
 dirección FIPS con tu inicio de sesión de AWS (con una clave de API de Bedrock ya funcionan las dos).
 Antigravity CLI, verificado con Latet.
@@ -65,15 +76,22 @@ leer, Latet sustituiría los valores sensibles por valores ficticios y enviaría
 enmascarado, y después restauraría los valores reales en la respuesta, también en los archivos que
 devuelva el modelo. Un archivo en un formato que Latet no lee se rechaza, en una conversación igual
 que subido por separado a través de la API de archivos de un proveedor, en un equipo igual que en un
-servidor (ver [Qué está protegido y qué no](../concepts/protection-scope/)).
+servidor (consulta [Qué está protegido y qué no](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 
-Latet Enterprise es para una empresa cuyo equipo de seguridad fija las reglas de todos. Sobre la
-Community Edition añade reglas para todos que nadie puede relajar, roles de administración como un
-auditor de solo lectura, aprobaciones centrales de los cambios que reducen la protección, inicio de
-sesión único, informes de auditoría y eventos para un SIEM.
-[Apúntate a la lista de espera](https://latet.ai/#waitlist) para saber cuándo sale.
+Latet Enterprise es para una empresa cuyo equipo de seguridad fija las reglas de todos: reglas que
+nadie puede relajar, inicio de sesión único con grupos y roles como un auditor de solo lectura,
+aprobaciones centrales de los cambios que reducen la protección, informes de auditoría, eventos para
+un SIEM y términos sincronizados (consulta [Ediciones y licencia](../enterprise/)). Están previstas
+dos ampliaciones:
+
+- **Los grupos de Microsoft AD FS.** Conectado directamente, AD FS da a Latet el nombre de usuario
+  de una persona, pero no sus grupos: solo los añade a una respuesta devuelta por form post. Latet
+  pediría esa respuesta, para que los grupos de AD FS pongan a las personas en los grupos de Latet y
+  decidan quién recibe una cuenta, como hacen los grupos de otros proveedores, sin Keycloak en medio.
+- **Desconectar desde Tus equipos.** Una persona desconectaría uno de sus equipos, por ejemplo uno
+  que ya no tiene, desde **Tus equipos** en el panel, sin pedírselo a un administrador.
 
 ## Más idiomas
 

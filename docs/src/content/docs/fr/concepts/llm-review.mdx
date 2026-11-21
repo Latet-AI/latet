@@ -26,8 +26,8 @@ Ce dont vous préféreriez ne pas avoir à vous soucier relève surtout de la de
 qui lit de lui-même une base de données, un journal ou un dossier de documents rapporte des données
 que vous n'avez jamais saisies.
 
-- **Il lit ce que les détecteurs ont laissé.** Leurs remplacements lui sont présentés sous forme de
-  marqueurs, comme `⟦EMAIL#1⟧`, pour qu'il sache ce qui est déjà couvert.
+- **Il lit ce que les détecteurs ont laissé.** Leurs remplacements lui sont présentés sous forme
+  d'espaces réservés, comme `⟦EMAIL#1⟧`, pour qu'il sache ce qui est déjà couvert.
 - **Un texte n'est lu qu'une fois.** Quand il revient dans l'historique, ou après un redémarrage, Latet
   se souvient de ce qu'en a dit le relecteur, scellé dans la base de données du coffre-fort, et le
   masque de la même façon sans redemander, même après que vous avez modifié [vos consignes](#vos-consignes).
@@ -157,7 +157,7 @@ llm_review:
   que le serveur vous appartient (*Ce serveur m'appartient* dans le tableau de bord, `remote: true`
   dans config.yaml). Joignez-le en `https://`, pour que les textes ne traversent pas votre réseau en
   clair. Sur votre réseau local (`192.168.x`, `10.x`, un nom comme `gpu-box` ou `gpu-box.lan`),
-  `http://` est encore accepté, avec un avertissement dans le tableau de bord et dans `latet doctor` ;
+  `http://` reste accepté, avec un avertissement dans le tableau de bord et dans `latet doctor` ;
   partout ailleurs, l'adresse doit être en `https://`.
 - **Un certificat auto-signé** convient : donnez-en un au serveur (llama.cpp accepte `--ssl-key-file`
   et `--ssl-cert-file`), puis faites-lui confiance grâce à son empreinte, avec *Afficher son certificat*
@@ -195,7 +195,7 @@ détecteurs de Latet ont laissées en clair (voir `benchmarks/llm-review/README.
   davantage, et eux seuls arrêtent de façon fiable un texte entier (`block: true`, pour un dossier
   médical complet ou une liste de nombreuses personnes).
 - **Sans carte graphique**, un modèle 4B met environ 10 s pour un prompt : dans ce cas, ne faites
-  relire avant le départ que ce que vous tapez, et le reste après (voir plus bas).
+  relire avant le départ que ce que vous saisissez, et le reste après (voir plus bas).
 - **Les textes longs sont lus par morceaux** d'environ 7 000 caractères, que les petits modèles lisent
   mieux. Augmentez `chunk_chars` pour un grand modèle, jusqu'à 16 384 : la valeur la plus longue que
   Latet conserve, pour que ce que le relecteur trouve dans un morceau soit toujours conservé.

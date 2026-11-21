@@ -30,6 +30,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import importlib.resources
+import importlib.util
 import logging
 import os
 import re
@@ -54,9 +55,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# The packages of the migrations, in order: each holds NNN_name.sql files. E1 appends "latet.ee.migrations" when the
-# Enterprise package can be imported.
+# The packages of the migrations, in order: each holds NNN_name.sql files.
 MIGRATIONS: list[str] = ["latet.server.migrations"]
+# The Enterprise Edition's tables, when its code is there (E1): the Community Edition alone never has them. Only
+# latet.ee itself missing means the Community Edition, as latet.edition.load_edition says. This very list is the
+# default of ``migrate``, ``pending`` and ``check_schema``: the migrate guard (``instance.migrate_schema``) asks which
+# wait with the packages it applies, so that an upgrade bringing an Enterprise migration alone is guarded too.
+if importlib.util.find_spec("latet.ee") is not None:
+    MIGRATIONS.append("latet.ee.migrations")
 # Seconds PostgreSQL has to answer a new connection before it is given up (the setting database_connect_timeout). Left
 # to the environment it would be none, and psycopg then waits 130 seconds for a database that does not answer.
 CONNECT_TIMEOUT = 5

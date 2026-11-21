@@ -4,11 +4,11 @@ description: Gemini CLI, die Google-GenAI-SDKs und Gemini auf Vertex AI über da
 ---
 
 Gemini CLI und die Programme, die auf Googles GenAI-SDKs aufbauen, nutzen den **Gateway-Modus**: Der
-lokale Daemon maskiert die Anfragen und stellt die Antworten wieder her. Er deckt die Gemini API mit
-einem API-Schlüssel ab, und Gemini auf Vertex AI, mit einem Google-Cloud-Projekt oder im
-Express-Modus mit einem API-Schlüssel.
+lokale Daemon maskiert die Anfragen und setzt in den Antworten die echten Werte wieder ein.
+Abgedeckt sind die Gemini API mit einem API-Schlüssel und Gemini auf Vertex AI, mit einem
+Google-Cloud-Projekt oder im Express-Modus mit einem API-Schlüssel.
 
-## Basis-URLs
+## Base-URLs
 
 | Dienst | Statt | Verwenden Sie | Variable |
 | --- | --- | --- | --- |
@@ -18,12 +18,12 @@ Express-Modus mit einem API-Schlüssel.
 Ihr API-Schlüssel oder Ihre Google-Cloud-Anmeldung bleiben, wo sie sind. Das Gateway leitet sie
 unverändert weiter (einen Schlüssel im Header `x-goog-api-key` oder im Parameter `key` der Adresse,
 ein Vertex-Token in `Authorization`) und schreibt ihren Wert nie in Logs, ins Dashboard oder in einen
-Mitschnitt. Auf Vertex geht jede Anfrage an die Adresse der Location, die sie nennt.
+Mitschnitt. Auf Vertex geht jede Anfrage an die Adresse des Standorts, den sie nennt.
 
 ## Gemini CLI
 
 Leiten Sie Gemini CLI mit dem Wrapper über Latet. Er startet bei Bedarf den Daemon, setzt beide
-Basis-URLs nur für diesen Lauf und gibt jedes Argument an `gemini` weiter:
+Base-URLs nur für diesen Lauf und gibt jedes Argument an `gemini` weiter:
 
 ```sh
 latet gemini
@@ -50,8 +50,8 @@ es im globalen Modus nicht verfügbar: `latet global-install` richtet es nicht e
 
 ### Einen API-Schlüssel oder Vertex AI wählen
 
-In Gemini CLI wählt `/auth`, wie es sein Modell erreicht, und die Wahl bleibt in
-`~/.gemini/settings.json`:
+In Gemini CLI wählt `/auth`, wie es sein Modell erreicht, und die Wahl wird in
+`~/.gemini/settings.json` gespeichert:
 
 ```json title="~/.gemini/settings.json"
 { "security": { "auth": { "selectedType": "gemini-api-key" } } }
@@ -69,7 +69,7 @@ vorher: Setzen Sie `selectedType` wie oben.
 **Mit der Google-Anmeldung**, ob Ihre Einstellungen sie wählen, die des Projekts
 (`.gemini/settings.json` im Ordner, in dem Sie es starten) oder die des Rechners, schickt Gemini CLI
 seine Anfragen an einen Endpunkt, den Latet nicht liest, es würde also nichts maskiert. Dann startet
-`latet gemini` es nicht und sagt, wo die Wahl getroffen ist und was stattdessen zu wählen ist.
+`latet gemini` es nicht und sagt, wo die Wahl getroffen wurde und was stattdessen zu wählen ist.
 
 ### Nutzungsstatistiken
 
@@ -97,42 +97,42 @@ reply = client.models.generate_content(
 print(reply.text)
 ```
 
-Starten Sie es mit `latet run python welcome.py`: Google liest eine falsche Adresse derselben Form, und
-das Skript gibt die E-Mail mit der echten aus. Gestreamte Antworten funktionieren genauso, Stück für
+Starten Sie es mit `latet run python welcome.py`: Google liest als Adresse einen Ersatzwert im selben
+Format, und das Skript gibt die E-Mail mit der echten Adresse aus. Gestreamte Antworten funktionieren genauso, Stück für
 Stück.
 
-Auch Googles OpenAI-kompatibler Endpunkt läuft über Latet: Geben Sie einem OpenAI-Client die Basis-URL
+Auch Googles OpenAI-kompatibler Endpunkt läuft über Latet: Geben Sie einem OpenAI-Client die Base-URL
 `http://127.0.0.1:5283/gemini/v1beta/openai`.
 
 ## Was das Gateway liest
 
-- **Generieren**, gestreamt oder nicht (`generateContent`, `streamGenerateContent`), **Token zählen**
+- **Generieren**, gestreamt oder nicht (`generateContent`, `streamGenerateContent`), **Tokens zählen**
   (`countTokens`), **Embeddings** (`embedContent`, `batchEmbedContents`) und **einen Cache anlegen**
   (`cachedContents`): Die Systemanweisung, jede Nachricht, Funktionsaufrufe und ihre Ergebnisse, die
-  Deklarationen der Funktionen und das Schema der Antwort werden maskiert, und die Antworten
-  wiederhergestellt.
+  Deklarationen der Funktionen und das Schema der Antwort werden maskiert, und in den Antworten
+  werden die echten Werte wieder eingesetzt.
 - **Bilder** in der Anfrage werden mit der optionalen [Texterkennung](../../concepts/images/) gelesen
   und maskiert; ohne sie wird eine Anfrage mit einem Bild nicht gesendet. Andere Dateien, und
   Dateien, die über ihre Adresse angegeben sind, werden abgelehnt.
-- Das **Nachdenken** des Modells bleibt, wie das Modell es geschrieben hat. Der Code, den Google für
-  es ausführt, und was dieser Code ausgegeben hat, sowie die Eingaben und Ausgaben von Googles
+- Das **Thinking** des Modells bleibt, wie das Modell es geschrieben hat. Der Code, den Google für
+  das Modell ausführt, und was dieser Code ausgegeben hat, sowie die Eingaben und Ausgaben von Googles
   eigenen Tools (Google Search, URL-Kontext, Maps, File Search) werden maskiert, wie der Aufruf
   einer Funktion und ihr Ergebnis.
-- **Jede andere Anfrage mit einem Body** auf diesen Routen wird abgelehnt, mit einem Fehler, der es
+- **Jede andere Anfrage mit einem Body** auf diesen Routen wird abgelehnt, mit einem Fehler, der das
   sagt, und ein WebSocket der Live API wird geschlossen, bevor etwas durchgeht: Die Interactions
   API, die Live API, die Batch API, das Hochladen von Dateien und `:predict` von Vertex (seine
-  eigenen Embeddings und Bildmodelle) tragen eine Unterhaltung in Formen, die Latet nicht liest
-  (sie stehen auf der [Roadmap](../../roadmap/)). Die Liste der Modelle und das Lesen eines Modells
-  gehen durch; jeder andere Aufruf ohne Body wird ebenfalls abgelehnt.
+  eigenen Embeddings und Bildmodelle) übertragen eine Unterhaltung in Formaten, die Latet nicht liest
+  (sie stehen auf der [Roadmap](../../roadmap/)). Das Auflisten der Modelle und das Abrufen eines
+  Modells gehen durch; jeder andere Aufruf ohne Body wird ebenfalls abgelehnt.
 - Der Header der Google-Clientbibliothek `x-goog-api-client` wird entfernt; Ihr API-Schlüssel, im
   Parameter `key` oder in `x-goog-api-key`, wird gesendet, wie er kam, und nie protokolliert.
 
 ## Grenzen
 
 - **Gemini CLI mit der Google-Anmeldung** ist nicht abgedeckt (siehe oben).
-- **Antigravity CLI** nimmt mit einem API-Schlüssel eine Basis-URL an (`GOOGLE_GEMINI_BASE_URL`),
+- **Antigravity CLI** nimmt mit einem API-Schlüssel eine Base-URL an (`GOOGLE_GEMINI_BASE_URL`),
   aber seine Dokumentation sagt nicht, welches Protokoll von Google es dann spricht, und es ist mit
   Latet nicht geprüft. Nutzt es die Interactions API, lehnt Latet seine Anfragen ab, statt sie
   unmaskiert zu senden.
 - Eine Antwort, die einen **expliziten Cache** nutzt, bekommt die Originale der Werte zurück, die
-  ihre eigene Unterhaltung trägt.
+  ihre eigene Unterhaltung enthält.

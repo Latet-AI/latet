@@ -6,9 +6,12 @@ import json
 import sqlite3
 
 import pytest
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from latet.config import AutoModeReview, Config, IdentityConfig, load_config
+from latet.edition import Community
 from latet.engine.detectors import checksums
 from latet.gateway.app import create_app
 from latet.gateway.routes import Upstream
@@ -195,6 +198,32 @@ def test_signing_out_ends_the_session_and_takes_its_cookie_away(client, runtime)
     assert client.get(f"{API}/me").status_code == 401
     client.cookies.set("latet_session", sid, domain="127.0.0.1", path="/_latet")  # a copy of the cookie
     assert client.get(f"{API}/me").status_code == 401
+
+
+def test_me_says_the_edition_and_lists_no_enterprise_page_without_a_license(client, runtime):
+    _login(client, runtime)
+    edition = client.get(f"{API}/me").json()["edition"]
+    # A computer is the Community Edition, with ee/ there or not: the Enterprise Edition is a Latet server's.
+    assert edition == {"name": "community", "license": None, "features": [], "pages": [], "roles": [], "actions": []}
+
+
+def test_the_editions_routes_are_behind_the_dashboards_sign_in(tmp_path):
+    class WithRoute(Community):
+        def dashboard_routes(self, dashboard):
+            async def hello(request):
+                return JSONResponse({"hello": True})
+
+            return [Route(f"{API}/ee/hello", dashboard.guarded(hello), methods=["GET"])]
+
+    config = Config(identity=IdentityConfig(enabled=False))
+    rt = make_runtime(config, data=tmp_path / "data", config_file=tmp_path / "config.yaml", edition=WithRoute())
+    try:
+        with TestClient(create_app(rt.gateway), base_url="http://127.0.0.1:5283") as client:
+            assert client.get(f"{API}/ee/hello").status_code == 401
+            _login(client, rt)
+            assert client.get(f"{API}/ee/hello").json() == {"hello": True}
+    finally:
+        rt.close()
 
 
 def test_rules_apply_at_once_and_playground_uses_them(client, runtime, upstream):
@@ -989,6 +1018,29 @@ def test_projects_api_keeps_what_the_file_holds_already_and_refuses_only_what_a_
     )
     assert refused.status_code == 400
     assert [d["loc"] for d in refused.json()["details"]] == [["settings", "terms", "3"]]
+
+
+def test_new_request_members_are_shown_and_set_on_the_rules_page(client, runtime, tmp_path):
+    """0.15.0 (notes/unknown-members-design.md §3): the Rules page shows how a request member no request profile names
+    yet is read, the value in force, and sets it; a project's overview says it with every layer, a repository file's
+    `refuse` among them, and the project's settings as read keep that refusal for a save to send back."""
+    _login(client, runtime)
+    assert client.get(f"{API}/config").json()["unknown_members"] == "check"  # the default: config.yaml has no key
+    tightened = client.put(f"{API}/config", json={"unknown_members": "refuse"}, headers=UI_HEADERS)
+    assert tightened.json()["ok"] is True
+    assert load_config(runtime.config_file).unknown_members == "refuse"
+    assert client.get(f"{API}/config").json()["unknown_members"] == "refuse"
+    assert runtime.unknown_members() == "refuse"  # in force at once
+    assert client.put(f"{API}/config", json={"unknown_members": "maybe"}, headers=UI_HEADERS).status_code == 400
+    loosened = client.put(f"{API}/config", json={"unknown_members": "check"}, headers=UI_HEADERS)
+    assert loosened.json()["ok"] is True  # made on your own dashboard, it is your approval
+    assert client.get(f"{API}/config").json()["unknown_members"] == "check"
+    root = _project(tmp_path, "unknown_members: refuse\n")
+    project = client.post(f"{API}/projects", json={"path": str(root)}, headers=UI_HEADERS).json()
+    assert project["repo"]["settings"] == {"unknown_members": "refuse"}
+    assert project["effective"]["unknown_members"] == "refuse"
+    other = client.post(f"{API}/projects", json={"path": str(_project(tmp_path / "b", ""))}, headers=UI_HEADERS)
+    assert other.json()["effective"]["unknown_members"] == "check"
 
 
 def test_latet_off_in_a_project_refuses_its_requests(client, runtime, upstream, tmp_path):

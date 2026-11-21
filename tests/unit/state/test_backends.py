@@ -10,6 +10,7 @@ import pytest
 
 from latet import runtime as runtime_module
 from latet.config import Config, ConfigError, IdentityConfig
+from latet.edition import Community
 from latet.engine.build import build
 from latet.engine.pipeline import SPACE_BLOCK_BYTES, SPACE_CACHE_BYTES
 from latet.engine.types import SlotKind
@@ -67,7 +68,7 @@ def test_a_runtime_is_built_over_the_backends_it_is_given(tmp_path):
     sign_ins = LocalSignIns()
     rt = make_runtime(
         Config(identity=IdentityConfig(enabled=False)), data=tmp_path / "data", config_file=tmp_path / "config.yaml",
-        root_key=ROOT_KEY, backends=replace(backends, sign_ins=sign_ins), identity=emily,
+        root_key=ROOT_KEY, backends=replace(backends, sign_ins=sign_ins), identity=emily, edition=Community(),
     )  # fmt: skip
     try:
         assert rt.identity == emily and rt.store is backends.vault and rt.exchanges is backends.history
@@ -181,6 +182,7 @@ def given(tmp_path):
         "data": tmp_path / "data",
         "config_file": tmp_path / "config.yaml",
         "backends": backends,
+        "edition": Community(),  # given backends, as a server gives its own: the server's edition with them
     }
     backends.vault.close()
     backends.history.close()

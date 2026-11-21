@@ -9,7 +9,7 @@ import logging
 import re
 import threading
 import unicodedata
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import accumulate
 
@@ -18,16 +18,20 @@ import re2
 from latet.engine.detectors.base import DetectContext, Detector, DetectorSkipped, quiet_options
 from latet.engine.detectors.fields import FieldDetector
 from latet.engine.detectors.terms import (
+    SYNCED_ID,
     VALUE_LONGEST,
+    IdentityDetector,
     KnownValuesDetector,
+    LockedTermsDetector,
     NotPlain,
     PlainTerms,
     has_letter_or_digit,
+    is_locked,
     long_enough,
 )
 from latet.engine.escapes import read_escaped
 from latet.engine.known import Matched, PartedValues
-from latet.engine.merge import merge_spans
+from latet.engine.merge import carve_around, meeting, merge_spans
 from latet.engine.modules import AGAIN, module_of
 from latet.engine.surrogates.data.names import PUBLIC_MAIL_DOMAINS
 from latet.engine.surrogates.generators import Drbg, email_domain
@@ -57,9 +61,15 @@ _TAUGHT = frozenset({"reviewer", "live"})
 # a value of yours.
 _ALWAYS = frozenset({"latet"})
 
-# The detectors of whole values, as given or kept (your terms, your identity, the vault's values): what reads a text
-# again as its escapes read, whatever they write (``Masker.detect``).
-_WHOLE_VALUES = frozenset({"terms", "identity", "known-values"})
+# The detectors of whole values, as given or kept (your terms, the terms your company locks and those it syncs, your
+# identity, the vault's values): what reads a text again as its escapes read, whatever they write (``Masker.detect``).
+# The company's are read there too, so that no exception of yours lets one written with a form's `+`, `%20` or `&#32;`
+# through as your own copy of it (the settings in use hold a locked one among your terms too).
+_WHOLE_VALUES = frozenset({"terms", LockedTermsDetector.id, SYNCED_ID, "identity", "known-values"})
+
+# The classes of the values that are yours, where terms are carved (``Masker._carved_clear``): your terms, your
+# recognizers' finds and their repeats (CUSTOM), your identity and its repeats (IDENTITY).
+_YOURS = frozenset({EntityClass.CUSTOM, EntityClass.IDENTITY})
 
 # An applications call's texts read as one text (``Masker.joined``): joined by a blank line, which ends every structure
 # a detector reads over lines (a CSV's rows, a table's, a key's block), in parts of at most this many characters.
@@ -161,11 +171,15 @@ class Masker:
         policies: dict[str, Policy] | None = None,
         allow: AllowList | None = None,
         generators: dict[str, Callable[[str, Drbg], str]] | None = None,
+        carve_terms: bool = False,
     ) -> None:
         self.vault = vault
         self.detectors = list(detectors)
         self.policies = policies or {}
         self.allow = allow or AllowList()
+        # Every span of yours left in clear (a term's, a recognizer's, your identity's, and their repeats) is cut around
+        # what is masked without them (``Config.carves_terms``, ``_carved_clear``, ``_carved``).
+        self.carve_terms = carve_terms
         # Fakes for the types of the user's own recognizers: masker by masker, as projects have their own.
         self.generators = dict(generators or {})
         self._skips: dict[str, Paced] = {}  # each detector's texts not read, as the log says them
@@ -200,6 +214,9 @@ class Masker:
         the vault answers for it (``Matchers.for_text``)."""
         held = self.vault.matchers.for_text(text)
         echo, inside = held.echo, None if self.vault.whole_vault_call() else held.echo_inside
+        if echo.empty and (inside is None or inside.empty):
+            held.seen()
+            return []  # no fake to look for (a vault that issued none): the text's readings are not made for nothing
         ctx = DetectContext(joined=joined)
 
         def read(t: str) -> list[Span]:
@@ -223,14 +240,30 @@ class Masker:
             out.append(span)
         return out
 
-    def known_in(self, text: str) -> list[Span]:
-        """Where values in the vault are in ``text`` in clear: neither a surrogate nor a value you let through. The
-        values ``text`` is read for are those the vault answers for it (``Matchers.for_text``)."""
+    def known_in(self, text: str, *, classes: Collection[EntityClass] | None = None) -> list[Span]:
+        """Where values in the vault are in ``text`` in clear: neither a surrogate nor a value you let through (one
+        holding a term your company locks is never let through). The values ``text`` is read for are those the vault
+        answers for it (``Matchers.for_text``). ``classes``: only the values of one of them."""
         held = self._matched(text)
         known = held.known
         spans = read_escaped(text, lambda t: list(known.detect(t, DetectContext())))
         held.seen()
-        return [s for s in spans if not self.fake_or_let_through(text, s)]
+        if classes is not None:
+            spans = [s for s in spans if s.eclass in classes]
+        clear = [s for s in spans if not self._a_fake(text, s)]
+        through = [s for s in clear if self.lets_through(s, *_forms(text, s))]
+        if not through:
+            return clear
+        locked = self._locked_in(text)
+        let = {id(s) for s in through if not any(_meet(s, term) for term in locked)}
+        return [s for s in clear if id(s) not in let]
+
+    def _locked_in(self, text: str) -> list[Span]:
+        """Where the terms your company locks or syncs are in ``text`` (Latet Enterprise): none without any."""
+        lockers = [d for d in self.detectors if getattr(d, "locks", False)]
+        return (
+            read_escaped(text, lambda t: [s for d in lockers for s in d.detect(t, DetectContext())]) if lockers else []
+        )
 
     def known_outside(self, text: str, replacements: Iterable[Replacement]) -> bool:
         """Whether a value in the vault is in ``text`` outside every value ``replacements`` masked in it (their masking
@@ -238,24 +271,44 @@ class Masker:
         secret's group after ``text`` was masked with that secret alone; `Mario Rossi` learnt whole, `Rossi` masked
         alone). Its masking holds a fake where part of such a value was, so it shows no value in clear there
         (``known_in``), and the rest of that value is in clear. A value inside one value masked needs nothing, a fake
-        or a value you let through neither; one reading of ``text``, as ``known_in``'s."""
+        or a value you let through neither (one holding a term your company locks is never let through, as in
+        ``known_in``); one reading of ``text``, as ``known_in``'s."""
+        return any(True for _ in self._shown_outside(text, replacements))
+
+    def classes_outside(self, text: str, replacements: Iterable[Replacement]) -> frozenset[EntityClass]:
+        """The classes of every value ``known_outside`` finds in ``text``, in its one reading: none when it finds none
+        (a secret among them never leaves again from a text sent before, ``Mediator._leaves_as_it_left``)."""
+        return frozenset(span.eclass for span in self._shown_outside(text, replacements))
+
+    def _shown_outside(self, text: str, replacements: Iterable[Replacement]) -> Iterator[Span]:
+        """The values ``known_outside`` finds in ``text``, as it reads them."""
         places = sorted((r.start, r.end) for r in replacements if r.policy != Policy.ALLOW)
         starts = [start for start, _ in places]
         reach = list(accumulate((end for _, end in places), max))  # the furthest end of the places begun up to each
         known = self._known_values(text)
+        locked: list[Span] | None = None  # the company's terms in ``text``, read once, where a value let through is met
         for span in read_escaped(text, lambda t: list(known.detect(t, DetectContext()))):
             at = bisect.bisect_right(starts, span.start) - 1
             if at >= 0 and span.end <= reach[at]:
                 continue  # inside a value masked (the one begun at or before it that reaches furthest)
-            if not self.fake_or_let_through(text, span):
-                return True
-        return False
+            if self._a_fake(text, span):
+                continue
+            if not self.lets_through(span, *_forms(text, span)):
+                yield span
+                continue
+            if locked is None:
+                locked = self._locked_in(text)
+            if any(_meet(span, term) for term in locked):
+                yield span
 
     def fake_or_let_through(self, text: str, span: Span) -> bool:
         """Whether what ``span`` found is a fake, or a value you let through: as it is written, or as it reads where
-        written in escapes (`Mario%20Rossi` is `Mario Rossi`)."""
-        forms = {text[span.start : span.end], span.of(text)}
-        return any(self.vault.is_surrogate(form) or self.allow.allows(form) for form in forms)
+        written in escapes (`Mario%20Rossi` is `Mario Rossi`). A term your company locks is never let through."""
+        return self._a_fake(text, span) or self.lets_through(span, *_forms(text, span))
+
+    def _a_fake(self, text: str, span: Span) -> bool:
+        """Whether what ``span`` found is a fake the vault issued, as it is written or as it reads."""
+        return any(self.vault.is_surrogate(form) for form in _forms(text, span))
 
     def json_numbers(self, kind: SlotKind, tool: str | None, path: str | None = None) -> bool:
         """The numbers of a JSON document are masked too here (strict data mode, or field rules); ``path``: where the
@@ -287,11 +340,12 @@ class Masker:
         """What the detectors find in ``text``. JSON text is read again with its escapes' letters blanked out
         (`escapes`), by every detector but the name model, whose reading is the one that costs. A text with escapes
         (`Niccol\\u00f2`, `%40`, `&#242;`, a quote, a form's `+`) is read once more as they read
-        (``escapes.decoded``) by your terms, your identity and the vault's values, which match whole values; where an
-        escape writes a character, by the detectors of personal data and your recognizers too, whose secrets and
-        values of a structure are left out there (a base64 run's `%3D` makes no new key, a `%26` no new field). A
-        value found there of a type your policies let through is left out too: it never names what it merges with. A
-        value found there is kept as it is written (``_apply``). A value of signs
+        (``escapes.decoded``) by your terms, the terms your company locks (Latet Enterprise), your identity and the
+        vault's values, which match whole values; where an escape writes a character, by the detectors of personal data
+        and your recognizers too, whose secrets and values of a structure are left out there (a base64 run's `%3D`
+        makes no new key, a `%26` no new field). A value found there of a type your policies let through is left out
+        too: it never names what it merges with. A value found there is kept as it is written (``_apply``). A value of
+        signs
         alone (``----`` after ``Bearer``, ``!!!!`` as a password) is left out: a fake keeps the signs of a value, so it
         would be its own. The final check reads with this too, so it does not stop a request for one either.
         A Latet route key may consist of URL-safe signs alone; its dedicated generator draws every character,
@@ -311,7 +365,7 @@ class Masker:
             if characters:
                 others = self._detect(t, alone, None, (*skip, "ner", *_WHOLE_VALUES), known=known)
                 found += [s for s in others if s.eclass not in (EntityClass.SECRET, EntityClass.STRUCT)]
-            return [s for s in found if self.policies.get(s.etype) != Policy.ALLOW]
+            return [s for s in found if not self.lets_type_through(s)]
 
         spans = read_escaped(
             text,
@@ -393,8 +447,11 @@ class Masker:
         each one of a part whose reading failed, or ran weaker (an optional detector that failed on it, or did not read
         it); and every one asked for again (a text a later one made stale, ``settle``). Nothing is joined
         where a name model reads ``kind`` (``reads_ahead``: it reads a text as a whole), nor where a detector cannot
-        read a part line by line (``joinable``: your recognizer of a quoted run, say), nor with the switch off
-        (``joins``).
+        read a part line by line (``joinable``: your recognizer of a quoted run, say), nor where the masking cuts
+        what you leave in clear around what it masks (Latet Enterprise: a company's locked terms, which are not
+        ``joinable``, and the terms your company syncs, while any is masked (``LiveTerms.joinable``: a text of a part
+        read before a sync gained one is read alone), or ``carve_terms``: each text's cut as its own text cuts it), nor
+        with the switch off (``joins``).
 
         A text read alone teaches the vault what it finds there, which a later text may hold bare: read alone, that
         text finds it in the vault. So a part never runs past a text read alone (its texts are those between two, in
@@ -419,7 +476,7 @@ class Masker:
         """``texts`` that ``joined`` reads joined, each once, in parts of two or more (one alone is read alone), each
         of texts next to each other in the call's order, but for the empty ones and those asked before (a text asked
         again teaches the vault nothing new): a text read alone ends a part. None where nothing is joined."""
-        if not self.joins or self.reads_ahead(kind) or not all(getattr(d, "joinable", True) for d in self.detectors):
+        if not self.joins or self.carve_terms or self.reads_ahead(kind) or not self._joinable():
             return []
         apart = [check for d in self.detectors if (check := getattr(d, "apart", None)) is not None]
         parts: list[list[str]] = []
@@ -442,11 +499,18 @@ class Masker:
             parts.append(part)
         return [part for part in parts if len(part) > 1]
 
+    def _joinable(self) -> bool:
+        """Whether every detector reads a text joined of lines as each line alone (``joined``): a detector whose terms
+        change in place, the terms your company syncs, says so as they change (``LiveTerms.joinable``)."""
+        return all(getattr(d, "joinable", True) for d in self.detectors)
+
     def _answer(self, call: _Joined, text: str) -> tuple[_Answer, int] | None:
         """``text``'s answer in ``call``, taken once, and the vault's version its part's reading began at; its part read
-        first where it was not, and read again (once) where a text was read alone since; None: it is read alone."""
+        first where it was not, and read again (once) where a text was read alone since; None: it is read alone, as
+        each is once a detector is no longer joinable (the terms your company syncs gained one since the call opened:
+        no part read before answers for them)."""
         k = call.part_of.get(text)
-        if k is None or text in call.asked:
+        if k is None or text in call.asked or not self._joinable():
             return None
         call.asked.add(text)
         if k not in call.read_at or (call.alone > call.read_at[k] and k not in call.again):
@@ -480,7 +544,7 @@ class Masker:
         text = JOIN.join(texts)
         weaker = MaskReport()
         try:
-            found, origin, seen = self._found(
+            found, origin, seen, _ = self._found(
                 text, DetectContext(kind, joined=True), weaker, False, (), parts=list(zip(starts, ends, strict=True))
             )
         except MaskingError:
@@ -544,8 +608,10 @@ class Masker:
         """
         if not text:
             return MaskedText(text)
-        spans, origin, read_at = self._read(text, kind, path, from_model, report, keep_surrogates, tool, field, extra)
-        masked = self._apply(text, spans, origin, context)
+        spans, origin, locked, read_at = self._read(
+            text, kind, path, from_model, report, keep_surrogates, tool, field, extra
+        )
+        masked = self._apply(text, spans, origin, context, locked)
         if read_at is not None:
             masked.read_at = read_at
         return masked
@@ -567,7 +633,7 @@ class Masker:
         rule each value was found by (a repeat of a value is kept by the rule that found it first). The vault learns
         nothing here: ``mask`` keeps the values (``_apply``). The arguments are ``mask``'s. A text of a call read
         joined (``joined``) is answered from there, once."""
-        spans, origin, _ = self._read(text, kind, path, from_model, report, keep_surrogates, tool, field, extra)
+        spans, origin, _, _ = self._read(text, kind, path, from_model, report, keep_surrogates, tool, field, extra)
         return spans, origin
 
     def _read(
@@ -581,11 +647,13 @@ class Masker:
         tool: str | None,
         field: str | None,
         extra: Sequence[ExtraValue],
-    ) -> tuple[list[Span], dict[str, str], int | None]:
-        """``spans``' answer, and the vault's version it was read at where that is a part's reading (``joined``), else
-        None (read now)."""
+    ) -> tuple[list[Span], dict[str, str], list[Span], int | None]:
+        """``spans``' answer, where the terms your company locks are among the values found (Latet Enterprise:
+        ``_apply`` replaces a span that holds one at least as strictly as the term's type says; none in a text read
+        joined, which a masker with such terms never reads: ``_parts``), and the vault's version it was read at where
+        that is a part's reading (``joined``), else None (read now)."""
         if not text:
-            return [], {}, None
+            return [], {}, [], None
         call = getattr(self._joining, "call", None)
         if call is not None:
             if (
@@ -598,12 +666,12 @@ class Masker:
                 answer = self._answer(call, text)
                 if answer is not None:
                     (found, origin), version = answer
-                    return found, origin, version
+                    return found, origin, [], version
             if text not in call.taken:
                 call.alone += 1  # read alone: what it finds, a part read before it does not know (``joined``)
         ctx = DetectContext(kind, tool=tool, field=field, source=path)
-        found, origin, _ = self._found(text, ctx, report, from_model or keep_surrogates, extra)
-        return found, origin, None
+        found, origin, _, locked = self._found(text, ctx, report, from_model or keep_surrogates, extra)
+        return found, origin, locked, None
 
     def _found(
         self,
@@ -613,41 +681,62 @@ class Masker:
         skip_surrogates: bool,
         extra: Sequence[ExtraValue],
         parts: Sequence[tuple[int, int]] | None = None,
-    ) -> tuple[list[Span], dict[str, str], list[Span]]:
-        """``spans``' answer for ``text``, and every span it weighed on the way (each value found, each repeat):
-        ``parts``, where the texts ``text`` is joined of stand (``joined``)."""
+    ) -> tuple[list[Span], dict[str, str], list[Span], list[Span]]:
+        """``spans``' answer for ``text``, every span it weighed on the way (each value found, each repeat), and where
+        the terms your company locks are among the values found (``_read``): ``parts``, where the texts ``text`` is
+        joined of stand (``joined``)."""
         spans = self.detect(text, ctx, report, parts=parts)
         spans.extend(self._echoes(text, skip_surrogates, ctx.joined))
         spans.extend(_extra_spans(text, extra))
         kept = []
         for span in spans:
-            forms = {text[span.start : span.end], span.of(text)}  # as written, and as it reads
-            if any(self.allow.allows(form) for form in forms):
+            forms = _forms(text, span)  # as written, and as it reads
+            if self.lets_through(span, *forms):
                 continue
             if skip_surrogates and any(self.vault.is_surrogate(form) for form in forms):
                 continue  # already in surrogate space
             kept.append(span)
+        # Where terms are carved, the spans ``_carved`` cuts (yours, left in clear) are set apart: the repeats are found
+        # as they are without them, and they are cut around those repeats too (``_carved``).
+        clear = [s for s in kept if self._carved_clear(s)] if self.carve_terms else []
+        found = [s for s in kept if not self._carved_clear(s)] if clear else kept
         # The rule that found each value, for the vault: a later occurrence of it (a repeat) may come first.
         origin: dict[str, str] = {}
-        for span in kept:
+        for span in found:
             if span.rule not in AGAIN:
                 origin.setdefault(text[span.start : span.end], span.rule)
                 origin.setdefault(span.of(text), span.rule)
         # A value let through stays whole: no other value's repeat is masked inside it.
-        allowed = [
-            (s.start, s.end) for s in spans if any(self.allow.allows(f) for f in (text[s.start : s.end], s.of(text)))
-        ]
+        allowed = [(s.start, s.end) for s in spans if self.lets_through(s, *_forms(text, s))]
         # In a call read joined, every text's values are looked for in every other text of its part too: what each text
         # alone finds in the vault (a value an earlier text taught it) or masks again (``settle``, for a later one).
-        groups = self._merged(text, kept) if ctx.joined else None
-        repeats = list(self._repeats(text, kept, origin, ctx.joined, groups))
+        groups = self._merged(text, found) if ctx.joined else None
+        repeats = list(self._repeats(text, found, origin, ctx.joined, groups))
+        if clear:
+            # One typed EMAIL (a term's, your address) still brings its domain along, found apart: it can hide none of
+            # the repeats above. Where it would itself be left in clear it is left out: no span of yours, it would be
+            # cut around nothing and only name the group it meets, a value masked without it among them.
+            brought = self._repeats(text, clear, origin)
+            repeats += [r for r in brought if r.etype == "DOMAIN" and not self._left_in_clear(r)]
+        locked: list[Span] = []
 
         def masked_with(found: list[Span]) -> list[Span]:
             out = [*kept, *(r for r in found if not any(a < r.end and r.start < b for a, b in allowed))]
             # A value of a type your policies let through, found where escapes read as what they stand for (a repeat,
             # the reviewer's), never names what it merges with: ``detect`` leaves such a finding out, and so does every
-            # path.
-            return [s for s in out if s.value is None or self.policies.get(s.etype) != Policy.ALLOW]
+            # path. Before the carves below: a piece cut from it would read as written and name what it merges with.
+            out = [s for s in out if s.value is None or not self.lets_type_through(s)]
+            locked[:] = [s for s in out if is_locked(s)]
+            # A company's term: what you leave in clear around it is cut around it. Since 0.9.10 this alone keeps a
+            # locked domain out of an address you let through, which ``_merged`` keeps whole with its own domain.
+            if locked:
+                cut = [s for s in out if self._left_in_clear(s) and any(_meet(s, term) for term in locked)]
+                if cut:
+                    whole = {id(s) for s in cut}
+                    out = [s for s in out if id(s) not in whole] + carve_around(cut, locked, text)
+            if self.carve_terms:  # and every span of yours left in clear (a term's, a recognizer's, your identity's)
+                out = self._carved(text, out)
+            return out
 
         merged = self._merged(text, masked_with(repeats))
         if groups is not None:
@@ -660,12 +749,12 @@ class Masker:
                 if not grown:
                     break
                 looked |= grown
-                repeats = list(self._repeats(text, [*kept, *repeats], origin, True, merged))
+                repeats = list(self._repeats(text, [*found, *repeats], origin, True, merged))
                 merged = self._merged(text, masked_with(repeats))
             else:
                 if _group_keys(text, merged) - looked:
                     raise _GroupsGrowing
-        return merged, origin, [*spans, *repeats]
+        return merged, origin, [*spans, *repeats], list(locked)
 
     def findings(self, text: str, kind: SlotKind = SlotKind.OTHER, *, tool: str | None = None) -> list[Span]:
         """What masking ``text`` would replace, without masking it: the spans ``mask`` replaces, at the same places and
@@ -673,7 +762,29 @@ class Masker:
         as values, as ``mask`` counts them when it does not keep them (``keep_surrogates`` off). Nothing is kept: the
         vault learns no value, and its version stays."""
         spans, _ = self.spans(text, kind, tool=tool, keep_surrogates=False)
-        return [s for s in spans if self.policies.get(s.etype, Policy.MASK) != Policy.ALLOW]
+        return [s for s in spans if not self.lets_type_through(s)]
+
+    def planned(self, text: str, kind: SlotKind = SlotKind.OTHER) -> list[tuple[Span, Policy]]:
+        """What ``mask`` replaces in ``text``, each with the policy it is replaced by (``_replaced_by``), those let
+        through left out; without masking it. Nothing is kept: the vault learns no value and its version stays, so a
+        later text is read for none of this one's values or fakes (``latet leak`` reads each saved text on its own)."""
+        if not text:
+            return []
+        spans, _, locked, _ = self._read(text, kind, None, False, None, False, None, None, ())
+        planned = [(span, self._replaced_by(span, locked)) for span in spans]
+        return [(span, policy) for span, policy in planned if policy != Policy.ALLOW]
+
+    def _replaced_by(self, span: Span, locked: Sequence[Span]) -> Policy:
+        """The policy ``_apply`` replaces ``span`` by: its type's, or that of a company's term it holds (``locked``)
+        where stricter; allow, left in clear; redact for a value too long for a vault to keep, never kept nor
+        restored."""
+        policy = self._policy(span)
+        for term in locked:
+            if _meet(span, term) and _STRICT[self._policy(term)] > _STRICT[policy]:
+                policy = self._policy(term)
+        if policy != Policy.ALLOW and span.end - span.start > VALUE_LONGEST:
+            return Policy.REDACT
+        return policy
 
     def _merged(self, text: str, spans: list[Span]) -> list[Span]:
         """``spans`` merged (``merge_spans``: a group of values that overlap is named by its strongest, and masked
@@ -685,16 +796,77 @@ class Masker:
         that is masked (a secret, a term of yours, one typed DOMAIN among them) is masked whole, as before, a value let
         through in it included."""
         whole = _whole_addresses(spans)
-        masked = [s for s in whole if self.policies.get(s.etype) != Policy.ALLOW]
-        own = _own_domains(text, [s for s in whole if self.policies.get(s.etype) == Policy.ALLOW])
+        masked = [s for s in whole if not self.lets_type_through(s)]
+        own = _own_domains(text, [s for s in whole if self.lets_type_through(s)])
         out: list[Span] = []
         for group in merge_spans(whole, text):
-            if self.policies.get(group.etype) != Policy.ALLOW:
+            if not self.lets_type_through(group):
                 out.append(group)
                 continue
             inside = [s for s in masked if group.start <= s.start and s.end <= group.end and not _inside(s, own)]
             out.extend(merge_spans(inside, text))
         return out
+
+    def _carved(self, text: str, kept: list[Span]) -> list[Span]:
+        """``kept`` with each span of yours left in clear cut around what the masking masks without them: the other
+        spans merged as ``_apply`` is given them (``_merged``), each of which is masked. A group is named by its
+        strongest span, so one of them that meets none of the masked spans itself could still name a group that holds
+        one (through an address let through that holds a company's match); cut so, it leaves in clear only what is in
+        clear without it: a piece meets none of those, so it never joins one of them in ``_merged``, and a group let
+        through it joins still gives way to the masked values inside it."""
+        clear = {id(s) for s in kept if self._carved_clear(s)}
+        if not clear:
+            return kept
+        others = [s for s in kept if id(s) not in clear]
+        masked = self._merged(text, others)
+        cut = {id(s) for s in meeting((s for s in kept if id(s) in clear), masked)} if masked else set()
+        if not cut:
+            return kept
+        return [s for s in kept if id(s) not in cut] + carve_around([s for s in kept if id(s) in cut], masked, text)
+
+    def lets_through(self, span: Span, *forms: str) -> bool:
+        """Whether the value ``span`` found, in one of its ``forms`` (as written, as it reads), is one of yours never
+        to mask (a value or a pattern of your exceptions): never a term your company locks."""
+        return not is_locked(span) and any(self.allow.allows(form) for form in forms)
+
+    def lets_type_through(self, span: Span) -> bool:
+        """Whether your policies let ``span``'s type through: never for a company's term (locked or synced), whatever
+        policy of yours names its type. The final check asks it too (``Verifier``)."""
+        return not is_locked(span) and self.policies.get(span.etype) == Policy.ALLOW
+
+    def _policy(self, span: Span) -> Policy:
+        """``span``'s policy as your settings say it, a company's term masked at least (never let through)."""
+        found = self.policies.get(span.etype, Policy.MASK)
+        return Policy.MASK if found == Policy.ALLOW and is_locked(span) else found
+
+    @property
+    def tag(self) -> str:
+        """What names the detectors whose terms change in place (the terms a company syncs: ``LiveTerms.tag``), the same
+        on every instance for the same terms; "" when none has a tag. Held, when not empty, by the texts each
+        conversation was given (``Mediator._given_key``), which every instance of a server reads in Valkey: one kept
+        across a change is checked again by the final check on its way out, whose memory holds the stamp."""
+        return "|".join(tag for d in self.detectors if (tag := getattr(d, "tag", "")))
+
+    @property
+    def stamp(self) -> str:
+        """What names this process's change of the terms that change in place (``LiveTerms.stamp``: their tag and a
+        number no later change gives again); "" while none ever changed, so that every key keeps 0.11's form (A-M4).
+        Held, when not empty, by the engine's cache of masked blocks (``Engine._frozen_key``), and always by the final
+        check's memory of clean blocks (``Verifier``), a decider's stamp of the rules (``Mediator._rules_stamp``), the
+        previews' (``Mediator._live_stamp``) and a request's authority (``LocalAuthority``): a sync masks again,
+        withholds or refuses what was taken under the terms before, also when the same terms (the same tag) come back
+        after a change, which the work that straddled the change was taken under (the re-review's R1)."""
+        return "|".join(stamp for d in self.detectors if (stamp := getattr(d, "stamp", getattr(d, "tag", ""))))
+
+    def _left_in_clear(self, span: Span) -> bool:
+        return self.lets_type_through(span)
+
+    def _carved_clear(self, span: Span) -> bool:
+        """A span ``_carved`` cuts where terms are carved: one of yours left in clear: a term's, a recognizer's or a
+        repeat of one (CUSTOM), your identity's or a repeat of it (IDENTITY), and the domain of your address that the
+        identity detector finds (its rule; personal data, so that an address found stays an address)."""
+        yours = span.eclass in _YOURS or span.rule.partition(":")[0] == IdentityDetector.id
+        return yours and self._left_in_clear(span)
 
     def _repeats(
         self,
@@ -791,8 +963,15 @@ class Masker:
         return self.surrogates_in(text, joined=joined)
 
     def _apply(
-        self, text: str, spans: list[Span], origin: dict[str, str] | None = None, context: str = ""
+        self,
+        text: str,
+        spans: list[Span],
+        origin: dict[str, str] | None = None,
+        context: str = "",
+        locked: Sequence[Span] = (),
     ) -> MaskedText:
+        """``spans`` replaced as their types' policies say; one holding a company's term (``locked``) at least as
+        strictly as the term's type is."""
         around = f"{text}\n{context}" if context else text  # what a fake drawn here must not hold
         pieces: list[str] = []
         replacements: list[Replacement] = []
@@ -801,12 +980,10 @@ class Masker:
             # Kept as it is written, escapes and all, so that it comes back exactly: what it reads (``Span.value``,
             # where written in escapes) is what its fake is drawn from, written in the same escapes (``Vault.intern``).
             original, reads = text[span.start : span.end], span.value
-            policy = self.policies.get(span.etype, Policy.MASK)
+            policy = self._replaced_by(span, locked)
             if policy == Policy.ALLOW:
                 continue
             kept = len(original) <= VALUE_LONGEST
-            if not kept:
-                policy = Policy.REDACT  # too long for a vault to keep: redacted, never kept nor restored
             if policy == Policy.REDACT:
                 if module_of(span.rule) in _TAUGHT and kept:
                     # Found by you or the local reviewer: in the vault all the same, with a fake of its own that never
@@ -840,6 +1017,18 @@ class Masker:
             return MaskedText(text)
         pieces.append(text[cursor:])
         return MaskedText("".join(pieces), replacements)
+
+
+_STRICT = {Policy.ALLOW: 0, Policy.MASK: 1, Policy.REDACT: 2}  # how much each policy keeps from leaving
+
+
+def _meet(a: Span, b: Span) -> bool:
+    return a.start < b.end and b.start < a.end
+
+
+def _forms(text: str, span: Span) -> set[str]:
+    """What ``span`` found in ``text``: as it is written, and as it reads where written in escapes."""
+    return {text[span.start : span.end], span.of(text)}
 
 
 def _composed_or_not(found: str, reads: str | None) -> set[str]:

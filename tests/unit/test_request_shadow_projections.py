@@ -14,7 +14,7 @@ from latet.bridge.api import Bridge, _ProtectedRequest
 from latet.engine.response_guard import safe_text
 from latet.engine.vault import Vault
 from latet.gateway import body_coverage, coverage
-from latet.gateway.body_coverage import PROTECTED_LAUNCH, BodyRefused, Ledger, declared_body_safe
+from latet.gateway.body_coverage import PROTECTED_LAUNCH, BodyRefused, Ledger, UnknownMembers, declared_body_safe
 from latet.gateway.mediate import _projected_request_safe
 from latet.protocols.base import BodyScan
 
@@ -284,12 +284,23 @@ def test_a_key_given_many_times_is_sent_until_the_work_limit(repeats: int, sent:
         assert "request coverage limit exceeded" in response.text
 
 
+@pytest.mark.parametrize("mode", ["check", "refuse"])
 @pytest.mark.parametrize("protected", [False, True], ids=["ordinary-d6", "protected-d6"])
-def test_declaration_screens_unknown_d6_text(protected: bool) -> None:
+def test_declaration_screens_unknown_d6_text(protected: bool, mode: UnknownMembers) -> None:
+    """D6's string case is screened alike whatever reads new members."""
     text = _ESCAPED if protected else _SHORT
     scan = BodyScan()
-    assert declared_body_safe({text: ["ordinary"]}, "chat", OPENAI, scan, Ledger()) is not protected
-    assert declared_body_safe({"extension": [text]}, "chat", OPENAI, scan, Ledger()) is not protected
+    for body in ({text: ["ordinary"]}, {"extension": [text]}):
+        assert declared_body_safe(body, "chat", OPENAI, scan, Ledger(), unknown_members=mode) is not protected
+
+
+@pytest.mark.parametrize("protected", [False, True], ids=["ordinary-member", "protected-member"])
+def test_declaration_screens_a_member_the_new_rule_reads(protected: bool) -> None:
+    """A member D6 does not take (an object here) is screened as the new rule reads it; where new members are refused
+    the screen leaves it to the walk, which refuses it, as before the rule."""
+    body = {"extension": {"entry": _ESCAPED if protected else _SHORT}}
+    assert declared_body_safe(body, "chat", OPENAI, BodyScan(), Ledger()) is not protected
+    assert declared_body_safe(body, "chat", OPENAI, BodyScan(), Ledger(), unknown_members="refuse") is True
 
 
 @pytest.mark.parametrize("protected", [False, True], ids=["ordinary-echo", "protected-echo"])

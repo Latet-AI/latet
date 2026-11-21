@@ -4,6 +4,7 @@ whole is read first, no further than Latet reads it decoded)."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hmac
 import http.cookiejar
 import logging
@@ -60,6 +61,7 @@ from latet.gateway.outcome import (
     PolicyEvidence,
     SendDecision,
     finalize,
+    policy_for,
     refuse,
     response_plan,
 )
@@ -72,7 +74,6 @@ from latet.gateway.request_audit import (
     reason_code,
     route_code,
 )
-from latet.gateway.request_policy import current
 from latet.gateway.request_transport import SendRefusal
 from latet.gateway.response_finalizer import ResponseFinalizer, close_response
 from latet.gateway.routes import RouteTable, Upstream, readable_path, wire_path
@@ -177,6 +178,16 @@ def _settings_moved(prepared: Prepared) -> bool:
     applied again), which is why ``finalize`` refused it, not a part left unaccounted for."""
     authority = prepared.route_authority
     return authority is not None and not authority.valid()
+
+
+def _approval_not_given(turn: _Turn) -> bool:
+    """Whether the texts a decider of the company approved in this request (Latet Enterprise: ``live_prepared``) did
+    not leave: refused, or failed, after their approval with no attempt of it begun, whatever refused it (its settings
+    changed, its exceptions judged again, their status not kept visible, an error). The batch is then recorded withheld
+    (``Mediator.not_given``). Their approval was never taken: it is once an attempt's send answers
+    (``Mediator.approval_given``). An attempt begun may have reached its provider, as the decider read it: neither."""
+    prepared = turn.prepared
+    return prepared is not None and prepared.decider_approval is not None and not isinstance(turn.execution, Attempted)
 
 
 def _unrouted(prepared: Prepared, upstream: Upstream) -> bool:
@@ -821,7 +832,7 @@ class Forwarder:
             turn.decision,
             turn.prepared,
             envelope,
-            current(),
+            policy_for(turn.prepared),  # the rules of the way it read new members, as it was prepared
             attempt,
             credentials=credentials,
             attempted=lambda: setattr(turn, "execution", Attempted(attempt, None)),
@@ -831,7 +842,18 @@ class Forwarder:
         built = request_transport.build(authorized, client, method, url, headers, signer, host, extensions)
         if isinstance(built, SendRefusal):
             return built
-        return await request_transport.send(client, built)
+        sent = await request_transport.send(client, built)
+        if not isinstance(sent, SendRefusal) and self.mediator is not None and turn.prepared is not None:
+            # This attempt carried its texts to the provider as a decider of the company read them (Latet
+            # Enterprise): their approval is taken now, never before (the merge of 0.12.0's security re-review, R1).
+            # Its client gone meanwhile (cancelled), the provider's answer, not handed on, is closed here.
+            try:
+                await self.mediator.approval_given(turn.prepared)
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    await sent.aclose()
+                raise
+        return sent
 
     def _not_sent(
         self,
@@ -931,6 +953,8 @@ class Forwarder:
             failed = True
             raise
         finally:
+            if self.mediator is not None and turn.prepared is not None and _approval_not_given(turn):
+                self.mediator.not_given(turn.prepared)  # first, whatever the rest of this does; it never raises
             try:
                 execution = turn.execution
                 attempts = (
@@ -1191,7 +1215,7 @@ class Forwarder:
         decision = turn.decision = finalize(
             prepared,
             envelope,
-            current(),
+            policy_for(prepared),  # as it read a member no profile declares: the settings' and its project's way
             response_plan(prepared),
             envelope_proof=proof,
         )
@@ -1334,6 +1358,7 @@ class Forwarder:
             prepared.protocol if prepared is not None else None,
             content_type,
             response.headers.get("content-encoding"),
+            bodyless=request.method == "HEAD",
         )
         seen.metadata(forwardable(response.headers.multi_items(), RESPONSE_DROP))
         finalizer = ResponseFinalizer(seen, self.mediator.executor, self.recorder, exchange, response.status_code)

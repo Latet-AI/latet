@@ -44,7 +44,7 @@ Cada texto muestra el **Original** y lo que **Se enviará**, con lo que han enma
 revisor local. Lo que el revisor local ha encontrado y no ha enmascarado por su cuenta aparece
 marcado en el original, listo para enmascararlo con un clic. Cuando el revisor no ha podido leer un
 texto (su servidor está apagado, o su respuesta no es fiable), el texto no se detiene como pasaría
-sin ti: te espera con una advertencia, y decides tú.
+sin ti: espera con una advertencia, y decides tú.
 
 Mientras un texto espera, lo que se enviará sigue tus reglas. Cuando marcas un valor como
 *No sensible*, enmascaras un valor en otro texto o cambias un ajuste, los textos que siguen
@@ -60,9 +60,9 @@ esperando lo muestran enseguida, en cada panel abierto, y salen así cuando los 
   una herramienta llega al modelo como un breve aviso en su lugar.
 - **En una imagen:** arrastra un rectángulo sobre cualquier parte, que se cubre con una barra, o
   marca *No enviar esta imagen*: el resto de la petición sale, y el modelo recibe una nota breve en
-  lugar de la imagen. *Tal como sale ahora* muestra la imagen como la ha enmascarado Latet. Tu
-  decisión se guarda, sellada, para esa imagen: si se vuelve a enviar, también después de un
-  reinicio, sale de la misma forma.
+  lugar de la imagen. *Tal como sale ahora* muestra la imagen como la ha enmascarado Latet y,
+  mientras espera, sigue tus reglas como su texto. Tu decisión se guarda, sellada, para esa imagen:
+  si se vuelve a enviar, también después de un reinicio, sale de la misma forma.
 - **Aprobar todas las pendientes**, tal como las ha enmascarado Latet.
 - **Con el teclado**, una vez activados sus [atajos](../../dashboard/#atajos-de-teclado): A aprueba, X no
   envía, M enmascara.
@@ -72,7 +72,7 @@ volver a quedar en claro, y un valor ficticio que ya está en uso no se puede en
 Una selección se amplía a palabras completas, ya que Latet enmascara un valor dondequiera que
 aparezca como palabra completa. Un valor se enmascara como un solo tipo, y uno que marcaste como
 *No sensible* primero hay que quitarlo de **Reglas**. Si un valor que has
-enmascarado fuera a salir en claro de todos modos, el texto se retiene en su lugar. Un valor que
+enmascarado fuera a salir en claro de todos modos, el texto se retiene en vez de salir. Un valor que
 enmascaras se guarda en la caja fuerte como los valores que encuentran los detectores. A partir de
 entonces se enmascara dondequiera que aparezca, en todas las conversaciones, y la comprobación final
 lo detiene si está a punto de salir en claro. *Enmascarar siempre* también lo convierte en uno de
@@ -86,7 +86,8 @@ Un texto espera el tiempo que haga falta. No sale nada de él hasta que responda
 - **Detienes el agente** (Esc en Claude Code): no se envía nada, y el texto sale de la cola en menos
   de un minuto.
 - **No hay ningún panel abierto:** Claude Code lo indica, y el texto sigue esperando hasta que abras
-  uno.
+  uno. Donde decide el equipo de seguridad de tu empresa (más abajo), no hace falta que tu panel esté
+  abierto.
 - **Un límite de tiempo,** si lo quieres: pasados `timeout_s` segundos, el texto no se envía.
 
 ```yaml
@@ -96,13 +97,24 @@ live_review:
   timeout_s: 300             # not set: until you answer
 ```
 
+## En una empresa
+
+En un servidor de Latet con Latet Enterprise, tu empresa puede enviar estos textos a su equipo de seguridad en lugar de
+a ti. El equipo ve cada texto como tú, con los valores incluidos, y lo aprueba o lo detiene; la página
+**Aprobaciones** y Claude Code te lo dicen, y tú puedes seguir deteniendo un texto. Claude Code dice una vez por sesión
+quién revisa tus textos, o que por ahora nadie puede decidir, y dice lo mismo cuando trabaja con el token de una clave
+de API. Lo que el equipo enmascara sigue enmascarado en tu caja fuerte, donde puedes olvidarlo. Un texto que el equipo
+ha aprobado sale solo tal como lo vio: si tus ajustes cambian antes de que salga, no se envía, y vuelve a esperar al
+equipo cuando el agente lo envía de nuevo. Consulta [Aprobaciones centrales](../../enterprise/approvals/).
+
 ## Dónde ocurre
 
 - **En Claude Code,** en la fase de enmascaramiento del plugin, antes de que Claude Code construya la
   petición. Revisas por partes: cada prompt, archivo y salida de una herramienta a medida que llega.
   Después, Claude Code construye la petición con el texto que has aprobado, así que ninguna petición
   se modifica una vez construida. Mientras un texto espera tu aprobación en el panel, la línea de
-  estado de Claude Code dice *waiting for your approval in the dashboard*.
+  estado de Claude Code dice *waiting for your approval in the dashboard*; donde decide el equipo de
+  seguridad de tu empresa, dice *waiting for your company's security team to approve it*.
 - **Para los agentes que pasan por la puerta de enlace** (Codex, OpenCode, Hermes Agent...), en el
   daemon: los textos nuevos de una petición esperan juntos, y la petición sale cuando los apruebas.
   Algunos agentes abandonan una petición que tarda demasiado, y puede que la reintenten; no se envía

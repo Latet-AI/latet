@@ -125,7 +125,10 @@ def test_worker_records_real_data_namespace_from_loaded_registry():
     adapter = helper("task8-fuzz-child.py")
     package = importlib.import_module("latet.engine.surrogates.data")
     assert package.__file__ is None
-    origins = adapter.product_origins(adapter.ROOT, sys.modules)
+    # The modules loaded, never the marker the Enterprise branch's ``--without-ee`` leaves where latet.ee would be (None:
+    # tests/conftest.py, so that it cannot be imported).
+    loaded = {name: module for name, module in sys.modules.items() if module is not None}
+    origins = adapter.product_origins(adapter.ROOT, loaded)
     assert origins[package.__name__] == {
         "namespace_paths": [str(Path(location).resolve()) for location in package.__path__]
     }

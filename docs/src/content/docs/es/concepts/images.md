@@ -33,9 +33,9 @@ latet ocr install   # downloads the models once (about 31 MB)
 
 ## Qué le pasa a una imagen
 
-1. Latet lee sus líneas de texto, y dónde está cada carácter. Una imagen de más de unos 3.000
+1. Latet lee sus líneas de texto, y dónde está cada carácter. Una imagen de más de unos 3000
    píxeles de largo, como la captura de una pantalla 4K o 5K, de una página entera mucho más alta
-   que una pantalla o de varias pantallas una al lado de otra, se lee en partes de 2.000 a 3.000
+   que una pantalla o de varias pantallas una al lado de otra, se lee en partes de 2000 a 3000
    píxeles que se solapan, a un tamaño en el que su texto se lee: si se redujera para leerla de una
    vez, su texto pequeño se leería mal, o no se encontraría.
 2. El texto leído pasa a ser un texto más de la petición, *Texto en una imagen*: los detectores, tus
@@ -57,7 +57,7 @@ una imagen válida, a una tan larga para su anchura, o tan ancha para su altura,
 en más de 16 partes (la captura de una página de más de unos 29.000 píxeles de largo), y a cualquier
 imagen mientras los modelos se siguen cargando (una petición los espera hasta 20 segundos). A una
 petición que Latet solo comprueba, como las de Claude Code, no se le puede quitar una imagen: una con
-una imagen que Latet no sabe leer no se envía.
+una imagen que Latet no puede leer no se envía.
 
 ## Qué imágenes
 
@@ -96,16 +96,16 @@ un proyecto.
 
 ## Las fotos y sus metadatos
 
-Una petición que Latet reescribe (Codex, OpenCode y los demás agentes en modo pasarela) envía cada
+Una petición que Latet reescribe (Codex, OpenCode y los demás agentes en modo puerta de enlace) envía cada
 imagen reescrita, sin sus metadatos. Una petición que Latet solo comprueba, como las de Claude Code,
-sale tal como la construyó el agente, así que allí Latet da cuenta de cada byte de cada imagen: la
+sale tal como la construyó el agente, así que allí Latet comprueba qué es cada byte de cada imagen: la
 estructura de su formato, leída según su gramática; el texto de sus metadatos (el comentario
 *Screenshot* de una captura, el programa que la creó, el nombre de su perfil de color), leído por la
 comprobación final; y los píxeles de la imagen principal, cuyo texto leyó el reconocimiento de texto.
 Lo que sobra no se envía:
 
 - una ubicación (GPS) en los metadatos de una foto;
-- las notas que el fabricante de una cámara escribe en una forma propia;
+- las notas que el fabricante de una cámara escribe en un formato propio;
 - la miniatura que una cámara guarda dentro de una foto, y cualquier otra imagen dentro de ella, como
   los mapas de profundidad y de ganancia de la foto en modo retrato de un móvil;
 - lo que sigue al final de la imagen, como el vídeo de una foto en movimiento.
@@ -116,13 +116,13 @@ Al agente se le dice cómo seguir:
 Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
 ```
 
-Lleva la conversación a antes de la imagen, o empieza una nueva, y vuelve a adjuntar la imagen sin sus
+Vuelve atrás en la conversación hasta antes de la imagen, o empieza una nueva, y vuelve a adjuntar la imagen sin sus
 metadatos: en iOS, *Compartir*, *Opciones*, *Ubicación* desactivada; en Vista Previa de macOS,
 *Herramientas*, *Mostrar inspector*, *Eliminar información de ubicación*; en Windows, *Propiedades*
 del archivo, *Detalles*, *Quitar propiedades e información personal*. Una captura de pantalla normal no
 tiene nada de esto, y pasa.
 
-Una imagen WebP original no se puede explicar allí byte a byte, y también se rechaza: expórtala como
+Una imagen WebP original no se puede comprobar allí byte a byte, y también se rechaza: expórtala como
 PNG, y luego vuelve atrás o empieza una conversación nueva. Una petición que Latet reescribe envía una
 imagen WebP reescrita como PNG.
 
@@ -161,7 +161,7 @@ Claude Code las envíe:
 
 ## Lo que no puede hacer el reconocimiento de texto
 
-- **No es infalible, como con los nombres.** El texto que no lee (muy pequeño, tenue, manuscrito,
+- **Funciona sin garantías, como la detección de nombres.** El texto que no lee (muy pequeño, tenue, manuscrito,
   girado, en una fuente estilizada) sale tal cual. Para las capturas de pantalla que nunca deben
   salir, usa `images: block`, los rectángulos del Revisor en directo o el revisor local,
   mostrándole las imágenes.
@@ -172,7 +172,7 @@ Claude Code las envíe:
   leído, y Latet no puede restaurar el valor real.
 - **Los PDF y otros documentos no se leen**, ni las imágenes indicadas por su dirección: una petición
   que lleva uno no se envía.
-- **Los códigos QR y los códigos de barras no se descodifican.** El reconocimiento de texto lee texto:
+- **Los códigos QR y los códigos de barras no se decodifican.** El reconocimiento de texto lee texto:
   los datos que contiene un código salen con la imagen. No envíes un código que contenga un valor que
   proteges.
 - **Solo texto.** Las caras, las firmas, los logotipos y la escritura a mano no se cubren.

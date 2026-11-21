@@ -17,6 +17,16 @@ Latet al posto del revisore di Anthropic, quindi prima chiediamo: una issue spie
 pull request pronta, la inviamo ad Anthropic, e la pull request viene integrata solo con il loro
 consenso, allegato alla issue.
 
+## Strumenti MCP mascherati prima che Claude Code li legga
+
+Lo schema dei parametri di uno strumento MCP può contenere un valore che Latet maschera, come un
+indirizzo d'esempio, e Claude Code lo invia con le sue richieste, dove il plugin di Latet non arriva:
+oggi Latet ferma quelle richieste (vedi [Risoluzione dei problemi](../troubleshooting/)). Latet si
+metterebbe invece tra Claude Code e i server MCP che configuri: maschererebbe le descrizioni e gli
+schemi degli strumenti nell'elenco che Claude Code legge, e rimetterebbe i valori veri nelle chiamate
+del modello, così le richieste di Claude Code restano come Claude Code le ha costruite. Varrebbe per i
+server che aggiungi tu, non per i connettori che arrivano da claude.ai.
+
 ## Un installer firmato per Windows
 
 Gli antivirus controllano i programmi che non conoscono ogni volta che vengono avviati, e i launcher
@@ -38,7 +48,7 @@ modelli potrebbero lavorare insieme, ognuno aggiungendo ciò che trova.
 
 Leggere il resto di quello che mandano i client di Gemini: l'Interactions API, la Live API, la Batch API, il
 caricamento di file, la generazione di immagini e le richieste `:predict` di Vertex (i suoi modelli
-di embedding e di immagini). Fino ad allora Latet le rifiuta sulle sue route di Gemini invece di
+di embedding e di immagini). Fino ad allora Latet le rifiuta sui suoi percorsi di Gemini invece di
 inviarle senza mascherarle (vedi [Gemini CLI e Google GenAI](../agents/gemini/)).
 
 ## Altri agenti
@@ -70,11 +80,19 @@ provider, su un computer come su un server (vedi
 
 ## Latet Enterprise
 
-Latet Enterprise è per un'azienda il cui team di sicurezza stabilisce le regole per tutti. In più
-rispetto alla Community Edition aggiunge regole per tutti che nessuno può abbassare, ruoli di
-amministrazione come un revisore in sola lettura, approvazioni centrali delle modifiche che riducono
-la protezione, il single sign-on, report di audit ed eventi per un SIEM. [Iscriviti alla lista
-d'attesa](https://latet.ai/#waitlist) per sapere quando esce.
+Latet Enterprise è pensato per un'azienda il cui team di sicurezza stabilisce le regole per tutti:
+regole che nessuno può allentare, l'accesso unico (SSO) con gruppi e ruoli come quello di auditor in
+sola lettura, approvazioni centrali delle modifiche che riducono la protezione, report di audit,
+eventi per un SIEM e termini sincronizzati (vedi [Edizioni e licenza](../enterprise/)). Sono in
+programma due aggiunte:
+
+- **I gruppi da Microsoft AD FS.** Connesso direttamente, AD FS dà a Latet il nome utente di una
+  persona ma non i suoi gruppi: li aggiunge solo a una risposta rimandata con un form post. Latet
+  chiederebbe quella risposta, così che i gruppi di AD FS mettano le persone nei gruppi di Latet e
+  decidano chi riceve un account, come fanno i gruppi degli altri provider, senza Keycloak in mezzo.
+- **Disconnettere dall'elenco I tuoi computer.** Una persona potrebbe disconnettere un suo computer,
+  per esempio uno che non ha più, dall'elenco **I tuoi computer** nella dashboard, senza doverlo
+  chiedere a un amministratore.
 
 ## Altre lingue
 

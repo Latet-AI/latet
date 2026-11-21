@@ -594,21 +594,72 @@ def decisions(monkeypatch) -> list:
     return seen
 
 
+def _refusing(runtime) -> None:
+    """New request members refused as before the new rule (``unknown_members: refuse``: a tightening, at once)."""
+    runtime.update_config(lambda c: c.model_copy(update={"unknown_members": "refuse"}))
+    assert runtime.mediator.unknown_members == "refuse"
+
+
+def _read_by_the_new_rule(decision) -> bool:
+    from latet.gateway.body_coverage import NEW_MEMBER_RULE
+    from latet.gateway.outcome import Pass
+
+    return type(decision) is Pass and NEW_MEMBER_RULE in decision.evidence.rules and decision.evidence.exceptions == ()
+
+
 def test_a_body_member_an_exception_names_passes_checked_and_the_pass_names_it(client, runtime, provider, decisions):
+    """Unnamed, the member is read by the new rule, whose Pass names no exception; named, the exception admits it and
+    the Pass names it alone."""
+    from latet.gateway.body_coverage import NEW_MEMBER_RULE
     from latet.gateway.outcome import Pass
 
     _acme(runtime)
-    assert _tenant_chat(client).status_code == 400 and provider.received == []  # unnamed: refused
+    unnamed = _tenant_chat(client)
+    assert unnamed.status_code == 200 and json.loads(provider.received[-1])["x_tenant"] == "acme"
+    assert _read_by_the_new_rule(decisions[-1])
     [row] = _acme(runtime, _tenant())
     assert row.body_revision == "chat.body.1"  # stamped with its body protocol's revision (R-100)
     sent = _tenant_chat(client)
     assert sent.status_code == 200 and json.loads(provider.received[-1])["x_tenant"] == "acme"
     passed = decisions[-1]
     assert type(passed) is Pass and passed.evidence.exceptions == (row.id,)
+    assert NEW_MEMBER_RULE not in passed.evidence.rules
     assert _tenant_chat(client, f"deploy {GH_PAT}").status_code == 400  # checked by the final check, never masked
 
 
-def test_a_body_exception_of_a_project_applies_only_where_latet_trusts_it(client, runtime, provider, tmp_path):
+def test_strict_a_body_member_an_exception_names_passes_checked_and_the_pass_names_it(
+    client, runtime, provider, decisions
+):
+    from latet.gateway.outcome import Pass
+
+    _refusing(runtime)
+    _acme(runtime)
+    assert _tenant_chat(client).status_code == 400 and provider.received == []  # unnamed: refused
+    [row] = _acme(runtime, _tenant())
+    sent = _tenant_chat(client)
+    assert sent.status_code == 200 and json.loads(provider.received[-1])["x_tenant"] == "acme"
+    passed = decisions[-1]
+    assert type(passed) is Pass and passed.evidence.exceptions == (row.id,)
+    assert _tenant_chat(client, f"deploy {GH_PAT}").status_code == 400
+
+
+def test_a_body_exception_of_a_project_applies_only_where_latet_trusts_it(
+    client, runtime, provider, tmp_path, decisions
+):
+    """Claimed, the project's exception applies to nothing: the new rule reads the member, its Pass naming no exception;
+    the launch's project, the exception applies."""
+    root = _project(tmp_path)
+    _personal(runtime, root)
+    [row] = _acme(runtime, _tenant(project=str(root)))
+    assert _tenant_chat(client, **{"x-latet-project": str(root)}).status_code == 200  # claimed: no exception
+    assert _read_by_the_new_rule(decisions[-1])
+    with _launched(client, runtime, root) as key:
+        assert _tenant_chat(client, **key).status_code == 200  # the launch's project: it applies
+    assert decisions[-1].evidence.exceptions == (row.id,)
+
+
+def test_strict_a_body_exception_of_a_project_applies_only_where_latet_trusts_it(client, runtime, provider, tmp_path):
+    _refusing(runtime)
     root = _project(tmp_path)
     _personal(runtime, root)
     _acme(runtime, _tenant(project=str(root)))
@@ -632,8 +683,8 @@ def test_a_body_revision_that_changes_a_named_member_suspends_its_exception(clie
         "chat": (*body_selectors.HISTORY["chat"], body_selectors.BodyRevision("chat.body.2", ("/x_tenant",))),
     }
     monkeypatch.setattr(body_selectors, "HISTORY", changed)
-    assert request_policy.in_force(runtime.config, NOW) == ()
-    [listed] = request_policy.listed(runtime.config, NOW)
+    assert request_policy.in_force(runtime.config, NOW, company=False) == ()
+    [listed] = request_policy.listed(runtime.config, NOW, company=False)
     assert listed["state"] == "needs approval again (profile revised)"
 
 

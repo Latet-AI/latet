@@ -34,6 +34,7 @@ from latet.engine.pipeline import (
     Scope,
     Session,
     SlotResult,
+    classes_shown,
     dump_notice,
     personal_values,
     request_scope,
@@ -46,9 +47,9 @@ from latet.engine.reviewer import Answer, Finding, Picture, Reviewer, View, read
 from latet.engine.reviewer.reviewer import CATEGORY_TYPES
 from latet.engine.types import EntityClass, Policy, Replacement, SlotKind, Span
 from latet.engine.vault import MaskingError
-from latet.engine.verifier import Leak, Verifier
+from latet.engine.verifier import Leak, NewMembersUnread, Verifier
 from latet.gateway import body_selectors, outbound
-from latet.gateway.approvals import Approvals, Batch, Decision
+from latet.gateway.approvals import APPROVED_CHANGED, Approvals, ApprovedChanged, Batch, Decision, batch_version
 from latet.gateway.body_coverage import (
     M3,
     PROTECTED_LAUNCH,
@@ -58,6 +59,7 @@ from latet.gateway.body_coverage import (
     BodyRefused,
     ContentEpoch,
     Ledger,
+    UnknownMembers,
     declared_body_safe,
     declared_string_safe,
     freeze_body,
@@ -144,6 +146,8 @@ APPROVED_KEPT = 2_000
 # What one entry of the memory of texts found fit to leave as they were kept takes, at most (a key of 32 bytes, a vault
 # version, the memory's own links: measured between 170 and 200 bytes).
 _CHECK_BYTES = 320
+# A secret shown in clear in a text sent before never leaves again with it (``Mediator._leaves_as_it_left``).
+_SECRET = frozenset({EntityClass.SECRET})
 # The time the local name model has for the strings and keys of one JSON document (``Mediator._read_ahead``), checked
 # before each of its windows (a second or so on a desktop CPU): with what else masking takes, within the 10 seconds
 # Claude Code gives a plugin's hook. A document it could not read in that time is withheld.
@@ -230,6 +234,97 @@ def cwd_from(headers: dict[str, str], scan: BodyScan) -> str | None:
         if found:
             return found.group(1).strip()
     return None
+
+
+# What a tool's definition says of its input, by its key (``protocols.base._TOOL_SCHEMAS``): on a request Latet only
+# checks nothing changes it, and in Claude Code the plugin masks a tool's description alone (``tool.describe``).
+_TOOL_INPUT_PARTS = {
+    "input_schema": "parameter schema",
+    "parameters": "parameter schema",
+    "format": "parameter schema",
+    "input_examples": "input examples",
+}
+# A tool's name in the form providers take one: the only form a refusal repeats.
+_TOOL_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+# What the dashboard reads in a refusal to explain it (dashboard/src/lib/blocks.ts: TOOL_INPUT).
+TOOL_INPUT_WORDS = "which Latet checks but cannot mask in this request"
+
+
+def _strings(value: Any) -> Iterator[str]:
+    """Every text of a JSON value as a body's coverage checks each (``body_coverage._Body.data``): its strings, its
+    objects' keys, and its numbers as written."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(key, str):
+                yield key
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        yield str(value)
+
+
+def _tool_input(slot: SlotRef) -> str | None:
+    """The part of a tool's definition ``slot`` is, when it is one that says what the tool's input takes."""
+    if not isinstance(slot, JsonRef) or slot.kind != SlotKind.TOOL_DESCRIPTION or not isinstance(slot.key, str):
+        return None
+    return _TOOL_INPUT_PARTS.get(slot.key)
+
+
+def _tool_input_hint(blocking: Sequence[Leak], slots: Sequence[SlotRef], checked: Sequence[str], texts: int) -> str:
+    """What a refusal of a request Latet only checks adds when every value that stops it is in what a tool's definition
+    says of its input (its parameters' schema, its examples): where, by the tool's name, and what to do. Empty
+    otherwise: a value anywhere else has the plain refusal's remedy, which it would not be told. ``slots`` are the
+    request's, verified first; ``checked`` the texts its body's coverage checked (``checked_only``), verified last of
+    ``texts``: each text of a tool's schema is one of them too, the same value found again. Each such text stands for
+    one place in a tool's input: a second text equal to it is somewhere else in the body."""
+    places: dict[int, tuple[str, str]] = {}  # a slot's index: its part and its tool
+    leaves: dict[str, list[tuple[str, str]]] = {}  # each text of a tool's input, once per time it is there: where
+    for n, slot in enumerate(slots):
+        part = _tool_input(slot)
+        if part is None:
+            continue
+        name = slot.container.get("name") if isinstance(slot.container, dict) else None
+        tool = f"the tool {name}" if isinstance(name, str) and _TOOL_NAME.fullmatch(name) else "a tool"
+        places[n] = (part, tool)
+        for value in _strings(slot.container[slot.key]):
+            leaves.setdefault(value, []).append(places[n])
+    checked_from = texts - len(checked)
+    taken: dict[int, tuple[str, str]] = {}  # a checked text's index: the place in a tool's input it stands for
+    found: dict[tuple[str, str], None] = {}
+    values: set[tuple[str, str]] = set()  # each value once, however many texts it was found in
+    for leak in blocking:
+        if leak.slot in places:
+            place, text = places[leak.slot], slots[leak.slot].get()
+        elif checked_from <= leak.slot < texts:
+            text = checked[leak.slot - checked_from]
+            if leak.slot not in taken:
+                left = leaves.get(text)
+                if not left:
+                    return ""
+                taken[leak.slot] = left.pop()
+            place = taken[leak.slot]
+        else:
+            return ""
+        found[place] = None
+        values.add((leak.etype, text[leak.start : leak.end]))
+    if not found:
+        return ""
+    it, verb = ("it", "is") if len(values) == 1 else ("they", "are")
+    where = sorted(f"the {part} of {tool}" for part, tool in found)
+    said = where[0] if len(where) == 1 else ", ".join(where[:-1]) + " and " + where[-1]
+    gives = (
+        "the MCP server or plugin that gives this tool"
+        if len({tool for _, tool in found}) == 1
+        else "the MCP servers or plugins that give these tools"
+    )
+    return (
+        f"; {it} {verb} in {said}, {TOOL_INPUT_WORDS}: if {it} {verb} not sensitive, choose Not sensitive in the "
+        f"dashboard (latet dashboard); otherwise turn off {gives}"
+    )
 
 
 def verify_only(protocol: str | None, shape: str | None, headers: dict[str, str], body: Any) -> bool:
@@ -352,11 +447,22 @@ class _HeldLive:
     items: list[LiveItem]
     keep: bool  # the plugin's texts keep their surrogates (``apply_live``)
     views: list[dict[str, Any]]  # the previews the dashboards show now
-    made_at: tuple[int, int]  # the rules' version and the vault's, when they were made
+    made_at: tuple[int, int, str]  # the rules' version, the vault's and the synced terms' tag, when they were made
 
 
 # How long a refresh of the previews waits for the changes that come with the first (``Mediator.refresh_live``).
 _REFRESH_AFTER = 0.25
+
+
+def _a_decider_approved(batch: Batch) -> bool:
+    """Whether ``batch``'s decision, as this process heard it, is a decider of the company's approval (its
+    ``Decision.version``): one decided as its wait was given up, which giving it up then left as it was (the
+    re-review of the final security review's fix rounds, R3)."""
+    future = getattr(batch, "future", None)
+    if future is None or not future.done() or future.cancelled() or future.exception() is not None:
+        return False
+    decision = future.result()
+    return decision.approved and decision.version is not None
 
 
 def _refresh_ended(task: asyncio.Task[None]) -> None:
@@ -383,6 +489,12 @@ class ReviewRecord:
 def _as_word(value: str, text: str) -> bool:
     """Whether ``value`` appears in ``text`` as a whole word."""
     return re.search(rf"(?<!\w){re.escape(value)}(?!\w)", text) is not None
+
+
+def _same_rules(now: tuple[int, str, object, str], then: tuple[int, str, object, str]) -> bool:
+    """Whether two stamps of ``Mediator._rules_stamp`` name the same rules: the same counts, the same masker object
+    (by identity: a masker is never compared by its value), and the same stamp of the terms that change in place."""
+    return now[0] == then[0] and now[1] == then[1] and now[2] is then[2] and now[3] == then[3]
 
 
 def still_in_clear(found: Sequence[Finding], original: str, sent: str, masker: Masker) -> bool:
@@ -459,6 +571,16 @@ def _opening(items: list[Any]) -> list[Any]:
     return items[:1]
 
 
+@dataclass(frozen=True, slots=True)
+class DeciderApproval:
+    """A decider of the company's approval of a request's texts (Latet Enterprise), to take in its conversation once the
+    request leaves (``Mediator.approval_given``): its batch, its texts, and the texts as the request carries them."""
+
+    batch: Batch
+    items: tuple[LiveItem, ...]
+    sent: tuple[str, ...]
+
+
 @dataclass(slots=True)
 class Prepared:
     mode: str
@@ -523,6 +645,18 @@ class Prepared:
     # Immutable, checked-only envelope values. Never pending/body slots and never recorded as conversation text.
     envelope_checked: tuple[str, ...] = field(default=(), repr=False)
     body_checked: tuple[str, ...] = field(default=(), repr=False)
+    # How it read a member no request profile declares (``Mediator.unknown_members``, refined by its project): by the
+    # new rule or refused. Its decision is made under that mode's rules (``outcome.policy_for``). Read once, as it was
+    # prepared, never from the request.
+    unknown_members: UnknownMembers = "check"
+    # The texts the new rule read of those members as it leaves (``BodyInspection.new_members``, its final check's): a
+    # request Latet rewrote records them as left with its slots' (``record_left``). Never checked-only texts.
+    body_new_members: tuple[str, ...] = field(default=(), repr=False)
+    # Their values as their fields (``BodyInspection.new_member_fields``), read by the final check with field rules and
+    # recorded as left with them; and how the request was refused before the new rule (``new_member_refusal``), what
+    # refuses it where the final check cannot read its new members in time.
+    body_new_member_fields: tuple[str, ...] = field(default=(), repr=False)
+    body_new_member_refusal: tuple[str, bool] | None = field(default=None, repr=False)
     body_semantic: tuple[str, ...] = field(default=(), repr=False)
     body_metadata: tuple[str, ...] = field(default=(), repr=False)
     body_rules: tuple[str, ...] = ()
@@ -551,6 +685,9 @@ class Prepared:
     # it, which its forwarder answers (its name to the agent alone), nothing of the request masked or learnt.
     envelope_open: tuple[str, ...] = field(default=(), repr=False)
     open_refusal: EnvelopeRefused | None = field(default=None, repr=False)
+    # A decider of the company's approval of its texts (Latet Enterprise, ``live_prepared``), not taken yet: taken in
+    # its conversation once it leaves (``Mediator.approval_given``), never before.
+    decider_approval: DeciderApproval | None = field(default=None, repr=False, compare=False)
     # Declared removable body members taken out before the send (Codex's client_metadata), by name.
     body_removed: tuple[str, ...] = ()
     # A worker construction index for selected occurrence ordinals. Discarded once immutable blocks/images own
@@ -598,7 +735,9 @@ class Prepared:
         self.outbound_slots = []
         self.images = []
         self.body_scan = self.body_ledger = self.body_structure = self.body_shape = None
-        self.body_checked = self.body_semantic = self.body_metadata = ()
+        self.body_checked = self.body_semantic = self.body_metadata = self.body_new_members = ()
+        self.body_new_member_fields = ()
+        self.body_new_member_refusal = None
         self.body_rules = self.body_authority = ()
         self.leaks = []
         self.close_receipt()
@@ -894,7 +1033,14 @@ def _defined(protocol: str | None, body: dict[str, Any], tools: BodyScan) -> Non
 
 
 def _projected_request_safe(
-    body: dict[str, Any], protocol: str, upstream: Upstream, ledger: Ledger, shape: str | None, grants: Any = None
+    body: dict[str, Any],
+    protocol: str,
+    upstream: Upstream,
+    ledger: Ledger,
+    shape: str | None,
+    grants: Any = None,
+    *,
+    unknown_members: UnknownMembers = "check",
 ) -> bool:
     if shape == "bedrock-count":
         decoded = _counted(body, ledger, projection=True)
@@ -911,7 +1057,7 @@ def _projected_request_safe(
     if scan.unreadable:
         raise BodyRefused("shadow shape")
     return ledger.declared_scan_safe(scan, projection=True) and declared_body_safe(
-        body, protocol, upstream, scan, ledger, projection=True, grants=grants
+        body, protocol, upstream, scan, ledger, projection=True, grants=grants, unknown_members=unknown_members
     )
 
 
@@ -1014,6 +1160,9 @@ class Mediator:
         self._refresh_again = False
         self._refresh_asked = False  # by a thread, and not taken by the loop yet
         self._content_epoch = ContentEpoch()
+        # How a member no request profile declares is read here: the settings in use say it, raised to the company's
+        # floor (``Runtime.apply_config``); a project may only refuse (``_reads_new_members``). Never a request's word.
+        self._unknown_members: UnknownMembers = "check"
         engine.vault.on_change = self.live_changed
         # Claude Code's auto mode reviewer is sent the OS user name and paths, which no plugin can
         # mask: the details the user lets through to it (auto_mode_review), the rest blocks the review
@@ -1105,6 +1254,31 @@ class Mediator:
         are all of one size."""
         return len(self._as_it_left) * _CHECK_BYTES + self.verifier.cached_bytes
 
+    @property
+    def unknown_members(self) -> UnknownMembers:
+        """How a member no request profile declares is read here, as the settings in use say (``protection.
+        effective_unknown_members`` of them, raised to the company's floor): by the new rule (`check`), or refused as
+        before it (`refuse`). Set by the runtime as settings apply, never by a request."""
+        return self._unknown_members
+
+    @unknown_members.setter
+    def unknown_members(self, mode: UnknownMembers) -> None:
+        """Moving to `refuse` is a tightening, at once (design §3): every body checked while new members were read is
+        read again before it can leave (the content epoch moves, as when the rules or the vault change)."""
+        if mode not in ("check", "refuse"):
+            raise ValueError("not a way to read unknown members")
+        tightened = mode == "refuse" and self._unknown_members != "refuse"
+        self._unknown_members = mode
+        if tightened:
+            self._content_epoch.token = object()
+
+    def _reads_new_members(self, settings: UnknownMembers, scope: Scope | None) -> UnknownMembers:
+        """How one request reads a member no request profile declares: `refuse` when ``settings`` (the settings in use,
+        read once for the request) or its project's rules do (``scope``: a repository's latet.yaml, your settings for
+        the folder, which may only refuse), `check` otherwise (``protection.effective_unknown_members``)."""
+        refused = settings == "refuse" or (scope is not None and scope.unknown_members == "refuse")
+        return "refuse" if refused else "check"
+
     # --- requests --------------------------------------------------------------------------------
 
     def prepare_handshake(
@@ -1139,6 +1313,8 @@ class Mediator:
             block_reason=reason,
             protected_unavailable=unavailable,
             off=off,
+            # Its socket is decided under the rules its turns are (``mask_ws_frame``): it carries no body itself.
+            unknown_members=self._reads_new_members(self.unknown_members, scope),
         )
         if selection is not None:
             prepared.project, prepared.binding, prepared.launch = selection.project, selection.binding, selection.launch
@@ -1253,6 +1429,11 @@ class Mediator:
         from latet.gateway.request_policy import LocalAuthority, session_facts
 
         authority = LocalAuthority.capture(self.engine, upstream)
+        # How the settings in use read a member no profile declares, read once for this request: its project may only
+        # refuse (``_reads_new_members``, its way told back in ``modes``), and what is decided before its project is
+        # known is decided under them.
+        settings = self.unknown_members
+        modes: list[UnknownMembers] = []
         receipts: list[EchoCheck] = []
         prepared: Prepared | None = None
         selection = request_scope.get()
@@ -1272,7 +1453,11 @@ class Mediator:
                 body_grants=body_grants,
                 envelope_open=envelope_open,
                 envelope_family=envelope_family,
+                unknown_members=settings,
+                modes=modes,
             )
+            if (modes[-1] if modes else settings) == "refuse":  # only ever a tightening (``_check`` may make one)
+                prepared.unknown_members = "refuse"
             if selection is not None and selection.protected_current is not None:
                 prepared.protected_current = selection.protected_current
             if selection is not None:
@@ -1310,7 +1495,16 @@ class Mediator:
         body_grants: ProfileGrants | None = None,
         envelope_open: Sequence[tuple[str, EnvelopeRefused]] = (),
         envelope_family: str | None = None,
+        unknown_members: UnknownMembers = "check",
+        modes: list[UnknownMembers] | None = None,
     ) -> Prepared:
+        """``unknown_members``: how the settings in use read a member no profile declares, which the request's project
+        may only make `refuse` once it is known (``_reads_new_members``: the request's own way, told in ``modes``). The
+        launch-key screen is made before then, under the settings' way: where they read new members it reads them too,
+        in the copy the walk reads and in each copy of a key given twice that no walk reads (``shadow_projections``).
+        A project's `refuse` refuses them in the copy read, whose walk comes after the screen; a copy no walk reads is
+        screened alone, under the settings' way, a launch key found in it refusing the request and nothing else of it
+        (the screen reads what the walk reads, or more, never less)."""
         protocol = protocol_for(upstream, method, path)
         shape = shape_of(method, path)
         if len(raw) > self.body_limit:
@@ -1397,11 +1591,15 @@ class Mediator:
             protected = not (
                 ledger.declared_scan_safe(scan, masked=not checked_only)
                 and ledger.declared_scan_safe(tools)
-                and declared_body_safe(body, protocol, upstream, scan, ledger, grants=screened)
+                and declared_body_safe(
+                    body, protocol, upstream, scan, ledger, grants=screened, unknown_members=unknown_members
+                )
             )
             if not protected:
                 for alternate in ledger.shadow_projections(decoded, outer_stop):
-                    protected = not _projected_request_safe(alternate, protocol, upstream, ledger, shape, screened)
+                    protected = not _projected_request_safe(
+                        alternate, protocol, upstream, ledger, shape, screened, unknown_members=unknown_members
+                    )
                     del alternate
                     if protected:
                         break
@@ -1434,6 +1632,10 @@ class Mediator:
         scope = self.engine.scope(session)
         if scope is not None and not scope.enabled:  # D5: 0.11 sends no request of a project where Latet is off
             return Prepared(VERIFY, protocol, b"", session, shape=shape, block_reason=OFF_THERE, off=True)
+        # How this request reads a member no profile declares, its project known: once, for every walk of it.
+        mode = self._reads_new_members(unknown_members, scope)
+        if modes is not None:
+            modes.append(mode)
         unread = scan.unread()
         if (refused := self._refuses(scope, unread)) is not None:
             # Its category alone, and what it did not read by fixed kinds: the dashboard flags what was not sent.
@@ -1466,6 +1668,7 @@ class Mediator:
                 echo_check.rules(body) if echo_scope else {},
                 grants=grants,
                 cache_create=cache_create,
+                unknown_members=mode,
             )
         except BodyRefused as error:
             return Prepared(
@@ -1477,6 +1680,10 @@ class Mediator:
                 envelope_refusal=error.safe_code,
             )
         if any(not safe_text(text) for text in inspected.checked):
+            return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=PROTECTED_LAUNCH)
+        # What the new rule read, joined strings included, which the screen before it reads one by one where D6's
+        # string case takes a list in the copy read: a live launch key split across them stops it here.
+        if any(not safe_text(text) for text in chain(inspected.new_members, inspected.new_member_fields)):
             return Prepared(VERIFY, protocol, b"", shape=shape, block_reason=PROTECTED_LAUNCH)
         body_metadata: tuple[str, ...] = ()
         if scan.uninspected:
@@ -1557,19 +1764,33 @@ class Mediator:
             written = partial(self.verifier.written_source, session.key) if claude_code else None
             # A clean text check cannot publish sent-history authority for a refused body.
             # Keep the same check/budget path, including its blocking and source evidence.
-            result = self.verifier.verify(
-                slots,
-                sent_scope,
-                policy,
-                scope,
-                written=written,
-                checked_only=body_checked,
-                record=inspected.problem is None,
-            )
+            try:
+                result = self.verifier.verify(
+                    slots,
+                    sent_scope,
+                    policy,
+                    scope,
+                    written=written,
+                    checked_only=body_checked,
+                    # What the new rule read, as masking reads a person's text, recorded as sent with the slots' texts;
+                    # the name model's reading of it within the time masking gives a document's.
+                    new_members=inspected.new_members,
+                    new_member_fields=inspected.new_member_fields,
+                    deadline=time.monotonic() + DOCUMENT_READ_SECONDS,
+                    record=inspected.problem is None,
+                )
+            except NewMembersUnread:  # fails closed, as before the rule
+                error = inspected.refuse_new_members()
+                return Prepared(
+                    VERIFY, protocol, b"", shape=shape, block_reason=str(error), envelope_refusal=error.safe_code
+                )
             prepared = Prepared(
                 VERIFY, protocol, raw, session, result.leaks, unread, stream=stream, model=model,
                 document=body, pending=[(s, [], False) for s in scan.slots], review=review,
                 withheld=result.withheld, images=works, claude_code=claude_code, body_checked=body_checked,
+                unknown_members=mode, body_new_members=tuple(inspected.new_members),
+                body_new_member_fields=tuple(inspected.new_member_fields),
+                body_new_member_refusal=inspected.new_member_refusal,
                 body_semantic=tuple(inspected.semantic), body_metadata=body_metadata,
                 body_rules=tuple(sorted(inspected.rules | result.rules | ({M3} if works else set()))),
                 body_input=raw, body_ledger=ledger, body_upstream=upstream, body_scan=scan, body_grants=grants,
@@ -1584,7 +1805,9 @@ class Mediator:
                 prepared.block_reason = f"sensitive values would leave in clear: {what}"
                 if policy is not None:
                     prepared.block_reason = block_reason(policy, [(x.detail, x.preview) for x in result.blocking])
-                elif shape is not None and not claude_code:
+                elif claude_code:  # its MCP servers and plugins give tools whose input the plugin cannot mask
+                    prepared.block_reason += _tool_input_hint(result.blocking, scan.slots, body_checked, result.texts)
+                elif shape is not None:
                     prepared.block_reason += (
                         "; Bedrock and Vertex calls are checked, never rewritten: make them from Claude Code with "
                         "Latet's plugin"
@@ -1614,6 +1837,7 @@ class Mediator:
                 body_input=raw, body_ledger=ledger, body_shape=inspected.shape,
                 body_upstream=upstream, body_scan=scan, body_epoch=self._content_epoch, body_grants=grants,
                 body_cache_create=cache_create, opaque_check=echo_check, body_removed=removed, recorded_later=True,
+                unknown_members=mode,
             )  # fmt: skip
             self._check(prepared)  # one stopped here is shown to no reviewer, nor to you
             if prepared.block_reason is None:
@@ -1649,12 +1873,17 @@ class Mediator:
         value a reviewer found, in a text it did not read). A value of a class the check stops, in clear in a text new
         to the conversation, stops the request (``block_reason``); one in a text recorded as left (``left``) is said
         (``leaks``), never stopped, so that a running conversation is not stopped by its past. Nothing is recorded as
-        left here: ``left`` does it once the request has reached its provider. The name model is not run, as the final
-        check never runs it. Called again once the local reviewer or you masked more, on what leaves then. In the
-        engine's thread."""
+        left here: ``left`` does it once the request has reached its provider. The name model reads only the request's
+        new members' texts, in one batch within ``DOCUMENT_READ_SECONDS``, and the request is refused when it cannot.
+        Called again once the local reviewer or you masked more, on what leaves then. In the engine's thread."""
         session = prepared.session
         if session is None or prepared.mode != REWRITE or prepared.off:
             return
+        # Run again after a reviewer, under the rules of now: a move to `refuse` since it was prepared (the settings',
+        # its project's latet.yaml or entry) refuses its new members here, and its decision is then made under that
+        # mode's rules. Only a tightening: a request prepared under `refuse` never reads them here.
+        if prepared.unknown_members == "check":
+            prepared.unknown_members = self._reads_new_members(self.unknown_members, self.engine.scope(session))
         ledger, scan = prepared.body_ledger, prepared.body_scan
         if ledger is not None and scan is not None and prepared.body_upstream is not None:
             # What leaves: its slots, as masked, screened here; every other text the declaration reads is screened as
@@ -1688,6 +1917,7 @@ class Mediator:
                     # re-encoded or withheld are accounted again, with their metadata.
                     accounted=None if prepared.images else prepared.body_shape,
                     cache_create=prepared.body_cache_create,
+                    unknown_members=prepared.unknown_members,  # as its preparation read them: once per request
                 )
                 frozen = inspection.shape
                 # Re-encoded/repainted carriers have a new container shape. Its
@@ -1705,6 +1935,15 @@ class Mediator:
                 if any(not safe_text(text) for text in prepared.body_checked):
                     prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
                     return
+                # What the new rule read as it leaves (a member's name a reviewer wrote after masking among them).
+                prepared.body_new_members = tuple(inspection.new_members)
+                prepared.body_new_member_fields = tuple(inspection.new_member_fields)
+                prepared.body_new_member_refusal = inspection.new_member_refusal
+                if any(
+                    not safe_text(text) for text in chain(prepared.body_new_members, prepared.body_new_member_fields)
+                ):
+                    prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
+                    return
                 prepared.body_rules = tuple(sorted(inspection.rules))
                 if inspection.problem is not None:
                     prepared.discard_unadmitted_content(inspection.problem)
@@ -1718,14 +1957,27 @@ class Mediator:
                 return
         slots = [(text if isinstance(text := slot.get(), str) else "", slot.kind, slot.from_model)
                  for slot, _, _ in prepared.pending]  # fmt: skip
-        result = self.verifier.verify(
-            slots,
-            session.key,
-            scope=self.engine.scope(session),
-            record=False,
-            rewritten=True,
-            checked_only=(*prepared.body_checked, *prepared.envelope_checked),
-        )
+        try:
+            result = self.verifier.verify(
+                slots,
+                session.key,
+                scope=self.engine.scope(session),
+                record=False,
+                rewritten=True,
+                checked_only=(*prepared.body_checked, *prepared.envelope_checked),
+                # Read as masking reads a person's text, the vault's values looked up in them, which masking never did;
+                # the name model's reading of them within the time masking gives a document's.
+                new_members=prepared.body_new_members,
+                new_member_fields=prepared.body_new_member_fields,
+                deadline=time.monotonic() + DOCUMENT_READ_SECONDS,
+            )
+        except NewMembersUnread:  # fails closed, as before the rule
+            if prepared.body_new_member_refusal is None:
+                raise
+            category, reachable = prepared.body_new_member_refusal
+            error = BodyRefused(category, unknown=True, reachable=reachable)
+            prepared.discard_unadmitted_content(str(error), error.safe_code)
+            return
         prepared.leaks = result.leaks
         prepared.body_authority = tuple(sorted(result.authority))
         if prepared.body_ledger is not None:
@@ -1773,6 +2025,8 @@ class Mediator:
         on Valkey."""
         if prepared.session is not None:
             texts = [text for slot, _, _ in prepared.pending if isinstance(text := slot.get(), str) and text]
+            # A new member's texts as they left too: sent again there, they pass as sent before (design §1, step 6).
+            texts.extend(text for text in chain(prepared.body_new_members, prepared.body_new_member_fields) if text)
             self.verifier.left(prepared.session.key, texts)
 
     def written(
@@ -2160,9 +2414,20 @@ class Mediator:
         self, session: Session, kind: SlotKind, text: str, path: str | None, tool: str | None, flags: str
     ) -> bytes:
         """Where ``text``, as masked for ``session`` by the rules in use, is kept (new rules mask it again): the same
-        on every instance of a Latet server, which name the rules by what they are (``rules_tag``, ``Scope.tag``)."""
+        on every instance of a Latet server, which name the rules by what they are (``rules_tag``, ``Scope.tag``), and
+        the terms a company syncs by their tag (``Masker.tag``: a sync masks it again), joined only when not empty, so
+        that what each conversation was given keeps its key while none is synced (the digests hold no ``|``). The tag,
+        never this process's stamp (``Masker.stamp``): every instance reads these texts in Valkey, and one kept across a
+        change whose tag comes back is safe to reuse (the re-review's R1) because two checks read it again before it
+        leaves: ``_leaves_as_it_left``, which every text reused here passes and which masks anew one that would show in
+        clear a value the vault knows (unless the final check saw it leave so), and the final check on its way out,
+        whose memory holds the stamp. The model's turns rest on the first alone: on a request the gateway masked, the
+        final check does not read the model's own texts (``Verifier.verify``'s ``rewritten``); a client's texts on
+        both."""
         scope = self.engine.scope(session)
         rules = f"{self.engine.rules_tag}|{scope.tag if scope is not None else ''}"
+        if tag := self._masker(session).tag:
+            rules += f"|{tag}"
         message = "\x00".join((session.key, rules, kind.value, flags, path or "", tool or "", text)).encode()
         return hmac.new(self.engine.vault.cache_key, message, hashlib.sha256).digest()
 
@@ -2182,6 +2447,9 @@ class Mediator:
         (review 11b's N2). Checked once per vault version, for the text read now. The values the kept text holds among
         those its request's words found (an API key's vault, which keeps most of its values in its store) are brought
         into memory first, in whatever form the text was kept (``Vault.weigh``), and those it names, by their ids.
+        A secret it shows in clear never leaves again, even from a text known to have left so: named in passing, then
+        found by its key in a later text, it is masked anew in this one, once, rather than sent again on every request
+        for the provider's cache (issue 21). A value of another class the provider holds already leaves as it left.
 
         Returns its entry when it leaves as it left (the vault version it was checked at, whether it shows a known
         value in clear), None when it does not: what ``_history_allowed`` reads, its keyed mark made once (P2-8)."""
@@ -2196,11 +2464,18 @@ class Mediator:
         if cached is not None and cached[0] == version:
             return cached
         masker = self._masker(session)
+        secret: bool | None = None  # whether a secret shows in clear in what it leaves as, read once
         if left.exact:
-            shown = shows_known(masker, original, left.text, left.replacements)
+            classes = classes_shown(masker, original, left.text, left.replacements)  # one reading for both
+            shown, secret = bool(classes), EntityClass.SECRET in classes
         else:  # a JSON document masked value by value: its replacements place no value in ``original``
             shown = masker.known_outside(original, ())
         if shown and not self.verifier.sent(session.key, left.text):
+            return None
+        # A JSON document masked value by value is asked of what leaves, its kept text: its ``original`` holds every
+        # secret masked in it too, and asked so it would be masked anew on every request (the security review of
+        # 125a2bcf, M2).
+        if shown and (secret if secret is not None else bool(masker.known_in(left.text, classes=_SECRET))):
             return None
         entry = (version, bool(shown))
         self._as_it_left.put(mark, entry)
@@ -2829,14 +3104,69 @@ class Mediator:
             if session.kept:  # a session that is no conversation keeps what it approved in its own memory alone
                 self.engine.conversations.update(session)
 
+    def take_approved(self, session: Session, items: Sequence[LiveItem], sent: Sequence[str]) -> None:
+        """A decider of the company's approval of ``items`` (``Decision.version``, Latet Enterprise), taken as approved
+        once its texts have left as they read them (``apply_live`` takes none of it), as sent too (``sent``, masked
+        again with their masks): they do not wait again in this conversation, on any instance (a server's conversations
+        are Valkey's, which only ever add an approval). In the engine thread."""
+        self._approve(session, items, sent)
+
+    async def approval_given(self, prepared: Prepared) -> None:
+        """``prepared``'s texts, which a decider of the company approved as they read them (``live_prepared``), have
+        left: an attempt of its request reached its provider (over HTTP, the transport's send answered), or its
+        WebSocket turn was sent. Their approval is taken now (``take_approved``), never before: a request refused
+        before it leaves, for whatever reason, leaves nothing approved, and its texts wait for the deciders again when
+        the agent sends them again (the merge of 0.12.0's security re-review, R1 and R2). Once for a request. Never
+        raises: a store that does not answer is said in the log by the error's type, and the texts then wait again."""
+        given = prepared.decider_approval
+        session = prepared.session
+        if given is None or session is None:
+            return
+        prepared.decider_approval = None
+        try:
+            await self.run(self.take_approved, session, given.items, given.sent)
+        except Exception as exc:
+            log.warning("a decider's approval could not be kept (%s)", type(exc).__name__)
+
+    def not_given(self, prepared: Prepared) -> None:
+        """``prepared``'s texts, which a decider of the company approved as they read them (``live_prepared``), did not
+        leave: its request was refused, or failed, after their approval and before any attempt of it was sent (its
+        settings changed, an exception it is sent under was judged again, the final check, any refusal). Their approval
+        was never taken (``approval_given`` takes it only once they leave), so they wait again when the agent sends them
+        again; the batch is recorded as withheld, as one masked otherwise than they read it is (``ApprovedChanged``):
+        the dashboards told, and the company's record, which never keeps approved a batch that never left (the merge
+        of 0.12.0's security review, L1, and its fix round 3). Once for a request. Never raises: said in the log by the
+        error's type."""
+        given = prepared.decider_approval
+        if given is None:
+            return
+        prepared.decider_approval = None
+        self._withheld(given.batch)
+
     def apply_live(self, session: Session, items: Sequence[LiveItem], decision: Decision, keep: bool) -> list[Masked]:
         """Your decision on approved texts (engine thread), masked again with the rules of now: a value you let through
         while they waited (Not sensitive: always allow) leaves in clear, and the values you masked are masked in them.
         The vault keeps those, so they are masked wherever they appear from now on, like the values the detectors and
-        the local reviewer found."""
+        the local reviewer found.
+
+        A decider of the company's approval (``decision.version``: the texts as they read them, Latet Enterprise) is
+        theirs, not the person's: the texts leave only while masking them with the rules of now (before their own
+        masks) gives the version they approved. A change of the rules or the vault since (one that lowers protection,
+        landed between their approval and this) withholds them (``ApprovedChanged``), and, never taken as approved,
+        they wait again when the agent sends them again (the review of Task 10, fix round 2). The rules are noted before
+        that comparison and read again once the texts are masked for real: new rules that land in between (saved on
+        another thread) withhold them too (fix round 4, I-a). Theirs are taken as approved by whoever gives the texts,
+        once they are given or have left as they read them (``take_approved``), never here: an answer 0.12 then refuses
+        because the settings changed under it, or a request refused before it leaves, leaves them waiting again (the
+        merge of 0.12.0's security review, M1 and L1, and its re-review, R1 and R2)."""
         if any(not safe_text(mask.value) for mask in decision.masks):
             raise MaskingError(PROTECTED_LAUNCH)
-        self._approve(session, items)
+        theirs = decision.version is not None  # a decider's approval: checked, and taken as approved only once checked
+        stamp = self._rules_stamp(session)
+        if theirs and batch_version(self._views_now(session, items, keep)) != decision.version:
+            raise ApprovedChanged(APPROVED_CHANGED)
+        if not theirs:
+            self._approve(session, items)
         human: dict[str, ExtraValue] = {}
         for mask in decision.masks:
             etype, eclass = CATEGORY_TYPES[mask.category]
@@ -2860,8 +3190,22 @@ class Mediator:
             for item, done in zip(items, out, strict=True)
         ):
             raise MaskingError(PROTECTED_LAUNCH)
+        if theirs:
+            if not _same_rules(self._rules_stamp(session), stamp):  # new rules since the comparison: not what they read
+                raise ApprovedChanged(APPROVED_CHANGED)
+            return out  # taken as approved once they are given (``take_approved``)
         self._approve(session, items, [done.text for done in out])  # as sent, with your masks
         return out
+
+    def _rules_stamp(self, session: Session) -> tuple[int, str, object, str]:
+        """The rules a text of ``session`` is masked with, as they stand now: the engine's version (which a value put
+        out of the vault moves too), its project's rules (``Scope.key``, which changes whenever they do), the masker
+        itself (``Engine.use`` puts a new one in place before it counts the new rules: fix round 5, m-c), and its stamp
+        (``Masker.stamp``: this process's change of the terms a company syncs, which change in place under the same
+        masker and count, never the same twice when the same terms come back)."""
+        scope = self.engine.scope(session)
+        masker = self._masker(session)
+        return self.engine.rules_version, scope.key if scope is not None else "", masker, masker.stamp
 
     # --- the previews of what still waits ---------------------------------------------------------
 
@@ -2877,8 +3221,10 @@ class Mediator:
     def release_live(self, batch_id: str) -> None:
         self._held_live.pop(batch_id, None)
 
-    def _live_stamp(self) -> tuple[int, int]:
-        return self.engine.rules_version, self.engine.vault.version
+    def _live_stamp(self) -> tuple[int, int, str]:
+        """The rules' version, the vault's and the synced terms' stamp (``Masker.stamp``), as the previews are made
+        now."""
+        return self.engine.rules_version, self.engine.vault.version, self.engine.masker.stamp
 
     def live_changed(self) -> None:
         """The rules or the vault changed, from any thread (the vault tells it under its lock: this returns at once):
@@ -2914,10 +3260,10 @@ class Mediator:
                 held = self._held_live.get(batch_id)
                 if renewed is None or held is None:
                     continue
-                views, made_at = renewed
+                views, pictures, made_at = renewed
                 if views is not None:
                     try:
-                        if not await self.approvals.update(batch_id, views):
+                        if not await self.approvals.update(batch_id, views, pictures):
                             continue  # decided meanwhile, or not kept: as it was
                     except Exception as exc:  # said by its type alone: its message could quote a text
                         log.warning("the Live Reviewer could not show a request masked again (%s)", type(exc).__name__)
@@ -2927,29 +3273,65 @@ class Mediator:
             if not self._refresh_again:
                 return
 
-    def _renewed_view(self, batch_id: str) -> tuple[list[dict[str, Any]] | None, tuple[int, int]] | None:
+    def _renewed_view(
+        self, batch_id: str
+    ) -> tuple[list[dict[str, Any]] | None, dict[int, tuple[str, str]], tuple[int, int, str]] | None:
         """The previews of ``batch_id`` made again (engine thread): each text masked as approving it now masks it
-        (``apply_live``), with what the local reviewer found; None for them when they did not change. None: no longer
+        (``apply_live``), with what the local reviewer found; None for them when they did not change. With them, the
+        image of each text whose preview changed, painted again as it would leave now (``ImageWork.preview``, by item:
+        the final security review's approvals L4), never the picture painted when it first waited. None: no longer
         held here, or made as of now already. A change of the vault alone makes them again only where it reaches them
-        (``_reached``)."""
+        (``_reached``); a sync of the terms a company syncs (a new tag), with the vault's change it comes before, always
+        (a sync alone asks for no preview: the next change of the vault does)."""
         held = self._held_live.get(batch_id)
         made_at = self._live_stamp()  # before masking: what changes meanwhile shows at the next pass
         if held is None or held.made_at == made_at:
             return None
+        pictures: dict[int, tuple[str, str]] = {}
         try:
-            if held.made_at[0] == made_at[0] and not self._reached(held):
-                return None, made_at
-            views = []
-            for item in held.items:
-                done = self.mask_value(
-                    item.original, item.kind, held.session, MaskReport(), path=item.path, tool=item.tool,
-                    json_mode=item.json_mode, keep_surrogates=held.keep, extra=list(item.extra),
-                )  # fmt: skip
-                views.append(self._live_view(held.session, replace(item, sent=done.text)))
-        except Exception as exc:  # this batch keeps its previews; its decision masks it again all the same
+            if held.made_at[0::2] == made_at[0::2] and not self._reached(held):  # the rules' version and the tag
+                return None, pictures, made_at
+            done = self._masked_now(held.session, held.items, held.keep)
+            views = [
+                self._live_view(held.session, replace(item, sent=masked.text))
+                for item, masked in zip(held.items, done, strict=True)
+            ]
+            if views == held.views:
+                return None, pictures, made_at
+            for n, (item, masked) in enumerate(zip(held.items, done, strict=True)):
+                changed = n >= len(held.views) or views[n] != held.views[n]
+                if item.image is not None and changed:
+                    picture = item.image.preview(masked.text, masked.replacements)
+                    if picture is not None:
+                        pictures[n] = picture
+        except Exception as exc:
+            # This batch keeps its previews, never said made as of now (its stamp stays: the next change tries again).
+            # Its decision masks it again all the same, and a decider's approval of this old preview is withheld where
+            # it is sent (``apply_live``): it would leave masked otherwise than they read it.
             log.warning("the Live Reviewer could not mask a waiting request again (%s)", type(exc).__name__)
-            return None, made_at
-        return (views if views != held.views else None), made_at
+            return None
+        return views, pictures, made_at
+
+    def _views_now(self, session: Session, items: Sequence[LiveItem], keep: bool) -> list[dict[str, Any]]:
+        """The texts' previews as masking them now gives them (engine thread): each masked with the rules and the vault
+        of now and what the local reviewer found, as approving them now masks them before your own masks
+        (``apply_live``)."""
+        done = self._masked_now(session, items, keep)
+        return [
+            self._live_view(session, replace(item, sent=masked.text)) for item, masked in zip(items, done, strict=True)
+        ]
+
+    def _masked_now(self, session: Session, items: Sequence[LiveItem], keep: bool) -> list[Masked]:
+        """Each text masked as approving it now masks it before your own masks (engine thread), with the rules and the
+        vault of now and what the local reviewer found: what its preview shows (``_views_now``), and what its image is
+        painted with again while it waits (``_renewed_view``)."""
+        return [
+            self.mask_value(
+                item.original, item.kind, session, MaskReport(), path=item.path, tool=item.tool,
+                json_mode=item.json_mode, keep_surrogates=keep, extra=list(item.extra),
+            )
+            for item in items
+        ]  # fmt: skip
 
     def _reached(self, held: _HeldLive) -> bool:
         """Whether the vault as it is now reaches the previews of ``held``: a value it keeps is in clear in one, or a
@@ -3013,12 +3395,35 @@ class Mediator:
         if not decision.approved:
             prepared.block_reason = f"Latet did not send this request: {decision.reason}"
             return prepared
+        theirs = decision.version is not None  # a decider's approval (Latet Enterprise)
+        # A decider's approval that cannot be applied here, whatever stops it (masked otherwise than they read it, a
+        # value they masked that would leave in clear, a vault at its limit, any error, the client gone): nothing
+        # leaves, and the company's record never keeps it approved (the final security review, L1).
         try:
-            await self.run(self._apply_live_prepared, prepared, items, decision)
+            taken = await self.run(self._apply_live_prepared, prepared, items, decision)
         except MaskingError as exc:
+            if theirs:
+                self._withheld(batch)
             log.error("the Live Reviewer's masks could not be applied: %s", exc)
             prepared.block_reason = f"Latet did not send this request: {exc}"
+            return prepared
+        except BaseException:
+            if theirs:
+                self._withheld(batch)
+            raise
+        if taken is not None:  # a decider's: taken once its texts leave (``approval_given``), never before
+            prepared.decider_approval = DeciderApproval(batch, *taken)
+        elif theirs and prepared.block_reason:  # discarded as it was applied (a mask Latet never sends): never left
+            self._withheld(batch)
         return prepared
+
+    def _withheld(self, batch: Batch) -> None:
+        """``batch``, a decider of the company's approval, never left: recorded withheld (``Approvals.withheld``),
+        never in the way of why it did not leave. Said in the log by the error's type."""
+        try:
+            self.approvals.withheld(batch)
+        except Exception as exc:
+            log.warning("a decider's approval of texts that never left was not recorded (%s)", type(exc).__name__)
 
     async def await_decision(
         self,
@@ -3027,7 +3432,10 @@ class Mediator:
         held: tuple[Session, Sequence[LiveItem]] | None = None,
     ) -> Decision:
         """Wait for your decision on ``batch``; the client going away gives it up. With ``held`` (its session and
-        texts), its previews are made again here while it waits (``hold_live``)."""
+        texts), its previews are made again here while it waits (``hold_live``). A wait that ends before a decision
+        came, however it ends (the WebSocket relay ending while its turn waits cancels it, as a daemon stopping does),
+        gives it up too: never left waiting with nobody to send it, where a decision taken later would be recorded and
+        told for texts that could not leave (the final security review, L2)."""
         await self.approvals.open(batch)
         if held is not None:
             self.hold_live(batch, held[0], held[1], keep=False)
@@ -3038,12 +3446,22 @@ class Mediator:
                     return decision
                 if gone is not None and await gone():
                     self.approvals.abandon(batch)
+        except BaseException:
+            with contextlib.suppress(Exception):  # decided meanwhile, or its store does not answer: as it is
+                self.approvals.abandon(batch)
+            if _a_decider_approved(batch):  # decided as the wait was given up (R3): it never left either
+                self._withheld(batch)
+            raise
         finally:
             self.release_live(batch.id)
 
-    def _apply_live_prepared(self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision) -> None:
+    def _apply_live_prepared(
+        self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision
+    ) -> tuple[tuple[LiveItem, ...], tuple[str, ...]] | None:
+        """Your decision applied to the request (``_apply_live_changes``); what a decider's approval is to take as
+        approved once the request leaves (None for yours, which is taken as approved here)."""
         try:
-            self._apply_live_changes(prepared, items, decision)
+            taken = self._apply_live_changes(prepared, items, decision)
         except BaseException:
             prepared.refresh_recording(logical=True)
             raise
@@ -3051,14 +3469,21 @@ class Mediator:
             logical=bool(prepared.block_reason and prepared.amended),
             serialized=prepared.body if prepared.encoding is None else None,
         )
+        return taken
 
-    def _apply_live_changes(self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision) -> None:
+    def _apply_live_changes(
+        self, prepared: Prepared, items: Sequence[LiveItem], decision: Decision
+    ) -> tuple[tuple[LiveItem, ...], tuple[str, ...]] | None:
         session = prepared.session
         assert session is not None
         if any(not safe_text(mask.value) for mask in decision.masks):
             prepared.discard_unadmitted_content(PROTECTED_LAUNCH)
-            return
+            return None
         done = self.apply_live(session, items, decision, keep=False)
+        # A decider's approval (Latet Enterprise): what it is to take as approved once the request has left
+        # (``approval_given``, which the forwarder and the WebSocket relay call then), its texts as sent.
+        theirs = decision.version is not None
+        taken = (tuple(items), tuple(masked.text for masked in done)) if theirs else None
         changed = self.decide_images(items, decision)
         for item, masked in zip(items, done, strict=True):
             slot, before, _ = prepared.pending[item.index]
@@ -3079,6 +3504,7 @@ class Mediator:
         # was given up meanwhile: RC-REC-11 (b)).
         if prepared.lease is not None:
             prepared.lease.reacquire()
+        return taken
 
     def read_image(self, ref: ImageRef, session: Session, modify: bool) -> ImageWork | None:
         """One image the Claude Code plugin sends: read, when Latet reads images in its project. On a Latet server whose
@@ -3171,6 +3597,7 @@ class Mediator:
         from latet.gateway.request_policy import LocalAuthority, session_facts
 
         authority = LocalAuthority.capture(self.engine, upstream)
+        settings = self.unknown_members  # read once for this turn, as for a request over HTTP (``prepare``)
         receipts: list[EchoCheck] = []
         prepared: Prepared | None = None
         complete = False
@@ -3187,8 +3614,11 @@ class Mediator:
                 receipts=receipts,
                 launch=launch,
                 headers=headers or {},
+                unknown_members=settings,
             )
             if prepared is not None:
+                if settings == "refuse":
+                    prepared.unknown_members = "refuse"
                 prepared.protected_current = selection.protected_current if selection is not None else None
                 if selection is not None:
                     prepared.project, prepared.binding, prepared.launch = (
@@ -3231,10 +3661,12 @@ class Mediator:
         receipts: list[EchoCheck],
         launch: RequestLaunch | None = None,
         headers: dict[str, str],
+        unknown_members: UnknownMembers = "check",
     ) -> tuple[str, Prepared | None]:
         """A client WebSocket frame: a ``response.create`` is masked like a Responses request body (one that gives a key
         twice leaves written anew from what was read, as it does). Another frame is sent as it came on a computer, and
-        refused on a server (``unread_frame``), but a frame the protocol defines with no content (``_contentless``)."""
+        refused on a server (``unread_frame``), but a frame the protocol defines with no content (``_contentless``).
+        ``unknown_members``: how the settings in use read a member no profile declares, as ``_prepare`` takes it."""
         ledger = Ledger()
         try:
             limit = min(self.body_limit, sse.MAX_DECODED)
@@ -3311,7 +3743,7 @@ class Mediator:
             protected = not (
                 ledger.declared_scan_safe(scan, masked=True)
                 and ledger.declared_scan_safe(tools)
-                and declared_body_safe(frame, "responses", source, scan, ledger)
+                and declared_body_safe(frame, "responses", source, scan, ledger, unknown_members=unknown_members)
             )
         except BodyRefused as error:
             return "", Prepared(
@@ -3334,6 +3766,7 @@ class Mediator:
         prepared = Prepared(
             REWRITE, "responses", b"", session, uninspected=unread, model=_model(frame), document=frame,
             recorded_later=True,  # mask_ws_frame refreshes what it returns
+            unknown_members=self._reads_new_members(unknown_members, scope),  # its project known: once for the turn
         )  # fmt: skip
         if scope is not None and not scope.enabled:  # D5: refused, as over HTTP
             prepared.off = True
@@ -3374,8 +3807,12 @@ class Mediator:
                 ledger,
                 prepared.opaque_check.rules(frame) if prepared.opaque_check else {},
                 excepted=False,
+                unknown_members=prepared.unknown_members,
             )
-            if any(not safe_text(value) for value in inspection.checked):
+            if any(
+                not safe_text(value)
+                for value in chain(inspection.checked, inspection.new_members, inspection.new_member_fields)
+            ):
                 return "", Prepared(VERIFY, "responses", b"", session, block_reason=PROTECTED_LAUNCH)
             prepared.body_shape = inspection.shape
             prepared.body_semantic = tuple(inspection.semantic)

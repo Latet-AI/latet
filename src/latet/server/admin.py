@@ -86,7 +86,11 @@ address the limiter found past its limit is refused before them, on the event lo
 PostgreSQL, Valkey or the name resolver, every entry of the log (a refusal's too), a settings save and the end of an
 identity's sessions run in the administration's own (``ADMIN_THREADS``), one save of an identity's settings at a time,
 so that a save waiting on its identity's lock holds one thread and delays no other call. The space an API key's settings
-need is built by the spaces, in their threads."""
+need is built by the spaces, in their threads.
+
+The edition's own administration routes (``Edition.admin_routes``: the Enterprise Edition's license and settings) are
+served behind this same gate (``AdminGate``), sharing its limiter, its ceiling of refused entries, its threads and its
+log with the routes here: no second copy of any of it."""
 
 from __future__ import annotations
 
@@ -107,12 +111,13 @@ from psycopg.errors import QueryCanceled
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
+from starlette.routing import BaseRoute, Route
 
 from latet import __version__
 from latet.bridge.apps import values_asked
 from latet.config import Config
 from latet.engine.detectors.latet import holds_a_secret_start
+from latet.floor import BelowFloor, FloorUnavailable, unavailable
 from latet.gateway.security import from_browser
 from latet.http_inputs import same_etag
 from latet.log_paging import LogCursor, LogFilters, finite_time, page_limit
@@ -167,7 +172,6 @@ from latet.server.settings import SERVER_API
 from latet.server.shared import (
     REVIEWER_KEY,
     RULE_KEYS,
-    RULES_FOR_EVERYONE,
     SETTING_KEYS,
     SettingsRefused,
     SharedItemsError,
@@ -178,6 +182,7 @@ from latet.server.shared import (
     kept_said,
     own_destinations_refused,
     reviewer_key_named,
+    rules_for_everyone,
     shared_refusals,
     validated,
     with_kept_rules,
@@ -348,10 +353,11 @@ def _settings_answer(config: Config) -> JSONResponse:
     return JSONResponse({"settings": config.model_dump(mode="json"), "etag": digest(config)})
 
 
-def _shared_answer(stored: Config, rules: Any) -> JSONResponse:
+def _shared_answer(stored: Config, rules: Any, edition: str) -> JSONResponse:
     """In a worker thread: the shared settings as the administration answers them: the settings the server shares, the
-    etag of the row as it is, and apart the rules for everyone an earlier version kept in it (``kept_rules``), which no
-    space applies."""
+    etag of the row as it is, apart the rules for everyone an earlier version kept in it (``kept_rules``), which no
+    space applies, and the server's edition (``Edition.name``), whose words `latet server config` and `latet server
+    rules` refuse a rule for everyone in (``rules_for_everyone``)."""
     dumped = stored.model_dump(mode="json")
     kept = kept_rules(stored, rules(stored))
     return JSONResponse(
@@ -359,6 +365,7 @@ def _shared_answer(stored: Config, rules: Any) -> JSONResponse:
             "settings": {key: dumped[key] for key in SETTING_KEYS},
             "etag": digest(stored),
             "kept_rules": {key: dumped[key] for key in kept},
+            "edition": edition,
         }
     )
 
@@ -608,6 +615,27 @@ class _Unapproved(Exception):
 
 
 Handler = Callable[[Request, _Call], Awaitable[Response]]
+Endpoint = Callable[[Request], Awaitable[Response]]
+
+
+@dataclass(frozen=True)
+class AdminGate:
+    """The administration's gate, for the routes an edition adds (``Edition.admin_routes``): the same state as the
+    routes here, so that one limiter, one ceiling of refused entries, one pool of threads and one log serve them all.
+
+    ``admin(name, handler)``: the endpoint of ``handler``, called with the request and its ``_Call`` once the call's
+    token is known (never from a web page, over HTTPS when the server's address is https), every call recorded under
+    ``name``, refusals and reads too, its answer never kept (``no-store``) and withheld when its entry cannot be written
+    (``UNRECORDED``). A change is written in one transaction: ``holding(call, conn)`` first (the token's row held),
+    ``entry(call, changes, done, details, target=…)`` last (``changes``: a ``Changes`` of that transaction), then
+    ``recorded(call, done, details, target)`` once it committed. ``run(work, *args)``: ``work`` in the administration's
+    own threads, for every call to a store."""
+
+    admin: Callable[[str, Handler], Endpoint]
+    holding: Callable[[_Call, Any], AdminTokenInfo]
+    entry: Callable[..., None]
+    recorded: Callable[..., None]
+    run: Callable[..., Awaitable[Any]]
 
 
 def _key_settings(
@@ -662,7 +690,7 @@ def _key_settings(
     return before, after, kept
 
 
-def admin_routes(server: Server) -> list[Route]:
+def admin_routes(server: Server) -> list[BaseRoute]:
     url = server.settings.url
     https = url.startswith("https://")
     # Said once a minute, with how many since (the beat says the rest): the calls refused because Valkey could not take
@@ -837,7 +865,7 @@ def admin_routes(server: Server) -> list[Route]:
             return False
         return True
 
-    def admin(name: str, handler: Handler) -> Callable[[Request], Awaitable[Response]]:
+    def admin(name: str, handler: Handler) -> Endpoint:
         async def endpoint(request: Request) -> Response:
             call = _Call(name, client_of(request.scope), _identity_of(request))  # its own address: the bucket counts
             response: Response = _error("internal error", 500)  # until the call answers
@@ -1301,6 +1329,8 @@ def admin_routes(server: Server) -> list[Route]:
             return _missing()  # removed or disabled meanwhile
         except SpaceUnavailable:  # this instance does not hear Valkey now, or the space closed while it was built
             return _error("this instance cannot open the key's space now: try again", 503)
+        except FloorUnavailable as exc:  # the company's policy cannot be read here: no space is built below it
+            return _error(unavailable(exc), 503)
 
     async def get_settings(request: Request, call: _Call) -> Response:
         if isinstance(identity := await a_key(call), Response):
@@ -1357,6 +1387,11 @@ def admin_routes(server: Server) -> list[Route]:
                 return _error(str(exc), 400)
             except SharedItemsError as exc:  # its words say how many of each kind, never which
                 return _error(str(exc), 409)
+            except FloorUnavailable as exc:  # the company's policy cannot be read here: nothing applied
+                return _error(unavailable(exc), 503)
+            except BelowFloor as refused:  # below what the company set: nothing applied, nothing waits for approval
+                call.details = {"floor": refused.reasons}  # settings named, never a value
+                return _error(str(refused), 409, floor=refused.reasons)
             except (OSError, _Unapproved) as failure:
                 # Not kept, stale ones too (H7): E0a's apply puts settings in force before it saves them, so the space
                 # here, which runs them already, is closed before the answer, and made again from PostgreSQL at its
@@ -1385,11 +1420,11 @@ def admin_routes(server: Server) -> list[Route]:
                 config = server.shared.stored()  # as PostgreSQL has them: never a copy left behind by a lost message
             except UnreadableShared:
                 return _error(UNREADABLE_SHARED, 500)
-            return _shared_answer(config, server.shared.rules)
+            return _shared_answer(config, server.shared.rules, server.edition.name)
 
         return await _in_pool(answered)
 
-    def write_shared(given: dict[str, Any], etag: str | None, call: _Call, forget: bool = False) -> Config | None:
+    def write_shared(given_body: dict[str, Any], etag: str | None, call: _Call, forget: bool = False) -> Config | None:
         """In a worker thread: ``config`` kept as the shared settings with its entry, in one transaction (H2), the etag
         compared inside it under the lock every change takes (``SharedSettings.set``, H1), then announced. False when
         the etag given is not theirs; nothing is written when they are ``config`` already. Written blind, it compares
@@ -1397,11 +1432,12 @@ def admin_routes(server: Server) -> list[Route]:
         says it changed is exactly that. Written blind over a row that does not open, it replaces it, nothing of it
         read, and its entry says so (``unreadable``); with an etag such a row raises UnreadableShared. Raises
         SharedTooLarge, nothing written, and AdminTokenEnded when the call's token is gone or past its day as the
-        transaction finds it (``holding``, first there). What is written is the settings ``given`` names over the row's
-        (``_merged``: a setting it leaves out keeps its value; over a row that does not open, its default), with the
-        rules for everyone an earlier version kept in the row (``with_kept_rules``), unless ``forget``. Answers the row
-        written, or None when the etag given is not theirs; raises ValidationError when they are no settings
-        together."""
+        transaction finds it (``holding``, first there). What is written is the settings ``given_body`` names over the
+        row's (``_merged``: a setting it leaves out keeps its value; over a row that does not open, its default), the
+        rules the edition gives as the row holds them (``given``, their keys: no write of the shared settings changes
+        them), and the rules for everyone an earlier version kept in the row (``with_kept_rules``), unless ``forget``,
+        which deletes those alone. Answers the row written, or None when the etag given is not theirs; raises
+        ValidationError when they are no settings together."""
         for _ in range(_TRIES):
             try:
                 before: Config | None = server.shared.stored()
@@ -1411,7 +1447,10 @@ def admin_routes(server: Server) -> list[Route]:
                 before = None
             read: str | None = None
             details: dict[str, Any] = {"unreadable": True}
-            written = with_kept_rules(_merged(before, given, SETTING_KEYS), None if forget else before)
+            given = frozenset(server.shared.rules(before)) if before is not None else frozenset()
+            written = with_kept_rules(
+                _merged(before, given_body, (*SETTING_KEYS, *given)), None if forget else before, given=given
+            )
             if before is not None:
                 read = digest(before)
                 if etag is not None and not _same(etag, read):
@@ -1446,8 +1485,8 @@ def admin_routes(server: Server) -> list[Route]:
         forget = given.pop("forget_kept_rules", False)
         if forget is not True and forget is not False:
             return _error(FORGET_KEPT, 400)
-        if rules := sorted(key for key in given if key in RULE_KEYS):  # the Enterprise Edition's: named, never shown
-            return _error(RULES_FOR_EVERYONE, 400, details=rules)
+        if rules := sorted(key for key in given if key in RULE_KEYS):  # never shared: named, never shown
+            return _error(rules_for_everyone(server.edition.name), 400, details=rules)
         if isinstance(config := await _in_pool(_settings_of, given), list):
             return _error("these are not settings", 400, details=config)
         if no_setting := _no_setting(given):
@@ -1466,7 +1505,7 @@ def admin_routes(server: Server) -> list[Route]:
             return _error(STALE, 409)
         if not call.recorded:
             call.details = {"keys": []}  # they were these already
-        return await _in_pool(_shared_answer, written, server.shared.rules)
+        return await _in_pool(_shared_answer, written, server.shared.rules, server.edition.name)
 
     # --- the administration tokens ------------------------------------------------------------------------------------
 
@@ -1589,7 +1628,16 @@ def admin_routes(server: Server) -> list[Route]:
         # The newest entry walked: what a copy kept elsewhere (E4's export) is compared with, since nothing in the table
         # shows entries taken off its end.
         head = None if checked.head is None else {"id": checked.head[0], "hash": checked.head[1]}
-        answer = {"ok": checked.ok, "checked": checked.checked, "broken_at": checked.broken_at, "head": head}
+        # E4 (R3-1): the SIEM's gap markers waiting on the server, each Latet's only when an entry of the log names it;
+        # null in the Community Edition. Left out above, when the walk fails: an answer without it is no Community one.
+        try:
+            gaps = await _in_pool(server.edition.gaps)
+        except Exception as exc:  # by its type: a check that could not run is said, never passed over (R3-1)
+            log.warning("the SIEM's gap markers could not be checked (%s)", type(exc).__name__)
+            gaps = {"error": "the SIEM's gap markers could not be checked now: try again"}
+        answer = {
+            "ok": checked.ok, "checked": checked.checked, "broken_at": checked.broken_at, "head": head, "gaps": gaps
+        }  # fmt: skip
         return JSONResponse(answer)
 
     def _kept_rules_line() -> list[dict[str, str]]:
@@ -1607,6 +1655,26 @@ def admin_routes(server: Server) -> list[Route]:
             "dashboard. `latet server rules export` writes them to a file, `latet server rules forget` deletes them"
         )
         return [{"status": "warn", "title": "Rules for everyone", "detail": detail}]
+
+    def _edition_lines() -> list[dict[str, str]]:
+        """In a worker thread: the lines of the instance's edition (``Edition.checks``), as `latet server status`
+        prints them; none in the Community Edition."""
+        return [{"status": c.status, "title": c.title, "detail": c.detail} for c in server.edition.checks()]
+
+    def _unknown_members() -> str | None:
+        """In a worker thread: how a request member no request profile names is read for every identity, as the shared
+        settings in force are raised to the company's floor (an identity's own settings may refuse it too); None when it
+        cannot be said now (the shared settings unreadable, the company's policy not read here)."""
+        from latet.floor import raised_to
+        from latet.protection import effective_unknown_members
+
+        try:
+            return effective_unknown_members(raised_to(server.edition.floor(None), server.shared.get(copy=False)), None)
+        except (FloorUnavailable, UnreadableShared):  # said where they are read
+            return None
+        except Exception as exc:  # by its type: its words can name the database, or quote a setting
+            log.warning("the status could not say how new request members are read (%s)", type(exc).__name__)
+            return None
 
     def _permanent_exceptions() -> list[dict[str, str]]:
         from latet.server.space_settings import listed_exceptions
@@ -1647,8 +1715,11 @@ def admin_routes(server: Server) -> list[Route]:
                 "audit": {"chain": chain},
                 "database": server.db.ping(),
                 "valkey": server.bus.ping(),
-                "kept": _kept_rules_line(),
+                # The rules an earlier version kept, then the edition's own lines (a license, its warnings and its end;
+                # whether this instance hears the others' changes), read here in the administration's threads.
+                "edition": [*_kept_rules_line(), *_edition_lines()],
                 "exceptions": _permanent_exceptions(),
+                "unknown_members": _unknown_members(),
             }
 
         found_ = await _in_pool(state)
@@ -1656,16 +1727,19 @@ def admin_routes(server: Server) -> list[Route]:
             "url": url, "version": __version__, "instance": server.instance, "identities": found_["identities"],
             "spaces": server.spaces.count(), "vault": found_["vault"],  # the identities at 90% of their limit or more
             "audit": found_["audit"], "database": found_["database"], "valkey": found_["valkey"],
-            "edition": found_["kept"],  # E1: and the lines of Edition.checks()
+            "edition": found_["edition"],
             "instances": found_["instances"],
             # The final re-review's R-4: false when the list was cut at its bound (an instance may be missing), None
             # when Valkey did not answer.
             "instances_whole": found_["instances_whole"],
             "exceptions": found_["exceptions"],  # the permanent request exceptions, by id and scope category (D3)
+            # `check` or `refuse` for every identity (0.15.0), None when it cannot be said now
+            "unknown_members": found_["unknown_members"],
         }  # fmt: skip
         return JSONResponse(answer)
 
     one = f"{ADMIN_API}/identities/{{id}}"
+    gate = AdminGate(admin=admin, holding=holding, entry=entry, recorded=recorded, run=_in_pool)
     return [
         Route(f"{ADMIN_API}/identities", admin("identities.list", list_identities), methods=["GET"]),
         Route(f"{ADMIN_API}/identities", admin("identity.add", add_identity), methods=["POST"]),
@@ -1691,4 +1765,5 @@ def admin_routes(server: Server) -> list[Route]:
         Route(
             f"{ADMIN_API}/admin-tokens/{{token}}", admin("admin-token.revoke", revoke_admin_token), methods=["DELETE"]
         ),
+        *server.edition.admin_routes(server, gate),  # the edition's, behind this same gate: none in the Community's
     ]

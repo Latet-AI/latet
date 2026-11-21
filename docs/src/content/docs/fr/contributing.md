@@ -3,7 +3,7 @@ title: Contribuer
 description: Préparer un environnement de développement, lancer les vérifications, tenir la documentation à jour et ajouter une langue.
 ---
 
-Avant de vous lancer dans un travail important, ouvrez une issue pour en discuter.
+Avant de vous lancer dans un travail important, ouvrez un ticket pour en discuter.
 
 Pour publier une version, suivez [Publier Latet](../releasing/) : fusionnez, attendez toute la CI
 sur le commit exact de main, puis créez le tag.
@@ -27,12 +27,12 @@ uv run latet claude      # Claude Code with the plugin from src/latet/claude_plu
 uv run latet doctor
 ```
 
-Pour garder une instance de test à l'écart d'un Latet que vous utilisez pour de bon, définissez
+Pour garder une instance de test à l'écart d'un Latet que vous utilisez pour de bon, faites pointer
 `LATET_DATA_DIR` et `LATET_CONFIG` vers un dossier temporaire et choisissez un autre port dans ce
 `config.yaml`.
 
 `latet serve --capture <folder>` écrit chaque échange dans des fichiers locaux (avec les en-têtes
-d'authentification caviardés), ce qui est utile pour étudier un protocole. Aucun mode ne transmet
+d'identification caviardés), ce qui est utile pour étudier un protocole. Aucun mode ne transmet
 sans masquer : une partie de requête que Latet ne lit pas est refusée, et les appels d'un nouveau
 protocole demandent d'abord un profil de requête et ses tests. Les captures contiennent le contenu des conversations : ne les incluez
 jamais dans un commit (c'est pour cette raison que git ignore `notes/captures/`).
@@ -43,7 +43,7 @@ Lancez-les avant d'ouvrir une pull request. La CI les lance dans ses jobs de lin
 tests sous Windows, macOS et Linux avec plus d'exemples pour les tests de propriétés
 (`HYPOTHESIS_PROFILE=ci`). Elle lance aussi `uv run python scripts/gen_notices.py --check`, les tests
 du serveur, et les vérifications du plugin, du tableau de bord et de la documentation décrites
-ci-dessous, et elle construit les installateurs et l'image de conteneur :
+ci-dessous, et elle construit les scripts d'installation et l'image de conteneur :
 
 ```sh
 uv run pytest
@@ -58,15 +58,15 @@ uv run python scripts/gen_reference.py --check
   commande, une clé de configuration ou un détecteur, régénérez-les avec
   `uv run python scripts/gen_reference.py`. Ne les modifiez jamais à la main.
 - **Plugin Claude Code.** `claude plugin validate src/latet/claude_plugin` valide le plugin
-  avec une version installée compatible. `claude plugin test`, lancé dans
+  avec une version compatible de Claude Code installée. `claude plugin test`, lancé dans
   `src/latet/claude_plugin/`, n'est pas disponible dans tous les environnements installés ;
-  utilisez-le uniquement si celui-ci expose la commande de test.
+  utilisez-le uniquement si cet environnement expose la commande de test.
 - **Faux positifs.** `tests/unit/test_fp_budget.py` passe les détecteurs sur la bibliothèque standard
   de Python, qui ne contient aucun vrai secret, avec un budget par profil qui ne peut que baisser.
   `uv run python scripts/fp_corpus.py` affiche ce qui se déclenche sur un corpus plus large, règle
   par règle.
-- **Avis de tiers.** Après avoir modifié les dépendances, lancez `npm ci` dans `dashboard/` et dans
-  `docs/`, puis régénérez-les avec `uv run python scripts/gen_notices.py`. Ajoutez `--check` pour
+- **Mentions des composants tiers.** Après avoir modifié les dépendances, lancez `npm ci` dans
+  `dashboard/` et dans `docs/`, puis régénérez les mentions avec `uv run python scripts/gen_notices.py`. Ajoutez `--check` pour
   vérifier que le fichier est à jour sans le réécrire ; la CI lance cette vérification.
 
 Règle de base : les tests n'utilisent que des données synthétiques. N'incluez jamais dans un commit
@@ -82,17 +82,17 @@ uv run python scripts/server-services.py up
 uv run python scripts/server-services.py env
 ```
 
-Définissez `LATET_TEST_DATABASE_URL`, `LATET_TEST_VALKEY_URL` et `LATET_TEST_TLS_DATABASE_URL`
-affichés dans le shell de test, avec sa syntaxe. Ils désignent des services de test jetables,
+Définissez dans le shell de test les variables affichées, `LATET_TEST_DATABASE_URL`,
+`LATET_TEST_VALKEY_URL` et `LATET_TEST_TLS_DATABASE_URL`, avec la syntaxe d'affectation de ce shell. Ils désignent des services de test jetables,
 jamais des données de production. Définissez `LATET_TEST_REQUIRE_SERVICES=1`, puis lancez :
 
 ```sh
 uv run pytest -q -m server
 ```
 
-Chaque test utilise son propre schéma de base et préfixe Valkey. Le job CI `server`
-fournit et exige les services : un service indisponible doit provoquer un échec plutôt
-qu'un test ignoré en silence. Arrêtez vos services créés par le script avec
+Chaque test utilise son propre schéma de base de données et son propre préfixe Valkey. Le job CI
+`server` fournit et exige les services : un service indisponible doit provoquer un échec plutôt
+qu'un test ignoré en silence. Arrêtez les services que le script a créés pour vous avec
 `uv run python scripts/server-services.py down` ; coordonnez les services partagés avec leur responsable.
 
 Les tests d'agents réels sont facultatifs, avec `LATET_AGENT_TESTS=1` et
@@ -102,6 +102,17 @@ externes. Utilisez des dossiers personnels isolés et des identifiants synthéti
 les fixtures locales ne garantissent pas l'absence de trafic externe. Les tests marqués
 `live` utilisent les modèles locaux de détection des noms et de reconnaissance de texte : ils sont
 ignorés là où ces modèles ne sont pas installés, comme en CI.
+
+## Le code Enterprise
+
+Le code de Latet Enterprise se trouve dans `src/latet/ee/` et `dashboard/src/ee/`, et ses tests dans
+`tests/ee/` : tout dossier nommé `ee` est sous la Latet Enterprise License, et
+l'[accord de licence des contributeurs](https://github.com/Latet-AI/latet/blob/main/CLA.md) couvre une contribution à ce code comme il couvre toute autre contribution.
+L'édition Community n'a jamais besoin de ce code : `uv run pytest -q --without-ee` lance la suite de
+tests comme si ces dossiers n'existaient pas, ce que fait le job CI `community` après les avoir
+supprimés. Les tests contre de vrais programmes dans Docker (Keycloak, OpenLDAP et Prometheus) sont
+facultatifs : [`tests/ee/providers/README.md`](https://github.com/Latet-AI/latet/blob/main/tests/ee/providers/README.md) explique
+comment les lancer.
 
 ## Tableau de bord
 
@@ -170,7 +181,7 @@ importé `docs/src/components/Screenshot.astro` comme le fait `dashboard.mdx`.
 
 La documentation existe en cinq langues : l'anglais à la racine, qui sert de référence, et
 l'italien, l'allemand, le français et l'espagnol sous `/it/`, `/de/`, `/fr/` et `/es/` (les
-`locales` de `docs/astro.config.mjs`). Une page pas encore traduite affiche la page anglaise, avec un
+`locales` de `docs/astro.config.mjs`). Une page non traduite affiche la page anglaise, avec un
 avertissement. Les pages de référence générées à partir du code restent en anglais dans toutes les
 langues.
 
@@ -246,7 +257,7 @@ numéros de TVA se trouvent dans `ids/vat.py`.
 4. Ajoutez le libellé du type dans les cinq langues du tableau de bord,
    `dashboard/src/locales/<lang>.json` (`rules.pii.types`), à `PII_TYPES` dans
    `dashboard/src/lib/labels.ts` et sa description à `PII_HELP` dans
-   `dashboard/src/pages/RulesPage.tsx` ; ajoutez aussi le type et le pays au catalogue de la maquette
+   `dashboard/src/pages/RulesPage.tsx` ; ajoutez aussi le type et le pays au catalogue du mode simulé
    (`PII_CATALOG` et `id_regions_available` dans `dashboard/src/mock/fixtures.ts`, `ID_TYPES` dans
    `dashboard/src/mock/builder.ts`). Lancez ensuite `uv run python scripts/gen_reference.py` pour les
    tableaux de référence.
@@ -272,7 +283,7 @@ obtenus.
 
 ## Licence
 
-Latet est distribué sous la Latet Sustainable Use License, son Enterprise Edition sous la Latet
+Latet est distribué sous la Latet Sustainable Use License, son édition Enterprise sous la Latet
 Enterprise License, et Latet est aussi proposé sous des licences commerciales
 ([LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md)). Les contributions sont
 acceptées selon l'[accord de licence des contributeurs](https://github.com/Latet-AI/latet/blob/main/CLA.md) :

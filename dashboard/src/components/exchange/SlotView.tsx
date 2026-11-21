@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { Agent, Slot } from '../../api/types'
 import { blockDomId } from '../../lib/blocks'
 import { hasStrictValues } from '../../lib/columns'
-import { CLASS_LABEL, KIND_LABEL, MODULE_LABEL } from '../../lib/labels'
+import { CLASS_LABEL, MODULE_LABEL, slotKindLabel } from '../../lib/labels'
 import { useDeploymentKey } from '../../lib/me'
 import { ClassSwatch } from '../badges'
 import { RuleName } from '../RuleName'
@@ -33,7 +33,8 @@ export function SlotView({ slot, index, marks, footnotes, sentOnly = false, comp
   const { t } = useTranslation()
   const key = useDeploymentKey()
   const titleId = useId()
-  const kind = KIND_LABEL[slot.kind] ? t(key(KIND_LABEL[slot.kind])) : slot.kind
+  const label = slotKindLabel(slot.kind, slot.path)
+  const kind = label ? t(key(label)) : slot.kind
   const count = slot.replacements.length
   const unknownOriginal = slot.original === null
   const sentLabel = blocked ? t('exchange.panes.wouldSend') : t('exchange.panes.sent')

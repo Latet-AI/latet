@@ -6,10 +6,10 @@ sidebar:
 ---
 
 I nodi Latet per n8n ([`@latet-ai/n8n-nodes-latet`](https://www.npmjs.com/package/@latet-ai/n8n-nodes-latet),
-con licenza MIT) chiamano l'[API per le applicazioni](../) di un server Latet da un workflow.
+con licenza MIT) chiamano l'[API per le applicazioni](../) di un server di Latet da un workflow.
 Analizzano, mascherano, ripristinano e dimenticano i testi degli item del workflow: un workflow
 maschera ciò che manda a un modello o a un servizio, e ripristina ciò che torna. Servono un server
-Latet, dalla 0.10.0 in poi, e il token di una chiave API; il token del computer di una persona viene
+di Latet, dalla 0.10.0 in poi, e il token di una chiave API; il token del computer di una persona viene
 rifiutato.
 
 ## Installare i nodi
@@ -20,7 +20,7 @@ dettagli.
 
 ## Un token per il workflow
 
-L'amministratore del server Latet crea un token con i permessi che il workflow usa, e nessuno di più
+L'amministratore del server di Latet crea un token con i permessi che il workflow usa, e nessuno di più
 ([chiavi API e token](../#chiavi-api-e-token)):
 
 ```sh
@@ -32,18 +32,18 @@ latet server --server https://latet.acme.lan keys add-token "Support desk" n8n -
 | Scan | `scan`, o `mask` |
 | Mask | `mask` |
 | Unmask | `unmask` |
-| Forget | `forget`, che nessun altro permesso porta con sé |
+| Forget | `forget`, che nessun altro permesso comprende |
 
 In n8n, le credenziali **Latet API** contengono l'indirizzo del server (`https://latet.acme.lan`) e il
 token, cioè il contenuto di `n8n.token`. Usa un indirizzo `https://`: con `http://` il token e i testi
 viaggiano in chiaro. n8n prova le credenziali con l'analisi di una parola, che non conserva nulla e
-richiede `scan` o `mask`: un token che può solo ripristinare o dimenticare non supera la prova, e nel
-nodo funziona lo stesso.
+richiede `scan` o `mask`: un token che può solo ripristinare o dimenticare non supera la prova, ma nel
+nodo funziona comunque.
 
 ## Che cosa fa ogni operazione
 
 Ogni operazione legge il testo di ogni item da un campo (**Text Field**, `text` se non indicato) e
-manda gli item in chiamate di al massimo 1.000 testi.
+manda gli item in chiamate da 1.000 testi al massimo.
 
 - **Scan** dice dove sono i valori in ogni testo, per tipo, e non conserva nulla.
 - **Mask** restituisce ogni testo con valori fittizi al posto dei suoi valori, lo stesso valore

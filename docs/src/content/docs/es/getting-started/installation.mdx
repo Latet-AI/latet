@@ -1,6 +1,6 @@
 ---
 title: Instalación
-description: Instala Latet con el instalador de una línea, o ejecútalo desde un clon del repositorio.
+description: Instala Latet con el instalador de una línea, o ejecútalo desde una copia del código fuente.
 ---
 
 ## Requisitos
@@ -38,16 +38,31 @@ El script hace dos cosas, en este orden:
    lectura de texto en imágenes; sus modelos solo se descargan cuando lo pides. Donde no se pueden
    instalar, Latet se instala sin ellas, y el script lo dice al terminar; en cambio, un Latet ya
    instalado con ellas se queda como estaba. Los demás extras de un Latet ya instalado (`server`, en
-   un servidor) se mantienen. Si se está ejecutando un Latet anterior, lo detiene, y
-   no lo vuelve a iniciar. Para actualizar, `latet upgrade` es el mejor camino. Después de que el
+   un servidor) se mantienen. Si se está ejecutando un Latet anterior, lo detiene, y no lo vuelve a
+   iniciar, salvo que en Windows pase Latet a un puerto libre al terminar (más abajo). Para
+   actualizar, `latet upgrade` es el mejor camino. Después de que el
    script haya actualizado un Latet, ejecuta `latet start`, y `latet agents apply claude` si Claude
    Code pasa por Latet de forma permanente, para que obtenga el plugin nuevo.
+
+En Windows, el script termina con una pregunta, que solo hace donde Windows puede quedarse con el
+puerto de Latet. Hyper-V, WSL y Docker reservan bloques de puertos cada vez que Windows arranca, y
+en algunos equipos el puerto 5283 puede estar entre ellos: Latet no puede iniciarse entonces hasta
+el siguiente reinicio. El script pregunta si reservar el puerto para Latet o, donde Windows ya lo
+ocupa, si pasar Latet a un puerto libre y reservar ese. Si respondes que sí, Windows pide una vez la
+confirmación de un administrador; donde Latet cambia de puerto, ese sí también guarda el puerto
+nuevo en `config.yaml`, hace que los agentes que configuró `latet global-install` apunten a él e
+inicia Latet en él. Si respondes que no, el script muestra el comando que lo hace más adelante:
+`latet reserve-port`. Es el único paso que pide la confirmación de un administrador, y
+solo si respondes que sí: el resto de la instalación no necesita permisos de administrador.
+Consulta [El puerto 5283 ya está en uso](../../troubleshooting/#el-puerto-5283-ya-está-en-uso).
 
 En macOS y Linux, abre un terminal nuevo después: el script añade Latet a tu `PATH` para los
 terminales que abras a continuación, no para aquel en el que se ejecutó.
 Si ese tampoco encuentra `latet`, ejecuta `uv tool update-shell` y abre otro.
 
-El script no cambia nada más: ningún ajuste de tus agentes, nada que se inicie al arrancar la sesión. ¿Es la
+Aparte del puerto, si respondes que sí en Windows, el script no cambia nada más: nada que se inicie
+al arrancar la sesión, y ningún ajuste de tus agentes, aparte de que los agentes que configuró
+`latet global-install` siguen a Latet donde cambia de puerto. ¿Es la
 primera vez que usas Latet? [`latet tutorial`](../tutorial/) te lo muestra en acción en unos 30
 minutos. Después pasa una sesión por Latet con `latet claude` o `latet codex`, como muestra el
 [Inicio rápido](../quickstart/#pruébalo-sin-cambiar-nada), y haz pasar tus agentes por Latet
@@ -81,7 +96,7 @@ latet ocr install   # the text recognition models, about 31 MB
 O deja que `latet global-install --ner --ocr` los descargue con el resto de su configuración. Ambos
 se ejecutan solo en este equipo: los modelos llegan una sola vez de huggingface.co, en una revisión
 fijada y comprobados con SHA-256 fijados, y no se envía nada a ningún sitio.
-[Detección de nombres](#detección-de-nombres) y [Texto en imágenes](#texto-en-imágenes), más abajo, cuentan
+[Detección de nombres](#detección-de-nombres) y [Texto en imágenes](#texto-en-imágenes), más abajo, explican
 más sobre cada uno.
 
 ## Actualizar
@@ -104,11 +119,11 @@ esa ventana dice cómo ha ido. Un Latet 0.9.0 o 0.9.1 en Windows se actualiza vo
 instalador: su propio `latet upgrade` podría dejarlo sin poder arrancar.
 
 **De la 0.10 a la 0.11**, lee primero [Pasar a la 0.11](../upgrading-to-0-11/): Latet 0.11 lee cada
-parte de una petición, y rechaza llamadas que la 0.10 enviaba sin leerlas. `latet doctor` enumera lo
-que se detendrá antes de que actualices.
+parte de una petición, y rechaza llamadas que la 0.10 enviaba sin leerlas. Antes de actualizar,
+`latet doctor` enumera lo que se detendrá.
 
 Antes de detener el daemon, `latet upgrade` copia lo que la nueva versión puede cambiar al abrirlo: la
-caja fuerte, el historial y tu configuración (`config.yaml` y la configuración que aprobaste por
+caja fuerte, el historial y tus ajustes (`config.yaml` y los ajustes que aprobaste por
 última vez), en `backups/before-<versión>-<hora>` en la carpeta de datos de Latet, y dice dónde en una
 línea. Los valores de la copia siguen cifrados con la clave de este equipo, que no se copia. Se
 conservan las tres copias más recientes: las más antiguas se borran cuando la siguiente está
@@ -121,7 +136,7 @@ historial no se conserva más tiempo que el tuyo; después de `latet upgrade --t
 más antigua, un *Olvidar* hecho allí no las alcanza. Cada copia conserva la forma que le dio su
 versión (nunca se lleva a una más nueva), así que se puede seguir restaurando.
 
-Para instalar una versión concreta en lugar de la última, para volver a la que tenías por ejemplo:
+Para instalar una versión concreta en lugar de la última, por ejemplo, para volver a la que tenías:
 
 ```sh
 latet upgrade --to 0.9.9
@@ -219,7 +234,7 @@ Pon `uv run` delante de cada comando: `uv run latet global-install`, `uv run lat
 dos diferencias respecto a una copia instalada:
 
 - **Inicia tú el daemon.** Cuando el daemon no se está ejecutando, el plugin de Claude Code lo inicia
-  con el comando `latet`, y en un clon ese comando no está en tu `PATH`. Ejecuta
+  con el comando `latet`, y en una copia del código fuente ese comando no está en tu `PATH`. Ejecuta
   `uv run latet start`, o deja que `uv run latet global-install` lo inicie al arrancar la sesión.
   `uv run latet claude` también lo inicia.
 - **Compila los archivos web del panel.** En `dashboard/`, ejecuta `npm ci` y después
@@ -227,6 +242,6 @@ dos diferencias respecto a una copia instalada:
   dice que faltan los archivos, y `latet tutorial` avisa de que su página no se mostrará.
   Tampoco los tiene un Latet instalado desde la dirección del repositorio (`git+https://...`).
 
-El inicio al arrancar la sesión ejecuta el daemon desde el entorno virtual del clon, así que ejecuta
-`uv run latet global-uninstall` antes de mover o borrar el clon. Consulta
+El inicio al arrancar la sesión ejecuta el daemon desde el entorno virtual de la copia del código
+fuente, así que ejecuta `uv run latet global-uninstall` antes de mover o borrar esa copia. Consulta
 [Contribuir](../../contributing/) para el flujo de trabajo de desarrollo.

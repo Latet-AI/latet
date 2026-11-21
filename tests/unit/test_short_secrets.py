@@ -183,11 +183,14 @@ def test_a_short_numbers_fake_is_a_json_number_written_as_json_writes_it(value):
 
 def test_a_long_secret_personal_data_and_a_recognizers_secret_keep_their_shape():
     """Only a secret shorter than twelve characters that Latet fakes itself changes: one of twelve or more keeps its
-    shape, personal data keeps its shape whatever its length (a phone number of ten digits, a term of yours), and a
-    recognizer of yours keeps the fake its rule says (`surrogate: shape`)."""
+    length and signs, personal data keeps its shape whatever its length (a phone number of ten digits, a term of
+    yours), and a recognizer of yours keeps the fake its rule says (`surrogate: shape`). A long secret's run is drawn
+    from the kinds of characters it holds at every place (0.15.0), not a capital, five small letters and digits where
+    the value has them."""
+    longs = [Vault(bytes([n]) * 32).intern("PASSWORD", EntityClass.SECRET, "Winter2024xy").surrogate for n in range(16)]
+    assert all(len(fake) == 12 and fake.isascii() and fake.isalnum() for fake in longs), longs
+    assert all(len({(c.isdigit(), c.isupper()) for c in place}) > 1 for place in zip(*longs, strict=True)), longs
     vault = Vault(ROOT_KEY)
-    long = vault.intern("PASSWORD", EntityClass.SECRET, "Winter2024xy").surrogate
-    assert len(long) == 12 and long[:1].isupper() and long[1:6].islower() and long[6:10].isdigit()
     phone = vault.intern("PHONE", EntityClass.PII, "3331234567").surrogate
     assert len(phone) == 10 and phone.isdigit() and phone != "3331234567"
     custom = vault.intern("CUSTOM", EntityClass.CUSTOM, "Q7-1").surrogate

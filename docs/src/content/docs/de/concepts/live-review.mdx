@@ -63,9 +63,9 @@ wenn Sie sie freigeben.
 - **Auf einem Bild:** Ziehen Sie ein Rechteck über einen beliebigen Teil davon, der dann mit einem
   Balken überdeckt wird, oder setzen Sie ein Häkchen bei *Dieses Bild nicht senden*: Der Rest der
   Anfrage wird gesendet, und das Modell erhält an Stelle des Bildes einen kurzen Hinweis.
-  *So, wie es jetzt gesendet wird* zeigt das Bild so, wie Latet es maskiert hat. Ihre Entscheidung
-  wird für dieses Bild versiegelt aufbewahrt: Wird es erneut gesendet, auch nach einem Neustart,
-  geschieht das auf dieselbe Weise.
+  *So, wie es jetzt gesendet wird* zeigt das Bild so, wie Latet es maskiert hat; solange es wartet,
+  folgt es wie sein Text Ihren Regeln. Ihre Entscheidung wird für dieses Bild versiegelt aufbewahrt:
+  Wird es erneut gesendet, auch nach einem Neustart, geschieht das auf dieselbe Weise.
 - **Alle wartenden freigeben**, so wie Latet sie maskiert hat.
 - **Mit der Tastatur**, sobald Sie die [Tastenkürzel](../../dashboard/#tastenkürzel) einschalten: A gibt
   frei, X sendet nicht, M maskiert.
@@ -89,7 +89,8 @@ Ein Text wartet so lange wie nötig. Nichts davon verlässt Ihren Rechner, bevor
 - **Sie stoppen den Agenten** (Esc in Claude Code): Nichts wird gesendet, und der Text verschwindet
   innerhalb einer Minute aus der Warteschlange.
 - **Kein Dashboard ist geöffnet:** Claude Code meldet das, und der Text wartet weiter, bis Sie eines
-  öffnen.
+  öffnen. Wo das Sicherheitsteam Ihres Unternehmens entscheidet (siehe unten), muss Ihr Dashboard nicht
+  geöffnet sein.
 - **Ein Zeitlimit,** falls Sie eines möchten: Nach `timeout_s` Sekunden wird der Text nicht gesendet.
 
 ```yaml
@@ -99,13 +100,26 @@ live_review:
   timeout_s: 300             # not set: until you answer
 ```
 
+## In einem Unternehmen
+
+Auf einem Latet-Server mit Latet Enterprise kann Ihr Unternehmen diese Texte statt an Sie an sein Sicherheitsteam
+schicken. Das Team sieht jeden Text so wie Sie, einschließlich der Werte, und gibt ihn frei oder hält ihn an; die Seite
+**Freigaben** und Claude Code sagen Ihnen das, und Sie können einen Text weiterhin selbst anhalten. Claude Code nennt
+einmal pro Sitzung, wer Ihre Texte prüft, oder dass bisher niemand entscheiden kann, und sagt dasselbe, wenn es mit dem
+Token eines API-Schlüssels arbeitet. Ein Wert, den das Team maskiert, bleibt in Ihrem Tresor maskiert, wo Sie ihn
+vergessen können. Ein Text, den das Team freigegeben hat, wird nur so gesendet, wie das Team ihn gesehen hat: Ändern sich Ihre
+Einstellungen, bevor er gesendet wird, wird er nicht gesendet und wartet wieder auf das Team, wenn der Agent ihn erneut
+sendet. Siehe [Zentrale Freigaben](../../enterprise/approvals/).
+
 ## Wo das geschieht
 
 - **In Claude Code** im Maskierungsschritt des Plugins, bevor Claude Code die Anfrage
   zusammenstellt. Sie prüfen Stück für Stück jeden Prompt, jede Datei und jede Tool-Ausgabe, sobald
   sie eintreffen. Claude Code stellt die Anfrage dann mit dem Text zusammen, den Sie freigegeben
   haben, sodass keine Anfrage nachträglich verändert wird. Solange ein Text im Dashboard auf Ihre
-  Freigabe wartet, zeigt die Statuszeile von Claude Code *waiting for your approval in the dashboard*.
+  Freigabe wartet, zeigt die Statuszeile von Claude Code *waiting for your approval in the dashboard*;
+  wo das Sicherheitsteam Ihres Unternehmens entscheidet, *waiting for your company's security team to
+  approve it*.
 - **Bei den Agenten, die über das Gateway gehen** (Codex, OpenCode, Hermes Agent...), im Daemon: Die
   neuen Texte einer Anfrage warten gemeinsam, und die Anfrage wird gesendet, sobald Sie die Texte
   freigeben. Manche Agenten geben eine Anfrage auf, die zu lange dauert, und versuchen es eventuell

@@ -27,6 +27,7 @@ from ..conftest import ROOT_KEY
         ("pii:vat-de", "VAT_NUMBER", "ids"),
         ("identity:user-name", "USERNAME", "identity"),
         ("terms:client", "CLIENT", "terms"),
+        ("synced:client", "CLIENT", "terms"),
         ("recognizer:badge", "BADGE", "recognizers"),
         ("ner:person", "PERSON", "names"),
         ("llm:health", "HEALTH", "reviewer"),

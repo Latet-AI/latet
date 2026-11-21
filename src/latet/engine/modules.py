@@ -48,6 +48,8 @@ _PREFIX = {
     "credentials": "secret-structure",
     "identity": "identity",
     "terms": "terms",
+    "company": "terms",  # a term your company locks (Latet Enterprise)
+    "synced": "terms",  # a term your company syncs (Latet Enterprise)
     "recognizer": "recognizers",
     "ner": "names",
     "llm": "reviewer",

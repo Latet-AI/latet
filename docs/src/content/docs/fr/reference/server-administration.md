@@ -5,33 +5,39 @@ description: Administrez un serveur depuis votre machine et gardez ses identifia
 
 Exécutez `latet server` dans votre propre terminal. Les commandes qui modifient l'administration
 refusent un agent ; `config get` et `rules export`, dans le terminal ou dans un fichier, le refusent
-aussi, car ils peuvent afficher des valeurs en clair (les termes d'une clé d'API, les consignes du
+aussi, car elles peuvent afficher des valeurs en clair (les termes d'une clé d'API, les consignes du
 relecteur). L'état, les listes d'identités et le journal
 d'administration ne contiennent pas d'identifiants secrets.
 
-Indiquez le serveur et saisissez le jeton à l'invite masquée :
+Indiquez le serveur et saisissez le jeton à l'invite, qui ne l'affiche pas :
 
 ```sh
 latet server --server https://latet.acme.lan status
 ```
 
-`status` liste chaque instance du serveur en vie, chaque worker de chaque machine sur une ligne à lui :
+`status` liste chaque instance du serveur en vie, chaque worker de chaque machine sur sa propre ligne :
 son identifiant, son numéro de worker, s'il est prêt, sa mémoire et les index de ses coffres-forts en
 Mio, ses espaces et sa version ; ce qu'une instance n'a pas dit est montré comme inconnu ou laissé de
-côté. Une instance de Latet 0.10 ou antérieure ne dit rien d'elle-même : quand une instance de la 0.11
-répond, il liste une instance de la 0.10 encore en vie par son identifiant, comme Latet 0.10 ou
-antérieure ; un serveur encore en 0.10 répond avec la seule instance qui a répondu. Avant une mise à
-jour, la vérification est `latet server migrate` : il ne change aucune table tant qu'une instance de
-quelque version que ce soit est en vie, une de la 0.10 pendant 30 secondes après son arrêt, et dit
-combien sont en vie et de quelle version. La liste vient d'une lecture bornée des clés de Valkey :
-quand cette lecture a été coupée à sa borne, `status` dit `instances: the list is partial, cut at its
-bound: an instance may be alive and not listed`, et le champ `instances_whole` de sa réponse est false
-(null quand Valkey n'a pas répondu).
+côté. Une ligne à part, `new request members:`, dit comment un membre d'une requête qu'aucun profil de
+requête ne nomme encore est lu pour chaque identité : `read and checked` (`unknown_members: check`, où
+les réglages propres d'une identité peuvent indiquer `refuse`), `refused for every identity` là où les
+directives de l'entreprise verrouillent `refuse`, ou `cannot be said now` quand le serveur ne peut pas
+lire à ce moment ses réglages partagés ou les directives ([Nouveaux membres des
+requêtes](../../getting-started/upgrading-to-0-11/#nouveaux-membres-des-requêtes)). Une instance de
+Latet 0.10 ou antérieure ne dit rien d'elle-même : quand une instance de la 0.11 répond, `status` liste
+une instance de la 0.10 encore en vie par son identifiant, comme Latet 0.10 ou antérieure ; un serveur
+encore en 0.10 répond avec la seule instance qui a répondu. Avant une mise à jour, c'est `latet server
+migrate` qui vérifie : la commande ne change aucune table tant qu'une instance de quelque version que ce
+soit est en vie, une de la 0.10 pendant 30 secondes après son arrêt, et dit combien sont en vie et de
+quelle version. La liste vient d'une lecture bornée des clés de Valkey : quand cette lecture a été
+coupée à sa borne, `status` dit `instances: the list is partial, cut at its bound: an instance may be
+alive and not listed, and run another release or edition`, et le champ `instances_whole` de sa réponse
+est false (null quand Valkey n'a pas répondu).
 
 Sur la machine du serveur, `latet server run --workers N` démarre N instances, les workers, sur le même
 port, chacune dans son propre processus ; `LATET_SERVER_WORKERS` ou `workers` dans `server.yaml` donnent
 la même chose, et `--workers` l'emporte sur les deux, la variable sur le fichier. De 1 à 64, un seul par
-défaut. Plus d'un demande Linux ou l'image du conteneur : sous Windows, `latet server run` les refuse,
+défaut. Plus d'un worker nécessite Linux ou l'image du conteneur : sous Windows, `latet server run` les refuse,
 et le service Windows en démarre un
 ([plusieurs instances sur une machine](../../concepts/server-operations/#plusieurs-instances-sur-une-machine)).
 
@@ -50,21 +56,21 @@ de secrets d'une CI ou d'un conteneur, avec `LATET_SERVER_URL` ; il n'est jamais
 
 `keys add`, `keys add-token`, `keys rotate` et `admin-token issue` acceptent `--out FILE` : le nouveau fichier
 privé reçoit le secret et la commande n'affiche que son identifiant et le fichier. Ne mettez
-jamais de code, clé ou jeton d'administration dans un ticket, un canal partagé ou une conversation
+jamais de code, de clé ni de jeton d'administration dans un ticket, un canal partagé ou une conversation
 avec un agent. Le code à usage unique d'une personne permet à quiconque l'utilise de connecter
 une machine sous cette identité et d'ouvrir son tableau de bord ; son émission est consignée.
 
 Utilisez `admin-token issue --label "Daniel's laptop" --days 30` pour un jeton avec échéance.
 Un jeton `--never` exige un libellé et permet tout ce qu'un administrateur peut faire jusqu'à
-révocation : personnes et leurs codes, clés API, paramètres partagés et jetons d'administration.
+révocation : personnes et leurs codes, clés d'API, réglages partagés et jetons d'administration.
 Un jeton en émet d'autres qui se terminent au plus tard avec lui ; seul un jeton sans expiration
 peut donc en émettre un autre sans expiration ; sur la machine du serveur,
 `latet server init --new-admin-token --never` en crée un. Gardez ce jeton à part,
-uniquement pour en émettre d'autres. Une CI qui le détient donne ces pouvoirs pour toujours à
+uniquement pour en émettre d'autres. Une CI qui le détient donne ces pouvoirs pour de bon à
 quiconque peut modifier ses tâches ; donnez-lui un jeton avec `--days` et renouvelez-le avant son échéance.
 
 Les suppressions demandent confirmation dans votre terminal même avec `--yes` ; les scripts
-ont besoin de `--yes`. `config reset` remplace uniquement, après confirmation, des paramètres
+ont besoin de `--yes`. `config reset` remplace uniquement, après confirmation, une ligne de réglages
 partagés que le serveur ne peut pas ouvrir. `config get` et `rules export` peuvent afficher des
 valeurs en clair : gardez leur sortie privée. `log verify` affiche la tête de la chaîne ; conservez-en
 une copie ailleurs et comparez-la la fois suivante : supprimer les dernières entrées laisse
@@ -77,11 +83,12 @@ administrateur : `latet server init` affiche le premier jeton à celui qui initi
 et chaque jeton peut en émettre d'autres. Un jeton n'est pas une personne : le journal
 d'administration nomme le jeton qui a fait chaque chose (`admin:a_3fk7…`), et un administrateur n'a
 pas besoin d'un espace à lui sur le serveur, même s'il peut être ajouté comme personne, comme
-n'importe qui. Dans la Community Edition, chaque jeton peut tout faire ; les rôles, comme celui d'un
-auditeur en lecture seule, sont prévus pour l'Enterprise Edition.
+n'importe qui. Chaque jeton d'administration peut tout faire, dans les deux éditions. Avec l'édition
+Enterprise, les personnes de l'entreprise peuvent recevoir des rôles dans le tableau de bord, comme
+celui d'un auditeur qui lit les rapports et le journal d'administration sans rien changer.
 
 Un jeton émis sans `--days` ni `--never` prend fin après `admin_token_days` (90 jours, sauf
-indication contraire dans les paramètres du serveur), ou plus tôt quand le jeton qui l'a émis prend fin
+indication contraire dans les réglages du serveur), ou plus tôt quand le jeton qui l'a émis prend fin
 avant lui ; un jeton émis avec `--days` prend fin après ce nombre de jours. Un tel jeton, oublié,
 cesse de fonctionner de lui-même. Un jeton `--never` fonctionne jusqu'à sa révocation : listez les
 jetons de temps en temps avec `admin-token list`, et révoquez ceux que personne n'utilise.
@@ -95,18 +102,21 @@ latet server --server https://latet.acme.lan admin-token revoke a_3fk7qz2mwd
 latet server --server https://latet.acme.lan admin-token issue --label "Marco" --out marco.token
 ```
 
-Sans `--days`, le nouveau jeton dure ce que dure le défaut du serveur, coupé à la fin du jeton qui
+Sans `--days`, le nouveau jeton a la durée par défaut du serveur, écourtée à la fin du jeton qui
 l'émet. Un jeton avec `--days` ne peut pas se terminer après le jeton qui l'émet : le serveur le
 refuse, et `admin-token list` montre quand chaque jeton prend fin.
 
 **Plus aucun jeton**, parce que tous sont perdus ou arrivés à échéance : là où l'on peut atteindre les
-paramètres du serveur, sa clé principale et sa base de données, `latet server init --new-admin-token`
+réglages du serveur, sa clé principale et sa base de données, `latet server init --new-admin-token`
 en émet un nouveau (avec `--never`, un jeton de secours à garder à part). Dans le déploiement Compose,
 relancez le `docker run` de l'initialisation donné dans
 [Exploitation du serveur](../../concepts/server-operations/), terminé par
-`server init --new-admin-token`, avec la journalisation de Docker désactivée comme avant. Révoquez
-ensuite les jetons perdus, s'ils ne sont pas déjà arrivés à échéance. Les personnes, les clés API, les
-paramètres, les coffres-forts et l'historique restent inchangés dans les deux cas.
+`server init --new-admin-token`, avec la journalisation de Docker désactivée comme avant. Comme
+pour l'initialisation, c'est une personne qui le lance, dans son propre terminal, jamais un agent
+IA : qui le lance détient le nouveau jeton, et, dans un conteneur, le garde-fou de Latet contre les
+agents ne peut pas savoir qui le lance. Révoquez ensuite les jetons perdus, s'ils ne sont pas déjà
+arrivés à échéance. Les personnes, les clés d'API, les réglages, les coffres-forts et l'historique
+restent inchangés dans les deux cas.
 
 **Un jeton qui a fuité** : révoquez-le tout de suite depuis un autre jeton, puis lisez ce qu'il a fait :
 
@@ -122,27 +132,27 @@ de la base de données, comme l'explique [Exploitation du serveur](../../concept
 
 Quand une personne demande que ses données quittent le coffre-fort d'une clé d'API, `keys forget` en
 retire ses valeurs, avec ce que les conversations et l'historique de la clé en gardent, sur chaque
-instance dès que les appels déjà en cours y sont finis :
+instance dès que les appels déjà en cours y sont terminés :
 
 ```sh
 latet server --server https://latet.acme.lan keys forget "Shop" --file erasure.txt
 ```
 
-Le fichier contient une valeur par ligne, en UTF-8 ; sans `--file`, tapez les valeurs dans votre
+Le fichier contient une valeur par ligne, en UTF-8 ; sans `--file`, saisissez les valeurs dans votre
 terminal, une ligne vide les terminant. Une valeur n'est jamais prise sur la ligne de commande, que le
-shell garde dans son historique, et la commande refuse un agent, comme `config get`. Elle demande avant
+shell garde dans son historique, et la commande refuse un agent, comme `config get`. Elle demande confirmation avant
 de les envoyer, dans votre terminal même avec `--yes` ; un script a besoin de `--yes`. Chaque valeur est
 cherchée exactement telle qu'elle est écrite : citez chaque forme qui doit disparaître, et aussi le
 domaine d'entreprise d'une adresse, que le coffre-fort garde comme une valeur à part. Chaque appel, de
 1 000 valeurs au plus, est une entrée `key.forgotten` avec le nombre de valeurs demandées, oubliées et
 absentes du coffre-fort, jamais une valeur. Cela fonctionne aussi sur une clé désactivée. Une
-application fait de même avec un jeton à qui vous avez donné `--forget` (`keys add-token "Shop" erasure
+application fait de même avec un jeton créé avec `--forget` (`keys add-token "Shop" erasure
 --forget`), qu'aucune autre permission n'inclut : voir [oublier des valeurs](../../applications/forget/).
 
 ## Lire le journal d'administration
 
 `latet server log --limit 100000 --json` lit les pages successives, du plus récent au plus ancien,
-puis par id décroissant lorsque les horodatages sont identiques. `--limit` accepte au maximum
+puis par identifiant décroissant lorsque les horodatages sont identiques. `--limit` accepte au maximum
 1 000 000 d'entrées. Chaque requête en demande au plus 10 000 ; une page plus courte peut encore
 avoir une suite, car les pages ont aussi une limite en octets. La sortie JSON ne contient que des
 entrées, une par ligne ; les avis sont écrits sur stderr.
@@ -154,6 +164,16 @@ Les actions nomment ce qui a changé (`person.added`, `code.issued`, `token.adde
 `admin-token.revoked`), et les lectures sont enregistrées sous le nom de l'appel (`status.read`,
 `log.read`) : `--action 'admin-token.*'` sélectionne tous les changements des jetons d'administration.
 
+Deux actions enregistrent comment un membre d'une requête qu'aucun profil de requête ne nomme encore est
+lu (`unknown_members`), jamais un dossier ni le nom d'un membre. `setting.defaulted` est écrite une seule
+fois pour le serveur, par `server`, au premier démarrage de la 0.15.0 : sa cible `unknown_members`, la
+valeur `check` à laquelle chaque identité est passée, et la version. `setting.loosened` est une
+approbation qui fait passer les réglages d'une personne ou d'une clé d'API de `refuse` à `check` : le
+réglage, la valeur, le type de sa portée (`identity` quand les réglages eux-mêmes changent, `project`
+quand un projet cesse de les refuser) et le nombre de projets ; son auteur est l'identité dont c'est la
+modification, ou la personne qui en a décidé pour elle. L'enregistrement par l'administration des
+réglages d'une clé d'API reste `settings.changed`, comme avant.
+
 Les jetons d'une clé d'API sont nommés par leur identifiant, jamais par leur secret ni par leur nom :
 `token.added` donne le nouveau jeton et ses permissions, `key.rotated` le jeton qui reste (`token`) et
 celui qu'il a remplacé (`replaced`), et `key.updated` un changement comme la limite du coffre-fort de
@@ -163,14 +183,15 @@ restaurés, jamais un texte ni une valeur. `--action apps.unmasked` liste qui a 
 `key.forgotten` et `apps.forgotten` sont des valeurs retirées du coffre-fort d'une clé d'API, par
 `keys forget` et par l'API pour les applications : le nombre de valeurs demandées, oubliées et absentes,
 et pour l'API le jeton, jamais une valeur.
+
 Pour reprendre, passez le curseur du journal affiché à `--cursor`, avec exactement les filtres
 d'origine. Utilisez des dates absolues ou des secondes epoch exactes pour reprendre plus tard :
 une durée relative comme `7d` change entre les exécutions. Ne remplacez jamais `--until` par un
 horodatage arrondi de la sortie texte. Un curseur indique une position ; ce n'est ni un identifiant
 d'accès ni une preuve que le journal est inchangé.
 
-Chaque exécution est limitée à 1 000 requêtes de pages, 128 MiB de corps reçus, y compris les
-réponses des nouvelles tentatives, 128 MiB de sortie UTF-8 produite et 300 secondes de lecture
+Chaque exécution est limitée à 1 000 requêtes de pages, 128 Mio de corps reçus, y compris les
+réponses des nouvelles tentatives, 128 Mio de sortie UTF-8 produite et 300 secondes de lecture
 et de traitement. Le JSON échappé peut être plus volumineux que le corps reçu. Les pages sont
 validées et préparées avant leur affichage ; une page qui dépasse le budget restant n'est pas
 affichée en partie. Ces contrôles de temps ne peuvent pas interrompre un tube de sortie bloqué du système d'exploitation.
@@ -187,6 +208,16 @@ ne rejoignent pas cette lecture. La conservation ou la suppression peuvent cepen
 entrées non encore lues. L'épuisement signifie seulement qu'aucune autre ligne correspondante
 n'était visible lors de ces lectures ; ce n'est ni un export immuable ni une vérification de la
 chaîne. Utilisez `log verify` séparément, avec la limite sur la suppression des dernières entrées décrite plus haut.
+
+La synchronisation des termes de Latet Enterprise enregistre quatre actions, avec des noms de sources et des
+comptages, jamais un terme ni un secret :
+
+| Action | Ce qu'elle enregistre |
+| --- | --- |
+| `terms.source.changed` | Les sources de la synchronisation des termes ont été définies (`added`, `removed`, `changed` : leurs noms ; `fields` : les champs modifiés dans chacune, jamais leurs valeurs) |
+| `terms.secret.changed` | Le secret d'une source a été défini ou supprimé (`saved`, `removed` : les noms des sources) |
+| `terms.removed` | Des termes retirés de leur source ont été supprimés (`count`, `by_type`, `source` ; `unreadable` quand c'étaient ceux qu'aucune clé du serveur n'ouvre et qu'aucune source ne donne plus) |
+| `terms.sync.asked` | Une synchronisation a été demandée (`source` : son nom, ou aucun pour toutes les sources) |
 
 ## Métriques des images non lues
 
@@ -211,6 +242,6 @@ disponible, compte `unavailable` une fois, quel que soit le nombre d'images qu'i
 Les nouvelles tentatives internes, tuiles, lots et réparations de lecteurs sans image
 soumise n'ajoutent rien. Sont exclus l'OCR réussi, la rétention manuelle, les erreurs de
 décodage ou de politique de pixels, l'OCR désactivé ou absent, la répétition exacte
-d'une image peinte ou d'un espace réservé de Latet et l'OCR local d'un ordinateur. Les
+d'une image peinte ou d'un espace réservé de Latet et l'OCR local d'une machine. Les
 vérifications finales du même travail ne comptent pas à nouveau. Aucune étiquette ne
 contient d'image, de chemin ou d'identité.

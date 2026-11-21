@@ -10,6 +10,7 @@ settings' refusals), never a driver's, with exit 2."""
 from __future__ import annotations
 
 import datetime
+import io
 import json
 import math
 import os
@@ -17,7 +18,7 @@ import re
 import stat
 import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
@@ -31,8 +32,9 @@ if TYPE_CHECKING:
     from latet.config import Config
     from latet.server.client import ReceiveBudget
 
-# The `latet server` group. Later parts add theirs: E3 and E4 import it by this name, E1, E2 and E5 find it by its
-# name in `app`. (What `latet server run` serves is latet.server.operations.server_app, another module's.)
+# The `latet server` group. Later parts add theirs, importing it by this name (E1, E3, E4; E2 and E5 should too: a
+# lookup by its name in `app` finds nothing before this module is imported). (What `latet server run` serves is
+# latet.server.operations.server_app, another module's.)
 server_app = typer.Typer(
     help="Latet on a server: one Latet for the computers and programs of a team or a company.", no_args_is_help=True
 )
@@ -169,7 +171,7 @@ def server_init(
     typer.echo(f"The database: {len(applied)} migration{plural} applied." if applied else "The database is up to date.")
     from latet.server.app import open_server
 
-    server = _done("Not initialized", lambda: open_server(settings))
+    server = _done("Not initialized", lambda: open_server(settings, one_shot=True))  # closed below: serves nothing
     try:
         issued = _done(
             "Not initialized",
@@ -726,6 +728,10 @@ def _ask(
     except NotConnected as exc:
         _stop(_escaped(exc.message))
     except ServerError as exc:
+        from latet.cli.admin import _floor_reasons, refuse
+
+        if exc.status == 409 and _floor_reasons(floor := list(exc.floor)):
+            refuse(floor)  # below what the company set: said escaped, exit 2 (nothing waits for approval)
         if exc.status == 401:
             said = f"The server does not accept this administration token. The server refused: {_text(exc.message)}."
         elif exc.status:
@@ -947,9 +953,21 @@ def _whole(value: Any) -> int | None:
     return value if type(value) is int and value >= 0 else None
 
 
+# The editions an instance's beat can name (``Edition.name``), as the status says them.
+_EDITIONS = {"community": "Community Edition", "enterprise": "Enterprise Edition"}
+# How the server reads a request member no request profile names (0.15.0), as its status says it: for every identity,
+# the shared settings raised to the company's policy; an identity's own settings may refuse it too.
+_NEW_MEMBERS = {
+    "check": "read and checked (`unknown_members: check`; an identity's own settings may set `refuse`)",
+    "refuse": "refused for every identity (`unknown_members: refuse`, set for everyone)",
+    None: "cannot be said now",
+}
+
+
 def _instance_line(row: Any) -> str:
     """An instance alive, as the status lists it (Task 10): its id, its worker's number, its readiness, its memory, its
-    spaces, its vaults' indexes and its version; what it did not say, not said (or unknown); one of Latet 0.10 or older,
+    spaces, its vaults' indexes, its version and its edition (in Latet's own words, ``_EDITIONS``, for a name Latet
+    gives one: the merge review of 0.11.0's M4); what it did not say, not said (or unknown); one of Latet 0.10 or older,
     which says nothing of itself, said so; every text escaped."""
     row = row if isinstance(row, dict) else {}
     parts = []
@@ -967,6 +985,9 @@ def _instance_line(row: Any) -> str:
         parts.append(f"Latet {_text(row['version'], 64)}")
     elif row.get("older") is True:
         parts.append("Latet 0.10 or older")
+    edition = row.get("edition")
+    if isinstance(edition, str) and edition in _EDITIONS:
+        parts.append(_EDITIONS[edition])
     return f"instance {_text(row.get('instance'), 64)}: " + ", ".join(parts)
 
 
@@ -988,7 +1009,10 @@ def server_status() -> None:
     for row in instances if isinstance(instances, list) else []:
         typer.echo(f"  {_instance_line(row)}")
     if answer.get("instances_whole") is False:  # cut at its bound: a missing instance is no stopped one
-        typer.echo("  instances: the list is partial, cut at its bound: an instance may be alive and not listed")
+        typer.echo(
+            "  instances: the list is partial, cut at its bound: an instance may be alive and not listed, and run"
+            " another release or edition"
+        )
     identities = _object_field(answer, "identities")
     typer.echo(
         "  identities: " + ", ".join(f"{key} {_count(identities.get(key))}" for key in ("people", "keys", "enabled"))
@@ -1009,6 +1033,12 @@ def server_status() -> None:
         for row in idle:
             said = f"{_text(row.get('scope'))}, {_text(row.get('state'))}"
             typer.echo(f"    {_text(row.get('identity'))}: {_text(row.get('exception'))} ({said})")
+        if rows:  # the index each space writes as it is built or applies a change (fix round 1 of the release minors)
+            typer.echo(
+                "  request exceptions are listed as each identity's space last wrote them: a space not opened since "
+                "the company's policy or this release of Latet changed shows their old states until it is next built; "
+                "its requests already follow the policy and the release of now"
+            )
     for key in ("database", "valkey"):
         if key in answer:
             shown = str(answer[key]).lower() if type(answer[key]) is bool else "?"
@@ -1033,6 +1063,9 @@ def server_status() -> None:
     typer.echo(f"  administration log: chain {_text(chain)}")
     if chain == "unknown":
         typer.echo("  no check in the last two hours")
+    if "unknown_members" in answer:  # 0.15.0's: an older server says nothing of it
+        mode = answer["unknown_members"]
+        typer.echo(f"  new request members: {_NEW_MEMBERS[mode if mode in ('check', 'refuse') else None]}")
     edition = answer.get("edition", [])
     if not isinstance(edition, list):
         _stop("The server's edition is not a list: ?", 1)
@@ -1594,7 +1627,8 @@ config_cli = typer.Typer(
     no_args_is_help=True,
 )
 rules_cli = typer.Typer(
-    help="An API key's own recognizers and rules (--key). Rules for everyone are planned for the Enterprise Edition.",
+    help="An API key's own recognizers and rules (--key). With the Enterprise Edition, rules for everyone are the "
+    "company's policy (latet server policy set).",
     no_args_is_help=True,
 )
 token_cli = typer.Typer(help="The server's administration tokens.", no_args_is_help=True)
@@ -1621,27 +1655,46 @@ config_cli.callback()(_whose_option)
 rules_cli.callback()(_whose_option)
 
 
+def _rules_words() -> str:
+    """The words a rule for everyone is refused in, as the server's edition says them (``rules_for_everyone``: the
+    shared settings name the server's edition, a read that changes nothing): the company's policy with the Enterprise
+    Edition. Read only with an administration token at hand (--admin-token-file with a file, or
+    LATET_SERVER_ADMIN_TOKEN), never asked for at a prompt to word a refusal (fix round 2, the review's L2); without
+    one, or from a server that names none (a release before it did) or that cannot be read now, the words true on
+    either edition (``RULES_FOR_EVERYONE``). The command stops all the same."""
+    from latet.server.shared import rules_for_everyone
+
+    token_file = _target.get("token_file")
+    if not ((token_file is not None and str(token_file) != "-") or os.environ.get("LATET_SERVER_ADMIN_TOKEN")):
+        return rules_for_everyone(None)
+    try:
+        answer = admin_call("GET", "shared")
+    except Exception:  # unreachable, refused or not connected: the command stops on a rule all the same
+        return rules_for_everyone(None)
+    edition = answer.get("edition") if isinstance(answer, dict) else None
+    return rules_for_everyone(edition if isinstance(edition, str) else None)
+
+
 def _shared_only(key: str | None) -> None:
     """Without --key, a key of the settings the server shares, or none (every one): any other is refused before
-    anything is asked of the server, a rule for everyone with the ways to share rules by hand."""
-    from latet.server.shared import OWN_KEYS, RULE_KEYS, RULES_FOR_EVERYONE, SERVER_KEYS, SETTING_KEYS
+    anything is sent to the server, a rule for everyone in the words of the server's edition (``_rules_words``)."""
+    from latet.server.shared import OWN_KEYS, RULE_KEYS, SERVER_KEYS, SETTING_KEYS
 
     if _whose.get("key") is not None or key is None or (top := key.split(".")[0]) in SETTING_KEYS:
         return
     shared = ", ".join(name for name in SETTING_KEYS if name not in SERVER_KEYS)
     if top in RULE_KEYS:
-        _stop(f"{_text(key)}: {RULES_FOR_EVERYONE}.")
+        _stop(f"{_text(key)}: {_rules_words()}.")
     if top in OWN_KEYS:
         _stop(f"{_text(key)}: each identity's own, never shared (the server shares {shared}).")
     _stop(f"{_text(key)}: not a setting the server shares ({shared}).")
 
 
 def _own_rules_only() -> None:
-    """An API key's own rules need --key: rules for everyone are the Enterprise Edition's."""
-    from latet.server.shared import RULES_FOR_EVERYONE
-
+    """An API key's own rules need --key: rules for everyone are never among the shared settings, as the server's
+    edition says (``_rules_words``)."""
     if _whose.get("key") is None:
-        _stop(f"Use --key KEY for an API key's own rules: {RULES_FOR_EVERYONE}.")
+        _stop(f"Use --key KEY for an API key's own rules: {_rules_words()}.")
 
 
 def _place() -> tuple[str, str]:
@@ -2309,8 +2362,19 @@ def server_log(
 
 
 @log_cli.command("verify")
-def log_verify() -> None:
-    """Walk the log's chain and print its head for a copy kept elsewhere."""
+def log_verify(
+    siem: Annotated[
+        Path | None,
+        typer.Option(
+            "--siem",
+            help="A file of the events your SIEM received, 256 MB at most and never a link: a JSON array, one event a "
+            "line, or a Splunk or Elastic export. Each gap marker in it is checked against the entries of the log that "
+            "name Latet's (Latet Enterprise).",
+        ),
+    ] = None,
+) -> None:
+    """Walk the log's chain and print its head for a copy kept elsewhere; with Latet Enterprise, say each SIEM gap
+    marker that is not Latet's, waiting on the server or in a SIEM's copy, and those too old to be checked."""
     found = _ask("GET", "log/verify")
     head = found.get("head")
     if isinstance(head, dict):
@@ -2321,17 +2385,191 @@ def log_verify() -> None:
         "Entries taken off the log's end leave its chain whole: compare this head "
         "with the one noted last time, or E4's copy."
     )
+    problems: list[str] = []
     if found.get("ok") is True:
         typer.echo(f"The administration log's chain is whole: {_count(found.get('checked'))} entries verified.")
+    elif (broken := found.get("broken_at")) is None:
+        problems.append("The administration log's chain could not be walked.")
+    else:
+        checked = _count(found.get("checked"))
+        problems.append(
+            f"The administration log's chain is broken at entry {_count(broken)}: {checked} entries verified before it."
+        )
+    problems += _gap_problems(found, siem)
+    if problems:
+        _stop("\n".join(problems), 1)
+
+
+_MARKER = re.compile(r"audit:([0-9]+)-([0-9]+)")  # ASCII digits alone: the form Latet writes (R4-1)
+SIEM_COPY_MOST = 256 * 1024 * 1024  # bytes of a SIEM's copy read at most
+_UNREADABLE = "A SIEM gap marker that is not Latet's (its range cannot be read)"
+_UNNAMED = "A SIEM gap marker that is not Latet's (no entry of the log names its range)"
+_NOT_SAID = (
+    "The server did not say which gap markers its log names (its chain could not be walked, or it is older than this "
+    "command): --siem was not checked."
+)
+
+
+def _gap_problems(found: Mapping[str, Any], siem: Path | None) -> list[str]:
+    """R3-1, R4-1 to R4-3 (Latet Enterprise): each SIEM gap marker that is not Latet's, waiting on the server (its
+    `gaps`) or in ``siem``, a SIEM's copy; one whose range ends before the first entry the log keeps cannot be checked,
+    said apart and never a failure (R4-2). `gaps: null` is a server without E4's events: ``--siem`` then ends the
+    command (exit 2). An answer without `gaps` (a walk that failed, or an older server) checks nothing, and says so."""
+    if "gaps" not in found:
+        return [_NOT_SAID] if siem is not None else []
+    gaps = found["gaps"]
+    if gaps is None:
+        if siem is not None:
+            _stop("This server keeps no SIEM gap markers: --siem needs Latet Enterprise's events.")
+        return []
+    if not _gap_answer(gaps):
+        return ["The SIEM's gap markers were not checked: the server's answer is incomplete or cannot be read."]
+    lines = [_said_marker(m) for m in gaps["unrecorded"]]
+    unchecked = len(gaps["unchecked"])
+    first = gaps["first_kept"]
+    if siem is not None:
+        ranges = {tuple(span) for span in gaps["recorded"]}
+        name, checked = _text(siem.name), 0
+        for span in _siem_gaps(siem):
+            if span is not None and span in ranges:
+                checked += 1
+                continue  # a retained attestation names this range even when the range itself was pruned
+            if span is not None and span[1] < first:
+                unchecked += 1  # R4-2: its entry went with the log's retention
+                continue
+            checked += 1
+            if span is None:
+                lines.append(f"{_UNREADABLE}, in {name}.")
+            elif span not in ranges:
+                lines.append(f"{_UNNAMED}: audit:{span[0]}-{span[1]}, {span[2]:,} entries, in {name}.")
+        if checked and not lines:
+            typer.echo(f"Each SIEM gap marker is named by an entry of the log: {checked:,} in {name}.")
+    if unchecked:
+        typer.echo(f"{unchecked:,} SIEM gap markers cannot be checked: the log keeps entries from {_count(first)}.")
+    return lines
+
+
+def _gap_answer(gaps: Any) -> bool:
+    """Validate the whole account before treating any absent or malformed part as a successful check."""
+    if not isinstance(gaps, dict) or "error" in gaps:
+        return False
+    if type(gaps.get("first_kept")) is not int or gaps["first_kept"] < 1:
+        return False
+    recorded = gaps.get("recorded")
+    if not isinstance(recorded, list) or any(
+        not isinstance(span, list) or len(span) != 3 or any(type(n) is not int for n in span) for span in recorded
+    ):
+        return False
+    for key in ("unrecorded", "unchecked"):
+        markers = gaps.get(key)
+        if not isinstance(markers, list):
+            return False
+        for marker in markers:
+            if not isinstance(marker, dict) or not {"output", "reason", "id", "count", "readable"} <= marker.keys():
+                return False
+            if not all(isinstance(marker[name], str) for name in ("output", "reason", "id")):
+                return False
+            if type(marker["readable"]) is not bool:
+                return False
+            if marker["readable"]:
+                if type(marker["count"]) is not int or _MARKER.fullmatch(marker["reason"]) is None:
+                    return False
+            elif marker["count"] is not None or key == "unchecked":
+                return False
+    return True
+
+
+def _said_marker(marker: Mapping[str, Any]) -> str:
+    """A marker waiting on the server that is not Latet's, as the server's `gaps` says it."""
+    reason, output = _text(marker.get("reason")), _text(marker.get("output"))
+    if marker.get("readable") is not True:
+        return f"{_UNREADABLE}: {reason}, waiting for the output {output}."
+    return f"{_UNNAMED}: {reason}, {_count(marker.get('count'))} entries, waiting for the output {output}."
+
+
+def _siem_gaps(path: Path) -> list[tuple[int, int, int] | None]:
+    """The gap markers of a SIEM's copy (R4-1): each Latet event whose `outcome` is `siem.gap`, but the log's own
+    entries (`reason` `server`), as (first id, last id, how many) when its range reads as Latet writes one (`reason`
+    `audit:<first>-<last>`, `stopped` an int), else None. Ends the command (exit 2) for a file that cannot be read
+    (past 256 MB, or a link, which is never followed) and for one that holds no Latet event (R4-3)."""
+    from latet.fileio import FileReadError, read_regular_bytes
+
+    name = _text(path.name)
+    try:
+        data = read_regular_bytes(path, limit=SIEM_COPY_MOST, follow=False)
+    except FileReadError:
+        _stop(f"{name} cannot be read: a regular file of {SIEM_COPY_MOST // 2**20} MB at most, never a link")
+    seen, found = 0, []
+    try:
+        for event in _latet_events(data):
+            seen += int({"v", "type", "id"} <= event.keys())
+            if event.get("outcome") != "siem.gap" or event.get("reason") == "server":
+                continue
+            reason, count = event.get("reason"), event.get("stopped")
+            span = _MARKER.fullmatch(reason) if isinstance(reason, str) else None
+            found.append((int(span[1]), int(span[2]), count) if span is not None and type(count) is int else None)
+    except (ValueError, RecursionError):  # malformed and deeply nested JSON never become a successful check
+        _stop(f"{name} cannot be read as the events of a SIEM: a JSON array, or one event a line")
+    if not seen:
+        _stop(f"no Latet event found in {name}")
+    return found
+
+
+def _latet_events(data: bytes) -> Iterator[dict[str, Any]]:
+    """Extracted objects in a SIEM's copy, including markers with missing identity fields: a JSON array, or a document
+    over several lines (an Elastic search's answer), read whole; one event a line read a line at a time, so only the
+    markers are kept (R4-3). ValueError for what is not JSON."""
+    head = data.lstrip()
+    if not head:
         return
-    broken = found.get("broken_at")
-    if broken is None:
-        _stop("The administration log's chain could not be walked.", 1)
-    _stop(
-        f"The administration log's chain is broken at entry {_count(broken)}: "
-        f"{_count(found.get('checked'))} entries verified before it.",
-        1,
-    )
+    documents: Iterable[Any]
+    if head[:1] == b"[" or not _one_value(head.split(b"\n", 1)[0]):
+        documents = [json.loads(data)]
+    else:
+        documents = (json.loads(line) for line in io.BytesIO(data) if line.strip())
+    for document in documents:
+        for event in _unwrapped(document):
+            if isinstance(event, dict):
+                yield event
+
+
+def _one_value(line: bytes) -> bool:
+    try:
+        json.loads(line)
+    except (ValueError, RecursionError):
+        return False
+    return True
+
+
+def _unwrapped(value: Any, depth: int = 0) -> Iterator[Any]:
+    """The events a value of a SIEM's copy holds (R4-3): an array's items, an Elastic answer's hits, an event out of
+    Splunk's HEC envelope (`event`), a Splunk export's line (`result._raw`, a JSON string) or an Elastic hit
+    (`_source`); any other value as it is."""
+    if depth > 64:
+        raise ValueError("SIEM export nesting is too deep")
+    if isinstance(value, list):
+        for item in value:
+            yield from _unwrapped(item, depth + 1)
+        return
+    if not isinstance(value, dict):
+        return
+    marker = value.get("outcome") == "siem.gap"
+    if marker:
+        yield value
+    hits = value.get("hits")
+    if isinstance(hits, dict) and isinstance(hits.get("hits"), list):
+        yield from _unwrapped(hits["hits"], depth + 1)
+        return
+    result = value.get("result")
+    if isinstance(result, dict) and isinstance(result.get("_raw"), str):
+        yield from _unwrapped(json.loads(result["_raw"]), depth + 1)
+        return
+    for key in ("_source", "event"):
+        if isinstance(value.get(key), dict):
+            yield from _unwrapped(value[key], depth + 1)
+            return
+    if not marker:
+        yield value
 
 
 @token_cli.command("issue")

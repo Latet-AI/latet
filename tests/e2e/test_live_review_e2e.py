@@ -154,7 +154,7 @@ def test_the_plugin_polls_until_you_decide(client, runtime):
     token = {"x-latet-token": runtime.gateway.bridge_token}
     items = {"session": "live-1", "items": [{"text": PROMPT, "kind": "user_text"}]}
     first = client.post("/_latet/engine/v1/mask", json=items, headers=token).json()
-    assert set(first) == {"pending", "viewers"}
+    assert set(first) == {"pending", "viewers", "decides", "deciders"} and first["decides"] == "self"
     [batch] = _waiting(client)
     assert batch["id"] == first["pending"] and batch["agent"] == "claude-code"
     with _sending(client) as pool:

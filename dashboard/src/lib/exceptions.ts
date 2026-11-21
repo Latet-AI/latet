@@ -21,6 +21,7 @@ export function inForce(item: RequestException): boolean {
 const ORDER: RequestException['state'][] = [
   'expiring',
   'needs approval again (profile revised)',
+  'not approved by the company',
   'pending',
   'expired',
   'forbidden',

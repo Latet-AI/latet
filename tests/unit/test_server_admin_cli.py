@@ -19,6 +19,24 @@ URL = "https://latet.acme.lan"
 KEY = "latet_key_" + "k" * 43
 
 
+def test_log_verify_with_siem_requires_enterprise_gap_information(admin, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "latet.cli.server.admin_call",
+        lambda *a, **k: {
+            "ok": True,
+            "checked": 12,
+            "broken_at": None,
+            "head": {"id": 12, "hash": "ab" * 32},
+            "gaps": None,
+        },
+    )
+    path = tmp_path / "copy.json"
+    path.write_text('{"v":1,"id":"a","type":"admin"}', encoding="utf-8")
+    done = run_cli("server", "log", "verify", "--siem", str(path))
+    assert done.exit_code == 2 and "--siem needs Latet Enterprise's events" in done.output
+    assert run_cli("server", "log", "verify").exit_code == 0
+
+
 def _path(path, kwargs):
     from urllib.parse import urlencode
 
@@ -1132,6 +1150,7 @@ class Admin:
         self.kept = {}  # the rules for everyone an earlier version kept among them
         self.own = Config().model_dump(mode="json")  # Billing CI's: the shared ones with its own on top
         self.etag = "e1"
+        self.edition = None  # the edition the shared settings name: None, a server that names none (before it did)
         self.limit = None  # Billing CI's own limit of values in its vault; None: the server's
         self.values = 0  # the values its vault holds
         self.vault: set[str] = set()  # the values its vault holds, for a forget
@@ -1232,7 +1251,7 @@ class Admin:
                 "settings": json.loads(json.dumps(self.shared)),
                 "etag": self.etag,
                 "kept_rules": json.loads(json.dumps(self.kept)),
-            }
+            } | ({"edition": self.edition} if self.edition is not None else {})
         if (method, path) == ("PUT", "shared"):
             from latet.server.shared import RULE_KEYS, RULES_FOR_EVERYONE
 
@@ -1872,10 +1891,14 @@ def test_unset_puts_a_key_back_to_its_default_though_the_server_keeps_what_a_wri
     assert admin.shared["llm_review"].get("model", default.llm_review.model) == default.llm_review.model
 
 
-def test_rules_for_everyone_are_refused_before_anything_is_sent_and_an_api_keys_are_its_own(admin, tmp_path):
-    """Rules for everyone are the Enterprise Edition's: a command that would set, add, remove, print or check one
-    among the shared settings says so, with the ways to share rules by hand, and asks the server nothing; the same
+@pytest.mark.parametrize("edition", [None, "community", "enterprise"])
+def test_rules_for_everyone_are_refused_before_anything_is_sent_and_an_api_keys_are_its_own(admin, tmp_path, edition):
+    """Rules for everyone are never among the shared settings: a command that would set, add, remove, print or check one
+    there says so in the words of the server's edition, which the shared settings name (the release checklist's item
+    8): the ways to share rules by hand in the Community Edition (and from a server that names none), the company's
+    policy with the Enterprise Edition. It reads the shared settings for that alone and sends nothing; the same
     commands with --key change an API key's own rules."""
+    admin.edition = edition
     rule = tmp_path / "badge.yaml"
     rule.write_text("name: badge\ntype: BADGE\npattern: 'AB-[0-9]{6}'\n")
     rules_file = tmp_path / "team.yaml"
@@ -1893,11 +1916,35 @@ def test_rules_for_everyone_are_refused_before_anything_is_sent_and_an_api_keys_
     ):
         done = run_cli("server", *args)
         assert done.exit_code == 2, (args, done.output)
-        assert "Enterprise Edition" in done.output and "latet rules export" in done.output, args
-    assert admin.calls == []
+        said = " ".join(done.output.split())
+        if edition == "enterprise":
+            assert "latet server policy set" in said and "planned" not in said and "--key KEY" in said, args
+        else:
+            assert "Enterprise Edition" in said and "latet rules export" in said, args
+    assert {(method, path) for method, path, _ in admin.calls} <= {("GET", "shared")}  # read, nothing sent
     assert run_cli("server", "rules", "add", "--help").exit_code == 0
     assert run_cli("server", "config", "--key", "Billing CI", "add", "terms", "{value: Project Falcon}").exit_code == 0
     assert [t["value"] for t in admin.own["terms"]] == ["Project Falcon"]
+
+
+def test_a_rule_for_everyone_refused_with_no_token_at_hand_asks_for_none(admin, monkeypatch):
+    """Fix round 2 (the review's L2): the words of a refused rule need the server's edition, but never a prompt for
+    the administration token: with none at hand (no --admin-token-file, no LATET_SERVER_ADMIN_TOKEN), even at a
+    terminal, the command asks nothing, sends nothing, and refuses in the words true on either edition."""
+    from latet.server.shared import RULES_FOR_EVERYONE
+
+    monkeypatch.delenv("LATET_SERVER_ADMIN_TOKEN")
+    monkeypatch.setattr("latet.cli.agent.at_your_terminal", lambda: True)
+
+    def no_prompt(*args, **kwargs):
+        raise AssertionError("asked for a token to word a refusal")
+
+    monkeypatch.setattr("typer.prompt", no_prompt)
+    for args in (("config", "set", "profile", "max"), ("rules", "list")):
+        done = run_cli("server", *args)
+        assert done.exit_code == 2, (args, done.output)
+        assert " ".join(RULES_FOR_EVERYONE.split()) in " ".join(done.output.split()), args
+    assert admin.calls == []
 
 
 @pytest.mark.parametrize(
@@ -2203,7 +2250,9 @@ def test_status_says_each_identitys_own_limit_and_reads_a_server_that_does_not(a
 
 def test_status_prints_an_instance_line_for_each_instance(admin, monkeypatch):
     """Task 10: each instance alive (each worker of each machine) on a line of its own, with its worker's number, its
-    readiness, its memory, its spaces, its vaults' indexes and its version; what an instance did not say, not said."""
+    readiness, its memory, its spaces, its vaults' indexes, its version and its edition (the merge review of 0.11.0's
+    M4: the Community or the Enterprise Edition, in Latet's own words, never what the beat says); what an instance did
+    not say, not said."""
     original = admin.__call__
 
     def with_instances(method, path, body=None, **kwargs):
@@ -2212,9 +2261,11 @@ def test_status_prints_an_instance_line_for_each_instance(admin, monkeypatch):
         if (method, path) == ("GET", "status"):
             answer["instances"] = [
                 {"instance": "3fa9c2e1b07d", "worker": 0, "version": "1.0.0", "ready": True, "memory": 536_870_912,
-                 "spaces": 3, "index": 25_165_824},
+                 "spaces": 3, "index": 25_165_824, "edition": "enterprise"},
                 {"instance": "9b1e5a7c4d20", "worker": 1, "version": "1.0.0", "ready": False, "memory": None,
-                 "spaces": 0, "index": 0},
+                 "spaces": 0, "index": 0, "edition": "community"},
+                {"instance": "5c6d7e8f9a0b", "worker": 2, "version": "1.0.0", "ready": True, "memory": None,
+                 "spaces": None, "index": None, "edition": "\x1b[2Jforged"},
                 {"instance": "\x1b[2Jforged", "worker": None, "version": None, "ready": None, "memory": None,
                  "spaces": None, "index": None},
                 {"instance": "0a1b2c3d4e5f", "worker": None, "version": None, "ready": None, "memory": None,
@@ -2226,14 +2277,17 @@ def test_status_prints_an_instance_line_for_each_instance(admin, monkeypatch):
     done = run_cli("server", "status")
     assert done.exit_code == 0, done.output
     lines = [line.strip() for line in done.output.splitlines() if line.strip().startswith("instance ")]
-    assert lines[:2] == [
-        "instance 3fa9c2e1b07d: worker 0, ready, 512 MiB in memory, 3 spaces, 24.0 MiB of vault indexes, Latet 1.0.0",
-        "instance 9b1e5a7c4d20: worker 1, not ready, memory unknown, 0 spaces, 0.0 MiB of vault indexes, Latet 1.0.0",
+    assert lines[:3] == [
+        "instance 3fa9c2e1b07d: worker 0, ready, 512 MiB in memory, 3 spaces, 24.0 MiB of vault indexes, Latet 1.0.0,"
+        " Enterprise Edition",
+        "instance 9b1e5a7c4d20: worker 1, not ready, memory unknown, 0 spaces, 0.0 MiB of vault indexes, Latet 1.0.0,"
+        " Community Edition",
+        "instance 5c6d7e8f9a0b: worker 2, ready, memory unknown, Latet 1.0.0",  # an edition Latet does not name: unsaid
     ]
-    assert len(lines) == 4 and "\x1b" not in done.output and "readiness unknown" in lines[2]
-    assert "Latet" not in lines[2]  # no version it did not say
+    assert len(lines) == 5 and "\x1b" not in done.output and "readiness unknown" in lines[3]
+    assert "Latet" not in lines[3] and "Edition" not in lines[3]  # no version nor edition it did not say
     # The final review's I-2: an instance of 0.10 or older says nothing of itself, and is listed as one all the same.
-    assert lines[3] == "instance 0a1b2c3d4e5f: readiness unknown, memory unknown, Latet 0.10 or older"
+    assert lines[4] == "instance 0a1b2c3d4e5f: readiness unknown, memory unknown, Latet 0.10 or older"
 
 
 @pytest.mark.parametrize("whole", [False, True, None])
@@ -2257,7 +2311,8 @@ def test_status_says_a_list_of_instances_cut_at_its_bound_is_partial(admin, monk
     partial = [line.strip() for line in done.output.splitlines() if "partial" in line]
     if whole is False:
         assert partial == [
-            "instances: the list is partial, cut at its bound: an instance may be alive and not listed"
+            "instances: the list is partial, cut at its bound: an instance may be alive and not listed, and run"
+            " another release or edition"
         ], done.output
     else:
         assert partial == [], done.output
@@ -2294,6 +2349,22 @@ def test_status_lists_the_permanent_request_exceptions(admin, monkeypatch):
     assert "request exceptions that grant nothing now: 2" in done.output
     assert "u_abcdefghij: x5555555555 (identity, needs approval again (profile revised))" in done.output
     assert "u_klmnopqrst: x6666666666 (project, forbidden)" in done.output
+    # Fix round 1 of the release minors: as each space last wrote them, which the requests do not wait for.
+    said = " ".join(done.output.split())
+    assert AS_LAST_WRITTEN in said
+
+
+AS_LAST_WRITTEN = (  # fix round 2 (the review's L5): in plain words
+    "request exceptions are listed as each identity's space last wrote them: a space not opened since the company's "
+    "policy or this release of Latet changed shows their old states until it is next built; its requests already "
+    "follow the policy and the release of now"
+)
+
+
+def test_status_says_nothing_of_how_exceptions_are_written_when_it_lists_none(admin):
+    done = run_cli("server", "status")
+    assert done.exit_code == 0, done.output
+    assert "last wrote them" not in done.output  # none listed: nothing as they were
 
 
 def test_status_prints_the_editions_lines(admin, monkeypatch):
@@ -2882,6 +2953,37 @@ def test_remaining_contract_malformed_rule_mutations_never_write(admin, tmp_path
         ("GET", "identities?kind=key"),
         ("GET", "identities/u_billingci2/settings"),
     ]
+
+
+def test_a_refusal_names_the_companys_floor_only_on_a_409_as_texts():
+    """F5: the reasons a change goes below what the company set are read from a 409 alone, each a text."""
+    import httpx
+
+    from latet.server.client import _refusal
+
+    def refusal(status, floor):
+        return _refusal(httpx.Response(status, json={"error": "Set by your company, not changed", "floor": floor}))
+
+    assert refusal(409, ["profile: from max to balanced"]).floor == ("profile: from max to balanced",)
+    assert refusal(400, ["profile: from max to balanced"]).floor == ()
+    assert refusal(409, ["profile", 3]).floor == () and refusal(409, "profile").floor == ()
+
+
+def test_a_change_below_the_floor_exits_2_and_another_conflict_exits_1(admin, monkeypatch):
+    def answer(method, path, body=None, **kwargs):
+        if method == "PUT":
+            raise ServerError(said["status"], "these settings changed since you read them", floor=said["floor"])
+        return admin(method, path, body, **kwargs)
+
+    monkeypatch.setattr("latet.cli.server.admin_call", answer)
+    reasons = ("profile: from max to balanced",)
+    said: dict = {"status": 409, "floor": reasons}
+    below = run_cli("server", "config", "--key", "Billing CI", "set", "profile", "balanced")
+    assert below.exit_code == 2 and "Set by your company, not changed: profile: from max to balanced." in below.output
+    for status, floor in ((409, ()), (400, reasons)):  # only a 409 names the floor
+        said.update(status=status, floor=floor)
+        other = run_cli("server", "config", "--key", "Billing CI", "set", "profile", "balanced")
+        assert other.exit_code == 1 and "The server refused: these settings changed" in other.output
 
 
 def test_a_forget_waits_for_the_server_as_long_as_a_keys_first_forget_takes(admin, computer):

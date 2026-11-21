@@ -66,6 +66,11 @@ port, the history) applies as usual. A start that finds `config.yaml` changed an
 runs the settings you approved last. `latet repositories` shows which repository it is, and
 `latet repositories forget` takes it out of the list, at your own terminal.
 
+**On a Latet server with Latet Enterprise,** a change that lowers protection (there, your own saves in the dashboard,
+and what the server finds lowered when it applies your settings again) can go to your company's security team instead:
+the dashboard says who decides, and you can undo the change, not approve it. See
+[Central approvals](../../enterprise/approvals/).
+
 ## What agents cannot do
 
 `latet global-uninstall`, `latet agents revert` and `latet service uninstall` take protection away from

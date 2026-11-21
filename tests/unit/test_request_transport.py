@@ -1245,6 +1245,7 @@ def _a_server_space(tmp_path) -> tuple[Any, Any]:
     from dataclasses import replace
 
     from latet.config import Config, Destination
+    from latet.edition import Community
     from latet.runtime import make_runtime
     from latet.server.shared import OwnSettings
     from latet.state import IdentityRef, local_backends
@@ -1278,7 +1279,10 @@ def _a_server_space(tmp_path) -> tuple[Any, Any]:
     settings = Refusing()
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
     emily = IdentityRef("u_emilycarte", "Emily Carter", "person")
-    runtime = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=emily)
+    # A server's space runs the server's edition (Latet Enterprise refuses one without it): the Community Edition here.
+    runtime = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=emily, edition=Community()
+    )
     return runtime, settings
 
 
@@ -1632,6 +1636,10 @@ def _set_before_the_save() -> tuple[set[str], set[str]]:
             for node in ast.walk(statement):
                 targets = node.targets if isinstance(node, ast.Assign) else []
                 targets = [node.target] if isinstance(node, ast.AugAssign) else targets
+                # ``self.a, self.b = a, b`` sets both (Latet Enterprise's floor and provider name are set so).
+                targets = [
+                    part for target in targets for part in (target.elts if isinstance(target, ast.Tuple) else [target])
+                ]
                 assigned.update(
                     named
                     for target in targets
@@ -1662,6 +1670,8 @@ def test_every_setting_an_apply_changes_is_put_back_as_it_ran(tmp_path, monkeypa
 
     assigned, used = _set_before_the_save()
     assert {"self.mediator.dump_guard", "self.gateway.destinations", "self.config", "self.built"} <= assigned
+    # Latet Enterprise's: the settings raised to the company's floor, that floor, and the identity provider's name.
+    assert {"self.effective", "self.floor_used", "self.provided_name", "self.named_by_provider"} <= assigned
     assert "self.mediator.reviewer.config" in assigned  # read through ``use_reviewer``'s ``old``
     # How the test reads what each ``use`` changes (the objects in use), and changes it as an apply would; a new one is
     # added here.
@@ -1695,6 +1705,9 @@ def test_every_setting_an_apply_changes_is_put_back_as_it_ran(tmp_path, monkeypa
         for _, change in uses.values():
             change(runtime)
         made = {named: object() for named in settings}  # what an apply leaves, each its own
+        # A way of reading new members is one of two (the mediator refuses any other): the one that did not run.
+        assert ran["self.mediator.unknown_members"] == "check"
+        made["self.mediator.unknown_members"] = "refuse"
         for named in settings:
             setattr(owners[named], named.rsplit(".", 1)[1], made[named])
         runtime._restore(was)
@@ -1834,10 +1847,17 @@ def test_settings_that_cannot_be_applied_nor_put_back_refuse_every_request_until
 APPS_GRANT = {"token": "t_billing", "permissions": ["scan", "mask", "unmask"]}
 
 
-def _apps_client(runtime: Any, engine: Any = None, entries: list[tuple[str, Any]] | None = None) -> TestClient:
+def _apps_client(
+    runtime: Any,
+    engine: Any = None,
+    entries: list[tuple[str, Any]] | None = None,
+    record: Callable[[Any], None] | None = None,
+    grant: dict[str, Any] = APPS_GRANT,
+) -> TestClient:
     """The applications API over ``runtime``'s engine (``engine``: the same, as the calls read it), as an API key's
-    space on a server mounts it, each call handed on as the server's gate hands it on (its identity, a grant of the
-    three permissions). The administration log takes every entry, each kept in ``entries`` when given."""
+    space on a server mounts it, each call handed on as the server's gate hands it on (its identity, ``grant``: the
+    three permissions). The administration log takes every entry, each kept in ``entries`` when given; ``record``: the
+    server's edition's, which takes each answered scan's and mask's ``apps`` event (Latet Enterprise's E4)."""
     from starlette.applications import Starlette
 
     from latet.bridge.apps import Apps
@@ -1847,7 +1867,7 @@ def _apps_client(runtime: Any, engine: Any = None, entries: list[tuple[str, Any]
         if entries is not None:
             entries.append((action, details))
 
-    on_server = OnServer("https://latet.acme.lan", "u_billingcix", audit=audit, kind="key")
+    on_server = OnServer("https://latet.acme.lan", "u_billingcix", audit=audit, kind="key", record=record)
     apps = Apps(runtime.mediator, on_server)
     if engine is not None:
         apps.engine = engine
@@ -1855,7 +1875,7 @@ def _apps_client(runtime: Any, engine: Any = None, entries: list[tuple[str, Any]
 
     async def gated(scope: Any, receive: Any, send: Any) -> None:
         if scope["type"] == "http":
-            scope = {**scope, "latet.identity": on_server.identity, "latet.grant": APPS_GRANT}
+            scope = {**scope, "latet.identity": on_server.identity, "latet.grant": grant}
         await inner(scope, receive, send)
 
     return TestClient(gated, base_url="http://127.0.0.1:5283")
@@ -1982,6 +2002,45 @@ def test_an_application_call_a_save_begins_and_ends_within_is_refused(tmp_path, 
     assert runtime.built.engine.applying == 0 and runtime.built.engine.applies == 1  # no mark left: the count alone
     assert answered.status_code == 503, answered.text
     assert answered.json() == {"error": apps_module.SETTINGS_CHANGED}
+
+
+@pytest.mark.parametrize("operation", ["scan", "mask"])
+def test_an_application_call_a_save_overtakes_records_no_apps_event(tmp_path, monkeypatch, operation):
+    """The merge of 0.12.0 into enterprise: a scan or mask whose answer a save began over is refused (503) and never
+    given, and the ``apps`` event that Latet Enterprise records of each call the applications API answers (E4: its
+    reports and its SIEM) is not recorded for it either. The event was made as the call's work ended, before 0.12's
+    check of the answer refused it: the reports counted a call, with the values it masked, that its application never
+    got, and again as it sent it again. The call that follows, answered, records its one event."""
+    from latet.bridge import apps as apps_module
+    from latet.bridge.apps import APPS_API
+
+    runtime, _, stronger = _a_runtime(tmp_path, monkeypatch)
+    name = "_scan" if operation == "scan" else "_mask"
+    real = getattr(apps_module.Apps, name)
+    saves = [_with_a_term(stronger)]
+
+    def across(self: Any, *args: Any, **kwargs: Any) -> Any:
+        done = real(self, *args, **kwargs)
+        if saves:  # the first call alone: begun and ended as its texts are read
+            runtime.apply_config(saves.pop(), save=False)
+        return done
+
+    monkeypatch.setattr(apps_module.Apps, name, across)
+    events: list[Any] = []
+    grant = {**APPS_GRANT, "token": "t_billingcix"}  # a token's id as the gate names it (``t_`` and 10 characters)
+    try:
+        with _apps_client(runtime, record=events.append, grant=grant) as client:
+            overtaken = client.post(f"{APPS_API}/{operation}", json={"texts": [f"hello from {ORION}"]})
+            recorded = list(events)
+            answered = client.post(f"{APPS_API}/{operation}", json={"texts": [f"hello from {ORION}"]})
+    finally:
+        runtime.close()
+    assert overtaken.status_code == 503 and overtaken.json() == {"error": apps_module.SETTINGS_CHANGED}
+    assert recorded == [], "an apps event recorded for a call whose answer was refused"
+    assert answered.status_code == 200, answered.text
+    assert [(event["type"], event["outcome"], event["rule"]) for event in events] == [
+        ("apps", operation, "t_billingcix")
+    ]
 
 
 class _Watched:
@@ -3464,3 +3523,30 @@ def test_a_header_left_to_the_open_list_by_an_exception_revoked_before_its_decis
     assert "(envelope-header-unknown): header anthropic-workspace-id" in answered.text
     assert gateway.transport.sent == [] and gateway.counts() == (0, 0)
     assert turns[-1].decision.code == "envelope-header-unknown"
+
+
+class _ClientGone(BaseException):
+    """The client gone while the gateway awaited something (its task cancelled), as a test raises it."""
+
+
+async def test_a_client_gone_while_a_sent_request_s_approval_is_kept_has_the_provider_s_answer_closed(monkeypatch):
+    """Fix round 3 of the merge of 0.12.0 (the security re-review's quality note): once an attempt's send answers, the
+    gateway takes a decider's approval of its texts before it hands the answer on (``Mediator.approval_given``, a
+    write to the conversation's store). The client going away during that wait raised out of ``Forwarder._sent`` with
+    the provider's answer not handed back: its stream was left to the garbage collector. It is closed now."""
+
+    async def gone(self: Any, prepared: Any) -> None:
+        raise _ClientGone()
+
+    monkeypatch.setattr(Mediator, "approval_given", gone)
+    gateway = _gateway(_mediator())
+    app = cast(Any, gateway.client.app)  # the Starlette app the TestClient wraps
+    transport = httpx.ASGITransport(app=app)
+    async with (
+        app.router.lifespan_context(app),  # its forwarder made, as a start makes it
+        httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:5283", trust_env=False) as client,
+    ):
+        with pytest.raises(_ClientGone):
+            await client.post(CHAT, content=_chat("hello"), headers=HEADERS)
+    [answer] = gateway.provider.answers
+    assert answer.closed, "the provider's answer was left open"

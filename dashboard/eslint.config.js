@@ -59,6 +59,7 @@ const NOT_TEXT_ATTRIBUTES = [
   'mode',
   'cls',
   'layer',
+  'page',
   // A section of the documentation, by its name in lib/docsLinks.json.
   'docs',
 ]

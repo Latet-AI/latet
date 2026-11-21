@@ -30,3 +30,12 @@ export const CMD_APPLY_CLAUDE = applyCommand('claude')
 export function fixCommand(agent: { id: string; installed: boolean; status: string }): string | null {
   return agent.installed && agent.status !== 'applied' && agent.status !== 'wrapper' ? applyCommand(agent.id) : null
 }
+
+/** On a server, its administrators install the license from the command line. */
+export const CMD_SERVER_LICENSE_INSTALL = 'latet server license install <file>'
+
+/** On a server, whether the dashboard's changes that apply to everyone take the company sign-in is set from its command line. */
+export const CMD_SERVER_COMPANY_CHANGES = 'latet server sign-in set --company-changes <sso|any-session>'
+
+/** On a server, the sign-in settings the page cannot change (the issuer once people have signed in) are set from its command line. */
+export const CMD_SERVER_SIGN_IN_SET = 'latet server sign-in set <file>'

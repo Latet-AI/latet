@@ -575,6 +575,82 @@ def test_a_query_answers_one_entry_at_least_and_max_query_at_most(log, clock, mo
     assert [len(log.query(limit=asked)) for asked in (0, -5, 1, 2, 10)] == [1, 1, 1, 2, 2]
 
 
+# --- read by id, for E4: the forwarder to the SIEM, the exports, the check of the SIEM's gap markers -----------------
+
+
+def test_after_gives_the_entries_above_an_id_oldest_first_within_querys_filters(log, clock, monkeypatch):
+    """E4 reads the log by id (I4): each entry once, by the order ids are given, which is the order entries commit;
+    within the filters ``query`` takes, a page at most."""
+    entries = _chain(log, clock, 5)
+    log.record("server", "siem.gap", None, {"output": None, "from": 1, "to": 2, "count": 2})
+    ids = [e.id for e in entries]
+    assert [e.id for e in log.after(0)] == [*ids, ids[-1] + 1]
+    assert [e.id for e in log.after(ids[1], 2)] == ids[2:4]
+    assert [e.action for e in log.after(0, action="siem.gap")] == ["siem.gap"]
+    assert [e.id for e in log.after(ids[0], action="person.*", since=entries[2].ts)] == ids[2:]
+    assert [e.id for e in log.after(0, actor="server")] == [ids[-1] + 1]
+    assert log.after(ids[-1] + 1) == [] and log.after(0)[0] == entries[0]  # as ``query`` gives an entry
+    monkeypatch.setattr(audit_module, "PAGE", 2)
+    assert [len(log.after(0, limit=asked)) for asked in (0, -5, 1, 2, 10)] == [1, 1, 1, 2, 2]
+
+
+def test_an_entry_holds_as_after_gives_it_and_not_once_changed_by_hand(db, log, clock):
+    """R4-4: E4 trusts an entry of the log for what it names only when its keyed hash holds: a row changed, or written,
+    by hand, or under another server's key, does not."""
+    entries = _chain(log, clock, 3)
+    assert all(log.holds(entry) for entry in log.after(0))
+    _run(
+        db, "UPDATE audit SET details = %s WHERE id = %s", Jsonb({"from": 100, "to": 200, "count": 101}), entries[1].id
+    )
+    _run(db, "UPDATE audit SET target = 'u_someoneelse' WHERE id = %s", entries[2].id)
+    assert [log.holds(entry) for entry in log.after(0)] == [True, False, False]
+    other = AuditLog(db, key=OTHER_KEY, clock=clock)
+    assert not other.holds(log.after(0)[0])
+    assert not log.holds(dataclasses.replace(entries[0], hash="x" + chr(0xD800)))  # any text: a mismatch, no error
+
+
+def test_the_first_entry_the_log_keeps_is_after_its_anchor(db, log, clock):
+    """R4-2: before any prune the log keeps its first entry; after one, the entry after its anchor. An anchor whose tag
+    does not hold says nothing of where the log starts: 1, so that E4 passes over no gap marker as too old to check."""
+    assert log.first_kept() == 1
+    entries = _chain(log, clock, 4)
+    clock.now += 363 * DAY
+    assert log.prune(365) == 2
+    [(through,)] = _read(db, "SELECT through FROM audit_anchor")
+    assert through == entries[1].id and log.first_kept() == entries[2].id
+    _run(db, "UPDATE audit_anchor SET through = through + 1000")
+    assert log.first_kept() == 1
+
+
+def test_a_row_written_by_hand_above_the_sequence_is_not_read_by_id(db, log, clock):
+    """A row inserted with an id the log's sequence never gave (2^63 - 1) is not read by ``after``, nor taken for the
+    newest entry: a reader that notes the last id it read is never moved past the entries the server writes next (E4's
+    review). ``verify`` still walks it, and finds it does not follow."""
+    entries = _chain(log, clock, 2)
+    _run(
+        db,
+        "INSERT INTO audit (id, ts, actor, action, target, details, address, prev, hash)"
+        " VALUES (%s, %s, 'x', 'y', NULL, '{}', NULL, '', 'not')",
+        2**63 - 1,
+        clock.now,
+    )
+    assert [e.id for e in log.after(0)] == [e.id for e in entries] and log.newest_id() == entries[-1].id
+    log.record("server", "server.started")
+    assert [e.action for e in log.after(entries[-1].id)] == ["server.started"]
+    assert log.newest_id() == entries[-1].id + 1 and not log.verify().ok
+
+
+def test_a_note_tagged_with_the_logs_key_holds_and_no_other(db, log):
+    """E4 keeps its forwarder's place in a table anyone who writes the database could change: tagged with the log's key
+    under a label of its own, as the anchor is. Another text, another key's tag, or any text as a tag does not hold."""
+    text = '{"gap": null, "last": 7}'
+    made = log.tag(text)
+    assert log.tagged(text, made) and len(made) == 64
+    assert not log.tagged('{"gap": null, "last": 8}', made)
+    assert not AuditLog(db, key=OTHER_KEY).tagged(text, made)
+    assert not log.tagged(text, "x" + chr(0xD800)) and not log.tagged(text, made.upper())
+
+
 # --- the walk -----------------------------------------------------------------------------------------------------
 
 

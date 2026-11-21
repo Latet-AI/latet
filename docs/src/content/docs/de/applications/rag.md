@@ -19,12 +19,12 @@ sprechen.
 
 ## Der Ablauf
 
-1. **Indizieren** Sie die Dokumente maskiert, mit einem Token, der maskieren darf.
+1. **Indizieren** Sie die Dokumente maskiert, mit einem Token, das maskieren darf.
 2. **Maskieren** Sie die Frage mit demselben Schlüssel.
 3. **Suchen** Sie mit der maskierten Frage, und **fragen Sie das Modell** mit der maskierten Frage und
    den maskierten Dokumenten. Rufen Sie das Modell direkt auf, mit Ihrem eigenen Anbieterschlüssel:
    nicht über das Gateway von Latet, das die Ersatzwerte erneut maskieren würde.
-4. **Stellen Sie** die Antwort des Modells mit einem Token, der wiederherstellen darf, **wieder her**
+4. **Stellen Sie** die Antwort des Modells mit einem Token, das wiederherstellen darf, **wieder her**
    und zeigen Sie sie der Person.
 
 ```sh
@@ -92,7 +92,7 @@ Was jeder sieht, zum Beispiel:
 
 `LatetMasker` gibt Kopien der Dokumente zurück, mit dem maskierten Text und in ihren Metadaten
 `latet_counts`: wie viele Werte jedes Typs maskiert wurden. Nur der Text wird maskiert, nicht die
-Metadaten: Halten Sie vertrauliche Werte daraus fern, oder maskieren Sie sie selbst mit `latet.mask`.
+Metadaten: Halten Sie sensible Werte daraus fern, oder maskieren Sie sie selbst mit `latet.mask`.
 Wenn der Server ein Dokument stoppt (`blocked`), löst `LatetMasker` `Blocked` mit seinem Index aus und
 gibt nichts zurück, sodass kein Dokument dieses Stapels unmaskiert indiziert wird.
 
@@ -124,8 +124,8 @@ Entscheiden Sie im Knoten, was die Person dann sieht.
   maskierte Frage findet ihre Dokumente nicht.
 - **Namen** findet das auf dem Server installierte lokale Namensmodell
   ([Erkennungsmodelle auf einem Server](../../concepts/server-operations/#erkennungsmodelle-auf-einem-server)),
-  in Dokumenten, die als `prose` gesendet werden, der Voreinstellung. Ohne es findet sie der lokale
-  Prüfer des Servers, wenn die Regeln des Schlüssels einen festlegen, nach bestem Bemühen; die
+  in Dokumenten, die als `prose` gesendet werden, dem Standard. Ohne es findet sie der lokale
+  Prüfer des Servers, wenn die Regeln des Schlüssels einen festlegen, ohne Gewähr; die
   Begriffe des Schlüssels fangen die Namen ab, die Sie kennen.
 - **Was `unmask` wiederherstellt.** Die Ersatzwerte, die das Modell so schreibt, wie sie ihm gegeben
   wurden, in Großbuchstaben oder in einem Link kodiert; nicht einen, den es in eine andere Form
@@ -142,5 +142,5 @@ Entscheiden Sie im Knoten, was die Person dann sieht.
   werden müssen, in einem Aufruf zusammen. Ein Dokument von etwa 20 KB braucht auf einer Instanz etwa
   80 bis 95 ms zum Maskieren und 30 ms zum Wiederherstellen ([die Messungen](../#wie-schnell-es-ist)).
 - **Wer wiederherstellt.** Jede Wiederherstellung steht im Administrationsprotokoll des Servers. Ein
-  Werkzeug, das vielen Personen antwortet, schreibt einen Eintrag pro Aufruf; wer gefragt hat,
+  Tool, das vielen Personen antwortet, schreibt einen Eintrag pro Aufruf; wer gefragt hat,
   protokolliert die Anwendung.

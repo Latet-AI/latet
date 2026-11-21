@@ -20,7 +20,11 @@ This one command:
   `openai_base_url` line, for OpenCode the `baseURL` overrides. If you edited one of these files
   since, Latet removes only what it added and keeps your edits;
 - removes the start at login;
-- stops the daemon.
+- stops the daemon;
+- on Windows, where Latet reserved its port (see
+  [Port 5283 is already in use](../../troubleshooting/#port-5283-is-already-in-use)), asks whether to
+  take the reservation away too, with one administrator's confirmation. On no, the port stays
+  reserved, and `latet reserve-port --remove` takes it away later: run it before step 2.
 
 It does not change the tools you pointed at Latet yourself, in their own settings or in your shell:
 GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie, Android Studio, Hermes
@@ -77,7 +81,8 @@ If you set `LATET_DATA_DIR` or `LATET_CONFIG`, look there instead. The data fold
 - `logs/`, `bridge.token`, `integrations.json` (the record of what `latet global-install` changed),
   `claude-marketplace/` (the copy of the Claude Code plugin), `tutorial.json` (the chapters of the
   [tutorial](../tutorial/) you finished), `repositories.json` (the folders of the repositories with a
-  `latet.yaml` that Latet has seen), and `root.key` if your system has no credential store.
+  `latet.yaml` that Latet has seen), `port-reservations.json` (on Windows, the ports Latet
+  reserved), and `root.key` if your system has no credential store.
 
 The key that encrypts the vault lives in your operating system's credential store (Windows
 Credential Manager, macOS Keychain, or the desktop keyring on Linux), under the service name
@@ -110,6 +115,10 @@ Undo the changes by hand:
   `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/dev.latet.daemon.plist`, then delete
   that file. On Linux, run `systemctl --user disable latet.service`, then delete
   `~/.config/systemd/user/latet.service`.
+- **Latet's port, on Windows**: `port-reservations.json` in the data folder lists the ports Latet
+  reserved. For each, run this in a PowerShell run as administrator, with the port in place of
+  `5283`:
+  `netsh int ipv4 delete excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent`.
 
 Copies of your configuration files from before `latet global-install` are in the `backups/`
 folder of the data folder.

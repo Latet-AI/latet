@@ -20,6 +20,9 @@ from types import SimpleNamespace
 import pytest
 import re2
 import yaml
+from hypothesis import given
+from hypothesis import settings as hypothesis_settings
+from hypothesis import strategies as st
 
 from latet.config import Config, FieldRule, IdentityConfig, ProjectEntry, ProjectSettings, load_config, save_config
 from latet.engine import pipeline as pipeline_module
@@ -101,6 +104,78 @@ def test_csv_tsv_and_semicolon_tables():
         "First Name": ["Marta", "Ugo"],
         "Last Name": ["Bianchi", "Neri"],
     }
+
+
+def _split_by_character(line: str, sep: str) -> list[tuple[int, int]]:
+    """``fields._split`` as it was written before 0.15.0: a character at a time, outside double quotes."""
+    found, start, quoted = [], 0, False
+    for i, c in enumerate(line):
+        if c == '"':
+            quoted = not quoted
+        elif c == sep and not quoted:
+            found.append((start, i))
+            start = i + 1
+    found.append((start, len(line)))
+    out = []
+    for a, b in found:
+        while a < b and line[a] in " \t":
+            a += 1
+        while b > a and line[b - 1] in " \t":
+            b -= 1
+        if b - a >= 2 and line[a] == '"' and line[b - 1] == '"':
+            a, b = a + 1, b - 1
+        out.append((a, b))
+    return out
+
+
+@given(st.text(alphabet='ab ,;\t"', max_size=60), st.sampled_from(["\t", ",", ";"]))
+@hypothesis_settings(max_examples=400, deadline=None)
+def test_a_separated_line_splits_as_it_did_a_character_at_a_time(line: str, sep: str) -> None:
+    """The fields of a line are found by searching for its separators and quotes, not read a character at a time in
+    Python (a long scan of saved sessions spent most of its time there): the same fields."""
+    assert fields._split(line, sep) == _split_by_character(line, sep)
+
+
+def _delimited_reference(lines: list[tuple[int, str]]) -> list[fields.Cell]:
+    """``fields._delimited`` as it was written before 0.15.0, each line split whole before its names were looked at."""
+    found: list[fields.Cell] = []
+    i = 0
+    while i + 1 < len(lines):
+        header = lines[i][1]
+        sep = next((s for s in ("\t", ",", ";") if s in header), None)
+        names = [header[a:b] for a, b in _split_by_character(header, sep)] if sep else []
+        if len(names) < 2 or not all(fields._COLUMN.match(n) for n in names):
+            i += 1
+            continue
+        rows: list[fields.Cell] = []
+        j = i + 1
+        while j < len(lines):
+            base, line = lines[j]
+            parts = _split_by_character(line, sep or ",")
+            if len(parts) != len(names):
+                break
+            rows += [fields.Cell(base + a, base + b, name) for (a, b), name in zip(parts, names, strict=True) if b > a]
+            j += 1
+        if j - i - 1 >= (2 if any(" " in n for n in names) else 1):
+            found += rows
+        i = j if j > i + 1 else i + 1
+    return found
+
+
+@given(st.text(alphabet='ab_1 ,;\t"\n', max_size=120))
+@hypothesis_settings(max_examples=400, deadline=None)
+def test_a_table_of_separated_values_is_found_as_it_was(text: str) -> None:
+    """A line whose first field can be no column's name is no header, seen before the line is split: the same tables."""
+    assert fields._delimited(fields._lines(text), set()) == _delimited_reference(fields._lines(text))
+
+
+@pytest.mark.timing
+def test_a_long_line_of_commas_and_quotes_splits_in_a_moment() -> None:
+    line = ('"a, b", c, ' * 20_000) + '"open, to the end'
+    started = time.perf_counter()
+    found = fields._split(line, ",")
+    assert time.perf_counter() - started < 0.5
+    assert found == _split_by_character(line, ",")
 
 
 def test_prose_with_commas_is_no_table():

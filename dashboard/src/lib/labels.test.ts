@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import i18n from '../i18n'
 import { parseFlag } from './flags'
-import { AGENT_LABEL, AGENTS, classCounts, filterAgents, flagDetailKey, inferClass, MODULE_LABEL, MODULES, moduleCounts, typeClassesFor, type ViewClass } from './labels'
+import { AGENT_LABEL, AGENTS, classCounts, filterAgents, flagDetailKey, inferClass, KIND_LABEL, MODULE_LABEL, MODULES, moduleCounts, slotKindLabel, typeClassesFor, type ViewClass } from './labels'
 
 const guess = (type: string): ViewClass => inferClass(type, new Set(['PROJECT']))
 
@@ -85,5 +85,22 @@ describe('flagDetailKey', () => {
     expect(flagDetailKey(parseFlag('degraded:pii'))).toBeNull()
     expect(flagDetailKey(parseFlag('outbound:WebSearch'))).toBeNull()
     expect(flagDetailKey(parseFlag('blocked'))).toBeNull()
+  })
+})
+
+describe('slotKindLabel', () => {
+  it("names what a tool's definition says of its input apart from its description", () => {
+    expect(slotKindLabel('tool_description', '$.tools[85].input_schema')).toBe('kinds.tool_schema')
+    expect(slotKindLabel('tool_description', '$.tools[0].function.parameters')).toBe('kinds.tool_schema')
+    expect(slotKindLabel('tool_description', '$.tools[1].format')).toBe('kinds.tool_schema')
+    expect(slotKindLabel('tool_description', '$.messages[1].content[1].tool.definition.input_schema')).toBe('kinds.tool_schema')
+    expect(slotKindLabel('tool_description', '$.tools[2].input_examples')).toBe('kinds.tool_examples')
+  })
+
+  it('keeps the kind of every other block, and of an answer format', () => {
+    expect(slotKindLabel('tool_description', '$.tools[2].description')).toBe(KIND_LABEL.tool_description)
+    expect(slotKindLabel('tool_description', '$.output_config.format.schema')).toBe(KIND_LABEL.tool_description)
+    expect(slotKindLabel('tool_result', '$.messages[3].content[0].input_schema')).toBe(KIND_LABEL.tool_result)
+    expect(slotKindLabel('unknown_kind', '$.x')).toBeUndefined()
   })
 })

@@ -45,9 +45,43 @@ import type {
   VaultPage,
   VaultQuery,
 } from './types'
+import { closesSpace, SPACE_STORAGE, spaceUrl } from '../lib/space'
 import type { Revealed } from '../lib/vault'
 
 export const API_BASE = '/_latet/api/v1'
+
+function storedSpace(): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(SPACE_STORAGE)
+  } catch {
+    return null // storage refused: your own space
+  }
+}
+
+// The address the page was opened with: the mock's flags (?mock-server…) are in it, which the router drops once the page
+// is up, so that a page that starts again (a space opened or left) keeps them in the mock. A real server's has none.
+const openedWith = typeof window === 'undefined' ? '' : window.location.search
+
+/** The API key whose space this tab shows, on a server with Latet Enterprise (E3); null: your own. Read once. */
+let space: string | null = storedSpace()
+
+export function currentSpace(): string | null {
+  return space
+}
+
+/** Opens an API key's space in this tab, or your own with null: the dashboard starts again there. */
+export function switchSpace(keyId: string | null): void {
+  space = keyId
+  try {
+    if (keyId) window.sessionStorage.setItem(SPACE_STORAGE, keyId)
+    else window.sessionStorage.removeItem(SPACE_STORAGE)
+  } catch {
+    // storage refused: the space lasts until the page is left
+  }
+  window.location.assign(import.meta.env.BASE_URL + (isMock() ? openedWith : ''))
+}
+
+const apiUrl = (path: string) => spaceUrl(API_BASE, space, path)
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 export type StreamState = 'connecting' | 'open' | 'retrying' | 'closed'
@@ -70,8 +104,17 @@ export interface Transport {
   assetUrl?(path: string): string
   /** `GET /_latet/health`, which needs no sign-in: the sign-in screen asks whether this is the tutorial's sandbox. */
   health(signal?: AbortSignal): Promise<Health>
+  /** `GET /_latet/sso`, which needs no sign-in: where single sign-on begins, or null where there is none. */
+  companySignIn?(signal?: AbortSignal): Promise<CompanySignIn | null>
   readonly mock: boolean
 }
+
+/** What `GET /_latet/sso` says, without sign-in, on a server with single sign-on: where its button leads. */
+export interface CompanySignIn {
+  login: string
+}
+
+const SSO_PAGE = /^\/_latet\/sso\/[a-z-]+$/
 
 /** What `GET /_latet/health` says that the dashboard uses. */
 export interface Health {
@@ -147,12 +190,13 @@ async function toApiError(res: Response): Promise<ApiError> {
 export const httpTransport: Transport = {
   mock: false,
   async request(method, path, body, signal) {
-    const headers: Record<string, string> = { Accept: 'application/json' }
-    if (method !== 'GET') headers['X-Latet-UI'] = '1'
+    // The header a page of another site cannot send: the server asks for it on every change, and on the reads that
+    // change something (a server's exports record themselves); sent on every request, a read included.
+    const headers: Record<string, string> = { Accept: 'application/json', 'X-Latet-UI': '1' }
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     let res: Response
     try {
-      res = await fetch(API_BASE + path, {
+      res = await fetch(apiUrl(path), {
         method,
         headers,
         credentials: 'same-origin',
@@ -168,7 +212,11 @@ export const httpTransport: Transport = {
       notifyUnauthorized()
       throw new UnauthorizedError()
     }
-    if (!res.ok) throw await toApiError(res)
+    if (!res.ok) {
+      const error = await toApiError(res)
+      if (space && closesSpace(res.status, error.body)) switchSpace(null) // the key's space was closed to you
+      throw error
+    }
     if (res.status === 204) return undefined
     return res.json()
   },
@@ -179,6 +227,18 @@ export const httpTransport: Transport = {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') throw err
       return {} // not reachable: nothing known of it
+    }
+  },
+  async companySignIn(signal) {
+    try {
+      const res = await fetch('/_latet/sso', { credentials: 'same-origin', cache: 'no-store', signal })
+      if (!res.ok) return null
+      const found = (await res.json()) as Partial<CompanySignIn> | null
+      // Where the button leads: a page of the server's own single sign-on, never an address the answer made up.
+      return typeof found?.login === 'string' && SSO_PAGE.test(found.login) ? { login: found.login } : null
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      return null // not reachable: no button
     }
   },
   subscribe(onExchange, onState, onReview) {
@@ -202,13 +262,17 @@ export const httpTransport: Transport = {
         pending: (data) => onEvent({ type: 'pending', batch: data as Batch }),
         updated: (data) => onEvent({ type: 'updated', batch: data as Batch }),
         settled: (data) => {
-          const { id, state } = data as { id: string; state: BatchState }
-          onEvent({ type: 'settled', id, state })
+          const { id, state, by } = data as { id: string; state: BatchState; by?: string | null }
+          onEvent({ type: 'settled', id, state, by: typeof by === 'string' ? by : null })
         },
         change: (data) => onEvent({ type: 'change', change: data as SettingsChange }),
         change_settled: (data) => {
-          const { id, state } = data as { id: string; state: ChangeState }
-          onEvent({ type: 'change_settled', id, state })
+          const { id, state, by } = data as { id: string; state: ChangeState | 'approved-unapplied'; by?: string | null }
+          onEvent({ type: 'change_settled', id, state, by: typeof by === 'string' ? by : null })
+        },
+        withheld: (data) => {
+          const { id } = data as { id?: unknown }
+          if (typeof id === 'string') onEvent({ type: 'withheld', id })
         },
         viewers: (data) => onEvent({ type: 'viewers', viewers: (data as { viewers: number }).viewers }),
       },
@@ -235,7 +299,7 @@ function eventStream(
   const open = () => {
     if (closed) return
     onState('connecting')
-    source = new EventSource(API_BASE + path, { withCredentials: false })
+    source = new EventSource(apiUrl(path), { withCredentials: false })
     source.onopen = () => {
       delay = 1000
       onState('open')
@@ -258,9 +322,10 @@ function eventStream(
         source.close()
         source = null
         onState('retrying')
-        void fetch(API_BASE + '/me', { credentials: 'same-origin', cache: 'no-store' })
-          .then((res) => {
+        void fetch(apiUrl('/me'), { credentials: 'same-origin', cache: 'no-store' })
+          .then(async (res) => {
             if (res.status === 401) notifyUnauthorized()
+            else if (space && closesSpace(res.status, await res.json().catch(() => null))) switchSpace(null)
           })
           .catch(() => undefined)
         retry = setTimeout(open, delay)
@@ -290,7 +355,7 @@ export function isMock(): boolean {
   return transport.mock
 }
 
-function query(params: Record<string, string | number | undefined>): string {
+export function query(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') search.set(key, String(value))
@@ -299,10 +364,10 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : ''
 }
 
-const asset = (path: string) => transport.assetUrl?.(path) ?? API_BASE + path
+export const asset = (path: string) => transport.assetUrl?.(path) ?? apiUrl(path)
 const chapterPath = (id: string, tail = '') => `/tutorial/chapters/${encodeURIComponent(id)}${tail}`
-const get = <T>(path: string, signal?: AbortSignal) => transport.request('GET', path, undefined, signal) as Promise<T>
-const send = <T>(method: Method, path: string, body?: unknown) => transport.request(method, path, body) as Promise<T>
+export const get = <T>(path: string, signal?: AbortSignal) => transport.request('GET', path, undefined, signal) as Promise<T>
+export const send = <T>(method: Method, path: string, body?: unknown) => transport.request(method, path, body) as Promise<T>
 
 type Saved = { ok: true; rules_version: number | string }
 const projectPath = (id: string, tail = '') => `/projects/${encodeURIComponent(id)}${tail}`
@@ -315,6 +380,8 @@ const savePersonal = (id: string, settings: PersonalSettings, etag: string | und
 export const api = {
   me: (signal?: AbortSignal) => get<Me>('/me', signal),
   health: (signal?: AbortSignal) => transport.health(signal),
+  /** On a server with single sign-on: where its button leads; null where there is none (or no way to ask). */
+  companySignIn: (signal?: AbortSignal) => transport.companySignIn?.(signal) ?? Promise.resolve(null),
   /** On a Latet server: this browser's session ends, on every instance. */
   logout: () => send<{ ok: true }>('POST', '/logout'),
   exchanges: (q: ExchangeQuery = {}, signal?: AbortSignal) =>
@@ -333,9 +400,13 @@ export const api = {
   exchange: (id: string, signal?: AbortSignal) => get<ExchangeDetail>(`/exchanges/${encodeURIComponent(id)}`, signal),
   /** An image of a request as it was sent. */
   imageUrl: (id: string) => asset(`/images/${encodeURIComponent(id)}`),
-  /** An image waiting in the Live Reviewer: as it came, or as it would leave now. */
-  approvalImageUrl: (id: string, item: number, view: 'original' | 'sent' = 'original') =>
-    asset(`/approvals/${encodeURIComponent(id)}/images/${item}${view === 'sent' ? '?view=sent' : ''}`),
+  /** An image waiting in the Live Reviewer: as it came, or as it would leave now, with `mark` (`sentMark` of its text as
+   * masked) so that it is asked again once it is painted again. */
+  approvalImageUrl: (id: string, item: number, view: 'original' | 'sent' = 'original', mark = '') =>
+    asset(
+      `/approvals/${encodeURIComponent(id)}/images/${item}` +
+        (view === 'sent' ? `?view=sent${mark ? `&at=${encodeURIComponent(mark)}` : ''}` : ''),
+    ),
   /** Strict data mode, guided: the columns of a tool's output (block `slot` of the exchange), each with a proposal. */
   columns: (id: string, slot: number, signal?: AbortSignal) =>
     get<OutputColumns>(`/exchanges/${encodeURIComponent(id)}/columns${query({ slot })}`, signal),

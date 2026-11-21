@@ -43,6 +43,7 @@
     "pluginHelp": "The supported Claude Code plugin flow stopped this model request. Text may already have reached Latet through its helper or bridge; this does not mean there was no network traffic.",
     "reviewHappened": "Claude Code asked its auto-mode reviewer about an action. The request carried {{details}} reported by the connected agent, which your rules keep from that reviewer, so it was not forwarded to it.",
     "notForwarded": "This protected request was not forwarded to the model provider. This does not describe other network traffic or erase data already received by Latet.",
+    "toolInputMeant": "This protected request was not forwarded to the model provider. This does not describe other network traffic or erase data already received by Latet. Claude Code sends a tool's schema with every request once it has loaded the tool, and every tool's schema after an error: its requests stop here until you change something.",
     "imagesTodo": "Remove the unread attachment or ask the server's administrators to check text recognition. Your image policy cannot make an enabled server check forward an image it could not read.",
     "doctorTodo": "Run latet doctor on the connected computer to check its connection. Ask the server's administrators to investigate a server failure.",
     "imagesHappened": "Your image policy requires readable, masked images. Latet could not read {{what}}: availability, capacity, time limits or the input format may prevent it.",
@@ -79,6 +80,19 @@
     "playground": "Playground",
     "integrations": "Protected agents",
     "tutorial": "Tutorial",
+    "ee": {
+      "license": "License",
+      "policy": "Policy",
+      "people": "People and groups",
+      "signIn": "Sign-in",
+      "reports": "Reports",
+      "siem": "SIEM outputs",
+      "audit": "Administration log",
+      "companyApprovals": "Company approvals",
+      "companyWaiting_one": "{{count}} waiting for your decision",
+      "companyWaiting_other": "{{count}} waiting for your decision",
+      "termSync": "Term sync"
+    },
     "sections": "On this page"
   },
   "shell": {
@@ -141,10 +155,12 @@
     "settingsTooManyRules": "These settings hold more recognizers, field rules or allow list patterns than the server keeps for one person, counting those of your projects, so nothing was saved. Remove some of them, then save again.",
     "settingsUnavailable": "The server could not save your settings just now, so nothing changed. Try again in a moment.",
     "settingsChangeWaits": "A change to your settings waits for your approval, so nothing was saved. Approve it or undo it, then make your change again.",
+    "settingsWaitingForOthers": "It lowers protection, so it waits for whoever decides on it (Approvals). The settings in use stay as they are.",
     "repositoriesUnchecked": "Latet could not read every repository it has seen just now (one may be on a share that does not answer, or in a file it may not read), so nothing changed. Try again once they can be read.",
     "repoFileUnreadable": "This project's latet.yaml is not a regular file, or is larger than a project's file may be, so nothing was saved over it. Fix it in the project's folder, then reload the page.",
     "repoFileUnavailable": "This project's latet.yaml cannot be read just now, so nothing was saved over it. Try again in a moment.",
     "settingsSavedChangePending": "Your settings were saved, but the pending change could not be refreshed. Refresh the dashboard before making another change.",
+    "companySignIn": "This change applies to everyone on this server, so it needs a session opened with your company account. Sign out, sign in with your company account, then make the change again.",
     "settingsTooManyProjects": "These settings name more projects than the server keeps for one person, so nothing was saved. Remove your settings for some projects, then save again.",
     "settingsDropsShared": "This would remove {{items}} set for everyone on this server, so nothing was saved. Only the server's administrators can remove them.",
     "dropped": {
@@ -153,7 +169,7 @@
     },
     "destinationRefused": "{{url}}: a destination of your own on this server needs an address that can be used, reached over https, and leading neither to the server itself nor inside its network. A destination reached in clear or inside the network can be set for everyone by its administrators.",
     "reviewerKeyServer": "{{setting}}: on a server no setting says where the local reviewer's key is read from. The server gives it, as its administrators set it.",
-    "repoInClear": "{{setting}}: a repository file cannot hold this, as it would leave values in clear there (a recognizer that lets what it finds through, or a recognizer, a term or a field rule of a type let through). Put it in your own settings for the project, where a change that lowers protection waits for your approval."
+    "repoInClear": "{{setting}}: a repository file cannot hold this, as it would leave values in clear there (a recognizer that lets what it finds through, or a recognizer, a term or a field rule of a type let through). Put it in your own settings for the project, where a change that lowers protection waits for approval."
   },
   "auth": {
     "title": "Open the dashboard from your terminal",
@@ -168,7 +184,18 @@
     "serverWhy": "Sessions end after 12 hours without use. Each person has a dashboard of their own on the server.",
     "serverExpired": "That link did not sign you in: it was already used, or it is more than two minutes old, or it was opened from a page of another site, which never signs anyone in. Each link works once, for two minutes.",
     "limited": "Too many sign-in links were tried from this address: wait a minute, then open your link again.",
-    "busy": "The server is busy and could not sign you in: try again in a moment."
+    "busy": "The server is busy and could not sign you in: try again in a moment.",
+    "company": {
+      "button": "Sign in with your company account",
+      "or": "Or open the dashboard from your terminal:",
+      "expired": "That sign-in took more than ten minutes, or was used already. Sign in again.",
+      "failed": "The sign-in could not be finished. Try again; if it fails again, the server's log says why.",
+      "notAllowed": "Your company account does not give you Latet. Ask your administrator to add you to Latet's group.",
+      "notProvisioned": "This company account is not linked to an account on this server. Ask your administrator to link it to yours, or to have your company's identity provider create your account.",
+      "disabled": "Your account on this server is disabled. Ask your administrator.",
+      "unavailable": "Single sign-on is not available right now. Try again later, or ask your administrator.",
+      "trialEnded": "Single sign-on stopped when the Latet Enterprise trial ended. Open the dashboard from your terminal with latet dashboard, or ask your administrator."
+    }
   },
   "shared": {
     "title": "Set for everyone on this server"
@@ -239,9 +266,12 @@
     "tool_result": "Tool result",
     "attachment": "Attachment",
     "tool_description": "Tool description",
+    "tool_schema": "Tool parameter schema",
+    "tool_examples": "Tool input examples",
     "other": "Other",
     "outbound_tool": "Tool outside your computer",
-    "image_text": "Text in an image"
+    "image_text": "Text in an image",
+    "new_member": "New request member"
   },
   "flags": {
     "withDetail": "{{label}}: {{detail}}",
@@ -444,6 +474,7 @@
     }
   },
   "approvals": {
+    "descriptionSecurity": "With the Live Reviewer on, every new text your agents are about to send waits here for your company's security team. You can stop one before it leaves.",
     "title": "Approvals",
     "description": "With the Live Reviewer on, every new text your agents are about to send waits here. Approve it as Latet masked it, mask more first, or don't send it.",
     "documentTitle": "({{count}}) {{name}}",
@@ -452,11 +483,14 @@
     "open": "Open Approvals",
     "settings": "Live Reviewer settings",
     "tabs": {
+      "labelOthers": "What waits for a decision",
       "label": "What waits for you",
       "texts": "Texts",
       "settings": "Settings"
     },
     "settingsEmpty": {
+      "bodySecurity": "A change to your settings that lowers protection waits here until your company's security team approves it or you undo it, whoever made it.",
+      "bodyControllers": "A change to this API key's settings that lowers protection waits here until one of the people who control it approves it or you undo it, whoever made it.",
       "title": "No change to your settings waits for you",
       "body": "A change to your settings that lowers protection waits here until you approve it or undo it, whoever made it."
     },
@@ -482,15 +516,38 @@
         "help": "This list"
       }
     },
+    "whoDecides": {
+      "changesSecurity": "Changes to your settings that lower protection go to your company's security team: {{names}}.",
+      "changesControllers": "Changes to this API key's settings that lower protection go to the people who control it: {{names}}.",
+      "texts": "Your new texts in the Live Reviewer go to your company's security team: {{names}}. They see each text as you do, values included.",
+      "nobody": "nobody can decide yet, ask your Latet administrator",
+      "more_one": "one other",
+      "more_other": "{{count}} others",
+      "tag": "Security team",
+      "batch": "Your company's security team reviews this text before it leaves: {{names}}. They see it as you do, values included. You can stop it, not approve it.",
+      "titleSecurity": "A change to your settings waits for your company's security team",
+      "titleControllers": "A change to this API key's settings waits for the people who control it",
+      "changeHelp": "It applies once one of them approves it: {{names}}. You can undo it, not approve it.",
+      "notice": "A change to these settings waits for someone else's approval. It is not applied yet: these are the settings in use.",
+      "sent": "It lowers protection, so it waits for your company's security team (Approvals). The form shows the settings in use.",
+      "sentControllers": "It lowers protection, so it waits for the other people who control this API key (Approvals). The form shows the settings in use.",
+      "approvedBy": "{{name}} approved the change: the settings in use changed.",
+      "rejectedBy": "{{name}} did not approve the change: the settings in use stay as they are.",
+      "unappliedBy": "{{name}} approved the change, but your settings changed meanwhile and did not take it: ask for it again.",
+      "withheldChanged": "Your company's security team approved a text of yours, but it was stopped before it left: it was not sent. Sent again, it waits for them again."
+    },
     "change": {
       "title": "A change to your settings waits for you",
       "source": {
+        "serverFileOthers": "Found when the server applied your settings again, after a change to what is set for everyone or to your settings on another of its instances: they run as you approved them until it is decided.",
+        "serverStartOthers": "Found when your space on the server was made: it runs with the settings you approved until it is decided.",
         "command": "{{agent}} ran a latet command.",
         "commandNoAgent": "A latet command was run.",
         "file": "config.yaml was edited.",
         "start": "Found in config.yaml when Latet started: it runs with the settings you approved until you decide.",
         "serverFile": "Found when the server applied your settings again, after a change to what is set for everyone or to your settings on another of its instances: they run as you approved them until you decide.",
         "serverStart": "Found when your space on the server was made: it runs with the settings you approved until you decide.",
+        "dashboard": "Saved in the dashboard.",
         "other": "Your settings were changed."
       },
       "loosened": "It lowers protection:",
@@ -550,10 +607,12 @@
     "arrived": "Arrived {{time}}",
     "expires": "Not sent if you don't answer {{time}}",
     "off": {
+      "bodySecurity": "Turn it on above, and every new text your agents are about to send waits here for your company's security team, who see it values included: your prompts, the files they read, what their tools fetch. You can stop one before it leaves.",
       "title": "The Live Reviewer is off",
       "body": "Turn it on above, and every new text your agents are about to send waits here until you approve it: your prompts, the files they read, what their tools fetch. You see what Latet masked, and you can mask more."
     },
     "empty": {
+      "bodySecurity": "New texts your agents are about to send show up here while your company's security team decides on them. You can stop one before it leaves.",
       "title": "Nothing waits for you",
       "body": "New texts your agents are about to send show up here and wait until you approve them. Keep this page open, or turn on notifications.",
       "noTexts": "No texts wait for you"
@@ -571,6 +630,7 @@
       "body_other": "{{agent}}: {{count}} new texts to approve."
     },
     "queue": {
+      "labelSecurity": "Waiting for your company's security team",
       "label": "Waiting for your approval",
       "title_one": "{{count}} waiting, oldest first",
       "title_other": "{{count}} waiting, oldest first"
@@ -788,6 +848,13 @@
         "todo": "Take the value out: start a new conversation (in Claude Code, /clear) and point the agent at the file or variable that holds it, instead of pasting it. Only if it is not a secret at all, such as a test or example value, click it in the request below and choose Not sensitive.",
         "todoUnmarked": "Take the value out: start a new conversation (in Claude Code, /clear) and point the agent at the file or variable that holds it, instead of pasting it. The values are listed below by type and length, not where they are: only if one is not a secret at all, such as a test or example value, add it to the Allow list in Rules."
       },
+      "toolInput": {
+        "title": "Not sent: {{types}} in a tool's parameter schema",
+        "happened": "The final check found {{types}} in clear in a tool's parameter schema or input examples, as an MCP server or a plugin wrote them. Latet checks requests like this one without changing them, as it does Claude Code's, and Latet's plugin for Claude Code masks a tool's description but cannot reach its parameter schema. The reason Latet gave the agent, below, names the tool.",
+        "meant": "Nothing left your computer, and the agent got an error. Claude Code sends a tool's schema with every request once it has loaded the tool, and every tool's schema after an error: its requests stop here until you change something.",
+        "todo": "If the value is not sensitive, such as a sample address in the tool's documentation, click it in the request below and choose Not sensitive. If it is, turn off the MCP server or plugin that gives the tool (in Claude Code, /mcp or /plugin), or ask its author to take the value out of the schema.",
+        "todoUnmarked": "If the value is not sensitive, such as a sample address in the tool's documentation, add it to the Allow list in Rules. If it is, turn off the MCP server or plugin that gives the tool (in Claude Code, /mcp or /plugin), or ask its author to take the value out of the schema."
+      },
       "other": {
         "title": "Not sent",
         "happened": "Latet could not handle this request: {{reason}}.",
@@ -795,6 +862,24 @@
         "todo": "If it happens again, latet doctor checks what is wrong."
       },
       "live": {
+        "rejectedTeam": {
+          "title": "Your company's security team stopped it",
+          "happened": "Your company's security team chose Don't send for this request's new texts in the Live Reviewer.",
+          "todo": "If it has to be sent, ask your company's security team why they stopped it. If the agent tries again, it waits for them again."
+        },
+        "expiredTeam": {
+          "title": "It waited too long for your company's security team",
+          "happened": "It waited in the Live Reviewer for your company's security team longer than your time limit.",
+          "todo": "Ask your company's security team to decide sooner, or raise or remove the time limit under Live Reviewer."
+        },
+        "changedTeam": {
+          "title": "Your company's security team approved it, but your settings changed before it left",
+          "happened": "Your company's security team approved this request's new texts as they saw them, but your settings changed before they left, and they would have left masked otherwise.",
+          "todo": "If the agent sends them again, they wait for your company's security team again, shown as they would leave now."
+        },
+        "abandonedTeam": {
+          "happened": "The agent gave the request up while it waited for your company's security team: you stopped it, or it gave up on its own."
+        },
         "meant": "Nothing left your computer: the agent was told it was not sent.",
         "rejected": {
           "title": "You stopped it in the Live Reviewer",
@@ -1096,6 +1181,7 @@
       "title": "Forget this value?",
       "body": "Latet removes this {{type}} from the vault:",
       "consequence": "It disappears from the whole history: past requests show the surrogate instead, and answers that contain the surrogate are no longer restored. If the value shows up again, it is masked again, with the same surrogate unless that one is already in the conversation.",
+      "consequenceKey": "In an API key's space it is forgotten as `latet server keys forget` forgets it: it leaves the key's vault, the requests of its history that hold it and the local reviewer's remembered answers, and the administration log records that you forgot it. If the value shows up again, it gets a new surrogate.",
       "confirm": "Forget",
       "done": "{{type}} forgotten."
     },
@@ -1288,6 +1374,8 @@
       "hostname": "Host name",
       "hostnames": "Host names",
       "fullName": "Full name",
+      "fullNameProvider": "From your company's identity provider.",
+      "fullNameLocked": "Your company's identity provider names you, so you cannot change your name here.",
       "emails": "Emails",
       "detected": "Detected on this machine from the system and your git configuration.",
       "detectedServer": "Sent by each of your computers when it connects to the server: its user names and host name, and your git name and email."
@@ -1764,7 +1852,7 @@
     "repoCannotSet": "a repository file cannot set this, so put it in your own settings for the project.",
     "repoWholeLatet": "a setting of the whole of Latet, so only your config.yaml sets it.",
     "repoUnknown": "not a setting Latet knows.",
-    "repoInClear": "a repository file cannot hold this, as it would leave values in clear there: put it in your own settings for the project, where a change that lowers protection waits for your approval.",
+    "repoInClear": "a repository file cannot hold this, as it would leave values in clear there: put it in your own settings for the project, where a change that lowers protection waits for approval.",
     "recognizerApart": "applied in this project as {{name}}, type {{type}}: a recognizer of yours has its name or its type, so both apply, and both types take the stricter of the two policies.",
     "recognizerRenamed": "applied in this project as {{name}}, since an entry of yours already has its name: the file's applies under its own, with its type ({{type}}) and its policy; yours, where it is in use, applies as before.",
     "scope": {
@@ -1815,6 +1903,9 @@
       "imagesBlocked": "Not sent",
       "imagesMasked": "Only masked",
       "imagesSent": "Sent",
+      "newMembers": "New request members",
+      "newMembersChecked": "Read and checked",
+      "newMembersRefused": "Refused",
       "reviewer": "Local reviewer"
     },
     "repo": {
@@ -1867,6 +1958,7 @@
       "inline": "Before it leaves"
     },
     "live": {
+      "helpSecurity": "Whether new texts from this project wait for your company's security team, who see them values included. Yours alone: a repository file never turns it on.",
       "title": "Live Reviewer here",
       "help": "Whether new texts from this project wait for your approval in the dashboard. Yours alone: a repository file never turns it on.",
       "inheritOn": "As in your settings (on)",
@@ -1948,6 +2040,12 @@
       "block": "Don't send",
       "mask": "Only masked",
       "allow": "Send"
+    },
+    "newMembers": {
+      "title": "New request members",
+      "help": "A field of a request that no request profile names yet, such as one a new version of an agent adds. Read and checked: Latet reads it whole and sends it as it came when nothing in it would be masked and it names no file, address, stored conversation or model; otherwise the request is refused. Refused: the request is refused, as Latet did before; on a request Latet only checks, a field of text alone still passes once checked. A project's settings, and its repository's latet.yaml, may only refuse (`unknown_members: refuse`).",
+      "check": "Read and checked",
+      "refuse": "Refused"
     },
     "ruleStrict": "Strict data mode: {{field}}",
     "ruleField": "Field rule: {{field}}"
@@ -2110,6 +2208,12 @@
     "visionUnknown": "The server does not say whether its model sees images (llama.cpp does)."
   },
   "liveReview": {
+    "kindsSecurity": "What waits for the security team",
+    "timeoutHelpSecurity": "When the time is up it is not sent. Empty: until the security team answers.",
+    "descriptionSecurity": "Your company's security team approves every new text before it leaves: they see it next to the original, values included, and can mask more. Nothing is sent while it waits.",
+    "enabledSecurity": "Have each new text approved before it leaves",
+    "switchOnSecurity": "New texts wait for your company's security team, who see them values included",
+    "turnedOnSecurity": "Live Reviewer on: new texts wait for your company's security team.",
     "title": "Live Reviewer",
     "description": "You approve, in the dashboard, every new text before it leaves: what Latet masked is shown next to the original, and you can mask more. Nothing is sent while it waits.",
     "enabled": "Ask me before each new text leaves",
@@ -2282,6 +2386,922 @@
       "body": "This is your own Latet. The tutorial runs in a sandbox of its own, with a pretend agent and a pretend model, and opens in your browser. In a terminal:"
     }
   },
+  "ee": {
+    "audit": {
+      "title": "Administration log",
+      "description": "Recorded actions by people, API keys, tokens and the server: who acted, on what and when. Protected values are never recorded.",
+      "exportCsv": "Export CSV",
+      "exportJson": "Export JSON",
+      "exported": "Saved: {{name}}",
+      "companyExport": "An export of the administration log takes a session opened with your company account.",
+      "filters": { "action": "Action", "actor": "Who", "all": "All", "hint": "Choices come from the matching entries shown. Active filters stay visible even with no matches; choose All to clear each one. A final * in an action matches its prefix." },
+      "columns": { "time": "When", "actor": "Who", "action": "Action", "target": "On what", "details": "Details", "address": "From" },
+      "token": "Administration token {{id}}",
+      "scim": "Provisioning (SCIM token {{id}})",
+      "server": "The server itself",
+      "unknown": "A call whose token was not recognized",
+      "timeUnavailable": "Time unavailable",
+      "timezone": "Date filters use the server instance's time zone; entry times use your browser's time zone.",
+      "truncated": "Only the newest 5,000 matching entries are shown. Narrow the period or filters, or export the full matching period.",
+      "empty": { "title": "Nothing in this period", "body": "No action was recorded for these dates and filters." },
+      "note": "Actor and target names are shown to every reader of this log, regardless of the people setting in Reports. Addresses are shown only to administrators. A siem.gap entry records a gap; it is not a cryptographic verification result.",
+      "errors": {
+        "filter": "Each action or actor filter can contain at most 200 characters. Clear or shorten the filter.",
+        "malformed": "The server returned an unreadable administration log. Reload it before exporting.",
+        "forbidden": "This account cannot read or export the administration log with its current access.",
+        "large": "The export is too large. It can hold at most 100,000 entries; narrow the period or filters and try again.",
+        "busy": "A report or export is still being made. Wait for it to finish, then try again.",
+        "failed": "The administration log could not be read or exported. Try again."
+      }
+    },
+    "license": {
+      "title": "License",
+      "descriptionServer": "Latet Enterprise: the license that switches the Enterprise features on for everyone on this server.",
+      "states": {
+        "none": "No license",
+        "valid": "Valid",
+        "expiring": "Ends soon",
+        "grace": "Grace period",
+        "paused": "Paused",
+        "trialEnded": "Trial ended",
+        "invalid": "Cannot be used"
+      },
+      "stateText": {
+        "none": "No license is installed: Latet runs as the Community Edition.",
+        "valid": "The Enterprise features it lists are on.",
+        "expiring": "The Enterprise features it lists are on until it ends.",
+        "grace": "Everything keeps working until {{date}}. Then reports, events to your security systems and term sync pause; what protects keeps working.",
+        "graceUndated": "The grace period is running: everything keeps working. When it ends, reports, events to your security systems and term sync pause; what protects keeps working.",
+        "paused": "Reports, events to your security systems and term sync are paused. What protects keeps working: no rule is unlocked and nobody is kept out.",
+        "trialEnded": "The trial ended. The Enterprise settings can be read, not changed; what protects keeps working as it was, and agents' traffic goes on, masked. The server's administrators install a Latet Enterprise license, or remove the trial's with latet server license remove to go back to the Community Edition.",
+        "invalidServer": "This file is not a license Latet can use: {{reason}} What manages, produces or decides for the company is off; every instance keeps what protects as the features the instance that installed the license verified set it, until the server's administrators install it again.",
+        "invalidServerDown": "The license could not be weighed: the server's database did not answer. What manages, produces or decides for the company is off until it answers; what protects stays as the features the instance that installed the license verified set it."
+      },
+      "fields": {
+        "licensee": "Licensee",
+        "id": "License number",
+        "users": "Users bought",
+        "inUse": "Users in use",
+        "features": "Features",
+        "issued": "Issued",
+        "expires": "Valid until"
+      },
+      "trial": "Trial",
+      "inUseHint": "The enabled people and API keys on this server: each counts as one user.",
+      "daysLeft_one": "in {{count}} day",
+      "daysLeft_other": "in {{count}} days",
+      "endsToday": "its last day",
+      "endedAgo_one": "ended {{count}} day ago",
+      "endedAgo_other": "ended {{count}} days ago",
+      "features": {
+        "lockedRules": "Locked rules",
+        "approvals": "Central approvals",
+        "reports": "Audit reports",
+        "siem": "Events to your security systems",
+        "termSync": "Synced terms",
+        "sso": "Single sign-on",
+        "roles": "Roles"
+      },
+      "notices": {
+        "expiring_one": "Your Latet Enterprise license ends on {{date}}, in {{count}} day.",
+        "expiring_other": "Your Latet Enterprise license ends on {{date}}, in {{count}} days.",
+        "trialWeek_one": "Your Latet Enterprise trial ends on {{date}}, in {{count}} day. A trial has no grace period: then the Enterprise management stops, and what protects keeps working.",
+        "trialWeek_other": "Your Latet Enterprise trial ends on {{date}}, in {{count}} days. A trial has no grace period: then the Enterprise management stops, and what protects keeps working.",
+        "trialTomorrow": "Your Latet Enterprise trial ends tomorrow, {{date}}. Then the Enterprise management stops until a license is installed; what protects keeps working.",
+        "trialToday": "Your Latet Enterprise trial ends today, {{date}}. Then the Enterprise management stops until a license is installed; what protects keeps working.",
+        "grace": "Your Latet Enterprise license ended on {{date}}. Everything keeps working until {{pausesOn}}; then reports, events to your security systems and term sync pause.",
+        "expiredPaused": "Your Latet Enterprise license ended on {{date}}. Reports, events to your security systems and term sync are paused; what protects keeps working.",
+        "trialEnded": "Your Latet Enterprise trial ended on {{date}}. The Enterprise settings can be read, not changed: the server's administrators install a Latet Enterprise license, or remove the trial's with latet server license remove to go back to the Community Edition. What protects keeps working.",
+        "usersNear": "{{inUse}} of the {{users}} users your license covers are in use, people and API keys together.",
+        "usersOver": "{{inUse}} users are in use, people and API keys together, and your license covers {{users}}. Everything keeps working until {{pausesOn}}; then reports, events to your security systems and term sync pause, until a place is freed or the license grows.",
+        "usersOverPaused": "{{inUse}} users are in use, people and API keys together, and your license covers {{users}}. Reports, events to your security systems and term sync are paused until a place is freed or the license grows; what protects keeps working.",
+        "invalid": "The license file cannot be used: what manages, produces or decides for the company is off. The License page says what happens to what protects, and how the file is replaced."
+      },
+      "reasons": {
+        "unreadable": "the file cannot be read.",
+        "format": "it is not a license file.",
+        "noKeys": "this copy of Latet carries no key to check licenses with. Install Latet from its official release.",
+        "key": "it is signed with a key this version of Latet does not know. Install the latest release.",
+        "signature": "its signature does not match: it was changed after it was made.",
+        "version": "it was made for a newer version of Latet. Install the latest release.",
+        "content": "its content is not valid.",
+        "ended": "it has ended. Install the license that follows it."
+      },
+      "elsewhere": {
+        "server": "On a server, its administrators install the license from the command line:"
+      },
+      "bar": {
+        "label": "License notice",
+        "open": "Open License"
+      },
+      "change": {
+        "title": "Change the license",
+        "description": "Install a license file to replace this one, or remove the license. The change applies to everyone on this server at once, and the administration log records who made it.",
+        "rolesNote": "A license that does not list roles opens the Enterprise pages to every person on this server, to read.",
+        "install": "Install a license file",
+        "remove": "Remove the license",
+        "installed": "License installed",
+        "removed": "License removed",
+        "removeTitle": "Remove the license?",
+        "removeBody": "The Enterprise features stop for everyone on this server, and this page goes with them. People open their dashboard with latet dashboard.",
+        "stopsTitle": "The server's policy stops being in force",
+        "stopsBody": "The server has a policy, and the license that would be left does not list locked rules, so the policy would stop applying to every person and API key. Nothing changes unless you confirm.",
+        "stopsInstall": "Install anyway",
+        "stopsRemove": "Remove anyway",
+        "termsStopTitle": "Synced terms stop being masked",
+        "termsStopBody": "The server keeps terms synced from your company's sources, and the license that would be left does not list synced terms, so those terms would no longer be masked for any person or API key. Nothing changes unless you confirm.",
+        "bothStopTitle": "The server's policy and the synced terms stop applying",
+        "bothStopBody": "The server has a policy and keeps terms synced from your company's sources, and the license that would be left lists neither locked rules nor synced terms, so the policy would stop applying to every person and API key, and the synced terms would no longer be masked. Nothing changes unless you confirm.",
+        "approvalsStopTitle": "Central approvals stop",
+        "approvalsStopBody": "Changes that lower protection, or the Live Reviewer's texts, are decided by your company's security team or by an API key's other controllers, and the license that would be left does not list central approvals, so whoever asks for the approval would decide instead. Nothing changes unless you confirm.",
+        "approvalsStopAlso": "Central approvals stop as well: the license that would be left does not list them, so whoever asks for the approval would decide, instead of your company's security team or an API key's other controllers.",
+        "tooLarge": "That file is too large to be a license file.",
+        "unreadable": "The file could not be read.",
+        "notLicense": "This file is not a license Latet can use, so nothing was changed: {{reason}}",
+        "commandOnly": "In this state the license is installed or removed from the command line, not from this page:"
+      }
+    },
+    "roles": {
+      "user": "User",
+      "groupLead": "Group lead",
+      "security": "Security",
+      "auditor": "Auditor",
+      "admin": "Admin",
+      "sees": {
+        "user": "Their own data, and the API keys they control",
+        "groupLead": "Their groups' reports",
+        "security": "Every report",
+        "auditor": "Reports, the policy's history and the administration log, read-only",
+        "admin": "People, groups and API keys"
+      },
+      "decides": {
+        "user": "Their settings, above the company's floor; a controlled key's",
+        "nothing": "Nothing",
+        "security": "The policy, terms, approvals, SIEM",
+        "admin": "Sign-in, roles, the license, API keys and who controls them"
+      }
+    },
+    "trialEnded": {
+      "title": "The Latet Enterprise trial ended",
+      "body": "What this page holds can be read, not changed: the server's administrators install a Latet Enterprise license, or remove the trial's with latet server license remove to go back to the Community Edition. Locked rules stay in force as they were, and agents' traffic goes on, masked.",
+      "open": "Open License"
+    },
+    "policy": {
+      "title": "Policy",
+      "description": "The settings your company sets: nobody can go below them, and anyone can add protection.",
+      "none": "No policy is in force.",
+      "source": {
+        "managed": "From a policy file",
+        "server": "From your Latet server"
+      },
+      "written": "Written {{date}}",
+      "setOn": "Set {{date}}",
+      "exceptions": {
+        "personal": "Each person may still mark values Not sensitive for themselves.",
+        "company": "Only your company's exceptions count."
+      },
+      "notRead_one": "{{count}} setting in it is not read.",
+      "notRead_other": "{{count}} settings in it are not read.",
+      "sets": "What it sets",
+      "setsNothing": "It locks no setting.",
+      "below": "Your settings below it, raised while in use",
+      "inForce": "Your company's policy is in force: a setting with a lock cannot go lower.",
+      "open": "See the policy",
+      "setBy": "Set by your company",
+      "refused": "Set by your company, not changed:",
+      "refusedHint": "Change it to stay at or above your company's setting, or discard the change.",
+      "protectionRaised": "Set by your company: Latet stays on in this project, whatever is saved here.",
+      "edit": {
+        "title": "Change the policy",
+        "description": "The policy's text, in the format of a rules file. Once saved, it is the floor of every person and API key on this server, at once; a text the server cannot read changes nothing.",
+        "text": "The policy's text",
+        "save": "Save",
+        "saved": "Policy saved: every person and API key is raised to it",
+        "remove": "Remove",
+        "removeTitle": "Remove the policy?",
+        "removeBody": "Nothing is locked any more: each person and API key keeps the settings they have, and may lower them. The administration log records who removed it.",
+        "removed": "Policy removed",
+        "changed": "Someone else changed the policy since you opened it. It is shown again as it is now: make your change once more.",
+        "companySignIn": "The policy's text holds your company's terms and values, so it is shown in a session opened with your company account."
+      },
+      "lock": {
+        "profile": "At least {{profile}}",
+        "pii": "Always detected: {{types}}",
+        "regions": "ID numbers always recognised: {{regions}}",
+        "phones": "Phone numbers always recognised: {{regions}}",
+        "privateIps": "Private IP addresses always masked",
+        "ner": "Name detection stays on",
+        "terms_one": "{{count}} term of your company stays masked",
+        "terms_other": "{{count}} terms of your company stay masked",
+        "recognizers": "Always in use: {{names}}",
+        "company": "Only your company's exceptions count",
+        "exceptions_one": "{{count}} exception set by your company",
+        "exceptions_other": "{{count}} exceptions set by your company",
+        "termsStay": "Your company's terms stay masked, whatever is marked here",
+        "policies": "At least: {{policies}}",
+        "guidance": "Your company's guidance is always given to the local reviewer",
+        "data": "Strict data mode stays on",
+        "dataSources": "Strict data mode also covers your company's files and web addresses (file rules: {{files}}, address rules: {{hosts}})",
+        "fields": "Field rules always in use: {{names}}",
+        "fieldsClear_one": "{{count}} field rule of your company keeps a field in clear",
+        "fieldsClear_other": "{{count}} field rules of your company keep a field in clear",
+        "dumpGuard": "Dump guard at {{limit}} or lower",
+        "images": "Images and PDFs, at least: {{images}}",
+        "ocr": "The text in images is always read",
+        "unknownMembers": "New request members stay refused (unknown_members: refuse)",
+        "project": "Latet stays on in this project"
+      }
+    },
+    "shown": {
+      "command": "Command",
+      "code": "Code",
+      "key": "Key",
+      "address": "Address",
+      "token": "Token"
+    },
+    "company": {
+      "needed": "This change applies to everyone on this server, so it needs a session opened with your company account."
+    },
+    "people": {
+      "title": "People and groups",
+      "description": "Who has an account on this server, their groups and roles, and the API keys of its programs. Nobody sees another person's data here.",
+      "list": {
+        "title": "People",
+        "description_one": "{{count}} enabled account. Each person and each API key counts once in the license.",
+        "description_other": "{{count}} enabled accounts. Each person and each API key counts once in the license."
+      },
+      "columns": {
+        "person": "Person",
+        "groups": "Groups",
+        "roles": "Roles",
+        "lastSeen": "Last seen",
+        "actions": "Actions"
+      },
+      "source": {
+        "local": "Added by hand",
+        "scim": "From your identity provider (SCIM)",
+        "oidc": "Made at their first sign-in"
+      },
+      "name": "Name",
+      "namePlaceholder": "Emily Carter",
+      "email": "E-mail",
+      "emailPlaceholder": "emily.carter@acme.com",
+      "add": "Add a person",
+      "added": "Person added",
+      "code": "Code",
+      "codeFor": "{{name}} connects a computer with this command and this code, once, within 24 hours. The code is shown only now:",
+      "codeConnected": "This person has connected a computer already: a new code is made with latet server people code",
+      "disabled": "Disabled",
+      "disabledBy": {
+        "local": "Disabled by an administrator: SCIM does not enable them.",
+        "scim": "Disabled by your identity provider (SCIM)."
+      },
+      "account": {
+        "linked": "Linked to the company account",
+        "waiting": "Waiting for their first sign-in",
+        "scim": "Managed by SCIM"
+      },
+      "never": "Never",
+      "roles": "Roles",
+      "role": "Role",
+      "grant": "Give the role",
+      "granted": "Role given",
+      "revoke": "Take back {{role}}",
+      "revoked": "Role taken back",
+      "through": "{{role}}, through {{group}}",
+      "lastAdmin": "The last administrator: make someone else administrator first",
+      "disable": "Disable",
+      "enable": "Enable",
+      "enabledDone": "{{name}} is enabled again",
+      "disabledDone": "{{name}} is disabled",
+      "disableTitle": "Disable {{name}}?",
+      "disableBody": "The tokens of their computers and their dashboard sessions stop at once, and their place in the license is free. Their data stays on the server, and you can enable them again.",
+      "tokensStill_one": "The SCIM token {{ids}} was made by someone who no longer administers, and it still works. It is not ended when its maker is demoted or disabled: remove it on the Sign-in page if it should stop.",
+      "tokensStill_other": "The SCIM tokens {{ids}} were made by someone who no longer administers, and they still work. They are not ended when their maker is demoted or disabled: remove them on the Sign-in page if they should stop.",
+      "table": {
+        "title": "Roles",
+        "description": "Everyone is a user. The other roles are given here, to a person or to a group.",
+        "role": "Role",
+        "sees": "Sees",
+        "decides": "Decides"
+      }
+    },
+    "groups": {
+      "title": "Groups",
+      "description": "Groups give their members roles and the control of API keys. A group comes from your identity provider, through SCIM or sign-in, or is made here.",
+      "from": {
+        "local": "Made here",
+        "scim": "From SCIM",
+        "oidc": "From sign-in"
+      },
+      "name": "Group name",
+      "namePlaceholder": "Payments",
+      "add": "Add a group",
+      "added": "Group added",
+      "none": "There are no groups.",
+      "roles": "Roles:",
+      "noRole": "none",
+      "members": "Members:",
+      "nobody": "nobody",
+      "fromProvider": "{{name}} (from your provider)",
+      "grant": "Give the role",
+      "pickPerson": "Choose a person",
+      "join": "Add to the group",
+      "joined": "Added to the group",
+      "leave": "Take {{name}} out of the group",
+      "left": "Taken out of the group",
+      "remove": "Remove",
+      "removeTitle": "Remove the group {{name}}?",
+      "removeBody": "Its members keep their accounts; the roles given to the group and its control of API keys go. A group your sign-in settings name comes back at its members' next sign-in.",
+      "removed": "Group removed",
+      "scimRole": "A role given to a group from SCIM is also given to whoever holds a SCIM token: a token can put people in these groups."
+    },
+    "keys": {
+      "title": "API keys",
+      "description": "Programs that belong to no person use an API key. Each enabled key counts once in the license. The people and groups that control a key open its space from their dashboard.",
+      "name": "Key name",
+      "namePlaceholder": "Billing CI",
+      "make": "Make a key",
+      "made": "The key of {{name}}, shown once: give the program the key and the address.",
+      "rotated": "The new key of {{name}}, shown once: the old one has stopped.",
+      "none": "There are no API keys.",
+      "lastUsed": "Last used {{when}}",
+      "neverUsed": "Never used",
+      "open": "Open its space",
+      "rotate": "New key",
+      "rotateTitle": "Give {{name}} a new key?",
+      "rotateBody": "The program's current key stops at once: give it the new one and its address.",
+      "disable": "Disable",
+      "enable": "Enable",
+      "disabledDone": "The key is disabled",
+      "enabledDone": "The key is enabled again",
+      "controllers": "Controlled by:",
+      "administratorsOnly": "administrators only",
+      "pickController": "Give the control to…",
+      "groupOption": "{{name}} (group)",
+      "control": "Give the control",
+      "controlled": "Control given",
+      "release": "Take the control back from {{name}}",
+      "released": "Control taken back"
+    },
+    "signIn": {
+      "title": "Sign-in",
+      "description": "How people sign in to this server with their company account, and how your identity provider creates and disables their accounts.",
+      "readOnly": "Read-only: an administrator changes these settings.",
+      "changed": "Someone else changed the sign-in settings since you opened this page. They are shown again as they are now: make your change once more.",
+      "connect": {
+        "title": "Connect a computer",
+        "description": "Your computers use this server once they are connected. Make a code, then run the command on the computer: it asks for the code.",
+        "make": "Make a code",
+        "shown": "Run this command on the computer and give it this code when it asks. The code works once, for 24 hours, and is shown only now:",
+        "most": "You have {{most}} computers or more connected to your account, the most one person may connect with their own codes. Disconnect one you no longer use, with `latet disconnect` on it or by asking an administrator, then make a code. Your computers are listed on the Rules page, under Advanced.",
+        "tooMany": "You made {{most}} codes in the last hour, the most one person may. Try again later."
+      },
+      "link": {
+        "title": "Link my company account",
+        "description": "Your account on this server is not linked to your company account. Sign in with your company account once, from here, to link them. This works when your company account has the same user name as your account here or, if your account here has no user name, the same e-mail address, as long as your company's identity provider has verified it; otherwise an administrator links it.",
+        "button": "Link my company account"
+      },
+      "sso": {
+        "title": "Single sign-on",
+        "description": "OpenID Connect with your company's identity provider: Microsoft Entra ID, Okta, Google, Keycloak, Authentik or Auth0.",
+        "off": "Single sign-on is off: people open the dashboard from their terminal.",
+        "redirect": "Redirect URI to register at your provider",
+        "issuer": "Issuer",
+        "issuerHelp": "Once people have signed in with it, the issuer is changed with latet server sign-in set, not here.",
+        "clientId": "Client ID",
+        "scopes": "Scopes",
+        "userNameClaim": "User name claim",
+        "userNameClaimHelp": "Once people have signed in, or an account waits for its first sign-in, the user name claim is changed with latet server sign-in set, not here.",
+        "groupsClaim": "Groups claim",
+        "accounts": "Who gets an account at a first sign-in",
+        "accountsScim": "People created through SCIM, or linked by an administrator",
+        "accountsScimHelp": "Nobody else gets an account by signing in. This is the narrowest choice.",
+        "accountsGroup": "Members of the access group",
+        "accountsGroupHelp": "Everyone in the access group gets an account at their first sign-in.",
+        "accountsOpen": "Everyone your provider signs in",
+        "accountsOpenHelp": "Everyone your identity provider lets sign in gets an account at their first sign-in, and each one counts in the license. Choose this only when your provider already limits who may sign in to Latet.",
+        "accessGroup": "Access group",
+        "accessGroupHelp": "Only members of this group of the ID token may sign in: its name or ID, as your provider sends it. Empty: it does not limit who signs in.",
+        "allowedDomains": "Allowed domains",
+        "allowedDomainsHelp": "Google's Workspace domains whose people may sign in, separated by spaces: Google's ID tokens name the person's domain.",
+        "groups": "Groups from sign-in",
+        "groupsHelp": "A group of the ID token, by its ID where your provider has one, and the Latet group its members are put in. Roles are given to that group on the People and groups page. Not used when accounts come from SCIM: SCIM pushes the groups.",
+        "claim": "Group of the ID token",
+        "group": "Latet group",
+        "addGroup": "Add a group",
+        "removeGroup": "Remove this group",
+        "adminByName": "{{claim}} is matched by its name, and the Latet group {{group}} holds the Admin role. On a provider where people make groups, anyone who makes a group of that name becomes an administrator. Map the group by its ID where your provider has one.",
+        "secret": "Client secret",
+        "secretSaved": "Saved, sealed on the server. It is never shown again.",
+        "secretOtherIssuer": "Saved for another issuer: save it again for this one before anyone signs in.",
+        "secretMissing": "Not saved: sign-in cannot work without it.",
+        "secretNew": "New client secret",
+        "saveSecret": "Save the secret",
+        "secretSavedDone": "Client secret saved",
+        "removeSecret": "Forget the secret",
+        "secretRemoved": "Client secret forgotten",
+        "save": "Save",
+        "saved": "Sign-in settings saved",
+        "test": "Test",
+        "testOk_one": "The provider answers: issuer {{issuer}}, {{count}} signing key.",
+        "testOk_other": "The provider answers: issuer {{issuer}}, {{count}} signing keys.",
+        "testFailed": "The provider does not answer as single sign-on needs: {{error}}",
+        "turnOff": "Turn single sign-on off",
+        "turnOffCommand": "While these changes need the company sign-in, single sign-on is turned off on the server, with latet server sign-in off.",
+        "turnOffTitle": "Turn single sign-on off?",
+        "turnOffBody": "People then open the dashboard from their terminal only. The memberships from sign-in go; the groups made here and SCIM's stay.",
+        "turnedOff": "Single sign-on is off"
+      },
+      "scim": {
+        "title": "Provisioning",
+        "description": "SCIM 2.0: your provider creates, changes and disables people on this server, and pushes its groups.",
+        "url": "SCIM address",
+        "noToken": "No token: your provider cannot create, change or disable people here.",
+        "tokenMade": "made on {{date}}",
+        "madeBy": "made by {{name}}",
+        "madeByAdministration": "made with latet server",
+        "makerLeft": "Its maker no longer administers. The token still works: it is not ended when its maker is demoted or disabled, so remove it if it should stop.",
+        "tokenUsed": "last used {{when}}",
+        "tokenUnused": "never used",
+        "tokenEnds": "ends on {{date}}",
+        "tokenNeverEnds": "never ends",
+        "make": "Make a token",
+        "newToken": "The new token, shown once: copy it into your provider now. It ends, as an administration token does: make the next one before then.",
+        "remove": "Remove",
+        "removeTitle": "Remove the token {{id}}?",
+        "removeBody": "Your provider can no longer use it. When it is the last one, your provider can no longer create, change or disable people here; the accounts it made stay.",
+        "removed": "The SCIM token is removed"
+      },
+      "company": {
+        "title": "Changes that apply to everyone",
+        "description": "The policy, people, groups and roles, API keys, these sign-in settings, the license and the codes to connect a computer apply to everyone on this server.",
+        "sso": "These changes need a session opened with your company account. A session opened with latet dashboard reads them, and changes only what is yours.",
+        "anySession": "Any administrator's session makes these changes, one opened with latet dashboard included.",
+        "none": "Single sign-on is not set up, so any administrator's session makes these changes. Once it is, they need a session opened with your company account.",
+        "thisSession": "This session was opened with latet dashboard, so it cannot make these changes. Sign in with your company account to make them.",
+        "command": "A server's administrators set this on the server:",
+        "issuer": "Once people have signed in, the issuer is changed on the server too:"
+      },
+      "problems": {
+        "issuer": "The issuer is an https:// address (http:// only on this computer, for a test).",
+        "clientId": "The client ID is needed.",
+        "openid": "The scopes include openid.",
+        "claimEmpty": "A group of the ID token needs its name or ID.",
+        "claimTwice": "A group of the ID token is written twice.",
+        "groupName": "A Latet group's name is 1 to 80 characters.",
+        "accessGroup": "The access group is needed when its members get an account.",
+        "accessGroupOpen": "Everyone gets an account: leave the access group empty.",
+        "domains": "Google's sign-in needs the Workspace domains whose people get in.",
+        "domainsNotGoogle": "Allowed domains are Google's: elsewhere, use an access group.",
+        "domain": "An allowed domain is a domain name, such as acme.com."
+      }
+    },
+    "space": {
+      "label": "Space",
+      "yours": "Your own",
+      "key": "API key: {{name}}",
+      "bar": "You are in the space of the API key {{name}}: the history, the values and the settings you see are the key's.",
+      "barUnnamed": "You are in the space of an API key: the history, the values and the settings you see are the key's.",
+      "back": "Back to your space"
+    },
+    "notice": {
+      "title": "Computers connected to your account",
+      "computer": "{{label}}, connected {{when}}",
+      "computerGone": "A computer, connected {{when}} and disconnected since",
+      "codeByAdministrator": "A code to connect a computer, made for you by an administrator {{when}}",
+      "codeByYou": "A code to connect a computer, made by you {{when}}",
+      "more_one": "{{count}} older code made by you is not listed.",
+      "more_other": "{{count}} older codes made by you are not listed.",
+      "advice": "If one of these was not you, tell your administrator: disabling your account stops the tokens of your computers.",
+      "seen": "Mark as seen",
+      "goesByItself": "It can be marked as seen from a session opened with your company account. Otherwise it goes by itself 14 days after each entry."
+    },
+    "computers": {
+      "title": "Your computers",
+      "description": "The computers connected to your account now. If one of them is not yours, tell your administrator: disabling your account stops the tokens of your computers.",
+      "none": "No computer is connected to your account.",
+      "unnamed": "A computer with no name",
+      "connectedByAdministrator": "Connected {{when}}, with a code an administrator made",
+      "connectedByYou": "Connected {{when}}, with a code you made",
+      "connected": "Connected {{when}}",
+      "lastUsed": "Last used {{when}}",
+      "neverUsed": "Not used yet"
+    },
+    "reports": {
+      "title": "Reports",
+      "description": "What Latet did for your company: requests, values masked and requests stopped, by group, project, agent, API key and kind of value. Counts only, never a value.",
+      "siemLink": "SIEM",
+      "exportCsv": "Export CSV",
+      "exportJson": "Export JSON",
+      "exported": "Report saved: {{name}}",
+      "companyExport": "Exporting your company's reports requires a session opened with your company account.",
+      "period": "Period",
+      "lastDays_one": "Last {{count}} day",
+      "lastDays_other": "Last {{count}} days",
+      "dates": "Dates",
+      "from": "From",
+      "to": "To",
+      "range": {
+        "format": "Enter real dates as YYYY-MM-DD, from 2000 through 2999.",
+        "order": "The first day must be on or before the last day.",
+        "length": "A report covers at most 366 days, including both dates."
+      },
+      "filters": {
+        "group": "Group",
+        "project": "Project",
+        "agent": "Agent",
+        "category": "Kind of value",
+        "all": "All"
+      },
+      "tiles": {
+        "exchanges": "Requests",
+        "masked": "Values masked",
+        "stopped": "Requests stopped",
+        "stoppedShare": "{{value}} of requests",
+        "decisions": "Live Reviewer decisions",
+        "decisionsHelp": "{{approved}} approved, {{refused}} not sent; {{changes}} changes that lower protection settled",
+        "apps": "Applications API calls",
+        "appsHelp": "{{mask}} to mask texts, {{scan}} to scan them"
+      },
+      "trend": {
+        "up": "Up {{value}} on the period before",
+        "down": "Down {{value}} on the period before",
+        "same": "As in the period before",
+        "new": "Nothing in the period before"
+      },
+      "charts": {
+        "exchanges": "Requests",
+        "exchangesHelp": "Each request an agent or a program sent through Latet, including stopped requests",
+        "masked": "Values masked",
+        "maskedHelp": "Exchanges count values new to a conversation. Applications API calls count each masked value once per call; redacted values count on each replacement.",
+        "stopped": "Requests stopped",
+        "stoppedHelp": "Requests Latet did not send",
+        "day": "Day",
+        "week": "Week",
+        "weekOf": "Week of {{day}}",
+        "byGroup": "By group",
+        "byProject": "By project",
+        "byAgent": "By agent",
+        "byKey": "By API key",
+        "byPerson": "By person",
+        "byApprover": "Decisions by who made them",
+        "byApproverHelp": "Texts decided in the Live Reviewer and changes that lower protection, by the person who decided",
+        "approvals": "Live Reviewer decisions",
+        "changes": "Settings changes",
+        "decidedHelp": "{{approvals}} in the Live Reviewer, {{changes}} changes to the settings",
+        "byCategory": "By kind of value",
+        "byReason": "Why requests were stopped",
+        "breakdownHelp": "Top 200 by requests; the table includes masked and stopped counts and the remaining totals",
+        "rowHelp": "{{masked}} values masked, {{stopped}} requests stopped",
+        "name": "Name",
+        "category": "Kind of value",
+        "values": "Values",
+        "reason": "Reason",
+        "count": "Requests"
+      },
+      "noGroup": "No group",
+      "noProject": "No project",
+      "none": "Nothing in this period.",
+      "noneStopped": "No request was stopped in this period.",
+      "others": "Others ({{count}})",
+      "typeCodes": "Reports use type codes: a custom label such as CLIENT-NAME appears as CLIENT_NAME.",
+      "reasons": {
+        "leak": "A value would have left in clear",
+        "history": "Values in clear from earlier in the conversation",
+        "autoModeReview": "Claude Code's auto mode reviewer",
+        "unread": "A part Latet could not read",
+        "unreadable": "A request Latet could not read",
+        "unreadRequest": "A body, header, parameter or route Latet does not read",
+        "tooLarge": "The decoded request was too large",
+        "notMessages": "A cloud call Latet does not read",
+        "maskingFailed": "Masking failed",
+        "localReviewer": "The local reviewer",
+        "liveReviewer": "Not approved in the Live Reviewer",
+        "settingsChanged": "The settings changed while it was prepared",
+        "awsSigning": "AWS signing",
+        "routeBypass": "A session going around Latet",
+        "outboundTool": "A tool outside the computer",
+        "other": "Other"
+      },
+      "people": {
+        "groupOnly": "No person appears: your company reports by group only. API keys appear by name.",
+        "pseudonymous": "People appear by a pseudonym, the same in every report. API keys appear by name.",
+        "named": "People and API keys appear by name, as your company chose."
+      },
+      "uncounted_one": "{{count}} request was not counted: Latet was too far behind to count it.",
+      "uncounted_other": "{{count}} requests were not counted: Latet was too far behind to count them.",
+      "empty": {
+        "title": "Nothing in this period",
+        "body": "No request, decision or change was logged for these dates and filters."
+      },
+      "paused": {
+        "title": "Reports are paused",
+        "expired": "The license expired on {{date}} and its 30 days of grace are over. Reports return once it is renewed; the log keeps counting meanwhile.",
+        "users": "More people and API keys use Latet than the license covers, for over 30 days. Reports return once a place is freed or the license grows; the log keeps counting meanwhile.",
+        "trialEnded": "The Latet Enterprise trial ended on {{date}}. Reports return once a license is installed; the log keeps what it counted.",
+        "unusable": "The license file cannot be used, or there is none: latet server license show says why. Reports return once a usable license is installed."
+      },
+      "errors": {
+        "forbidden": "You no longer have access to this report. Reload to check your current access.",
+        "large": "This export is too large. Narrow the period or filters and try again.",
+        "busy": "A report or export is still being made. Wait a moment, then try again.",
+        "failed": "The current report could not be loaded. Try again."
+      },
+      "siem": {
+        "title": "Events to your SIEM",
+        "description": "Send events and entries of the administration log to Splunk, a JSON receiver or syslog over TLS. Queued events wait for delivery; each output shows its current state.",
+        "back": "Reports",
+        "add": "Add an output",
+        "empty": {
+          "title": "No output yet",
+          "body": "Add an output to send events to your SIEM."
+        },
+        "readOnly": "Only the security role changes and tests outputs while the license allows it.",
+        "changedMeanwhile": "The outputs changed meanwhile. The previous edit was discarded. Once the current outputs load, make a fresh edit or removal confirmation.",
+        "unknownDate": "time unavailable",
+        "paused": {
+          "expired": "Delivery is paused: the license expired on {{date}} and grace has ended. Renew it to resume queued delivery.",
+          "users": "Delivery is paused: usage has exceeded the licensed places for over 30 days. Free a place or increase the license to resume.",
+          "trialEnded": "Delivery is paused: the Enterprise trial ended on {{date}}. Install a license to resume queued delivery.",
+          "unusable": "Delivery is paused: no usable license is installed. `latet server license show` explains why."
+        },
+        "kinds": {
+          "webhook": "JSON webhook",
+          "splunk": "Splunk HEC",
+          "syslog": "Syslog over TLS"
+        },
+        "fields": {
+          "name": "Name",
+          "kind": "Kind",
+          "url": "Address",
+          "headers": "Headers",
+          "headerName": "Header",
+          "headerValue": "Value",
+          "addHeader": "Add a header",
+          "removeHeader": "Remove this header",
+          "format": "Body",
+          "json": "A JSON array",
+          "ndjson": "One event per line",
+          "secret": "Secret",
+          "secretKept": "A secret is kept for it.",
+          "secretNone": "No usable secret is kept for it.",
+          "secretPlaceholder": "Paste the token or key",
+          "removeSecret": "Remove the saved secret",
+          "secretMoved": "The secret was set for another destination or secret-carrying header. Set it again before it can be used here."
+        },
+        "help": {
+          "name": "Lowercase letters, digits and hyphens, up to 40 characters.",
+          "immutableName": "To rename an output, remove it and add a new one. Removal discards its queued events.",
+          "webhook": "Use https://. The company network is allowed; link-local addresses are refused. Write {secret} in the path, query or header that needs it. Each save and test is recorded in the administration log.",
+          "splunk": "Use the HTTPS Event Collector address. The secret is its HEC token.",
+          "syslog": "Use tls://host:port, port 6514 by default. Syslog over TLS has no delivery acknowledgment.",
+          "secret": "Stored sealed on the server. A destination, path, query or secret-carrying header change requires a replacement. Removing a referenced secret cannot silently disable webhook signing.",
+          "local": "Edit this local output with `latet server siem set` and test it with `latet server siem test`.",
+          "skip": "An administrator can pass the held run with `{{command}}`. Ordinary events are dropped; administration entries leave a recorded gap."
+        },
+        "errors": {
+          "name": "Use lowercase letters, digits and hyphens, up to 40 characters, starting with a letter or digit.",
+          "nameTaken": "Another output has this name.",
+          "url": "Use a valid address for this kind: visible ASCII without spaces, at most 2048 characters, no user information or fragment.",
+          "local": "HTTP and local outputs are edited with latet server siem set.",
+          "token": "The path or query carries a token. Replace it with {secret} and enter its value in Secret.",
+          "header": "Use at most 32 distinct headers, names of 1–64 letters, digits or hyphens, values of up to 4096 visible ASCII characters. Reserved proxy, browser and Latet headers are refused.",
+          "credential": "A credential belongs in Secret. Write {secret} in its place.",
+          "secretNeeded": "Set a usable secret for this binding. A referenced secret cannot be removed without replacement.",
+          "secret": "A secret is a nonempty line of visible ASCII, at most 4096 characters.",
+          "outputs": "At most 50 outputs can be saved."
+        },
+        "status": {
+          "ok": "Last sent {{time}}",
+          "idle": "Nothing sent yet",
+          "failing": "Failing since {{time}}",
+          "held": "Held at a refused run of events since {{time}}. Later events wait.",
+          "heldAdmin": "Held at an entry of the administration log since {{time}}. Later events wait.",
+          "queued_one": "{{count}} event waiting",
+          "queued_other": "{{count}} events waiting",
+          "dropped_one": "{{count}} event dropped",
+          "dropped_other": "{{count}} events dropped",
+          "collapsed_one": "{{count}} administration entry replaced by a gap marker",
+          "collapsed_other": "{{count}} administration entries replaced by a gap marker"
+        },
+        "test": "Send a test event",
+        "testOk": "The test send completed successfully. Syslog does not acknowledge delivery.",
+        "testFail": "The test send failed. Check the output status before trying again.",
+        "edit": "Edit",
+        "remove": {
+          "action": "Remove",
+          "title": "Remove {{name}}?",
+          "body_one": "Its {{count}} waiting event is discarded, its saved secret is removed, and its copy of the administration log ends here.",
+          "body_other": "Its {{count}} waiting events are discarded, its saved secret is removed, and its copy of the administration log ends here.",
+          "nothing": "Nothing is waiting. Its saved secret is removed and its copy of the administration log ends here.",
+          "confirm": "Remove"
+        },
+        "save": "Save",
+        "saved": "SIEM outputs saved.",
+        "failure": {
+          "read": "The current outputs could not be read. Reload before editing or testing.",
+          "failed": "The operation did not complete. Reload and check the current outputs before trying again.",
+          "forbidden": "The server refused this operation. Check your role and license, then reload.",
+          "byCommand": "An output at http:// or on the server's own computer, and its secret, are set with `latet server siem set` and `latet server siem secret`, never from this page. Reload to see the outputs as they are.",
+          "large": "The request is too large. Reload and make a smaller change before submitting again.",
+          "rate": "The server is busy or a rate limit was reached. Wait, reload, then submit deliberately again."
+        }
+      }
+    },
+    "companyApprovals": {
+      "title": "Company approvals",
+      "description": "Changes that lower protection, and texts of the Live Reviewer, that you decide on for your company. A change shows what it lowers, never a value; a text shows as the person sees it, values included.",
+      "empty": {
+        "title": "Nothing waits for your decision",
+        "body": "Changes that lower protection, and the texts your company sends to the security team, show up here. The menu shows how many wait; with notifications on, the browser tells you when one arrives."
+      },
+      "changes": {
+        "title": "Changes to settings",
+        "loosened": "It lowers protection:",
+        "keys": "It changes",
+        "moreReasons_one": "{{count}} more, not listed",
+        "moreReasons_other": "{{count}} more, not listed"
+      },
+      "batches": {
+        "title": "Texts in the Live Reviewer",
+        "label": "Texts waiting"
+      },
+      "group": "Group {{group}}",
+      "apiKey": "API key",
+      "route": {
+        "security": "Security team",
+        "controllers": "Its controllers"
+      },
+      "source": {
+        "file": "Found when the server applied their settings again, after a change to what is set for everyone or to their settings on another of its instances: the settings they approved stay in use until it is decided.",
+        "start": "Found when their space on the server was made: the settings they approved stay in use until it is decided.",
+        "dashboard": "Saved in their dashboard."
+      },
+      "mine": "You asked for it: someone else decides.",
+      "mineTag": "You asked for it",
+      "askedBy": "Made in this API key's space by {{name}}.",
+      "approve": "Approve",
+      "approveHelp": "It applies to their settings at once.",
+      "reject": "Reject",
+      "rejectHelp": "Their settings stay as they are.",
+      "withdraw": "Withdraw",
+      "withdrawHelp": "It stops waiting, and the settings stay as they are.",
+      "approved": "Approved: it applies to {{name}}'s settings.",
+      "rejected": "Rejected: {{name}}'s settings stay as they are.",
+      "withdrawn": "Withdrawn: the settings stay as they are.",
+      "textApproved": "Approved: {{name}}'s text is on its way.",
+      "textRejected": "Not sent: {{name}}'s agent is told so.",
+      "textWithdrawn": "Not sent: your agent is told so.",
+      "more_one": "{{count}} more waits for your decision past the 200 listed: it shows here as these are decided.",
+      "more_other": "{{count}} more wait for your decision past the 200 listed: they show here as these are decided.",
+      "companySignIn": "A text holds what someone's agent sends, values included, so it opens only in a session opened with your company account.",
+      "companySignInDecide": "A decision for your company needs a session opened with your company account.",
+      "textAfterTrial": "The trial has ended: nobody can decide on a text, so none is opened. Whoever sent it can still stop it.",
+      "readFailed": "The list could not be read again: what shows here may have changed meanwhile.",
+      "answer": {
+        "yours": "You asked for it: someone else decides on it. You can withdraw it.",
+        "notYours": "It is not yours to decide on any more: who decides on it changed meanwhile.",
+        "gone": "It no longer waits: someone else decided, or {{name}} withdrew it.",
+        "changed": "The text was masked again while you looked, so nothing was decided: check it as it is now, then decide.",
+        "stale": "{{name}}'s settings changed since it was asked for: it was dropped, and nothing applied. They can ask for it again.",
+        "approvedUnapplied": "Approved, but {{name}}'s settings changed meanwhile and did not take it: nothing applied. They can ask for it again.",
+        "belowFloor": "Rejected: it would go below your company's policy ({{reasons}}).",
+        "unrecorded": "The decision could not be written to the administration log, so nothing was decided: try again.",
+        "openingUnrecorded": "Opening this text could not be written to the administration log, so it is not shown: try again.",
+        "unreached": "{{name}}'s space cannot be reached from this instance of the server now, so it still waits: try again.",
+        "unkept": "{{name}}'s settings could not be saved now, so nothing was decided: try again.",
+        "floorUnavailable": "Your company's policy cannot be read now, so nothing was decided: try again.",
+        "accountUnavailable": "{{name}}'s account cannot be read now, so nothing was decided: try again.",
+        "unexpected": "The decision ended in a way this server does not expect: see what was decided lately, below.",
+        "trialEnded": "The Latet Enterprise trial has ended, so nothing can be decided here now."
+      },
+      "history": {
+        "title": "Decided lately",
+        "empty": "Nothing decided yet.",
+        "when": "When",
+        "what": "What",
+        "who": "Asked by",
+        "decision": "Decision",
+        "by": "By",
+        "nobody": "Nobody",
+        "unrecorded": "Not recorded",
+        "change": "A change to settings",
+        "batch_one": "{{count}} text from {{agent}}",
+        "batch_other": "{{count}} texts from {{agent}}"
+      },
+      "state": {
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "stale": "Dropped: their settings changed",
+        "superseded": "Replaced by a newer one",
+        "withdrawn": "Withdrawn by them",
+        "expired": "Not sent: its time ran out",
+        "abandoned": "Given up by the agent, or lost",
+        "gone": "Gone: the account was disabled or removed",
+        "approvedUnapplied": "Approved, not applied: their settings changed meanwhile",
+        "approvedChanged": "Approved, not sent: stopped before it left"
+      },
+      "notification": {
+        "title": "Something waits for your decision",
+        "change": "{{name}}: a change that lowers protection",
+        "batch": "{{name}}: a text in the Live Reviewer"
+      },
+      "notify": {
+        "help": "A browser notification when something new waits for your decision and this tab is in the background.",
+        "onHelp": "You get a browser notification when something new waits for your decision and this tab is in the background."
+      }
+    },
+    "termSync": {
+      "title": "Term sync",
+      "description": "Your company's lists of customers, colleagues and project code names, masked for everyone the server serves without anyone typing them in.",
+      "runAll": "Sync all now",
+      "run": "Sync now",
+      "running": "Syncing…",
+      "asked": "Asked: the server syncs it now.",
+      "stillRunning": "Still syncing: the page shows its result when it is done.",
+      "notShown": "No result after 15 minutes: the page stopped waiting. Open the page again later to see how the sync went.",
+      "ran_one": "{{source}}: {{n}} term, {{added}} new, {{gone}} no longer in the source",
+      "ran_other": "{{source}}: {{n}} terms, {{added}} new, {{gone}} no longer in the source",
+      "runFailed": "{{source}}: not synced. {{reason}}",
+      "paused": "Term sync is paused by the license: no source is read; the terms synced so far stay masked.",
+      "unreadable_one": "{{n}} synced term was sealed with another master key and cannot be read: the server needs the master key it was sealed with.",
+      "unreadable_other": "{{n}} synced terms were sealed with another master key and cannot be read: the server needs the master key they were sealed with.",
+      "kept_one": "{{n}} of {{most}} term kept",
+      "kept_other": "{{n}} of {{most}} terms kept",
+      "every_one": "every {{count}} minute",
+      "every_other": "every {{count}} minutes",
+      "kind": {
+        "file": "File",
+        "url": "Web address",
+        "graph": "Microsoft Entra ID",
+        "ldap": "LDAP directory"
+      },
+      "state": {
+        "ok": "Synced {{when}}",
+        "failed": "Failed {{when}}: {{reason}}",
+        "never": "Not synced yet",
+        "retired": "No longer set up"
+      },
+      "sources": {
+        "title": "Sources",
+        "empty": "No source is set up yet.",
+        "howTo": "Edit the sources here, or with `latet server terms sources set`.",
+        "name": "Source",
+        "kind": "From",
+        "last": "Last sync",
+        "terms": "Terms",
+        "edit": "Edit the sources",
+        "save": "Save",
+        "cancel": "Cancel",
+        "saved": "Sources saved: {{added}} added, {{removed}} removed, {{changed}} changed.",
+        "changed": "The sources changed since you opened them.",
+        "reload": "Read them again",
+        "signIn": "The sources are shown to a session your company's sign-in opened.",
+        "editorLabel": "The sources, as YAML",
+        "byCommand": "A source at this computer (localhost, 127.0.0.1, [::1]) is set with `latet server terms sources set`, never from the dashboard.",
+        "tooMany": "The dashboard adds or moves 10 sources' destinations an hour at most for each person: try again later."
+      },
+      "secret": {
+        "button": "Secret",
+        "title": "The secret of {{source}}",
+        "value": "Its value",
+        "save": "Save",
+        "remove": "Remove",
+        "removeConfirm": "Remove the secret of {{source}}? It stops syncing until a secret is set again.",
+        "saved": "Kept for {{source}} as it is set up now: point it elsewhere or change what it reads, and set it again.",
+        "removed": "The secret of {{source}} is removed.",
+        "never": "A secret is never shown again.",
+        "where": "It connects to {{addresses}}: the secret is kept for that place and for what the source reads now. Set it only if that is where it belongs.",
+        "signsInAs": "It signs in as {{bind}}.",
+        "whereUnknown": "Where this source connects cannot be shown: read the sources again before you set its secret.",
+        "byCommand": "The secret of a source at this computer (localhost, 127.0.0.1, [::1]) is set with `latet server terms secret`, never from the dashboard."
+      },
+      "gone": {
+        "title": "No longer in the source",
+        "description": "Terms removed at their source stay masked until you remove them here: removing one lowers protection.",
+        "empty": "Every synced term is still in its source.",
+        "signIn": "The terms are shown to a session your company's sign-in opened.",
+        "count_one": "{{n}} no longer in its source",
+        "count_other": "{{n}} no longer in their source",
+        "value": "Term",
+        "type": "Type",
+        "source": "Source",
+        "since": "Gone since",
+        "selectAll": "Select all",
+        "select": "Select {{value}}",
+        "remove_one": "Remove {{count}} term",
+        "remove_other": "Remove {{count}} terms",
+        "confirmTitle_one": "Remove {{count}} term?",
+        "confirmTitle_other": "Remove {{count}} terms?",
+        "confirmBody": "Latet stops masking them for everyone the server serves. A person whose requests already had one masked keeps it in their vault until they forget it.",
+        "confirm": "Remove",
+        "removed_one": "{{count}} term removed",
+        "removed_other": "{{count}} terms removed",
+        "more": "The first {{shown}} of {{total}} are shown."
+      }
+    }
+  },
   "coverage": {
     "title": "Coverage",
     "blocked": {
@@ -2314,6 +3334,8 @@
       "resource": "List the value under request_resources in your settings for this destination.",
       "again": "Sent again, it goes under the settings now in force.",
       "websocket": "A WebSocket takes no request exception in this version of Latet.",
+      "strict": "`unknown_members: refuse`, in your settings, in this project's or in your company's policy, refuses such members. With `unknown_members: check`, Latet reads such a member whole and sends it when nothing in it would be masked and it names no file, address, stored conversation or model.",
+      "strictDocsLink": "What this setting does",
       "none": "No request exception can let this through."
     },
     "outcome": {
@@ -2325,6 +3347,7 @@
     "allowedByRule": "allowed by rule",
     "pass": {
       "checked-only": "checked only (values the final check read and did not need to mask)",
+      "new-member": "a field no request profile names yet, read and checked",
       "image-remainder": "allowed by rule: the rest of an image whose text was read",
       "sent-before": "text sent before in this conversation",
       "model-written": "text the model wrote",
@@ -2390,7 +3413,10 @@
     "issuer": {
       "owner": "Approved by you",
       "person": "Approved by you, on the server",
-      "administration": "Approved by the server's administration"
+      "administration": "Approved by the server's administration",
+      "security": "Approved by {{name}}, of your company's security team",
+      "controllers": "Approved by {{name}}, for this API key",
+      "controllersUnnamed": "Approved by a person who controls this API key, in its space"
     },
     "state": {
       "pending": "Waiting for your approval",
@@ -2399,6 +3425,7 @@
       "expiringLabel": "Ending soon",
       "activeLabel": "Active",
       "forbidden": "Not in force: this edition does not allow permanent exceptions",
+      "notCompany": "Not in force: your company's security team decides on request exceptions, and did not approve this one",
       "expiring_one": "{{count}} day left",
       "expiring_other": "{{count}} days left",
       "until": "Until {{date}}",

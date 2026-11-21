@@ -9,7 +9,7 @@ Autonome Agenten arbeiten selbstständig, stundenlang: Sie lesen Postfächer, su
 Datenbanken ab, führen Befehle aus und rufen APIs auf, und niemand liest jeden Schritt mit. Jede
 Seite, jede Datei und jedes Ergebnis, das sie lesen, geht mit der nächsten Anfrage an das Modell.
 Wenn sie auf Latet zeigen, wird jede dieser Anfragen maskiert, bevor sie Ihren Rechner verlässt,
-und in den Antworten werden dort die echten Werte wieder eingesetzt.
+und in den Antworten werden die echten Werte auf Ihrem Rechner wieder eingesetzt.
 
 Sie laufen über das **Gateway** von Latet, wie jeder OpenAI-kompatible Client: Sie setzen die
 Base-URL des Agenten auf Latet und behalten den API-Schlüssel Ihres Anbieters wie gewohnt im
@@ -66,14 +66,19 @@ HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
 ```
 
 Hermes liest die Datei von selbst neu ein: Seine nächste Nachricht läuft über Latet. Die Variable
-leitet jede Anfrage um, die Hermes mit dieser Anmeldung sendet: das Gespräch und die Arbeit, die er
+leitet jede Anfrage um, die Hermes mit dieser Anmeldung sendet: die Unterhaltung und die Arbeit, die er
 nebenbei demselben Modell übergibt, etwa den Titel einer Sitzung, die Zusammenfassung eines langen
 Kontexts oder das Lesen eines Bildes oder einer Webseite. Sie hat Vorrang vor `model.base_url` in
 `config.yaml`, das Sie lassen können, wie es ist.
 
 - **Ein Latet 0.9.3 oder älter** gibt Hermes die Ersatzwerte statt der echten Werte zurück:
   Aktualisieren Sie Latet zuerst (`latet upgrade`).
-- **Ein Ersatzanbieter mit eigener `base_url`** behält diese Adresse: Setzen Sie in
+- **Ein Latet von 0.11.0 bis 0.12.1** lehnt einige Anfragen von Hermes ab: die einer Unterhaltung,
+  die über seine Kommandozeile oder sein Gateway begonnen wurde (eine Sitzungs-ID, die mit `local-`
+  beginnt), die eines ChatGPT-Workspace mit Datenresidenz und eine fortgesetzte Unterhaltung, deren
+  Antworten ihre Phase mitführen. Latet 0.15.0 lässt jede davon in ihrer genauen Form durch, geprüft am
+  Quellcode von Hermes Agent 0.23.1: Aktualisieren Sie Latet.
+- **Ein Fallback-Anbieter mit eigener `base_url`** behält diese Adresse: Setzen Sie in
   `fallback_providers` auch dort die Adresse von Latet, oder entfernen Sie die Zeile. Sonst geht eine
   Anfrage, die auf ihn ausweicht, ohne jede Maskierung an ChatGPT.
 - Wenn Latet nicht läuft, kann Hermes das Modell nicht erreichen. Das ist Absicht: Nichts geht
@@ -132,7 +137,7 @@ nicht zu den getesteten.
 
 Wählen Sie in den LLM-Einstellungen von OpenHands unter **Advanced** ein benutzerdefiniertes Modell
 mit dem Präfix seines Anbieters (`openai/gpt-5.1`), setzen Sie die Base-URL auf
-`http://127.0.0.1:5283/openai/v1`, und geben Sie Ihren API-Schlüssel ein. Mit der Kommandozeile:
+`http://127.0.0.1:5283/openai/v1`, und geben Sie Ihren API-Schlüssel ein. Über die Befehlszeile:
 
 ```sh
 LLM_MODEL=openai/gpt-5.1 LLM_BASE_URL=http://127.0.0.1:5283/openai/v1 LLM_API_KEY=... \
@@ -164,10 +169,10 @@ sind. Lassen Sie den Agenten auf Ihrem Rechner laufen; unter Linux teilt auch ei
   hat, was darin maskiert wurde und was blockiert wurde.
 - **Lassen Sie ihn Latet sicher verwalten:** Verweisen Sie ihn auf
   [`llms-config.md`](https://github.com/Latet-AI/latet/blob/main/llms-config.md). Was Schutz
-  hinzufügt, wird angewendet; was ihn senkt, wartet im Dashboard auf Ihre Freigabe. Siehe
+  hinzufügt, wird angewendet; was ihn verringert, wartet im Dashboard auf Ihre Freigabe. Siehe
   [Agenten und Ihre Einstellungen](../../concepts/agents-and-settings/).
 
-Jeder dieser vier Agenten ist echt getestet, eingerichtet wie oben: Er schickt eine Aufgabe über
+Jeder dieser vier Agenten wurde im echten Betrieb getestet, eingerichtet wie oben: Er schickt eine Aufgabe über
 Latet an einen Testanbieter, der wie OpenAI antwortet; der Anbieter erhält Ersatzwerte, und der
 Agent bekommt die echten Werte zurück. Wenn ein Agent über Latet nicht funktioniert,
 [eröffnen Sie bitte ein Issue](https://github.com/Latet-AI/latet/issues).

@@ -2,9 +2,12 @@
 
 They are built in: the rules a ``Pass`` may name (what the final check alone read, an image's remainder after its text
 was read, a text sent before in the conversation, what the plugin reported as the model's, a provider's opaque echo
-observed or its encrypted field), at one revision, the same for every request, worker and instance. Nothing sets,
-widens or turns them off: no setting of ``config.yaml``, no variable of the environment, no command's option, no
-repository file, no header (``current`` takes no argument). Phase 1's internal rule that named 0.10's behaviour is gone
+observed or its encrypted field, a member no profile declares read whole and checked), at one revision, the same for
+every request, worker and instance. Nothing widens them or turns them off: no setting of ``config.yaml``, no variable of
+the environment, no command's option, no repository file, no header. One setting takes a rule out and adds none:
+``unknown_members: refuse`` (yours, a project's, a company's policy, never a request's) refuses a member no profile
+declares as Latet did before it read them, and its decisions are made under the snapshot that says so (``current``
+takes that mode alone, notes/unknown-members-design.md §3). Phase 1's internal rule that named 0.10's behaviour is gone
 (P2-6): a request is sent with a complete proof, or under one of these rules visibly, or not at all."""
 
 from __future__ import annotations
@@ -13,8 +16,11 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
+# The rule a member no profile declares is read by where D6's string case and no exception take it
+# (``body_coverage.NEW_MEMBER_RULE``), named here as every rule is: this module imports nothing of the gateway's.
+NEW_MEMBER_RULE = "unknown member read and checked (1)"
 BUILT_IN: frozenset[str] = frozenset(
     {
         "checked only",
@@ -23,9 +29,12 @@ BUILT_IN: frozenset[str] = frozenset(
         "reported as written by the model",
         "observed opaque provider echo (1)",
         "provider encrypted field (1)",
+        NEW_MEMBER_RULE,
     }
 )
-REVISION = "phase-2-policy-1"
+REVISION = "phase-2-policy-2"
+# How a member no request profile declares is read (``config.UnknownMembers``): by the new rule, or refused as before.
+UnknownMembers = Literal["check", "refuse"]
 # What the history and the dashboard say a ``Pass`` rested on (P2-7), one fixed category for each built-in rule, and
 # ``exception`` for a request exception (never its id): the category alone, never what the rule let through.
 PASS_CATEGORIES: dict[str, str] = {
@@ -35,16 +44,20 @@ PASS_CATEGORIES: dict[str, str] = {
     "reported as written by the model": "model-written",
     "observed opaque provider echo (1)": "provider-echo",
     "provider encrypted field (1)": "provider-encrypted",
+    NEW_MEMBER_RULE: "new-member",
 }
 PASSES: frozenset[str] = frozenset({*PASS_CATEGORIES.values(), "exception"})
 
 
 @dataclass(frozen=True, slots=True)
 class PolicySnapshot:
-    """The rules one decision is made under, by name, at one revision: built-in rules alone."""
+    """The rules one decision is made under, by name, at one revision: built-in rules alone, and how a member no request
+    profile declares is read (``unknown_members``): by the new rule (`check`), or refused as before it (`refuse`, whose
+    rules never name it)."""
 
     rules: tuple[str, ...] = tuple(sorted(BUILT_IN))
     revision: str = REVISION
+    unknown_members: UnknownMembers = "check"
 
     def __post_init__(self) -> None:
         if type(self.rules) is not tuple or len(set(self.rules)) != len(self.rules):
@@ -53,18 +66,37 @@ class PolicySnapshot:
             raise ValueError("a policy names built-in rules alone")
         if self.revision != REVISION:
             raise ValueError("not a revision of the rules this version has")
+        if self.unknown_members not in ("check", "refuse"):
+            raise ValueError("not a way to read unknown members")
+        if self.unknown_members == "refuse" and NEW_MEMBER_RULE in self.rules:
+            raise ValueError("a policy that refuses unknown members never names the rule that reads them")
 
     def allows(self, rule: str) -> bool:
         return rule in self.rules
 
 
-BUILT_IN_POLICY = PolicySnapshot()
+# The two snapshots decisions are made under: every built-in rule, or every one but the new rule (``unknown_members:
+# refuse``). The same two objects for every request, worker and instance.
+CHECK_POLICY = PolicySnapshot()
+REFUSE_POLICY = PolicySnapshot(tuple(sorted(BUILT_IN - {NEW_MEMBER_RULE})), unknown_members="refuse")
 
 
-def current() -> PolicySnapshot:
-    """The rules every decision is made under now: the built-in ones, the same for every request, worker and
-    instance."""
-    return BUILT_IN_POLICY
+def current(unknown_members: UnknownMembers = "check") -> PolicySnapshot:
+    """The rules a decision is made under now, as its request reads a member no profile declares (as the settings in use
+    and its project say, ``protection.effective_unknown_members``; never as the request says): the built-in ones, the
+    same for every request, worker and instance of that mode."""
+    if unknown_members == "check":
+        return CHECK_POLICY
+    if unknown_members == "refuse":
+        return REFUSE_POLICY
+    raise ValueError("not a way to read unknown members")
+
+
+def is_current(policy: object) -> bool:
+    """Whether ``policy`` is the snapshot in force for its own mode (``current``): the very object, never one equal to
+    it, nor one of a mode this version does not have."""
+    mode = getattr(policy, "unknown_members", None)
+    return (mode == "check" or mode == "refuse") and policy is current(mode)
 
 
 def body_protocol(profile: str) -> str | None:
@@ -73,10 +105,11 @@ def body_protocol(profile: str) -> str | None:
     Bedrock's and Vertex's Claude calls, a company's Bedrock and Vertex routes (``anthropic``); chat completions and
     completions, Azure's, Foundry's and Gemini's OpenAI-compatible ones (``chat``); responses, Codex's included
     (``responses``); embeddings (``embeddings``); Gemini's own calls (``gemini``). None: a profile with no body (a
-    model list, a model read, Bedrock's inference profiles), where no body component applies."""
+    model list, a model read, Bedrock's inference profiles, Claude Code's preconnect), where no body component
+    applies."""
     parts = profile.split(".")
     operation = parts[-2] if len(parts) >= 3 else ""
-    if operation in {"models", "model", "inference-profile", "inference-profiles"}:
+    if operation in {"models", "model", "inference-profile", "inference-profiles", "hello"}:
         return None
     if parts[0] in {"anthropic", "bedrock", "vertex"} or profile.startswith(("company.bedrock.", "company.vertex.")):
         return "anthropic"
@@ -203,15 +236,32 @@ def body_exception_ids(rules: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(rule[len("exception ") :] for rule in rules if rule.startswith("exception ")))
 
 
-def in_force(config: Any, now: datetime, *, permanent_allowed: bool = True) -> tuple[Any, ...]:
+# Who approved a request exception that grants where the company decides on them (``Floor.decides_exceptions``: Latet
+# Enterprise's `exceptions: company`): its security team, through central approvals, and a server's administration,
+# whose save of an API key's settings approves what it adds. One its owner approved (``owner``, ``person``), one an API
+# key's other controllers approved, or one stamped before Latet named who approved it grants nothing there, a permanent
+# one included (approved while each person decided on theirs, it counts again if the policy goes back to that).
+COMPANY_ISSUERS: frozenset[str] = frozenset({"security", "administration"})
+
+
+def counted(row: Any, *, company: bool) -> bool:
+    """Whether ``row``'s approval counts: always where each person decides on their own exceptions, and only one the
+    company's security team or the administration approved (``COMPANY_ISSUERS``) where the company decides on them
+    (``company``: the floor's ``decides_exceptions``)."""
+    return not company or row.issuer in COMPANY_ISSUERS
+
+
+def in_force(config: Any, now: datetime, *, permanent_allowed: bool = True, company: bool) -> tuple[Any, ...]:
     """The request exceptions of ``config`` that grant something at ``now`` (D3, R-100): approved (stamped by Latet as
-    you approved them: one pending, rejected or written by hand grants nothing), within their lifetime (a permanent
-    one always, unless the edition forbids permanent ones: ``permanent_allowed``), and approved under the request
-    profiles this version has or one carried over (one approved under another revision is suspended: it needs approval
-    again). ``now`` is the decision's clock: PostgreSQL's on a server, this computer's otherwise."""
+    you approved them: one pending, rejected or written by hand grants nothing), by someone whose approval counts
+    (``counted``: where the company decides on them, ``company``, its security team or the administration), within
+    their lifetime (a permanent one always, unless the edition forbids permanent ones: ``permanent_allowed``), and
+    approved under the request profiles this version has or one carried over (one approved under another revision is
+    suspended: it needs approval again). ``now`` is the decision's clock: PostgreSQL's on a server, this computer's
+    otherwise."""
     out = []
     for row in config.request_exceptions:
-        if not row.approved or not carried(row):
+        if not row.approved or not carried(row) or not counted(row, company=company):
             continue
         if row.permanent and not permanent_allowed:
             continue
@@ -233,12 +283,17 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def listed(config: Any, now: datetime, *, permanent_allowed: bool = True) -> list[dict[str, Any]]:
+# The state of an approved exception whose approval does not count where the company decides (``counted``).
+NOT_THE_COMPANYS = "not approved by the company"
+
+
+def listed(config: Any, now: datetime, *, permanent_allowed: bool = True, company: bool) -> list[dict[str, Any]]:
     """Each request exception of ``config`` as it stands at ``now``, for `latet doctor`, the server's status and the
     dashboard: Latet's id, its destination, its scope's category (``identity`` or ``project``), whether it is
-    permanent, its state (``pending``, ``needs approval again (profile revised)``, ``expired``, ``expiring``,
-    ``active``, ``permanent``, ``forbidden``) and its end with the days left. Never its description, its project's
-    folder or what it names."""
+    permanent, its state (``pending``, ``needs approval again (profile revised)``, ``not approved by the company``
+    where the company decides on them and someone else approved it, ``company``: ``counted``, ``expired``,
+    ``expiring``, ``active``, ``permanent``, ``forbidden``) and its end with the days left. Never its description, its
+    project's folder or what it names."""
     out: list[dict[str, Any]] = []
     for row in config.request_exceptions:
         ends = row.expires()
@@ -246,6 +301,8 @@ def listed(config: Any, now: datetime, *, permanent_allowed: bool = True) -> lis
             state = "pending"
         elif not carried(row):
             state = "needs approval again (profile revised)"
+        elif not counted(row, company=company):
+            state = NOT_THE_COMPANYS
         elif row.permanent:
             state = "permanent" if permanent_allowed else "forbidden"
         elif ends is not None and now >= ends:
@@ -270,7 +327,10 @@ def listed(config: Any, now: datetime, *, permanent_allowed: bool = True) -> lis
 
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalAuthority:
-    """Applied local producers only; checking this never loads settings or contacts a store."""
+    """Applied local producers only; checking this never loads settings or contacts a store. ``rules`` and ``tag``: the
+    rules' count and the stamp of the terms a company syncs (``Masker.stamp``, Latet Enterprise: this process's change
+    of them, never the same twice), as it was captured: a sync is a change of the rules here, as a change of the
+    company's locked terms is (which moves the count), the same terms coming back after one too."""
 
     policy: PolicySnapshot
     engine: Any = field(repr=False)
@@ -282,17 +342,22 @@ class LocalAuthority:
     facts: tuple[object, ...] = field(default=(), repr=False)
     off: bool = False
     empty: bool = False
+    tag: str = field(default="", repr=False)
 
     @classmethod
     def capture(cls, engine: Any, upstream: Any, routes: Any = None, path: str = "") -> LocalAuthority:
-        return cls(current(), engine, engine.rules_version, upstream, routes, path)
+        return cls(current(), engine, engine.rules_version, upstream, routes, path, tag=engine.masker.stamp)
+
+    def _rules_now(self) -> bool:
+        """The rules it was captured under are those in force: the same count, and the same synced terms."""
+        return self.rules == self.engine.rules_version and self.tag == self.engine.masker.stamp
 
     def rederivable(self) -> bool:
-        """Invalid only because the settings moved (a newer policy or rules version, or settings being applied) while
-        its route still selects the same destination: it may be taken again under the rules in force once they are all
-        in place. Its launch is the launch authority's one freshness check, awaited where it is sent
-        (``RequestScope.protected_current``)."""
-        moving = self.policy is not current() or self.rules != self.engine.rules_version or self.engine.applying
+        """Invalid only because the settings moved (a newer policy or rules version, the terms a company syncs, or
+        settings being applied) while its route still selects the same destination: it may be taken again under the
+        rules in force once they are all in place. Its launch is the launch authority's one freshness check, awaited
+        where it is sent (``RequestScope.protected_current``)."""
+        moving = not is_current(self.policy) or not self._rules_now() or self.engine.applying
         return bool(moving) and self._same_route()
 
     def valid(self) -> bool:
@@ -302,8 +367,8 @@ class LocalAuthority:
         its last move, so a check that finds it lowered finds that move too."""
         return (
             not self.engine.applying
-            and self.policy is current()
-            and self.rules == self.engine.rules_version
+            and is_current(self.policy)
+            and self._rules_now()
             and self._same_route()
             and (self.session is None or self.facts == session_facts(self.session))
         )

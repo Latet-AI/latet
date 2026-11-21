@@ -91,7 +91,7 @@ Gestreamte Antworten funktionieren genauso, Stück für Stück.
 
 LangChain, LangGraph, AutoGen und CrewAI erreichen das Modell über die offiziellen SDKs oder über
 LiteLLM, die die Variablen lesen, die `latet run` setzt: Starten Sie Ihr Programm mit `latet run`,
-wie jedes Skript. Jedes davon ist echt über Latet getestet, eingerichtet wie unten:
+wie jedes Skript. Jedes davon wurde im echten Betrieb über Latet getestet, eingerichtet wie unten:
 
 | Framework | Einrichtung | Getestet |
 | --- | --- | --- |
@@ -105,8 +105,8 @@ die von Anthropic.
 
 Aider erreicht das Modell über LiteLLM, das `OPENAI_API_BASE` liest: Starten Sie es mit
 `latet run aider --model openai/gpt-5.1`, oder tragen Sie
-`openai-api-base: http://127.0.0.1:5283/openai/v1` in seine `.aider.conf.yml` ein. Es ist auf
-dieselbe Weise echt getestet.
+`openai-api-base: http://127.0.0.1:5283/openai/v1` in seine `.aider.conf.yml` ein. Es wurde auf
+dieselbe Weise im echten Betrieb getestet.
 
 **Was Latet nicht sieht.** Latet sitzt zwischen Ihrem Programm und dem Modell, und nirgendwo sonst.
 Ein Tool, das Ihr Agent selbst aufruft, etwa eine Websuche-API, eine Datenbank oder ein
@@ -125,15 +125,18 @@ Klartext gesendet.
 - **Bilder**, die als `data:`-URLs gesendet werden, werden gelesen und maskiert, mit der optionalen
   [Texterkennung](../../concepts/images/); ohne sie wird eine Anfrage mit einem Bild nicht gesendet.
   Bilder, die über ihre Adresse angegeben sind, Audio und Dateien werden abgelehnt.
-- **Das Auflisten der Modelle und das Lesen eines Modells** gehen bei OpenAI, Anthropic und
+- **Das Auflisten der Modelle und das Abrufen eines Modells** gehen bei OpenAI, Anthropic und
   OpenRouter durch. **Jede andere Anfrage** (Dateien, Batches, Audio, Bilderzeugung, Moderation, das
-  Abrufen einer gespeicherten Antwort) wird abgelehnt, ebenso ein Header, ein Abfrageparameter oder
-  ein Element des Inhalts, das kein Profil nennt: Ihre eigenen `default_headers` oder `extra_body` in
-  einem SDK zum Beispiel, bis eine [genaue Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen)
-  sie durchlässt. Die eigenen Telemetrie- und Tracing-Header der SDKs
-  (`x-stainless-*`, `traceparent`...) werden entfernt und gezählt. Was
-  Latet auf den Routen von Google liest, steht unter
-  [Gemini CLI und Google GenAI](../gemini/#was-das-gateway-liest).
+  Abrufen einer gespeicherten Antwort) wird abgelehnt, ebenso ein Header oder ein Abfrageparameter,
+  den kein Profil nennt: Ihre eigenen `default_headers` in einem SDK zum Beispiel, bis eine [genaue
+  Ausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) sie
+  durchlässt. Ein Element des Bodys, das noch kein Profil nennt, etwa eines in den `extra_body`
+  eines SDKs, wird ganz gelesen und geprüft und geht unverändert durch, wenn darin nichts maskiert
+  werden müsste und es nichts nennt, worauf der Anbieter handelt ([Neue Elemente in
+  Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)). Die eigenen
+  Telemetrie- und Tracing-Header der SDKs (`x-stainless-*`, `traceparent`...) werden entfernt und
+  gezählt. Was Latet auf den Routen von Google liest, steht unter [Gemini CLI und Google
+  GenAI](../gemini/#was-das-gateway-liest).
 
 Eine Anfrage an Anthropic, die von Claude Code kommt oder das Token eines Claude-Abonnements
 enthält, wird nie umgeschrieben: Sie wird nur geprüft und blockiert, wenn ein sensibler Wert darin

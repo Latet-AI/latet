@@ -123,16 +123,25 @@ def _strip(line: str, start: int, end: int) -> tuple[int, int]:
 
 
 def _split(line: str, sep: str) -> list[tuple[int, int]]:
-    """Fields of a separated line as (start, end), outside double quotes; quotes are left out."""
-    fields, start, quoted, i = [], 0, False, 0
-    while i < len(line):
-        c = line[i]
-        if c == '"':
-            quoted = not quoted
-        elif c == sep and not quoted:
-            fields.append((start, i))
-            start = i + 1
-        i += 1
+    """Fields of a separated line as (start, end), outside double quotes; quotes are left out.
+
+    The separators and the quotes are searched for (``str.find``), each part of the line once: a line read a character
+    at a time in Python cost most of a long read of saved sessions (``latet leak``), whose code and prose are full of
+    commas. Each quote opens or closes a quoted run, in which a separator is none."""
+    fields, start = [], 0
+    at, quote = line.find(sep), line.find('"')
+    while at >= 0:
+        if quote < 0 or at < quote:
+            fields.append((start, at))
+            start = at + 1
+            at = line.find(sep, start)
+            continue
+        closed = line.find('"', quote + 1)
+        if closed < 0:
+            break  # quoted to its end: no separator after counts
+        quote = line.find('"', closed + 1)
+        if at < closed:
+            at = line.find(sep, closed + 1)
     fields.append((start, len(line)))
     out = []
     for a, b in fields:
@@ -216,6 +225,16 @@ def _pipe_tables(lines: list[tuple[int, str]], rule: re.Pattern[str], outer: boo
     return cells, used
 
 
+def _may_be_named(header: str, sep: str) -> bool:
+    """Whether the first field of ``header`` may be a column's name, seen before the line is split: most lines with a
+    comma are code or prose, whose first field is none. A quote before the first separator: the split tells."""
+    first = header[: header.find(sep)]
+    if '"' in first:
+        return True
+    start, end = _strip(first, 0, len(first))
+    return _COLUMN.match(first[start:end]) is not None
+
+
 def _delimited(lines: list[tuple[int, str]], used: set[int]) -> list[Cell]:
     """CSV, TSV and semicolon tables: a header of names, then rows with as many fields."""
     cells: list[Cell] = []
@@ -226,7 +245,10 @@ def _delimited(lines: list[tuple[int, str]], used: set[int]) -> list[Cell]:
             continue
         header = lines[i][1]
         sep = next((s for s in ("\t", ",", ";") if s in header), None)
-        names = [header[a:b] for a, b in _split(header, sep)] if sep else []
+        if sep is None or not _may_be_named(header, sep):
+            i += 1
+            continue
+        names = [header[a:b] for a, b in _split(header, sep)]
         if len(names) < 2 or not all(_COLUMN.match(n) for n in names):
             i += 1
             continue

@@ -117,7 +117,7 @@ function remote(on: On, options: Options = {}) {
     calls.push(input)
     let response: unknown
     switch (input.op) {
-      case 'ping': response = { ok: true, version: '0.12.1' }; break
+      case 'ping': response = { ok: true, version: '0.15.0' }; break
       case 'route-check': response = options.verdict === undefined ? { ok: true } : options.verdict; break
       case 'scope': response = { ok: true }; break
       case 'instructions': response = { findings: [] }; break
@@ -324,6 +324,41 @@ for (const [name, failed] of badOutputs) {
     expect(result.drop).toBeTruthy()
     expect(result.text).toBeUndefined()
     expect(seen.calls.slice(before).map((input) => input.op)).toEqual(['mask'])
+    noDiagnostics(seen, result.drop)
+  })
+}
+
+test("a text the company's security team reviews is said so through the helper, with the server's names", async ($, on) => {
+  const seen = remote(on, { result: (input, valid) => input.op === 'mask'
+    ? success({ pending: 'task6pending', viewers: 0, decides: 'security', deciders: ['Mark Ellis'] }) : valid })
+  await start($)
+  const result = await $.prompt.submit({ text: 'my key SECRET-123', wait: false, origin: { kind: 'composer' } })
+  expect(result.text).toBe('my key FAKE-999')
+  expect(seen.diagnostics).toEqual([
+    "Latet: your company's security team (Mark Ellis) reviews your new texts before they are sent; they see them as you do.",
+  ])
+  noDiagnostics(seen)
+})
+
+// Who decides, in a shape the server never answers: refused as any other answer of the wrong shape.
+const badDeciders: [string, Record<string, unknown>][] = [
+  ['who decides that is not a string', { decides: 1 }],
+  ['deciders that are not a list', { decides: 'security', deciders: 'Mark Ellis' }],
+  ['a decider that is an object', { decides: 'security', deciders: [{}] }],
+  ['a decider that is a number', { decides: 'security', deciders: ['Mark Ellis', 7] }],
+]
+
+for (const [name, who] of badDeciders) {
+  test(`remote ${name} is refused, and the prompt withheld`, async ($, on) => {
+    const seen = remote(on, { result: (input, valid) => input.op === 'mask'
+      ? success({ pending: 'task6pending', viewers: 1, ...who }) : valid })
+    await start($)
+    const before = seen.calls.length
+    const result = await $.prompt.submit({ text: 'withhold SECRET-123', wait: false, origin: { kind: 'composer' } })
+    expect(result.drop).toBeTruthy()
+    expect(result.text).toBeUndefined()
+    expect(seen.calls.slice(before).map((input) => input.op)).toEqual(['mask'])
+    expect(seen.diagnostics.join(' ')).not.toContain('security team')
     noDiagnostics(seen, result.drop)
   })
 }

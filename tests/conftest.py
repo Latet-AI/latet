@@ -3,6 +3,7 @@ import base64
 import errno
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -83,6 +84,32 @@ settings.register_profile("dev", max_examples=300, **_SLOW_OK)
 settings.register_profile("ci", max_examples=3_000, **_SLOW_OK)
 settings.register_profile("deep", max_examples=10_000, **_SLOW_OK)
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
+
+EE_TESTS = Path(__file__).parent / "ee"
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--without-ee",
+        action="store_true",
+        help="Run as the Community Edition alone: latet.ee cannot be imported, and tests/ee/ is not collected.",
+    )
+
+
+def pytest_configure(config):
+    if config.getoption("--without-ee"):
+        sys.modules["latet.ee"] = None  # `import latet.ee` fails as if src/latet/ee/ were not there
+        # A conftest of the files named on the command line (tests/server/'s) may have imported the server's database
+        # before this: its migrations become what they are without src/latet/ee/.
+        db = sys.modules.get("latet.server.db")
+        if db is not None and "latet.ee.migrations" in db.MIGRATIONS:
+            db.MIGRATIONS.remove("latet.ee.migrations")
+
+
+def pytest_ignore_collect(collection_path, config):
+    if config.getoption("--without-ee") and (collection_path == EE_TESTS or EE_TESTS in collection_path.parents):
+        return True
+    return None
 
 
 @pytest.fixture(autouse=True)

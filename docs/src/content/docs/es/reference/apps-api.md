@@ -30,14 +30,14 @@ rechaza:
   esquema distinto de `Bearer`, o con un token que no conoce (revocado, rotado, de una clave
   desactivada o eliminada);
 - con **403**, el token del equipo de una persona, un token sin el permiso de la operación, y
-  cualquier solicitud que lleve una cabecera `Origin` o `Sec-Fetch-Site`, como las de un navegador: la
+  cualquier petición que lleve una cabecera `Origin` o `Sec-Fetch-Site`, como las de un navegador: la
   API es para programas, nunca para una página web.
 
-Los tokens que el servidor rechaza cuentan contra la dirección de la que vienen, como en todas las
+Los tokens que el servidor rechaza cuentan para la dirección de la que vienen, como en todas las
 rutas del servidor: por encima del límite, 429. Llama al servidor por HTTPS; si no, el token y los
 textos viajan en claro.
 
-## Solicitudes
+## Peticiones
 
 | Operación | Ruta | Permiso | Cuerpo |
 | --- | --- | --- | --- |
@@ -46,14 +46,14 @@ textos viajan en claro.
 | Restauración | `POST /_latet/apps/v1/unmask` | `unmask` | `{"texts": [...]}` |
 | Olvido | `POST /_latet/apps/v1/forget` | `forget` | `{"values": [...]}` |
 
-- `texts` es una lista de 1 a 1.000 cadenas, que se responden en el mismo orden. Un texto vacío vuelve
+- `texts` es una lista de 1 a 1000 cadenas, que se responden en el mismo orden. Un texto vacío vuelve
   como está, sin hallazgos y con `restored: 0`.
-- `values` es una lista de 1 a 1.000 cadenas, los valores que deben salir de la caja fuerte de la clave,
+- `values` es una lista de 1 a 1000 cadenas, los valores que se deben quitar de la caja fuerte de la clave,
   cada uno buscado exactamente como está escrito ([olvidar valores](../../applications/forget/)).
 - `kind` es `prose` (texto escrito por personas, el predeterminado) o `data` (registros, fichas, la
   salida de un programa); consulta [prosa y datos](../../applications/#prosa-y-datos). `null` u otra
   palabra se rechaza. La restauración no lleva `kind`.
-- El cuerpo es un objeto JSON de como mucho el `apps_request_mb` del servidor (8 MiB si sus ajustes no
+- El cuerpo es un objeto JSON que ocupa como mucho el `apps_request_mb` del servidor (8 MiB si sus ajustes no
   dicen otra cosa, nunca más que su `max_request_mb`).
 
 El análisis y la restauración con curl, con el token pasado por la entrada estándar como en
@@ -108,8 +108,8 @@ por su valor, y cuántos valores distintos restauró:
               "restored": 2}]}
 ```
 
-**El olvido** dice cuántos de los valores guardaba la caja fuerte de la clave, que ya se fueron con sus
-valores ficticios, y cuántos no guardaba, contando cada valor una vez:
+**El olvido** dice cuántos de los valores guardaba la caja fuerte de la clave, que ya se han borrado junto con
+sus valores ficticios, y cuántos no guardaba, contando cada valor una vez:
 
 ```json
 {"forgotten": 1, "unknown": 1}
@@ -135,21 +135,21 @@ revisor local) o `struct` (el modo de datos estricto).
 
 Un error es `{"error": "<palabras>"}`. Las palabras, en inglés, son para personas: nunca citan un texto
 enviado, y los rechazos de la entrada del servidor (autenticación, límites) empiezan por `latet: `.
-Decide según el estado.
+Decide según el código de estado.
 
 | Estado | Cuándo | Qué hacer |
 | --- | --- | --- |
-| 400 | El cuerpo no es un objeto JSON con `texts` una lista de 1 a 1.000 cadenas y, para análisis y enmascaramiento, un `kind` que sea `prose` o `data`; para el olvido, con `values` una lista de 1 a 1.000 cadenas. | Corregir la llamada. |
+| 400 | El cuerpo no es un objeto JSON con `texts` una lista de 1 a 1000 cadenas y, para análisis y enmascaramiento, un `kind` que sea `prose` o `data`; para el olvido, con `values` una lista de 1 a 1000 cadenas. | Corregir la llamada. |
 | 401 | Ningún token, dos cabeceras `Authorization`, otro esquema, o un token que el servidor no conoce. | Comprobar el token; pedir uno nuevo. |
-| 403 | Al token le falta el permiso (`this token lacks the mask permission`), es el token de una persona, o una página web hizo la solicitud. | Usar un token con el permiso. |
+| 403 | Al token le falta el permiso (`this token lacks the mask permission`), es el token de una persona, o una página web hizo la petición. | Usar un token con el permiso. |
 | 404 | Otra ruta bajo `/_latet/apps/v1/`. | |
 | 405 | Otro método distinto de `POST` (`Allow: POST`). | |
 | 413 | El cuerpo supera `apps_request_mb`. | Enviar menos textos por llamada. |
 | 422 | Análisis, enmascaramiento y restauración: los textos nombran más de 100.000 valores o valores ficticios de la caja fuerte, más de los que una llamada puede sopesar. No se enmascaró ni restauró nada. | Enviar menos textos por llamada. |
-| 429 | Demasiados tokens rechazados desde esta dirección, o la clave tiene `requests_in_flight` solicitudes de aplicaciones en esta instancia (16 si los ajustes no dicen otra cosa). | Esperar `Retry-After` y volver a intentarlo. |
+| 429 | Demasiados tokens rechazados desde esta dirección, o la clave tiene `requests_in_flight` peticiones de aplicaciones en esta instancia (16 si los ajustes no dicen otra cosa). | Esperar `Retry-After` y volver a intentarlo. |
 | 500 | Otro fallo; sus palabras no nombran ningún valor. | Volver a intentarlo; avisar al administrador si persiste. |
-| 503 | Un almacén del servidor no respondió, el espacio de la clave no está disponible ahora en esta instancia, o el registro de administración no aceptó la entrada: en la restauración no se restauró nada, en el olvido no se olvidó nada. Análisis, enmascaramiento y restauración también responden 503 cuando los ajustes de la clave se estaban aplicando al llegar la llamada o mientras se preparaba su respuesta (`the settings of this space changed while the call was answered: send it again`): no volvió nada de la llamada. | Esperar (`Retry-After` si viene), y volver a intentarlo. |
-| 507 | Solo en el enmascaramiento: la caja fuerte de la clave tiene el máximo de valores que puede. No volvió nada de la llamada, y nada salió en claro. | Un administrador sube el límite con `latet server keys limit`. |
+| 503 | Un almacén del servidor no respondió, el espacio de la clave no está disponible ahora en esta instancia, o el registro de administración no aceptó la entrada: en la restauración no se restauró nada, en el olvido no se olvidó nada. Análisis, enmascaramiento y restauración también responden 503 cuando los ajustes de la clave se estaban aplicando al llegar la llamada o mientras se preparaba su respuesta (`the settings of this space changed while the call was answered: send it again`): no se respondió nada de la llamada. | Esperar (`Retry-After` si viene), y volver a intentarlo. |
+| 507 | Solo en el enmascaramiento: la caja fuerte de la clave ya tiene el número máximo de valores que admite. No se respondió nada de la llamada, y nada salió en claro. | Un administrador sube el límite con `latet server keys limit`. |
 
 Un enmascaramiento o una restauración se pueden repetir sin riesgo: un valor que la caja fuerte
 conservó recibe de nuevo el mismo valor ficticio, y un valor que una llamada fallida no conservó
@@ -160,30 +160,33 @@ recibe otra vez uno. Un olvido también se puede repetir: un valor que ya no est
 ## Cabeceras
 
 - Cada respuesta dice `Cache-Control: no-store`: ninguna caché guarda un texto o un valor.
+- Cada respuesta dice `Content-Security-Policy: default-src 'none'; sandbox`: un navegador que abre una
+  no ejecuta en ella ningún script y nunca la trata como una página del servidor. Los clientes HTTP ignoran
+  esta cabecera.
 - `Retry-After`, en segundos, acompaña a cada 429, y a algunos 503.
 
 ## Límites
 
 | Límite | Valor | Lo fija |
 | --- | --- | --- |
-| Textos por llamada, o valores por olvido | 1.000 | Latet |
+| Textos por llamada, o valores por olvido | 1000 | Latet |
 | Cuerpo de una llamada | 8 MiB | `apps_request_mb` del servidor |
-| Solicitudes de aplicaciones simultáneas de una clave en una instancia | 16 | `requests_in_flight` del servidor |
+| Peticiones de aplicaciones simultáneas de una clave en una instancia | 16 | `requests_in_flight` del servidor |
 | Valores o valores ficticios de la caja fuerte que pueden nombrar los textos de una llamada | 100.000 | Latet |
 | Valores que admite la caja fuerte de una clave | 200.000 | `vault_limit` del servidor, o el propio de la clave: `latet server keys limit` |
-| Valores de la caja fuerte de una clave que una instancia guarda en memoria | 5.000 | `key_working_values` del servidor |
+| Valores de la caja fuerte de una clave que una instancia guarda en memoria | 5000 | `key_working_values` del servidor |
 
 ## Qué registra el servidor
 
 - **El registro de administración** recibe una entrada `apps.unmasked` por cada llamada de
-  restauración a la que se responde, antes de enviar la respuesta: el id del token, cuántos textos y
+  restauración a la que se responde, antes de enviar la respuesta: el ID del token, cuántos textos y
   cuántos valores se restauraron (`{"token": "t_...", "texts": 3, "restored": 5}`), y la dirección
   del cliente. Nunca un texto ni un valor. El análisis y el enmascaramiento no aparecen en él. Lee
   esas entradas con `latet server log --action apps.unmasked`. Cada llamada de olvido es una entrada
-  `apps.forgotten`, escrita en la misma transacción que el olvido: el id del token, cuántos valores
+  `apps.forgotten`, escrita en la misma transacción que el olvido: el ID del token, cuántos valores
   se pidieron, se olvidaron y no estaban
   (`{"token": "t_...", "values": 2, "forgotten": 1, "unknown": 1}`), y la dirección del cliente.
-- **Las métricas** cuentan las solicitudes de la API como `latet_http_requests_total{kind="apps"}`,
+- **Las métricas** cuentan las peticiones de la API como `latet_http_requests_total{kind="apps"}`,
   por estado, y sus textos y valores por operación: `latet_apps_texts_total{operation}` y
   `latet_apps_values_total{operation}` (los valores que encontró el análisis, que sustituyó el
   enmascaramiento y que devolvió la restauración; en el olvido, los valores pedidos y los olvidados).

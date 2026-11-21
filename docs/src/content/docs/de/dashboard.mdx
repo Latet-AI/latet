@@ -8,6 +8,10 @@ import Screenshot from '../../../components/Screenshot.astro';
 Das Dashboard ist eine lokale Webseite, die der Daemon von Latet bereitstellt. Es beantwortet eine
 Frage: **Was hat mein Agent tatsächlich gesendet?**
 
+Es zeigt die Anfragen, die über Latet gingen, so lange, wie sein Verlauf sie aufbewahrt. Die
+Sitzungen, die Ihre Agenten vor Latet oder an Latet vorbei gespeichert haben, stehen nicht darin:
+[`latet leak`](../concepts/leaks/) durchsucht sie nach Geheimnissen.
+
 ## Das Dashboard öffnen
 
 ```sh
@@ -52,7 +56,7 @@ verwalten](../getting-started/server/) ist die Anleitung für die Administratore
 
 ### Live
 
-<Screenshot name="live" alt="Die Seite Live: jede Anfrage mit ihrem Agenten, Modell, Zeitverhalten, Tokens, maskierten Werten und Markierungen" caption="Live: jede Anfrage in Echtzeit." />
+<Screenshot name="live" alt="Die Seite Live: jede Anfrage mit ihrem Agenten, Modell, Dauer, Tokens, maskierten Werten und Markierungen" caption="Live: jede Anfrage in Echtzeit." />
 
 Jeder Austausch in Echtzeit: Agent, Anbieter, Modell, wie lange er gedauert hat und wie
 viel davon auf Latet entfiel, Token-Verbrauch (einschließlich der aus dem Prompt-Cache gelesenen
@@ -68,7 +72,7 @@ die begann, bevor Latet aktiv war: siehe [Fehlerbehebung](../troubleshooting/#je
 Für einen Austausch jeder Textblock der Anfrage nebeneinander: das
 Original auf Ihrem Rechner und genau das, was an den Anbieter gesendet wurde, mit jedem Ersatzwert
 hervorgehoben und gekennzeichnet mit der Art des Werts, den er ersetzt hat, dem Teil von Latet, der
-ihn gefunden hat (geheime Werte, personenbezogene Daten, ID-Nummern und USt-IdNr., Ihre Identität,
+ihn gefunden hat (geheime Werte, personenbezogene Daten, Identifikationsnummern und USt-IdNr., Ihre Identität,
 Ihre Begriffe, Ihre Erkenner, das Namensmodell, der lokale Prüfer, Sie im Live-Prüfer, Ihre
 Feldregeln oder der strikte Datenmodus), und der Regel. Dort steht auch, wie der Wert in diesem
 Text gefunden wurde: von einem Detektor, an anderer Stelle im selben Text, als Wert, der schon im
@@ -84,8 +88,8 @@ Den strikten Datenmodus selbst legen Sie unter Regeln fest, nicht hier: siehe
 [In einem Austausch](../concepts/production-data/#in-einem-austausch).
 Aufgeführt ist auch, was der [lokale Prüfer](../concepts/llm-review/) zu jedem Block gesagt
 hat: was er maskiert und was er nur vorgeschlagen hat, mit *Immer maskieren* und *Nicht sensibel*.
-Bei einem Austausch eines [Projekts](../concepts/projects/) gelten diese für *Dieses Projekt* (die
-Voreinstellung) oder *Überall*. Darunter die Antwort des Modells, so wie es sie geschrieben und wie
+Bei einem Austausch eines [Projekts](../concepts/projects/) gelten diese für *Dieses Projekt* (der
+Standard) oder *Überall*. Darunter die Antwort des Modells, so wie es sie geschrieben und wie
 Ihr Agent sie erhalten hat, einschließlich der Tool-Aufrufe. Zugangsdaten in Headern werden nie
 aufgezeichnet.
 
@@ -93,7 +97,7 @@ Im Client-Modus (Claude Code) maskiert das Plugin den Text, bevor der Daemon ihn
 zeichnet die Anfrage genau so auf, wie sie den Rechner verlassen hat, und rekonstruiert die Originale
 aus dem Tresor, damit Sie vergleichen können.
 
-<Screenshot name="exchange" alt="Ein Austausch: jeder Block der Anfrage so, wie er auf diesem Rechner aussieht, neben dem, was an das Modell gesendet wurde, mit allen maskierten Werten hervorgehoben" caption="Ein Austausch: links das Original, rechts, was das Modell erhalten hat." />
+<Screenshot name="exchange" alt="Ein Austausch: jeder Block der Anfrage so, wie er auf diesem Rechner aussieht, neben dem, was an das Modell gesendet wurde, jeder maskierte Wert hervorgehoben" caption="Ein Austausch: links das Original, rechts, was das Modell erhalten hat." />
 
 <Screenshot name="inspector" alt="Ein angeklickter maskierter Wert: sein Typ, die Regel, die ihn gefunden hat, der echte Wert und Immer maskieren oder Nicht sensibel für dieses Projekt oder überall" caption="Klicken Sie auf einen maskierten Wert: was er ist, welche Regel ihn gefunden hat und was Sie damit tun können." />
 
@@ -105,37 +109,48 @@ der Sitzung: Ab der nächsten Anfrage werden sie maskiert.
 
 ### Blockierte Anfragen
 
-Oben in einfachen Worten: was passiert ist, was das für Sie bedeutete
-(eine Anfrage, die den Rechner nie verlassen hat; bei der Prüfung im Auto-Modus von Claude Code
-eine Aktion, die der Auto-Modus abgelehnt hat) und was Sie tun können, mit einer Schaltfläche, wo
-eine einzige Einstellung das ändert. Darunter, was den Rechner verlassen hätte, mit den Werten, die
-die Anfrage gestoppt haben, rot umrandet: Klicken Sie auf einen, um zu sehen, was er ist, und
-wählen Sie *Nicht sensibel*, wenn er es nicht ist; dann geht die nächste identische Anfrage durch.
-Mit `history: metadata`, das keine Texte aufbewahrt, sind sie nur nach Typ und Länge aufgeführt.
-Die Begründung, die Latet dem Agenten gegeben hat, steht ebenfalls dort. Auch Anfragen, die in
-Claude Code von der abschließenden Prüfung des Plugins selbst gestoppt wurden, erscheinen hier.
+Oben in einfachen Worten: was passiert ist, was das für Sie bedeutete (eine Anfrage, die den Rechner
+nie verlassen hat; bei der Prüfung im Auto-Modus von Claude Code eine Aktion, die der Auto-Modus
+abgelehnt hat) und was Sie tun können, mit einer Schaltfläche, wo eine einzige Einstellung das
+ändert. Darunter, was den Rechner verlassen hätte, mit den Werten, die die Anfrage gestoppt haben,
+rot umrandet: Klicken Sie auf einen, um zu sehen, was er ist, und wählen Sie *Nicht sensibel*, wenn
+er es nicht ist; dann geht die nächste identische Anfrage durch. Ein Wert, der in einem Element
+gefunden wurde, das noch kein Anfrageprofil vorsieht, ist nach seiner Art aufgeführt, *Neues Element
+der Anfrage*, nie nach dem Namen des Elements. Mit `history: metadata`, das keine Texte aufbewahrt,
+sind sie nur nach Typ und Länge aufgeführt. Die Begründung, die Latet dem Agenten gegeben hat, steht
+ebenfalls dort. Auch Anfragen, die in Claude Code von der abschließenden Prüfung des Plugins selbst
+gestoppt wurden, erscheinen hier.
 
 ### Wie eine Anfrage abgedeckt wurde
 
-Jeder Austausch hat einen Abschnitt *Abdeckung*, der zeigt, wie Latet über jeden Teil seiner Anfrage
-Rechenschaft abgelegt hat ([Jeder Teil einer Anfrage](../concepts/protection-scope/#jeder-teil-einer-anfrage)):
+Jeder Austausch hat einen Abschnitt *Abdeckung*, der zeigt, wie Latet mit jedem Teil seiner Anfrage
+umgegangen ist ([Jeder Teil einer Anfrage](../concepts/protection-scope/#jeder-teil-einer-anfrage)):
 
-- **Vor dem Senden gestoppt,** mit dem Grund in einfachen Worten und dem, was zu tun ist. Eine Anfrage,
-  die nach einem Versuch gestoppt wurde (eine Bedrock-Anfrage, deren AWS-Anmeldung zwischen zwei
-  Versuchen erneuert werden musste), sagt, dass ein früherer Versuch den Anbieter schon erreicht haben
-  kann. Eine genaue Anfrageausnahme wird für einen Header oder einen Abfrageparameter angeboten, den
-  kein Profil nennt; für ein Element des Inhalts, das kein Profil nennt, sagt der Austausch, wie Sie
-  eine genehmigen, außer das Element steht *an einer Stelle, die keine Ausnahme erreicht (in einem
-  Element des Anbieters, der Quelle eines Bildes oder einem WebSocket-Turn)*. Keine wird angeboten für
-  Zugangsdaten, ein Ziel, einen Teil, den Latet nicht lesen konnte, oder eine Arbeitsgrenze, und keine
-  bei einem WebSocket: *Ein WebSocket nimmt in dieser Version von Latet keine Anfrage-Ausnahme an.*
-- **Jeder Teil gelesen** oder **gelesen und durchgelassen durch** das Genannte: *nur geprüft* (Werte,
-  die die abschließende Prüfung gelesen hat und nicht maskieren musste), *durch eine Regel erlaubt*
-  (der Rest eines Bildes, dessen Text gelesen wurde, oder ein verschlüsseltes Feld eines Anbieters),
-  ein undurchsichtiges Element, das der Anbieter früher in dieser Unterhaltung gesendet hat, Text, der
-  in dieser Unterhaltung schon gesendet wurde, Text, den das Modell geschrieben hat, oder eine
-  Anfrageausnahme, die Sie genehmigt haben. Was ungelesen hinausging, wird nie als geprüft gezeigt.
-- **Was Latet entfernt hat:** wie viele Header und Elemente des Inhalts sein Profil als entfernbar
+- **Vor dem Senden gestoppt,** mit dem Grund in einfachen Worten und dem, was zu tun ist. Eine
+  Anfrage, die nach einem Versuch gestoppt wurde (eine Bedrock-Anfrage, deren AWS-Anmeldung zwischen
+  zwei Versuchen erneuert werden musste), sagt, dass ein früherer Versuch den Anbieter schon
+  erreicht haben kann. Eine genaue Anfrageausnahme wird für einen Header oder einen Abfrageparameter
+  angeboten, den kein Profil nennt; für ein Element des Bodys, das kein Profil nennt, sagt der
+  Austausch, wie Sie eine genehmigen, außer das Element steht *an einer Stelle, die keine Ausnahme
+  erreicht (in einem Element des Anbieters, der Quelle eines Bildes oder einer Runde über
+  WebSocket)*. Ein Element, das unter `unknown_members: refuse` abgelehnt wurde, sagt, dass diese
+  Einstellung, in Ihren Einstellungen, in denen des Projekts oder in den Vorgaben Ihres
+  Unternehmens, solche Elemente ablehnt, und was `unknown_members: check` damit tun würde, mit einem
+  Link zu [Neue Elemente in
+  Anfragen](../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen); wo eine Ausnahme das
+  Element erreichen kann, sagt der Austausch weiterhin, wie Sie eine genehmigen. Keine wird
+  angeboten für Zugangsdaten, ein Ziel, einen Teil, den Latet nicht lesen konnte, oder eine
+  Arbeitsgrenze, und keine bei einem WebSocket: *Ein WebSocket nimmt in dieser Version von Latet
+  keine Anfrageausnahme an.*
+- **Jeder Teil gelesen** oder **gelesen und durchgelassen durch** das Genannte: *nur geprüft*
+  (Werte, die die abschließende Prüfung gelesen hat und nicht maskieren musste), *ein Feld, das noch
+  kein Anfrageprofil vorsieht, gelesen und geprüft* (nur nach seiner Kategorie, nie nach seinem
+  Namen), *durch eine Regel erlaubt* (der Rest eines Bildes, dessen Text gelesen wurde, oder ein
+  verschlüsseltes Feld eines Anbieters), ein undurchsichtiges Element, das der Anbieter früher in
+  dieser Unterhaltung gesendet hat, Text, der in dieser Unterhaltung schon gesendet wurde, Text, den
+  das Modell geschrieben hat, oder eine Anfrageausnahme, die Sie genehmigt haben. Was ungelesen
+  hinausging, wird nie als verifiziert angezeigt.
+- **Was Latet entfernt hat:** wie viele Header und Elemente des Bodys sein Profil als entfernbar
   ausweist (`client_metadata` von Codex zum Beispiel); hat der Anbieter mit `401` oder `403`
   geantwortet, nachdem Latet einen Header entfernt hat, sagt der Austausch das.
 - **Sein Anfrageprofil** (`anthropic.messages.1`), das eine Ausnahme für diese Art von Aufruf nennt.
@@ -144,30 +159,30 @@ Rechenschaft abgelegt hat ([Jeder Teil einer Anfrage](../concepts/protection-sco
   *Nicht von Latet gestartet* ([Projekte](../concepts/projects/#startschlüssel)). Auch die Sitzungen
   zeigen den Start.
 
-Ein Austausch, den eine ältere Version von Latet aufgezeichnet hat, wird nie als geprüft gezeigt: Er
-sagt *Von einer älteren Version von Latet aufgezeichnet. Wie viel sie von dieser Anfrage gelesen hat,
-wurde nicht aufgezeichnet, daher wird sie nicht als geprüft angezeigt.* Eine Prüfung, die das
+Ein Austausch, den eine ältere Version von Latet aufgezeichnet hat, wird nie als verifiziert angezeigt: Er
+sagt *Von einer älteren Version von Latet aufgezeichnet. Wie viel diese Version von der Anfrage gelesen hat,
+wurde nicht aufgezeichnet, daher wird die Anfrage nicht als verifiziert angezeigt.* Eine Prüfung, die das
 Claude-Code-Plugin in Claude Code ausgeführt hat, wird als *Eine Prüfung des Claude-Code-Plugins.*
-gezeigt, nie als geprüft: Sie hat selbst nichts gesendet, und die Anfrage, die sie gelesen hat, ist
+angezeigt, nie als verifiziert: Sie hat selbst nichts gesendet, und die Anfrage, die sie gelesen hat, ist
 ein eigener Austausch.
 
-<Screenshot name="coverage" alt="Die Abdeckung eines Austauschs: was Teile davon ungelesen durchgelassen hat, wie seine Sitzung gebunden wurde, sein vertrauenswürdiges Projekt, der Header, den Latet entfernt hat, und sein Anfrageprofil" caption="Abdeckung: wie Latet über jeden Teil einer Anfrage Rechenschaft ablegt." />
+<Screenshot name="coverage" alt="Die Abdeckung eines Austauschs: was Teile davon ungelesen durchgelassen hat, wie seine Sitzung gebunden wurde, sein vertrauenswürdiges Projekt, der Header, den Latet entfernt hat, und sein Anfrageprofil" caption="Abdeckung: wie Latet mit jedem Teil einer Anfrage umgegangen ist." />
 
 ### Anfrageausnahmen
 
 **Geschützte Agenten** listet Ihre
 [Anfrageausnahmen](../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) auf: was
-jede durchlässt (einen Header, einen Abfrageparameter oder ein Element des Inhalts, und ob es die
+jede durchlässt (einen Header, einen Abfrageparameter oder ein Element des Bodys, und ob es die
 eigenen Zugangsdaten des Ziels sind), wo (ihr Ziel und ihr Anfrageprofil), für wen (jede Ihrer
 Anfragen oder die Anfragen eines Projekts, wenn Latet ihrem Projekt vertraut) und ihren Zustand:
 *Wartet auf Ihre Genehmigung*, *Aktiv*, *Läuft bald ab* (mit den verbleibenden Tagen), *Abgelaufen*,
 *Dauerhaft* oder *Muss neu genehmigt werden: Ihr Profil wurde überarbeitet*. Eine Warnung sagt, wenn
-eine innerhalb von sieben Tagen endet. *Widerrufen* nimmt eine sofort weg. Darunter die Verwendungen
+eine innerhalb von sieben Tagen endet. *Widerrufen* hebt eine sofort auf. Darunter die Verwendungen
 von Ausnahmen, im Speicher gezählt, seit der Daemon gestartet ist, und beim Neustart gelöscht: Bei
 ausgeschaltetem Verlauf sind sie alles, was davon bleibt, und ein Server addiert die Zählungen seiner
-Instanzen. Eine neue Ausnahme, oder eine erweiterte, verlängerte oder dauerhaft gemachte, wartet auf
-**Freigaben** unter *Einstellungen*, das zeigt, was sie durchlässt, wie lange sie gilt und bei einer
-ohne Projekt, dass sie Ihre ganze Identität abdeckt.
+Instanzen. Eine neue Ausnahme, oder eine erweiterte, verlängerte oder dauerhaft gemachte, wartet auf der
+Seite **Freigaben** unter *Einstellungen*, wo zu sehen ist, was sie durchlässt, wie lange sie gilt und,
+bei einer ohne Projekt, dass sie Ihre ganze Identität abdeckt.
 
 <Screenshot name="exceptions" alt="Die Anfrageausnahmen unter Geschützte Agenten: was jede durchlässt, ihr Ziel und ihr Anfrageprofil, für wen sie gilt und ihr Zustand, mit Widerrufen" caption="Anfrageausnahmen: was jede durchlässt, wo, für wen und ihr Zustand." />
 
@@ -181,8 +196,8 @@ oder zum Stoppen; ein Bild mit den Rahmen, wo seine Werte überdeckt sind, um vo
 Einstellungen, die den Schutz verringert, ganz gleich, wer sie vorgenommen hat (der Befehl eines
 Agenten, eine von Hand bearbeitete `config.yaml`), mit dem, was sie verringert, und den Hinweisen
 für den lokalen Prüfer, die sie schreibt, vorher und nachher
-([Agenten und Ihre Einstellungen](../concepts/agents-and-settings/)). Die Seite öffnet sich auf
-*Texte*, oder auf *Einstellungen*, wenn nur eine Änderung wartet; eine Änderung, die eintrifft,
+([Agenten und Ihre Einstellungen](../concepts/agents-and-settings/)). Die Seite öffnet mit dem Tab
+*Texte*, oder mit *Einstellungen*, wenn nur eine Änderung wartet; eine Änderung, die eintrifft,
 während Sie Texte prüfen, erhöht die Zahl bei *Einstellungen* und lässt Sie, wo Sie sind. In einem
 Fenster, das schmaler als 1100 px ist (ein halber Bildschirm, ein Telefon), zeigt *Texte* einen
 Text nach dem anderen: der wievielte er von wie vielen wartenden ist, das Original über dem, was
@@ -193,7 +208,7 @@ Entscheidung liegt der Tastaturfokus auf dem Text, der als Nächstes erscheint.
 
 ### Sitzungen
 
-Jeweils eine Unterhaltung. Blöcke, die mit jeder Anfrage erneut gesendet werden,
+Jeweils eine Unterhaltung. Blöcke, die mit jeder Runde erneut gesendet werden,
 sind als solche gekennzeichnet, sodass in jeder Anfrage hervorsticht, was *neu* ist.
 
 ### Tresor
@@ -207,12 +222,13 @@ eine spätere Version läuft, auch aus den Kopien des Tresors, die `latet upgrad
 
 Die Auswahl oben auf der Seite **Regeln** wechselt von den globalen
 Regeln zu denen eines [Projekts](../concepts/projects/), in denselben Tabs. Darüber stehen der
-Ordner des Projekts, seine `latet.yaml` und unter *Was nicht angewendet wird*, was seine Dateien
-vorgeben, aber nicht anwenden können.
+Ordner des Projekts, seine `latet.yaml` und unter *Was nicht oder anders als geschrieben angewendet
+wird*, was seine Dateien vorgeben, aber nicht anwenden können.
 
-- **Übersicht:** was dort wirksam ist, alle Ebenen zusammen, und Ihre Einstellungen für das
-  Projekt als Ganzes: *Diese Einstellungen exportieren* und *Einstellungen importieren* übertragen
-  sie in die Kopie des Projekts bei einem Kollegen, und *Ihre Einstellungen entfernen* löscht sie.
+- **Übersicht:** was dort wirksam ist, alle Ebenen zusammen (darunter, wie neue Elemente in Anfragen
+  gelesen werden), und Ihre Einstellungen für das Projekt als Ganzes: *Diese Einstellungen
+  exportieren* und *Einstellungen importieren* übertragen sie in die Kopie des Projekts bei einem
+  Kollegen, und *Ihre Einstellungen entfernen* löscht sie.
 - **Schutz** und **Prüfer:** Ihre eigenen Einstellungen für das Projekt, mit den Abschnitten der
   globalen Regeln: Latet dort ein, nur für Geheimnisse oder aus (zuerst unter *Schutz*),
   Produktionsdaten, wie viel der lokale Prüfer dort liest, Ihre Hinweise für ihn dort und der
@@ -220,12 +236,12 @@ vorgeben, aber nicht anwenden können.
 - **Begriffe**, **Erkenner**, **Zugelassene Werte** und **Richtlinien:** je eine Tabelle aller
   Regeln, die dort gelten, eine Zeile pro Quelle, und die Spalte **Herkunft** sagt, woher sie
   stammt: *Ihre, für* das Projekt, *latet.yaml* oder *global* mit einem Schloss. Der Filter
-  *Herkunft* behält die einer Quelle, und jeder Tab zählt die eigenen und alle
+  *Herkunft* zeigt nur die einer Quelle, und jeder Tab zählt die eigenen und alle
   (*1 eigene · 4 insgesamt*). Eine Zeile wird dort geändert, wo sie entsteht: Eine globale öffnet
   sich schreibgeschützt, mit *In den globalen Regeln öffnen*; eine Zeile der `latet.yaml` wird in
   die Datei gespeichert, wenn das Dashboard sie schreiben darf; eine neue Zeile (*Für* das Projekt
-  *hinzufügen*) kommt in Ihre eigenen Einstellungen für das Projekt, außer *Speichern in* sagt
-  `latet.yaml`, die jeder liest, der das Repository liest. Vor dem Speichern in die `latet.yaml`
+  *hinzufügen*) kommt in Ihre eigenen Einstellungen für das Projekt, es sei denn, unter *Speichern in*
+  steht `latet.yaml`: Diese Datei liest jeder, der das Repository liest. Vor dem Speichern in die `latet.yaml`
   sagt der Bereich, ob das Speichern die Datei anlegt oder sie ganz neu schreibt (ihre Kommentare
   nach den ersten Zeilen bleiben nicht erhalten), und ein Löschen oder Ausschalten ausgewählter
   Zeilen sagt, wie viele davon in der Datei stehen. Werte, die nie maskiert werden, stammen nur aus
@@ -236,7 +252,7 @@ vorgeben, aber nicht anwenden können.
   Rechner importiert.
 - **Repository-Datei:** die `latet.yaml` des Projekts, mit dem, was Schutz hinzufügt und keine
   Liste ist. *Erkenner vorschlagen* entwirft einige aus den Dateien des Projekts und öffnet jeden
-  im Tab *Erkenner*, *Speichern in* auf `latet.yaml`; die Datei wird für Sie geschrieben, wenn der
+  im Tab *Erkenner*, mit *Speichern in* auf `latet.yaml`; die Datei wird für Sie geschrieben, wenn der
   Ordner des Projekts auf diesem Rechner liegt.
 
 Wie in den globalen Regeln markiert ein Punkt einen Tab mit ungespeicherten Änderungen, die Suche
@@ -254,7 +270,8 @@ Das [Profil](../concepts/profiles/), die zu erkennenden Typen personenbezogener 
 und die Länder, deren Identifikationsnummern erkannt werden, Ihre eigenen Begriffe und
 [Erkenner](../concepts/custom-recognizers/) (mit einem Bereich *Ausprobieren*), Zulassungslisten und
 Richtlinien, [Produktionsdaten](../concepts/production-data/) (strikter Datenmodus, Feldregeln, der
-Dump-Schutz, [Bilder](../concepts/images/) und Texterkennung), der
+Dump-Schutz, [Bilder](../concepts/images/) und Texterkennung, dazu, wie
+[neue Elemente in Anfragen](../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen) gelesen werden), der
 [lokale Prüfer](../concepts/llm-review/) (mit Ihren Hinweisen, seinen eigenen Anweisungen,
 schreibgeschützt so angezeigt, wie sie gesendet werden, *Ausprobieren* an einem Beispiel oder an
 einem Text von Ihnen und *Entwurf aus einer Beschreibung* für Erkenner), die lokale
@@ -273,21 +290,21 @@ für ein Projekt kopiert (*In ein Projekt kopieren…*), sofort nach einer Best�
 eine Zeile, oder Enter, öffnet sie in einem Bereich rechts mit jedem ihrer Felder, auch dem ganzen
 Wert einer langen Zeile; *Hinzufügen* öffnet denselben Bereich leer. Der Typ einer neuen
 Richtlinie wird im Menü gewählt oder mit *Ein anderer Typ…* eingegeben, für einen Typ, den Latet
-findet und das Menü nicht aufführt, etwa den eines Geheimnisses. *Ausprobieren* an einem Muster
+findet und das Menü nicht aufführt, etwa den Typ eines geheimen Werts. *Ausprobieren* an einem Muster
 für nie maskierte Werte sagt, ob das Muster einen Wert durchlässt, oder dass es sich hier nicht
-ausprobieren lässt, wenn es eine Form nutzt, die nur Latet liest. Das *Speichern* eines Bereichs
-wendet die Änderung sofort an, gemacht an Ihren Einstellungen, wie sie jetzt sind: Haben sie sich
+ausprobieren lässt, wenn es eine Form nutzt, die nur Latet liest. Mit *Speichern* in einem Bereich
+wird die Änderung sofort angewendet, und zwar auf Ihre Einstellungen in ihrem aktuellen Stand: Haben sie sich
 inzwischen geändert (ein anderer Browser-Tab, eine angewendete Änderung eines Agenten) und die
 Zeile nicht, wird sie trotzdem gespeichert; hat sich die Zeile geändert, sagt der Bereich es und
 zeigt sie so, wie sie jetzt ist. Ein Bereich, der mit ungespeicherten Änderungen geschlossen wird,
 fragt zuerst, ebenso das Verlassen der Seite mit diesen Änderungen oder das Schließen des
-Browser-Tabs. Auf einem Telefon deckt der Bereich die Seite ab, *Schließen* oben und seine
+Browser-Tabs. Auf einem Telefon deckt der Bereich die Seite ab, mit *Schließen* oben und seinen
 Schaltflächen unten.
 
 Ein Punkt markiert einen Tab ohne Tabelle mit ungespeicherten Änderungen, und *Regeln speichern*
 unten in diesen Tabs speichert sie alle auf einmal; das Speichern eines Bereichs behält sie, außer
 eine dieser Einstellungen hat sich inzwischen geändert, und dann sagt die Seite, welcher Tab seine
-Änderung verloren hat. Die Suche über den Tabs findet einen Abschnitt an seinem Titel oder seiner
+Änderung verloren hat. Die Suche über den Tabs findet einen Abschnitt anhand seines Titels oder seiner
 Beschreibung und die Zeilen der Tabellen, in welchem Tab sie auch stehen, und sagt, in welchen
 Tabs sie Zeilen gefunden hat. *Regeln exportieren* und *Regeln importieren* oben auf der Seite
 geben einem Kollegen Ihre Regeln in einer Datei; ein Import zeigt, was er hinzufügen würde, bevor
@@ -297,9 +314,9 @@ als CSV (`value,type,case_sensitive,whole_word`, sodass sich eine Kundenliste in
 einfügen lässt), die Werte als CSV (`kind,value`), die Erkenner als Regeldatei. *Exportieren*
 schreibt die Zeilen, die die Tabelle zeigt, mit den aktiven Filtern und den Vorkehrungen von
 *Regeln exportieren*: Die Begriffe und die Werte stehen im Klartext in der Datei, wie der Export
-sagt, eine Zelle, die eine Tabellenkalkulation als Formel ausführen würde, wird nach einem
+sagt, eine Zelle, die eine Tabellenkalkulation als Formel ausführen würde, wird mit vorangestelltem
 Apostroph geschrieben, und ein Erkenner, dessen Beispiele einen Wert enthalten, den Latet
-tatsächlich gesehen hat, bleibt draußen und wird genannt. *Importieren* fügt der Liste hinzu,
+tatsächlich gesehen hat, wird weggelassen und genannt. *Importieren* fügt der Liste hinzu,
 ersetzt sie nie und zeigt zuerst, was es hinzufügen würde; die Tabelle *Erkenner* importiert eine
 Datei, die nur Erkenner enthält.
 
@@ -308,7 +325,7 @@ Datei, die nur Erkenner enthält.
 ### Testbereich
 
 Fügen Sie einen Text ein, und sehen Sie, wie Ihre Regeln oder ein anderes Profil
-ihn maskieren würden, als Prompt, Anhang, Ausgabe eines Tools oder Systemprompt. Nichts, was Sie
+ihn maskieren würden, als Prompt, Anhang, Tool-Ausgabe oder System-Prompt. Nichts, was Sie
 dort eingeben, wird auf die Festplatte, in den Tresor oder in den Verlauf geschrieben, und es
 erreicht nie ein Modell.
 
@@ -340,15 +357,15 @@ Anfragen pro Tag; maskierte Werte nach Typ; Austausche nach Agent; Latenz und Ov
 
 ## Tastenkürzel
 
-Unter **Freigaben** können Sie die wartenden Texte mit der Tastatur entscheiden, sobald Sie die
+Unter **Freigaben** können Sie mit der Tastatur über die wartenden Texte entscheiden, sobald Sie die
 Tastenkürzel einschalten: Anfangs sind sie aus. *Tastenkürzel* über den Texten listet sie auf, mit dem
-Schalter, der sie einschaltet; dieser Browser merkt sich Ihre Wahl, und solange sie an sind, zeigt die
-Schaltfläche *Tastenkürzel an*.
+Schalter, der sie einschaltet; dieser Browser merkt sich Ihre Wahl, und solange sie eingeschaltet sind, zeigt die
+Schaltfläche *Tastenkürzel ein*.
 
 | Taste | Was sie tut |
 |---|---|
 | <kbd>A</kbd> | Den gezeigten Text freigeben |
-| <kbd>X</kbd> | Ihn nicht senden |
+| <kbd>X</kbd> | Nicht senden |
 | <kbd>J</kbd> / <kbd>K</kbd> | Der nächste Text / der vorherige |
 | <kbd>M</kbd> | Den im Original markierten Text maskieren, sonst den ersten Vorschlag |
 | <kbd>Umschalt</kbd>+<kbd>A</kbd> | Alle wartenden freigeben, nach einer Rückfrage |
@@ -365,15 +382,15 @@ Das Folgende betrifft das Dashboard auf Ihrem eigenen Rechner. Zum Dashboard ein
 
 - Es lauscht nur auf `127.0.0.1`; im [Container-Image](../getting-started/docker/) lauscht es im
   Container, dessen Port Sie nur auf `127.0.0.1` veröffentlichen. Anfragen, deren `Host` nicht
-  dieser Rechner ist, werden abgewiesen, was DNS-Rebinding vereitelt.
+  dieser Rechner ist, werden abgelehnt, was DNS-Rebinding vereitelt.
 - Der Zugriff erfordert den Einmal-Link, danach ein Sitzungs-Cookie mit `HttpOnly` und
   `SameSite=Strict`. Jede Änderung erfordert zudem einen Header, den Seiten anderer Websites nicht
   senden können. Auch die Proxy-Routen des Daemons können Seiten anderer Websites nicht nutzen:
-  Anfragen mit Browser-Headern werden abgewiesen.
+  Anfragen mit Browser-Headern werden abgelehnt.
 - Die Seite lädt nichts aus dem Internet: keine Schriften, Skripte oder Analysedienste von Dritten.
 - Der Verlauf bewahrt Anfragen so auf, wie sie Ihren Rechner verlassen haben (bereits maskiert), und
   blockierte Anfragen so, wie sie ihn verlassen hätten, damit Sie sehen können, was gestoppt wurde.
-  Er ist mit AES-GCM verschlüsselt, unter einem Schlüssel, der vom selben Stammschlüssel abgeleitet
+  Er ist mit AES-GCM verschlüsselt, unter einem Schlüssel, der vom selben Root-Schlüssel abgeleitet
   ist wie der des Tresors. Originale werden im Tresor nachgeschlagen, wenn Sie eine Anfrage öffnen,
   daher verschwindet ein Wert, den Sie vergessen, auch aus dem Verlauf.
 - Was der Verlauf aufbewahrt, wählen Sie unter Verlauf in **Regeln**, im Tab *Erweitert*: *Alles*
@@ -382,18 +399,18 @@ Das Folgende betrifft das Dashboard auf Ihrem eigenen Rechner. Zum Dashboard ein
   aufgezeichnet, und **Live** bleibt leer; die Zählungen der verwendeten Anfrageausnahmen bleiben
   im Speicher, bis Latet neu startet).
 - Der Verlauf wird standardmäßig 14 Tage lang aufbewahrt; *Aufbewahren für* unter Verlauf in
-  **Regeln** stellt 1 bis 365 Tage ein. Blöcke, die mit jeder Anfrage erneut gesendet werden, werden
+  **Regeln** stellt 1 bis 365 Tage ein. Blöcke, die mit jeder Runde erneut gesendet werden, werden
   nur einmal gespeichert.
 - Sie können den Verlauf jederzeit im Dashboard löschen; der Tresor bleibt erhalten.
 - Die Kopien des Tresors und des Verlaufs, die `latet upgrade` aufbewahrt (höchstens drei, in
-  `backups/` im Datenordner von Latet), folgen Ihnen, solange Latet 0.9.10 oder eine spätere Version läuft:
+  `backups/` im Datenordner von Latet), folgen dem, was Sie entfernen, solange Latet 0.9.10 oder eine spätere Version läuft:
   *Vergessen* entfernt einen Wert auch aus
   ihnen, das Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt
   als Ihrer. Eine Kopie ändert sich nur durch Löschen und behält die Form, die ihre Version ihr gab,
   sodass sie sich weiter zurückspielen lässt. Eine, die ein anderes Programm in dem Moment offen
   hält, wird beim nächsten Mal bereinigt, und immer bevor sie zurückgespielt wird; eine, die sich
   nicht öffnen lässt, wird gelöscht (wo sie sich nicht löschen lässt, wird sie beiseitegelegt und
-  nie wieder angeboten), und das Protokoll des Daemons sagt es.
+  nie wieder angeboten), und das Log des Daemons vermerkt das.
 
 ## Sprachen
 

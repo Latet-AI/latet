@@ -13,11 +13,13 @@ commit pubblico per versione, con codice, test, numeri di versione e documentazi
 2. Integra quel commit in `main`. Registra il suo SHA completo.
 3. Attendi che **l'intero workflow CI** (`.github/workflows/ci.yml`), avviato da quel push su `main`,
    termini con **successo** per quello SHA esatto. Controlla il risultato del workflow, inclusi tutti
-   i job della matrice e i test del server. Non basta una pull request o un singolo job riuscito.
+   i job della matrice e i test del server. Non basta un'esecuzione riuscita su una pull request, né
+   un singolo job riuscito.
 4. Crea il tag della versione su quel commit esatto e invialo solo quando la pubblicazione è autorizzata.
    Sono supportati tag leggeri e annotati; per quelli annotati si controlla il commit sottostante.
-5. Controlla il risultato del workflow di rilascio. Conserva lo SHA del tag e l'URL della CI riuscita su
-   main nel resoconto di verifica. Il riepilogo del controllo registra esecuzione e tentativo accettati.
+5. Controlla il risultato del workflow di rilascio. Conserva lo SHA del tag e l'URL dell'esecuzione
+   riuscita della CI su main nel resoconto di verifica. Il riepilogo del job del controllo registra
+   l'esecuzione e il tentativo accettati.
 
 Se il commit cambia, ripeti il controllo della CI su main per il nuovo SHA prima di creare il tag.
 Mantieni il singolo commit pubblico della versione; non aggiungerne uno solo per registrare i controlli riusciti.
@@ -27,7 +29,7 @@ Mantieni il singolo commit pubblico della versione; non aggiungerne uno solo per
 Prima di build, attestazioni o pubblicazione, il controllo ricava l'ID effettivo del workflow CI dal suo file,
 verifica che il commit del tag appartenga a `main` e legge le esecuzioni `push` su `main` per quello SHA.
 Sceglie l'esecuzione più recente e aggiorna il suo tentativo corrente. Passa solo `completed` con `success`.
-I job successivi usano lo SHA del commit verificato e dipendono dal controllo.
+I job successivi fanno il checkout dello SHA del commit verificato e dipendono dal controllo.
 
 Risultati assenti, in coda, in corso, in attesa, falliti, annullati, saltati o neutrali bloccano il rilascio.
 Lo bloccano anche errori API o di autenticazione, risposte incoerenti e paginazione incompleta.
@@ -36,7 +38,8 @@ Non attende né riprova fino a ottenere un risultato favorevole. Indaga sul cont
 successo dell'intera CI su quell'esatto commit di main, poi riesegui esplicitamente il rilascio quando autorizzato.
 Non spostare un tag pubblicato per aggirare un errore.
 
-Il risultato è una prova al momento del controllo; una successiva riesecuzione della CI può modificarne lo stato.
+Il risultato è una prova al momento del controllo; una successiva riesecuzione della CI può modificare
+lo stato dell'esecuzione registrata.
 Un controllo verde conferma il successo della CI, non l'assenza di ogni possibile difetto.
 
 ## Un resoconto di verifica per ogni versione
@@ -52,11 +55,11 @@ Includi:
 
 - Versione, SHA completo del commit pubblico e del commit sottostante al tag; separatamente, i sorgenti
   privati realmente testati (commit oppure base più patch/manifest conservati). Un manifest elenca
-  percorsi e hash del contenuto di codice, test, harness e configurazione verificati. Registra tutte
+  percorsi e hash del contenuto di codice, test, harness e configurazione testati. Registra tutte
   le differenze dai sorgenti pubblici, le esclusioni e gli eventuali nuovi controlli; un risultato su
   sorgenti privati non diventa un risultato sullo SHA pubblico.
-  Separa gli inventari dei blob Git canonici e dei byte realmente eseguiti, sia per checkout puliti
-  sia per quelli modificati; registra conversioni EOL/filtri e differenze senza normalizzare gli hash dei byte eseguiti.
+  Separa gli inventari dei blob Git canonici e dei byte realmente eseguiti, sia per le esecuzioni su
+  un albero pulito sia per quelle su un albero con modifiche; registra conversioni EOL/filtri e differenze senza normalizzare gli hash dei byte eseguiti.
 - Partecipanti effettivi alle revisioni o ruoli identificabili e riferimenti ai rapporti, ambito,
   tipo di revisione e presenza di una revisione umana indipendente. Quella di un agente automatico
   separato non è una revisione umana. Elenca rilievi chiusi con prove del nuovo controllo e rilievi
@@ -67,9 +70,10 @@ Includi:
 - Repository CI, percorso del workflow, evento/ref, SHA esatto, ID dell'esecuzione, URL del tentativo,
   stato/esito dell'intero workflow e momento dell'osservazione. Verifica separatamente la CI finale
   `push`/`main` prima del tag; controlli PR, risultati locali e pubblicazione riuscita non la sostituiscono.
-- Limiti verificati: upstream simulato o test diretti dei runtime degli spazi rispetto a test end-to-end
+- Limiti dei test: upstream simulato o test diretti dei runtime degli spazi rispetto a test end-to-end
   autenticati, configurazioni omesse e prove non disponibili. I log privati non sono prove consultabili
-  dal pubblico; fornisci un estratto pubblico sicuro quando possibile e indica cosa non è verificabile.
+  dal pubblico; fornisci un estratto pubblico sicuro quando possibile e indica cosa i lettori non
+  possono verificare.
 
 Mantieni riepilogo e manifest fuori dal commit che identificano. Assegna checksum e identificatori di
 revisione ai file delle prove; conserva le revisioni precedenti e spiega le correzioni. Un link o checksum

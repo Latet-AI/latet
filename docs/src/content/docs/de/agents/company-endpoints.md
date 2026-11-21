@@ -24,7 +24,7 @@ und `latet global-install` erledigen das.
   [`upstreams`](../../reference/configuration/#upstreams-items) gespeichert, benannt nach der
   Adresse (aus `https://llm.acme.com` wird `llm-acme-com`), und der Agent sendet stattdessen an
   `http://127.0.0.1:5283/llm-acme-com`. Dieselbe Adresse erhält immer dasselbe Ziel.
-  Einige Namen gehören zu Latets eigenen Routen, und ein Ziel kann sie nicht tragen:
+  Latet reserviert einige Namen für seine eigenen Routen, und ein Ziel kann sie nicht erhalten:
   `anthropic`, `openai`, `chatgpt`, `openrouter`, `gemini`, `bedrock`, `vertex` und `backend-api`.
 - **Bedrock und Vertex haben eigene Routen**, `/bedrock/<region>/` und `/vertex/`, die nur die
   Adressen von Amazon und Google erreichen.
@@ -148,11 +148,11 @@ Foundry). Jeder andere Aufruf wird abgelehnt.
 - **Seine Modellnamen und Versionen.** Eine Modell-ID in der dokumentierten Form eines Anbieters geht
   durch. Die eigenen Namen eines Gateways (`acme-large`), die `api-version`, die ein Ziel für Azure
   OpenAI oder Foundry annimmt, jeder Bedrock-ARN, auch der eines Anwendungs-Inferenzprofils, und ein
-  Vertex-Projekt werden zuerst in `request_resources` aufgelistet:
+  Vertex-Projekt müssen zuerst in `request_resources` aufgelistet werden:
   [Bedrock und Vertex: was aufzulisten ist](../../getting-started/upgrading-to-0-11/#bedrock-und-vertex-was-aufzulisten-ist).
 - **Thinking-Signaturen über ein Gateway.** Eine Unterhaltung über LiteLLM oder ein anderes
   Gateway, das die Thinking-Signaturen von Claude weiterreicht, geht durch, solange Latet sich
-  erinnert, sie zurückkommen gesehen zu haben. Nach einem Neustart des Daemons wird ihre nächste Runde
+  daran erinnert, dass sie zurückgekommen sind. Nach einem Neustart des Daemons wird ihre nächste Runde
   abgelehnt: Beginnen Sie eine neue Unterhaltung.
 
 ## Ein Modell auf diesem Rechner
@@ -236,7 +236,7 @@ Code woandershin senden, und startet es nicht.
   ebenfalls gestoppt.
 - **`latet agents status`** zeigt die Route jedes Agenten. **`latet doctor`** zeigt sie ebenfalls,
   dazu eine Variable in Ihrer Shell, die von den Einstellungen von Claude Code überschrieben wird
-  (nicht die Adresse Ihres Unternehmens, wenn Latet seine eigene davorgesetzt hat: So soll es sein),
+  (nicht die Adresse Ihres Unternehmens, wenn Latet seine eigene davorgeschaltet hat: So soll es sein),
   und ob die AWS CLI vorhanden ist, wenn Latet für Bedrock signiert.
 - **Das Dashboard** listet Ihre Ziele unter Geschützte Agenten → Wohin Anfragen gehen auf, mit dem
   Agenten, der jedes davon genannt hat, und wann es zuletzt verwendet wurde, und zeigt bei jedem
@@ -254,7 +254,7 @@ Code woandershin senden, und startet es nicht.
   nachher: Es würde Ihre Anfragen und Ihre Schlüssel woandershin senden. Ein Ziel hinzuzufügen
   wartet nicht: Nur ein Agent, der darauf zeigt, verwendet es. Wenn eine Änderung wartet, während ein
   Agent eines hinzufügt, zeigt die Seite Freigaben die Änderung erneut, mit dem neuen Ziel darin und
-  dem, was sie jetzt verlegen würde; eine Änderung, die nichts mehr senkt, gilt sofort.
+  dem, was sie jetzt verlegen würde; eine Änderung, die nichts mehr verringert, gilt sofort.
 
 ## Womit es getestet wurde
 

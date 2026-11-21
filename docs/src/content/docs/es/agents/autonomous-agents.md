@@ -25,7 +25,7 @@ Una suscripción Claude Pro o Max solo funciona en Claude Code, como dicen las c
 Anthropic, así que estos agentes usan una clave de API: llegan a los modelos Claude a través de
 OpenRouter, o con una clave de API de Anthropic. La clave pasa por Latet hasta el proveedor y nunca se
 escribe en los registros ni se muestra en el panel. Hermes Agent con la sesión iniciada con ChatGPT no
-necesita clave: pasa por Latet con esa sesión, como Codex ([más abajo](#con-tu-cuenta-de-chatgpt)).
+necesita clave: pasa por Latet con ese inicio de sesión, como Codex ([más abajo](#con-tu-cuenta-de-chatgpt)).
 
 Latet lee cada parte de cada petición que envían estos agentes
 ([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)): una llamada que no lee,
@@ -63,13 +63,18 @@ HERMES_CODEX_BASE_URL=http://127.0.0.1:5283/backend-api/codex
 ```
 
 Hermes vuelve a leer el archivo por su cuenta: su siguiente mensaje pasa por Latet. La variable lleva
-por Latet cada petición que Hermes envía con esa sesión: la conversación, y el trabajo que encarga al
-mismo modelo de paso, como el título de una sesión, el resumen de un contexto largo o la lectura de
-una imagen o de una página web. Va antes que `model.base_url` en `config.yaml`, que puedes dejar como
-está.
+por Latet cada petición que Hermes envía con ese inicio de sesión: la conversación, y las tareas
+secundarias que encarga al mismo modelo, como el título de una sesión, el resumen de un contexto largo
+o la lectura de una imagen o de una página web. Tiene prioridad sobre `model.base_url` en
+`config.yaml`, que puedes dejar como está.
 
 - **Un Latet 0.9.3 o anterior** devuelve a Hermes los valores ficticios en lugar de los reales:
   actualiza Latet antes (`latet upgrade`).
+- **Un Latet de la 0.11.0 a la 0.12.1** rechaza algunas peticiones de Hermes: las de una
+  conversación iniciada desde su línea de comandos o su gateway (un id de sesión que empieza por
+  `local-`), las de un espacio de trabajo de ChatGPT con residencia de datos, y una conversación
+  reanudada cuyas respuestas llevan su fase. Latet 0.15.0 deja pasar cada una con su forma exacta,
+  comprobada en el código fuente de Hermes Agent 0.23.1: actualiza Latet.
 - **Un proveedor de reserva con un `base_url` propio** conserva esa dirección: en `fallback_providers`,
   pon también ahí la dirección de Latet, o quita la línea. Si no, una petición que recurre a él va a
   ChatGPT sin nada enmascarado.

@@ -8,6 +8,10 @@ import Screenshot from '../../../components/Screenshot.astro';
 El panel es una página web local que sirve el daemon de Latet. Responde a una pregunta:
 **¿qué ha enviado realmente mi agente?**
 
+Muestra las peticiones que pasaron por Latet, mientras su historial las conserva. Las sesiones que
+tus agentes guardaron antes de Latet, o sin pasar por él, no están aquí:
+[`latet leak`](../concepts/leaks/) busca secretos en ellas.
+
 ## Abrirlo
 
 ```sh
@@ -23,23 +27,23 @@ La página está en `http://127.0.0.1:5283/_latet/ui/` (5283 es el puerto predet
 lateral muestra el que está en uso). Si abres esa dirección sin el enlace, verás una página que te
 pide que ejecutes `latet dashboard`.
 
-## En un servidor Latet
+## En un servidor de Latet
 
-En un equipo conectado a un [servidor Latet](../concepts/server/), `latet dashboard` abre tu propio
+En un equipo conectado a un [servidor de Latet](../concepts/server/), `latet dashboard` abre tu propio
 panel en el servidor, en la dirección del servidor, con un enlace de un solo uso como en un equipo.
 Muestra tu espacio: las peticiones de tus equipos, tu caja fuerte y tus propios ajustes. La barra
 lateral indica el servidor y quién ha iniciado sesión, con **Cerrar sesión**, que termina la sesión
 de este navegador en cada instancia del servidor. Tus reglas en **Reglas** son solo tuyas: para usar
-las reglas de un equipo de trabajo, importa su archivo de reglas con **Importar reglas**. Los
-administradores del servidor establecen dónde funciona el revisor local, que **Reglas** marca con
+las reglas de tus compañeros, importa su archivo de reglas con **Importar reglas**. Los
+administradores del servidor establecen dónde se ejecuta el revisor local, que **Reglas** marca con
 *Establecido para todos en este servidor* en *Revisores*, y los destinos establecidos para todos, que
 **Agentes protegidos** marca con *Establecido para todos* y que no puedes quitar. El panel no lee los
-archivos de un proyecto en tu equipo: no escribe su `latet.yaml` ni crea reconocedores a partir de
-ellos. En un servidor, *Importar ajustes* de un proyecto se rechaza, porque el servidor no puede leer
+archivos de un proyecto en tu equipo: no escribe su `latet.yaml` ni crea borradores de reconocedores
+a partir de ellos. En un servidor, *Importar ajustes* de un proyecto se rechaza, porque el servidor no puede leer
 los archivos del proyecto; *Exportar estos ajustes* sigue funcionando, e **Importar reglas** en las
 reglas globales añade un archivo a tus propias reglas. En un servidor, **Agentes protegidos** no tiene
-tabla de agentes, porque tus agentes se ejecutan en tus propios equipos: da el comando `latet doctor`
-que ejecutar en cada uno de ellos, y enumera tus destinos. Una clave de API representa a un programa
+tabla de agentes, porque tus agentes se ejecutan en tus propios equipos: indica el comando
+`latet doctor` que hay que ejecutar en cada uno de ellos, y enumera tus destinos. Una clave de API representa a un programa
 y no tiene panel: los administradores establecen sus ajustes. Un enlace de
 inicio de sesión que no inicia tu sesión dice por qué: ya se usó, tiene más de
 dos minutos o se abrió desde la página de otro sitio; se probaron demasiados enlaces desde tu
@@ -105,35 +109,42 @@ se enmascaran a partir de la siguiente petición.
 
 ### Peticiones bloqueadas
 
-Arriba, en palabras sencillas: qué ha pasado, qué ha significado para ti
-(una petición que nunca salió; en la comprobación del modo automático de Claude Code, una acción
-que el modo automático rechazó) y qué puedes hacer, con un botón cuando basta con cambiar un ajuste.
-Debajo, lo que habría salido, con los valores que la detuvieron enmarcados en rojo: haz clic en uno
-para ver qué es, y elige *No sensible* si no lo es, y la siguiente petición idéntica pasa. Con
-`history: metadata`, que no conserva textos, solo se enumeran por tipo y longitud. Ahí está
-también el motivo que Latet dio al agente. Las peticiones que la propia comprobación final del
-plugin detiene dentro de Claude Code también aparecen aquí.
+Arriba, en palabras sencillas: qué ha pasado, qué ha significado para ti (una petición que nunca
+salió; en la comprobación del modo automático de Claude Code, una acción que el modo automático
+rechazó) y qué puedes hacer, con un botón cuando basta con cambiar un ajuste. Debajo, lo que habría
+salido, con los valores que la detuvieron enmarcados en rojo: haz clic en uno para ver qué es, y
+elige *No sensible* si no lo es, y la siguiente petición idéntica pasa. Un valor encontrado en un
+miembro que ningún perfil de petición prevé todavía se enumera por su tipo, *Nuevo miembro de la
+petición*, nunca por el nombre del miembro. Con `history: metadata`, que no conserva textos, solo se
+enumeran por tipo y longitud. Ahí está también el motivo que Latet dio al agente. Las peticiones que
+la propia comprobación final del plugin detiene dentro de Claude Code también aparecen aquí.
 
 ### Cómo se cubrió una petición
 
-Cada intercambio tiene una sección *Cobertura* que dice cómo dio cuenta Latet de cada parte de su
+Cada intercambio tiene una sección *Cobertura* que dice qué hizo Latet con cada parte de su
 petición ([Cada parte de una petición](../concepts/protection-scope/#cada-parte-de-una-petición)):
 
 - **Detenida antes de enviarse,** con el porqué, en palabras sencillas, y qué hacer. Una petición
-  detenida después de un intento (una petición a Bedrock cuya sesión de AWS hubo que renovar entre dos
-  intentos) dice que un intento anterior pudo llegar ya al proveedor. Se ofrece una excepción de
-  petición exacta para una cabecera o un parámetro de consulta que ningún perfil nombra; para un
-  miembro del cuerpo que ningún perfil nombra, el intercambio dice cómo aprobar una, salvo que el
-  miembro esté *donde ninguna excepción puede llegar (dentro de un elemento del proveedor, la fuente
-  de una imagen o un turno WebSocket)*. No se ofrece ninguna para una credencial, un destino, una
-  parte que Latet no pudo leer o un límite de trabajo, ni en un WebSocket: *En esta versión de Latet,
-  un WebSocket no admite excepciones de solicitudes.*
+  detenida después de un intento (una petición a Bedrock cuya sesión de AWS hubo que renovar entre
+  dos intentos) dice que puede que un intento anterior ya haya llegado al proveedor. Se ofrece una
+  excepción de petición exacta para una cabecera o un parámetro de consulta que ningún perfil
+  nombra; para un miembro del cuerpo que ningún perfil nombra, el intercambio dice cómo aprobar una,
+  salvo que el miembro esté *donde ninguna excepción puede llegar (dentro de un elemento del
+  proveedor, la fuente de una imagen o un turno WebSocket)*. Un miembro rechazado con
+  `unknown_members: refuse` dice que este ajuste, en tus ajustes, en los del proyecto o en las
+  directrices de tu empresa, rechaza miembros así, y lo que haría con él `unknown_members: check`,
+  con un enlace a [Nuevos miembros de las
+  peticiones](../getting-started/upgrading-to-0-11/#nuevos-miembros-de-las-peticiones); donde una
+  excepción puede llegar al miembro, el intercambio sigue diciendo cómo aprobar una. No se ofrece
+  ninguna para una credencial, un destino, una parte que Latet no pudo leer o un límite de trabajo,
+  ni en un WebSocket: *En esta versión de Latet, un WebSocket no admite excepciones de petición.*
 - **Cada parte leída,** o **leída, y dejada pasar por** lo que se nombra: *solo comprobada* (valores
-  que la comprobación final leyó sin tener que enmascararlos), *permitida por una regla* (el resto de
-  una imagen cuyo texto se leyó, o un campo cifrado de un proveedor), un elemento opaco que el
-  proveedor envió antes en esta conversación, texto ya enviado en esta conversación, texto que
-  escribió el modelo, o una excepción que aprobaste. Lo que salió sin leerse nunca se muestra como
-  verificado.
+  que la comprobación final leyó sin tener que enmascararlos), *un campo que ningún perfil de
+  petición prevé todavía, leído y comprobado* (solo por su categoría, nunca por su nombre),
+  *permitida por una regla* (el resto de una imagen cuyo texto se leyó, o un campo cifrado de un
+  proveedor), un elemento opaco que el proveedor envió antes en esta conversación, texto ya enviado
+  en esta conversación, texto que escribió el modelo, o una excepción de petición que aprobaste. Lo
+  que salió sin leerse nunca se muestra como verificado.
 - **Lo que quitó Latet:** cuántas cabeceras y cuántos miembros del cuerpo declara su perfil como
   eliminables (`client_metadata` de Codex, por ejemplo); cuando el proveedor respondió `401` o `403`
   después de que Latet quitara una cabecera, el intercambio lo dice.
@@ -145,12 +156,12 @@ petición ([Cada parte de una petición](../concepts/protection-scope/#cada-part
   también muestran el lanzamiento.
 
 Un intercambio registrado por una versión anterior de Latet nunca se muestra como verificado: dice
-*Registrada por una versión anterior de Latet. No consta cuánto de esta solicitud leyó, así que no
+*Registrada por una versión anterior de Latet. No consta cuánto de esta petición leyó, así que no
 figura como verificada.* Una comprobación que el plugin de Claude Code hizo dentro de Claude Code se
 muestra como *Una comprobación del plugin de Claude Code.*, nunca como verificada: no envió nada por
-sí misma, y la solicitud que leyó es un intercambio aparte.
+sí misma, y la petición que leyó es un intercambio aparte.
 
-<Screenshot name="coverage" alt="La cobertura de un intercambio: qué dejó pasar partes de él sin leerlas, cómo se vinculó su sesión, su proyecto de confianza, la cabecera que quitó Latet y su perfil de petición" caption="Cobertura: cómo dio cuenta Latet de cada parte de una petición." />
+<Screenshot name="coverage" alt="La cobertura de un intercambio: qué dejó pasar partes de él sin leerlas, cómo se vinculó su sesión, su proyecto de confianza, la cabecera que quitó Latet y su perfil de petición" caption="Cobertura: qué hizo Latet con cada parte de una petición." />
 
 ### Excepciones de petición
 
@@ -160,8 +171,8 @@ deja pasar cada una (una cabecera, un parámetro de consulta o un miembro del cu
 credencial propia del destino), dónde (su destino y su perfil de petición), para quién (todas tus
 peticiones, o las peticiones de un proyecto cuando Latet considera de confianza su proyecto), y su
 estado: *Esperando tu aprobación*, *Activa*, *Caduca pronto* (con los días que quedan), *Caducada*,
-*Permanente*, o *Hay que aprobarla de nuevo: su perfil se revisó*. Un aviso dice cuándo una termina en
-los próximos siete días. *Revocar* quita una en el acto. Debajo, los usos de excepciones contados en
+*Permanente*, o *Hay que aprobarla de nuevo: su perfil se revisó*. Un aviso lo indica cuando alguna
+termina en los próximos siete días. *Revocar* quita una en el acto. Debajo, los usos de excepciones contados en
 memoria desde que arrancó el daemon, que se borran al reiniciarse: con el historial desactivado son
 todo lo que queda de ellos, y un servidor suma los recuentos de sus instancias. Una excepción nueva, o
 ampliada, renovada o hecha permanente, espera en **Aprobaciones**, en *Ajustes*, que muestra lo que deja
@@ -171,7 +182,7 @@ pasar, cuánto dura y, para una sin proyecto, que cubre toda tu identidad.
 
 ### Aprobaciones
 
-Dos pestañas, cada una con el número de lo que espera. En *Textos*, con el
+Dos pestañas, cada una con el número de elementos en espera. En *Textos*, con el
 [Revisor en directo](../concepts/live-review/) activado, cada texto nuevo espera antes de salir:
 el original junto a lo que se enviará, para aprobarlo, enmascarar algo más en él o detenerlo; una
 imagen con los rectángulos donde se cubren sus valores, para cubrir más a mano o no enviarla. En
@@ -197,7 +208,7 @@ tales, para que destaque lo que es *nuevo* en cada petición.
 Cada valor que Latet conoce y su valor ficticio. Los originales solo se muestran si
 lo pides. *Olvidar* elimina un valor de la caja fuerte y, con ello, de todo el historial, de las
 respuestas recordadas por el revisor local que lo contienen (en un equipo) y, mientras funciona Latet 0.9.10 o una
-versión posterior, también de las copias de la caja fuerte que guarda `latet upgrade`. Los valores llegan de cincuenta en cincuenta por página, los más recientes primero, con los enlaces a
+versión posterior, también de las copias de la caja fuerte que guarda `latet upgrade`. Los valores se muestran en páginas de cincuenta, los más recientes primero, con los enlaces a
 las páginas bajo la tabla.
 
 ### Reglas de un proyecto
@@ -207,33 +218,34 @@ globales a las de un [proyecto](../concepts/projects/), en las mismas pestañas.
 están la carpeta del proyecto, su `latet.yaml` y, en *Lo que no se aplica*, lo que dicen sus
 archivos pero no pueden aplicar.
 
-- **Resumen:** lo que está en vigor allí, todas las capas juntas, y tus ajustes para el proyecto
-  en conjunto: *Exportar estos ajustes* e *Importar ajustes* los llevan a la copia del proyecto de
-  un compañero, y *Quitar tus ajustes* los elimina.
+- **Resumen:** lo que está en vigor allí, todas las capas juntas (entre ello, cómo se leen los
+  nuevos miembros de las peticiones), y tus ajustes para el proyecto en conjunto: *Exportar estos
+  ajustes* e *Importar ajustes* los llevan a la copia del proyecto de un compañero, y *Quitar tus
+  ajustes* los elimina.
 - **Protección** y **Revisores:** tus propios ajustes para el proyecto, con las secciones de las
   reglas globales: Latet activado, solo secretos o desactivado allí (primero en *Protección*),
   datos de producción, cuánto lee allí el revisor local, tus indicaciones para él en ese proyecto
   y el Revisor en directo.
 - **Términos**, **Reconocedores**, **Valores permitidos** y **Políticas:** una tabla cada una de
   todas las reglas que se aplican allí, una fila por fuente, con la columna **Origen** que dice de
-  dónde viene: *tuyas, para* el proyecto, *latet.yaml*, o *global* con un candado. El filtro
+  dónde viene: *tuyo, para* el proyecto, *latet.yaml*, o *global* con un candado. El filtro
   *Origen* deja las de una fuente, y cada pestaña cuenta las tuyas y todas (*1 tuyo · 4 en
   total*). Una fila se cambia donde nace: una global se abre en solo lectura, con *Abrir en las
   reglas globales*; una fila de `latet.yaml` se guarda en el archivo cuando el panel puede
   escribirlo; una fila nueva (*Añadir para* el proyecto) va a tus propios ajustes para el
   proyecto, salvo que *Guardar en* diga `latet.yaml`, que lee cualquiera que lea el repositorio.
   Antes de guardar en `latet.yaml`, el recuadro dice si al guardar se crea el archivo o se vuelve a
-  escribir entero (sus comentarios después de las primeras líneas no se conservan), y eliminar o
-  desactivar las filas seleccionadas dice cuántas de ellas están en el archivo. Los valores que no
-  enmascarar nunca vienen solo de las reglas globales y de las tuyas, porque un archivo del
+  escribir entero (sus comentarios después de las primeras líneas no se conservan) y, al eliminar o
+  desactivar las filas seleccionadas, indica cuántas de ellas están en el archivo. Los valores que
+  nunca se enmascaran solo vienen de las reglas globales y de las tuyas, porque un archivo del
   repositorio no puede fijarlos. En *Políticas*, *En vigor aquí* dice qué acción se aplica en el
   proyecto, y una fila cuya acción no es la que está en vigor allí lo dice junto a su acción. En un
-  servidor Latet las tablas de un proyecto no tienen *Importar*: tus ajustes para un proyecto se
+  servidor de Latet, las tablas de un proyecto no tienen *Importar*: tus ajustes para un proyecto se
   importan en tu equipo.
 - **Archivo del repositorio:** el `latet.yaml` del proyecto, con lo que añade protección y no es
   una lista. *Sugerir reconocedores* crea borradores de algunos a partir de los archivos del
-  proyecto y abre cada uno en la pestaña *Reconocedores*, con *Guardar en* en `latet.yaml`; el
-  archivo se escribe por ti cuando la carpeta del proyecto está en este equipo.
+  proyecto y abre cada uno en la pestaña *Reconocedores*, con *Guardar en* en `latet.yaml`; Latet
+  escribe el archivo por ti cuando la carpeta del proyecto está en este equipo.
 
 Como en las reglas globales, un punto marca una pestaña con cambios sin guardar, la búsqueda
 encuentra secciones y filas estén en la pestaña que estén, y *Guardar tus ajustes*, al pie de las
@@ -251,7 +263,9 @@ países cuyos números de identificación reconocer, tus términos personalizado
 [reconocedores](../concepts/custom-recognizers/) (con un recuadro *Probarlo*), las listas de
 permitidos y las políticas, los [datos de producción](../concepts/production-data/) (modo de datos
 estricto, reglas de campo, la protección contra volcados, las [imágenes](../concepts/images/) y el
-reconocimiento de texto), el [revisor local](../concepts/llm-review/) (con tus indicaciones, sus
+reconocimiento de texto, y cómo se leen los
+[nuevos miembros de las peticiones](../getting-started/upgrading-to-0-11/#nuevos-miembros-de-las-peticiones)),
+el [revisor local](../concepts/llm-review/) (con tus indicaciones, sus
 propias instrucciones mostradas en solo lectura tal como se envían, *Probarlo* con un ejemplo o con
 un texto tuyo, y *Borrador a partir de una descripción* para los reconocedores), la detección de
 nombres local, lo que puede recibir el [revisor del modo automático](../agents/claude-code/) de
@@ -266,16 +280,16 @@ el estado de un reconocedor, un valor o un patrón...), columnas que se ordenan 
 encabezado, páginas de cincuenta y una casilla por fila. Las filas seleccionadas se eliminan, un
 reconocedor se activa o se desactiva, o se copian a tus propios ajustes para un proyecto
 (*Copiar a un proyecto…*), al momento tras una confirmación. Un clic en una fila, o Intro, la abre
-en un recuadro lateral a la derecha con cada uno de sus campos, incluido el valor entero de una
-fila larga; *Añadir* abre el mismo recuadro vacío. El tipo de una política nueva se elige en el
+en un recuadro lateral a la derecha con cada uno de sus campos, incluido el valor entero de un
+campo largo; *Añadir* abre el mismo recuadro vacío. El tipo de una política nueva se elige en el
 menú, o se escribe con *Otro tipo…* para un tipo que Latet encuentra y que el menú no muestra,
-como el de un secreto. *Probarlo*, en un patrón de valores que no enmascarar nunca, dice si el
+como el de un secreto. *Probarlo*, en un patrón de valores que nunca se enmascaran, dice si el
 patrón deja pasar un valor, o que aquí no se puede probar cuando usa una forma que solo Latet lee.
 El *Guardar* de un recuadro aplica el cambio al momento, hecho sobre tus ajustes tal como están
 ahora: si cambiaron mientras tanto (otra pestaña del navegador, un cambio de un agente aplicado) y
 la fila no, se guarda igualmente; si la fila cambió, el recuadro lo dice y la muestra como está
-ahora. Un recuadro que se cierra con cambios sin guardar pregunta antes, y también salir de la
-página con esos cambios o cerrar la pestaña del navegador. En un teléfono el recuadro cubre la
+ahora. Si cierras un recuadro con cambios sin guardar, se te pregunta antes, y lo mismo si sales
+de la página con esos cambios o cierras la pestaña del navegador. En un teléfono el recuadro cubre la
 página, con *Cerrar* arriba y sus botones abajo.
 
 Un punto marca una pestaña sin tabla con cambios sin guardar, y *Guardar las reglas*, al pie de
@@ -288,8 +302,8 @@ muestra lo que añadiría antes de que cambie nada ([Exportar e importar](../con
 Las tablas de *Términos*, *Reconocedores* y *Valores permitidos* tienen su propio *Exportar* e
 *Importar*: los términos en CSV (`value,type,case_sensitive,whole_word`, para que una lista de
 clientes se pegue de una vez), los valores en CSV (`kind,value`), los reconocedores como archivo de
-reglas. *Exportar* escribe las filas que muestra la tabla, con los filtros activos y las cautelas
-de *Exportar reglas*: los términos y los valores van en claro en el archivo, como dice la
+reglas. *Exportar* escribe las filas que muestra la tabla, con los filtros activos y las mismas
+salvaguardas que *Exportar reglas*: los términos y los valores van en claro en el archivo, como dice la
 exportación, una celda que una hoja de cálculo ejecutaría como fórmula se escribe tras un
 apóstrofo, y un reconocedor cuyos ejemplos contienen un valor que Latet ha visto de verdad se
 queda fuera, y se nombra. *Importar* añade a la lista, nunca la sustituye, y muestra antes lo que
@@ -301,7 +315,7 @@ añadiría; la tabla de *Reconocedores* importa un archivo solo de reconocedores
 
 Pega un texto y mira cómo lo enmascararían tus reglas, u otro perfil, como
 prompt, adjunto, salida de una herramienta o prompt de sistema. Nada de lo que escribas ahí se
-escribe en el disco, en la caja fuerte ni en el historial, y nunca llega a un modelo.
+guarda en el disco, en la caja fuerte ni en el historial, y nunca llega a un modelo.
 
 ### Agentes protegidos
 
@@ -341,7 +355,7 @@ dice *Atajos activados*.
 | <kbd>X</kbd> | No enviarlo |
 | <kbd>J</kbd> / <kbd>K</kbd> | El texto siguiente / el anterior |
 | <kbd>M</kbd> | Enmascarar el texto seleccionado en el original o, si no, la primera sugerencia |
-| <kbd>Mayús</kbd>+<kbd>A</kbd> | Aprobar todas las pendientes, tras confirmarlo |
+| <kbd>Mayús</kbd>+<kbd>A</kbd> | Aprobar todos los textos pendientes, tras confirmarlo |
 | <kbd>?</kbd> | La lista de atajos |
 
 Una tecla nunca actúa mientras escribes en un campo, con Ctrl, Alt o Cmd pulsado, ni en la cola del
@@ -349,7 +363,7 @@ tutorial. Intro no aprueba nada: el botón *Aprobar* envía un texto tal cual.
 
 ## La privacidad del propio panel
 
-Lo que sigue se refiere al panel en tu propio equipo. Para el panel de un servidor Latet, consulta
+Lo que sigue se refiere al panel en tu propio equipo. Para el panel de un servidor de Latet, consulta
 [Latet en un servidor](../concepts/server/).
 
 - Solo escucha en `127.0.0.1`; en la [imagen del contenedor](../getting-started/docker/) escucha
@@ -375,7 +389,7 @@ Lo que sigue se refiere al panel en tu propio equipo. Para el panel de un servid
   sola vez.
 - Puedes borrar el historial en cualquier momento desde el panel; la caja fuerte se conserva.
 - Las copias de la caja fuerte y del historial que guarda `latet upgrade` (tres como máximo, en
-  `backups/` en la carpeta de datos de Latet) te siguen mientras funciona Latet 0.9.10 o una versión posterior:
+  `backups/` en la carpeta de datos de Latet) siguen tus cambios mientras funciona Latet 0.9.10 o una versión posterior:
   *Olvidar* quita un valor también de ellas,
   borrar el historial borra también el suyo, y su historial no se conserva más tiempo que el tuyo.
   Una copia solo cambia por borrados y conserva la forma que le dio su versión, así que se puede
@@ -402,7 +416,7 @@ aprobación), la página que lo explica. Cada uno se abre en una pestaña nueva,
 
 Lo que se abre es la documentación del Latet que usas: cada instalación sirve la suya, en
 `/_latet/docs/` (`http://127.0.0.1:5283/_latet/docs/` en el puerto predeterminado), y un servidor
-Latet sirve la suya del mismo modo. Funciona sin red y no pide nada a ningún otro host; la única
-excepción es el vídeo de producto, un enlace para verlo en docs.latet.ai. Una instalación que no la
-incluye, como una desde una copia del repositorio en la que no se generó, abre las mismas páginas en
+de Latet sirve la suya del mismo modo. Funciona sin red y no pide nada a ningún otro host; la única
+excepción es el vídeo del producto, un enlace para verlo en docs.latet.ai. Una instalación que no la
+incluye, como una hecha desde una copia del código fuente en la que no se generó, abre las mismas páginas en
 docs.latet.ai, que describen la última versión.

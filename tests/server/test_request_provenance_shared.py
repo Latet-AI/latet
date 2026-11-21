@@ -9,6 +9,7 @@ import pytest
 from redis.exceptions import OutOfMemoryError
 
 from latet.gateway.provenance import ECHO_RULE, EchoCheck, EchoScope, OpaqueCapture
+from latet.gateway.request_profiles import opaque_scope
 from latet.gateway.routes import Upstream
 from latet.server.live import (
     ECHO_STORED_BASE,
@@ -143,6 +144,25 @@ def test_provenance_keys_hold_keyed_hashes_alone(bus):
     assert fields and all(len(value) == 129 and value[64:65] == b":" for value in fields)
     assert all(float(value) > 0 for value in bus.client.hvals(owner._keys[0]))
     owner.close()
+
+
+def test_echo_evidence_a_server_kept_before_the_rule_of_new_members_admits_its_echo_after_the_upgrade(buses):
+    """What a server running 0.12.1 kept in Valkey of an echo it saw, bound to the policy's revision of then
+    (phase-2-policy-1), read by an instance of the upgraded server: the echo sent again in its conversation is admitted
+    (bound to the policy's revision of 0.15.0, a conversation with Anthropic's compaction in its history was refused)."""
+    route = Upstream("company", "/company", "https://company.example.invalid")
+    scope = opaque_scope(route, "POST", "/company/v1/responses", "responses")
+    assert scope is not None
+    kept = EchoScope((*scope.binding[:-1], "phase-2-policy-1"), scope.protocol, scope.fallback)
+    body = {"input": [{"type": "image_generation_call", "id": "ig_1", "result": "YWJj"}]}
+    before = ValkeyEchoes(buses[0], "u_upgrade", ROOT_KEY)
+    captured = OpaqueCapture(EchoCheck(ROOT_KEY, before, kept, "conversation", body), before)
+    captured.body({"output": body["input"]})
+    assert captured.commit()
+    before.close()
+    after = ValkeyEchoes(buses[1], "u_upgrade", ROOT_KEY)
+    assert set(EchoCheck(ROOT_KEY, after, scope, "conversation", body).rules(body).values()) == {ECHO_RULE}
+    after.close()
 
 
 async def test_an_echo_seen_by_one_instance_passes_on_another(instances, monkeypatch):

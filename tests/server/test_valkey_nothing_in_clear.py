@@ -23,6 +23,7 @@ hold no canary.
 Not taken here: the Live Reviewer's batches (pinned against Valkey by test_queue.py), a dashboard event too heavy to go
 inline (kept by reference), the approved texts and the Responses API's ids."""
 
+import ast
 import asyncio
 import base64
 import contextlib
@@ -33,6 +34,7 @@ import re
 import secrets
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -913,3 +915,73 @@ def test_launch_binding_valkey_keeps_only_one_sealed_string(protected_core, monk
     assert authority.retire(_ISSUER, locator, 1)
     assert next(bus.client.scan_iter(match=bus.prefix + "*", count=100), None) is None
     assert published == 0, "launch storage must not publish an identity message"
+
+
+# What Latet Enterprise publishes on its own channels (``ee:*``, heard by E1's listener on every instance), each with its
+# fields alone: a fixed word that says what changed, the ids of the identities whose roles or groups changed, a settings
+# section's name; nothing in clear (Task 11's rule, kept by the merge of 0.11 into the Enterprise branch). Every call
+# that publishes there is read below: a new one, or another field, fails until it is listed here.
+EE_CHANNELS: dict[str, frozenset[str]] = {
+    "ee:license": frozenset({"change"}),  # E1: the license installed, removed, read again (a fixed word)
+    # E3: the ids of the identities whose roles or groups changed; since E3's release gate 4 the ids of the people a
+    # change touched (``people``), or ``everyone``: true
+    "ee:people": frozenset({"changed", "people", "everyone"}),
+    "ee:policy": frozenset(),  # E2: read the policy again
+    "ee:settings": frozenset({"section"}),  # E1: the name of the settings section written
+    "ee:terms": frozenset({"asked", "version"}),  # E6: the synced terms' version moved, or a sync was asked for
+}
+# The calls that hand a channel and a message on, unread here: E1's ``publish`` itself, E2's forwarder to it, and E6's
+# (the term sync's ``publish``, which hands its channel and its literal messages on: read above where they are made).
+EE_FORWARDERS = {("ee/server.py", "publish"), ("ee/policy_server.py", "of"), ("ee/sync/service.py", "make_term_sync")}
+SRC = Path(__file__).resolve().parents[2] / "src" / "latet"
+
+
+def _ee_publishes() -> tuple[dict[str, set[str]], set[tuple[str, str]]]:
+    """Each Enterprise call of ``publish`` or ``_publish`` (``latet.ee.server.publish``, ``Bus.publish``): its channel,
+    a literal or a module's constant, with the keys of its literal message; and the functions whose calls name neither
+    (forwarders)."""
+    found: dict[str, set[str]] = {}
+    forwarders: set[tuple[str, str]] = set()
+    for file in sorted((SRC / "ee").rglob("*.py")):
+        path = file.relative_to(SRC).as_posix()
+        tree = ast.parse(file.read_text("utf-8"))
+        constants = {
+            target.id: node.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for call in ast.walk(function):
+                if not isinstance(call, ast.Call):
+                    continue
+                name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+                if name not in ("publish", "_publish") or len(call.args) < 2:
+                    continue
+                channel, message = call.args[-2], call.args[-1]
+                if isinstance(channel, ast.Constant):
+                    said = channel.value
+                elif isinstance(channel, ast.Name) and channel.id in constants:
+                    said = constants[channel.id]
+                else:
+                    forwarders.add((path, function.name))
+                    continue
+                assert isinstance(message, ast.Dict), (path, function.name)
+                keys = {key.value for key in message.keys if isinstance(key, ast.Constant)}
+                assert len(keys) == len(message.keys), (path, function.name)  # every key a literal
+                found.setdefault(said, set()).update(keys)
+    return found, forwarders
+
+
+def test_every_message_latet_enterprise_publishes_is_listed_with_its_fields():
+    if not (SRC / "ee").is_dir():
+        pytest.skip("the Enterprise package is not in this checkout")
+    found, forwarders = _ee_publishes()
+    assert {channel: frozenset(keys) for channel, keys in found.items()} == EE_CHANNELS
+    assert forwarders == EE_FORWARDERS
+    assert all(channel.startswith("ee:") for channel in EE_CHANNELS)

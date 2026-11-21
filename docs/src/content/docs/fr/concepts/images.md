@@ -17,12 +17,12 @@ latet ocr install   # downloads the models once (about 31 MB)
 ```
 
 - Les modèles fonctionnent avec le composant optionnel `ocr`, ONNX Runtime et Pillow, que les
-  programmes d'installation fournissent avec Latet ; `latet upgrade` l'ajoute à un Latet installé
-  sans lui.
+  scripts d'installation installent avec Latet ; `latet upgrade` l'ajoute à une installation de
+  Latet qui ne l'a pas.
 - Les modèles sont [PP-OCRv6 small](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx) de
   PaddleOCR, l'un qui trouve les lignes de texte et l'autre qui les lit, sous licence Apache-2.0. Ils
-  proviennent de huggingface.co, dans une révision figée, et chaque fichier est vérifié par rapport à
-  un SHA-256 figé avant utilisation.
+  proviennent de huggingface.co, à une révision fixée, et chaque fichier est vérifié par rapport à
+  un SHA-256 fixé avant utilisation.
 - Ils tournent sur votre processeur, en une seconde environ pour une capture d'écran Full HD, en
   quelques secondes pour celle d'un écran 4K ou 5K, et en plusieurs secondes pour la capture d'une
   page entière. Rien n'est envoyé nulle part, et Latet ne se connecte à huggingface.co que lorsque
@@ -49,7 +49,7 @@ latet ocr install   # downloads the models once (about 31 MB)
    sans ses métadonnées ; une image qui dépasserait la taille qu'acceptent les fournisseurs (5 Mo) est
    envoyée en JPEG, ou retenue si elle reste trop grande même ainsi.
 4. Renvoyée, puisque chaque agent renvoie la conversation, la même image part à l'identique, octet
-   pour octet, même après un redémarrage : le cache de prompt du fournisseur continue de fonctionner.
+   pour octet, même après un redémarrage : le cache de prompts du fournisseur continue de fonctionner.
 
 Une image sans rien à masquer part telle quelle. Une image que Latet ne peut pas lire est retenue : le
 modèle reçoit à sa place une courte note, *[image withheld by Latet: ...]*, avec le motif. Cela arrive
@@ -77,7 +77,7 @@ pas retirer une image : une requête avec une image que Latet ne sait pas lire n
 | `images` | Avec la reconnaissance de texte | Sans elle |
 | --- | --- | --- |
 | `allow` (par défaut) | les images sont lues et masquées | aucune requête avec une image n'est envoyée |
-| `mask` | seules les images lues et masquées sont envoyées : une requête qui en transporte une que Latet ne peut pas lire (un PDF, une image désignée par son adresse) n'est pas envoyée | aucune requête contenant une image n'est envoyée |
+| `mask` | seules les images lues et masquées sont envoyées : une requête qui en transporte une que Latet ne peut pas lire (un PDF, une image désignée par son adresse) n'est pas envoyée | aucune requête avec une image n'est envoyée |
 | `block` | aucune requête qui transporte une image ou un document n'est envoyée | de même |
 
 - Le [profil `max`](../profiles/) n'envoie pas les images, comme `block`. Un de vos projets peut
@@ -99,8 +99,8 @@ pas retirer une image : une requête avec une image que Latet ne sait pas lire n
 
 Une requête que Latet réécrit (Codex, OpenCode et les autres agents en mode passerelle) envoie chaque
 image réécrite, sans ses métadonnées. Une requête que Latet ne fait que vérifier, comme celles de
-Claude Code, part telle que l'agent l'a construite, donc Latet y rend compte de chaque octet de chaque
-image : la structure de son format, lue selon sa grammaire ; le texte de ses métadonnées (le
+Claude Code, part telle que l'agent l'a construite : Latet y vérifie donc à quoi correspond chaque octet de
+chaque image : la structure de son format, lue selon sa grammaire ; le texte de ses métadonnées (le
 commentaire *Screenshot* d'une capture d'écran, le programme qui l'a créée, le nom de son profil de
 couleurs), lu par la vérification finale ; et les pixels de l'image principale, dont la
 reconnaissance de texte a lu le texte. Ce qui reste n'est pas envoyé :
@@ -117,13 +117,13 @@ L'agent apprend comment continuer :
 Latet cannot read all of this image's metadata or embedded images. Rewind to before the image or start a new conversation, because the image stays in its history. Remove the metadata before attaching it again: iOS: Share, Options, Location off; macOS Preview: Tools, Show Inspector, Remove Location Info; Windows: Properties, Details, Remove Properties and Personal Information.
 ```
 
-Ramenez la conversation avant l'image, ou commencez-en une nouvelle, puis joignez à nouveau l'image
+Revenez dans la conversation jusqu'avant l'image, ou commencez-en une nouvelle, puis joignez à nouveau l'image
 sans ses métadonnées : sur iOS, *Partager*, *Options*, *Position* désactivée ; dans Aperçu sur macOS,
 *Outils*, *Afficher l'inspecteur*, *Supprimer les informations de lieu* ; sous Windows, *Propriétés*
 du fichier, *Détails*, *Supprimer les propriétés et informations personnelles*. Une capture d'écran
 ordinaire n'a rien de tout cela, et passe.
 
-Une image WebP d'origine ne peut pas y être expliquée octet par octet, et elle est refusée aussi :
+Pour une image WebP d'origine, Latet ne peut pas y vérifier chaque octet : elle est refusée aussi :
 exportez-la en PNG, puis revenez en arrière ou commencez une nouvelle conversation. Une requête que
 Latet réécrit envoie une image WebP réécrite en PNG.
 
@@ -161,7 +161,7 @@ envoie :
 
 ## Ce que la reconnaissance de texte ne peut pas faire
 
-- **La lecture se fait au mieux, comme pour les noms.** Le texte qui n'est pas lu (très petit, pâle,
+- **Elle fonctionne sans garantie, comme pour les noms.** Le texte qui n'est pas lu (très petit, pâle,
   manuscrit, pivoté, dans une police stylisée) part tel quel. Pour les captures d'écran qui ne doivent
   jamais partir, utilisez `images: block`, les rectangles du Relecteur en direct, ou le relecteur local
   à qui l'on montre les images.

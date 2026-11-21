@@ -13,11 +13,13 @@ import time
 
 import pytest
 
+from latet.edition import Community
 from latet.engine.masker import Masker
 from latet.engine.pipeline import Engine
 from latet.engine.types import EntityClass
 from latet.engine.vault import Entity, Vault
 from latet.engine.verifier import Verifier
+from latet.gateway import body_selectors
 from latet.gateway.cloud import _AccessRedactor
 from latet.gateway.mediate import VERIFY, Mediator, Prepared
 from latet.gateway.outbound import server_calls, stand_ins
@@ -757,6 +759,7 @@ def test_matched_destination_recorder_reaches_authenticated_integrations(
             identity=None,
             backends=None,
             gateway=SimpleNamespace(port=5283, on_server=None),
+            edition=Community(),
         )
         dashboard = Dashboard(rt)
         dashboard._agents = (time.time(), [])
@@ -1029,6 +1032,7 @@ def test_registered_projects_and_session_groups_reach_recorder_feed_and_authenti
             backends=None,
             projects=projects,
             gateway=SimpleNamespace(port=5283, on_server=None, work=None),
+            edition=Community(),
         )
         dashboard = Dashboard(rt)
         with TestClient(Starlette(routes=dashboard.routes()), base_url="http://127.0.0.1:5283") as client:
@@ -1552,7 +1556,7 @@ def test_real_empty_audit_base_is_in_runtime_and_first_space_weigh(audit_space):
         {"answered": 2},
         {"status": 99},
         {"revision": -1},
-        {"rules": ((9, 1),)},  # 8 is the exception category now
+        {"rules": ((10, 1),)},  # 8 is the exception category, 9 the new rule's (0.15.0)
         {"rules": ((7, 1),)},  # 7 named legacy-0.10: retired, never written again
         {"rules": ((1, 1), (1, 1))},
     ],
@@ -2872,6 +2876,8 @@ async def test_authenticated_me_preserves_fields_actual_d4_and_honest_local_stat
         "tutorial",
         "server",
         "docs",
+        "session",  # how a server's dashboard session was opened (Latet Enterprise's E3; None on a computer)
+        "edition",  # the edition that runs (latet.edition), the Community Edition's included
         "request_status",
     }
     assert payload["profile"] == runtime.config.profile.value and payload["port"] == runtime.gateway.port
@@ -3741,6 +3747,8 @@ async def test_authenticated_me_attaches_per_work_d2_and_preserves_ack_and_local
         "tutorial",
         "server",
         "docs",
+        "session",  # how a server's dashboard session was opened (Latet Enterprise's E3; None on a computer)
+        "edition",  # the edition that runs (latet.edition), the Community Edition's included
         "request_status",
     }
     assert payload["server"]["identity"]["id"] == runtime.identity.id and payload["data_dir"] == ""
@@ -5418,8 +5426,18 @@ def test_finite_projection_catalogs_and_unknown_rule_loss():
         )
         module.emit_decision(audit, decision, source=3, method=9)
         row = _producer_events(audit)[-1]
-        assert row[5] == code and row[16] == [[index, 1] for index in range(1, 7)]
+        assert row[5] == code and row[16] == [[index, 1] for index in (*range(1, 7), 9)]  # 9: the new rule (0.15.0)
         assert row[8:10] == ([code, 1] if code in (1, 2, 3, 4) else [0, 0])
+    # A later body revision keeps its protocol's profile code and records its own number (body_selectors.HISTORY).
+    for protocol, chain in body_selectors.HISTORY.items():
+        for number, step in enumerate(chain, 1):
+            decision = Pass(
+                None, b"", (), PolicyEvidence(tuple(module._RULE_CODES), step.id), None, ResponsePlan(protocol)
+            )
+            module.emit_decision(audit, decision, source=3, method=9)
+            row = _producer_events(audit)[-1]
+            expected = {"anthropic": 1, "chat": 2, "responses": 3, "gemini": 4}.get(protocol)
+            assert row[8:10] == ([expected, number] if expected else [0, 0]), step.id
     for reason, code in module._REASON_CODES.items():
         module.emit_decision(audit, Block("http", None, reason, TOOL, 400), source=1, attempts=0, answered=0)
         assert _producer_events(audit)[-1][10] == code

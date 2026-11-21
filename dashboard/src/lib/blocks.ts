@@ -14,10 +14,13 @@ export type BlockKind =
   | 'live' // the Live Reviewer: you stopped it, or it waited too long
   | 'localReviewer' // the local reviewer could not read it, or stopped it
   | 'leak' // a value in clear, through the gateway
+  | 'toolInput' // a value in clear in a tool's parameter schema or input examples, which nothing masks in Claude Code
   | 'outbound' // a tool that runs outside this computer would have got a stand-in
   | 'other' // Latet could not handle it (an unreadable body, masking failed)
 
-export type LiveEnd = 'rejected' | 'expired' | 'abandoned'
+/** How a wait in the Live Reviewer ended; `changed`: approved by your company's security team, then withheld as it
+ * left, since masked then it was not what they approved (Latet Enterprise). */
+export type LiveEnd = 'rejected' | 'expired' | 'abandoned' | 'changed'
 
 export interface BlockExplanation {
   kind: BlockKind
@@ -29,6 +32,8 @@ export interface BlockExplanation {
   uninspected: string[]
   /** The Live Reviewer: how the wait ended. */
   live: LiveEnd | null
+  /** The Live Reviewer: the wait was for your company's security team (Latet Enterprise), as the reason says. */
+  team: boolean
   /** The reason the agent was given, as Latet wrote it. */
   given: string | null
   /** The values that stopped the request are marked in its blocks: the page can point at them. */
@@ -37,7 +42,18 @@ export interface BlockExplanation {
 
 const DETAIL_ORDER: ReviewDetail[] = ['user_name', 'paths', 'host_name', 'git_author']
 
+// How the daemon's reasons name the company's security team (gateway/approvals.py: REJECTED_BY_SECURITY,
+// EXPIRED_FOR_SECURITY).
+const TEAM = "your company's security team"
+// A text the team approved, withheld as it left (gateway/approvals.py: APPROVED_CHANGED): theirs to decide, always.
+const CHANGED = "masked otherwise than your company's decider approved it"
+
+// How the daemon's refusal says every value that stopped it is in what a tool takes (gateway/mediate.py:
+// TOOL_INPUT_WORDS).
+const TOOL_INPUT = 'which Latet checks but cannot mask in this request'
+
 function liveEnd(reason: string): LiveEnd | null {
+  if (reason.includes(CHANGED)) return 'changed'
   if (reason.includes('did not approve it in the Live Reviewer')) return 'rejected'
   if (reason.includes('live_review.timeout_s')) return 'expired'
   if (reason.includes('the agent stopped waiting')) return 'abandoned'
@@ -73,6 +89,7 @@ export function explainBlock(detail: ExchangeDetail): BlockExplanation | null {
     others: [...new Set(leaks.filter((leak) => !leak.detail).map((leak) => leak.type))],
     uninspected,
     live: null,
+    team: false,
     given,
     marked: stoppedValues(leaks).some((value) => shown.has(value.block)),
   }
@@ -84,11 +101,21 @@ export function explainBlock(detail: ExchangeDetail): BlockExplanation | null {
   else if (summary.flags.includes('auto-mode-review')) kind = 'review'
   else if (liveEnd(reason)) kind = 'live'
   else if (reason.includes('the local reviewer')) kind = 'localReviewer'
+  else if (reason.includes(TOOL_INPUT)) kind = 'toolInput'
   else if (plugin && summary.flags.includes('history')) kind = 'history'
   else if (plugin) kind = 'plugin'
   else if (leaks.length > 0) kind = 'leak'
   else kind = 'other'
-  return { ...base, kind, live: kind === 'live' ? liveEnd(reason) : null }
+  const live = kind === 'live' ? liveEnd(reason) : null
+  return { ...base, kind, live, team: kind === 'live' && (reason.includes(TEAM) || live === 'changed') }
+}
+
+/**
+ * Whether a stopped text waited for your company's security team (Latet Enterprise): as its reason says, or, for one the
+ * agent gave up on (whose reason names nobody), when your texts go to the team now (`routedNow`).
+ */
+export function waitedForTeam(why: Pick<BlockExplanation, 'live' | 'team'>, routedNow: boolean): boolean {
+  return why.team || (why.live === 'abandoned' && routedNow)
 }
 
 /** A value that stopped the request, with its place in the block it is in (code points, on both sides). */

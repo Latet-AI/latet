@@ -63,6 +63,11 @@ MAX_QUERY = 100_000  # entries ``query`` answers at most (E4 reads windows of up
 # far more than instances' clocks may differ (the bus drops the messages of those a minute apart).
 AHEAD = 86_400.0
 _ENTRY, _ANCHOR = "audit-entry", "audit-anchor"  # what a keyed hash is of (the label of ``keyed_hash``)
+_NOTE: Final = "audit-note"  # the label of a reader's note's tag (``AuditLog.tag``)
+# The ids the log's sequence gave (BIGSERIAL's own, `audit_id_seq`, in the schema the connection searches): what E4
+# reads by id. A row inserted by hand past it is not one.
+_GIVEN: Final = "id <= (SELECT last_value FROM audit_id_seq)"
+_NEWEST: Final = "SELECT coalesce(max(id), 0) FROM audit WHERE id <= (SELECT last_value FROM audit_id_seq)"
 _ENTRIES: Final = "SELECT id, ts, actor, action, target, details::text, address, prev, hash FROM audit"
 # The anchor a prune writes: over the one it read (which it holds), or, when it read none, only where none is still.
 _NEXT_ANCHOR: Final = "UPDATE audit_anchor SET through = %s, hash = %s, tag = %s WHERE id = 1"
@@ -162,6 +167,32 @@ def _encoded_entry(row: tuple[Any, ...], check: Callable[[], float]) -> bytes:
 
 def _page_tail(cursor: str | None) -> bytes:
     return b'],"next_cursor":' + json.dumps(cursor, separators=(",", ":")).encode("ascii") + b"}"
+
+
+def _filters(
+    since: float | None, until: float | None, action: str | None, actor: str | None
+) -> tuple[list[LiteralString], list[Any]]:
+    """The filters ``query`` and ``after`` take: ``[since, until)``, an action (ending in `*`: what starts with the
+    rest, its characters taken literally), an actor."""
+    where: list[LiteralString] = []
+    args: list[Any] = []
+    if since is not None:
+        where.append("ts >= %s")
+        args.append(since)
+    if until is not None:
+        where.append("ts < %s")  # a window's end is the next one's start: an entry is in one of them
+        args.append(until)
+    if action:
+        if action.endswith("*"):
+            where.append("action LIKE %s")
+            args.append(_text(action[:-1]).translate(_LIKE) + "%")
+        else:
+            where.append("action = %s")
+            args.append(_text(action))
+    if actor:
+        where.append("actor = %s")
+        args.append(_text(actor))
+    return where, args
 
 
 def _selection(filters: LogFilters, ceiling: int, after: LogCursor | None) -> tuple[LiteralString, list[Any]]:
@@ -423,24 +454,7 @@ class AuditLog:
     ) -> list[AuditEntry]:
         """The entries of ``[since, until)``, newest first, at most ``limit``. ``action`` ending in `*` matches what
         starts with the rest (`person.*`), its characters taken literally."""
-        where: list[LiteralString] = []
-        args: list[Any] = []
-        if since is not None:
-            where.append("ts >= %s")
-            args.append(since)
-        if until is not None:
-            where.append("ts < %s")  # a window's end is the next one's start: an entry is in one of them
-            args.append(until)
-        if action:
-            if action.endswith("*"):
-                where.append("action LIKE %s")
-                args.append(_text(action[:-1]).translate(_LIKE) + "%")
-            else:
-                where.append("action = %s")
-                args.append(_text(action))
-        if actor:
-            where.append("actor = %s")
-            args.append(_text(actor))
+        where, args = _filters(since, until, action, actor)
         query: LiteralString = _ENTRIES
         if where:
             query += " WHERE " + " AND ".join(where)
@@ -449,6 +463,71 @@ class AuditLog:
         with self.db.connection() as conn:
             rows = conn.execute(query, args).fetchall()
         return [AuditEntry(r[0], r[1], r[2], r[3], r[4], _object(r[5]) or {}, r[6], r[7], r[8]) for r in rows]
+
+    def after(
+        self,
+        after_id: int,
+        limit: int = PAGE,
+        *,
+        since: float | None = None,
+        until: float | None = None,
+        action: str | None = None,
+        actor: str | None = None,
+    ) -> list[AuditEntry]:
+        """The entries whose id is above ``after_id``, oldest first, at most ``limit`` (``PAGE`` at most), within the
+        filters ``query`` takes. Ids are given in the order entries commit (``_write`` takes the chain's lock before the
+        insert that draws the id and holds it to the commit): a reader that notes the last id it read finds each entry
+        once, and none later with a lower id. E4 reads the log so: its forwarder to the SIEM, its exports.
+
+        Only ids the log's sequence gave are read (``_GIVEN``): a row inserted by hand with an id past it (2^63 - 1)
+        would move such a reader past every entry yet to come. ``verify`` walks it all the same."""
+        where, args = _filters(since, until, action, actor)
+        query: LiteralString = (
+            _ENTRIES + " WHERE " + " AND ".join(["id > %s", _GIVEN, *where]) + " ORDER BY id LIMIT %s"
+        )
+        with self.db.connection() as conn:
+            rows = conn.execute(query, [after_id, *args, max(1, min(limit, PAGE))]).fetchall()
+        return [AuditEntry(r[0], r[1], r[2], r[3], r[4], _object(r[5]) or {}, r[6], r[7], r[8]) for r in rows]
+
+    def newest_id(self) -> int:
+        """The id of the newest entry, among those the log's sequence gave (``_GIVEN``, as ``after`` reads them); 0 for
+        a log that holds none. Where E4's forwarder starts when the log's last hour holds no entry."""
+        with self.db.connection() as conn:
+            row = conn.execute(_NEWEST).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def tag(self, text: str) -> str:
+        """A keyed tag of ``text`` under the log's key, with a label of its own (never an entry's hash nor an anchor's
+        tag): what E4 keeps beside the note of its forwarder (its place in the log, a gap it left), which anyone who
+        writes the database could change, as the anchor's tag is kept beside the anchor."""
+        return keyed_hash(self._key, _NOTE, text)
+
+    def tagged(self, text: str, tag: object) -> bool:
+        """Whether ``tag`` is ``tag(text)``, in constant time; False, and no error, for any other text or value."""
+        return isinstance(tag, str) and _same(tag, self.tag(text))
+
+    def holds(self, entry: AuditEntry) -> bool:
+        """Whether ``entry``, as ``query`` or ``after`` gave it, is the entry its hash says: its keyed hash made again,
+        as ``_holds`` checks a row (details that could not be read are given as none, whose hash is not the row's).
+        E4 trusts no row for its action alone (R4-4: a row written by hand names nothing)."""
+        try:
+            made = entry_hash(
+                self._key, entry.prev, entry.ts, entry.actor, entry.action, entry.target, dict(entry.details),
+                entry.address,
+            )  # fmt: skip
+        except (TypeError, ValueError, OverflowError, RecursionError):  # what no entry of the log holds
+            return False
+        return _same(entry.hash, made)
+
+    def first_kept(self) -> int:
+        """The first id the log still keeps: the anchor's ``through`` + 1 once a prune ran, else 1. What came before it
+        cannot be checked against the log (E4's gap markers: R4-2). An anchor whose tag does not hold says nothing of
+        where the log starts (``verify`` says it is broken): 1, so that no marker is passed over as too old to check."""
+        with self.db.connection() as conn:
+            row = conn.execute("SELECT through, hash, tag FROM audit_anchor WHERE id = 1").fetchone()
+        if row is None or not _same(row[2], anchor_tag(self._key, row[0], row[1])):
+            return 1
+        return int(row[0]) + 1
 
     def read_page(self, filters: LogFilters, cursor: LogCursor | None, limit: int) -> tuple[bytes, int]:
         """One bounded HTTP page in time/id order, with no database state retained between requests.

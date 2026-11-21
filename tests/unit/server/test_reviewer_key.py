@@ -11,6 +11,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from latet.config import Config, LlmReview
+from latet.edition import Community
 from latet.engine.reviewer import reviewer as reviewer_module
 from latet.engine.reviewer.client import ReviewError, key_id
 from latet.engine.reviewer.reviewer import fixed_key
@@ -35,8 +36,9 @@ def _space(tmp_path, reader=None, review=REVIEWER, identity=EMILY):
     settings = MemorySettings(Config(llm_review=review))
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
     rt = make_runtime(
-        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=identity, reviewer_key=reader
-    )
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=identity, reviewer_key=reader,
+        edition=Community(),
+    )  # fmt: skip
     rt.gateway.on_server = OnServer(URL, identity.id)
     return rt
 

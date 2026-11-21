@@ -53,7 +53,7 @@ async def test_what_one_queue_opens_and_settles_is_told_to_a_dashboard_watching_
     opened = await gateway.open(_text_waiting())
     assert events.get_nowait() == ("pending", opened.summary())
     assert await dashboard.decide(opened.id, False)
-    assert events.get_nowait() == ("settled", {"id": opened.id, "state": "rejected"})
+    assert events.get_nowait() == ("settled", {"id": opened.id, "state": "rejected", "by": None})
     gateway.abandon(opened)  # the client went away just after you decided: a decision is told once, and stands
     decision = await gateway.wait(opened, 1)
     assert events.empty() and decision is not None and decision.state == "rejected"
@@ -179,7 +179,7 @@ def test_equivalent_local_changes_keep_the_first_id_and_are_announced_once(queue
     assert events.get_nowait() == ("change", first.summary(full=True)) and events.empty()
     changed_base = gateway.open_change(Change(Config(), "another base", "command", None, ["a change"], ["profile"]))
     assert changed_base.id != first.id and list(gateway.changes) == [changed_base.id]
-    assert events.get_nowait() == ("change_settled", {"id": first.id, "state": "superseded"})
+    assert events.get_nowait() == ("change_settled", {"id": first.id, "state": "superseded", "by": None})
     assert events.get_nowait() == ("change", changed_base.summary(full=True)) and events.empty()
     dashboard.broadcaster.unsubscribe(events)
 

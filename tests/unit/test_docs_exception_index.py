@@ -27,10 +27,10 @@ def _bullet(text: str, marker: str) -> str:
 # that it never keeps an exception's description (review Minor 11).
 _NAMED = {
     "": ("id", "scope", "permanent", "end", "in force", "never its description, its destination"),
-    "it/": ("id", "ambito", "permanente", "fine", "in vigore", "mai la sua descrizione, la sua destinazione"),
+    "it/": ("id", "ambito", "permanente", "scadenza", "in vigore", "mai la sua descrizione, la sua destinazione"),
     "de/": ("ID", "Geltungsbereichs", "dauerhaft", "Ende", "in Kraft", "nie ihre Beschreibung, ihr Ziel"),
     "fr/": ("identifiant", "portée", "permanente", "fin", "en vigueur", "jamais sa description, sa destination"),
-    "es/": ("id", "alcance", "permanente", "fin", "en vigor", "nunca su descripción, su destino"),
+    "es/": ("ID", "alcance", "permanente", "fin", "en vigor", "nunca su descripción, su destino"),
 }
 _CHANGELOG = {
     "": ("ids", "scope", "ends", "states", "never what one names"),

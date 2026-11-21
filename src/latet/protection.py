@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import json
 import secrets
+import unicodedata
 from collections.abc import Collection, Hashable, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from latet.config import (
     Profile,
     ProjectSettings,
     TermConfig,
+    UnknownMembers,
 )
 from latet.vision.policy import IMAGES_RANK, image_policy
 
@@ -88,23 +90,49 @@ def _values(n: int) -> str:
     return f"{n} value{'s' if n != 1 else ''}"
 
 
-def _narrowed(old: list[TermConfig], new: list[TermConfig]) -> int:
-    """How many values of ``old``'s terms ``new`` still holds and matches in fewer forms: a way one of them was matched
-    (in any case or its own, inside words or as whole words alone) that no entry of its value in ``new`` matches,
-    ``case_sensitive`` or ``whole_word`` turned on. A value is matched as every entry of it says, together, and is
-    weighed so, in time linear in the lists (a shared list of tens of thousands of terms is weighed at every
-    re-application of every space); a value ``new`` no longer holds is weighed as removed."""
+def _composed(value: str) -> str:
+    """A term's value as the terms detector matches it in its own case: composed and decomposed alike (``_forms``). An
+    ASCII value is its own composed form, read as it is."""
+    return value if value.isascii() else unicodedata.normalize("NFC", value)
+
+
+def _terms_lowered(old: list[TermConfig], new: list[TermConfig]) -> tuple[int, int]:
+    """How many of ``old``'s terms ``new`` no longer matches at all, and how many values of them it still matches in
+    fewer forms: a way one of them was matched (in any case or its own, inside words or as whole words alone) that no
+    entry of ``new`` matching its value matches, ``case_sensitive`` or ``whole_word`` turned on. An entry of ``new``
+    matches a value when it holds it, or holds it in another case and matches any case: in lower case as RE2 folds case,
+    one character for another (a sharp s is not ``ss`` there). A value is matched as every entry of it says, together,
+    and is weighed so, in time linear in the lists (a shared list of tens of thousands of terms is weighed at every
+    re-application of every space). An old entry whose very entry ``new`` holds (its value composed, both flags) is
+    matched in every form it was, with no lowering of its value: a folder's list the same as before (each folder is
+    weighed so at the projects' cap) costs one look-up an entry, and the entries in any case are gathered only for an
+    old entry that has no such twin."""
     ways: dict[str, set[tuple[bool, bool]]] = {}
-    for term in new:
-        ways.setdefault(term.value, set()).add((term.case_sensitive, term.whole_word))
+    keys = [_composed(term.value) for term in new]
+    for key, term in zip(keys, new, strict=True):
+        ways.setdefault(key, set()).add((term.case_sensitive, term.whole_word))
+    # The entries that match any case, by their value in lower case: whole words or not (gathered at the first need).
+    folded: dict[str, set[bool]] | None = None
+    removed = 0
     narrowed: set[str] = set()
     for term in old:
-        now = ways.get(term.value)
-        if now is not None and not any(
+        key = _composed(term.value)
+        now = ways.get(key, set())
+        if (term.case_sensitive, term.whole_word) in now:
+            continue  # its very entry: matched as before in every form
+        if folded is None:
+            folded = {}
+            for twin, entry in zip(keys, new, strict=True):
+                if not entry.case_sensitive:
+                    folded.setdefault(twin.lower(), set()).add(entry.whole_word)
+        any_case = folded.get(key.lower(), set())
+        if not now and not any_case:
+            removed += 1
+        elif not any(
             (not case or term.case_sensitive) and (not whole or term.whole_word) for case, whole in now
-        ):
+        ) and not any(not whole or term.whole_word for whole in any_case):
             narrowed.add(term.value)
-    return len(narrowed)
+    return removed, len(narrowed)
 
 
 def found_type(item: TermConfig | FieldRule) -> str:
@@ -152,8 +180,38 @@ def _effective_pii(config: Config) -> set[str]:
     return set(effective_pii(config.pii, config.id_regions, every_region=config.profile == Profile.MAX))
 
 
-def _private_ips(config: Config) -> bool:
+def private_ips(config: Config) -> bool:
+    """Whether ``config`` masks private IP addresses: as it says, else as its profile does (max)."""
     return config.include_private_ips if config.include_private_ips is not None else config.profile == Profile.MAX
+
+
+def _first_fields(rules: list[FieldRule]) -> dict[str, FieldRule]:
+    """Each field name's first rule, the one in use for it (the first rule that matches a field wins; names are matched
+    without case)."""
+    out: dict[str, FieldRule] = {}
+    for rule in rules:
+        out.setdefault(rule.name.lower(), rule)
+    return out
+
+
+def _masks_as_much(
+    rule: FieldRule, now: FieldRule | None, before: Mapping[str, Policy], after: Mapping[str, Policy]
+) -> bool:
+    """Whether ``now``, the rule in use for ``rule``'s field after a change, masks it as much as ``rule`` did before:
+    masked, a secret if it was one, of its type or of one whose policy in force (``before``, ``after``: as ``_policies``
+    lays them) is as strict. Its type's own policy loosened is said as that policy. One typed EMAIL is kept only by one
+    typed EMAIL, whatever their policies: the address brings its domain along, masked wherever else it appears
+    (``Masker._repeats``), which no other type does."""
+    if now is None or not now.mask or (rule.secret and not now.secret):
+        return False
+    if found_type(now) == found_type(rule):
+        return True
+    if found_type(rule) == "EMAIL":
+        return False
+    return _POLICIES[after.get(found_type(now), Policy.MASK)] >= _POLICIES[before.get(found_type(rule), Policy.MASK)]
+
+
+GUIDANCE_CHANGED = "the local reviewer: its guidance changed"
 
 
 def _reviewer(old: LlmReview, new: LlmReview) -> list[str]:
@@ -161,7 +219,7 @@ def _reviewer(old: LlmReview, new: LlmReview) -> list[str]:
     if old.enabled and not new.enabled:
         return ["the local reviewer: turned off"]
     if new.guidance != old.guidance:  # free text, which could tell it to report nothing: also while it is off
-        out.append("the local reviewer: its guidance changed")
+        out.append(GUIDANCE_CHANGED)
     if not new.enabled:
         return out
     if REVIEW_MODES.index(new.mode()) < REVIEW_MODES.index(old.mode()):
@@ -206,6 +264,50 @@ def _live(old: LiveReview, new: LiveReview) -> list[str]:
     return out
 
 
+NEW_MEMBERS_CHECKED = "new request members: passed after a check instead of refused"
+
+
+def _new_members(old: Config, new: Config) -> list[str]:
+    """A request member no request profile names, refused before and read and checked now (``unknown_members``): a
+    project may set it too. Settings that do not say it are `check`: an installation upgraded to 0.15.0 moves there with
+    no approval (the owner's choice), and only a `refuse` written and then taken away lowers protection."""
+    return [NEW_MEMBERS_CHECKED] if old.unknown_members == "refuse" and new.unknown_members == "check" else []
+
+
+def effective_unknown_members(config: Config, project: ProjectSettings | None) -> UnknownMembers:
+    """How a request member no request profile names is read: `refuse` when the settings in use say so (a company's
+    floor raises them to it: ``floor.raised_to``, which stays after its license ends) or the project's own settings do
+    (a repository's latet.yaml, your settings for the folder: they may only tighten it), `check` otherwise. Never a
+    request's word: no header, no launch claim."""
+    if config.unknown_members == "refuse" or (project is not None and project.unknown_members == "refuse"):
+        return "refuse"
+    return "check"
+
+
+def new_members_checked(old: Config, new: Config) -> dict[str, Any] | None:
+    """What an approval from ``old`` to ``new`` moves of ``unknown_members`` from `refuse` to `check`, as a server's
+    administration log says it (design §3), never a folder: ``scope`` ``identity`` when the settings themselves move,
+    else ``project``; and ``projects``, how many of their projects stop refusing (an entry's `refuse` taken away, the
+    settings at `check`) when any does. None when it moves nothing so (a move to `refuse` among them)."""
+    from latet.projects import norm_path
+
+    top = old.unknown_members == "refuse" and new.unknown_members == "check"
+    after = {norm_path(entry.path): entry for entry in new.projects}
+    projects = sum(
+        1
+        for entry in old.projects
+        if entry.unknown_members == "refuse"
+        and effective_unknown_members(new, after.get(norm_path(entry.path))) == "check"
+    )
+    if not top and not projects:
+        return None
+    scope = "identity" if top else "project"
+    details: dict[str, Any] = {"setting": "unknown_members", "value": "check", "scope": scope}
+    if projects:
+        details["projects"] = projects
+    return details
+
+
 def _masking(old: Config, new: Config) -> list[str]:
     """What lowers the masking keys, the ones a project may set too."""
     out: list[str] = []
@@ -215,19 +317,23 @@ def _masking(old: Config, new: Config) -> list[str]:
         out.append(f"personal data: {n} type{'s' if n != 1 else ''} no longer detected")
     if n := _removed(old.phone_regions, new.phone_regions):
         out.append(f"phone numbers: {n} countr{'ies' if n != 1 else 'y'} no longer recognised")
-    if _private_ips(old) and not _private_ips(new):
+    if private_ips(old) and not private_ips(new):
         out.append("private IP addresses: no longer masked")
     if n := _added(old.disabled_secret_rules, new.disabled_secret_rules):
         out.append(f"secret rules: {n} turned off")
     recognizers_before = recognizers_in_force(old.recognizers)
     recognizers_after = recognizers_in_force(new.recognizers)
-    policies_before, policies_after = _policies(old, recognizers_before), _policies(new, recognizers_after)
+    policies_before = _policies(old.policies, recognizers_before)
+    policies_after = _policies(new.policies, recognizers_after)
     # The types whose values the new settings leave in clear: a term or a field rule of one leaves what it finds so.
     through = {etype for etype, policy in policies_after.items() if policy == Policy.ALLOW}
-    if n := _removed([t.value for t in old.terms], [t.value for t in new.terms]):
-        out.append(f"terms: {_values(n)} no longer masked")
-    if n := _narrowed(old.terms, new.terms):
-        out.append(f"terms: {n} match{'es' if n == 1 else ''} fewer forms")
+    # Of a type let through, a term still masks something (an EMAIL one brings its domain along): taken out, or
+    # matching fewer forms, it is said as any term.
+    removed, narrowed = _terms_lowered(old.terms, new.terms)
+    if removed:
+        out.append(f"terms: {_values(removed)} no longer masked")
+    if narrowed:
+        out.append(f"terms: {narrowed} match{'es' if narrowed == 1 else ''} fewer forms")
     if n := _terms_in_clear(old.terms, new.terms, through):
         out.append(f"terms: {n} that leave what they find in clear (policy allow)")
     # A recognizer is free text too: one changed may find less, or none (turned off); one whose type's policy in force
@@ -275,16 +381,23 @@ def _masking(old: Config, new: Config) -> list[str]:
     strict_before, strict_after = old.data_mode() == "strict", new.data_mode() == "strict"
     if strict_before and not strict_after:
         out.append("strict data mode: turned off")
-    elif strict_after and ((not old.data_tools and new.data_tools) or _removed(old.data_tools, new.data_tools)):
+    elif strict_after and new.data_tools and (not old.data_tools or _removed(old.data_tools, new.data_tools)):
         out.append("strict data mode: covers fewer tools")
     # A file or a web address named is data with strict data mode on or off: one taken away covers less either way.
     if _removed(old.data_files, new.data_files):
         out.append("strict data mode: covers fewer files")
     if _removed(old.data_hosts, new.data_hosts):
         out.append("strict data mode: covers fewer web addresses")
-    old_fields, new_fields = [f.model_dump() for f in old.fields], [f.model_dump() for f in new.fields]
-    if _removed(old_fields, new_fields):
+    # The first rule of a field is the one in use: one that masked, taken out, put out of use or masking less, lowers
+    # (of a type let through too: it still masks something, as a term); one that kept the field's values in clear,
+    # taken out, masks them again.
+    fields_after = _first_fields(new.fields)
+    if any(
+        rule.mask and not _masks_as_much(rule, fields_after.get(name), policies_before, policies_after)
+        for name, rule in _first_fields(old.fields).items()
+    ):
         out.append("field rules: changed or removed")
+    old_fields, new_fields = [f.model_dump() for f in old.fields], [f.model_dump() for f in new.fields]
     kept_before = {_item(f) for f in old_fields}
     if any(not f.mask and _item(dumped) not in kept_before for f, dumped in zip(new.fields, new_fields, strict=True)):
         out.append("field rules: values kept in clear in strict data mode")
@@ -383,24 +496,37 @@ def _recognizers_lowered(
     recognizer is matched by what it finds and does (``_as_found``), not by its name or its type: renamed, laid under a
     name and a type of its own in a project (``projects.effective_config``), or given a stricter policy, it is the same
     recognizer; one that finds other values, or whose type's policy in force got looser, is not. One the same by name
-    and definition on both sides is left out first (a `policies` entry changed around it is said as that policy). In
-    time linear in the lists."""
+    and definition on both sides is left out first (a `policies` entry changed around it is said as that policy). One
+    that left what it found in clear masked nothing: taken out, or changed into one of its name that masks what it
+    finds, it masks no less (changed into one that leaves other values in clear, it is said). In time linear in the
+    lists."""
+    allow = _POLICIES[Policy.ALLOW]
     same = {name for name, body in before.items() if after.get(name) == body}
-    found_before = [_as_found(body, policies_before) for name, body in before.items() if name not in same]
+    found_before = [(name, _as_found(body, policies_before)) for name, body in before.items() if name not in same]
     found_after = [_as_found(body, policies_after) for name, body in after.items() if name not in same]
     free: dict[Hashable, list[int]] = {}  # by definition, the policies in force after, the least strict first
     for core, rank in sorted((found for found in found_after if found is not None), key=lambda found: found[1]):
         free.setdefault(core, []).append(rank)
     changed = 0
-    for core, rank in (found for found in found_before if found is not None):
+    for name, found in found_before:
+        if found is None:
+            continue
+        core, rank = found
         ranks = free.get(core, [])
         place = next((i for i, kept in enumerate(ranks) if kept >= rank), None)
-        if place is None:
-            changed += 1
-        else:
+        if place is not None:
             del ranks[place]  # matched: the least strict that is as strict, the stricter ones left for others
-    in_clear = sum(1 for ranks in free.values() for rank in ranks if rank == _POLICIES[Policy.ALLOW])
+        elif rank != allow or ((now := after.get(name)) is not None and _leaves_in_clear(now, policies_after)):
+            changed += 1
+    in_clear = sum(1 for ranks in free.values() for rank in ranks if rank == allow)
     return changed, in_clear
+
+
+def _leaves_in_clear(recognizer: dict[str, Any], policies: Mapping[str, Policy]) -> bool:
+    """Whether ``recognizer``, in force, leaves what it finds in clear: its type's policy in force (``policies``, as
+    ``_policies`` lays them) is allow."""
+    etype = recognizer_type(recognizer)
+    return etype is not None and policies.get(etype, Policy.MASK) == Policy.ALLOW
 
 
 def keeps_in_clear(recognizer: Any) -> bool:
@@ -415,10 +541,10 @@ def recognizer_type(recognizer: Any) -> str | None:
     return _built(json.dumps(recognizer, sort_keys=True, default=str))[1]
 
 
-def _policies(config: Config, in_force: dict[str, dict[str, Any]]) -> dict[str, Policy]:
+def _policies(policies: Mapping[str, Policy], in_force: dict[str, dict[str, Any]]) -> dict[str, Policy]:
     """Each type's policy as a build lays them (``build_masker``): a recognizer's own is its type's default, an entry of
-    ``policies`` wins; a type in neither is masked. ``in_force``: ``config``'s recognizers as a build keeps them
-    (``_in_force``)."""
+    ``policies`` wins; a type in neither is masked. ``in_force``: the recognizers as a build keeps them
+    (``recognizers_in_force``)."""
     out: dict[str, Policy] = {}
     for recognizer in in_force.values():
         own = str(recognizer.get("policy") or "").lower()
@@ -426,19 +552,26 @@ def _policies(config: Config, in_force: dict[str, dict[str, Any]]) -> dict[str, 
             etype = _built(json.dumps(recognizer, sort_keys=True, default=str))[1]
             if etype is not None:
                 out[etype] = Policy(own)
-    return out | dict(config.policies)
+    return out | dict(policies)
 
 
 def policies_in_force(config: Config) -> dict[str, Policy]:
     """Each type's policy in ``config`` as a build lays them (``_policies``): a type in neither its policies nor its
     recognizers' own is masked."""
-    return _policies(config, recognizers_in_force(config.recognizers))
+    return _policies(config.policies, recognizers_in_force(config.recognizers))
 
 
 def lets_through(config: Config) -> frozenset[str]:
     """The types whose values ``config`` leaves in clear (policy allow), as a build lays the policies: a term or a field
     rule of one leaves what it finds in clear."""
-    return frozenset(etype for etype, policy in policies_in_force(config).items() if policy == Policy.ALLOW)
+    return let_through_by(config.policies, config.recognizers)
+
+
+def let_through_by(policies: Mapping[str, Policy], recognizers: list[Any]) -> frozenset[str]:
+    """The types ``policies`` and ``recognizers`` leave in clear together (policy allow), as a build lays them: in a
+    project, the global ones and the project's own laid over them (``lets_through`` for settings as a whole)."""
+    in_force = recognizers_in_force(recognizers)
+    return frozenset(etype for etype, policy in _policies(policies, in_force).items() if policy == Policy.ALLOW)
 
 
 def recognizers_let_through(recognizers: Iterable[Any]) -> frozenset[str]:
@@ -465,19 +598,17 @@ def folders_let_through(folders: Iterable[ProjectSettings]) -> frozenset[str]:
 
 class _Changed:
     """The terms and field rules a change of the top adds or changes: a term new by its value, type and options, a field
-    rule new as a whole; and the values and types the top no longer holds (``gone``), whose entries in a folder's own
-    settings come into force there (``effective_config`` adds a folder's term only where the top holds none of its value
-    and type). The only ones of the top's lists that can leave values in clear in a folder whose own settings let their
-    type through (``folders_let_through``) and not at the top, where what else a change of the lists lowers (a term
-    removed, one matching fewer forms) is said already: weighed in each such folder alone (``in_clear``), without the
-    tens of thousands of terms that did not change. Made in time linear in the lists, once a check."""
+    rule new as a whole. The only ones of the top's lists that can leave values in clear in a folder whose own settings
+    let their type through (``folders_let_through``) and not at the top, where what else a change of the lists lowers (a
+    term removed, one matching fewer forms) is said already: weighed in each such folder alone (``in_clear``), without
+    the tens of thousands of terms that did not change. A folder's own term is in force there whatever the top holds but
+    the very same entry (``effective_config``): one the top no longer holds brings into force no form that was not.
+    Made in time linear in the lists, once a check."""
 
     def __init__(self, old: Config, new: Config) -> None:
         had = {(t.value, found_type(t), t.case_sensitive, t.whole_word) for t in old.terms}
         self.terms = [t for t in new.terms if (t.value, found_type(t), t.case_sensitive, t.whole_word) not in had]
-        now = {_term_key(t) for t in new.terms}
-        self.gone = {key for key in map(_term_key, old.terms) if key not in now}
-        keys = {_term_key(t) for t in self.terms} | self.gone
+        keys = {_term_key(t) for t in self.terms}
         self.before: dict[tuple[str, str], list[TermConfig]] = {}  # the top's entries of those values and types before
         for term in old.terms:
             if (key := _term_key(term)) in keys:
@@ -486,7 +617,7 @@ class _Changed:
         if old.fields != new.fields:
             rules = {_item(f.model_dump()) for f in old.fields}
             self.fields = [(f, item) for f in new.fields if (item := _item(f.model_dump())) not in rules]
-        self.types = {found_type(t) for t in self.terms} | {etype for _, etype in self.gone}
+        self.types = {found_type(t) for t in self.terms}
         self.types |= {found_type(f) for f, _ in self.fields if f.mask}
 
     def in_clear(
@@ -494,23 +625,21 @@ class _Changed:
     ) -> list[str]:
         """What the changed terms and field rules leave in clear in a folder whose types let through are ``through``
         and whose own settings are ``layers`` (a repository's file, your settings for the folder), as ``_masking``
-        weighs that folder's lists in full: a term whose value and type the folder had before (from the top, or else
-        from every layer that holds them, as ``effective_config`` adds them) in no form it matches, the
-        folder's own entries of a value and type the top no longer holds against the top's entries before, a field
-        rule that masks and that none of its layers holds. ``strict``: the places in ``layers`` of the ones that may
-        only add protection (a repository file), whose term or field rule of a type let through is set aside there,
-        never in force (``projects._layer``)."""
+        weighs that folder's lists in full: a term whose value and type the folder had before (from the top and from
+        every layer that holds them, as ``effective_config`` adds them) in no form it matches, a field rule that masks
+        and that none of its layers holds. ``strict``: the places in ``layers`` of the ones that may only add protection
+        (a repository file), whose term or field rule of a type let through is set aside there, never in force
+        (``projects._layer``)."""
         out: list[str] = []
-        terms = [t for t in self.terms if found_type(t) in through]
-        gone = [key for key in self.gone if key[1] in through]
-        if terms or gone:
-            own: dict[tuple[str, str], list[TermConfig]] = {}
+        if terms := [t for t in self.terms if found_type(t) in through]:
+            keys = {_term_key(t) for t in terms}
+            before = [e for key in keys for e in self.before.get(key, [])]
             for i, layer in enumerate(layers):
-                for term in layer.terms:
-                    if i not in strict or found_type(term) not in through:
-                        own.setdefault(_term_key(term), []).append(term)
-            terms += [term for key in gone for term in own.get(key, [])]  # in force there now, the top's entry gone
-            before = [e for key in {_term_key(t) for t in terms} for e in self.before.get(key, own.get(key, []))]
+                before += [
+                    term
+                    for term in layer.terms
+                    if _term_key(term) in keys and (i not in strict or found_type(term) not in through)
+                ]
             if n := _terms_in_clear(before, terms, through):
                 out.append(f"terms: {n} that leave what they find in clear (policy allow)")
         rules = {item for rule, item in self.fields if rule.mask and found_type(rule) in through}
@@ -527,8 +656,14 @@ class _Changed:
 
 def lowered_in_project(old: Config, new: Config) -> list[str]:
     """What the rules of a project, ``new``, lower against ``old`` (the same global settings around both): its masking,
-    its local reviewer and its Live Reviewer, which is all a project sets. One reason each, never a value."""
-    return _masking(old, new) + _reviewer(old.llm_review, new.llm_review) + _live(old.live_review, new.live_review)
+    how it reads new request members, its local reviewer and its Live Reviewer, which is all a project sets. One reason
+    each, never a value."""
+    return (
+        _masking(old, new)
+        + _new_members(old, new)
+        + _reviewer(old.llm_review, new.llm_review)
+        + _live(old.live_review, new.live_review)
+    )
 
 
 # The lists a project's own settings only add to: inside a project each holds the global items and the project's (its
@@ -792,8 +927,10 @@ def exception_view(row: Any) -> dict[str, Any]:
         "days": row.days,
         "permanent": row.permanent,
         "description": row.description,
-        # Who approved it, by its category (owner, person, administration): None while it waits.
+        # Who approved it, by its category (owner, person, administration, security, controllers): None while it waits;
+        # with security or controllers (Latet Enterprise), the name of the person who did.
         "issuer": row.issuer,
+        "approver": row.approver,
     }
 
 
@@ -815,8 +952,7 @@ def exception_loosened(was: Any, row: Any) -> str | None:
     ``added``, ``widened``, ``made permanent`` or ``renewed``; None when it does not."""
     from latet.projects import norm_path
 
-    stamps = (was.granted, was.revision, was.body_revision, was.issuer) if was is not None else None
-    if was is None or (stamps != (row.granted, row.revision, row.body_revision, row.issuer) and not _earlier(was, row)):
+    if was is None or (_stamps(was) != _stamps(row) and not _earlier(was, row)):
         return "added"
     project_was = norm_path(was.project) if was.project is not None else None
     project_now = norm_path(row.project) if row.project is not None else None
@@ -835,11 +971,24 @@ def exception_loosened(was: Any, row: Any) -> str | None:
     return None
 
 
-def stamp_exceptions(base: Config, approved: Config, now: datetime, revision: str, issuer: str | None = None) -> Config:
+def _stamps(row: Any) -> tuple[Any, ...]:
+    """Latet's stamps on an exception, who approved it among them: one whose stamps are not the ones approved is new."""
+    return (row.granted, row.revision, row.body_revision, row.issuer, row.approver, row.approver_id)
+
+
+def stamp_exceptions(
+    base: Config,
+    approved: Config,
+    now: datetime,
+    revision: str,
+    issuer: str | None = None,
+    approver: tuple[str, str] | None = None,
+) -> Config:
     """``approved`` as you approved it: each exception it adds, widens, renews or makes permanent against ``base`` (the
     settings approved before) stamped by Latet, a new id, ``now`` as its approval time (its lifetime runs from then),
     the request profiles' ``revision`` (with body components, its body protocol's revision too, R-100) and who
-    approved it (``issuer``), whatever stamps it carried; every other one as it is."""
+    approved it (``issuer``, and with a decider of the company's ``approver``, their name and id), whatever stamps it
+    carried; every other one as it is."""
     from latet.gateway.body_selectors import revision as body_revision
     from latet.gateway.request_policy import body_protocol
 
@@ -855,6 +1004,8 @@ def stamp_exceptions(base: Config, approved: Config, now: datetime, revision: st
                     "revision": revision,
                     "body_revision": body_revision(protocol) if protocol is not None else None,
                     "issuer": issuer,
+                    "approver": approver[0] if approver is not None else None,
+                    "approver_id": approver[1] if approver is not None else None,
                 }
             )
         rows.append(row)
@@ -869,7 +1020,7 @@ def _earlier(was: Any, row: Any) -> bool:
     return (
         was.revision == row.revision
         and was.body_revision == row.body_revision
-        and was.issuer == row.issuer
+        and (was.issuer, was.approver, was.approver_id) == (row.issuer, row.approver, row.approver_id)
         and was.granted is not None
         and row.granted is not None
         and (row.granted < was.granted)
@@ -881,7 +1032,7 @@ def loosened(old: Config, new: Config, repositories: Collection[tuple[str, Proje
     protection, or changes what does not protect (the port, the history). ``repositories``: the folders whose
     repository has a latet.yaml, with what it sets (``Projects.repositories``, a computer's), each weighed as it applies
     there too."""
-    out = _masking(old, new)
+    out = _masking(old, new) + _new_members(old, new)
     identity_before, identity_after = old.identity, new.identity
     if identity_before.enabled and not identity_after.enabled:
         out.append("this machine's identity: no longer masked")

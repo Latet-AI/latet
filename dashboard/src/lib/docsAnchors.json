@@ -66,7 +66,7 @@
     "dashboard/": {
       "approvals": "approvazioni",
       "live": "live",
-      "on-a-latet-server": "su-un-server-latet",
+      "on-a-latet-server": "su-un-server-di-latet",
       "opening-it": "aprirla",
       "playground": "laboratorio",
       "privacy-of-the-dashboard-itself": "la-privacy-della-dashboard-stessa",
@@ -78,13 +78,18 @@
       "stats": "statistiche",
       "vault": "cassaforte"
     },
+    "enterprise/approvals/": {
+      "what-the-person-who-asked-sees": "cosa-vede-chi-ha-chiesto"
+    },
     "getting-started/upgrading-to-0-11/": {
-      "approving-an-exact-exception": "approvare-uneccezione-esatta"
+      "approving-an-exact-exception": "approvare-uneccezione-esatta",
+      "new-request-members": "nuovi-membri-delle-richieste"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "una-richiesta-è-stata-bloccata",
       "a-tool-output-was-withheld": "loutput-di-uno-strumento-è-stato-trattenuto",
       "an-image-was-withheld": "unimmagine-è-stata-trattenuta",
+      "an-mcp-tools-schema-stops-claude-codes-requests": "lo-schema-di-uno-strumento-mcp-ferma-le-richieste-di-claude-code",
       "auto-mode-says-its-reviewer-is-temporarily-unavailable": "la-modalità-auto-dice-che-il-suo-revisore-è-temporaneamente-non-disponibile",
       "claude-code-says-its-requests-go-around-latet": "claude-code-dice-che-le-sue-richieste-aggirano-latet",
       "every-request-of-a-conversation-is-blocked": "ogni-richiesta-di-una-conversazione-viene-bloccata",
@@ -171,13 +176,18 @@
       "stats": "statistik",
       "vault": "tresor"
     },
+    "enterprise/approvals/": {
+      "what-the-person-who-asked-sees": "was-die-anfragende-person-sieht"
+    },
     "getting-started/upgrading-to-0-11/": {
-      "approving-an-exact-exception": "eine-genaue-ausnahme-genehmigen"
+      "approving-an-exact-exception": "eine-genaue-ausnahme-genehmigen",
+      "new-request-members": "neue-elemente-in-anfragen"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "eine-anfrage-wurde-blockiert",
       "a-tool-output-was-withheld": "eine-tool-ausgabe-wurde-zurückgehalten",
       "an-image-was-withheld": "ein-bild-wurde-zurückgehalten",
+      "an-mcp-tools-schema-stops-claude-codes-requests": "das-schema-eines-mcp-tools-stoppt-die-anfragen-von-claude-code",
       "auto-mode-says-its-reviewer-is-temporarily-unavailable": "der-auto-modus-meldet-sein-prüfer-sei-vorübergehend-nicht-verfügbar",
       "claude-code-says-its-requests-go-around-latet": "claude-code-meldet-dass-seine-anfragen-an-latet-vorbeigehen",
       "every-request-of-a-conversation-is-blocked": "jede-anfrage-einer-unterhaltung-wird-blockiert",
@@ -264,13 +274,18 @@
       "stats": "statistiques",
       "vault": "coffre-fort"
     },
+    "enterprise/approvals/": {
+      "what-the-person-who-asked-sees": "ce-que-voit-la-personne-qui-a-demandé"
+    },
     "getting-started/upgrading-to-0-11/": {
-      "approving-an-exact-exception": "approuver-une-exception-exacte"
+      "approving-an-exact-exception": "approuver-une-exception-exacte",
+      "new-request-members": "nouveaux-membres-des-requêtes"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "une-requête-a-été-bloquée",
       "a-tool-output-was-withheld": "une-sortie-doutil-a-été-retenue",
       "an-image-was-withheld": "une-image-a-été-retenue",
+      "an-mcp-tools-schema-stops-claude-codes-requests": "le-schéma-dun-outil-mcp-arrête-les-requêtes-de-claude-code",
       "auto-mode-says-its-reviewer-is-temporarily-unavailable": "le-mode-auto-dit-que-son-relecteur-est-temporairement-indisponible",
       "claude-code-says-its-requests-go-around-latet": "claude-code-dit-que-ses-requêtes-contournent-latet",
       "every-request-of-a-conversation-is-blocked": "chaque-requête-dune-conversation-est-bloquée",
@@ -345,7 +360,7 @@
     "dashboard/": {
       "approvals": "aprobaciones",
       "live": "en-directo",
-      "on-a-latet-server": "en-un-servidor-latet",
+      "on-a-latet-server": "en-un-servidor-de-latet",
       "opening-it": "abrirlo",
       "playground": "banco-de-pruebas",
       "privacy-of-the-dashboard-itself": "la-privacidad-del-propio-panel",
@@ -357,13 +372,18 @@
       "stats": "estadísticas",
       "vault": "caja-fuerte"
     },
+    "enterprise/approvals/": {
+      "what-the-person-who-asked-sees": "qué-ve-quien-lo-pidió"
+    },
     "getting-started/upgrading-to-0-11/": {
-      "approving-an-exact-exception": "aprobar-una-excepción-exacta"
+      "approving-an-exact-exception": "aprobar-una-excepción-exacta",
+      "new-request-members": "nuevos-miembros-de-las-peticiones"
     },
     "troubleshooting/": {
       "a-request-was-blocked": "se-ha-bloqueado-una-petición",
       "a-tool-output-was-withheld": "se-ha-retenido-la-salida-de-una-herramienta",
       "an-image-was-withheld": "se-ha-retenido-una-imagen",
+      "an-mcp-tools-schema-stops-claude-codes-requests": "el-esquema-de-una-herramienta-mcp-detiene-las-peticiones-de-claude-code",
       "auto-mode-says-its-reviewer-is-temporarily-unavailable": "el-modo-automático-dice-que-su-revisor-no-está-disponible-temporalmente",
       "claude-code-says-its-requests-go-around-latet": "claude-code-dice-que-sus-peticiones-no-pasan-por-latet",
       "every-request-of-a-conversation-is-blocked": "se-bloquean-todas-las-peticiones-de-una-conversación",

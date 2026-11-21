@@ -66,7 +66,7 @@ un guion, seis dígitos.
 La página **Reglas** del panel hace lo mismo en su pestaña *Reconocedores*: una tabla de tus
 reconocedores, cada fila con su nombre, su tipo, lo que encuentra (el patrón, acortado), lo que
 pasa con sus valores y cómo se cargó. *Añadir reconocedor* abre un recuadro lateral con cada campo:
-rellénalo y *Probarlo* con un texto tuyo (no se guarda nada de lo que escribas ahí). Antes de que
+rellénalo y usa *Probarlo* con un texto tuyo (no se guarda nada de lo que escribas ahí). Antes de que
 guardes, muestra el resultado de cada ejemplo y las coincidencias en código corriente. Selecciona
 filas para activarlas, desactivarlas o eliminarlas; *Exportar* e *Importar* las mueven como archivo
 de reglas. Con el [revisor local](../llm-review/#reconocedores-a-partir-de-una-descripción)

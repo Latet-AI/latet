@@ -2,6 +2,7 @@
 conversations each value of the vault was shown to."""
 
 import asyncio
+import base64
 import itertools
 import json
 import time
@@ -40,15 +41,16 @@ async def test_the_dashboard_serves_an_image_of_a_batch_only_while_it_waits(tmp_
     try:
         dashboard, queue = Dashboard(rt), rt.mediator.approvals
         batch = _text_waiting()
-        batch.images = {0: _Image("b3JpZ2luYWw=", "c2VudA==")}
+        came, leaves = PNG + b"original", PNG + b"sent"
+        batch.images = {0: _Image(_b64(came), _b64(leaves))}
         await queue.open(batch)
 
         async def asked(item="0", view=None, batch_id=batch.id):
             return await dashboard.approval_image(_image_request(batch_id, item, view))
 
         original, sent = await asked(), await asked(view="sent")
-        assert (original.status_code, original.body, original.media_type) == (200, b"original", "image/png")
-        assert (sent.status_code, sent.body, sent.media_type) == (200, b"sent", "image/png")
+        assert (original.status_code, original.body, original.media_type) == (200, came, "image/png")
+        assert (sent.status_code, sent.body, sent.media_type) == (200, leaves, "image/png")
         for served in (original, sent):  # neither view is kept by the browser, nor read as something else
             assert served.headers["cache-control"] == "no-store"
             assert served.headers["x-content-type-options"] == "nosniff"
@@ -66,6 +68,49 @@ async def test_the_dashboard_serves_an_image_of_a_batch_only_while_it_waits(tmp_
         assert (await asked(batch_id="nothing-waits-with-this-id")).status_code == 404
         assert await queue.decide(batch.id, False)
         assert (await asked()).status_code == 404  # decided: nothing of it is shown any more
+    finally:
+        rt.close()
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24  # the first bytes of each kind of image Latet reads
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 24
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 16
+GIF = b"GIF89a" + b"\x00" * 24
+SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script></svg>'
+
+
+def _b64(raw: bytes) -> str:
+    return base64.b64encode(raw).decode()
+
+
+async def test_an_image_of_a_batch_is_served_as_what_its_bytes_are_never_as_its_request_said(tmp_path):
+    """The final security review's dashboard N1: an image of a batch was served with the media type its request
+    declared, any image/*, so a PNG declared image/svg+xml was served as SVG on the dashboard's origin, where a decider
+    of the company opens another person's images. Each is now served as what its bytes are, one of the four kinds of
+    image Latet reads, or as bytes to save when it is none of them (an SVG among them), each view with a policy that
+    lets nothing in it run."""
+    config = Config(identity=IdentityConfig(enabled=False))
+    rt = make_runtime(config, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY)
+    try:
+        dashboard, queue = Dashboard(rt), rt.mediator.approvals
+        for raw, kind in ((PNG, "image/png"), (JPEG, "image/jpeg"), (WEBP, "image/webp"), (GIF, "image/gif")):
+            batch = _text_waiting()
+            batch.images = {0: _Image(_b64(raw), _b64(raw), "image/svg+xml")}  # what its request declared
+            await queue.open(batch)
+            for view in (None, "sent"):
+                served = await dashboard.approval_image(_image_request(batch.id, "0", view))
+                assert (served.status_code, served.body, served.media_type) == (200, raw, kind)
+                assert served.headers["content-security-policy"] == "default-src 'none'; sandbox"
+        for raw, declared in ((SVG, "image/svg+xml"), (SVG, "image/png"), (b"<b>hi</b>", "text/html")):
+            batch = _text_waiting()
+            batch.images = {0: _Image(_b64(raw), _b64(raw), declared)}
+            await queue.open(batch)
+            for view in (None, "sent"):
+                served = await dashboard.approval_image(_image_request(batch.id, "0", view))
+                assert (served.status_code, served.body) == (200, raw)
+                assert served.media_type == "application/octet-stream", declared
+                assert served.headers["content-security-policy"] == "default-src 'none'; sandbox"
+                assert served.headers["x-content-type-options"] == "nosniff"
     finally:
         rt.close()
 

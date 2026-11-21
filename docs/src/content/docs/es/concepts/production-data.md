@@ -16,7 +16,7 @@ valores. Hay tres cosas que lo aprovechan:
 | | Cuándo | Qué enmascara |
 | --- | --- | --- |
 | **Columnas secretas** | siempre | los valores de las columnas y las claves con nombre de secreto: `password_hash`, `api_key`, `reset_token` |
-| **Reglas de campo** | cuando las escribes | los valores de los campos que indicas, como un tipo propio |
+| **Reglas de campo** | cuando las escribes | los valores de los campos que indicas, como un tipo tuyo |
 | **Modo de datos estricto** | con el perfil `max`, o cuando lo activas | todos los demás valores de la estructura |
 
 ## Las estructuras que lee Latet
@@ -104,7 +104,7 @@ sale así:
   valor ficticio tan corto no se podría distinguir en una respuesta. Los valores vacíos y las
   palabras que significan ninguno o sí y no, como `null`, `n/a`, `true` y `false`, también se quedan
   en claro.
-- **Un valor de más de 16.384 caracteres se oculta,** no se sustituye por un valor ficticio: el modelo
+- **Un valor de más de 16.384 caracteres se suprime,** no se sustituye por un valor ficticio: el modelo
   recibe `[REDACTED:DATA]`, y no se restaura nada.
 - **Los archivos se dejan tal cual.** La salida de las herramientas que leen archivos (`Read`,
   `Grep`, `Glob`, `LS`... de Claude Code) es código y documentos, no datos, salvo que una regla
@@ -162,7 +162,7 @@ valores se encuentran según el formato del archivo:
 - **YAML:** cada valor, según su ruta (`servers[].host`); las claves y la estructura se mantienen.
 - **Cualquier otro archivo:** las tablas, los pares `key=value` y los fragmentos JSON que contiene.
 
-Cada valor se sustituye donde está: el archivo conserva sus líneas, sus números y sus claves, así que
+Cada valor se sustituye donde está: el archivo conserva sus líneas, la numeración de esas líneas y sus claves, así que
 el agente puede seguir editándolo según el texto que leyó, y una edición escrita con un valor
 ficticio escribe el valor real. Solo las herramientas que devuelven el texto de un archivo lo
 convierten en datos (`Read` y `NotebookRead` de Claude Code): las líneas de una búsqueda (`Grep`) y
@@ -197,7 +197,7 @@ propia. Para cubrir las búsquedas, añade `WebSearch` a `data_tools` con las de
 quieras cubrir, o escribe `data_tools: ["*"]` para todas menos las que leen archivos: un `data_tools`
 que nombre solo `WebSearch` cubre únicamente las búsquedas, y deja fuera tus herramientas de base de
 datos y de shell. Con el modo de datos estricto activado, definir `data_tools` donde estaba vacío lo
-restringe, así que espera tu aprobación.
+restringe, así que ese cambio espera tu aprobación.
 
 Añadir un patrón o una dirección se aplica enseguida; quitar uno cubre menos, así que reduce la
 protección: si lo hace un agente o la línea de comandos, espera tu aprobación. En el panel se
@@ -214,7 +214,7 @@ recientes de la petición contiene una tabla, JSON o pares `key=value`, leídos 
 herramienta que cubre el modo de datos estricto ([qué herramientas](#qué-herramientas): no una que
 lee archivos, ni una herramienta web, salvo que una regla nombre el archivo, la dirección o la herramienta). Si alguna los contiene, una línea
 encima de los bloques de la petición lo indica, con un enlace a donde se configura el modo de datos
-estricto para ese intercambio: tus ajustes para su proyecto cuando configuran `data`, si no
+estricto para ese intercambio: tus ajustes para su proyecto cuando configuran `data`; si no,
 **Reglas** → **Protección** → **Datos de producción**. Latet lee las salidas de los textos que
 guarda el historial: con `history: metadata` u `off` no hay línea.
 
@@ -240,7 +240,8 @@ fields:
 
 Para un campo se comparan tu primera regla que coincide con él (primero tus ajustes para un
 proyecto, luego tus reglas globales) y la primera del `latet.yaml` del proyecto que coincide con él:
-se aplica la más estricta (ocultado, luego enmascarado, luego en claro), la tuya a igualdad.
+se aplica la más estricta (suprimido, luego enmascarado, luego en claro), y la tuya si son igual de
+estrictas.
 
 ## Elegir las columnas que dejar en claro
 

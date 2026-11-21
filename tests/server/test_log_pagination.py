@@ -481,9 +481,11 @@ def test_page_connection_deadline_reaches_waits_and_is_restored_after_failure(se
 
     seen = []
     original = db_module._Connection.wait
+    own = threading.get_ident()  # this test's connections alone: the edition's threads may use the pool meanwhile
 
     def observed(conn, gen, interval=0.1, timeout=None):
-        seen.append((phase[0], conn._deadline))
+        if threading.get_ident() == own:
+            seen.append((phase[0], conn._deadline))
         return original(conn, gen, interval, timeout)
 
     monkeypatch.setattr(db_module._Connection, "wait", observed)
@@ -514,12 +516,15 @@ def test_pool_wait_and_commit_share_the_absolute_page_deadline(server, monkeypat
     original_wait = db_module._Connection.wait
     phase = ["body"]
 
+    own = threading.get_ident()  # this test's connections alone: the edition's threads may use the pool meanwhile
+
     def observed_pool(*args, **kwargs):
-        bounds.append(kwargs.get("timeout"))
+        if threading.get_ident() == own:
+            bounds.append(kwargs.get("timeout"))
         return original_pool(*args, **kwargs)
 
     def observed_wait(conn, gen, interval=0.1, timeout=None):
-        if phase[0] == "commit":
+        if phase[0] == "commit" and threading.get_ident() == own:
             commits.append(conn._deadline)
         return original_wait(conn, gen, interval, timeout)
 
@@ -601,13 +606,16 @@ def test_page_budget_is_reset_after_transaction_exit_and_before_pool_return(serv
     default_clock = db_module._Connection._deadline_clock
     phase = ["body"]
 
+    own = threading.get_ident()  # this test's connections alone: the edition's threads may use the pool meanwhile
+
     def put(conn):
-        returned.append((conn._deadline, conn._deadline_clock))
+        if threading.get_ident() == own:
+            returned.append((conn._deadline, conn._deadline_clock))
         # Observe real pool ownership without allowing a failing assertion to strand its checkout.
         return original_put(conn)
 
     def wait(conn, gen, interval=0.1, timeout=None):
-        if phase[0] == "exit":
+        if phase[0] == "exit" and threading.get_ident() == own:
             finishing.append(conn._deadline)
         return original_wait(conn, gen, interval, timeout)
 

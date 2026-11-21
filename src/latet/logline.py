@@ -135,6 +135,8 @@ _REQUEST_AREAS = (
     (b"/_latet/apps", "/applications"),
     (b"/_latet/engine", "/bridge"),
     (b"/_latet/docs", "/docs"),
+    (b"/_latet/sso", "/sso"),  # Latet Enterprise's single sign-on: its login, the provider's callback, a link
+    (b"/scim", "/scim"),  # Latet Enterprise's SCIM (/scim/v2/...): a provider's users and groups
     (b"/u", "/gateway"),
     (b"/_k", "/gateway"),  # a computer's launch key in its path form, before the gateway's own route
     (b"/openai", "/gateway"),

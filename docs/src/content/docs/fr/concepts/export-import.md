@@ -22,10 +22,10 @@ bord : l'importation affiche ce qu'elle ferait avant que quoi que ce soit ne cha
 *Termes*, *Reconnaisseurs* et *Valeurs autorisées* ont leur propre *Exporter* et *Importer*, pour
 cette liste seule : les termes et les valeurs en CSV, les reconnaisseurs en fichier de règles. Une
 telle exportation garde les mêmes précautions : un reconnaisseur dont les exemples contiennent une
-valeur que Latet a vraiment vue reste dehors, et une cellule CSV qu'un tableur exécuterait comme
+valeur que Latet a déjà vue comme vraie valeur est laissé de côté, et une cellule CSV qu'un tableur exécuterait comme
 une formule est écrite après une apostrophe. Une telle importation passe par le même aperçu,
-ajoute sans jamais remplacer, et retient de la même façon ce qui baisse la protection ; le tableau
-*Reconnaisseurs* prend un fichier de reconnaisseurs seuls.
+ajoute sans jamais remplacer, et retient de la même façon ce qui réduit la protection ; le tableau
+*Reconnaisseurs* n'accepte qu'un fichier qui ne contient que des reconnaisseurs.
 
 **Ce que contient le fichier :**
 - les termes, les reconnaisseurs, les politiques et les règles de champ ;
@@ -42,7 +42,7 @@ Jamais l'identité, le port, les dossiers de projets ou les serveurs de cette ma
 
 Un fichier de règles pèse 2 Mo au plus. Au-delà de 5 000 termes, 500 reconnaisseurs, 500 règles de
 champ, 5 000 valeurs ou 500 motifs à ne jamais masquer, seuls les premiers sont lus, et l'importation
-le dit. Un fichier fait par un Latet plus récent est refusé.
+le dit. Un fichier créé par une version plus récente de Latet est refusé.
 
 **Les termes sont des valeurs en clair.** Le nom d'un client parmi vos termes figure tel quel dans le
 fichier : envoyez le fichier comme vous enverriez les noms eux-mêmes. Un reconnaisseur dont les
@@ -51,7 +51,7 @@ exemples doivent être inventés.
 
 **Une importation ajoute de la protection, et celle-ci s'applique aussitôt :**
 - les nouveaux termes, reconnaisseurs et règles de champ sont ajoutés, et les vôtres restent ;
-- une valeur plus stricte que la vôtre est adoptée : un profil plus élevé, `redact` pour un type que
+- une valeur plus stricte que la vôtre est adoptée : un profil plus strict, `redact` pour un type que
   vous masquez ;
 - un reconnaisseur qui porte le nom ou le type de l'un des vôtres, ou une règle pour un champ qui a
   déjà une règle chez vous, est laissé de côté : vous gardez ce que vous aviez.
@@ -81,12 +81,12 @@ saved C:\Users\you\AppData\Roaming\latet\config.yaml
 Rules reloaded.
 ```
 
-**Ce qui s'applique, c'est la réponse du daemon qui le dit.** La commande indique d'abord ce qu'elle
+**C'est la réponse du daemon qui dit ce qui s'est appliqué.** La commande indique d'abord ce qu'elle
 ajouterait, puis enregistre `config.yaml`, demande au daemon de le recharger et indique ce qu'il en
 est : *Rules reloaded.* (code de sortie `0`), une modification qui attend votre approbation (`3`),
 ou, si le daemon n'a pas répondu, que le fichier est enregistré et qu'il n'est pas confirmé qu'il
 s'applique (`1` : `latet reload` l'applique dès que le daemon tourne). La commande ne lit pas les
-dépôts dotés de leur propre `latet.yaml` que Latet a vus : le daemon y pèse l'importation quand il
+dépôts dotés de leur propre `latet.yaml` que Latet a vus : le daemon y évalue l'importation quand il
 recharge, et un ajout qui réduit la protection dans l'un d'eux attend lui aussi votre approbation.
 
 Un `config.yaml` ou le `latet.yaml` d'un projet peut aussi être importé : ce qu'il contient et qui
@@ -112,7 +112,7 @@ Dans le tableau de bord, la page **Règles** d'un projet les propose aussi, sous
 
 Sur une machine connectée à un [serveur Latet](../server/), vos règles sont dans votre espace sur
 le serveur, et `latet rules export` et `import` refusent de s'exécuter. **Exporter les règles** et
-**Importer des règles** en haut de **Règles** dans votre tableau de bord sur le serveur fonctionnent
+**Importer des règles** en haut de la page **Règles** de votre tableau de bord sur le serveur fonctionnent
 comme ci-dessus, sur vos propres règles : une équipe partage ses règles sous forme de fichier, et
 chacun l'importe. Le `latet.yaml` d'un projet ne s'y applique pas : importez-le de la même façon
 pour utiliser ses règles.
@@ -124,8 +124,9 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" export bil
 latet server --server https://latet.acme.lan rules --key "Billing CI" import team-rules.yaml
 ```
 
-Les règles définies pour tout le monde sur un serveur, que personne ne peut assouplir, sont prévues
-pour l'édition Enterprise.
+Avec l'édition Enterprise, les règles définies pour tout le monde sur un serveur, que personne ne
+peut assouplir, sont les directives de l'entreprise : un fichier de règles dans ce même format,
+défini avec `latet server policy set`.
 
 ## Votre installation, pour une autre machine
 
@@ -151,7 +152,7 @@ faciles à retenir et difficiles à deviner), et écrit un seul fichier :
   garderiez.
 - **Sans lui**, l'autre machine produit ses propres valeurs factices.
 - **Jamais dans le fichier :** la clé d'API du relecteur local, le jeton du bridge (entre le plugin
-  Claude Code et le daemon), les journaux, le modèle de noms local, les modèles de reconnaissance de
+  Claude Code et le daemon), les journaux, le modèle local de noms, les modèles de reconnaissance de
   texte et les réglages de vos agents. Chaque machine a les siens.
 
 `latet restore` lit et vérifie d'abord tout le fichier, affiche ce qu'il contient et ce qui, dans ses

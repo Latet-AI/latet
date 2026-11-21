@@ -1,7 +1,9 @@
 // The Live Reviewer in mock mode: a queue of texts waiting for approval, with a new batch every few
 // seconds while the Live Reviewer is on, and a change to your settings that lowers protection waiting
 // for you. ?mock-approvals-empty starts with an empty queue that stays so, and no change; so does
-// ?mock-tutorial, where the tutorial puts in the queue what its chapters need.
+// ?mock-tutorial, where the tutorial puts in the queue what its chapters need. ?mock-server&mock-routed routes the
+// texts and the change to the company's security team (Latet Enterprise): the person may stop or undo them, never
+// approve them.
 
 import { ApiError, type Method, type StreamState } from '../api/client'
 import type {
@@ -16,7 +18,7 @@ import type {
   SlotKind,
 } from '../api/types'
 import { isCategory } from '../lib/approvals'
-import { MAX_RECTS, MIN_RECT, textRects } from '../lib/images'
+import { MAX_RECTS, MIN_RECT, sentMark, textRects } from '../lib/images'
 import { CC_SESSION, CODEX_SESSION, drawing, drawnLines, MOCK_ASSETS, MOCK_GUIDANCE, OC_SESSION } from './fixtures'
 import { MOCK_ASKED } from './exceptions'
 import { mockMask } from './playground'
@@ -25,6 +27,18 @@ import { seeded, token, URLSAFE } from './rng'
 
 const EMPTY = window.location.search.includes('mock-approvals-empty') || window.location.search.includes('mock-tutorial')
 const rng = seeded(7310)
+
+// ?mock-server&mock-routed: a company whose security team decides on your changes and texts (Latet Enterprise).
+// (?mock-security is the person holding the security role: mock/people.ts.)
+export const ROUTED =
+  typeof window !== 'undefined' && window.location.search.includes('mock-server') && window.location.search.includes('mock-routed')
+export const MOCK_DECIDERS = ['Daniel Okafor', 'Mark Ellis']
+const NOT_YOURS = "your company's security team decides on this: you can stop it or undo it, not approve it"
+
+/** A batch or a change as the server routes it: to the security team with ?mock-routed. */
+function routed<T extends Batch | SettingsChange>(item: T): T {
+  return ROUTED ? { ...item, decides: 'security', deciders: [...MOCK_DECIDERS] } : item
+}
 
 interface ItemTemplate {
   kind: SlotKind
@@ -235,9 +249,9 @@ function makeBatch(config: ConfigView, created: number): Batch {
   batch.items.forEach((item, index) => {
     if (!item.image) return
     MOCK_ASSETS[`/approvals/${batch.id}/images/${index}`] = drawing(item.original).url
-    MOCK_ASSETS[`/approvals/${batch.id}/images/${index}?view=sent`] = drawing(item.masked).url
+    MOCK_ASSETS[`/approvals/${batch.id}/images/${index}?view=sent&at=${sentMark(item.masked)}`] = drawing(item.masked).url
   })
-  return batch
+  return routed(batch)
 }
 
 /** The values you mask, checked as the daemon checks them. */
@@ -292,6 +306,7 @@ export function routeApprovals(method: Method, path: string, body: unknown): unk
     if (action !== 'approve' && action !== 'reject') throw new ApiError(400, 'action is approve or reject')
     const change = changes.find((c) => c.id === decodeURIComponent(changeMatch[1] ?? ''))
     if (!change) throw new ApiError(409, 'it is not waiting any more')
+    if (action === 'approve' && change.decides === 'security') throw new ApiError(403, NOT_YOURS)
     if (action === 'approve') (applies.get(change.id) ?? (() => applyChange(change)))()
     const state = action === 'approve' ? 'approved' : 'rejected'
     settleChange(change.id, state)
@@ -302,7 +317,7 @@ export function routeApprovals(method: Method, path: string, body: unknown): unk
   if (method === 'GET' && path === '/approvals') return { batches: structuredClone(batches), viewers: listeners.size }
   if (method === 'POST' && path === '/approvals/approve-all') {
     const filter = body && typeof body === 'object' && 'project' in body ? (body as { project: string | null }) : null
-    const chosen = batches.filter((b) => filter === null || b.project === filter.project)
+    const chosen = batches.filter((b) => b.decides !== 'security' && (filter === null || b.project === filter.project))
     for (const batch of chosen) {
       settle(batch.id, 'approved')
       for (const listener of decisions) listener({ kind: 'batch', id: batch.id, action: 'approve', masks: [] })
@@ -315,6 +330,7 @@ export function routeApprovals(method: Method, path: string, body: unknown): unk
     if (action !== 'approve' && action !== 'reject') throw new ApiError(400, 'action is approve or reject; masks a list')
     const batch = batches.find((b) => b.id === decodeURIComponent(match[1] ?? ''))
     if (!batch) throw new ApiError(409, 'it is not waiting any more')
+    if (action === 'approve' && batch.decides === 'security') throw new ApiError(403, NOT_YOURS)
     if (action === 'approve') {
       checkMasks(batch, masks)
       checkImages(batch, images)
@@ -351,7 +367,7 @@ export function startApprovals(config: () => ConfigView, apply: (change: Setting
   const now = Date.now() / 1000
   batches = [makeBatch(config(), now - 95), makeBatch(config(), now - 40)]
   changes = [
-    {
+    routed({
       id: 'ch_mock1',
       created: now - 130,
       source: 'command',
@@ -365,7 +381,7 @@ export function startApprovals(config: () => ConfigView, apply: (change: Setting
       keys: ['allow_values', 'live_review', 'llm_review', 'request_exceptions'],
       exceptions: [MOCK_ASKED],
       guidance: [{ where: null, before: MOCK_GUIDANCE, after: `${MOCK_GUIDANCE}\nDo not report the names of our suppliers.` }],
-    },
+    }),
   ]
   const next = () =>
     setTimeout(

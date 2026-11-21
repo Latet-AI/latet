@@ -454,6 +454,7 @@ def child_main(spec_path):
             "LATET_KEYRING",
             "PYTHON_KEYRING_BACKEND",
             "LATET_TEST_REQUIRE_SERVICES",
+            "LATET_TEST_OWNED",
         )
     }
     loaded = sys.modules.get("latet")
@@ -530,6 +531,9 @@ def main(argv=None):
         environment, temporary = child_environment(namespace, summary["run_id"] + "-" + label, lane_environment)
         if sys.prefix != sys.base_prefix:
             environment["__PYVENV_LAUNCHER__"] = sys.executable
+        # The names this child's tests make in the shared services, written before they are made (tests/owned.py):
+        # beside the reports, so a forced stop leaves the list of what is this run's own.
+        environment["LATET_TEST_OWNED"] = str(output / (label + ".owned.jsonl"))
         spec = {
             **lane,
             "root": str(root),
@@ -541,6 +545,7 @@ def main(argv=None):
             "basetemp": str(temporary / "pytest"),
             "report": str(output / (label + ".json")),
             "ready": str(output / (label + ".ready.json")),
+            "owned": environment["LATET_TEST_OWNED"],
         }
         spec_path = output / (label + ".spec.json")
         write_json(spec_path, spec)

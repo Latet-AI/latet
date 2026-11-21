@@ -90,6 +90,12 @@ describe('the list', () => {
     expect(shown).toContain('anthropic.messages.1')
   })
 
+  test('not approved by the company: not in force, and said so (Latet Enterprise, exceptions: company)', () => {
+    const html = list([item({ permanent: true, state: 'not approved by the company', ends: null, days_left: null })])
+    expect(text(html)).toContain(say('exceptions.state.notCompany'))
+    expect(html).toContain('data-permanent')
+  })
+
   test('permanent: always marked so, with no end', () => {
     const html = list([item({ permanent: true, state: 'permanent', ends: null, days_left: null })])
     expect(html).toContain('data-permanent')
@@ -120,6 +126,23 @@ describe('the list', () => {
     expect(shown).toContain(say(key))
   })
 
+  test.each([
+    ['security', 'exceptions.issuer.security'],
+    ['controllers', 'exceptions.issuer.controllers'],
+  ] as const)('says who approved it (%s), by their name, when someone else decided (Latet Enterprise)', (issuer, key) => {
+    const shown = text(list([item({ issuer, approver: 'Mark Ellis' })], { server: true }))
+    expect(i18n.exists(key)).toBe(true)
+    expect(shown).toContain(say(key, { name: 'Mark Ellis' }))
+    expect(shown).toContain('Mark Ellis')
+  })
+
+  test("one approved in an API key's space by a person working there names no one, and never reads as empty", () => {
+    const shown = text(list([item({ issuer: 'controllers', approver: null })], { server: true }))
+    expect(i18n.exists('exceptions.issuer.controllersUnnamed')).toBe(true)
+    expect(shown).toContain(say('exceptions.issuer.controllersUnnamed'))
+    expect(shown).not.toContain('Approved by ,')
+  })
+
   test('says nothing of who approved one that waits', () => {
     const shown = text(list([item({ id: null, state: 'pending', issuer: null, ends: null, days_left: null, granted: null })]))
     for (const key of ['exceptions.issuer.owner', 'exceptions.issuer.person', 'exceptions.issuer.administration']) {
@@ -138,6 +161,8 @@ describe('the list', () => {
           'exceptions.change.identityWarning',
           'exceptions.issuer.owner',
           'exceptions.issuer.administration',
+          'exceptions.issuer.security',
+          'exceptions.issuer.controllers',
         ]) {
           expect(i18n.t(key)).not.toBe(i18n.getFixedT('en')(key))
         }

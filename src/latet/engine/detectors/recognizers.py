@@ -373,7 +373,7 @@ def compile_all(
         # By its name when it is one; anything else a person wrote there (an address, a client's name) by its place.
         called = status.name if re2.fullmatch(NAME, status.name) else f"number {place}"
         for problem in status.errors:
-            log.warning("recognizer %s turned off: a problem with its %s", called, _about(problem))
+            log.warning("recognizer %s turned off: a problem with its %s", called, problem_about(problem))
     return recognizers, statuses
 
 
@@ -381,7 +381,7 @@ def compile_all(
 _KEYS = frozenset(field.alias or name for name, field in RecognizerSpec.model_fields.items())
 
 
-def _about(problem: str) -> str:
+def problem_about(problem: str) -> str:
     """The key of a recognizer that a problem is about (``pattern``, ``type``, ``name``...), as the log says it: never
     the problem's words, which can quote the pattern (re2's do), and so the terms it is made of."""
     key = problem.partition(":")[0].partition(".")[0]

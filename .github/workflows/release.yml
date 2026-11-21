@@ -189,7 +189,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/Latet-AI/latet
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-            org.opencontainers.image.licenses=LicenseRef-Latet-Sustainable-Use-1.0
+            org.opencontainers.image.licenses=LicenseRef-Latet-Sustainable-Use-1.0 AND LicenseRef-Latet-Enterprise-1.0
       - uses: actions/attest-build-provenance@v2
         with:
           subject-name: ghcr.io/latet-ai/latet

@@ -94,6 +94,9 @@ _ID = re.compile(r"[0-9a-f]{32}")
 _GLOB = re.compile(r"([\\*?\[\]])")
 # A lock is released by its holder only: the value it was taken with.
 _RELEASE = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
+# Whether a lock is still its holder's, and for how long: the compare ``_RELEASE`` makes, then the milliseconds it has
+# left (-1: no end); -2 when it is not, or no longer, its holder's. Nothing changed.
+_HELD = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pttl', KEYS[1]) else return -2 end"
 # A slot taken under a limit, in one step: the count goes up, and a count with no lifetime is given the window's (the
 # first of a window, or one left so by hand). The count is answered, and the milliseconds its window has left.
 _TAKE = (
@@ -117,6 +120,29 @@ def _literal(text: str) -> str:
     """``text`` as a pattern of Valkey's SCAN that matches exactly it: a backslash before each character that a
     pattern reads (the backslash itself, ``*``, ``?``, ``[`` and ``]``)."""
     return _GLOB.sub(r"\\\1", text)
+
+
+class Lease:
+    """A lock as ``Bus.lease`` takes it: true when taken; ``held(margin)`` whether it is still this holder's with
+    ``margin`` seconds of it left at least (it ends by itself after its seconds, and another instance may hold it
+    since): a work asks before a step that must end while the lock is its own. ``release()`` gives it back now, from
+    any thread, while it is still this holder's (one compare in Valkey): a holder that stops before its work ends."""
+
+    def __init__(self, mine: bool, left: Callable[[], int], give_back: Callable[[], object] = lambda: None) -> None:
+        self._mine, self._left, self._give_back = mine, left, give_back
+
+    def __bool__(self) -> bool:
+        return self._mine
+
+    def held(self, margin: float = 0.0) -> bool:
+        if not self._mine:
+            return False
+        left = self._left()  # milliseconds, as Valkey counts them: -1 no end, -2 not this holder's
+        return left == -1 or (left > 0 and left >= margin * 1000)
+
+    def release(self) -> None:
+        if self._mine:
+            self._give_back()
 
 
 class _Refused(Exception):
@@ -209,6 +235,7 @@ class Bus:
         self.client: Any = redis.Redis(connection_pool=redis.BlockingConnectionPool(**options))
         self.client.auto_close_connection_pool = True  # its pool closes with it
         self._release = self.client.register_script(_RELEASE)
+        self._holds = self.client.register_script(_HELD)
         self._take = self.client.register_script(_TAKE)
         self._give_back = self.client.register_script(_GIVE_BACK)
 
@@ -412,6 +439,24 @@ class Bus:
         mine = bool(self.client.set(key, token, nx=True, px=max(1, int(seconds * 1000))))
         try:
             yield mine
+        finally:
+            if mine:
+                self._release(keys=[key], args=[token])
+
+    @contextlib.contextmanager
+    def lease(self, name: str, seconds: float) -> Iterator[Lease]:
+        """``lock``, and a way to ask inside whether it is still this holder's, with how much of it left (``held``, one
+        compare in Valkey and the key's time to live): a work that may outlive ``seconds`` asks before its result counts
+        (E4's SIEM delivery sends, and takes a batch off its queue, only with seconds of its lease to spare: a send that
+        outlived the lock leaves the batch to the next holder). The same key as ``lock``'s."""
+        key, token = self.key(f"lock:{name}"), secrets.token_hex(16)
+        mine = bool(self.client.set(key, token, nx=True, px=max(1, int(seconds * 1000))))
+        try:
+            yield Lease(
+                mine,
+                lambda: int(self._holds(keys=[key], args=[token])),
+                lambda: self._release(keys=[key], args=[token]),  # only while the key holds this holder's token
+            )
         finally:
             if mine:
                 self._release(keys=[key], args=[token])
