@@ -2149,8 +2149,13 @@ def test_a_page_its_types_and_a_value_revealed_are_the_stores_never_memorys():
     assert len(vault.entities()) <= 100
     shown, total = vault.page(0, 50)
     assert total == 500 and len(shown) == 50
-    assert [e.id for e in shown] == [e.id for e in sorted(store.rows.values(), key=lambda e: (-e.created, e.id))][:50]
-    assert vault.page(450, 100)[0][-1].original == _email(0) and vault.page(500, 50) == ([], 500)
+    ordered = sorted(store.rows.values(), key=lambda e: (-e.created, e.id))  # the newest first, a tie by id
+    assert [e.id for e in shown] == [e.id for e in ordered[:50]]
+    # The last page ends on the oldest: _email(0), or a value kept in the same tick of the clock, before it by id
+    # (Windows' time.time() before Python 3.13 moves about every 16 ms, so the first values kept share a time).
+    last = vault.page(450, 100)[0][-1]
+    assert last.id == ordered[-1].id and last.created == store.rows[next(iter(store.rows))].created
+    assert vault.page(500, 50) == ([], 500)
     assert vault.types_held() == {"EMAIL": 500}
     oldest = next(iter(store.rows.values()))
     assert oldest.original == _email(0) and vault.in_memory(oldest.id) is None
