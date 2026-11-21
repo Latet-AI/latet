@@ -2,7 +2,7 @@
 
 import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DataMode, FieldRule, ImagesMode, Term } from '../api/types'
+import type { DataMode, FieldRule, ImagesMode, Term, UnknownMembers } from '../api/types'
 import type { DocsTarget } from '../lib/docsLinks'
 import { useDeploymentKey } from '../lib/me'
 import { detailReason, detailValues } from '../lib/refused'
@@ -249,29 +249,42 @@ export interface DataDraft {
   fields: FieldRule[]
   dump_guard: number | null
   images: ImagesMode | null
+  /** How a request member no request profile names yet is read: your settings' alone (a project, or its repository's
+   * file, may only refuse, in config.yaml or latet.yaml). */
+  unknown_members?: UnknownMembers | null
 }
 
 /** Where the editor saves: the repository file can only add protection; yours can also take it away. */
 export type DataLayer = 'global' | 'repo' | 'personal'
 
+const IMAGES_ORDER: ImagesMode[] = ['allow', 'mask', 'block']
+
 type Inherit<V extends string> = V | 'unset'
 
 /**
  * Production data: strict data mode (every value of a tool output's tables, JSON and key=value pairs
- * masked), the files, the web addresses and the tools it covers, field rules, the dump guard and images.
+ * masked), the files, the web addresses and the tools it covers, field rules, the dump guard and images; in your
+ * settings, how a request member no request profile names yet is read.
  */
 export function DataEditor({
   value,
   set,
   layer,
+  imagesAtLeast = null,
+  newMembersLocked = false,
 }: {
   value: DataDraft
   set: <K extends keyof DataDraft>(key: K, value: DataDraft[K]) => void
   layer: DataLayer
+  /** The company's policy locks the images rule at this or stricter (Latet Enterprise): the options below are not offered. */
+  imagesAtLeast?: ImagesMode | null
+  /** The company's policy refuses new request members (Latet Enterprise): `check` is not offered. */
+  newMembersLocked?: boolean
 }) {
   const { t } = useTranslation()
   const key = useDeploymentKey()
   const repo = layer === 'repo'
+  const imagesOffered = (mode: ImagesMode) => imagesAtLeast === null || IMAGES_ORDER.indexOf(mode) >= IMAGES_ORDER.indexOf(imagesAtLeast)
   return (
     <div className="space-y-5">
       <div>
@@ -373,10 +386,10 @@ export function DataEditor({
             value={value.images ?? 'allow'}
             onChange={(v) => set('images', v)}
             options={[
-              { value: 'allow', label: t('data.images.allow') },
-              { value: 'mask', label: t('data.images.mask') },
-              { value: 'block', label: t('data.images.block') },
-            ]}
+              { value: 'allow' as const, label: t('data.images.allow') },
+              { value: 'mask' as const, label: t('data.images.mask') },
+              { value: 'block' as const, label: t('data.images.block') },
+            ].filter((option) => imagesOffered(option.value))}
           />
         ) : (
           <Segmented<Inherit<ImagesMode>>
@@ -384,14 +397,32 @@ export function DataEditor({
             value={value.images ?? 'unset'}
             onChange={(v) => set('images', v === 'unset' ? null : v)}
             options={[
-              { value: 'unset', label: t('data.unset') },
+              { value: 'unset' as const, label: t('data.unset') },
               ...(repo ? [] : [{ value: 'allow' as const, label: t('data.images.allow') }]),
-              { value: 'mask', label: t('data.images.mask') },
-              { value: 'block', label: t('data.images.block') },
-            ]}
+              { value: 'mask' as const, label: t('data.images.mask') },
+              { value: 'block' as const, label: t('data.images.block') },
+            ].filter((option) => option.value === 'unset' || imagesOffered(option.value))}
           />
         )}
       </div>
+      {layer === 'global' && (
+        <div>
+          <TitleWithDocs title={t('data.newMembers.title')} docs="section.newMembers" />
+          <p className="mb-2 max-w-[80ch] text-meta text-ink-3">
+            <InlineCodeText text={t('data.newMembers.help')} />
+          </p>
+          <Segmented<UnknownMembers>
+            label={t('data.newMembers.title')}
+            // Your own value is what a save sends back; while the company's policy forces `refuse`, that is what applies.
+            value={newMembersLocked ? 'refuse' : (value.unknown_members ?? 'check')}
+            onChange={(v) => set('unknown_members', v)}
+            options={[
+              { value: 'check' as const, label: t('data.newMembers.check') },
+              { value: 'refuse' as const, label: t('data.newMembers.refuse') },
+            ].filter((option) => !newMembersLocked || option.value === 'refuse')}
+          />
+        </div>
+      )}
     </div>
   )
 }

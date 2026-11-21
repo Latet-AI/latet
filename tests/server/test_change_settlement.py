@@ -177,7 +177,7 @@ async def test_only_the_winning_atomic_settlement_is_announced(pair, monkeypatch
             if event == "change_settled":
                 told.append(payload)
         assert result is None and first.settled[change.id] == "rejected"
-        assert told == [{"id": change.id, "state": "rejected"}]
+        assert told == [{"id": change.id, "state": "rejected", "by": None}]
     finally:
         feed.unsubscribe(events)
 
@@ -334,7 +334,7 @@ async def test_another_base_supersedes_and_tells_the_viewer_once(pair):
         assert newer.id != older.id and list(first.changes) == [newer.id]
         assert first.settled[older.id] == "superseded"
         assert told == [
-            ("change_settled", {"id": older.id, "state": "superseded"}),
+            ("change_settled", {"id": older.id, "state": "superseded", "by": None}),
             ("change", newer.summary(full=True)),
         ]
     finally:

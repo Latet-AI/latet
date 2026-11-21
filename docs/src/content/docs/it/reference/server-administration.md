@@ -6,7 +6,7 @@ description: Amministra un server dal tuo computer e mantieni private le credenz
 Esegui `latet server` nel tuo terminale. I comandi che modificano l'amministrazione rifiutano
 un agente; anche `config get` e `rules export`, nel terminale o in un file, lo rifiutano, perché
 possono mostrare valori in chiaro (i termini di una chiave API, le indicazioni per il revisore).
-Stato, elenchi delle identità e log di amministrazione non contengono credenziali.
+Stato, elenchi delle identità e registro amministrativo non contengono credenziali.
 
 Indica il server e inserisci il token nel prompt nascosto:
 
@@ -14,22 +14,27 @@ Indica il server e inserisci il token nel prompt nascosto:
 latet server --server https://latet.acme.lan status
 ```
 
-`status` elenca ogni istanza attiva del server, ogni worker di ogni macchina su una riga sua: il suo id,
-il numero del worker, se è pronta, la sua memoria e gli indici delle sue casseforti in MiB, i suoi spazi
-e la sua versione; ciò che un'istanza non ha detto viene mostrato come sconosciuto o lasciato fuori.
-Un'istanza di Latet 0.10 o precedente non dice nulla di sé: quando risponde un'istanza della 0.11,
-elenca con il suo id una della 0.10 ancora attiva, come Latet 0.10 o precedente; un server ancora alla
-0.10 risponde con la sola istanza che ha risposto. Prima di un aggiornamento la verifica è
-`latet server migrate`: non cambia nessuna tabella finché un'istanza di qualsiasi versione è attiva,
-una della 0.10 per 30 secondi dopo il suo arresto, e dice quante sono attive e di quale versione.
-L'elenco viene da una lettura limitata delle chiavi di Valkey: quando quella lettura è stata tagliata
-al suo limite, `status` dice `instances: the list is partial, cut at its bound: an instance may be
-alive and not listed`, e il campo `instances_whole` della sua risposta è false (null quando Valkey non
-ha risposto).
+`status` elenca ogni istanza attiva del server, ogni worker di ogni macchina su una riga a sé: il suo
+id, il numero del worker, se è pronta, la sua memoria e gli indici delle sue casseforti in MiB, i suoi
+spazi e la sua versione; ciò che un'istanza non ha detto viene mostrato come sconosciuto o lasciato
+fuori. Una riga a sé, `new request members:`, dice come viene letto per ogni identità un membro di una
+richiesta che nessun profilo di richiesta nomina ancora: `read and checked` (`unknown_members: check`,
+dove le impostazioni proprie di un'identità possono indicare `refuse`), `refused for every identity`
+dove le direttive dell'azienda bloccano `refuse`, oppure `cannot be said now` quando il server non
+riesce a leggere in quel momento le sue impostazioni condivise o le direttive ([Nuovi membri delle
+richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)). Un'istanza di Latet
+0.10 o precedente non dice nulla di sé: quando risponde un'istanza della 0.11, elenca con il suo id una
+della 0.10 ancora attiva, come Latet 0.10 o precedente; un server ancora alla 0.10 risponde con la sola
+istanza che ha risposto. Prima di un aggiornamento la verifica è `latet server migrate`: non cambia
+nessuna tabella finché un'istanza di qualsiasi versione è attiva, una della 0.10 per 30 secondi dopo il
+suo arresto, e dice quante sono attive e di quale versione. L'elenco viene da una lettura limitata delle
+chiavi di Valkey: quando quella lettura è stata tagliata al suo limite, `status` dice `instances: the
+list is partial, cut at its bound: an instance may be alive and not listed, and run another release or
+edition`, e il campo `instances_whole` della sua risposta è false (null quando Valkey non ha risposto).
 
 Sulla macchina del server, `latet server run --workers N` avvia N istanze, i worker, sulla stessa
-porta, ognuna in un processo suo; `LATET_SERVER_WORKERS` o `workers` in `server.yaml` danno lo stesso,
-e `--workers` vale su entrambi, la variabile sul file. Da 1 a 64, uno per impostazione predefinita.
+porta, ognuna in un proprio processo; `LATET_SERVER_WORKERS` o `workers` in `server.yaml` danno lo stesso
+risultato, e `--workers` prevale su entrambi, la variabile sul file. Da 1 a 64, uno per impostazione predefinita.
 Più di uno richiede Linux o l'immagine del container: su Windows `latet server run` li rifiuta, e il
 servizio Windows ne avvia uno ([più istanze su una macchina](../../concepts/server-operations/#più-istanze-su-una-macchina)).
 
@@ -41,25 +46,25 @@ Su Windows il file e la cartella devono consentire l'accesso solo al tuo account
 Administrators; segui la correzione `icacls` mostrata dal comando.
 `--admin-token-file -` legge una riga dallo standard input.
 
-Su un computer dove vengono eseguiti agenti, tieni i token di amministrazione fuori dai profili
+Su un computer dove vengono eseguiti agenti, tieni i token amministrativi fuori dai profili
 della shell e dalle variabili d'ambiente dell'account: i processi dello stesso utente possono leggere
 l'ambiente di un altro processo. `LATET_SERVER_ADMIN_TOKEN` è per l'archivio dei segreti di una CI
 o di un container, insieme a `LATET_SERVER_URL`; non viene mai inviato a un server diverso.
 
 `keys add`, `keys add-token`, `keys rotate` e `admin-token issue` accettano `--out FILE`: il nuovo file privato
 riceve il segreto e il comando mostra solo id e file. Non mettere mai codici, chiavi o token
-di amministrazione in un ticket, canale condiviso o conversazione con un agente. Il codice monouso
-di una persona permette a chi lo usa di collegare un computer come quella persona e aprirne la
+amministrativi in un ticket, canale condiviso o conversazione con un agente. Il codice monouso
+di una persona permette a chi lo usa di connettere un computer come quella persona e aprirne la
 dashboard; la sua emissione viene registrata.
 
 Usa `admin-token issue --label "Daniel's laptop" --days 30` per un token con scadenza.
 Un token `--never` richiede un'etichetta e permette tutto ciò che può fare un amministratore,
-fino alla revoca: persone e relativi codici, chiavi API, impostazioni condivise e token di
-amministrazione. Un token ne emette altri che terminano al più tardi insieme a lui, quindi solo un
-token che non scade può emetterne un altro che non scade; sul computer del server,
+fino alla revoca: persone e relativi codici, chiavi API, impostazioni condivise e token
+amministrativi. Un token ne emette altri che terminano al più tardi insieme a esso, quindi solo un
+token che non scade può emetterne un altro che non scade; sulla macchina del server,
 `latet server init --new-admin-token --never` ne crea uno. Tienilo separato, usandolo
 solo per emettere gli altri. Una CI che lo possiede dà questi poteri per sempre a chi può modificarne
-i processi; assegna alla CI un token con `--days` ed emettilo di nuovo prima della scadenza.
+i job; assegna alla CI un token con `--days` ed emettilo di nuovo prima della scadenza.
 
 Le rimozioni chiedono conferma nel tuo terminale anche con `--yes`; gli script richiedono `--yes`.
 `config reset` sostituisce solo una riga di impostazioni condivise che il server non riesce ad aprire,
@@ -70,13 +75,14 @@ successiva: rimuovere voci dalla fine lascia integra la catena rimanente.
 
 ## Chi amministra e la perdita di un token
 
-**L'amministratore è chiunque possieda un token di amministrazione.** Non esiste un account
+**L'amministratore è chiunque possieda un token amministrativo.** Non esiste un account
 amministratore: `latet server init` mostra il primo token a chi inizializza il server, e ogni
-token può emetterne altri. Un token non è una persona: il log di amministrazione indica il token
+token può emetterne altri. Un token non è una persona: il registro amministrativo indica il token
 che ha fatto ogni cosa (`admin:a_3fk7…`), e un amministratore non ha bisogno di uno spazio proprio
-sul server, anche se può essere aggiunto come persona come chiunque altro. Nella Community Edition
-ogni token può fare tutto; i ruoli, come un revisore in sola lettura, sono previsti per la
-Enterprise Edition.
+sul server, anche se può essere aggiunto come persona come chiunque altro. Ogni token
+amministrativo può fare tutto, in entrambe le edizioni. Con l'Enterprise Edition le persone dell'azienda possono
+ricevere dei ruoli nella dashboard, come un auditor che legge i report e il registro amministrativo senza cambiare
+nulla.
 
 Un token emesso senza `--days` né `--never` termina dopo `admin_token_days` (90 giorni, se le
 impostazioni del server non dicono altro), o prima, se termina prima il token che lo ha emesso; uno
@@ -99,12 +105,14 @@ rifiuta, e `admin-token list` mostra quando termina ogni token.
 
 **Nessun token rimasto**, perché tutti persi o scaduti: dove si possono raggiungere le impostazioni
 del server, la sua chiave principale e il suo database, `latet server init --new-admin-token` ne
-emette uno nuovo (con `--never`, uno di scorta da tenere separato). Nella distribuzione Compose,
+emette uno nuovo (con `--never`, uno di scorta da tenere separato). Nell'installazione Compose,
 esegui di nuovo il `docker run` dell'inizializzazione di
 [Gestione del server](../../concepts/server-operations/), terminandolo con
-`server init --new-admin-token`, con i log di Docker disattivati come prima. Poi revoca quelli persi,
-se non sono già terminati. Persone, chiavi API, impostazioni, casseforti e cronologia restano
-com'erano in entrambi i casi.
+`server init --new-admin-token`, con i log di Docker disattivati come prima. Come in quella pagina,
+lo esegue una persona, in un terminale suo, mai un agente AI: chi lo esegue ottiene il nuovo token,
+e dentro un container la protezione di Latet contro gli agenti non può vedere chi lo esegue. Poi
+revoca quelli persi, se non sono già terminati. Persone, chiavi API, impostazioni, casseforti e
+cronologia restano com'erano in entrambi i casi.
 
 **Un token trapelato**: revocalo subito da un altro token, poi leggi che cosa ha fatto:
 
@@ -137,7 +145,7 @@ cassaforte, mai un valore. Funziona anche su una chiave disattivata. Un'applicaz
 token a cui hai dato `--forget` (`keys add-token "Shop" erasure --forget`), che nessun altro permesso
 comprende: vedi [dimenticare dei valori](../../applications/forget/).
 
-## Leggere il log di amministrazione
+## Leggere il registro amministrativo
 
 `latet server log --limit 100000 --json` legge pagine successive, prima le voci con data e ora
 più recenti, poi quelle con id maggiore a parità di data e ora. `--limit` accetta al massimo
@@ -146,11 +154,21 @@ avere una continuazione, perché le pagine hanno anche un limite in byte. L'outp
 solo voci, una per riga; gli avvisi vanno su stderr.
 
 `--since` include il proprio estremo e `--until` lo esclude. `--actor` seleziona un'identità o
-un token di amministrazione; `--action` seleziona un'azione o un prefisso letterale che termina
+un token amministrativo; `--action` seleziona un'azione o un prefisso letterale che termina
 con `*`. Le azioni indicano che cosa è cambiato (`person.added`, `code.issued`, `token.added`,
 `token.revoked`, `key.rotated`, `key.updated`, `settings.changed`, `shared.changed`, `admin-token.issued`,
 `admin-token.revoked`), e le letture sono registrate con il nome della chiamata (`status.read`, `log.read`):
-`--action 'admin-token.*'` seleziona ogni modifica dei token di amministrazione.
+`--action 'admin-token.*'` seleziona ogni modifica dei token amministrativi.
+
+Due azioni registrano come viene letto un membro di una richiesta che nessun profilo di richiesta
+nomina ancora (`unknown_members`), mai una cartella o il nome di un membro. `setting.defaulted` viene
+scritta una sola volta per il server, da `server`, al primo avvio della 0.15.0: il suo bersaglio
+`unknown_members`, il valore `check` a cui è passata ogni identità, e la versione. `setting.loosened`
+è un'approvazione che porta le impostazioni di una persona o di una chiave API da `refuse` a `check`:
+l'impostazione, il valore, il tipo del suo ambito (`identity` quando cambiano le impostazioni stesse,
+`project` quando un progetto smette di rifiutarli) e quanti progetti; il suo autore è l'identità di
+cui è la modifica, o la persona che l'ha decisa per lei. Il salvataggio delle impostazioni di una
+chiave API da parte dell'amministrazione resta `settings.changed`, come prima.
 
 I token di una chiave API sono indicati dal loro id, mai dal segreto o dal nome: `token.added` riporta
 il nuovo token e i suoi permessi, `key.rotated` il token che resta (`token`) e quello che ha
@@ -161,7 +179,8 @@ il token, quanti testi e quanti valori ha ripristinato, mai un testo o un valore
 valori tolti dalla cassaforte di una chiave API, con `keys forget` e attraverso l'API per le
 applicazioni: quanti valori sono stati chiesti, dimenticati e non trovati, e per l'API il token, mai un
 valore.
-Per riprendere, passa il cursore del log mostrato a `--cursor`, con gli stessi filtri
+
+Per riprendere, passa il cursore del log mostrato a `--cursor`, con esattamente gli stessi filtri
 originali. Usa date assolute o secondi epoch esatti se devi riprendere più tardi: un tempo relativo
 come `7d` cambia tra un'esecuzione e l'altra. Non sostituire mai `--until` con una data arrotondata
 dell'output testuale. Un cursore indica una posizione, non è una credenziale né prova che il log sia invariato.
@@ -185,10 +204,20 @@ voci non ancora lette. L'esaurimento indica solo che quelle letture non vedevano
 corrispondenti; non è un'esportazione immutabile né una verifica della catena. Usa `log verify`
 separatamente, tenendo presente il limite sulla rimozione delle ultime voci descritto sopra.
 
+La sincronizzazione dei termini di Latet Enterprise registra quattro azioni, con nomi di fonti e conteggi, mai un
+termine o un segreto:
+
+| Azione | Cosa registra |
+| --- | --- |
+| `terms.source.changed` | Le fonti della sincronizzazione dei termini sono state impostate (`added`, `removed`, `changed`: i loro nomi; `fields`: i campi cambiati in ognuna, mai i loro valori) |
+| `terms.secret.changed` | Il segreto di una fonte è stato impostato o rimosso (`saved`, `removed`: i nomi delle fonti) |
+| `terms.removed` | Sono stati rimossi termini non più nella loro fonte (`count`, `by_type`, `source`; `unreadable` quando erano quelli che nessuna chiave del server apre e nessuna fonte dà più) |
+| `terms.sync.asked` | È stata chiesta una sincronizzazione (`source`: il suo nome, o nessuno per tutte le fonti) |
+
 ## Metriche delle immagini non lette
 
 `latet_ocr_unread_total{reason}` conta le occorrenze di immagini con un esito finale
-di OCR non letto su ciascuna istanza del server, sia quando una richiesta controllata
+di OCR non letto su ciascuna istanza del server, sia quando una richiesta verificata
 viene rifiutata sia quando un'immagine riscritta viene trattenuta. L'unica etichetta
 è `reason`, con cinque valori normali:
 
@@ -204,10 +233,10 @@ Un'occorrenza successiva della stessa immagine originale viene contata di nuovo 
 riceve un errore OCR dalla cache. Il contatore misura le occorrenze non lette, non le
 chiamate ai modelli, con un'eccezione: una richiesta o un turno WebSocket rifiutato
 prima che una sua immagine venga letta, perché il riconoscimento del testo non è
-disponibile, conta `unavailable` una volta, quante che siano le immagini che porta.
+disponibile, conta `unavailable` una volta, per quante immagini contenga.
 Tentativi interni, riquadri, batch e riparazioni dei lettori senza un'immagine inviata
 non aggiungono conteggi. Sono esclusi OCR riuscito, trattenimento manuale, errori di
-decodifica o dei limiti sui pixel, OCR disattivato o non installato, reinvio esatto di
-un'immagine dipinta o di un segnaposto di Latet e OCR locale di un computer. I controlli
+decodifica o dei limiti sui pixel, OCR disattivato o non installato, reinvio identico di
+un'immagine ridipinta da Latet o di un suo segnaposto e OCR locale di un computer. I controlli
 finali dello stesso lavoro non contano di nuovo. Nessuna etichetta contiene immagini,
 percorsi o identità.

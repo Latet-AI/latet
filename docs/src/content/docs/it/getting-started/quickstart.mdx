@@ -51,7 +51,7 @@ sei pronto.
 
    - Esegui `latet dashboard` e apri l'ultima richiesta nella pagina **Live**. Dove c'era il
      contenuto del tuo `.env`, il provider ha ricevuto un valore fittizio dello stesso formato, per
-     esempio `demo_9Tz6ZsM0aB8uA6vS8gA0`, contrassegnato come `ASSIGNED_SECRET`. Il tuo valore
+     esempio `jpxt_AmxvjKfWEB5QQDaACLqI`, contrassegnato come `ASSIGNED_SECRET`. Il tuo valore
      fittizio sarà diverso: i valori fittizi derivano da una chiave creata sul tuo computer.
    - `config.local.json` sul disco contiene la chiave reale, `demo_7Hq2LmX9pR4tV8nB3cK6`, perché
      Latet l'ha rimessa localmente prima che lo strumento dell'agente scrivesse il file.
@@ -77,7 +77,7 @@ sei pronto.
    Mostra tutto ciò che cambierebbe, poi chiede conferma una volta sola:
 
    - **Ogni agente che trova** (Claude Code, Codex, OpenCode), fatto passare da Latet: il plugin di
-     Latet in ogni sessione di Claude Code, gli altri collegati al daemon locale. Prima viene fatto
+     Latet in ogni sessione di Claude Code, gli altri connessi al daemon locale. Prima viene fatto
      un backup delle impostazioni di ciascuno.
    - **Avvio all'accesso**: il daemon si avvia quando accedi.
    - **Profilo**: `balanced`, o quello che imposti, e i paesi di cui riconosce i numeri
@@ -92,12 +92,14 @@ sei pronto.
      nessun plugin può mascherare, restano in locale quando la modalità auto di Claude Code consulta
      il suo revisore; la modalità auto allora non può approvare le azioni da sola. La pagina
      **Regole** della dashboard può lasciarli passare uno per uno.
-   - **Nomi e indirizzi**: il modello locale che trova nomi e indirizzi (circa 1,6 GB), scaricato con
+   - **Nomi e indirizzi**: il modello locale che trova nomi e indirizzi stradali (circa 1,6 GB), scaricato con
      `--ner` se non l'hai ancora scaricato.
    - **Testo nelle immagini**: i modelli di riconoscimento del testo (circa 31 MB), scaricati con
      `--ocr` se non li hai ancora scaricati.
-   - **Porta**: la porta su cui è in ascolto il daemon: 5283 o, se un altro programma la usa, una
-     porta libera vicina (i tuoi agenti si adeguano).
+   - **Porta**: la porta su cui è in ascolto il daemon: 5283 o, se un altro programma la usa o
+     Windows la occupa, la prima porta libera sopra, dopo quelle che Windows occupa (i tuoi agenti si
+     adeguano). Dove Windows può prendere la porta al suo avvio, nomina anche `latet reserve-port`,
+     che la riserva per Latet.
 
    Dice anche come togliere tutto: `latet global-uninstall`. Le opzioni cambiano le scelte
    predefinite, come `--agents claude --no-autostart`; `--yes` applica tutto senza chiedere.
@@ -105,7 +107,7 @@ sei pronto.
 2. **Riavvia i tuoi agenti** perché leggano la nuova configurazione. D'ora in poi ogni sessione passa
    da Latet, nel terminale e nell'IDE.
 
-3. **Controlla che tutto sia collegato.**
+3. **Controlla che tutto sia connesso.**
 
    ```sh
    latet doctor
@@ -158,8 +160,8 @@ latet global-uninstall
 ```
 
 Ripristina ogni agente, byte per byte, rimuove l'avvio all'accesso e ferma il daemon. Le tue regole
-restano in `config.yaml`, per `latet claude`. Gli strumenti che hai puntato su Latet nelle loro
-impostazioni ne tengono l'indirizzo: rimetti il loro. Vedi [Disinstallazione](../uninstall/).
+restano in `config.yaml`, per `latet claude`. Gli strumenti che hai fatto puntare a Latet nelle loro
+impostazioni ne conservano l'indirizzo: rimetti il loro. Vedi [Disinstallazione](../uninstall/).
 
 <Aside type="tip">
 	Per vedere in qualsiasi momento cosa ha ricevuto esattamente il modello, esegui `latet dashboard`.

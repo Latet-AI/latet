@@ -11,6 +11,7 @@ import json
 import threading
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import AsyncIterator, Callable
 from urllib.parse import quote, unquote, unquote_plus
 
@@ -24,7 +25,7 @@ from latet.engine.anchors import anchor
 from latet.engine.build import build, build_masker
 from latet.engine.pipeline import Engine, Session
 from latet.engine.rehydrate import restore_text
-from latet.engine.stored import EVICT_SHARE, WORKING_VALUES, StoredVault
+from latet.engine.stored import EVICT_SHARE, WORKING_VALUES, StoredVault, VaultUnread
 from latet.engine.types import EntityClass, SlotKind
 from latet.engine.vault import Entity, FakeTaken, MaskingError, Vault, fake_reading
 from latet.gateway.app import GatewayConfig, create_app
@@ -212,14 +213,35 @@ class _Store:
         self._asked("by_reading")
         return next((e for e in self._all() if fake_reading(e) == reading), None)
 
-    def with_words(self, role, words) -> list[Entity]:
+    def with_words(self, role, words, *, most=None) -> list[Entity]:
         roles = (role,) if isinstance(role, str) else tuple(role)
         self._asked(f"with_words:{'+'.join(roles)}")
         asked = set(words)
-        return [e for e in self._all() if any(asked.intersection(stored.words_of(e, r)) for r in roles)]
+        found = [e for e in self._all() if any(asked.intersection(stored.words_of(e, r)) for r in roles)]
+        if most is not None and len(found) > most:
+            raise MaskingError("the words of more values than one reading opens")
+        return found
 
     def backfill_words(self) -> int:
         return 0
+
+    def paged(self, offset, limit, *, etype=None, eclass=None, of_types=None, of_ids=None):
+        self._asked("paged")
+        among = of_types is not None or of_ids is not None
+        types, ids = set(of_types or ()), set(of_ids or ())
+        found = [
+            e
+            for e in self._all()
+            if (etype is None or e.etype == etype)
+            and (eclass is None or int(e.eclass) == eclass)
+            and (not among or e.etype in types or e.id in ids)
+        ]
+        found.sort(key=lambda e: (-e.created, e.id))
+        return found[offset : offset + limit], len(found)
+
+    def types_held(self) -> dict[str, int]:
+        self._asked("types_held")
+        return dict(Counter(e.etype for e in self._all()))
 
 
 def _email(n: int) -> str:
@@ -2113,6 +2135,54 @@ def test_a_value_kept_again_with_another_fake_elsewhere_drops_the_masked_texts()
     assert _learned(vault, again) is True
     assert vault.by_original("laura.bianchi@gmail.com").surrogate == "giada.ferri@gmail.example"
     assert vault.by_surrogate(held.surrogate) is None
+
+
+def test_a_page_its_types_and_a_value_revealed_are_the_stores_never_memorys():
+    """What the dashboard shows of an API key's vault (Latet Enterprise, in the key's space): a page of its values,
+    how many match and of each type, from its store, the whole vault, of which memory holds a working set; a value
+    revealed as the store holds it now (one forgotten on another instance, still in this one's memory, is none); a
+    search finds a value out of memory by a word of it, or by itself. None of it is brought into memory, and a store
+    that does not answer is said so (VaultUnread)."""
+    store = _Store()
+    vault = _vault(store, working=100)
+    _many(vault, 500)
+    assert len(vault.entities()) <= 100
+    shown, total = vault.page(0, 50)
+    assert total == 500 and len(shown) == 50
+    ordered = sorted(store.rows.values(), key=lambda e: (-e.created, e.id))  # the newest first, a tie by id
+    assert [e.id for e in shown] == [e.id for e in ordered[:50]]
+    # The last page ends on the oldest: _email(0), or a value kept in the same tick of the clock, before it by id
+    # (Windows' time.time() before Python 3.13 moves about every 16 ms, so the first values kept share a time).
+    last = vault.page(450, 100)[0][-1]
+    assert last.id == ordered[-1].id and last.created == store.rows[next(iter(store.rows))].created
+    assert vault.page(500, 50) == ([], 500)
+    assert vault.types_held() == {"EMAIL": 500}
+    oldest = next(iter(store.rows.values()))
+    assert oldest.original == _email(0) and vault.in_memory(oldest.id) is None
+    assert [e.id for e in vault.holding_words(oldest.original)] == [oldest.id]
+    assert [e.id for e in vault.holding_words("customer.number00000")] == [oldest.id]  # a word of it
+    assert vault.current(oldest.id) == oldest and vault.in_memory(oldest.id) is None  # not brought into memory
+    newest = list(store.rows.values())[-1]
+    assert vault.in_memory(newest.id) is not None
+    store.forget_entity(newest.id)  # forgotten on another instance: its message not heard here yet
+    assert vault.in_memory(newest.id) is not None and vault.current(newest.id) is None
+    assert newest.id not in {e.id for e in vault.page(0, 50)[0]} and vault.page(0, 50)[1] == 499
+    store.down = True
+    for read in (lambda: vault.current(oldest.id), lambda: vault.page(0, 50), vault.types_held):
+        with pytest.raises(VaultUnread):
+            read()
+
+
+def test_a_search_of_the_vault_opens_a_bounded_number_of_values(monkeypatch):
+    """A search of a key's vault (the dashboard's) asks its store for as many values as ``SEARCHED_AT_MOST`` allows,
+    and is refused past it, never answered with a part of them; masking keeps the store's own bound."""
+    store = _Store()
+    vault = _vault(store, working=100)
+    _many(vault, 5)
+    monkeypatch.setattr(stored, "SEARCHED_AT_MOST", 3)
+    with pytest.raises(MaskingError):
+        vault.holding_words("customer.number00000 customer.number00001 customer.number00002 customer.number00003")
+    assert len(vault.holding_words("customer.number00000 customer.number00001")) == 2
 
 
 # 0.10.1: a short secret's fake is never found inside an unrelated word, in an API key's vault as in a person's

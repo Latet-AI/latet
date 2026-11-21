@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ from latet.engine.detectors.misread import MisreadDetector
 from latet.engine.detectors.pii import ALL_PII, PiiDetector, effective_pii
 from latet.engine.detectors.recognizers import Recognizer, RecognizerDetector, Status, compile_all
 from latet.engine.detectors.structural import AssignmentDetector, CredentialDetector, PrivateKeyDetector
-from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, Term, TermsDetector
+from latet.engine.detectors.terms import IdentityDetector, LocalIdentity, LockedTermsDetector, Term, TermsDetector
 from latet.engine.masker import AllowList, Masker
 from latet.engine.pipeline import Engine
 from latet.engine.types import Policy
@@ -69,9 +70,11 @@ def detectors_for(
     recognizers: list[Recognizer] | None = None,
     *,
     bounded: bool = False,
+    extra: Sequence[Detector] = (),
 ) -> list[Detector]:
     """The detectors of ``config``. ``bounded``: the terms matched within an RE2 budget sized to them
-    (``TermsDetector``), for a masker that is one of many in its process."""
+    (``TermsDetector``), for a masker that is one of many in its process. ``extra``: what the edition adds to every
+    masker, the terms the company syncs (Latet Enterprise), shared as they are."""
     detectors: list[Detector] = [
         LatetCredentialDetector(),
         GitleaksDetector(disabled_rules=config.disabled_secret_rules),
@@ -102,6 +105,10 @@ def detectors_for(
                 (Term(t.value, t.type.upper(), t.case_sensitive, t.whole_word) for t in config.terms), bounded=bounded
             )
         )
+    if config.locked_terms:  # a company's (Latet Enterprise): no exception of yours lets one through
+        locked = (Term(t.value, t.type.upper(), t.case_sensitive, t.whole_word) for t in config.locked_terms)
+        detectors.append(LockedTermsDetector(locked, bounded=bounded))
+    detectors.extend(extra)  # what the edition adds to every masker: the terms the company syncs (Latet Enterprise)
     if recognizers:
         detectors.append(RecognizerDetector(recognizers))
     if identity is not None and identity.enabled and config.profile != Profile.SECRETS:
@@ -136,17 +143,20 @@ def build_masker(
     models: Path | None = None,
     *,
     bounded: bool = False,
+    extra: Sequence[Detector] = (),
 ) -> tuple[Masker, list[Status]]:
     """The masker of a configuration (the global one, or a project's), and its recognizers as loaded. ``bounded``: its
-    terms matched within an RE2 budget sized to them (a project's masker in an identity's space on a server)."""
+    terms matched within an RE2 budget sized to them (a project's masker in an identity's space on a server).
+    ``extra``: the edition's detectors, in every masker (``detectors_for``)."""
     recognizers, statuses = recognizers_for(config)
     policies = policies_of(config, recognizers)
     masker = Masker(
         vault,
-        detectors_for(config, identity, models, recognizers, bounded=bounded),
+        detectors_for(config, identity, models, recognizers, bounded=bounded, extra=extra),
         policies=policies,
         allow=AllowList(values=set(config.allow_values), patterns=list(config.allow_patterns)),
         generators={r.etype: r.generate for r in recognizers},
+        carve_terms=config.carves_terms,
     )
     return masker, statuses
 
@@ -158,7 +168,9 @@ def build(
     models: Path | None = None,
     conversations: Conversations | None = None,
     given: Given | None = None,
+    *,
+    extra: Sequence[Detector] = (),
 ) -> Built:
-    masker, statuses = build_masker(config, vault, identity, models)
+    masker, statuses = build_masker(config, vault, identity, models, extra=extra)
     engine = Engine(vault, masker, conversations=conversations)
     return Built(vault, masker, engine, Verifier(masker, given=given), statuses)

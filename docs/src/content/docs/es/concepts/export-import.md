@@ -22,9 +22,9 @@ importación muestra lo que haría antes de que cambie nada. Las tablas de *Tér
 *Reconocedores* y *Valores permitidos* tienen su propio *Exportar* e *Importar*, solo para esa
 lista: los términos y los valores en CSV, los reconocedores como archivo de reglas. Una exportación
 así tiene las mismas cautelas: un reconocedor cuyos ejemplos contienen un valor que Latet ha visto
-de verdad se queda fuera, y una celda CSV que una hoja de cálculo ejecutaría como fórmula se
-escribe tras un apóstrofo. Una importación así pasa por la misma vista previa, añade y nunca
-sustituye, y retiene del mismo modo lo que baja la protección; la tabla de *Reconocedores* acepta
+como valor real se queda fuera, y una celda CSV que una hoja de cálculo ejecutaría como fórmula se
+escribe precedida de un apóstrofo. Una importación así pasa por la misma vista previa, añade y nunca
+sustituye, y retiene del mismo modo lo que reduce la protección; la tabla de *Reconocedores* acepta
 un archivo solo de reconocedores.
 
 **Qué contiene el archivo:**
@@ -40,13 +40,13 @@ un archivo solo de reconocedores.
 
 Nunca la identidad, el puerto, las carpetas de proyectos ni los servidores de este equipo.
 
-Un archivo de reglas contiene como máximo 2 MB. Pasados 5.000 términos, 500 reconocedores, 500 reglas
-de campo, 5.000 valores o 500 patrones que no se enmascaran nunca, solo se leen los primeros, y la
+Un archivo de reglas ocupa como máximo 2 MB. Pasados 5000 términos, 500 reconocedores, 500 reglas
+de campo, 5000 valores o 500 patrones que no se enmascaran nunca, solo se leen los primeros, y la
 importación lo dice. Un archivo hecho por un Latet más reciente se rechaza.
 
 **Los términos son valores en claro.** El nombre de un cliente que esté entre tus términos aparece
 en el archivo tal cual: envía el archivo como enviarías los propios nombres. Un reconocedor cuyos
-ejemplos contengan valores que Latet ha visto de verdad se deja fuera, ya que los ejemplos deben ser
+ejemplos contengan valores que Latet ha visto como valores reales se deja fuera, ya que los ejemplos deben ser
 inventados.
 
 **Una importación añade protección, y eso se aplica al momento:**
@@ -86,7 +86,7 @@ añadiría, luego guarda `config.yaml`, pide al daemon que lo vuelva a cargar e 
 *Rules reloaded.* (código de salida `0`), un cambio que espera tu aprobación (`3`) o, si el daemon no
 ha respondido, que el archivo está guardado y que no está confirmado que se aplique (`1`:
 `latet reload` lo aplica cuando el daemon esté en marcha). El comando no lee los repositorios con un
-`latet.yaml` propio que Latet ha visto: el daemon pesa la importación en ellos al volver a cargar, y
+`latet.yaml` propio que Latet ha visto: el daemon evalúa la importación en ellos al volver a cargar, y
 una adición que reduce la protección en uno de ellos también espera tu aprobación.
 
 También se puede importar un `config.yaml` o el `latet.yaml` de un proyecto: lo que no es una regla
@@ -108,12 +108,12 @@ latet rules import shop-rules.yaml --project D:\work\shop
 En el panel también están en la página **Reglas** de un proyecto, bajo
 *Tus ajustes, para este proyecto*: *Exportar estos ajustes* e *Importar ajustes*.
 
-### En un servidor Latet
+### En un servidor de Latet
 
-En un equipo conectado a un [servidor Latet](../server/), tus reglas están en tu espacio en el
+En un equipo conectado a un [servidor de Latet](../server/), tus reglas están en tu espacio en el
 servidor, y `latet rules export` e `import` se niegan a ejecutarse. **Exportar reglas** e
 **Importar reglas**, en la parte de arriba de **Reglas** en tu panel del servidor, funcionan como
-arriba, sobre tus propias reglas: un equipo de trabajo comparte sus reglas como archivo, y cada
+arriba, sobre tus propias reglas: unos compañeros comparten sus reglas en un archivo, y cada
 persona lo importa. El `latet.yaml` de un proyecto no se aplica allí: impórtalo de la misma manera
 para usar sus reglas.
 
@@ -124,8 +124,9 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" export bil
 latet server --server https://latet.acme.lan rules --key "Billing CI" import team-rules.yaml
 ```
 
-Las reglas establecidas para todos en un servidor, que nadie puede relajar, están previstas para la
-Enterprise Edition.
+Con la Enterprise Edition, las reglas establecidas para todos en un servidor, que nadie puede
+relajar, son las directrices de la empresa: un archivo de reglas en este mismo formato, fijado con
+`latet server policy set`.
 
 ## Tu instalación, para otro equipo
 
@@ -149,7 +150,7 @@ son fáciles de recordar y difíciles de adivinar), y escribe un único archivo:
   Revisor en directo) y sigue restaurando las conversaciones iniciadas aquí. El archivo contiene
   entonces tus valores reales, cifrados: guárdalo donde guardarías esos valores.
 - **Sin ella**, el otro equipo genera sus propios valores ficticios.
-- **Nunca en él:** la clave de API del revisor local, el token del puente (entre el plugin de
+- **Nunca en él:** la clave de API del revisor local, el token del bridge (entre el plugin de
   Claude Code y el daemon), los registros, el modelo local de nombres, los modelos de reconocimiento
   de texto y los ajustes de tus agentes. Cada equipo tiene los suyos.
 

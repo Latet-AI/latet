@@ -4,6 +4,7 @@
 uv run python scripts/terms_bench.py                  # 10,000 and 50,000 terms
 uv run python scripts/terms_bench.py --terms 1000     # other counts
 uv run python scripts/terms_bench.py --check          # exit 1 when 50,000 terms are over the threshold
+uv run python scripts/terms_bench.py --check --every  # the same, with the matcher of the terms a company syncs
 """
 
 from __future__ import annotations
@@ -167,7 +168,9 @@ def _per_text(run: Callable[[str], object], texts: Sequence[str]) -> float:
     return (time.perf_counter() - started) * 1000 / len(texts)
 
 
-def measure(n: int, texts: int = 5) -> Measure:
+def measure(n: int, texts: int = 5, every: bool = False) -> Measure:
+    """``n`` terms measured; ``every``: as the matcher of the terms a company syncs matches them (``LiveTerms``, every
+    term at every place, one inside or across another too)."""
     terms = make_terms(n)
     hits = [t.value for t in terms[:: max(1, n // 50)]]
     some = [make_text(SIZE, hits, seed) for seed in range(texts)]
@@ -175,7 +178,7 @@ def measure(n: int, texts: int = 5) -> Measure:
     before = memory_mb()
     started = time.perf_counter()
     try:
-        detector = TermsDetector(terms)
+        detector = TermsDetector(terms, every=every)
     except Exception as exc:  # one RE2 alternation: "pattern too large - compile failed"
         return Measure(n, None, str(exc), 0.0, float("inf"), float("inf"), float("inf"))
     build_s = time.perf_counter() - started
@@ -193,11 +196,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Measure the term matcher with many terms.")
     parser.add_argument("--terms", type=int, nargs="*", default=[10_000, 50_000])
     parser.add_argument("--check", action="store_true", help="exit 1 when 50,000 terms are over the threshold")
+    parser.add_argument(
+        "--every", action="store_true", help="the matcher of the terms a company syncs: every term at every place"
+    )
     args = parser.parse_args()
     print(f"{'terms':>7} {'build':>8} {'memory':>8} {'100 KB, none':>13} {'100 KB, some':>13} {'masking':>9}")
     found: dict[int, Measure] = {}
     for n in args.terms:
-        m = found[n] = measure(n)
+        m = found[n] = measure(n, every=args.every)
         if m.build_s is None:
             print(f"{n:>7} does not build: {m.error}")
             continue
@@ -208,7 +214,7 @@ def main() -> int:
     print(f"threshold at 50,000 terms: matched in {BUDGET_MS:.0f} ms per 100 KB, built in {BUILD_S:.0f} s,", end=" ")
     print(f"{MEMORY_MB:.0f} MB more memory")
     if args.check:
-        return 0 if (found.get(50_000) or measure(50_000)).within() else 1
+        return 0 if (found.get(50_000) or measure(50_000, every=args.every)).within() else 1
     return 0
 
 

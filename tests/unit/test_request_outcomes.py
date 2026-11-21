@@ -348,7 +348,7 @@ def test_hand_built_forward_is_refused(monkeypatch):
         again = _envelope(body)
         # A private current snapshot for this test only, never mutate the process's original policy object.
         with monkeypatch.context() as local:
-            local.setattr(request_policy, "BUILT_IN_POLICY", dataclasses.replace(request_policy.current()))
+            local.setattr(request_policy, "CHECK_POLICY", dataclasses.replace(request_policy.current()))
             fresh = _prepared(_mediator(), body)
             decided = _strict(fresh, again)
             assert outcome.sendable(decided, fresh, again) is decided
@@ -562,10 +562,13 @@ def _names(command: Any) -> Iterator[str]:
 def test_the_built_in_rules_cannot_be_configured(monkeypatch, turns):
     from latet.cli.main import app
 
-    assert inspect.signature(request_policy.current).parameters == {}
+    # One argument alone: how a member no request profile declares is read, as the settings in use and the request's
+    # project say (never the request): it takes the new rule out of the snapshot, and adds none.
+    assert list(inspect.signature(request_policy.current).parameters) == ["unknown_members"]
     assert (
-        request_policy.current() is request_policy.BUILT_IN_POLICY
-        and set(request_policy.BUILT_IN_POLICY.rules) == request_policy.BUILT_IN
+        request_policy.current() is request_policy.CHECK_POLICY
+        and set(request_policy.CHECK_POLICY.rules) == request_policy.BUILT_IN
+        and set(request_policy.current("refuse").rules) == request_policy.BUILT_IN - {request_policy.NEW_MEMBER_RULE}
     )
     with pytest.raises(ValueError, match="built-in rules alone"):
         request_policy.PolicySnapshot(rules=("forward-everything",))
@@ -576,7 +579,8 @@ def test_the_built_in_rules_cannot_be_configured(monkeypatch, turns):
     # The environment: neither module reads it, and the snapshot is the same under any variable.
     monkeypatch.setenv("LATET_REQUEST_POLICY", "forward")
     monkeypatch.setenv("LATET_LEGACY", "off")
-    assert request_policy.current() is request_policy.BUILT_IN_POLICY
+    monkeypatch.setenv("LATET_UNKNOWN_MEMBERS", "check")
+    assert request_policy.current() is request_policy.CHECK_POLICY
     for module in ("gateway/outcome.py", "gateway/request_policy.py", "gateway/coverage.py"):
         tree = ast.parse((SRC / module).read_text("utf-8"))
         names = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)} | {
@@ -602,7 +606,8 @@ def test_the_built_in_rules_cannot_be_configured(monkeypatch, turns):
     body = _chat(f"write to {EMAIL}")
     with _gateway(provider, _mediator()) as client:
         client.post(CHAT, content=body, headers=HEADERS)
-        client.post(CHAT, content=body, headers={**HEADERS, "x-latet-policy": "forward", "x-latet-rule": "off"})
+        asked_for = {"x-latet-policy": "forward", "x-latet-rule": "off", "x-latet-unknown-members": "refuse"}
+        client.post(CHAT, content=body, headers={**HEADERS, **asked_for})
     plain, asked = turns[-2].decision, turns[-1].decision
     assert (
         type(plain) is type(asked) is Forward
@@ -945,3 +950,110 @@ async def test_a_websocket_frame_is_finalized_once_after_it_is_written_anew(on_s
     assert type(contentless) is Forward and none is not None and contentless.payload == cancel
     connections = {envelope.connection for _, envelope, _ in decided} | {handshake.connection}
     assert len(connections) == 1 and None not in connections  # the socket's own number, on each of its frames
+
+
+async def test_a_websocket_turn_a_decider_approved_whose_settings_change_before_it_leaves_is_not_taken_as_approved(
+    monkeypatch,
+):
+    """The merge of 0.12.0, fix round 1 (the security review's L1, on a WebSocket): a turn whose text a decider of the
+    company approved as they read it (``Decision.version``, Latet Enterprise), then rules that move after its reviews
+    and before it leaves. The socket ends (its authority no longer valid) and the turn never leaves; its approval was
+    kept all the same, never recorded as withheld, so that the same text sent again would not wait. It is now taken
+    back, and the batch recorded as withheld."""
+    from latet.gateway.approvals import batch_version
+
+    mediator = _mediator()
+    monkeypatch.setattr(mediator, "live_review", LiveReview(enabled=True))
+    batches: list[str] = []
+
+    async def approved(batch: Any, gone: Any, held: Any = None) -> Decision:
+        batches.append(batch.id)
+        session, items = held
+        version = batch_version(await mediator.run(mediator._views_now, session, items, False))
+        return Decision(True, version=version)
+
+    withheld: list[str] = []
+    monkeypatch.setattr(mediator, "await_decision", approved)
+    monkeypatch.setattr(mediator.approvals, "withheld", lambda batch: withheld.append(batch.id))
+    reviewed = mediator.live_prepared
+    seen: list[Prepared] = []
+
+    async def moved_after(prepared: Prepared, *args: Any, **kwargs: Any) -> Prepared:
+        done = await reviewed(prepared, *args, **kwargs)
+        seen.append(done)
+        mediator.engine.rules_changed()  # the settings change after its reviews, before it leaves
+        return done
+
+    monkeypatch.setattr(mediator, "live_prepared", moved_after)
+    upstream, client = _Upstream(), _Client()
+    routes = RouteTable(
+        [
+            Upstream(
+                "relay", "/relay", f"http://127.0.0.1:{upstream.port}", envelope_expected=frozenset({("model", "m")})
+            )
+        ]
+    )
+    turn = {
+        "type": "response.create",
+        "model": "m",
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": f"write to {EMAIL} about Falcon"}]}],
+    }
+    try:
+        relaying = asyncio.create_task(ws.relay(client.socket, routes, Capture(None), mediator))
+        client.incoming.put_nowait({"type": "websocket.receive", "text": json.dumps(turn)})
+        await asyncio.wait_for(relaying, 10)
+    finally:
+        upstream.close()
+    [prepared] = seen
+    assert upstream.got == [], "the turn left"
+    assert prepared.decider_approval is None and prepared.session is not None
+    assert prepared.session.approved == set(), "the decider's approval was kept for a turn that never left"
+    assert withheld == batches and len(batches) == 1
+
+
+async def test_a_websocket_turn_a_decider_approved_and_refused_before_it_leaves_is_recorded_withheld(monkeypatch):
+    """Fix round 3 of the merge of 0.12.0: a turn whose text a decider of the company approved as they read it is
+    refused at its decision for another reason than its settings (here the decision a ``Block``). Nothing of it leaves
+    and nothing of the approval is taken (fix round 2); now the batch is recorded withheld too, so that the company's
+    record never keeps approved a turn that never left."""
+    from latet.gateway.approvals import batch_version
+    from latet.gateway.outcome import refuse
+
+    mediator = _mediator()
+    monkeypatch.setattr(mediator, "live_review", LiveReview(enabled=True))
+    batches: list[str] = []
+
+    async def approved(batch: Any, gone: Any, held: Any = None) -> Decision:
+        batches.append(batch.id)
+        session, items = held
+        version = batch_version(await mediator.run(mediator._views_now, session, items, False))
+        return Decision(True, version=version)
+
+    withheld: list[str] = []
+    monkeypatch.setattr(mediator, "await_decision", approved)
+    monkeypatch.setattr(mediator.approvals, "withheld", lambda batch: withheld.append(batch.id))
+    monkeypatch.setattr(ws, "decide", lambda *args, **kwargs: refuse("ws-frame", "relay", "refused", "refused", 400))
+    upstream, client = _Upstream(), _Client()
+    routes = RouteTable(
+        [
+            Upstream(
+                "relay", "/relay", f"http://127.0.0.1:{upstream.port}", envelope_expected=frozenset({("model", "m")})
+            )
+        ]
+    )
+    turn = {
+        "type": "response.create",
+        "model": "m",
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": f"write to {EMAIL} about Falcon"}]}],
+    }
+    try:
+        relaying = asyncio.create_task(ws.relay(client.socket, routes, Capture(None), mediator))
+        client.incoming.put_nowait({"type": "websocket.receive", "text": json.dumps(turn)})
+        await _until(lambda: len(client.texts()) == 1)  # the turn refused, its error told
+        client.incoming.put_nowait({"type": "websocket.disconnect", "code": 1000})
+        await asyncio.wait_for(relaying, 10)
+    finally:
+        upstream.close()
+    assert upstream.got == [], "the turn left"
+    assert json.loads(client.texts()[0])["type"] == "error"
+    assert withheld == batches and len(batches) == 1

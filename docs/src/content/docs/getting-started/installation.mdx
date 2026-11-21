@@ -38,18 +38,33 @@ The script does two things, in this order:
    with it; their models are downloaded only when you ask. Where they cannot be installed, Latet
    is installed without them, and the script ends by saying so; a Latet already installed with
    them is left as it was instead. The other extras of a Latet installed here (a server's
-   `server`) stay. If an older Latet is running, it stops it, and does not start
-   it again. To upgrade, `latet upgrade` is the better way. After the script has upgraded a Latet,
-   run `latet start`, and `latet agents apply claude` if Claude Code goes through Latet for good,
-   so that it gets the new plugin.
+   `server`) stay. If an older Latet is running, it stops it, and does not start it again unless,
+   on Windows, it moves Latet to a free port at its end (see below). To upgrade, `latet upgrade` is
+   the better way. After the script has upgraded a Latet, run `latet start`, and
+   `latet agents apply claude` if Claude Code goes through Latet for good, so that it gets the new
+   plugin.
+
+On Windows, the script ends with one question, asked only where Windows may take Latet's port.
+Hyper-V, WSL and Docker reserve blocks of ports each time Windows starts, and on some computers
+port 5283 can be among them: Latet then cannot start until the next restart. The script asks
+whether to reserve the port for Latet, or, where Windows holds it already, whether to move Latet to
+a free port and reserve that one. On yes, Windows asks for an administrator's confirmation once;
+where Latet moves, the yes also saves the new port in `config.yaml`, points the agents
+`latet global-install` set up at it, and starts Latet on it. On no, the script prints the command
+that does it later, `latet reserve-port`. This is the one step that asks for an administrator's
+confirmation, and only when you say yes: the rest of the installation needs no administrator
+rights. See
+[Port 5283 is already in use](../../troubleshooting/#port-5283-is-already-in-use).
 
 On macOS and Linux, open a new terminal afterwards: the script adds Latet to your `PATH` for the
 terminals you open next, not for the one it ran in.
 If that one cannot find `latet` either, run `uv tool update-shell` and open another.
 
-The script changes nothing else: none of your agents' settings, nothing that starts at login. New to
-Latet? [`latet tutorial`](../tutorial/) shows it at work in about 30 minutes. Then run one
-session through Latet with `latet claude` or `latet codex`, as the
+Apart from the port, if you say yes on Windows, the script changes nothing else: nothing that
+starts at login, and none of your agents' settings, except that, where Latet moves, the agents
+`latet global-install` set up follow it. New to Latet? [`latet tutorial`](../tutorial/) shows it
+at work in about 30 minutes. Then run one session through Latet with `latet claude` or
+`latet codex`, as the
 [Quickstart](../quickstart/#try-it-without-changing-anything) shows, and route your agents for good
 with `latet global-install` once it fits your work.
 

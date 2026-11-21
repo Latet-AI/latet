@@ -52,10 +52,10 @@ from latet.gateway.headers import WS_HANDSHAKE_DROP, unread_redacted
 from latet.gateway.launch_authority import ABSENT, REQUEST_LAUNCH, RequestLaunch
 from latet.gateway.lease import ExchangeLease
 from latet.gateway.mediate import STOPPED_ANSWER, VERIFY, Mediator, Prepared, WSResponseRewriter
-from latet.gateway.outcome import Block, decide, finalize, refuse, response_plan
+from latet.gateway.outcome import Block, decide, finalize, policy_for, refuse, response_plan
 from latet.gateway.recorder import Outcome, Recorder, ResponseCapture, agent_of
 from latet.gateway.request_audit import RequestAudit, emit_decision, reason_code, route_code
-from latet.gateway.request_policy import LocalAuthority, current
+from latet.gateway.request_policy import LocalAuthority
 from latet.gateway.request_transport import SendRefusal
 from latet.gateway.response_finalizer import ResponseFinalizer, drain_task
 from latet.gateway.routes import RouteTable, Upstream, wire_path
@@ -351,12 +351,12 @@ async def relay(
         shook = finalize(
             handshake_arena,
             handshake,
-            current(),
+            policy_for(handshake_arena),
             response_plan(handshake_arena),
             envelope_proof=proof,
         )
         authorized = (
-            request_transport.validate_connect(shook, handshake, current(), headers, handshake_arena)
+            request_transport.validate_connect(shook, handshake, policy_for(handshake_arena), headers, handshake_arena)
             if not isinstance(shook, Block)
             else SendRefusal("block")
         )
@@ -567,6 +567,7 @@ async def relay(
                 decision = None
                 frame_attempts = frame_answers = None
                 frame_reason = None
+                carried = False  # whether this turn's frame was handed to its provider (or may have been, raising)
                 selection_token = request_scope.set(RequestScope())
                 try:
                     if not authority.valid():
@@ -677,7 +678,7 @@ async def relay(
                                 decision,
                                 prepared,
                                 envelope,
-                                current(),
+                                policy_for(prepared),  # the rules its turn was decided under (``decide``)
                                 up,
                                 on_send=rewriter.begin if rewriter is not None and creates else None,
                             )
@@ -739,6 +740,7 @@ async def relay(
                         sent_generation += 1  # reserve before awaiting: the provider may complete during send
                     if rewriter is not None and prepared is not None and prepared.protocol != "ws-cancel":
                         rewriter.observe(prepared)
+                    carried = True
                     try:
                         unsent = await request_transport.send_frame(up, frame)
                     except BaseException:
@@ -750,6 +752,7 @@ async def relay(
                         if provisional is not None:
                             provisional.sent.set()
                     if unsent is not None:  # never in Phase 1
+                        carried = False
                         if provisional is not None:
                             provisional.finalizer.stop()
                             take(provisional, "not-sent")
@@ -782,7 +785,12 @@ async def relay(
                         let_go(pending)
                     if mediator is not None and prepared is not None:  # it reached the upstream: what it carried left
                         mediator.left(prepared)
+                        await mediator.approval_given(prepared)  # a decider's approval of it, taken now it has left
                 finally:
+                    if not carried and mediator is not None and prepared is not None:
+                        # Refused or failed before it left (its authority gone, its decision a refusal, an error): a
+                        # decider's approval of its texts (Latet Enterprise), never taken, is recorded as withheld.
+                        mediator.not_given(prepared)
                     try:
                         emit_decision(
                             request_audit,

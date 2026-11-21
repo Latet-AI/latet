@@ -28,6 +28,44 @@ const QUALITY = 85
 
 // Each screen: where it is, and what is done there before the picture.
 const SCREENS = {
+  audit: async (page) => {
+    await open(page, '/audit?mock-server&mock-sign-in')
+    await page.locator('table.data-table').waitFor()
+    await settle(page)
+  },
+  siem: async (page) => {
+    await open(page, '/reports/siem?mock-server&mock-sign-in&mock-security')
+    await page.locator('section[aria-label="splunk"]').waitFor()
+    await settle(page)
+  },
+  reports: async (page) => {
+    await open(page, '/reports?mock-server&mock-sign-in&mock-security')
+    await page.locator('figure.panel').first().waitFor()
+    await settle(page)
+  },
+  // Company approvals (Latet Enterprise): a change and a text waiting for the security team, what it decided.
+  'company-approvals': async (page) => {
+    await open(page, '/company-approvals?mock-server&mock-sign-in&mock-security') // the person holds the security role
+    await page.locator('[data-company-change]').first().waitFor()
+    await page.locator('[data-company-text] article').first().waitFor() // the text, read as it opens
+    await page.locator('table.data-table').waitFor()
+    await settle(page)
+  },
+  // Term sync (Enterprise): the sources, and the terms no longer in their source.
+  'term-sync': async (page) => {
+    await open(page, '/term-sync?mock-server&mock-sign-in&mock-security')
+    await page.locator('#term-sync-gone').waitFor()
+    await page.locator('#term-sync-gone tbody tr').first().waitFor() // the terms, read as the page opens
+    await settle(page)
+  },
+  // Approvals as the person who asked sees it where the company's security team decides (Latet Enterprise): who decides,
+  // named above the tabs, and a text the team reviews, which the person can stop, not approve.
+  'approvals-security': async (page) => {
+    await open(page, '/approvals?mock-server&mock-routed')
+    await page.locator('[role="note"]').first().waitFor() // who decides, as /me names them
+    await page.locator('article').first().waitFor() // the text the team reviews, with its banner
+    await settle(page)
+  },
   // Every request as it happens.
   live: async (page) => {
     await open(page, '/live')
@@ -105,6 +143,25 @@ const SCREENS = {
     await settle(page)
     await top(page, '#reviewer')
   },
+  // The License page of the Enterprise Edition, seen by a server's administrator (the mock's ?mock-server&mock-sign-in):
+  // the license, the users it covers and the ones in use, its last day, what it switches on, and the controls that
+  // install a license file or remove the license.
+  license: async (page) => {
+    await open(page, '/license?mock-server&mock-sign-in&mock-license=server')
+    await page.locator('[data-license-state]').waitFor()
+    await page.locator('#license-change').waitFor() // the controls that change it: /me tells the person manages it
+  },
+  // The People and groups page of a server with Latet Enterprise, seen by an administrator (the mock's
+  // ?mock-server&mock-sign-in: R31).
+  people: async (page) => {
+    await open(page, '/people?mock-server&mock-sign-in')
+    await page.locator('table.data-table').first().waitFor()
+  },
+  // The Sign-in page: connecting a computer, single sign-on with its groups, and SCIM provisioning.
+  'sign-in': async (page) => {
+    await open(page, '/sign-in?mock-server&mock-sign-in')
+    await page.getByText('/_latet/sso/callback').first().waitFor()
+  },
 }
 
 /**
@@ -114,6 +171,7 @@ const SCREENS = {
 async function lookups(browser, origin) {
   const page = await browser.newPage()
   try {
+    await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
     await page.goto(`${origin}${BASE}/live`)
     await page.locator('main').waitFor()
     return await page.evaluate(async (base) => {
@@ -175,6 +233,7 @@ async function shoot(browser, origin, ids, screen, lang, theme) {
     reducedMotion: 'reduce',
   })
   context.origin = origin
+  await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
   await context.clock.setFixedTime(CLOCK)
   await context.addInitScript(
     ([language, mode]) => {
@@ -213,6 +272,7 @@ async function main() {
   }
   const server = await createServer({
     root,
+    ...(process.env.LATET_SCREENSHOT_CACHE ? { cacheDir: process.env.LATET_SCREENSHOT_CACHE, configLoader: 'runner', envDir: false } : {}),
     configFile: join(root, 'vite.config.ts'),
     mode: 'mock',
     logLevel: 'warn',

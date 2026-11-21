@@ -195,8 +195,8 @@ detectores de Latet dejaron en claro (consulta `benchmarks/llm-review/README.md`
 - **Sin tarjeta gráfica**, un modelo 4B tarda unos 10 s por prompt: en ese caso, haz que lea antes
   de que salga solo lo que escribes, y el resto después (ver más abajo).
 - **Los textos largos se leen en fragmentos** de unos 7000 caracteres, que los modelos pequeños leen
-  mejor. Aumenta `chunk_chars` para un modelo grande, hasta 16 384: el valor más largo que Latet
-  guarda, así lo que el revisor encuentra en un fragmento siempre se guarda.
+  mejor. Aumenta `chunk_chars` para un modelo grande, hasta 16.384: el valor más largo que Latet
+  guarda, para que lo que el revisor encuentra en un fragmento siempre se guarde.
 - **Basta con un slot.** Un segundo slot en la misma tarjeta no hace más rápido un texto largo: lo
   que lleva tiempo es la lectura, y dos fragmentos se reparten la tarjeta.
 - **Lo que cuesta en una sesión:** el tiempo de cada texto nuevo, una sola vez. Un turno en el que

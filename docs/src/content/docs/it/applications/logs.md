@@ -1,13 +1,13 @@
 ---
 title: Mascherare i log prima che escano
-description: Un'applicazione maschera le righe di log con un server Latet prima di spedirle, e uno strumento di assistenza ripristina la riga che gli serve.
+description: Un'applicazione maschera le righe di log con un server di Latet prima di spedirle, e uno strumento di assistenza ripristina la riga che gli serve.
 sidebar:
   label: Log
 ---
 
 I log di un'applicazione nominano i suoi clienti: indirizzi email, indirizzi IP, IBAN, ogni tanto un
 token. Spediti così come sono, restano per mesi in un servizio di log, letti da chiunque legga i log.
-Con l'[API per le applicazioni](../), l'applicazione maschera ogni gruppo di righe con un server Latet
+Con l'[API per le applicazioni](../), l'applicazione maschera ogni gruppo di righe con un server di Latet
 prima di spedirlo, e il servizio di log riceve valori fittizi. Poiché un valore riceve sempre lo
 stesso valore fittizio, le righe di un cliente si possono ancora cercare, contare e seguire per giorni;
 quando l'assistenza deve sapere di chi si trattava, uno strumento con il token giusto ripristina la
@@ -24,8 +24,8 @@ latet server --server https://latet.acme.lan keys add-token "Shop logs" support 
 ```
 
 L'applicazione tiene `shipper.token`, che può mascherare e non può vedere alcun valore reale; lo
-strumento di assistenza tiene `support.token`, che può ripristinare e nient'altro. Il primo token,
-`shop-logs.key`, resta all'amministratore: ha tutti i permessi. Le righe mascherate con un'altra
+strumento di assistenza tiene `support.token`, che può ripristinare e nient'altro. Lascia il primo
+token, `shop-logs.key`, all'amministratore: ha tutti i permessi. Le righe mascherate con un'altra
 chiave ricevono altri valori fittizi, quindi usa una sola chiave per i servizi i cui log cerchi
 insieme.
 
@@ -77,18 +77,18 @@ mascherato nelle righe delle chiamate precedenti, che hanno già avuto risposta.
 i log ([prosa e dati](../#prosa-e-dati)).
 
 Quando la chiamata fallisce, tieni le righe e riprova, oppure scartale: non inviarle mai senza
-mascherarle. Il client riprova da solo un 429 e un 503 (tre volte, dopo l'attesa che chiede il
-server) prima di sollevare l'errore. Mascherare le stesse righe due volte dà gli stessi valori
+mascherarle. Il client ripete da solo una chiamata che riceve 429 o 503 (tre volte, dopo l'attesa che
+chiede il server) prima di sollevare l'errore. Mascherare le stesse righe due volte dà gli stessi valori
 fittizi, quindi riprovare è sicuro.
 
-Ogni rifiuto del server è un `LatetError`, con il suo stato e le sue parole, e una chiamata che non è
-andata a buon fine è un `ConnectionFailed` (stato 0). `ConnectionFailed` prende il posto degli errori
+Ogni rifiuto del server è un `LatetError`, con il suo codice di stato e il suo messaggio, e una
+chiamata che non è arrivata al server è un `ConnectionFailed` (stato 0). `ConnectionFailed` prende il posto degli errori
 di `httpx`, anche di quelli di un `httpx.Client` che passi come `client=`, e non contiene la
 richiesta, così il token non finisce in nessun errore: intercetta gli errori del client, non quelli di
 `httpx`. Un indirizzo `http://` di un altro computer dà un `ClearTextWarning`, perché il token e le
 righe viaggerebbero in chiaro. Il client giudica solo dall'indirizzo, quindi anche un tuo `client=` che
-raggiunge il server in TLS per un'altra strada riceve l'avviso; il modulo `warnings` di Python lo
-silenzia.
+raggiunge il server in TLS in un altro modo riceve l'avviso; puoi silenziarlo con il modulo `warnings`
+di Python.
 
 ## Il formato delle righe
 
@@ -99,17 +99,17 @@ il resto, imposta le regole della chiave
 
 - Le **regole di campo** mascherano i valori di un campo per nome, come `phone` o `customer_name`, e la
   **modalità dati rigorosa** (`data: strict`) maschera ogni valore di un record
-  ([dati di produzione](../../concepts/production-data/)). Trovano un valore dalla sua chiave nel
-  JSON, e nelle righe `chiave=valore` dove un valore che contiene spazi è tra virgolette:
+  ([dati di produzione](../../concepts/production-data/)). Trovano un valore in base alla sua chiave
+  nel JSON, e nelle righe `chiave=valore` dove un valore che contiene spazi è tra virgolette:
   `phone="+39 347 123 4567"`. Un valore senza virgolette finisce al primo spazio. Scrivi le righe di
   log in JSON, oppure metti tra virgolette questi valori.
-- I **termini** e i **riconoscitori** colgono i tuoi nomi e i tuoi formati: il nome di un cliente, un
+- I **termini** e i **riconoscitori** riconoscono i tuoi nomi e i tuoi formati: il nome di un cliente, un
   numero d'ordine scritto `ORD-123456` ([riconoscitori personalizzati](../../concepts/custom-recognizers/)).
 - I **nomi** nel testo libero di un messaggio vengono trovati con il modello locale dei nomi
   installato sul server, nei testi `prose`; nei testi `data`, con il profilo `max`.
 
-`scan`, con un token che può analizzare, mostra che cosa maschererebbe un campione delle tue righe,
-senza conservare nulla: provalo su righe reali prima di attivare il mascheramento.
+`scan`, con un token che può analizzare, mostra che cosa verrebbe mascherato in un campione delle tue
+righe, senza conservare nulla: provalo su righe reali prima di attivare il mascheramento.
 
 ## Ripristinare una riga
 
@@ -133,15 +133,15 @@ amministrativo del server, con il token e quanti valori ha ripristinato;
 Su un'istanza il mascheramento procede a circa 190 righe al secondo per una chiave nuova e da 410 a
 440 per una chiave la cui cassaforte contiene da 200.000 a 1.000.000 di valori; il ripristino da 1.500
 a 2.700 ([le misure](../#quanto-è-veloce)). Le chiamate di una chiave vengono eseguite una dopo
-l'altra su un'istanza, quindi un servizio che scrive log più in fretta ha bisogno di più istanze
+l'altra su un'istanza, quindi un servizio che scrive log più in fretta di così ha bisogno di più istanze
 dietro il bilanciatore di carico, oppure di dividere le sue righe tra chiavi i cui clienti non serve
 seguire insieme.
 
 Una chiamata tiene le righe in memoria finché non riceve risposta: spedisci da una coda tua, così un
-server lento o irraggiungibile ritarda i log invece di perderli o di inviarli senza maschera.
+server lento o irraggiungibile ritarda i log invece di perderli o di inviarli senza mascherarli.
 
 ## Senza Python
 
 Qualunque linguaggio può chiamare l'API in HTTPS: un `POST` con un corpo JSON e il token in
-un'intestazione `Authorization: Bearer`. Il [riferimento HTTP](../../reference/apps-api/) contiene il
+un header `Authorization: Bearer`. Il [riferimento HTTP](../../reference/apps-api/) contiene il
 contratto, i suoi errori e una descrizione OpenAPI da cui generare un client.

@@ -34,6 +34,17 @@ describe('project drafts', () => {
     expect(settingsOf(draftOf({}), false)).toEqual({})
   })
 
+  it('saves back a refusal of new request members, which no editor of a project sets: a save never drops it', () => {
+    // Dropped, a save of the project's latet.yaml or of your settings for it would take the refusal away unseen.
+    expect(settingsOf(draftOf({ unknown_members: 'refuse', terms: [] }), true)).toEqual({ unknown_members: 'refuse' })
+    expect(settingsOf(draftOf({ unknown_members: 'refuse' }), false)).toEqual({ unknown_members: 'refuse' })
+    expect(personalOf(personalDraftOf({ unknown_members: 'refuse', allow_values: ['billing-dev'] }))).toEqual({
+      unknown_members: 'refuse',
+      allow_values: ['billing-dev'],
+    })
+    expect(sameSettings(draftOf({ unknown_members: 'refuse' }), draftOf({}))).toBe(false)
+  })
+
   it('compares drafts by what they would save', () => {
     expect(sameSettings(draftOf({ pii: [] }), draftOf({}))).toBe(true)
     expect(sameSettings(draftOf({ pii: ['IBAN'] }), draftOf({}))).toBe(false)

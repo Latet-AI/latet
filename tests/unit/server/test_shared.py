@@ -18,7 +18,9 @@ from hypothesis import strategies as st
 
 from latet import protection
 from latet.config import Config, FieldRule, IdentityConfig, LlmReview, Profile, ProjectEntry, TermConfig
+from latet.destinations import add_destination
 from latet.engine.detectors.terms import TERM_LONGEST
+from latet.engine.types import Policy
 from latet.protection import loosened
 from latet.server import egress
 from latet.server.egress import NOT_PUBLIC, UNREADABLE, EgressRefused
@@ -28,18 +30,22 @@ from latet.server.shared import (
     OWN_RULES,
     RULE_KEYS,
     RULES_FOR_EVERYONE,
+    RULES_IN_THE_POLICY,
     SETTING_KEYS,
     SettingsRefused,
     SharedItemsError,
+    UnreadableShared,
     in_force,
     kept_rules,
     kept_said,
     layered,
     own_destinations_refused,
+    own_lowers,
     own_part,
     personal_destination_problem,
     pinned_reviewer,
     removed_shared,
+    rules_for_everyone,
     shared_refusals,
     with_kept_rules,
 )
@@ -897,10 +903,42 @@ def test_the_settings_in_force_take_the_servers_settings_and_only_the_rules_an_e
     for key in RULE_KEYS:
         assert getattr(shown, key) == getattr(default, key), key
     assert (shown.upstreams, shown.history, shown.retention_days, shown.ocr) == (SHARED.upstreams, "metadata", 3, "off")
-    # An edition gives rules alone: a destination or a reviewer it gave would pass by the checks they go through.
-    given = in_force(stored, {"terms": [TermConfig(value="Project Falcon")], "upstreams": [], "history": "off"})
-    assert [t.value for t in given.terms] == ["Project Falcon"]
-    assert given.upstreams == SHARED.upstreams and given.history == "metadata"
+
+
+def test_rules_an_edition_gives_are_laid_over_the_row_as_settings():
+    given = in_force(_every_rule_set(), {"terms": [{"value": "Project Falcon"}], "profile": "max"})
+    assert [t.value for t in given.terms] == ["Project Falcon"] and isinstance(given.terms[0], TermConfig)
+    assert given.profile == Profile.MAX and given.upstreams == SHARED.upstreams  # the row's settings, as they were
+
+
+@pytest.mark.parametrize(
+    ("rules", "named"),
+    [
+        ({"upstreams": []}, "upstreams"),  # a destination goes through checks of its own: never an edition's
+        ({"history": "off"}, "history"),
+        ({CANARY: True}, "1 key no setting has"),  # a name no setting has: counted, never quoted (it may be a value)
+        ({"upstreams": [], CANARY: 1, "teleport": 2}, "upstreams, and 2 keys no setting has"),
+        ({"terms": [{"valeu": CANARY}]}, "terms"),  # a term given as a dict that is no term
+        ({"profile": 7}, "profile"),
+    ],
+)
+def test_what_an_edition_gives_that_is_not_rules_is_refused_and_nothing_of_it_applied(rules, named):
+    with pytest.raises(UnreadableShared, match=named) as refused:
+        in_force(_every_rule_set(), rules)
+    assert CANARY not in str(refused.value)
+    # Raised alone: pydantic's error, whose words can quote a value, never rides along in a traceback.
+    assert refused.value.__context__ is None and refused.value.__cause__ is None
+
+
+def test_a_write_of_the_settings_keeps_only_the_rules_no_edition_gives():
+    stored = _every_rule_set()  # its terms hold CANARY, its profile is max
+    mine = Config(history="full", terms=[TermConfig(value="Project Falcon")])
+    written = with_kept_rules(mine, stored, given={"terms"})
+    assert [t.value for t in written.terms] == ["Project Falcon"]  # given: the write's own, as its builder decided
+    assert written.profile == Profile.MAX and written.history == "full"  # kept from the row; the write's settings
+    forgot = with_kept_rules(mine, None, given={"terms"})  # forget_kept_rules: the kept ones go, the given stay
+    assert forgot.profile == Config().profile and [t.value for t in forgot.terms] == ["Project Falcon"]
+    assert [t.value for t in with_kept_rules(mine, stored).terms] == [CANARY]  # given=(): every rule key, as before
 
 
 def test_rules_kept_from_before_are_counted_and_named_never_shown():
@@ -931,6 +969,22 @@ def test_an_identity_laid_over_the_settings_in_force_holds_its_own_rules_alone()
     )
     assert removed_shared(shown, Config()) == {"upstreams": len(SHARED.upstreams)}  # a destination is still not hers
     assert "Enterprise Edition" in RULES_FOR_EVERYONE and "latet rules export" in RULES_FOR_EVERYONE
+
+
+def test_a_rule_for_everyone_is_refused_in_the_words_of_the_servers_edition():
+    """The release checklist's item 8: the shared settings take no rule for everyone in any edition, and the refusal
+    says what each edition does instead. The Community Edition's words share rules by hand; on a server with the
+    Enterprise Edition, rules for everyone are the company's policy, set with `latet server policy set`, and those words
+    say nothing planned. An edition no server names (an older one's answer) is given the Community's."""
+    assert rules_for_everyone("community") == RULES_FOR_EVERYONE
+    # Fix round 2 (the review's L1): the Community's words, which a server that names no edition is given too, are
+    # true on either edition: no rule for everyone in the Community Edition, the company's policy in the Enterprise's.
+    assert "latet rules export" in RULES_FOR_EVERYONE and "latet server policy set" in RULES_FOR_EVERYONE
+    assert "planned" not in RULES_FOR_EVERYONE and "not part of the Community Edition" in RULES_FOR_EVERYONE
+    assert rules_for_everyone("enterprise") == RULES_IN_THE_POLICY
+    assert "latet server policy set" in RULES_IN_THE_POLICY and "--key KEY" in RULES_IN_THE_POLICY
+    assert "planned" not in RULES_IN_THE_POLICY and "Community Edition" not in RULES_IN_THE_POLICY
+    assert rules_for_everyone(None) == rules_for_everyone("2.0") == RULES_FOR_EVERYONE
 
 
 def test_the_shared_settings_hold_nothing_that_is_each_identitys_or_writes_on_the_server():
@@ -1091,3 +1145,45 @@ def test_laying_an_own_part_again_changes_nothing(terms, allow, profile):
     mine = layered(SHARED, own)
     assert layered(SHARED, own_part(SHARED, mine)) == mine
     assert layered(SHARED, own_part(SHARED, mine, before=own_part(SHARED, mine))) == mine
+
+
+# --- what an identity's own part lowers, against the one it approved (E5's [D1], R30, R58) ------------------------
+
+
+def _own_over(shared: Config, approved: dict | None, own: dict) -> MemorySettings:
+    settings = MemorySettings(shared)
+    settings.approved_part, settings.own = approved, own
+    return settings
+
+
+def test_what_the_shared_settings_alone_lower_stays_the_person_s():
+    """E5's [D1] (R58): the administration removing a shared term or moving its destination lowers the person's
+    settings by the shared settings alone: the same on both sides, it lowers nothing of their own."""
+    then, _name, _ = add_destination(Config(terms=[TermConfig(value="Orion")]), "https://llm.acme.com/v1", "claude")
+    moved = then.upstreams[0].model_copy(update={"url": "https://llm2.acme.com/v1"})
+    now = then.model_copy(update={"terms": [], "upstreams": [moved]})
+    mine = {"terms": [{"value": "Vega"}]}
+    assert not own_lowers(_own_over(now, mine, mine))
+    assert own_lowers(object()) and own_lowers(_own_over(now, None, mine))  # nothing to weigh by: the company decides
+
+
+def test_each_way_a_person_s_own_part_lowers_is_told():
+    """R58 (the plan re-review's RR-I1): an own term removed, an own term made allow or matching fewer forms under its
+    value, a destination of one's own moved under its name, a setting of one's own fallen back to a lower shared value,
+    a value let through."""
+    shared = Config(profile=Profile.BALANCED, policies={"PUBLIC": Policy.ALLOW})  # the company lets PUBLIC through
+    vega = {"value": "Vega"}
+    assert own_lowers(_own_over(shared, {"terms": [vega]}, {}))
+    assert own_lowers(_own_over(shared, {"terms": [vega]}, {"terms": [{**vega, "type": "PUBLIC"}]}))  # made allow
+    assert own_lowers(_own_over(shared, {"terms": [vega]}, {"terms": [{**vega, "case_sensitive": True}]}))
+    badge = {"name": "badge", "type": "BADGE", "pattern": "BD-[0-9]{6}"}
+    assert own_lowers(_own_over(shared, {"recognizers": [badge]}, {}))  # an own recognizer removed
+    assert own_lowers(_own_over(shared, {"recognizers": [badge]}, {"recognizers": [{**badge, "enabled": False}]}))
+    assert own_lowers(_own_over(shared, {"fields": [{"name": "customer.email"}]}, {}))  # an own field rule removed
+    mine = {"name": "mine", "url": "https://llm.emily.example/v1"}
+    moved = {**mine, "url": "https://elsewhere.example/v1"}
+    assert own_lowers(_own_over(shared, {"upstreams": [mine]}, {"upstreams": [moved]}))
+    assert own_lowers(_own_over(shared, {"profile": Profile.MAX.value}, {}))
+    assert own_lowers(_own_over(shared, {}, {"allow_values": ["ACME"]}))
+    added = {"terms": [vega, {"value": "Lyra"}]}  # an own term added: no lowering
+    assert not own_lowers(_own_over(shared, {"terms": [vega]}, added))

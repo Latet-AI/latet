@@ -1,0 +1,658 @@
+---
+title: Anmeldung, Gruppen und Rollen
+description: Auf einem Latet-Server melden sich Personen mit ihrem Unternehmenskonto an, Ihr Identitätsanbieter legt ihre Konten an, deaktiviert sie und überträgt seine Gruppen, Rollen entscheiden, wer was sieht und ändert, und die Personen oder Gruppen, die Sie wählen, steuern Ihre API-Schlüssel.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Auf einem [Latet-Server](../../getting-started/server/) mit Latet Enterprise melden sich Personen mit ihrem
+Unternehmenskonto über OpenID Connect am Dashboard an; Ihr Identitätsanbieter legt ihre Konten an, ändert und
+deaktiviert sie und überträgt seine Gruppen über SCIM; Rollen, die Personen oder Gruppen zugewiesen werden,
+entscheiden, wer was sieht und ändert; und die Personen oder Gruppen, die Sie wählen, steuern Ihre API-Schlüssel. Die
+Lizenz führt `sso` für Anmeldung und Provisionierung auf und `roles` für Gruppen, Rollen und die Steuerung von
+API-Schlüsseln: siehe [Enterprise Edition](../).
+
+Latet spricht OpenID Connect, das Microsoft Entra ID, Microsoft AD FS, Okta, Google, Keycloak, Authentik und Auth0
+anbieten. SAML 2.0 spricht es nicht: Bietet Ihr Anbieter nur SAML, vermittelt Keycloak zwischen beiden, wie
+[Nur SAML?](#nur-saml) beschreibt.
+
+## Single Sign-on
+
+### Bei Ihrem Identitätsanbieter
+
+**Welchen Anbieter haben Sie?** Fragen Sie zuerst Ihr IT-Team. Ein Unternehmen mit Microsoft 365 hat Microsoft Entra ID
+bereits, auch wenn im Büro ein eigenes Active Directory läuft, das Microsoft Entra Connect dorthin synchronisiert, und
+das ist die einfachste Wahl. Microsofts öffentliche Realm-Abfrage,
+`https://login.microsoftonline.com/getuserrealm.srf?login=<eine geschäftliche Adresse>`, zeigt, ob eine Domain von
+Entra ID verwaltet wird (`"NameSpaceType":"Managed"`), an einen anderen Anbieter wie AD FS föderiert ist
+(`"Federated"`, mit der Anmeldeadresse dieses Anbieters in `AuthURL`) oder Entra ID unbekannt ist (`"Unknown"`, wie bei
+einem Unternehmen, das nur Active Directory hat). Auch bei einer föderierten Domain läuft die Anmeldung über Entra ID, das die
+Personen an deren Anbieter weiterreicht. Ein AD FS, das OpenID Connect spricht, antwortet unter
+`https://<host>/adfs/.well-known/openid-configuration`. Ein Unternehmen, das nur Active Directory hat, nutzt AD FS oder
+Keycloak vor Active Directory: Beides steht weiter unten.
+
+Registrieren Sie Latet als Webanwendung, die sich mit dem Authorization-Code-Flow anmeldet, und notieren Sie ihre
+Client-ID und ihr Client-Geheimnis. Ihre Redirect-URI ist die Adresse Ihres Servers, gefolgt von
+`/_latet/sso/callback`:
+
+```text
+https://latet.acme.lan/_latet/sso/callback
+```
+
+Weisen Sie Latet einer Gruppe zu, zum Beispiel `latet-users`: Nur ihre Mitglieder bekommen ein Konto. Damit Personen
+bei der Anmeldung in die Gruppen von Latet kommen, lassen Sie den Anbieter ihre Gruppen in das ID-Token schreiben.
+
+- **Microsoft Entra ID:** eine App-Registrierung (App registration) mit dieser Web-Redirect-URI und einem
+  Client-Geheimnis; ein Gruppen-Claim (Token configuration), beschränkt auf die der Anwendung zugewiesenen Gruppen, was
+  das Token auch unter den 200 Gruppen hält, die es tragen kann; an ihrer Unternehmensanwendung (Enterprise
+  application) ist die Zuweisung erforderlich, mit `latet-users` zugewiesen. Der Issuer ist
+  `https://login.microsoftonline.com/<tenant ID>/v2.0`. Entra ID sendet die IDs der Gruppen: Schreiben Sie die IDs in
+  `groups` und `access_group`.
+- **Microsoft AD FS** (Windows Server 2019 oder neuer): in **AD FS Management** unter **Application Groups** der
+  Befehl **Add Application Group**, mit der Vorlage **Server application accessing a web API**. Notieren Sie den
+  **Client Identifier** der Serveranwendung, fügen Sie die Redirect-URI oben als **Redirect URI** hinzu und wählen Sie
+  **Generate a shared secret**: Das ist das Client-Geheimnis. Der **Identifier** der Web-API ist derselbe Client
+  Identifier, und ihre erlaubten Scopes sind `openid` und `allatclaims`. In Latet ist der Issuer
+  `https://<adfs host>/adfs`, mit `scopes: [openid, allatclaims]` und `user_name_claim: upn`.
+
+  Direkt angebunden gibt AD FS Latet den Benutzernamen, aber nicht die Gruppen: Es schreibt den Claim `upn` in das
+  ID-Token und fügt weitere Claims nur einer Antwort hinzu, die per Form-Post zurückkommt, und die fordert Latet nicht
+  an. Lassen Sie `access_group` deshalb weg, denn damit wird jede Anmeldung abgelehnt. Auch `groups` setzt niemanden in
+  eine Latet-Gruppe: Vergeben Sie Rollen an Personen oder an Gruppen, deren Mitglieder Sie von Hand hinzufügen. Setzen Sie
+  `accounts: scim` für die Konten, die Sie selbst hinzufügen und verknüpfen (weiter unten): `open` gibt jedem ein
+  Konto, den AD FS anmeldet. Ein Unternehmen, das Gruppen braucht, setzt Keycloak dazwischen, mit AD FS als
+  SAML-Anbieter darin, wie [Nur SAML?](#nur-saml) beschreibt, oder Keycloak vor Active Directory, weiter unten.
+- **Okta:** eine OIDC-Webanwendung, die `latet-users` zugewiesen ist, mit einem Gruppen-Claim namens `groups`, gefiltert
+  auf die relevanten Gruppen. Der Issuer ist Ihre Okta-Adresse oder die seines Authorization Servers.
+- **Google:** ein OAuth-Client vom Typ Webanwendung, mit einem internen Zustimmungsbildschirm. Google sendet keine
+  Gruppen: Lassen Sie `access_group` und `groups` weg, setzen Sie `user_name_claim: email` und nennen Sie Ihre
+  Workspace-Domains in `allowed_domains`: Latet akzeptiert dann nur ID-Tokens, deren `hd`-Claim eine davon nennt; diesen
+  Claim haben private Google-Konten nicht. Ohne SCIM ist `accounts` `open` (alle, die diese Domains anmelden, bekommen ein
+  Konto) oder `scim` (die Konten, die Sie selbst hinzufügen und verknüpfen, weiter unten).
+- **Keycloak:** ein Client mit eingeschalteter Client-Authentifizierung und dem Standard-Flow, mit einem
+  Group-Membership-Mapper (Claim `groups`) in seinem eigenen Scope. Der Issuer ist `https://<keycloak>/realms/<realm>`.
+  Keycloak schreibt eine Gruppe mit ihrem Pfad (`/latet-users`); Latet akzeptiert beide Formen.
+- **Keycloak vor Active Directory**, für ein Unternehmen, das nur Active Directory hat. In der **User federation** des
+  Realms ein LDAP-Provider mit **Active Directory** als **Vendor** und einer **Connection URL**, die mit `ldaps://`
+  beginnt, mit der Zertifizierungsstelle des Verzeichnisses im Truststore von Keycloak: Über einfaches `ldap://` ohne
+  **Enable StartTLS** gehen die Passwörter, die Keycloak gegen das Verzeichnis prüft, unverschlüsselt durchs Netz. Dann
+  ein Konto nur mit Leserechten in **Bind DN** und **Bind credentials**, **Edit mode** `READ_ONLY`, der Zweig der
+  Personen in **Users DN** und `sAMAccountName` in **Username LDAP attribute**: Daraus wird der Keycloak-Benutzername,
+  den Latet als `preferred_username` erhält. Auf dem Reiter **Mappers** des Providers **Add mapper** vom Typ
+  `group-ldap-mapper`, mit dem Zweig der Gruppen in **LDAP groups DN**, **Mode** `READ_ONLY` und
+  **Preserve group inheritance** ausgeschaltet, damit eine in eine andere verschachtelte Gruppe bei Latet als
+  `/latet-users` ankommt und nicht unter dem Pfad ihrer übergeordneten Gruppe;
+  `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` in **User groups retrieve strategy** zählt verschachtelte Gruppen
+  trotzdem mit. Latet verbindet sich dann mit diesem Realm, wie der Eintrag **Keycloak** oben beschreibt. Keycloak ist
+  ein weiterer Dienst, den Sie betreiben, aktualisieren und verfügbar halten müssen, und er entscheidet, wer hineinkommt.
+- **Authentik und Auth0:** eine OIDC-Webanwendung mit dieser Redirect-URI; nennen Sie ihren Gruppen-Claim in
+  `groups_claim`.
+
+Für AD FS, für Keycloak vor Active Directory und in den beiden Abschnitten weiter unten tragen Menüs und Einstellungen
+die Namen aus der Dokumentation von Microsoft und der von Keycloak (Keycloak 26), auf Englisch.
+
+Zwei Entscheidungen beim Anbieter halten die Anmeldung sicher:
+
+- **Der Claim des Benutzernamens** (`user_name_claim`) muss einer sein, den die Benutzer beim Anbieter nicht selbst
+  ändern können. Wer ihn auf den Benutzernamen einer anderen Person setzen kann, meldet sich mit dem Konto dieser Person
+  an.
+  Ein Anbieter kann Personen erlauben, ihre E-Mail-Adresse oder ihren Anzeigenamen zu bearbeiten: Prüfen Sie Ihren,
+  bevor Sie `email` verwenden.
+- **Gruppen werden mit ihrer ID benannt**, wo der Anbieter sie sendet (Entra ID tut das), in `access_group` und in
+  `groups`: Der Name einer Gruppe kann von jedem übernommen werden, der beim Anbieter eine Gruppe dieses Namens anlegen
+  kann, ihre ID nicht. Verwenden Sie `access_group` oder eine Zuordnung zu einer Latet-Gruppe mit einer Rolle nicht mit
+  Gruppen, die andere Personen als Ihre Administratoren bei Ihrem Anbieter anlegen oder umbenennen können.
+
+### Nur SAML?
+
+Latet spricht weiterhin nur OpenID Connect: Keycloak spricht SAML mit Ihrem Anbieter und OpenID Connect mit Latet. In
+einem Keycloak-Realm:
+
+1. **Identity providers**, **SAML v2.0**: Laden Sie die Metadaten Ihres Anbieters in **SAML entity descriptor**, oder
+   tragen Sie seine **Identity provider entity ID** und seine **Single Sign-On service URL** von Hand ein, mit seinem
+   Signaturzertifikat in **Validating X509 certificates**, wobei **Validate Signatures** eingeschaltet bleibt. Lassen
+   Sie **NameID policy format** auf `Persistent`, oder wählen Sie einen **Principal type**, der für eine Person gleich
+   bleibt: Mit einer flüchtigen (transient) NameID legt Keycloak bei jeder Anmeldung einen neuen Benutzer an, und Latet
+   ein neues Konto.
+2. Registrieren Sie Keycloak bei Ihrem Anbieter mit den Metadaten, die unter seinen **Endpoints** als
+   **SAML 2.0 Service Provider Metadata** verlinkt sind, und lassen Sie ihn die Gruppen jeder Person in einem Attribut
+   senden.
+3. Ordnen Sie auf dem Reiter **Mappers** des Identity Providers zu, was Ihr Anbieter sendet: einen
+   **Attribute Importer** für die E-Mail-Adresse oder den Namen einer Person und einen Mapper
+   **Advanced Attribute to Group** für jede relevante Gruppe (`latet-users` und die Gruppen von `groups`). Er setzt
+   eine Person in eine Keycloak-Gruppe, wenn ihre Assertion den Wert dieser Gruppe enthält. Mit **Sync mode** `Force`
+   werden die Gruppen einer Person bei jeder Anmeldung neu übernommen.
+4. Stellen Sie unter **Authentication** den **Identity Provider Redirector** des Browser-Flows auf Ihren Anbieter als
+   **Default Identity Provider**, damit die Personen direkt dorthin gelangen.
+5. Verbinden Sie Latet mit Keycloak, wie der Eintrag **Keycloak** oben beschreibt: ein Client mit einem
+   Group-Membership-Mapper und der Issuer `https://<keycloak>/realms/<realm>`.
+
+Ihr Anbieter sieht eine SAML-Anmeldung von Keycloak, Latet eine gewöhnliche OpenID-Connect-Anmeldung. Keycloak ist ein
+weiterer Dienst, den Sie betreiben, aktualisieren und verfügbar halten müssen, und er entscheidet, wer hineinkommt: Wer ihn
+administriert, kann jeden bei Latet anmelden.
+
+### Windows-Anmeldung ohne Passwort an den Rechnern im Büro
+
+Auf einem Rechner in der Domain des Unternehmens kann Windows eine Person mit Kerberos (SPNEGO) beim Anbieter anmelden,
+sodass sich Latet öffnet, ohne dass jemand ein Passwort eintippt. Eine dieser Lösungen übernimmt den Windows-Teil, und
+Latet sieht in jedem Fall eine gewöhnliche OpenID-Connect-Anmeldung:
+
+- **Keycloak**, mit einem **Kerberos**-Provider in der User Federation oder mit **Allow Kerberos authentication** an
+  seinem LDAP-Provider vor Active Directory: Beide brauchen den **Kerberos realm**, den **Server principal**
+  `HTTP/<keycloak host>@<REALM>` und unter **Key tab** die Keytab-Datei dieses Service-Principals, die seinen
+  Schlüssel enthält: Nur der Prozess von Keycloak darf sie lesen. Im Browser-Flow des
+  Realms wechselt der Schritt **Kerberos** von *Disabled* auf *Alternative*: Ein Browser, der kein Kerberos kann,
+  bekommt die übliche Anmeldeseite. Latet verbindet sich mit Keycloak, wie der Eintrag **Keycloak** oben beschreibt.
+- **AD FS**, dessen Windows Integrated Authentication für Anmeldungen aus dem Unternehmensnetz von Haus aus
+  eingeschaltet ist. Edge steht von Anfang an auf seiner Liste der Browser; andere werden dieser Liste hinzugefügt, der
+  Einstellung `WiaSupportedUserAgents` (`Set-AdfsProperties`).
+- **Seamless SSO von Microsoft Entra ID**, für Rechner in Active Directory: **Enable single sign on** in Microsoft
+  Entra Connect, mit Password-Hash-Synchronisierung oder Pass-through-Authentifizierung. Für Windows 10 oder neuer, das
+  mit Entra ID verbunden oder hybrid verbunden ist, empfiehlt Microsoft stattdessen sein Primary Refresh Token, das die
+  Personen dort ohnehin ohne Passwort anmeldet.
+
+In jedem Fall sendet ein Browser die Windows-Anmeldung nur an eine Adresse, der er dafür vertraut: unter Windows die
+Zone Lokales Intranet, der Edge und Chrome folgen, solange ihre Richtlinie `AuthServerAllowlist` nichts anderes sagt,
+und die eine Gruppenrichtlinie für alle setzt (**Site to Zone Assignment List**); in Firefox
+`network.negotiate-auth.trusted-uris`. Diese Adresse ist die von Keycloak, die von AD FS oder die von Entra ID,
+`https://autologon.microsoftazuread-sso.com`. Keycloak, oder AD FS, wo das Unternehmen es nicht schon betreibt, ist ein
+weiterer Dienst, den Sie betreiben, aktualisieren und verfügbar halten müssen, und er entscheidet, wer hineinkommt.
+
+### Auf dem Server
+
+Ein Administrator richtet Single Sign-on auf der Seite **Anmeldung** des Dashboards ein, oder mit `latet server`,
+ausgeführt mit dem Administrationstoken des Servers, aus einer Datei:
+
+```yaml title="sso.yaml"
+sso:
+  issuer: https://login.microsoftonline.com/4f2c9a71-3b8e-4d5a-9c6f-2e1b7d8a0c35/v2.0
+  client_id: 8b1e6f3a-52c4-4e9d-a7b2-0f9c3d6e1a84
+  accounts: group
+  access_group: 6e2f4a8c-1b3d-4f5a-8c7e-9d0b1a2c3e4f
+  groups:
+    2d7e9b14-6c3a-4f8e-a1d5-90b8c7e6f342: Payments leads
+```
+
+```sh
+latet server sign-in set sso.yaml
+latet server sign-in secret   # asks for it without showing it, or reads it from standard input
+latet server sign-in test
+```
+
+Die Einstellungen liegen in der Datenbank des Servers, und jede Instanz verwendet sie; das Client-Geheimnis wird mit dem
+Hauptschlüssel des Servers für den Issuer versiegelt, für den es gespeichert wurde, und nie wieder angezeigt.
+`latet server sign-in test` fragt den Anbieter nach seinem Discovery-Dokument und seinen Schlüsseln; eine echte
+Anmeldung prüft das Geheimnis.
+
+| Schlüssel | Was es ist | Standard |
+| --- | --- | --- |
+| `issuer` | Die Adresse des Anbieters: Latet liest `<issuer>/.well-known/openid-configuration`. `https://`, oder `http://` auf dem Server selbst, für einen Test. | erforderlich |
+| `client_id` | Die Client-ID von Latet beim Anbieter. | erforderlich |
+| `client_secret` | Der Name des gespeicherten Geheimnisses, der mit `sso-` beginnt, nie das Geheimnis selbst; `null` für einen Client ohne Geheimnis. | `sso-client-secret` |
+| `scopes` | Was Latet beim Anbieter anfordert, darunter `openid`. | `[openid, profile, email]` |
+| `user_name_claim` | Der Claim, der eine Person bei Ihrem Anbieter benennt. Latet gleicht ihn bei der ersten Anmeldung einer Person mit dem Benutzernamen ab, den SCIM gesendet hat oder mit dem ein Administrator sie verknüpft hat. Großbuchstaben von A bis Z spielen keine Rolle, und jedes andere Zeichen muss dasselbe sein: Ein Buchstabe, der einem anderen nur ähnlich sieht (das Kelvin-Zeichen statt eines k), ergibt einen anderen Benutzernamen. | `preferred_username` |
+| `groups_claim` | Der Claim, der die Gruppen der Person auflistet; auch ein Pfad mit Punkten (`realm_access.roles`) funktioniert. | `groups` |
+| `accounts` | Wer bei der ersten Anmeldung ein Konto bekommt: `scim` (die Personen, die Ihr Anbieter über SCIM angelegt hat, und die, die ein Administrator verknüpft hat: sonst niemand), `group` (die Mitglieder von `access_group`) oder `open` (alle, die Ihr Anbieter anmeldet: jede Person zählt in der Lizenz). | erforderlich |
+| `access_group` | Eine Gruppe des ID-Tokens, mit Name oder ID, wie der Anbieter sie sendet (Groß- und Kleinschreibung zählt nicht). Mit `group` bekommen ihre Mitglieder ein Konto, und mit `group` oder `scim` können sich nur ihre Mitglieder anmelden. Bei `group` erforderlich; bei `open` wegzulassen. | keine |
+| `allowed_domains` | Die Workspace-Domains von Google, etwa `acme.com`: Der `hd`-Claim des ID-Tokens muss eine davon sein. Nur für Google, das sie verlangt. | keine |
+| `groups` | Eine Gruppe des ID-Tokens, mit Name oder ID, wie der Anbieter sie sendet (Groß- und Kleinschreibung zählt nicht), und die Latet-Gruppe, in die ihre Mitglieder aufgenommen werden, bei Bedarf angelegt. Nicht verwendet mit `accounts: scim`: SCIM überträgt die Gruppen. | keine |
+| `company_changes` | Ob die Änderungen des Dashboards, die für alle gelten (weiter unten), eine mit Ihrem Unternehmenskonto geöffnete Sitzung brauchen (`sso`) oder die Sitzung eines beliebigen Administrators genügt (`any-session`). Nur mit `latet server` zu setzen. | `sso` |
+
+Für `accounts` gibt es keinen Standard: Geben Sie den gewünschten Wert an. `scim` ist die restriktivste Einstellung, und `open` ist
+für einen Anbieter, der schon einschränkt, wer sich bei Latet anmelden darf; `latet server status` warnt vor `open`.
+Eine Änderung an `groups` gilt sofort für alle, ausgehend von den Gruppen, die jede Person bei ihrer letzten Anmeldung
+hatte.
+
+<Screenshot name="sign-in" alt="Die Seite Anmeldung: ein Code zum Verbinden eines Rechners und die Single-Sign-on-Einstellungen mit den Gruppen aus der Anmeldung" caption="Anmeldung: Single Sign-on, von einem Administrator eingerichtet." />
+
+### So läuft eine Anmeldung ab
+
+- Die Anmeldeseite des Dashboards zeigt **Mit Ihrem Unternehmenskonto anmelden**. Latet schickt den Browser mit einer
+  einmaligen PKCE-Challenge (RFC 7636) zu Ihrem Anbieter und nimmt die Rückkehr nur im selben Browser an, innerhalb von
+  zehn Minuten.
+- Die Rückkehr kann bei einer anderen Instanz des Servers ankommen als der, bei der die Anmeldung begann: Was die
+  Anmeldung braucht, wartet diese zehn Minuten im Valkey des Servers, versiegelt mit dem Hauptschlüssel. Latet zählt
+  die begonnenen und noch nicht abgeschlossenen Anmeldungen: Höchstens 20.000 warten gleichzeitig auf dem ganzen
+  Server, weit mehr als bei einem Unternehmen, das sich zu Arbeitsbeginn anmeldet, höchstens 100 davon von einer
+  Adresse begonnen (eine IPv6-Adresse zählt mit dem Rest ihres /64; wer hinter demselben NAT oder Proxy sitzt, teilt
+  dessen Adresse und damit ihre 100) und höchstens 1.000 aus einem IPv6-Netz /48. Eine Anmeldung ist abgeschlossen,
+  wenn der Browser von Ihrem Anbieter zurückkommt, angemeldet oder nicht; eine nie abgeschlossene zählt nach zehn
+  Minuten nicht mehr. Ist eine dieser Grenzen erreicht, erfährt eine neue Anmeldung, dass Single Sign-on gerade nicht
+  verfügbar ist, bis eine der wartenden abgeschlossen ist oder abläuft.
+- Latet tauscht den Code bei Ihrem Anbieter gegen ein ID-Token ein und prüft es: seine Signatur, mit den Schlüsseln, die
+  Ihr Anbieter veröffentlicht; wer es ausgestellt hat; dass es für die Client-ID von Latet ausgestellt wurde; dass es
+  nicht abgelaufen ist; und den einmaligen Wert dieser Anmeldung. Ein Token, das mit dem Client-Geheimnis signiert oder
+  gar nicht signiert ist, wird abgelehnt. Von Ihrem Anbieter wird sonst nichts verwendet: kein Access-Token, keine
+  Benutzerinformationen.
+- **Wer es ist:** das Konto mit demselben Subject (der ID der Person beim Anbieter, mit der Adresse des Issuers); sonst
+  ein Konto, das Ihr Anbieter über SCIM angelegt oder das ein Administrator verknüpft hat, mit demselben Benutzernamen,
+  an dem sich noch niemand angemeldet hat und dessen Benutzernamen SCIM seitdem nicht geändert hat; sonst ein neues
+  Konto, wenn `accounts` `group` ist und die Person in `access_group` ist, oder `open`. Bei `scim` bekommt sonst niemand
+  eins: Die Anmeldung wird als nicht provisioniert abgelehnt. Eine von Hand hinzugefügte Person wird nie über ihren
+  Benutzernamen oder ihre E-Mail-Adresse gefunden: Sie verknüpft ihr eigenes Konto, oder ein Administrator tut es
+  (weiter unten).
+- **E-Mail:** Der `email`-Claim wird nur dann zur E-Mail-Adresse einer Person und zählt für den Abgleich, wenn der
+  Anbieter `email_verified` als wahr meldet, als JSON-`true`: Ein Anbieter, der den Text "true" sendet (Amazon Cognito
+  tut das), wird als nicht bestätigt gelesen. Mit `user_name_claim: email` wird ein Token mit nicht bestätigter
+  E-Mail-Adresse abgelehnt. Eine nicht bestätigte E-Mail-Adresse entscheidet nie, wer jemand ist; eine bestätigte tut
+  es nur als Claim des Benutzernamens oder wenn eine Person ihr eigenes Konto verknüpft (weiter unten).
+- **Gruppen aus der Anmeldung** werden bei jeder Anmeldung angewendet, außer `accounts` ist `scim`. Die Gruppen, in die
+  eine Person von Hand aufgenommen wurde, bleiben.
+- Die Sitzung gilt ab ihrer Öffnung 12 Stunden lang, auf jeder Instanz, wie eine mit `latet dashboard` geöffnete, und
+  `latet dashboard` funktioniert weiterhin.
+- Der Server erreicht das Discovery-Dokument Ihres Anbieters, seine Schlüssel und seinen Token-Endpunkt über HTTPS, mit
+  den Zertifikaten des Systems, und sonst nichts, unter den Adressen, die er bei jeder Verbindung auflöst und prüft: Das
+  eigene Netz Ihres Unternehmens ist erlaubt, die Maschine des Servers selbst nur, wenn die Adresse sie nennt, und nie
+  eine Link-Local-Adresse wie die Metadatenadresse einer Cloud, auch wenn ein Name nach dem Speichern dorthin gelenkt
+  wird. Hat ein Name mehrere Adressen, versucht der Server die nächste, wenn die Verbindung zur vorigen abgelehnt oder
+  nicht rechtzeitig aufgebaut wird, solange er noch nichts gesendet hat. Über HTTPS funktioniert ein Anbieter auf der
+  Maschine des Servers unter `localhost` wie unter `127.0.0.1`, denn sein Zertifikat wird bei jeder Adresse
+  geprüft: Ein Anbieter in Docker, der nur auf 127.0.0.1 lauscht, ist auch unter `localhost` erreichbar, obwohl Windows
+  für `localhost` zuerst die IPv6-Adresse liefert. Einen Issuer mit `http://`, der nur auf dieser Maschine und nur für
+  einen Test erlaubt ist, schreiben Sie mit der Adresse, auf der der Anbieter lauscht (`127.0.0.1` oder `[::1]`), nie als `localhost`:
+  `localhost` wird zuerst unter `::1` versucht, und jedes Programm auf dem Server, das dort lauscht, bekäme das
+  Client-Geheimnis. Jede Antwort wird bis zu einer Größengrenze gelesen.
+- Jede Anmeldung und jede abgelehnte ist ein Ereignis vom Typ `sign-in` mit der ID der Person und dem Ergebnis, nie
+  ihrem Namen oder ihrer E-Mail-Adresse. Eine erste Anmeldung, die ein Konto anlegt, steht im Administrationsprotokoll.
+
+Wird eine Anmeldung abgelehnt, sagt die Anmeldeseite, warum: Die Anmeldung dauerte länger als zehn Minuten oder wurde schon
+verwendet, das Unternehmenskonto ist nicht in `access_group` (oder seine Domain nicht in `allowed_domains`), es ist mit
+keinem Konto auf diesem Server verknüpft (SCIM hat keins angelegt und kein Administrator hat es verknüpft), das Konto
+ist deaktiviert, Single Sign-on ist im Moment nicht verfügbar, oder sie konnte nicht abgeschlossen werden; den Grund nennt das
+Log des Servers.
+
+Ohne SCIM erfährt Latet erst dann, dass jemand gegangen ist, wenn die Person sich erneut anzumelden versucht: Eine Person, die
+aus `access_group` entfernt wurde, wird abgelehnt und behält ihr Konto, bis Sie es deaktivieren, auf der Seite
+**Personen und Gruppen** oder mit `latet server people disable`. Eine bei Ihrem Anbieter deaktivierte Person wird dort
+abgelehnt, auf der eigenen Seite des Anbieters, und Latet erfährt davon nichts: Das Konto der Person bleibt aktiviert,
+und eine zuvor geöffnete Sitzung funktioniert weiter, bis ihre 12 Stunden um sind. Mit SCIM deaktiviert Ihr Anbieter sie
+sofort.
+
+### Ein Konto verknüpfen
+
+Eine von Hand hinzugefügte Person (`latet server people add` oder **Person hinzufügen**) wird bei ihrer ersten Anmeldung
+nicht gefunden: Ein Attribut, das Ihr Anbieter seine Nutzer ändern lässt, würde sonst ihr Konto an jeden übergeben, der
+es setzt, auch das eines Administrators. Wer nicht verknüpft ist, wird auf der Seite **Anmeldung** darauf hingewiesen
+und verknüpft dort das eigene Konto: **Mein Unternehmenskonto verknüpfen** (das `/_latet/sso/link` des Servers) meldet
+die Person einmal bei Ihrem Anbieter an, und Latet verknüpft das Unternehmenskonto nur dann mit ihrem, wenn das ID-Token
+sie so benennt, wie ihr Konto es tut. Ein Konto mit Benutzernamen akzeptiert nur das ID-Token, dessen Benutzernamen-Claim
+dieser Benutzername ist; ein Konto ohne Benutzernamen akzeptiert das ID-Token, dessen bestätigte E-Mail-Adresse
+die von Hand oder durch SCIM angegebene ist. Ein Konto, dessen Benutzernamen SCIM geändert hat, akzeptiert keines, bis
+ein Administrator es verknüpft. Sonst wird die Verknüpfung als nicht provisioniert abgelehnt, und ein Administrator
+verknüpft sie:
+
+```sh
+latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
+```
+
+`--user-name` ist der Benutzername der Person bei Ihrem Anbieter. Ihre erste Anmeldung findet dann ihr Konto. Eine
+Person wird nur einmal verknüpft. Die Verknüpfung verwendet dieselbe Redirect-URI: Bei Ihrem Anbieter ist nichts weiter
+zu registrieren.
+
+### Den Issuer ändern
+
+Das Client-Geheimnis wird für den Issuer aufbewahrt, für den es gespeichert wurde. Ändert sich der Issuer, speichern Sie
+es erneut (`latet server sign-in secret`), bevor sich jemand anmeldet. Haben sich schon Personen angemeldet, ändert nur
+`latet server sign-in set` den Issuer, da ihre Konten mit dem vorherigen verknüpft sind. Dasselbe gilt für
+`user_name_claim`, sobald sich Personen angemeldet haben oder ein Konto auf seine erste Anmeldung wartet: Der Claim
+entscheidet, welches Unternehmenskonto dieses Konto findet. Aus demselben Grund schaltet das Dashboard Single Sign-on
+nicht aus, sobald sich Personen angemeldet haben oder ein Konto wartet, was auch immer `company_changes` sagt: Wieder
+eingeschaltet, nähme es einen neuen Issuer oder Claim ungeprüft an. Das erledigt `latet server sign-in off`. Solange Konten
+auf ihre erste Anmeldung warten, wählt, wer Single Sign-on einrichtet, den Issuer und den Benutzernamen-Claim, über
+die sie übernommen werden, und die Änderung steht im Administrationsprotokoll. Verknüpfen Sie die Personen nach einem
+neuen Issuer erneut, ein Befehl nach dem anderen:
+
+```sh
+latet server sign-in set sso.yaml
+latet server sign-in secret
+latet server people unlink --all
+latet server people link --all
+```
+
+`link --all` verknüpft über ihren Benutzernamen erneut alle aktivierten Personen, deren Konto einen hat; die Personen,
+die SCIM verwaltet, bleiben bei SCIM. `link --all` verknüpft nie jemanden, dessen von SCIM geänderten Benutzernamen
+seither weder eine Anmeldung mit diesem Benutzernamen noch eine Verknüpfung durch einen Administrator bestätigt hat
+(siehe [Provisionierung mit SCIM](#provisionierung-mit-scim)): Es führt diese Personen auf, jede mit dem Befehl zum
+Verknüpfen, den Sie ausführen, sobald Ihr Anbieter den Benutzernamen bestätigt. Mit `--scim` werden auch die übrigen an
+SCIM übergeben, außer den Inhabern einer Rolle (ihnen oder einer von Hand angelegten Gruppe zugewiesen), die einzeln
+übergeben werden: `latet server people link <id> --user-name <name> --scim`. Solange eine Person nicht erneut verknüpft
+ist, findet ihre Anmeldung ihr Konto nicht. Ein zweites Mal ausgeführt, lässt `link --all` (mit `--scim` oder ohne) die
+Personen aus, die ein früherer Lauf verknüpft hat und die noch auf ihre erste Anmeldung warten, sagt, wie viele es
+ausgelassen hat, und fragt nur nach den übrigen.
+
+### Einen Rechner verbinden
+
+Ist Single Sign-on eingerichtet, erzeugen die Personen ihren eigenen Code zum Verbinden eines Rechners: auf der Seite
+**Anmeldung**, **Rechner verbinden**, **Code erzeugen**. Der Code gilt einmalig und 24 Stunden lang und wird nur
+einmal angezeigt. Eine Person kann 20 Rechner verbunden haben und innerhalb einer beliebigen Stunde 10 Codes erzeugen;
+darüber hinaus sagt **Code erzeugen** das und erzeugt keinen. Rechner, die ein Administrator verbunden hat, zählen zu
+den 20, und die eigenen Codes eines Administrators (`latet server people code`) sind nicht begrenzt. `latet disconnect`
+auf einem Rechner gibt seinen Platz frei, ebenso ein Administrator mit
+`latet server people tokens <person> --revoke <id>`. Führen Sie dann mit dem Code auf dem Rechner aus:
+
+```sh
+latet connect https://latet.acme.lan
+```
+
+und geben Sie den Code an der Eingabeaufforderung ein. Bei einem selbstsignierten Zertifikat ergänzt die Seite
+`--fingerprint`, wie [Latet auf einem Server](../../getting-started/server/) es beschreibt.
+
+Das Dashboard sagt jeder Person unter **Mit Ihrem Konto verbundene Rechner**, welche Rechner unter ihrem Konto verbunden wurden
+und welche Codes für sie erzeugt wurden, von einem Administrator oder von ihr selbst, 14 Tage lang oder bis sie
+**Als gesehen markieren** wählt. Nur eine mit dem Unternehmenskonto geöffnete Sitzung kann den Hinweis als gesehen markieren.
+Auf der Seite **Regeln** unter **Erweitert** führt **Ihre Rechner** dauerhaft jeden Rechner auf, der jetzt mit ihrem
+Konto verbunden ist: wann er verbunden wurde, wann er zuletzt verwendet wurde und ob ein Administrator den Code erzeugt
+hat, mit dem er verbunden wurde. Hat sie einen davon nicht selbst verbunden, meldet sie das einem Administrator: Wird ein
+Konto deaktiviert, werden die Tokens seiner Rechner ungültig.
+
+## Provisionierung mit SCIM
+
+Mit SCIM 2.0 kann Ihr Anbieter Personen auf dem Server anlegen, ändern und deaktivieren und seine Gruppen übertragen.
+
+1. Erstellen Sie ein Token: auf der Seite **Anmeldung**, **Provisionierung**, **Token erstellen**, oder
+   `latet server sign-in scim-token`. Es wird nur einmal angezeigt; der Server speichert davon nur einen
+   schlüsselabhängigen Hash. Es läuft nach 90 Tagen ab, wie ein Administrationstoken (`--days N` oder `--never` auf der
+   Befehlszeile; die Seite erstellt Tokens, die ablaufen). Es können mehrere Tokens in Gebrauch sein, sodass Sie Ihrem
+   Anbieter ein neues geben können, bevor das alte abläuft oder entfernt wird
+   (`latet server sign-in scim-token --remove <id>`). Die Seite nennt, wer jedes Token erstellt hat: Ein Token, dessen
+   Ersteller kein Administrator mehr ist, funktioniert weiter und endet nicht, wenn sein Ersteller herabgestuft oder
+   deaktiviert wird; entfernen Sie es also, wenn es nicht mehr gelten soll.
+2. Geben Sie bei Ihrem Anbieter die SCIM-Adresse von Latet an, `https://latet.acme.lan/scim/v2`, und das Token als
+   Bearer-Token. In Entra ID: Provisioning der Unternehmensanwendung (Enterprise application), Automatic, für die
+   zugewiesenen Benutzer und Gruppen. In Okta: SCIM-Provisionierung mit HTTP-Header-Authentifizierung, `userName` als
+   eindeutige Kennung und Push Groups. SCIM-Anfragen werden nur über HTTPS angenommen, wenn die Adresse des Servers
+   https ist.
+3. Der Provisionierungsdienst Ihres Anbieters ruft den Server aus seinem eigenen Netz auf: Die Adresse des Servers muss
+   von dort erreichbar sein, direkt oder über seinen On-Premises-Agent (den Microsoft Entra Provisioning Agent, Oktas On-Prem
+   Provisioning Agent).
+
+Was Latet damit macht:
+
+- **Eine neue Person** bekommt ein Konto mit ihrem Namen, ihrer E-Mail-Adresse und ihrem Benutzernamen. Die anderen
+  Attribute, die Ihr Anbieter sendet (eine Position, eine Telefonnummer, eine Abteilung), werden angenommen und nicht
+  gespeichert. Eine Anfrage, die eine E-Mail-Adresse, eine `externalId` oder einen Namen weglässt, lässt den
+  vorhandenen Wert der Person unverändert.
+- **Der Name einer Person** ist der, den Ihr Anbieter gibt. Mit `exceptions: company` kann eine mit Ihrem Anbieter
+  verknüpfte Person ihren eigenen Namen nicht ändern, wo Ihre Vorgaben Namen im Klartext lassen:
+  [Gesperrte Regeln](../locked-rules/) sagt, welchen Namen Latet verwendet.
+- **SCIM sieht und ändert nur die Personen, die es verwaltet:** die es angelegt hat und die ein Administrator ihm
+  übergeben hat. Eine von Hand hinzugefügte Person oder eine, die sich ohne SCIM angemeldet hat, ist ihm unbekannt: Eine
+  Anfrage zu ihr wird mit 404 beantwortet, und eine Anfrage, jemanden mit ihrem Benutzernamen oder ihrer
+  E-Mail-Adresse anzulegen, wird abgelehnt (409), bis ein Administrator sie ihm übergibt:
+  `latet server people link emily.carter@acme.com --user-name emily.carter@acme.com --scim`. Bei einer Person, die sich
+  schon angemeldet hat, wird zuerst die Verknüpfung aufgehoben (`latet server people unlink`). Die nächste Anfrage Ihres
+  Anbieters übernimmt dann das Konto: Jede Person zählt einmal.
+- **Ein neuer Benutzername für jemanden, der sich nie angemeldet hat,** wird abgelehnt (400), wenn SCIM die Person nicht
+  angelegt hat (ein Administrator hat sie an SCIM übergeben) oder solange ihr Konto etwas enthält: eine Rolle oder die
+  Steuerung eines API-Schlüssels, vergeben an sie oder an eine von Hand angelegte Gruppe, der sie angehört, einen
+  Rechner, der mit dem Konto verbunden ist oder je mit ihm benutzt wurde, oder einen wartenden Code zum Verbinden eines
+  Rechners. Andernfalls nimmt Latet den neuen Benutzernamen an, und das Konto wartet dann darauf, dass ein Administrator
+  es erneut verknüpft: Bis dahin übernimmt keine erste Anmeldung das Konto, weder mit dem neuen noch mit dem alten
+  Benutzernamen. Eine Änderung, die nur die Groß- und Kleinschreibung der Buchstaben A bis Z betrifft, gilt nicht als
+  neuer Benutzername. Auf der Seite **Personen und Gruppen** ist das Konto dann weder verknüpft, noch wartet es auf eine
+  erste Anmeldung, und `latet server people link --all` führt es gesondert auf, statt es zu verknüpfen. Sobald Ihr
+  Anbieter den Benutzernamen bestätigt, verknüpfen Sie das Konto, bevor die Person sich anmeldet:
+  `latet server people link <id> --user-name <name> --scim`. Bis dahin wird ihre Anmeldung als nicht provisioniert
+  abgelehnt, wenn `accounts` `scim` ist; mit `group` oder `open` legt die Anmeldung ein neues Konto für sie an, das Sie
+  entfernen (`latet server people remove`), damit ihre nächste Anmeldung das alte findet. So kann ein SCIM-Token in
+  falschen Händen das Konto samt allem, was später hinzukommt, nicht dem Unternehmenskonto einer anderen Person
+  zuspielen.
+- **`active: false`** deaktiviert das Konto sofort: Die Tokens ihrer Rechner und ihre Dashboard-Sitzungen enden, auf
+  jeder Instanz, und ihr Platz in der Zahl der Benutzer wird frei. Ihre Daten bleiben auf dem Server. `active: true`
+  aktiviert sie wieder, hebt aber nie eine Deaktivierung auf, die ein Administrator vorgenommen hat: Die Seite weist darauf hin.
+- **Der letzte Administrator wird von SCIM nie deaktiviert und nie aus einer Gruppe entfernt:** Die Anfrage wird
+  abgelehnt (409).
+- **Eine bei Ihrem Anbieter gelöschte Person** wird deaktiviert, ihre Daten bleiben erhalten, bis Sie sie entfernen
+  (`latet server people remove`). Legt Ihr Anbieter später jemanden mit demselben Benutzernamen an (eine Person
+  gleichen Namens oder jemanden, der mit einem neuen Unternehmenskonto zurückkehrt), erhält diese Person das alte Konto
+  nur, wenn nichts darin ist: Niemand hat sich mit ihm angemeldet, kein Rechner ist mit ihm verbunden oder wurde je mit
+  ihm benutzt, kein Code zum Verbinden eines Rechners wartet, und weder eine Rolle noch die Steuerung eines
+  API-Schlüssels ist an die Person oder an eine von Hand angelegte Gruppe, der sie angehört, vergeben. Andernfalls wird
+  die Anfrage abgelehnt (409). Bei einer Person gleichen Namens entfernen Sie die alte Person: Die nächste Anfrage Ihres
+  Anbieters legt dann ein neues Konto an. Nur wenn dieselbe Person zurückkehrt, übergeben Sie sie bewusst wieder an
+  SCIM: `latet server people link <id> --user-name <name> --scim`, nachdem Sie ihre Verknüpfung mit
+  `latet server people unlink` aufgehoben haben, falls sie sich angemeldet hatte. Das alte Konto geht dann an die
+  Person, die diesen Benutzernamen bei Ihrem Anbieter hat, mit seinem Verlauf, seinem Tresor, den API-Schlüsseln, die
+  es steuert, den von Hand vergebenen Rollen und den mit ihm verbundenen Rechnern.
+- **Eine übertragene Gruppe ist eine Latet-Gruppe**, mit den Mitgliedern, die Ihr Anbieter ihr gibt. Eine von Hand
+  angelegte Gruppe mit demselben Namen wird nicht übernommen: Benennen Sie eine der beiden um.
+- **Konten kommen von SCIM, wenn `accounts` `scim` ist:** Eine Person, die Ihr Anbieter nicht angelegt hat und die kein
+  Administrator verknüpft hat, wird bei der Anmeldung abgelehnt, und Anmeldungen nehmen niemanden mehr in eine Gruppe
+  auf.
+- Jede Änderung von SCIM steht im Administrationsprotokoll, unter dem Token, das sie vorgenommen hat. Ein SCIM-Token
+  setzt jeden Wert, der eine von SCIM verwaltete Person benennt (Benutzername, E-Mail-Adresse, Name); Befehle, die eine
+  Person nennen, etwa `latet server people code` und `latet server roles grant`, sind daher mit der ID der Person
+  (`u_…`) am sichersten. Könnte ein Token in falsche Hände geraten sein, entfernen Sie es
+  (`latet server sign-in scim-token --remove <id>`) und setzen Sie auf der Seite **Administrationsprotokoll** den
+  Filter **Wer** auf `scim:<id>`, um zu sehen, was es geändert hat.
+
+Latet beantwortet `/scim/v2/Users` (`GET` mit `filter=userName eq "…"` oder `externalId eq "…"`, `POST`, `GET`, `PUT`,
+`PATCH`, `DELETE`), `/scim/v2/Groups` (`GET` mit `filter=displayName eq "…"`, `POST`, `GET`, `PUT`, `PATCH` von
+Mitgliedern und Namen, `DELETE`), `ServiceProviderConfig`, `ResourceTypes` und `Schemas`. Bulk-Anfragen,
+Sortierung und ETags unterstützt es nicht.
+
+## Gruppen
+
+Eine Gruppe ist eine Menge von Personen. Sie kommt von Ihrem Anbieter über SCIM, aus der Anmeldung über `groups` oder
+wird von Hand auf der Seite **Personen und Gruppen** oder über die Befehlszeile angelegt:
+
+```sh
+latet server groups add Payments
+latet server groups join Payments emily.carter@acme.com
+```
+
+Eine Person kann auf mehr als einem Weg in eine Gruppe kommen: Jeder dieser Wege ändert nur die eigene
+Mitgliedschaft. Wen Ihr Anbieter in
+eine Gruppe aufgenommen hat, verlässt sie, wenn Ihr Anbieter es sagt; wer von Hand hinzugefügt wurde, bleibt, bis er von
+Hand entfernt wird. Eine Gruppe aus SCIM wird bei Ihrem Anbieter umbenannt und entfernt.
+
+- **Die Mitglieder einer SCIM-Gruppe sind Personen, die SCIM verwaltet:** Ein Mitglied, das Ihr Anbieter nennt und das
+  noch kein Konto in Latet hat oder das SCIM nicht verwaltet, lässt die ganze Anfrage scheitern, Entfernungen
+  eingeschlossen, bis es bei Ihrem Anbieter behoben ist (weisen Sie die Person dort Latet zu oder übergeben Sie sie
+  SCIM).
+- **Keine Anmeldung nimmt jemanden in eine Gruppe auf, die SCIM überträgt.** Eine Zeile von `groups`, die eine nennt,
+  wird übersprungen, und `latet server status` sagt es; eine SCIM-Gruppe kann keinen Namen annehmen, den `groups` nennt
+  (409).
+
+Auf der Seite **Personen und Gruppen** fügen Administratoren Personen hinzu (**Person hinzufügen** zeigt ihren
+Einmalcode und den Befehl zum Verbinden eines Rechners), erzeugen einen Code für jemanden, der noch keinen Rechner
+verbunden hat (**Code**; für alle anderen tut es `latet server people code`), deaktivieren und aktivieren Personen,
+vergeben und entziehen Rollen, legen Gruppen an und nehmen Personen darin auf und erstellen API-Schlüssel. Jede Person
+wird mit der Herkunft ihres Kontos gezeigt: von Hand hinzugefügt, von Ihrem Identitätsanbieter oder bei der ersten
+Anmeldung angelegt; und damit, ob es mit ihrem Unternehmenskonto verknüpft ist, auf ihre erste Anmeldung wartet (von
+einem Administrator oder von SCIM über ihren Benutzernamen verknüpft) oder von SCIM verwaltet wird. Wer von Hand
+hinzugefügt wurde und weder verknüpft ist noch wartet, wird zuerst verknüpft (siehe
+[Ein Konto verknüpfen](#ein-konto-verknüpfen)).
+
+<Screenshot name="people" alt="Die Seite Personen und Gruppen: jede Person mit ihren Gruppen, ihren Rollen und wann sie zuletzt gesehen wurde, dann die Gruppen und die API-Schlüssel" caption="Personen und Gruppen: wer auf diesem Server ein Konto hat, seine Gruppen und Rollen und die API-Schlüssel." />
+
+## Rollen
+
+Alle sind Benutzer. Die anderen Rollen werden von Hand vergeben, an eine Person oder an eine Gruppe: Die Mitglieder
+einer Gruppe haben ihre Rollen und verlieren sie, wenn sie die Gruppe verlassen.
+
+| Rolle | Sieht | Entscheidet |
+| --- | --- | --- |
+| Benutzer | die eigenen Daten und die API-Schlüssel, die sie steuern | ihre Einstellungen, oberhalb der Untergrenze des Unternehmens; die eines gesteuerten Schlüssels |
+| Gruppenleitung | die Berichte ihrer Gruppen | nichts |
+| Sicherheit | jeden Bericht | die Vorgaben, Begriffe, Freigaben, SIEM |
+| Auditor | Berichte, den Verlauf der Vorgaben und das Administrationsprotokoll, nur lesend | nichts |
+| Administrator | Personen, Gruppen und API-Schlüssel | Anmeldung, Rollen, die Lizenz, API-Schlüssel und wer sie steuert |
+
+Auf der Befehlszeile heißen die Rollen `group-lead`, `security`, `auditor` und `admin`. Eine Gruppenleitung sieht die
+Berichte jeder Gruppe, in der sie ist. Keine Rolle gibt Einsicht in die Werte, Texte oder den Verlauf einer anderen
+Person. Ein Administrator, der für jemanden einen Code erzeugt und sich als diese Person verbindet, wird im
+Administrationsprotokoll aufgezeichnet und dieser Person angezeigt: 14 Tage lang in einem Hinweis und immer in der Liste
+ihrer Rechner (siehe [Einen Rechner verbinden](#einen-rechner-verbinden)).
+
+Eine Rolle, die einer von SCIM übertragenen Gruppe vergeben wird, erhält auch jeder, der ein SCIM-Token besitzt, da ein
+Token Personen in diese Gruppe aufnehmen kann: Die Seite **Personen und Gruppen** weist darauf hin. Vergeben Sie Rollen an von
+Hand angelegte Gruppen, wo es darauf ankommt.
+
+Personen mit der Rolle Sicherheit legen die Vorgaben Ihres Unternehmens auf der Seite **Vorgaben** fest: Sie bearbeiten
+ihren Text und wählen dann **Speichern**, um sie für jede Person und jeden API-Schlüssel auf dem Server zu setzen, oder
+**Entfernen**, wie es `latet server policy set` und `latet server policy remove` tun. Ein Text, den der Server nicht
+lesen kann, wird mit der Begründung abgelehnt, ein Speichern wird abgelehnt, wenn jemand die Vorgaben geändert hat,
+seit ihr Text geöffnet wurde, und jede Änderung steht im Administrationsprotokoll, unter der Person, die sie
+vorgenommen hat. Auditoren sehen, was die Vorgaben sperren, nie ihren Text. Siehe
+[Gesperrte Regeln](../locked-rules/).
+
+### Der erste Administrator
+
+Von jedem Rechner aus, mit dem Administrationstoken des Servers. Zuerst braucht die Person ein Konto: Ihr Anbieter hat es
+über SCIM angelegt, Sie fügen es von Hand hinzu (`latet server people add "Emily Carter" --email emily.carter@acme.com`),
+oder sie hat sich, mit `accounts: group` oder `open`, einmal angemeldet. Ein von Hand hinzugefügtes Konto wird über den
+Benutzernamen der Person dort mit Ihrem Anbieter verknüpft, damit ihre erste Anmeldung es findet; dann die Rolle:
+
+```sh
+latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
+latet server roles grant emily.carter@acme.com admin
+```
+
+Statt des ersten Befehls kann die Person ihr eigenes Konto in ihrem Dashboard verknüpfen (**Mein Unternehmenskonto
+verknüpfen**, oben). Eine Person wird mit ihrer ID (`u_…`, angezeigt von `latet server people list`), ihrem
+Benutzernamen bei Ihrem Anbieter oder ihrer E-Mail-Adresse benannt, wenn diese von Hand oder durch SCIM angegeben wurde:
+Eine E-Mail-Adresse, die ein ID-Token mitgebracht hat oder die mehr als eine Person oder eine deaktivierte Person hat,
+wird abgelehnt, und die Person wird mit ihrer ID benannt. Eine Gruppe wird mit ihrer ID (`g_…`) oder ihrem Namen
+benannt: `latet server roles grant "Security team" security`. Jede Antwort nennt, wem der Name zugeordnet wurde.
+Danach vergeben Administratoren Rollen auf der Seite **Personen und Gruppen**.
+
+Das Dashboard lässt nicht zu, dass der Server seinen letzten aktivierten Administrator verliert (durch eine entzogene
+Rolle, eine verlassene oder entfernte Gruppe oder eine deaktivierte Person); `latet server` kann es immer und kann die
+Rolle immer vergeben, solange die Lizenz die Enterprise-Einstellungen verwalten kann.
+
+Ohne `roles` in der Lizenz ändert niemand die Enterprise-Einstellungen über das Dashboard: Sie werden mit
+`latet server` geändert. Alle können die Enterprise-Seiten lesen, die die Lizenz gibt (**Lizenz**, **Vorgaben** und
+**Anmeldung**; die Seite **Personen und Gruppen** braucht `roles`), sodass das Installieren einer Lizenz, die `roles`
+nicht aufführt, sie jeder Person auf dem Server zum Lesen öffnet. Ein Rechner ohne Server ist die Community Edition: Er
+hat keine Rollen, kein Single Sign-on und keine dieser Seiten.
+
+## API-Schlüssel und wer sie steuert
+
+Programme, die zu keiner Person gehören, eine CI-Pipeline oder ein Skript, nutzen einen API-Schlüssel. Nur
+Administratoren erstellen sie, auf der Seite **Personen und Gruppen** (**Schlüssel erstellen**) oder mit
+`latet server keys add`: Jeder aktivierte Schlüssel zählt in der Lizenz als ein Benutzer. Der Schlüssel und seine
+Adresse werden nur einmal angezeigt.
+
+Administratoren vergeben die Steuerung eines Schlüssels an Personen oder an Gruppen:
+
+```sh
+latet server controllers add "Billing CI" Platform
+```
+
+Die Personen, die einen Schlüssel steuern, und die Administratoren öffnen seinen Bereich von ihrem Dashboard aus:
+**Bereich** in der Seitenleiste oder **Bereich öffnen** auf der Seite **Personen und Gruppen**. Das Dashboard zeigt dann
+den Verlauf des Schlüssels, seine Werte und seine Einstellungen, die sie wie ihre eigenen ändern; eine Leiste über
+jeder Seite sagt, wessen Bereich es ist, und **Zurück zu Ihrem Bereich** führt zurück. Solange `company_changes` `sso`
+ist (unten), öffnet ein Administrator, der den Schlüssel nicht steuert, seinen Bereich nur in einer Sitzung, die mit
+Ihrem Unternehmenskonto geöffnet wurde. Die Enterprise-Seiten gehören nicht zum Bereich eines Schlüssels. Eine Änderung im Bereich eines Schlüssels steht im Administrationsprotokoll, mit der
+Person, die sie vorgenommen hat, nie mit einem Wert. Wird die Steuerung entzogen, wird die nächste Anfrage abgelehnt, das
+Dashboard kehrt in den eigenen Bereich der Person zurück, und eine dort geöffnete Live-Ansicht endet innerhalb weniger
+Sekunden.
+
+Die Werte eines Schlüssels liegen in PostgreSQL, und jede Instanz hält nur die zuletzt verwendeten. Im Bereich eines
+Schlüssels findet die Seite **Tresor** einen Wert über seinen Typ, seine Eintrags-ID, seinen echten Wert oder
+Ersatzwert, vollständig geschrieben, oder über ein ganzes Wort, unter dem der Tresor ihn führt (eine Adresse über ihren lokalen
+Teil, `daniel.okafor`), nie über einen Teil eines Wortes. **Vergessen** vergisst dort einen Wert, wie `latet server keys
+forget` es tut: Er verschwindet aus dem Tresor des Schlüssels, aus den Anfragen im Verlauf des Schlüssels, die ihn
+enthalten, und aus den gespeicherten Antworten des lokalen Prüfers, das Administrationsprotokoll hält fest, wer ihn
+vergessen hat (`key.forgotten`), und taucht der Wert wieder auf, bekommt er einen neuen Ersatzwert. **Neuer Schlüssel**
+gibt dem Token des Schlüssels ein neues Geheimnis, wie `latet server keys rotate`, und das Token behält, was es darf.
+Hat ein Schlüssel mehrere Tokens (`latet server keys add-token`), wird das gemeinte mit `latet server keys rotate
+--token` rotiert.
+
+## Änderungen, die für alle gelten
+
+Einige Änderungen gelten für alle auf dem Server: die Vorgaben (auch das Lesen ihres Textes, der die Begriffe und Werte
+Ihres Unternehmens enthält), Personen, Gruppen und Rollen, API-Schlüssel und wer sie steuert, die
+Anmeldeeinstellungen, das Client-Geheimnis und die SCIM-Tokens, die Lizenz und die Codes zum Verbinden eines Rechners.
+Dazu gehört auch, dass ein Administrator den Bereich eines API-Schlüssels öffnet, den er nicht steuert: Der Bereich zeigt den
+Verlauf dieses Schlüssels und seine Werte. Solange `company_changes` `sso` ist, was der Standard ist, sobald Single
+Sign-on eingerichtet ist, nimmt das Dashboard sie nur in einer Sitzung vor, die mit Ihrem Unternehmenskonto geöffnet
+wurde. Eine mit dem Einmalcode von `latet dashboard` geöffnete Sitzung, auch die eines Administrators, liest diese
+Seiten, den Text der Vorgaben ausgenommen, öffnet nur die Bereiche der API-Schlüssel, die die Person steuert, und ändert
+nur, was der Person selbst oder einem von ihr gesteuerten Schlüssel gehört: Das Unternehmenskonto weist die Person
+gegenüber Ihrem Identitätsanbieter nach, ein Einmalcode weist nur nach, dass jemand ihren Rechner hat. Eine aus diesem Grund abgelehnte
+Änderung sagt, dass man sich mit dem Unternehmenskonto anmelden soll, um zu ändern, was für alle gilt, und das Dashboard
+bietet **Mit Ihrem Unternehmenskonto anmelden** an. Das Verknüpfen des eigenen Kontos aus einer solchen Sitzung macht
+sie nicht zu einer Unternehmenssitzung: Melden Sie sich danach erneut an.
+
+`company_changes: any-session` lässt die Sitzung jedes Administrators diese Änderungen vornehmen: So verhält sich ein
+Server ohne Single Sign-on, auf dem es diese Einstellung nicht gibt. Sie wird mit
+`latet server sign-in set --company-changes sso` oder `--company-changes any-session` geändert, nie über das Dashboard,
+das es auch ablehnt, Single Sign-on auszuschalten, solange es das Unternehmenskonto verlangt oder sobald sich Personen
+angemeldet haben oder ein Konto auf seine erste Anmeldung wartet (`latet server sign-in off` tut das). KI-Agenten wird dieser Befehl verweigert, und jede Änderung steht im
+Administrationsprotokoll. `latet server` ist nicht betroffen: Es verwendet das Administrationstoken. Auch der Bereich
+eines Schlüssels, den die Person steuert, und die eigenen Einstellungen einer Person sind nicht betroffen.
+
+Auf der Seite **Lizenz** installieren Administratoren eine Lizenzdatei oder entfernen die Lizenz, solange die Lizenz
+gültig ist, bald endet oder in ihrer Kulanzzeit ist; ist sie pausiert, eine Testphase beendet oder die Datei nicht
+verwendbar, tun es `latet server license install` und `latet server license remove`. Das Entfernen einer Lizenz oder
+das Installieren einer ohne `locked-rules` setzt die Vorgaben des Servers außer Kraft: Die Seite fragt vorher nach.
+
+<Screenshot name="license" alt="Die Seite Lizenz: der Status der Lizenz und ihre Funktionen, mit Lizenzdatei installieren und Lizenz entfernen für einen Administrator" caption="Lizenz: der Status der Lizenz und, für Administratoren, ihre Änderung." />
+
+## Was das Administrationsprotokoll festhält
+
+Jeder dieser Einträge steht im Administrationsprotokoll des Servers, mit der Angabe, wer es getan hat, wann und von wo,
+nie mit einem Wert: `person.added`, `person.changed`, `person.linked`, `person.code.made`, `person.disabled`, `person.enabled`,
+`group.added`, `group.changed`, `group.removed`, `member.added`, `member.removed`, `role.granted`, `role.revoked`,
+`key.added`, `key.rotated`, `key.disabled`, `key.enabled`, `key.controller.added`, `key.controller.removed`,
+`key.space.changed`, `sign-in.changed`, `sign-in.secret.changed`, `sign-in.tested`, `scim.token.made`,
+`scim.token.removed`, `license.installed`, `license.removed` und `policy.changed`. `person.linked` nennt die Felder,
+die es gesetzt hat, nie ihre Werte; `sign-in.changed` nennt die Einstellungen, die eine Änderung gesetzt hat;
+`sign-in.tested`, ein Test des Anbieters auf der Seite **Anmeldung** oder mit
+`latet server sign-in test`, sagt, wie er ausging, nie die Adresse des Anbieters oder seine Antwort. Jeder Aufruf von `latet server` wird auch unter dem Namen seiner Route aufgezeichnet (`ee.people.read`,
+`ee.groups.change` und die anderen), abgelehnte eingeschlossen.
+
+## Wenn eine Testphase endet oder die Lizenz pausiert
+
+Niemand wird aus seinem eigenen Latet ausgesperrt, was auch immer die Lizenz sagt.
+
+- **Wenn eine Testphase endet,** endet die Anmeldung mit Ihrem Unternehmenskonto auf jeder Instanz: Die Anmeldeseite
+  zeigt nur den Weg über das Terminal. Bereits geöffnete Sitzungen laufen ihre 12 Stunden zu Ende. Personen öffnen ihr
+  Dashboard mit `latet dashboard` auf einem mit dem Server verbundenen Rechner; wer noch keinen Rechner hat, bekommt von
+  einem Administrator einen Einmalcode (`latet server people code <person>`), führt `latet connect` aus, dann
+  `latet dashboard`. SCIM-Anfragen Ihres Anbieters werden abgelehnt, außer zum Lesen, zum Deaktivieren einer Person und
+  zum Löschen einer: Wer geht, wird weiterhin sofort entfernt, und es wird nichts angelegt oder geändert. Die Seiten
+  **Personen und Gruppen**, **Anmeldung** und **Vorgaben** zeigen, was festgelegt war, nur lesend, und
+  `latet server groups|roles|controllers|sign-in` lesen es und ändern nichts; Rollen entscheiden weiter, wer was liest,
+  und niemandes Rolle ändert sich. Der Bereich eines API-Schlüssels öffnet sich nicht mehr. Installieren Sie eine Lizenz
+  (`latet server license install`) oder entfernen Sie die Datei der Testphase (`latet server license remove`), um zur
+  Community Edition zurückzukehren.
+- **Wenn eine kostenpflichtige Lizenz abläuft oder ihre Benutzer überschreitet,** funktioniert 30 Tage lang alles.
+  **Sobald sie pausiert,** melden sich Personen weiter mit ihrem Unternehmenskonto an, SCIM legt sie weiter an, ändert
+  und deaktiviert sie und überträgt seine Gruppen, Administratoren fügen weiter Personen und API-Schlüssel hinzu,
+  deaktivieren und aktivieren sie, und Rollen entscheiden wie zuvor; Gruppen, Rollen, wer einen Schlüssel steuert, die
+  Anmeldeeinstellungen und die SCIM-Tokens werden gelesen und nicht geändert, bis eine Lizenz installiert ist, die sie
+  abdeckt.
+- **Wenn die Lizenzdatei nicht verwendet werden kann,** endet die Anmeldung mit Ihrem Unternehmenskonto wie am Ende
+  einer Testphase, bis die Datei ersetzt wird: `latet server status` sagt, was nicht stimmt.
+
+## So wurde es getestet
+
+Die Tests von Latet melden Personen an einem Identitätsanbieter an, der innerhalb der Tests nach der
+OpenID-Connect-Spezifikation gebaut ist, senden SCIM-Anfragen so, wie Microsoft Entra ID und Okta sie senden, und
+lassen zwei Instanzen eines Servers auf einem PostgreSQL und einem Valkey laufen: Eine auf der einen begonnene
+Anmeldung kommt bei der anderen an, eine entzogene Rolle oder eine auf der einen deaktivierte Person gilt bei der
+nächsten Anfrage auf der anderen, und eine Testphase, die endet, während Personen angemeldet sind, beendet die
+Unternehmensanmeldung und lässt alle in ihrem eigenen Dashboard.
+
+Außerdem liefen sie gegen Keycloak 26.8.2 in Docker auf einem Entwicklungsrechner, eingerichtet, wie der Eintrag
+**Keycloak** oben beschreibt, mit dem Issuer `http://127.0.0.1:<port>/realms/<realm>` und noch einmal mit
+`http://localhost:<port>/realms/<realm>` unter Windows, das zuerst `::1` liefert, während Keycloak nur auf 127.0.0.1
+lauschte und auf `[::1]` kein Programm lauschte; die Seite von Latet wurde mit `latet server sign-in set`, `secret` und `test`
+eingerichtet. Ein Testprogramm tat, was der Browser einer Person tut: Es folgte Latet zur Anmeldeseite von Keycloak,
+schickte das Formular mit dem Passwort der Person ab und folgte Keycloak zurück zum Callback von Latet, auf der einen
+oder der anderen Instanz. `access_group` ließ ihre Mitglieder hinein und hielt eine Person draußen, die nicht
+dazugehört; ihr sagte die Anmeldeseite, dass ihr Unternehmenskonto ihr keinen Zugang zu Latet gibt. Die Rollen der
+Gruppen, die `groups` nennt, entschieden, was jede Person liest; eine auf der einen Instanz begonnene Anmeldung wurde
+auf der anderen abgeschlossen; mit einem falschen Client-Geheimnis konnte die Anmeldung nicht abgeschlossen werden, und
+das Log des Servers nannte die Antwort 401 des Token-Endpunkts; und eine in Keycloak deaktivierte Person wurde auf der
+eigenen Seite von Keycloak abgelehnt, während die Sitzung, die sie zuvor in Latet geöffnet hatte, weiter funktionierte.
+
+Keycloak stand außerdem vor einem Verzeichnis, wie der Eintrag **Keycloak vor Active Directory** beschreibt, mit
+OpenLDAP 2.6 an Stelle von Active Directory (`uid` als Attribut des Benutzernamens, und Gruppen über ihr Attribut
+`member` gefunden, nicht rekursiv): Personen meldeten sich mit ihrem Passwort aus dem Verzeichnis an, und ihre Gruppen
+im Verzeichnis entschieden über `access_group` und ihre Rollen. Jede andere Einrichtung auf dieser Seite folgt der
+Dokumentation ihres Herstellers.

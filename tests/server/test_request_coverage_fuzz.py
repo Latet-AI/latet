@@ -1,5 +1,6 @@
 """The request fuzz of P2-8 (``scripts/request_coverage_fuzz.py``) on a server: a small fixed-seed smoke of each of its
-eight server cells (HTTP and WebSocket, strict and with a precise exception, the history on and off), through the
+twelve server cells (HTTP and WebSocket, strict and with a precise exception, the history on and off, and four where
+the key's settings refuse new request members, ``rcf.REFUSE_CELLS``), through the
 server's app (its gate, then an API key's space, on PostgreSQL and Valkey: the ``instances`` fixture), and the node
 ``scripts/request_coverage_fuzz.py run`` asks for the server's cells. The full run (5,000 a cell) is root's."""
 
@@ -30,7 +31,8 @@ SERVER_CELLS = [cell for cell in rcf.CELLS if cell.startswith("server-")]
 async def test_the_smoke_of_each_server_cell(instances, cell):
     upstream = RecordingWSUpstream().start()
     try:
-        async with rcf.fuzz_cell(cell, lambda: server_cell(instances, upstream), 4) as made:
+        made_cell = lambda: server_cell(instances, upstream, unknown_members=rcf.unknown_members(cell))  # noqa: E731
+        async with rcf.fuzz_cell(cell, made_cell, 4) as made:
             report = await rcf.fuzz(made, SEED, SMOKE)
     finally:
         upstream.stop()
@@ -46,7 +48,9 @@ async def _fuzz_the_server(instances):
     (an API key) on the same two instances."""
     upstream = RecordingWSUpstream().start()
     try:
-        await rcf.run_machine_cells(lambda cell: server_cell(instances, upstream))
+        await rcf.run_machine_cells(
+            lambda cell: server_cell(instances, upstream, unknown_members=rcf.unknown_members(cell))
+        )
     finally:
         upstream.stop()
 

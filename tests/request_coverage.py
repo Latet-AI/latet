@@ -896,14 +896,16 @@ def computer_config(ws_url: str) -> Config:
 
 
 @contextlib.asynccontextmanager
-async def computer_cell(tmp: Path, ws: RecordingWSUpstream) -> AsyncIterator[Cell]:
-    """A computer: the app of a real runtime (its recorder, approvals, bridge and AWS store), its client recorded."""
+async def computer_cell(tmp: Path, ws: RecordingWSUpstream, *, unknown_members: str = "check") -> AsyncIterator[Cell]:
+    """A computer: the app of a real runtime (its recorder, approvals, bridge and AWS store), its client recorded.
+    ``unknown_members``: how its settings read a request member no profile declares (`refuse`: as before the rule)."""
     from latet.gateway.app import create_app
     from latet.runtime import make_runtime
 
     provider, transport, clients, clock = _parts(ws)
     with common_patches(ws.url, clock):
-        runtime = make_runtime(computer_config(ws.url), data=tmp / "data", config_file=tmp / "config.yaml")
+        config = computer_config(ws.url).model_copy(update={"unknown_members": unknown_members})
+        runtime = make_runtime(config, data=tmp / "data", config_file=tmp / "config.yaml")
         try:
             runtime.gateway.client = clients
             app = create_app(runtime.gateway)
@@ -978,10 +980,14 @@ def server_config(ws_url: str) -> Config:
 
 
 @contextlib.asynccontextmanager
-async def server_cell(servers: Sequence[Any], ws: RecordingWSUpstream) -> AsyncIterator[Cell]:
+async def server_cell(
+    servers: Sequence[Any], ws: RecordingWSUpstream, *, unknown_members: str = "check"
+) -> AsyncIterator[Cell]:
     """A server: the server's app (its gate, then the space of an API key, on PostgreSQL and Valkey), with the shared
     settings of ``server_config``; ``make_client`` patched so that each space's client is recorded. ``servers``: the
-    instances of one server (``tests/server/conftest.py``'s ``instances``); the second serves the cases that say so."""
+    instances of one server (``tests/server/conftest.py``'s ``instances``); the second serves the cases that say so.
+    ``unknown_members``: how the API key's own settings read a request member no profile declares (a rule: never
+    among the shared settings)."""
     from latet.gateway import app as gateway_app
     from latet.server import spaces
     from latet.server.app import create_server_app
@@ -1009,7 +1015,12 @@ async def server_cell(servers: Sequence[Any], ws: RecordingWSUpstream) -> AsyncI
         identity, secret = first.identities.add_key(f"Request coverage {made}")
         own = PgSettings(first.db, first.shared, identity.id, SEEDED_ROOT_KEY, kind="key")
         listed = own.prepare(
-            own.load().model_copy(update={"request_resources": [RequestResource.model_validate(VERTEX_PROJECT)]})
+            own.load().model_copy(
+                update={
+                    "request_resources": [RequestResource.model_validate(VERTEX_PROJECT)],
+                    "unknown_members": unknown_members,
+                }
+            )
         )
         own.save(listed)
         own.save_reviewed(listed)  # the key's own settings, as the administration's save keeps them

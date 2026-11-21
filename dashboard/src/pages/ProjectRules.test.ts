@@ -59,6 +59,7 @@ const project: ProjectDetail = {
     fields: [],
     dump_guard: null,
     images: 'allow',
+    unknown_members: 'check',
     llm_review: 'off',
   },
   recognizer_status: [],
@@ -125,6 +126,23 @@ describe("a project's rules", () => {
       i18n.t('projects.tabs.repo'),
     ])
     expect(render('overview')).toContain(`aria-label="${i18n.t('rules.tabs.label')}"`)
+  })
+
+  it('say how new request members are read there, the value in force with every layer, in every language', async () => {
+    const refusing: ProjectDetail = { ...project, effective: { ...project.effective, unknown_members: 'refuse' } }
+    try {
+      for (const lang of ['en', 'it', 'de', 'fr', 'es']) {
+        await i18n.changeLanguage(lang)
+        const checked = text(section(render('overview'), 'effective'))
+        expect(checked).toContain(i18n.t('projects.effective.newMembers'))
+        expect(checked).toContain(i18n.t('projects.effective.newMembersChecked'))
+        expect(checked).not.toContain(i18n.t('projects.effective.newMembersRefused'))
+        expect(text(section(render('overview', { of: refusing }), 'effective'))).toContain(i18n.t('projects.effective.newMembersRefused'))
+        if (lang !== 'en') expect(i18n.t('projects.effective.newMembers')).not.toBe(i18n.getFixedT('en')('projects.effective.newMembers'))
+      }
+    } finally {
+      await i18n.changeLanguage('en')
+    }
   })
 
   it('open on what is in effect there, and your settings as a whole, with the save of yours below', () => {

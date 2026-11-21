@@ -16,9 +16,10 @@ address, as an unknown token does; a token made before computer keys is told to 
 
 What a computer sends of its person's identity is added to what their other computers sent: their user names, emails
 and host names united (each once, whatever its case; ``NAMES_KEPT`` of each at most), their full name taken where none
-is held, and nothing ever taken away, nor their identity's masking turned off. A computer describes itself; it does not
-lower its person's protection (R-28, the pre-read's M5): only their dashboard, or an administrator, removes a name. A
-person has one such call under way at a time.
+is held (where the company's identity provider names them, Latet Enterprise, it is masked wherever the provider's name
+is not in use), and nothing ever taken away, nor their identity's masking turned off. A computer describes itself; it
+does not lower its person's protection (R-28, the pre-read's M5): only their dashboard, or an administrator, removes a
+name. A person has one such call under way at a time.
 
 The limiter the gate, the machines' calls and the administration share (``checked``): a credential (a token, an API
 key, a route key, a dashboard's session) that this instance holds in its memory costs no store; one found valid in the
@@ -87,8 +88,9 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from latet import __version__
-from latet.api.rest import UI, _saved_change_pending
+from latet.api.rest import UI, _below_floor, _floor_unavailable, _saved_change_pending
 from latet.config import Config, IdentityConfig
+from latet.floor import BelowFloor, FloorUnavailable
 from latet.http_inputs import bounded_body
 from latet.logline import Paced, described
 from latet.server.logs import REFUSED
@@ -1094,11 +1096,18 @@ def machine_routes(server: Server) -> list[Route]:
             """Under the person's runtime lock: the identity merged in. A settings refusal or kept-save conflict is
             answered here before the generic worker boundary can turn it into a retryable store failure."""
             try:
-                runtime.update_config(change)
+                # Its name fills an empty one only (``merged_identity``), whatever name the person is masked under:
+                # where the company's identity provider names them (Latet Enterprise), never refused for it, so that
+                # their real name is masked wherever the provider's is not in use (``Runtime.check_floor``).
+                runtime.update_config(change, fills_name=True)
             except SettingsSavedChangePending:
                 return _saved_change_pending()
             except SharedItemsError as exc:  # its words count and place, never quote
                 return _error(f"this person's settings refuse the change: {exc}", 409)
+            except BelowFloor as refused:  # below what the company set: nothing changed (its reasons name settings)
+                return _below_floor(refused)
+            except FloorUnavailable as exc:  # the company's policy, or the person's account, cannot be read: try again
+                return _floor_unavailable(exc)
             return None
 
         if (refused := await in_work(applied)) is not None:  # never in the lookups' threads

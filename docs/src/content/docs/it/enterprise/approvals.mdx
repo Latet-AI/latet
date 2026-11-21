@@ -1,0 +1,258 @@
+---
+title: Approvazioni centrali
+description: Su un server di Latet, le modifiche che riducono la protezione e, se la tua azienda lo sceglie, i testi del Revisore Live, decisi dal suo team di sicurezza invece che da chi li ha chiesti.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Senza approvazioni centrali, una modifica che riduce la protezione attende la persona di cui cambia le impostazioni, e
+il [Revisore Live](../../concepts/live-review/) chiede a quella persona cosa fare di ogni nuovo testo. Su un
+[server di Latet](../../getting-started/server/) con Latet Enterprise può decidere invece il team di sicurezza della tua
+azienda. Chi attende vede chi decide, e può ritirare ciò che ha chiesto, ma non approvarlo.
+
+## Cosa va al team di sicurezza
+
+- **Le modifiche che riducono la protezione** nelle impostazioni di una persona, quelle che descrive
+  [Gli agenti e le tue impostazioni](../../concepts/agents-and-settings/): un valore da non mascherare mai, un profilo
+  più basso, il revisore locale disattivato, una destinazione spostata. Su un server arrivano dai salvataggi della
+  persona nella dashboard, importazione di regole compresa, e da ciò che il server trova ridotto quando applica di nuovo
+  le sue impostazioni o crea il suo spazio. Ciò che aggiunge protezione si applica comunque subito.
+- **I testi del Revisore Live**, se la tua azienda lo sceglie. È il server a mascherare, quindi i testi sono già lì.
+
+Quando un amministratore riduce le impostazioni condivise del server (`latet server config set`), ogni persona decide
+ancora su ciò che questo cambia nel proprio spazio, come senza approvazioni centrali: la modifica è nel registro
+amministrativo, e l'approvazione della persona protegge il suo spazio. Se anche le impostazioni personali di quella
+persona riducono la protezione, la modifica va invece al team di sicurezza, e così succede, per un po', a una persona la
+cui ultima approvazione è stata conservata da una versione di Latet precedente alle approvazioni centrali: finché le sue impostazioni
+non vengono rilette senza nulla in attesa, o finché non approva di nuovo una modifica.
+
+In uno spazio attende una sola modifica alla volta, e una più recente la sostituisce. Quando una modifica portata dalle
+impostazioni condivise sostituisce una richiesta della persona in attesa del team di sicurezza, la persona la chiede di
+nuovo. Quando è la sua richiesta a sostituire una modifica del genere, restano in uso le impostazioni che ha approvato, e
+il server propone di nuovo quella modifica la prossima volta che applica le sue impostazioni (succede anche quando la
+persona salva una modifica che aggiunge protezione): a quel punto è questa a sostituire la sua richiesta, e la persona la chiede di
+nuovo.
+
+Una modifica non porta con sé valori. Al team di sicurezza arriva ciò che riduce, come lo formula Latet (*values never
+to mask: 1 added*), le impostazioni che tocca, da dove viene e chi l'ha chiesta. Il valore stesso, le indicazioni del
+revisore locale e l'indirizzo di una destinazione restano alla persona, nella sua dashboard: chiediglieli quando ti
+servono.
+
+Un'[eccezione di richiesta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) chiesta è una
+modifica del genere: arriva al team di sicurezza con la sua destinazione e il modo in cui riduce la protezione, mai con
+un valore di una richiesta. Quando qualcuno del team di sicurezza, o un'altra delle persone che controllano una chiave
+API, la approva, l'eccezione lo nomina nella dashboard della persona, e la voce del registro amministrativo per
+un'eccezione permanente (`exception.permanent`) lo ha come autore. Con `exceptions: company` nelle
+[regole bloccate](../locked-rules/#eccezioni) dell'azienda, un'eccezione di richiesta che qualcuno chiede va al team
+di sicurezza, chiunque decida sul resto delle sue modifiche; il salvataggio delle impostazioni di una chiave API da
+parte dell'amministrazione approva comunque le eccezioni che aggiunge.
+
+Un testo del Revisore Live è diverso: il team di sicurezza lo vede come lo vede la persona, **valori compresi**, quando
+lo apre. È una scelta della tua azienda, e Latet lo dice a ogni persona, nella sua dashboard e in Claude Code. Dove la
+legge richiede un accordo prima di usare uno strumento che consente di controllare i dipendenti (in Italia e in Germania, per
+esempio), l'azienda conclude prima quell'accordo.
+
+## Chiavi API
+
+Un programma con una chiave API non approva mai nulla. Una modifica che riduce la protezione nelle impostazioni di una
+chiave va alle altre persone che [controllano la chiave](../sign-in/#chiavi-api-e-chi-le-controlla), o agli
+amministratori quando nessun altro la controlla: chi fa la modifica nello spazio della chiave può annullarla, non
+approvarla. Una chiave con una sola persona che la controlla manda le modifiche di quella persona agli amministratori.
+Ciò che un amministratore imposta per una chiave con un token amministrativo (`latet server config --key …`) si applica
+subito, come le impostazioni del server stesso, ed è nel registro amministrativo. Quando il team di sicurezza decide
+sulle modifiche, decide anche su quelle delle chiavi. I testi del Revisore Live di una chiave vanno dove vanno quelli
+delle persone.
+
+## Attivale
+
+Con un token amministrativo, da qualsiasi computer:
+
+```sh
+latet server approvals set --changes security --live-review security
+latet server approvals show
+```
+
+Finché non li imposti, entrambi valgono `self`: ogni persona decide sulle proprie modifiche e sui propri testi, e le
+modifiche di una chiave vanno alle altre persone che la controllano, come sopra. La licenza deve elencare `approvals`.
+Ogni cambio di chi decide è conservato nel registro amministrativo del server (`approvals.changed`, con cosa è cambiato
+e il token che l'ha cambiato). Vale per ciò che si apre da quel momento: ciò che attende mantiene il suo percorso, anche
+quando viene chiesto di nuovo. Impostalo quando ogni istanza usa questa versione con Latet Enterprise: un'istanza di una
+versione precedente non instrada nulla, e su di essa una persona può approvare la propria modifica. Il comando dice
+quante istanze attive non la usano.
+
+Poi dai il ruolo Sicurezza alle persone che decidono ([Accesso, gruppi e ruoli](../sign-in/#ruoli)), **almeno due**:
+nessuno approva le proprie richieste, quindi una persona da sola aspetterebbe per sempre le proprie modifiche.
+
+I testi vanno al team di sicurezza solo dove i suoi membri li aprono con l'account aziendale: `--live-review security`
+richiede l'[accesso unico](../sign-in/#accesso-unico) configurato, con le modifiche che valgono per tutti riservate alle
+sessioni aperte con l'account aziendale (`latet server sign-in set --company-changes sso`, il valore predefinito). Altrimenti il comando viene rifiutato (409).
+Se in seguito le impostazioni di accesso cambiano, i testi continuano ad andare al team di sicurezza, e
+`latet server status` avverte, caso per caso. Se l'accesso unico viene rimosso, ogni testo resta in attesa senza essere
+inviato e nessuno può decidere. Se le impostazioni di accesso smettono di chiedere l'account aziendale per le modifiche
+che valgono per tutti, ogni testo attende una persona del team di sicurezza che abbia effettuato l'accesso con
+quell'account, perché una sessione aperta con `latet dashboard` non apre mai un testo.
+
+**Avvisa prima le persone.** Ogni persona lo scopre nella sua dashboard e al suo primo testo, quando è già in vigore; il
+comando te lo ricorda. I testi attendono solo finché il Revisore Live è attivo, e una persona può disattivare il suo.
+Con `--changes security`, disattivarlo riduce la protezione, quindi anche questo attende il team di sicurezza.
+
+## Cosa vede chi ha chiesto
+
+<Screenshot name="approvals-security" alt="La pagina Approvazioni di una persona per cui decide il team di sicurezza della sua azienda: una nota che nomina Daniel Okafor e Mark Ellis per le modifiche e per i testi, e un testo in attesa con un avviso che dice che lo esamina il team di sicurezza, e il solo pulsante Non inviare" caption="Approvazioni, dove decide il team di sicurezza: la persona può fermare un testo, non approvarlo." />
+
+- **Nella dashboard,** la pagina **Approvazioni** dice cosa va al team di sicurezza e chi ne fa parte, al massimo venti
+  nomi e quante altre persone, o che per ora nessuno può decidere. Una modifica vi attende con *Una modifica alle tue
+  impostazioni attende il team di sicurezza della tua azienda* e i loro nomi; un testo attende con un avviso che dice
+  che il team di sicurezza lo esamina, e lo vede. La persona può scegliere **Annullala**, o **Non inviare** per il
+  testo; approvare spetta al team di sicurezza.
+- **Un salvataggio nella dashboard** che riduce la protezione non si applica: attende come le altre modifiche, e la
+  pagina lo dice, con le impostazioni in uso nel modulo.
+- **In Claude Code,** la riga di stato dice *waiting for your company's security team to approve it*, e un messaggio
+  dice una volta per sessione chi esamina i testi, o che per ora nessuno può decidere. Non serve nessuna dashboard
+  aperta. Gli agenti che passano dagli indirizzi del server attendono allo stesso modo, e a Claude Code che lavora con il
+  token di una chiave API viene detto lo stesso.
+
+Quando il team di sicurezza decide su una modifica, la dashboard della persona dice chi l'ha approvata, o chi non l'ha
+approvata. Una modifica approvata dopo che le impostazioni della persona sono cambiate viene scartata (*stale*), come
+lo sarebbe per lei: la chiede di nuovo. Più a lungo una modifica attende, più è probabile che succeda. Quando le sue impostazioni
+cambiano su un'altra istanza del server proprio mentre viene approvata, o in quel momento non si possono salvare, la
+dashboard mostra due messaggi, uno dopo l'altro: che è stata approvata, poi che le sue impostazioni non l'hanno accolta.
+La chiede di nuovo.
+
+Un testo approvato dal team di sicurezza esce solo come l'hanno visto. Se tra l'approvazione e l'invio cambiano le
+impostazioni personali, le impostazioni definite per tutti o la cassaforte della persona (un valore dimenticato), così
+che uscirebbe mascherato diversamente, non viene inviato: la dashboard lo dice, e per gli agenti che passano dagli
+indirizzi del server la pagina della richiesta spiega perché. Quando l'agente lo invia di nuovo, attende di nuovo il
+team di sicurezza. Lo stesso vale quando Latet rifiuta la sua richiesta dopo l'approvazione e prima che esca, per
+qualsiasi altro motivo: non viene inviato e, inviato di nuovo, attende di nuovo il team di sicurezza.
+
+## Cosa vede il team di sicurezza
+
+<Screenshot name="company-approvals" alt="La pagina Approvazioni aziendali: una modifica alle impostazioni di Emily Carter con ciò che riduce e i pulsanti Approva e Rifiuta; un testo che l'agente di Paul Ferris sta per inviare, aperto, con il suo originale e ciò che sarà inviato; e le decisioni prese di recente" caption="Approvazioni aziendali: ciò che attende il team di sicurezza, e ciò che ha deciso." />
+
+La pagina **Approvazioni aziendali** è mostrata alle persone che decidono qualcosa: il team di sicurezza, le persone che
+controllano una chiave API e gli amministratori (per le chiavi che nessun altro controlla). Nessun altro la vede, e non
+si raggiunge dallo spazio di una chiave API.
+
+- **Modifiche alle impostazioni:** chi l'ha chiesta (per una chiave API, chi ha fatto la modifica nel suo spazio), il
+  suo gruppo, chi decide, quando, da dove viene la modifica, cosa riduce e quali impostazioni cambia. **Approva** la
+  applica alle impostazioni di quella persona o di quella chiave; **Rifiuta** le lascia come sono.
+- **Testi nel Revisore Live:** elencati per chi li ha inviati, il suo agente e quanti sono; un testo si vede quando lo
+  apri, l'originale accanto a ciò che sarà inviato, e solo in una sessione della dashboard aperta con il tuo account
+  aziendale: una sessione aperta con `latet dashboard` elenca i testi e non ne apre nessuno. Maschera di più prima di approvare,
+  oppure **Non inviare**. Un valore che mascheri resta mascherato da quel momento nella cassaforte di quella persona; la
+  persona può dimenticarlo lì, come ogni suo valore. Se il testo viene mascherato di nuovo mentre lo guardi (sono
+  cambiate le sue impostazioni o la sua cassaforte), **Approva** lo mostra com'è ora e non decide nulla: controllalo,
+  poi decidi.
+- **Deciso di recente:** cosa è stato deciso, da chi e quando, con ciò che ogni modifica riduceva. Mai un testo.
+  *Nessuno* dove nessuno ha deciso (ritirata, tempo scaduto, abbandonata, decaduta, sostituita); *Non registrato* dove
+  è stata decisa ma la registrazione non ha saputo da chi.
+
+Anche le tue richieste compaiono lì, segnate *Chiesto da te*: decide qualcun altro, e **Ritira** ne ferma una. Il menu
+mostra quante attendono la tua decisione, e con *Avvisami* il browser ti avverte quando ne arriva una mentre sei in
+un'altra scheda. La pagina elenca le 200 più vecchie; oltre queste, una riga dice quante altre attendono, e compaiono man
+mano che queste vengono decise. Niente ha un limite di tempo: una modifica attende finché qualcuno non decide. Un testo
+mantiene il limite di tempo del Revisore Live della persona (`timeout_s`), se ne ha uno, ed esce dalla coda quando il
+suo agente rinuncia.
+
+Finché le impostazioni di accesso chiedono l'accesso aziendale per ciò che vale per tutti (`company_changes: sso`), una
+decisione richiede una sessione della dashboard aperta con esso: una sessione aperta con `latet dashboard` legge la
+pagina e non decide nulla. Un testo lo richiede sempre.
+
+Qualunque istanza del server ti serva, la tua decisione raggiunge la richiesta in attesa su un'altra: ciò che attende è
+conservato nel database del server e in Valkey, non in una sola istanza. Se Valkey viene riavviato, i testi in attesa al
+suo interno vanno persi ed escono dalla coda come abbandonati; le modifiche restano. Una richiesta di un account
+disattivato o rimosso nel frattempo esce dalla coda come *decaduta*, perché nessuno può più eseguire una decisione lì:
+riattivato l'account, la persona ritira una modifica che attende ancora, e la chiede di nuovo.
+
+## Quando la licenza cambia
+
+Quando la licenza scade o è in pausa, ciò che attende mantiene il suo percorso e il team di sicurezza continua a
+decidere. Quando una prova termina, la pagina elenca ciò che attende e nessuno decide: un testo non viene aperto, perché
+non può seguirne nessuna decisione, e il menu non conta nulla. Chi ha chiesto può ancora ritirarlo dalla propria pagina
+**Approvazioni**; una modifica fatta nello spazio di una chiave API attende finché non viene installata una licenza,
+perché lo spazio della chiave si chiude quando una prova termina. Ciò che si apre dopo la fine va ancora al team di
+sicurezza, dove nessuno decide, finché gli amministratori del server non installano un file di licenza o non rimuovono
+la licenza della prova. Nessuno decide nemmeno mentre il file di licenza non si può usare (modificato o illeggibile),
+finché non viene sistemato. Quando la licenza viene rimossa, o non elenca più le approvazioni, ciò che attende resta
+com'è: chi l'ha chiesto lo ritira dalla propria pagina **Approvazioni** e lo chiede di nuovo, e a quel punto attende la
+sua stessa approvazione (lo spazio di una chiave API si apre solo con una licenza che elenca `roles`). Un testo non ha
+limite di tempo se la persona non ne ha impostato uno, quindi il suo agente attende finché non lo ferma. Installare o
+rimuovere la licenza è un'azione di un amministratore, che finisce nel registro amministrativo. Finché le modifiche o i testi del
+Revisore Live vanno al team di sicurezza, rimuovere la licenza o installarne una che non elenca le approvazioni
+restituisce la decisione a chi chiede l'approvazione; lo stesso fa installarne una che elenca `roles` ma non le
+approvazioni mentre il server ha una chiave API, le cui modifiche vanno allora a chi le fa nello spazio della chiave
+invece che alle altre persone che la controllano. La pagina **Licenza**, `latet server license install` e
+`latet server license remove` chiedono conferma prima, e la voce nel registro amministrativo dice che le approvazioni
+centrali smettono di valere.
+
+Diverso è il caso di un'eccezione di richiesta finché la licenza elenca ancora le regole bloccate e le direttive
+dicono `exceptions: company`: quando la licenza non elenca più le approvazioni, un'eccezione chiesta di nuovo resta in
+attesa di un'approvazione che può solo respingerla, perché lì la approva soltanto il team di sicurezza ([Regole
+bloccate](../locked-rules/#eccezioni)). Quando la licenza viene rimossa, o non elenca le regole bloccate, le direttive
+non sono più in vigore, e le eccezioni di richiesta tornano a essere di ciascuna persona.
+
+## Cosa viene registrato
+
+Il server conserva ogni decisione nel suo database per tutto il tempo in cui conserva il registro amministrativo
+(`LATET_SERVER_AUDIT_RETENTION_DAYS`, un anno per impostazione predefinita): chi ha chiesto, chi ha deciso, quando, e
+cosa riduceva una modifica, che conserva sigillato con la sua chiave. Mai un testo o un valore. Di ciò che si è
+concluso conserva gli ultimi 1.000 elementi di ogni persona o chiave API; il registro amministrativo conserva comunque
+ogni decisione presa in Approvazioni aziendali. Come si è concluso ogni elemento:
+
+| Stato | Nella pagina | Cosa è successo |
+| --- | --- | --- |
+| `approved` | Approvata | Approvata: la modifica si è applicata, o il testo è uscito |
+| `rejected` | Rifiutata | Rifiutata: le impostazioni restano come sono, o il testo non è stato inviato. Nello spazio di una chiave API, è anche una modifica o un testo fermato lì da qualcuno che non l'ha chiesto, indicato sotto *Deciso da* |
+| `withdrawn` | Ritirata da chi l'ha chiesta | Chi l'ha chiesta l'ha ritirata |
+| `stale` | Scartata: le impostazioni sono cambiate | Approvata dopo che le impostazioni della persona erano cambiate: non si è applicato nulla, e la persona la chiede di nuovo |
+| `superseded` | Sostituita da una più recente | Una modifica più recente l'ha sostituita in quello spazio |
+| `expired` | Non inviata: il tempo è scaduto | Un testo che ha atteso oltre il `timeout_s` della persona |
+| `abandoned` | Abbandonata dall'agente, o persa | Un testo a cui il suo agente ha rinunciato, o che Valkey ha perso in un riavvio |
+| `gone` | Decaduta: l'account è stato disattivato o rimosso | L'account che l'ha chiesta è stato disattivato o rimosso, o la modifica non era più dove attendeva: nessuno può eseguire una decisione |
+| `approved-unapplied` | Approvata, non applicata | Approvata, ma nel frattempo le impostazioni della persona sono cambiate su un'altra istanza, o non si sono potute salvare, e non l'hanno accolta: la chiede di nuovo |
+| `approved-changed` | Approvata, non inviata | Un testo approvato, poi non inviato: sarebbe uscito mascherato diversamente da come l'ha visto chi ha deciso, o la sua richiesta è stata rifiutata prima di uscire |
+
+Ogni decisione presa in Approvazioni aziendali è anche nel registro amministrativo, scritta prima di essere eseguita:
+`approval.decided` per quelle del team di sicurezza, `key.approval.decided` per quelle di chi controlla una chiave API,
+`key.approval.admin-decided` per quelle di un amministratore su una chiave che nessun altro controlla. Chi ritira lì una
+propria richiesta lascia una voce segnata `withdrawn`. La voce è la decisione presa; la registrazione dice come è finita.
+Quindi una voce può corrispondere a una decisione che non è stata eseguita: lo spazio della persona non si poteva
+raggiungere da quell'istanza, o il testo è stato mascherato di nuovo tra l'ultimo controllo del server e la decisione.
+Chi decide viene avvisato, e decide di nuovo, il che scrive una seconda voce. Una decisione la cui voce non si può
+scrivere non viene eseguita (503), e la pagina lo dice. Una modifica o un testo la cui registrazione non si può scrivere
+quando si apre non attende: il salvataggio viene rifiutato (503) e non si applica nulla, oppure il testo non viene
+inviato.
+
+Anche l'apertura del testo di un'altra persona è nel registro amministrativo, scritta prima che se ne mostri qualcosa:
+`approval.opened`, una volta per ogni persona che decide e per ogni testo, che apra il testo stesso o una delle sue
+immagini, e indipendentemente da quante volte lo apra. La voce dice chi l'ha aperto e di chi è il testo, mai il testo né un'immagine. Un testo
+la cui apertura non si può scrivere lì non viene mostrato (503). Chi apre un proprio testo non lascia alcuna voce.
+
+Un'approvazione che le impostazioni della persona non hanno potuto accogliere, perché nel frattempo sono cambiate su
+un'altra istanza o non si sono potute salvare, viene comunicata a chi ha deciso e alla persona, e la registrazione la conserva
+come *approvata, non applicata*; la persona la chiede di nuovo. Il suo evento `change` dice `approved`, la decisione
+presa, come fa l'evento `approval` di un testo approvato e poi non inviato. Prima di una decisione le impostazioni della
+persona vengono rilette: una modifica più recente delle impostazioni condivise trovata in quel momento sostituisce quella
+decisa, e la decisione risponde che non attende più.
+
+Con i [report](../reports/), ogni conclusione è un evento (`approval` per un testo, `change` per una modifica), comprese
+quelle della persona stessa, con chi ha deciso quando è stato qualcun altro. Le [metriche](../siem/) contano ciò che
+attende (`latet_approvals_company_waiting`) e ciò che è stato deciso (`latet_approvals_company_decided_total`, dove
+`approved-unapplied` e `approved-changed` sono contati di nuovo tra gli approvati).
+
+Gli amministratori hanno l'ultima parola: danno il ruolo Sicurezza e il controllo di una chiave, e installano o rimuovono
+la licenza. Ognuno di questi atti è nel registro amministrativo, che è il posto dove guardare per sapere chi poteva
+decidere.
+
+## Comandi
+
+| Comando | Cosa fa |
+| --- | --- |
+| `latet server approvals show` | Chi decide sulle modifiche e sui testi |
+| `latet server approvals set --changes … --live-review …` | Cambia chi decide (`self` o `security` per ciascuno); conservato nel registro amministrativo |
+| `latet server log --action approvals.changed` | Chi ha cambiato chi decide, e quando |
+| `latet server log --action approval.opened` | Chi ha aperto i testi di quale persona, e quando |
+| `latet server log --action approval.decided` | Le decisioni del team di sicurezza, da chi e quando |
+| `latet server log --action key.approval.decided` | Le decisioni di chi controlla le chiavi API |
+| `latet server log --action key.approval.admin-decided` | Le decisioni degli amministratori sulle chiavi che nessun altro controlla |

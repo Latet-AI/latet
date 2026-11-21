@@ -386,6 +386,16 @@ def test_an_edition_that_shares_rules_puts_them_in_force_through_its_hook(db):
     assert shown.profile == Config().profile and set(sharing.kept()) == {"profile"}  # the edition gave terms alone
 
 
+def test_an_edition_that_gives_what_is_not_rules_builds_no_space(db):
+    shared = SharedSettings(db, Recorder(), MASTER, rules=lambda row: {"terms": [{"valeu": CANARY}]})
+    shared.set(FALCON, actor=ADMIN)
+    with pytest.raises(UnreadableShared, match="terms") as refused:
+        shared.get()
+    assert CANARY not in str(refused.value)
+    with pytest.raises(UnreadableShared):
+        shared.counted()
+
+
 def _weight(config: Config) -> int:
     """What ``config`` weighs sealed as the shared settings."""
     return len(MASTER.seal(json.dumps(config.model_dump(mode="json")).encode(), "settings:shared"))

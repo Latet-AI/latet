@@ -20,7 +20,12 @@ Este único comando:
   OpenCode, las sobrescrituras de `baseURL`. Si has editado alguno de estos archivos desde entonces,
   Latet solo quita lo que añadió y conserva tus cambios;
 - quita el inicio al arrancar la sesión;
-- detiene el daemon.
+- detiene el daemon;
+- en Windows, donde Latet reservó su puerto (consulta
+  [El puerto 5283 ya está en uso](../../troubleshooting/#el-puerto-5283-ya-está-en-uso)), pregunta
+  si quitar también esa reserva, con una sola confirmación de un administrador. Si respondes que no,
+  el puerto sigue reservado, y `latet reserve-port --remove` quita la reserva más adelante:
+  ejecútalo antes del paso 2.
 
 No cambia las herramientas que apuntaste a Latet tú mismo, en sus propios ajustes o en tu shell:
 GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie, Android Studio, Hermes
@@ -47,8 +52,8 @@ Después reinicia tus agentes. Para restaurar en cambio un solo agente, ejecuta
 uv tool uninstall latet
 ```
 
-Si ejecutabas Latet desde un clon del repositorio, no hay nada que desinstalar: ejecuta
-`uv run latet global-uninstall` en el paso 1 y después borra el clon. Si lo instalaste con
+Si ejecutabas Latet desde una copia del código fuente, no hay nada que desinstalar: ejecuta
+`uv run latet global-uninstall` en el paso 1 y después borra esa copia. Si lo instalaste con
 `py -m pip`, ejecuta `py -m latet global-uninstall` en el paso 1 y después `py -m pip uninstall latet`.
 
 ## 3. Borra los datos locales (opcional)
@@ -73,15 +78,15 @@ contiene:
 - `backups/`: copias de los archivos de configuración de tus agentes de antes de que
   `latet global-install` los cambiara. `latet global-uninstall` las necesita, así que bórralas solo
   después del paso 1. En `backups/before-<versión>-<hora>/` están las copias de la caja fuerte, del
-  historial y de la configuración que `latet upgrade` hace antes de cada actualización (las tres más
+  historial y de los ajustes que `latet upgrade` hace antes de cada actualización (las tres más
   recientes).
 - `models/`: el modelo local de nombres y los modelos de reconocimiento de texto (unos 1,6 GB y 31 MB),
   que `latet ner remove` y `latet ocr remove` borran.
 - `logs/`, `bridge.token`, `integrations.json` (el registro de lo que cambió `latet global-install`),
   `claude-marketplace/` (la copia del plugin de Claude Code), `tutorial.json` (los capítulos del
   [tutorial](../tutorial/) que has terminado), `repositories.json` (las carpetas de los repositorios
-  con un `latet.yaml` que Latet ha visto), y `root.key` si tu sistema no tiene almacén de
-  credenciales.
+  con un `latet.yaml` que Latet ha visto), `port-reservations.json` (en Windows, los puertos que ha
+  reservado Latet), y `root.key` si tu sistema no tiene almacén de credenciales.
 
 La clave que cifra la caja fuerte está en el almacén de credenciales de tu sistema operativo (el
 Administrador de credenciales de Windows, el Llavero de macOS o el llavero del escritorio en Linux),
@@ -114,6 +119,10 @@ Deshaz los cambios a mano:
   `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/dev.latet.daemon.plist` y después borra
   ese archivo. En Linux, ejecuta `systemctl --user disable latet.service` y después borra
   `~/.config/systemd/user/latet.service`.
+- **El puerto de Latet, en Windows**: `port-reservations.json`, en la carpeta de datos, enumera los
+  puertos que ha reservado Latet. Para cada uno, ejecuta esto en una ventana de PowerShell abierta
+  como administrador, con el puerto en lugar de `5283`:
+  `netsh int ipv4 delete excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent`.
 
 Las copias de tus archivos de configuración de antes de `latet global-install` están en la carpeta
 `backups/` de la carpeta de datos.

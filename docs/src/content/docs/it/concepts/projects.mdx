@@ -17,9 +17,9 @@ Il primo è per ciò che serve a tutto il team: i formati dei codici del progett
 clienti, un profilo più rigoroso. Il secondo è per ciò che è tuo: i nomi dei tuoi clienti, i valori
 che per te non sono sensibili, un progetto in cui non vuoi affatto Latet.
 
-Su un computer connesso a un server Latet il file del progetto non si applica: il server non legge
-alcun file del computer, e applica le tue impostazioni e quelle che condivide. In un progetto così
-`latet doctor` e `latet claude` lo dicono. Per usarne lì le regole, importa il `latet.yaml` nella
+Su un computer connesso a un server di Latet il file del progetto non viene applicato: il server non
+legge alcun file del computer, e applica le tue impostazioni e quelle che condivide. In un progetto
+così `latet doctor` e `latet claude` lo segnalano. Per usarne lì le regole, importa il `latet.yaml` nella
 tua dashboard, in **Regole** con **Importa le regole**. Vedi
 [Cosa resta sul computer](../server/#cosa-resta-sul-computer).
 
@@ -47,14 +47,14 @@ sé, e i due non vengono combinati.
 Latet considera attendibile il progetto di una sessione solo quando lo conosce da sé:
 
 - **Dal plugin di Claude Code,** per una cartella che Latet conosce come progetto (una con un
-  `latet.yaml`, o con tue impostazioni per lei). Il plugin lega la sessione a quel progetto; ogni sua
-  chiamata a Latet mantiene il legame, che finisce dopo 30 minuti senza chiamate.
+  `latet.yaml`, o per cui hai impostazioni tue). Il plugin associa la sessione a quel progetto; ogni sua
+  chiamata a Latet mantiene l'associazione, che finisce dopo 30 minuti senza chiamate.
 - **Da una chiave di avvio,** per un agente che Latet ha avviato in quella cartella.
 
-Una cartella che solo la richiesta nomina (l'intestazione `x-latet-project`, o la cartella di lavoro
+Una cartella che solo la richiesta nomina (l'header `x-latet-project`, o la cartella di lavoro
 che Codex, OpenCode e Gemini CLI scrivono nelle loro richieste) è *dichiarata*. Le regole di un
 progetto dichiarato che aggiungono protezione si applicano: i suoi termini, i suoi riconoscitori, un
-profilo più rigoroso. I suoi allentamenti no: valori e pattern da non mascherare mai, regole dei
+profilo più rigoroso. I suoi allentamenti no: valori e pattern da non mascherare mai, regole per i
 segreti disattivate, un profilo o un criterio più debole, `data_tools`, le indicazioni e le immagini
 per il revisore locale. Un progetto dichiarato in cui Latet è disattivato viene rifiutato comunque, e
 un'[eccezione di richiesta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta)
@@ -63,10 +63,10 @@ se il progetto era attendibile o dichiarato (*Progetto dichiarato*), e come è s
 
 - **Prima che il plugin leghi una sessione.** Claude Code fa alcune chiamate mentre si avvia, prima
   della prima chiamata del plugin a Latet: il suo elenco dei modelli, e su Bedrock le sue prime
-  richieste. Vengono decise con le tue regole soltanto, né le regole aggiunte dal progetto né i suoi
+  richieste. Vengono decise solo con le tue regole, senza le regole aggiunte dal progetto né i suoi
   allentamenti.
-- **Cosa fa entrare il legame.** Un legame è con l'id di una sessione: una richiesta Anthropic
-  Messages che porta l'id di una tua sessione attiva legata dal plugin viene decisa con quel
+- **Cosa fa entrare l'associazione.** Un'associazione riguarda l'id di una sessione: una richiesta Anthropic
+  Messages che porta l'id di una tua sessione attiva associata dal plugin viene decisa con quel
   progetto, allentamenti ed eccezioni compresi, qualunque tuo programma la invii. Viene comunque letta
   dal controllo finale e mai riscritta, e le richieste di un'altra persona non lo raggiungono mai. Una
   sessione avviata da `latet claude` richiede invece la sua chiave di avvio: il suo id da solo non
@@ -75,8 +75,8 @@ se il progetto era attendibile o dichiarato (*Progetto dichiarato*), e come è s
 ### Le chiavi di avvio
 
 Quando Latet avvia un agente, apre un avvio per la cartella: una chiave segreta estratta solo per
-quell'avvio, legata al progetto della cartella e a te. L'agente la invia con le sue richieste in
-un'intestazione, `x-latet-launch-key`, che Latet verifica e toglie prima di inoltrare, registrare o
+quell'avvio, associata al progetto della cartella e a te. L'agente la invia con le sue richieste in
+un header, `x-latet-launch-key`, che Latet verifica e toglie prima di inoltrare, registrare o
 scrivere nei log qualsiasi cosa; Latet ne conserva solo un hash con chiave. La chiave finisce con
 l'avvio: quando l'agente esce, o quando il comando che l'ha avviato viene fermato.
 
@@ -86,31 +86,31 @@ l'avvio: quando l'agente esce, o quando il comando che l'ha avviato viene fermat
 | `latet codex` | `env_http_headers` di un provider di `model_providers`, da Codex 0.115; nessuna sui provider integrati di Codex (con l'accesso ChatGPT, o il provider di OpenAI) |
 | `latet opencode` | `options.headers` di ogni provider che instrada |
 | `latet gemini` | `GEMINI_CLI_CUSTOM_HEADERS` |
-| `latet copilot` | `COPILOT_PROVIDER_HEADERS`, verso un provider compatibile con OpenAI via Chat Completions; nessuna via Responses, l'API di Anthropic o un WebSocket |
+| `latet copilot` | `COPILOT_PROVIDER_HEADERS`, verso un provider compatibile con OpenAI tramite Chat Completions; nessuna tramite Responses, l'API di Anthropic o un WebSocket |
 | `latet run` | nessuna: un programma che avvia non ha modo di portarne una |
 
-La chiave si aggiunge alle intestazioni che l'agente invia già: le tue restano come le hai scritte, e
-richiedono comunque un'eccezione loro. A un agente che parte senza chiave viene detto perché, in una
+La chiave si aggiunge agli header che l'agente invia già: i tuoi restano come li hai scritti, e
+richiedono comunque un'eccezione propria. A un agente che parte senza chiave viene detto perché, in una
 frase come `Latet: Codex older than 0.115 has no way to carry a launch key, so this session's project
 settings only add protection: their loosenings do not apply.`, e il suo progetto è dichiarato. Una
 cartella che non è uno dei tuoi progetti non richiede chiave.
 
 - **Un segreto per Latet.** Nell'output di uno strumento o in un messaggio, una chiave attiva viene
-  mascherata come il token di Latet; dove Latet non può mascherarla (una richiesta che si limita a verificare),
+  mascherata come il token di Latet; dove Latet non può mascherarla (una richiesta che Latet si limita a verificare),
   la richiesta viene rifiutata, con parole che dicono di tornare indietro o di iniziare una nuova
   conversazione.
-- **Posseduta, non legata a un processo.** Qualsiasi programma che possiede la chiave conta come
-  quell'avvio. Gira con lo stesso utente, e Latet non pretende di distinguere i programmi.
+- **Posseduta, non associata a un processo.** Qualsiasi programma che possiede la chiave conta come
+  quell'avvio. Viene eseguito con lo stesso utente, e Latet non pretende di distinguere i programmi.
 - **Sconosciuta, finita o di qualcun altro.** Una richiesta con una chiave che Latet non conosce (il
   suo daemon è stato riavviato, per esempio) viene decisa come dichiarata, mai rifiutata per questo.
   Una chiave il cui avvio è finito, o inviata per un altro progetto o da un'altra persona, viene
   rifiutata.
 - **Nell'indirizzo.** Su un computer, Latet accetta la chiave anche all'inizio del percorso
-  dell'indirizzo, una forma che nessun comando di avvio usa; un server Latet la rifiuta.
+  dell'indirizzo, una forma che nessun comando di avvio usa; un server di Latet la rifiuta.
 
 La dashboard mostra come è stato deciso l'avvio di ogni richiesta: *Avviato da Latet, chiave
 verificata*, *Avviato da Latet, chiave mancante* (un agente avviato da Latet la cui richiesta è
-arrivata senza una chiave che Latet possa verificare: deciso come dichiarato), *Collegato dal plugin
+arrivata senza una chiave che Latet possa verificare: deciso come dichiarato), *Associato dal plugin
 di Claude Code* (un Claude Code configurato in modo permanente) o *Non avviato da Latet*
 (dichiarato). `latet doctor` nomina ogni agente avviato
 da Latet visto senza la sua chiave, con la sua versione.
@@ -157,8 +157,8 @@ impostazioni per il progetto con un nome o un tipo che uno dei tuoi globali usa 
 disattivato. Uno del file con il nome o il tipo di uno dei tuoi, globale o per il progetto, si
 applica comunque, con un nome o un tipo proprio (`badge-repo`, `BADGE_REPO`): si applicano
 entrambi; a parità di tipo, entrambi i tipi prendono il più severo dei due criteri; e la pagina del
-progetto lo dice, con il nome e il tipo in uso. Per un campo si applica la più severa tra la tua
-regola e quella del file, la tua a parità.
+progetto lo segnala, con il nome e il tipo in uso. Per un campo si applica la più severa tra la tua
+regola e quella del file, la tua a parità di severità.
 
 **Ciò che lì lascerebbe dei valori in chiaro viene messo da parte:** un riconoscitore che lascia
 passare ciò che trova (`policy: allow`), e un riconoscitore, un termine o una regola di campo di un
@@ -169,7 +169,7 @@ approvazione. La dashboard non scrive una voce del genere nel file; una che il f
 resta, per chi non lascia passare il suo tipo.
 
 **Ciò che un file del repository non può impostare viene ignorato:** valori e pattern da non
-mascherare mai, regole dei segreti disattivate, gli strumenti coperti dalla modalità dati rigorosa
+mascherare mai, regole per i segreti disattivate, gli strumenti coperti dalla modalità dati rigorosa
 (`data_tools`), Latet disattivato, il Revisore Live, le indicazioni per il revisore locale, se vede
 le immagini, e le impostazioni di tutto Latet (`port`, `history`, `identity`...).
 `latet project check` e `latet project show` elencano ciò che viene ignorato e perché. Un repository
@@ -179,14 +179,14 @@ che cloni non può ridurre la tua protezione.
 - Può contenere fino a 500 termini e 100 riconoscitori, in al massimo 256 KB.
 - Un file con più di 20.000 elementi YAML (chiavi, valori e le liste e le mappe che li contengono;
   circa quattro volte quanto contiene un file completo di 500 termini e 100 riconoscitori) non è
-  valido: nulla di ciò che contiene si applica, e `latet project check` lo dice.
+  valido: nulla di ciò che contiene si applica, e `latet project check` lo segnala.
 - Un file che non si riesce a leggere non ha effetto, e Latet continua a funzionare.
 - Latet rilegge il file quando cambia: non c'è niente da ricaricare.
 - I termini nel file sono leggibili da chiunque legga il repository. Metti invece i nomi dei tuoi
   clienti nelle tue impostazioni.
 
-`latet project check` esce con 1 quando qualcosa nel file viene ignorato o un esempio non passa, e
-con 2 quando non c'è il file o non si può leggere, così un job di CI può tenere il file in ordine. Il suo
+`latet project check` termina con il codice 1 quando qualcosa nel file viene ignorato o un esempio non
+passa, e con il codice 2 quando non c'è il file o non si può leggere, così un job di CI può tenere il file in ordine. Il suo
 [JSON Schema](https://docs.latet.ai/project.schema.json) (anche
 `latet config schema --project`) permette agli editor di completarlo e controllarlo.
 
@@ -209,7 +209,7 @@ progetto non cambia.
 Si applicano dopo il file del progetto, e possono anche allentarlo, in una sessione di cui Latet
 considera [attendibile](#attendibili-e-dichiarati) il progetto:
 - valori e pattern da non mascherare mai;
-- regole dei segreti disattivate;
+- regole per i segreti disattivate;
 - un profilo o un criterio più debole di quello globale;
 - campi lasciati in chiaro nella modalità dati rigorosa, la modalità dati rigorosa disattivata
   (`data: normal`), immagini inviate, la protezione dai dump alzata o disattivata.
@@ -225,7 +225,7 @@ la cartella più vicina. `latet rules add FILE --project FOLDER` le aggiunge dei
 
 Nella pagina **Regole** del progetto nella dashboard, ogni elenco (termini, riconoscitori, valori da
 non mascherare mai, criteri) è una tabella di tutte le regole che valgono nel progetto, e ogni riga
-dice da dove viene: *tue, per* il progetto, *latet.yaml*, oppure *globale*. Una regola si cambia dove
+dice da dove viene: *tuo, per* il progetto, *latet.yaml*, oppure *globale*. Una regola si cambia dove
 nasce: le tue nelle tabelle del progetto, quelle globali nelle regole globali (il pannello di una
 riga globale è in sola lettura, con un link lì). *Aggiungi* scrive nelle tue impostazioni per il
 progetto.
@@ -238,14 +238,14 @@ personali e la tua identità: il profilo `secrets`, nelle tue impostazioni per i
 
 `latet project off` disattiva Latet nel progetto della cartella corrente (o della cartella indicata).
 Lo stesso fa *Protezione: Disattivata*. Latet allora non invia nessuna richiesta del progetto:
-- ognuna viene rifiutata, via HTTP e via WebSocket, che il progetto sia attendibile o dichiarato, con
+- ognuna viene rifiutata, tramite HTTP e tramite WebSocket, che il progetto sia attendibile o dichiarato, con
   parole che dicono come riattivare Latet lì o raggiungere direttamente il provider
   ([Passare alla 0.11](../../getting-started/upgrading-to-0-11/#un-progetto-in-cui-latet-è-disattivato));
 - `latet project off` e l'interruttore della dashboard lo dicono prima di disattivarlo;
 - la dashboard segna quegli scambi con *Latet disattivato*.
 
 Per lasciar passare i dati personali in un progetto, scegli *Solo segreti*: le sue richieste
-continuano a partire, con i segreti mascherati.
+continuano a essere inviate, con i segreti mascherati.
 
 `latet project on` lo riattiva. Solo le tue impostazioni possono disattivarlo, mai un file del
 progetto. Se a disattivarlo è un agente, o lo fai a mano in `config.yaml`, la modifica attende prima
@@ -267,10 +267,10 @@ vengono riletti:
 
 Una modifica di ciò che in un progetto non protegge nulla (la porta, la cronologia e quanto a lungo
 viene conservata), o una che aggiunge soltanto protezione (un termine), non ne legge nessuno. Li
-legge un processo ausiliario, con 10 secondi per tutti e 2 per ciascuno. Un repository che al
+legge un processo ausiliario, entro 10 secondi in tutto e 2 per ciascuno. Un repository che al
 momento non si riesce a leggere (su una condivisione che non risponde, o un file che non puoi
 leggere) non viene mai preso per uno senza nulla dentro: una modifica che potrebbe ridurne la
-protezione non si applica e non attende la tua approvazione, e il ricaricamento lo dice.
+protezione non si applica né attende la tua approvazione, e il ricaricamento lo segnala.
 
 Per trovare un repository del genere, e toglierlo dalla lista:
 
@@ -279,17 +279,18 @@ latet repositories                       # each repository remembered, with its 
 latet repositories forget C:\dev\old-app # takes one out of the list
 ```
 
-`latet repositories` mostra ciascuno come *read* (letto), *nothing to weigh* (niente da pesare: non
+`latet repositories` mostra ciascuno come *read* (letto), *nothing to weigh* (niente da valutare: non
 c'è ora, non è un file normale, non è valido) o *unavailable* (non disponibile: non si può leggere
 ora, non letto in tempo), mai ciò che contiene il suo file. `latet repositories forget` riduce la
-protezione, quindi si rifiuta di funzionare in un agente e ti chiede conferma prima di dimenticarne
-uno: eseguilo tu, in un tuo terminale. Il repository viene ricordato, e pesato di nuovo, quando una
+protezione, quindi si rifiuta di essere eseguito da un agente e ti chiede conferma prima di
+dimenticarne uno: eseguilo tu, in un tuo terminale. Il repository viene ricordato, e valutato di
+nuovo, quando una
 conversazione lo raggiunge.
 
-Quando non si riesce a leggere lo stesso `repositories.json` (al suo posto c'è una cartella, un link
+Quando non si riesce a leggere `repositories.json` stesso (al suo posto c'è una cartella, un link
 o un file più grande di quanto possa esserlo la lista), una modifica che potrebbe ridurre la
-protezione in un repository non si applica e non attende la tua approvazione, e
-`latet repositories` lo dice. Se resta così, sposta `repositories.json` altrove, in un tuo
+protezione in un repository non si applica né attende la tua approvazione, e
+`latet repositories` lo segnala. Se resta così, sposta `repositories.json` altrove, in un tuo
 terminale: Latet tornerà a ricordare i repository man mano che le conversazioni li raggiungono.
 
 ## Comandi

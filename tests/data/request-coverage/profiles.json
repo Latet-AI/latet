@@ -4251,6 +4251,23 @@
         "selection_inputs": [
           "exact configured destination identity and base URL",
           "HTTP method",
+          "exact supported route template"
+        ],
+        "revision": "http-envelope-1",
+        "id": "anthropic.hello.1",
+        "route": "/{destination}/api/hello",
+        "fixture_ids": [
+          "test_claude_codes_preconnect_passes_as_it_came_and_is_no_unknown_route",
+          "test_only_that_preconnect_passes",
+          "test_claude_codes_preconnect_is_recorded_under_its_profile_as_claude_codes"
+        ],
+        "body": "legacy-0.10; not an envelope grant; none (Claude Code's preconnect as it starts, 2.1.319 to 2.1.323: HEAD from Bun's fetch, no query, no credential, its answer ignored; the answer to a HEAD has no body)",
+        "method": "HEAD"
+      },
+      {
+        "selection_inputs": [
+          "exact configured destination identity and base URL",
+          "HTTP method",
           "exact supported route template",
           "exact configured resource roles where required"
         ],

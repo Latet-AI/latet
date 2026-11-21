@@ -4,10 +4,12 @@ import asyncio
 
 import pytest
 
+from latet.config import Config
 from latet.gateway import approvals as approvals_module
-from latet.gateway.approvals import Approvals, Batch, Change, MaskError
+from latet.gateway.approvals import Approvals, Batch, Change, Changed, MaskError, NotYours, batch_version
 from latet.gateway.recorder import Broadcaster
-from latet.state import LocalApprovals
+from latet.state import IdentityRef, LocalApprovals
+from latet.state.protocols import Timing
 
 TEXT = "call Ada Byron on Monday about the Orion contract"
 
@@ -235,3 +237,181 @@ async def test_one_category_per_value_and_nothing_marked_not_sensitive():
         await queue.decide(batch.id, True, [_span("Orion")])
     with pytest.raises(MaskError, match="at most"):
         await queue.decide(batch.id, True, [_span("Ada")] * 201)
+
+
+MARK = IdentityRef("u_markellisa", "Mark Ellis", "person")
+
+
+def _routed(queue: Approvals, decides: str = "security", names: tuple[str, ...] = ("Mark Ellis",)) -> None:
+    """The queue of a space whose company decides elsewhere (what the runtime does with Latet Enterprise, Task 2)."""
+
+    async def route_batch(batch):
+        batch.decides, batch.deciders = decides, list(names)
+
+    def route_change(change):
+        change.decides, change.deciders = decides, list(names)
+
+    queue.route_batch, queue.route_change = route_batch, route_change
+
+
+async def test_a_text_someone_else_decides_on_you_may_stop_but_not_approve():
+    queue = Approvals()
+    _routed(queue)
+    feed = queue.broadcaster.subscribe()
+    batch = await queue.open(_batch())
+    assert batch.decides == "security" and (await queue.pending())[0]["deciders"] == ["Mark Ellis"]
+    with pytest.raises(NotYours, match="security team"):
+        await queue.decide(batch.id, True)
+    assert await queue.approve_all() == 0 and await queue.pending()  # approving everything leaves it alone
+    assert await queue.decide(batch.id, False)
+    decision = await queue.wait(batch, 1)
+    assert decision is not None and decision.state == "rejected" and decision.by is None
+    events = [feed.get_nowait() for _ in range(feed.qsize())]
+    assert ("settled", {"id": batch.id, "state": "rejected", "by": None}) in events
+
+
+async def test_the_decision_of_someone_else_names_who_made_it():
+    queue = Approvals()
+    _routed(queue)
+    ended = []
+    queue.on_batch_settled = lambda batch_id, decision, decides, agent: ended.append(
+        (batch_id, decision.state, decision.by, decides, agent)
+    )
+    batch = await queue.open(_batch())
+    assert await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=batch_version(batch.items))
+    decision = await queue.wait(batch, 1)
+    assert decision is not None and decision.approved and decision.by == MARK
+    assert ended == [(batch.id, "approved", MARK, "security", "claude-code")]
+    other = await queue.open(_batch())
+    await queue.decide(other.id, False, by=MARK)
+    stopped = await queue.wait(other, 1)
+    assert stopped is not None and "security team did not approve" in (stopped.reason or "")
+
+
+async def test_a_text_the_security_team_lets_run_out_of_time_says_so(monkeypatch):
+    monkeypatch.setattr(approvals_module, "_REAP_EVERY", 0.01)
+    queue = Approvals()
+    _routed(queue)
+    ended = []
+    queue.on_batch_settled = lambda batch_id, decision, decides, agent: ended.append((batch_id, decision.state, agent))
+    batch = await queue.open(_batch(timeout_s=10))
+    batch.created -= 11
+    decision = await queue.wait(batch, 1)
+    assert decision is not None and decision.state == "expired" and "security team" in (decision.reason or "")
+    assert ended == [(batch.id, "expired", "claude-code")]
+    assert Timing.of(batch).decides == "security" and Timing.of(batch).agent == "claude-code"
+
+
+def test_a_change_is_routed_before_it_is_kept_and_ends_with_who_decided():
+    queue = Approvals()
+    _routed(queue, names=("Daniel Hayes", "Mark Ellis"))
+    published = []
+    queue.publish_change = lambda summary, event: published.append((event, summary))
+    ended = []
+    queue.on_change_settled = lambda change_id, change, state, by, stopped_by: ended.append((change_id, state, by))
+    lowered = Change(Config(allow_values=["ACME"]), "base", "dashboard", None, ["values never to mask: 1 added"],
+                     ["allow_values"], asked_by="u_emilycarte")  # fmt: skip
+    change = queue.open_change(lowered)
+    event, summary = published[0]
+    assert event == "change" and summary["decides"] == "security" and summary["source"] == "dashboard"
+    assert summary["deciders"] == ["Daniel Hayes", "Mark Ellis"] and summary["asked_by"] == "u_emilycarte"
+    assert queue.changes[change.id].decides == "security"  # kept with it, as every instance reads it
+    queue.settle_change(change.id, "approved", MARK)
+    assert published[-1] == ("change_settled", {"id": change.id, "state": "approved", "by": "Mark Ellis"})
+    assert queue.settled[change.id] == "approved" and ended == [(change.id, "approved", MARK)]
+
+
+def test_a_newer_change_supersedes_the_one_waiting_and_an_equivalent_one_is_dropped():
+    queue = Approvals()
+    _routed(queue)
+    ended, dropped = [], []
+    queue.on_change_settled = lambda change_id, change, state, by, stopped_by: ended.append((change_id, change, state))
+    queue.dropped_change = dropped.append
+    first = queue.open_change(Change(Config(profile="max"), "base", "dashboard", None, ["it lowers protection"],
+                                     ["profile"]))  # fmt: skip
+    second = queue.open_change(Change(Config(allow_values=["ACME"]), "base", "dashboard", None,
+                                      ["values never to mask: 1 added"], ["allow_values"]))  # fmt: skip
+    assert [(change_id, change.id if change else None, state) for change_id, change, state in ended] == [
+        (first.id, first.id, "superseded")
+    ]
+    again = Change(Config(allow_values=["ACME"]), "base", "dashboard", None, ["values never to mask: 1 added"],
+                   ["allow_values"])  # fmt: skip
+    kept = queue.open_change(again)
+    assert kept.id == second.id and dropped == [again.id]  # recorded, and never waited: the record forgets it
+
+
+async def test_what_cannot_be_routed_never_waits():
+    """The company's record does not answer: nothing opens, so nobody, the person included, can approve it."""
+    queue = Approvals()
+
+    async def broken_batch(batch):
+        raise ConnectionError("the company's record does not answer")
+
+    def broken_change(change):
+        raise ConnectionError("the company's record does not answer")
+
+    queue.route_batch, queue.route_change = broken_batch, broken_change
+    with pytest.raises(ConnectionError):
+        await queue.open(_batch())
+    with pytest.raises(ConnectionError):
+        queue.open_change(Change(Config(), "base", "command", None, ["it lowers protection"], ["profile"]))
+    assert await queue.pending() == [] and queue.pending_changes() == []
+
+
+async def test_a_decider_approves_a_text_only_as_they_read_it():
+    """The text masked again after the decider read it (its previews made anew while they looked: a change of the rules
+    or of the vault, which may mask less): their approval of the version they read decides nothing (``Changed``), and
+    the text still waits; of the version as it is now, it is approved. Stopping it names no version."""
+    queue = Approvals()
+    _routed(queue)
+    batch = await queue.open(_batch())
+    read = batch_version((await queue.backend.fetch(batch.id)).items)
+    assert await queue.update(batch.id, [_shown_again(TEXT, [])])  # Monday in clear now
+    with pytest.raises(Changed):
+        await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=read)
+    assert [b["id"] for b in await queue.pending()] == [batch.id]  # nothing decided
+    now = batch_version((await queue.backend.fetch(batch.id)).items)
+    assert now != read
+    assert await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=now)
+    other = await queue.open(_batch())
+    assert await queue.decide(other.id, False, by=MARK, version="anything")  # stopping it is never refused for it
+
+
+async def test_a_decider_s_approval_without_the_version_they_read_decides_nothing():
+    """The whole-branch security review's L4: an approval by someone who decides for the company names the version of
+    the text they read. Without one it is refused, nothing decided: where the text is sent, an approval with no
+    version would be taken for the person's own and never compared with what was read. The deciders' route asks for it
+    first (400); this is the queue's own guard. Stopping it needs none."""
+    queue = Approvals()
+    _routed(queue)
+    batch = await queue.open(_batch())
+    for missing in (None, ""):
+        with pytest.raises(Changed, match="version"):
+            await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=missing)
+    assert [b["id"] for b in await queue.pending()] == [batch.id]  # nothing decided
+    read = batch_version((await queue.backend.fetch(batch.id)).items)
+    assert await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=read)
+    other = await queue.open(_batch())
+    assert await queue.decide(other.id, False, by=MARK)
+
+
+def test_a_text_s_version_says_how_it_would_leave_never_its_values():
+    """What it would leave as (its masked text, and where each value sits), never the values in clear: a text whose
+    originals differ alone has the same version."""
+    item = _batch().items[0]
+    version = batch_version([item])
+    assert batch_version([item | {"original": "call Grace Hopper on Monday about the Vega contract"}]) == version
+    assert batch_version([item | {"masked": TEXT}]) != version
+    assert batch_version([item | {"replacements": []}]) != version
+    assert batch_version([item, item]) != version
+    assert "Ada" not in version and len(version) >= 16
+
+
+async def test_a_decider_masks_only_what_the_text_holds():
+    queue = Approvals()
+    _routed(queue)
+    batch = await queue.open(_batch())
+    elsewhere = {"item": 0, "start": 0, "end": 4, "category": "person", "value": "Northwind Traders"}
+    with pytest.raises(MaskError, match="not in the text"):
+        await queue.decide(batch.id, True, [elsewhere], by=MARK, version=batch_version(batch.items))
+    assert await queue.decide(batch.id, True, [_span("Ada Byron")], by=MARK, version=batch_version(batch.items))

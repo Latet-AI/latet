@@ -237,30 +237,33 @@ def runtime_image_section() -> list[str]:
             ]
     out += [
         "",
-        "### Replacing psycopg in the image",
+        "### Replacing psycopg or ldap3 in the image",
         "",
-        "Latet loads psycopg as separate, unmodified Python packages. You may replace psycopg, psycopg-binary",
-        "and psycopg-pool with interface-compatible modified builds and debug those modifications, including",
-        "by reverse engineering the combined work as permitted by LGPL-3.0 section 4.",
+        "Latet loads psycopg and ldap3 as separate, unmodified Python packages. You may replace psycopg,",
+        "psycopg-binary and psycopg-pool, or ldap3, with interface-compatible modified builds and debug those",
+        "modifications, including by reverse engineering the combined work as permitted by section 4 of the",
+        "LGPL-3.0 (psycopg's license) and of the LGPL-3.0-or-later (ldap3's).",
         "",
         "Build replacement wheels from your modified sources for the image's Python version, Linux platform",
-        "and CPU architecture. Put the replacement wheels in a local `replacement-wheels/` directory; keep",
-        "psycopg and psycopg-binary versions compatible. Use the original image's release tag below, or replace",
-        "the full FROM image reference with its digest:",
+        "and CPU architecture; ldap3 is pure Python, so one wheel of it fits every platform. Put the",
+        "replacement wheels in a local `replacement-wheels/` directory; keep psycopg and psycopg-binary versions",
+        "compatible. Use the original image's release tag below, or replace the full FROM image reference with",
+        "its digest:",
         "",
         "```dockerfile",
         "FROM ghcr.io/latet-ai/latet:<release-tag>",
         "USER 0:0",
-        "COPY replacement-wheels/ /tmp/psycopg-replacement/",
-        "RUN python -m pip install --no-index --no-deps --force-reinstall /tmp/psycopg-replacement/*.whl \\",
-        "    && rm -rf /tmp/psycopg-replacement",
+        "COPY replacement-wheels/ /tmp/lgpl-replacement/",
+        "RUN python -m pip install --no-index --no-deps --force-reinstall /tmp/lgpl-replacement/*.whl \\",
+        "    && rm -rf /tmp/lgpl-replacement",
         "USER 10001:10001",
         "```",
         "",
-        "Build with `docker build -t latet-psycopg-replacement .` and select that image for both Latet server",
+        "Build with `docker build -t latet-lgpl-replacement .` and select that image for both Latet server",
         "instances in your Compose override. Recreate both instances. Their existing readiness checks exercise",
-        "the replacement's database connection. The original wheel hashes in uv.lock identify the distributed",
-        "builds; they do not prevent installing your compatible replacements in this derived image.",
+        "a replaced psycopg's database connection; the next sync of an LDAP term source exercises a replaced",
+        "ldap3. The original wheel hashes in uv.lock identify the distributed builds; they do not prevent",
+        "installing your compatible replacements in this derived image.",
     ]
     return out
 
@@ -465,6 +468,10 @@ _USAGE = {
     name: "Installed with `latet[server]` and used as a separate, unmodified package: the LGPL-3.0 lets anyone "
     "replace it with another build of psycopg 3."
     for name in ("psycopg", "psycopg-binary", "psycopg-pool")
+} | {
+    "ldap3": "Installed with `latet[ldap]` (Latet Enterprise's term sync from a directory, and the container image) "
+    "and used as a separate, unmodified package: the LGPL-3.0-or-later lets anyone replace it with another build of "
+    "ldap3.",
 }
 
 

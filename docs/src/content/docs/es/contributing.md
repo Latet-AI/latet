@@ -26,14 +26,14 @@ uv run latet claude      # Claude Code with the plugin from src/latet/claude_plu
 uv run latet doctor
 ```
 
+Para mantener una instancia de prueba aparte de un Latet que uses de verdad, define `LATET_DATA_DIR` y
+`LATET_CONFIG` con una carpeta temporal y elige otro puerto en ese `config.yaml`.
+
 `latet serve --capture <folder>` escribe cada intercambio en archivos locales (con las cabeceras de
 credenciales suprimidas), lo que ayuda cuando estudias un protocolo. No hay ningún modo que reenvíe
 sin enmascarar: una parte de una petición que Latet no lee se rechaza, y las llamadas de un protocolo
 nuevo necesitan antes un perfil de petición y sus pruebas. Las capturas contienen el contenido de las conversaciones: no las incluyas
 nunca en un commit (por eso git ignora `notes/captures/`).
-
-Para mantener una instancia de prueba aparte de un Latet que uses de verdad, define `LATET_DATA_DIR` y
-`LATET_CONFIG` con una carpeta temporal y elige otro puerto en ese `config.yaml`.
 
 ## Comprobaciones
 
@@ -56,14 +56,14 @@ uv run python scripts/gen_reference.py --check
   comando, una clave de configuración o un detector, regenéralas con
   `uv run python scripts/gen_reference.py`. No las edites nunca a mano.
 - **Plugin de Claude Code.** `claude plugin validate src/latet/claude_plugin` valida el plugin
-  con una versión instalada compatible. `claude plugin test`, ejecutado en
+  con una versión compatible de Claude Code instalada. `claude plugin test`, ejecutado en
   `src/latet/claude_plugin/`, no está disponible en todos los entornos instalados; úsalo solo si ese
   entorno ofrece el comando de pruebas.
 - **Falsos positivos.** `tests/unit/test_fp_budget.py` ejecuta los detectores sobre la biblioteca
   estándar de Python, que no contiene secretos reales, con un presupuesto por perfil que solo puede
   bajar. `uv run python scripts/fp_corpus.py` imprime lo que se dispara en un corpus más amplio,
   regla por regla.
-- **Avisos de terceros.** Después de cambiar las dependencias, ejecuta `npm ci` en `dashboard/` y en
+- **Avisos de los componentes de terceros.** Después de cambiar las dependencias, ejecuta `npm ci` en `dashboard/` y en
   `docs/`, y regéneralos con `uv run python scripts/gen_notices.py`. Añade `--check` para comprobar
   que el archivo está al día sin reescribirlo; la CI ejecuta esa comprobación.
 
@@ -80,26 +80,36 @@ uv run python scripts/server-services.py up
 uv run python scripts/server-services.py env
 ```
 
-Configura `LATET_TEST_DATABASE_URL`, `LATET_TEST_VALKEY_URL` y `LATET_TEST_TLS_DATABASE_URL`
-mostradas en la shell de pruebas, con su sintaxis. Identifican servicios de prueba desechables,
-nunca datos de producción. Configura `LATET_TEST_REQUIRE_SERVICES=1` y ejecuta:
+Define en la shell de pruebas las variables `LATET_TEST_DATABASE_URL`, `LATET_TEST_VALKEY_URL` y
+`LATET_TEST_TLS_DATABASE_URL` que muestra el comando, con la sintaxis de asignación de esa shell.
+Identifican servicios de prueba desechables, nunca datos de producción. Define
+`LATET_TEST_REQUIRE_SERVICES=1` y ejecuta:
 
 ```sh
 uv run pytest -q -m server
 ```
 
-Cada prueba usa su propio esquema de base de datos y prefijo Valkey. El trabajo CI `server`
+Cada prueba usa su propio esquema de base de datos y prefijo Valkey. El trabajo `server` de la CI
 proporciona y exige los servicios: un servicio no disponible debe producir un fallo,
-no una omisión silenciosa. Detén tus servicios creados por el script con
+no una omisión silenciosa. Detén los servicios que haya creado el script con
 `uv run python scripts/server-services.py down`; coordina los servicios compartidos con quien los gestione.
 
 Las pruebas de agentes reales son opcionales, con `LATET_AGENT_TESTS=1` y
 `uv run pytest -m agents`. Ejecutan programas de terceros instalados contra proveedores
 simulados locales, pero esos programas pueden contactar con sus propios hosts externos.
 Usa directorios personales aislados y credenciales sintéticas; las fixtures locales
-no garantizan ausencia de tráfico externo. Las pruebas marcadas `live` usan los modelos locales de
+no garantizan que no haya tráfico externo. Las pruebas marcadas `live` usan los modelos locales de
 detección de nombres y de reconocimiento de texto: se omiten donde esos modelos no están instalados,
 como en la CI.
+
+## El código Enterprise
+
+El código de Latet Enterprise está en `src/latet/ee/` y `dashboard/src/ee/`, y sus pruebas en
+`tests/ee/`: toda carpeta llamada `ee` está bajo la Latet Enterprise License, y el
+[acuerdo de licencia de colaborador](https://github.com/Latet-AI/latet/blob/main/CLA.md) cubre una contribución en ellas igual que cualquier otra. La
+Community Edition nunca necesita ese código: `uv run pytest -q --without-ee` ejecuta las pruebas como
+si esas carpetas no existieran, como hace el trabajo `community` de la CI después de quitarlas. Las
+pruebas contra programas reales en Docker (Keycloak, OpenLDAP y Prometheus) son opcionales: [`tests/ee/providers/README.md`](https://github.com/Latet-AI/latet/blob/main/tests/ee/providers/README.md) explica cómo ejecutarlas.
 
 ## Panel
 
@@ -168,7 +178,7 @@ una con `<Screenshot name="live" alt="…" />`, después de importar
 
 La documentación está disponible en cinco idiomas: el inglés en la raíz, como referencia, y el
 italiano, el alemán, el francés y el español en `/it/`, `/de/`, `/fr/` y `/es/` (los `locales` de
-`docs/astro.config.mjs`). Una página que aún no está traducida muestra la inglesa, con un aviso. Las
+`docs/astro.config.mjs`). Una página sin traducir muestra la inglesa, con un aviso. Las
 páginas de referencia generadas a partir del código siguen en inglés en todos los idiomas.
 
 - **Traducir una página** es crearla en `docs/src/content/docs/<lang>/`, en la misma ruta que la
@@ -268,7 +278,7 @@ pull request, con tu tarjeta gráfica o tu CPU, el servidor y la cuantización d
 
 Latet se distribuye bajo la Latet Sustainable Use License, su Enterprise Edition bajo la Latet
 Enterprise License, y Latet también se ofrece bajo licencias comerciales ([LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md)).
-Las contribuciones se aceptan bajo el [acuerdo de licencia de contribuidor](https://github.com/Latet-AI/latet/blob/main/CLA.md):
+Las contribuciones se aceptan bajo el [acuerdo de licencia de colaborador](https://github.com/Latet-AI/latet/blob/main/CLA.md):
 conservas tus derechos de autor, y tu contribución puede formar parte de Latet bajo todas ellas.
 Para aceptarlo, marca la casilla "I agree to the Latet contributor license agreement (CLA.md)." en la
 plantilla de tu primera pull request.

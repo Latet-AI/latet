@@ -8,8 +8,239 @@ under **Unreleased**; each release lists its changes newest first.
 
 ## Unreleased
 
-What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, a signed installer
-for Windows, your own name models, more agents, and the documentation in more languages.
+What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode, MCP tools masked
+before Claude Code reads them, a signed installer for Windows, your own name models, more agents,
+and the documentation in more languages.
+
+## 0.15.0 (2026-11-21)
+
+Latet 0.15.0 brings Latet Enterprise: on a Latet server, the features a company's security team
+needs, in the same package and the same image as the Community Edition, and off without a license
+file. On a server the tables change, so its instances stop once for the migration: read
+**Upgrading**, at the end of this list, before you upgrade one.
+
+- **Latet Enterprise.** The Enterprise features run on a [Latet server](../getting-started/server/),
+  switched on by a license file. Their code is in the repository's `ee` folders, under the Latet
+  Enterprise License, which the package and the image carry beside the Latet Sustainable Use
+  License. The license file is signed by the licensor: `latet server license install` installs it,
+  and the server checks it offline, with the licensor's public key that Latet carries. It covers a
+  number of users, each enabled person and each enabled API key. A company can ask for a 32-day trial
+  at [info@latet.ai](mailto:info@latet.ai). When a license ends, the server says so 30 days before,
+  everything keeps working for 30 more days, and then reports, events and term sync pause. A trial
+  has no 30 more days: once it ends, its Enterprise settings can be read, not changed. Neither lowers
+  protection: the locked rules stay in force, and nothing leaves unmasked. See
+  [Editions and license](../enterprise/).
+- **Locked rules.** A company sets a floor on its server that no person and no API key can go
+  below: a policy in the format of a rules file, set for every instance with
+  `latet server policy set`. `latet policy check` reads a file first and says what it locks. A change
+  below the floor is refused, naming the setting it lowers, and the dashboard shows each setting the
+  company sets with a lock and *Set by your company*. With `exceptions: company`, only the company's
+  exceptions count. See [Locked rules](../enterprise/locked-rules/).
+- **Single sign-on, groups and roles.** People sign in to the dashboard with their company account
+  through OpenID Connect (Microsoft Entra ID, Okta, Google, Keycloak and others); the identity
+  provider creates, changes and disables their accounts and pushes its groups through SCIM 2.0; five
+  roles (user, group lead, security, auditor, admin), given to people or to groups, decide who sees
+  and changes what, on the **People and groups** page; and the people or groups an administrator
+  chooses control each API key. See [Sign-in, groups and roles](../enterprise/sign-in/).
+- **Reports, the administration log and events to your SIEM.** The server counts requests, masked
+  values and stops by group, project, agent, API key and type of value, never a value itself: the
+  **Reports** page shows them, with CSV and JSON exports, and the **Administration log** page shows
+  what the server's administration did. The events and the log's entries go to Splunk's HTTP Event
+  Collector, to JSON webhooks or to syslog over TLS. A `stopped` event gives its reason from the list
+  *Why a request was stopped* of the reports page, `settings-changed` among them: a SIEM rule
+  written against that list takes it in. See [Reports and administration log](../enterprise/reports/)
+  and [Events to your SIEM](../enterprise/siem/).
+- **Central approvals.** The company's security team decides the changes that lower protection, in
+  place of the person who asked, who sees who decides and can withdraw the change but not approve
+  it; an API key's changes go to the other people who control it. If the company chooses, the
+  security team decides the Live Reviewer's texts too. An administrator turns it on with
+  `latet server approvals set`. See [Central approvals](../enterprise/approvals/).
+- **Synced terms.** The server reads a company's lists of customers, colleagues and project code
+  names on a schedule, from a file or a web address (CSV, JSON or YAML), Microsoft Entra ID, or an
+  LDAP directory such as Active Directory, and masks them for every person and API key it serves,
+  without anyone typing them in. LDAP needs the new `ldap` extra, which the image has. See
+  [Term sync](../enterprise/term-sync/).
+- **Latet Enterprise's own connections, at every address.** The identity provider, a SIEM output
+  (Splunk, a webhook or syslog), a term source at a web address, Microsoft Entra ID and an LDAP
+  directory are reached at the next address their name's lookup checked when the connection to the
+  one before fails, as a person's own destination is since 0.12.1. Once a connection is made, no
+  other address is tried.
+- **What a Community server shows of the edition.** `latet server status` ends each instance's line
+  with its edition, *Community Edition* or *Enterprise Edition*, and the administration API's shared
+  settings say `edition` too. A rule for everyone refused on a Community server says that with the
+  Enterprise Edition such rules are the company's policy, set with `latet server policy set`, beside
+  how to share rules by hand.
+- **A server's answers to agents and programs, sandboxed for a browser.** On a server, every
+  answer under an address for models (`/u/…`) and every answer of the applications API says
+  `Content-Security-Policy: default-src 'none'; sandbox`: a browser that opens one runs no script in
+  it and never treats it as a page of the server's. A cookie that a destination sets reaches the
+  client only for that address and only when it does not bear the name of one of Latet's, and a
+  destination's `Clear-Site-Data` is no longer passed on. HTTP clients ignore the new header.
+- **The Live Reviewer's image, as it leaves now.** An image waiting in the Live Reviewer is painted
+  again when its texts are masked again while it waits, after a change to the rules or the vault, so
+  *As it leaves now* shows what leaves; before, it kept the picture painted when its text first
+  waited. A waiting image is also served to the dashboard with the type its bytes really have, PNG,
+  JPEG, WebP or GIF, never the one its request declared, under a policy that sandboxes it.
+- **Steadier timing tests.** The two tests that time Latet reading a line of `key=value` pairs as
+  long as a text can be now check that the whole line takes less than 30 times its tenth, which a
+  reading that grows with the length meets and one that grows with its square does not, whatever the
+  computer's speed. A slow runner no longer fails them.
+- **Hermes Agent signed in with ChatGPT.** Three of its requests were refused since 0.11.0 and now
+  pass, each by its exact form: a conversation started from its command line or its gateway (a
+  session id of `local-` and 64 hexadecimal digits), a ChatGPT workspace's data residency
+  (`x-openai-internal-codex-residency`, two lowercase letters or `no_constraint`, on ChatGPT's
+  addresses alone), and a resumed conversation whose answers carry their phase (`commentary`,
+  `partial_answer` or `final_answer`, on the model's own messages alone). Any other value is still
+  refused. See [Hermes Agent](../agents/autonomous-agents/#signed-in-with-chatgpt).
+- **A secret before an escaped quote.** In a tool's output that holds a JSON document, a secret
+  written without quotes right before a quote the document escapes (`token=…\"`) was learnt with
+  the backslash, and its fake took the backslash's place, so the document no longer parsed. The
+  backslashes are read as the quote's now: the secret alone is masked, and the document stays whole.
+- **A bearer token followed by dots.** The dots after a token, where a text cuts it short
+  (`Bearer <token>...`) or ends a sentence with it, are no longer read as part of it when what comes
+  before them is a whole token, not a placeholder such as `YOUR_API_KEY`: the token keeps its one
+  fake, and a fake followed by `...` no longer stops a request.
+- **A name in a call's condition.** In code, `f(access_token=fallback or "")` names a variable, as
+  `f(token=fallback)` already did: it is no longer masked as a secret. A value with a digit is still
+  masked, as before.
+- **A secret learnt later, in the conversation's history.** When a later output shows that a value
+  an earlier output named in passing is a secret (a token after `Bearer`), the earlier output is
+  masked again from the next request, once, instead of being sent again in clear. Its text changes
+  for the provider, so the provider's cache of the conversation starts again from there, once.
+  Other values still leave as they left. Claude Code's requests are not concerned: Latet checks
+  them and never rewrites them.
+- **Claude Code 2.1.323.** Every one of its requests was refused, with *unknown member in message*,
+  and nothing was sent. Its three new members pass now, each only as Claude Code sends it: a system
+  message in the conversation that sets the effort from its turn on (`output_config` with `effort`
+  alone), the context editing that keeps the earlier turns' thinking (`context_management`,
+  `clear_thinking_20251015` with `keep: "all"`), and the effort `xhigh`, its default and one of the
+  five values `--effort` takes. The effort `xhigh` passes on any request to Anthropic's API. A
+  request exception approved before for a member under `context_management` or a message's
+  `output_config`, or for a message's `phase` on OpenAI's Responses API, waits for approval again:
+  Latet reads these members by their own rules now.
+- **A field no request profile names yet, read and checked.** An agent stopped working behind Latet
+  each time a new version of it added a member to its requests, until a release of Latet named that
+  member. Latet now reads such a member whole, on every request, those it only checks and those it
+  rewrites, checks it as strictly as a text it masks, and sends it as it came when nothing in it
+  would be masked and it names no file, address, stored conversation or model: a mode, a flag, a
+  number or a short token passes, and so does an object or a list of them. A web address, a file, an
+  attachment, free text inside a provider's own item, encoded content or a sensitive value still
+  stops the request, with the words of before. Such a member is never masked, and its name is never
+  recorded: the dashboard lists *a field no request profile names yet, read and checked* among what
+  let a request through, and a value found in one under the kind *New request member*.
+  `unknown_members: refuse` refuses them as before, in your settings or on the **Rules** page; a
+  project's settings and its repository's `latet.yaml` may only refuse, and with Latet Enterprise a
+  company's policy can lock `refuse`. `latet doctor` and `latet server status` say which value is in
+  force. See [New request members](../getting-started/upgrading-to-0-11/#new-request-members).
+- **An MCP tool's schema, named.** When a value in clear in an MCP tool's parameter schema stops
+  Claude Code's requests, which Latet's plugin cannot mask there, the error names the tool and says
+  what to do: let the value through if it is not sensitive, or turn the server off. The dashboard
+  shows the block as *Tool parameter schema*, with its own explanation. See
+  [Troubleshooting](../troubleshooting/).
+- **CLAUDE.md and your e-mail address, with Claude Code 2.1.322 and later.** In an interactive
+  session Claude Code reads the context of the first message (your CLAUDE.md files, your memory,
+  your e-mail address) before it starts Latet's plugin, and keeps that answer for the whole
+  conversation. The plugin withheld it then, since it did not know yet where the requests go, and
+  Claude worked the whole session without it; nothing was sent in clear. Now the plugin has Claude
+  Code read it again as soon as it knows, and the first message carries it masked. With
+  `claude -p`, the context of the SessionStart hooks, which arrived while the plugin was still
+  starting, waits for it a few seconds instead of being withheld.
+- **Claude Code's connection as it starts.** As it starts, Claude Code opens its connection with a
+  `HEAD` call to `/api/hello`, with no body and no credential, and does not read the answer. Latet
+  refused it, since no profile named it: nothing was sent, but each start left a blocked request in
+  *Sessions*, shown as `/other`, and `latet doctor` listed it among the calls no profile covers. It
+  passes now as it came, under a profile of its own, `anthropic.hello.1`: only as `HEAD`, only to
+  Anthropic's destination, with no query and no body, and only with the headers a profile names.
+- **A secret made of a word and signs alone.** A secret made of a word followed by signs alone, such
+  as a bearer token (`Bearer abcdefghijk.........`, `Bearer abc---------`) or a value after `token
+  =`, could get no fake: Latet took the word for a public prefix, as `sk-ant-` is one, and kept it
+  along with the signs, so the secret's only fake was the secret itself. The request was refused,
+  and so was every later request of the same conversation; nothing was sent. Its letters are now
+  replaced, as any secret's are.
+- **An address and the words around it.** When the name model was not sure that the city belonged
+  to an address such as `via Garibaldi 12 a Bologna`, the street ended on the word before the city,
+  and the street's fake took that word along (`via Mariani 90 p Bologna`). At the start of a
+  sentence, the words before the street (`Abito in via Garibaldi 12`) were masked with it. The
+  street is now masked alone, and the words around it stay as they are.
+- **A secret's fake keeps only its vendor's prefix.** A secret's fake kept up to 24 letters, digits
+  and separators from the start of the value. In a token whose random part holds `-`, `_` or `.`,
+  that ran into the random part, and in a value assigned to a name (`my-company-prod-…`) it kept the
+  value's words: those characters were sent to the provider inside the fake. A fake now keeps only
+  the prefix the vendor puts before every key of its kind (`ghp_`, `sk-ant-api03-`, `AKIA`, and
+  Latet's own `latet_pat_`), and draws every other letter and digit; a secret of any other type keeps
+  none of its letters or digits, only its signs (`-`, `_`, `.`) where they are. A fake also drew a
+  digit where the value has a digit, a capital where it has a capital and a small letter where it has
+  a small letter, so it showed which places of a password such as `Summertime2024`, or of a key,
+  hold a digit, a capital or a small letter. Now each run of letters and digits between signs is
+  drawn from the kinds of characters it holds, at every place: a run of hexadecimal digits from the
+  sixteen of them (`9f2c4e…`), `Summertime2024` from all 62 letters and digits; a recognizer of
+  yours with `class: secret` keeps the shape it documents (`surrogate: shape`: the same kind of
+  character at each place). A fake already in your vault stays as it is, so that
+  a conversation under way sees the same fake; only a value you *Forget* gets a fake of the new kind
+  when it comes back.
+- **Latet's port, reserved on Windows.** Hyper-V, WSL and Docker reserve blocks of ports each time
+  Windows starts, inside Windows' dynamic port range; where a program has moved that range down from
+  49152, a block can take port 5283. The daemon then could not start until the next restart, and
+  the advice Latet gave, `latet global-install`, could not help when the same block held its
+  fallback ports too. The new `latet reserve-port` reserves Latet's port with one administrator's
+  confirmation, so that Windows can no longer take it; where Windows holds it already, it moves
+  Latet to a free port, with the agents `latet global-install` set up, and reserves that one. It
+  asks before it changes anything, an agent cannot run it, and `latet reserve-port --remove` takes
+  away the ports it reserved. The Windows installer offers it at its end where Windows may take the
+  port; `latet start`, `latet claude` and the other wrappers name it where Windows holds the port;
+  `latet doctor` names it too, with a failure where Windows holds the port and a warning where
+  Windows may take it; and `latet global-uninstall` offers to take the reservations away.
+  `latet global-install` now looks for a free port past the ports Windows holds, no longer from 5284
+  to 5335 alone, and a port in an administrator's exclusion or in an IPv6 range alone is no longer
+  taken for one Windows holds. See
+  [Port 5283 is already in use](../troubleshooting/#port-5283-is-already-in-use).
+- **Secrets in your agents' saved sessions.** The new `latet leak` reads the sessions Claude Code,
+  Codex, OpenCode, Copilot CLI, Gemini CLI, Qwen Code and Hermes Agent saved on this computer, with
+  Latet's own detectors, and lists the secrets in them in three lists: in clear, with no sign that
+  Latet replaced them, so they may have reached the provider; replaced by Latet, whose fake left
+  instead; and redacted. A secret shows its type, a hint that keeps only its vendor's public prefix
+  (`ghp_…`), the agents, the sessions, the folders and the dates, never its value; a vendor's keys,
+  the ones to rotate first, come first. It changes nothing and needs no network, and Latet's vault
+  learns nothing from it. See [Secrets in saved sessions](../concepts/leaks/).
+- **The German, French, Italian and Spanish versions, read again.** The documentation and the
+  dashboard in German, French, Italian and Spanish were read again sentence by sentence against the
+  English. Wherever they said something different, or less or more, they were corrected, along with
+  their terms and phrasing.
+- **The documentation's search in Italian, German and French.** In the Italian, German and French
+  documentation, the search answered in English (*17 results for eccezione*): Starlight gives the
+  search its words in Spanish alone, and Pagefind's own translations never reach a page built this
+  way. It now answers in the page's language (*17 risultati per eccezione*).
+- **Dependencies.** The `server` extra brings PyJWT, which checks the ID token of a company sign-in;
+  the new `ldap` extra installs ldap3 and pyasn1, for term sync from LDAP; and httpcore, which httpx
+  already brought, is a dependency of its own. The third-party notices list them.
+- **Upgrading.**
+  - **A server: the tables change.** 0.15.0 adds the Enterprise Edition's tables to every server's
+    database, empty and unused without a license, so the instances cannot be replaced one at a time.
+    Take a copy of the database with `pg_dump` and run `latet server migrate --check` with 0.15.0,
+    which says that the tables change; then stop every instance, run `latet server migrate` once with
+    0.15.0 and start the instances with it, as
+    [Server operations](../concepts/server-operations/#upgrading-and-adding-instances) shows. In the
+    Compose example, `ghcr.io/latet-ai/latet:latest` is 0.15.0 now: pulling it takes the same steps.
+    Its migrations include 018 (`server_notes`), where the server notes that it recorded the new
+    default for new request members below: `latet server migrate` applies it with the others.
+    To go back, restore the copy and start 0.12.1.
+  - **A computer:** `latet upgrade` (in Docker, `docker compose pull` then `docker compose up -d`),
+    and nothing else: the Enterprise Edition is a server's.
+  - **Without a license, the Enterprise Edition changes nothing:** no Enterprise page and no
+    Enterprise setting. A script that reads `latet server status` finds the edition at the end of
+    each instance's line.
+  - **New request members: every installation, servers included, moves to `check`; set `refuse` to
+    keep today's refusal.** A request member no request profile names yet is read and checked from
+    0.15.0 on, no longer refused, without an approval. To keep the refusal, set `unknown_members:
+    refuse`: in `config.yaml` on a computer, in a person's or an API key's settings on a server, or
+    for everyone in the company's policy with Latet Enterprise. On a computer, `latet doctor` says
+    so while `config.yaml` has no such key; `latet server status` says the server's value on a line
+    of its own, a server's first start of 0.15.0 writes one `setting.defaulted` entry to the
+    administration log, and an approval that moves settings from `refuse` back to `check` writes
+    `setting.loosened`.
+  - **To try Latet Enterprise:** ask for a trial at [info@latet.ai](mailto:info@latet.ai), and for
+    term sync from LDAP install the `ldap` extra.
+  - **No key's words made anew:** 0.15.0 makes no API key's words again.
 
 ## 0.12.1 (2026-11-09)
 

@@ -13,6 +13,7 @@ export function StringList({
   transform = (v: string) => v,
   validate,
   emptyLabel,
+  locked = [],
 }: {
   values: string[]
   onChange: (values: string[]) => void
@@ -22,6 +23,8 @@ export function StringList({
   transform?: (value: string) => string
   validate?: (value: string) => string | null
   emptyLabel: string
+  /** Values that stay: set by the company's policy (Latet Enterprise), so they have no remove button. */
+  locked?: string[]
 }) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState('')
@@ -42,14 +45,16 @@ export function StringList({
           {values.map((v) => (
             <li key={v} className="tag h-7 gap-1 pr-0.5 pl-2 text-meta text-ink">
               <span className={mono ? 'mono' : undefined}>{v}</span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm btn-icon h-6 w-6"
-                onClick={() => remove(v)}
-                aria-label={t('rules.remove', { value: v })}
-              >
-                <Icon name="x" size={12} />
-              </button>
+              {!locked.includes(v) && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm btn-icon h-6 w-6"
+                  onClick={() => remove(v)}
+                  aria-label={t('rules.remove', { value: v })}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              )}
             </li>
           ))}
         </ul>

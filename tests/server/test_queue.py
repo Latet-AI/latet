@@ -24,7 +24,8 @@ from typing import Any
 import pytest
 import redis
 
-from latet.config import Config, Destination, TermConfig
+from latet.config import Config, Destination, Profile, TermConfig
+from latet.edition import Community
 from latet.engine.vault import MaskingError
 from latet.gateway import approvals as approvals_module
 from latet.gateway.approvals import Approvals, Change, Decision, HumanMask
@@ -37,7 +38,7 @@ from latet.server.live import ValkeyFeed
 from latet.server.master import MasterKey
 from latet.server.queue import HELD_MS, VIEWERS_MS, BatchRefused, PgChanges, PgSettled, ValkeyApprovals
 from latet.server.sealing import Sealer
-from latet.server.shared import SharedSettings, own_part
+from latet.server.shared import SharedSettings, own_part, repinned, reused, validated
 from latet.server.space_settings import PgSettings, settings_owner
 from latet.state import ApprovalsBackend, IdentityRef, local_backends
 
@@ -132,6 +133,44 @@ async def test_a_batch_is_masked_again_by_its_own_instance_alone_sealed_as_long_
     b.close()
 
 
+async def test_an_image_painted_again_is_sealed_lives_as_long_and_weighs_what_it_weighs_within_its_limits(
+    db, bus, prefix, monkeypatch
+):
+    """``replace`` with pictures (the final security review's approvals L4): each image painted again is written in
+    the step that writes the previews, sealed for its own key, living as long as it was to; the ledger weighs the
+    batch's images as they are now. Pictures past ``IMAGES_LIMIT``, or past the identity's bytes, leave the record and
+    every image as they were (None), and so does a decision that claimed the batch."""
+    queue = ValkeyApprovals(bus, db, identity_in(db), ROOT_KEY, instance="a")
+    first = base64.b64encode(b"Halcyon under a bar" * 500).decode()
+    batch = _pictured({0: _Image(base64.b64encode(b"Halcyon in clear" * 500).decode(), first)})
+    await queue.store(batch)
+    image, record = queue._image_key(batch.id, 0), queue._key("batch", batch.id)
+    lives = bus.client.pttl(image)
+    again = [dict(batch.items[0], masked="call Ada Byron on Friday")]
+    painted = base64.b64encode(b"Halcyon painted again" * 4_000).decode()
+    assert await queue.replace(batch.id, again, {0: (painted, "image/png")}) is not None
+    assert queue.image(batch.id, 0, sent=True) == (painted, "image/png")
+    assert 0 < bus.client.pttl(image) <= lives
+    weight = int(bus.client.hget(queue._key("weights"), f"i:{batch.id}"))
+    assert weight >= bus.client.strlen(image) > len(painted)  # what the image weighs now, at least
+    assert painted[:64].encode() not in valkey_dump(bus, prefix)  # sealed
+    # Past the images' limit, then past the identity's bytes: as it was, the texts' previews too.
+    monkeypatch.setattr(queue_module, "IMAGES_LIMIT", bus.client.strlen(image) + 1_000)
+    later = [dict(batch.items[0], masked="call Ada Byron on Sunday")]
+    assert await queue.replace(batch.id, later, {0: (painted * 2, "image/png")}) is None
+    monkeypatch.setattr(queue_module, "IMAGES_LIMIT", 16 * 1024 * 1024)
+    monkeypatch.setattr(queue_module, "QUEUE_BYTES", int(bus.client.hget(queue._key("weights"), "total")) + 1_000)
+    assert await queue.replace(batch.id, later, {0: (painted * 2, "image/png")}) is None
+    assert queue.image(batch.id, 0, sent=True) == (painted, "image/png") and queue.get(batch.id).items == again
+    assert int(bus.client.hget(queue._key("weights"), f"i:{batch.id}")) == weight
+    assert bus.client.get(record) is not None
+    # A decision claimed it: nothing is painted again.
+    assert bus.client.set(queue._key("decision", batch.id), b"someone", nx=True, px=5_000)
+    assert await queue.replace(batch.id, later, {0: (first, "image/png")}) is None
+    assert queue.image(batch.id, 0, sent=True) == (painted, "image/png")
+    queue.close()
+
+
 async def test_a_batch_a_decision_claimed_is_never_masked_again(db, bus):
     queue = ValkeyApprovals(bus, db, identity_in(db), ROOT_KEY, instance="a")
     batch = _batch(polled=True)
@@ -209,6 +248,42 @@ def test_how_a_change_ended_first_is_how_it_ended(db):
     assert settled[change.id] == elsewhere[change.id] == "approved" and change.id not in list(changes)
     elsewhere["c_unknown0001"] = "rejected"  # never waited here
     assert settled["c_unknown0001"] == "rejected"
+
+
+def _unopenable(self, *args, **kwargs):
+    raise AssertionError("nothing sealed is opened to say what still waits")
+
+
+async def test_which_batches_still_wait_is_read_without_opening_them(db, bus, monkeypatch):
+    """Latet Enterprise's record of approvals asks which of its texts still wait, across identities, in one round trip:
+    by their records' keys alone, nothing opened; the same ids under another identity's id find none."""
+    queue = ValkeyApprovals(bus, db, identity_in(db), ROOT_KEY, instance="a")
+    waiting, settled = _batch(), _batch()
+    await queue.store(waiting)
+    await queue.store(settled)
+    assert queue.settle(settled.id, Decision(False, state="rejected"))
+    monkeypatch.setattr(Sealer, "open_json", _unopenable)
+    assert queue_module.waiting_batches(bus, [(EMILY, waiting.id), (EMILY, settled.id)]) == {waiting.id}
+    assert queue_module.waiting_batches(bus, [(DANIEL, waiting.id), (DANIEL, settled.id)]) == set()
+    assert queue_module.waiting_batches(bus, []) == set()
+    queue.close()
+
+
+def test_how_changes_ended_is_read_by_their_ids(db, monkeypatch):
+    """How the changes the record holds ended, across identities, in one query by the table's key, nothing opened: one
+    that ended as it ended, one still waiting left out, an id never written (or forgotten since) ``gone``; another
+    identity's id finds none of them."""
+    identity_in(db)
+    changes, settled = PgChanges(db, EMILY, ROOT_KEY), PgSettled(db, EMILY)
+    ended, waiting = _a_change("Mercury Labs"), _a_change("Orion")
+    changes.open(ended)
+    assert settled.end(ended.id, "approved")
+    changes.open(waiting)
+    monkeypatch.setattr(Sealer, "open_json", _unopenable)
+    asked = [(EMILY, ended.id), (EMILY, waiting.id), (EMILY, "c_unknown0001")]
+    assert queue_module.ended_changes(db, asked) == {ended.id: "approved", "c_unknown0001": "gone"}
+    assert queue_module.ended_changes(db, [(DANIEL, ended.id)]) == {ended.id: "gone"}
+    assert queue_module.ended_changes(db, []) == {}
 
 
 @pytest.mark.timing
@@ -368,7 +443,9 @@ async def test_a_pending_batch_is_read_in_the_queues_thread_and_what_is_heard_be
     monkeypatch.setattr(b, "get", lambda batch_id: read.append(threading.current_thread()) or get(batch_id))
     feed = ValkeyFeed(b.bus, channel, ROOT_KEY, batches=b.fetch)  # as a space wires it
     viewer = feed.subscribe()
-    settled = ValkeyFeed(a.bus, channel, ROOT_KEY)._message({"id": batch.id, "state": "approved"}, "settled")
+    settled = ValkeyFeed(a.bus, channel, ROOT_KEY)._message(
+        {"id": batch.id, "state": "approved", "by": None}, "settled"
+    )
     try:
         feed.heard({"pending": batch.id})
         feed.heard(settled)  # heard behind it, before its batch is read
@@ -376,7 +453,7 @@ async def test_a_pending_batch_is_read_in_the_queues_thread_and_what_is_heard_be
     finally:
         feed.close()
     assert first[0] == "pending" and first[1]["id"] == batch.id
-    assert second == ("settled", {"id": batch.id, "state": "approved"})
+    assert second == ("settled", {"id": batch.id, "state": "approved", "by": None})
     assert read and all(thread.name.startswith("latet-queue") for thread in read)
 
 
@@ -420,7 +497,9 @@ async def test_what_is_heard_while_a_pending_batch_is_read_comes_after_it(db, qu
     monkeypatch.setattr(b, "get", held)
     feed = ValkeyFeed(b.bus, channel, ROOT_KEY, batches=b.fetch)
     viewer = feed.subscribe()
-    settled = ValkeyFeed(a.bus, channel, ROOT_KEY)._message({"id": batch.id, "state": "approved"}, "settled")
+    settled = ValkeyFeed(a.bus, channel, ROOT_KEY)._message(
+        {"id": batch.id, "state": "approved", "by": None}, "settled"
+    )
     try:
         feed.heard({"pending": batch.id})
         assert await asyncio.to_thread(reading.wait, 10)
@@ -432,7 +511,7 @@ async def test_what_is_heard_while_a_pending_batch_is_read_comes_after_it(db, qu
         release.set()
         feed.close()
     assert first[0] == "pending" and first[1]["id"] == batch.id
-    assert second == ("settled", {"id": batch.id, "state": "approved"})
+    assert second == ("settled", {"id": batch.id, "state": "approved", "by": None})
 
 
 async def test_approving_every_batch_settles_them_in_the_queues_thread_and_wakes_the_waits_here(
@@ -610,6 +689,8 @@ async def test_each_instance_reaps_the_batches_it_holds_counting_the_polls_of_ev
         polled = await approvals.open(_batch(polled=True))
         there = b.get(polled.id)
         assert there is not None and b.timings() == []  # held by instance a: b's reaper never reads it
+        [found] = a.timings()
+        assert found.decides == "self" and found.agent == polled.agent
         b.polled(there, 1)  # the plugin's poll, held open on instance b
         await approvals.open(expiring)
         decision = await asyncio.wait_for(expiring.future, 5)
@@ -735,7 +816,7 @@ def _space(db, shared, folder):
     try:
         runtime = make_runtime(
             None, data=folder, record=False, root_key=ROOT_KEY, backends=backends,
-            identity=IdentityRef(EMILY, "Emily Carter", "person"),
+            identity=IdentityRef(EMILY, "Emily Carter", "person"), edition=Community(),
         )  # fmt: skip
     except BaseException:
         backends.vault.close()
@@ -1099,8 +1180,10 @@ async def test_an_answer_past_the_byte_budget_is_kept_as_an_error_and_one_taken_
         await a.store(batch)
         assert a.settle(batch.id, Decision(True))
     large = {"items": [{"text": "x" * 2_000_000, "count": 0}], "degraded": []}  # a call's items as they leave
-    a.give(first.id, large)
-    a.give(second.id, large)  # past the budget: the plugin is told it failed, and nothing of it leaves
+    assert a.give(first.id, large) is True
+    # Past the budget: the plugin is told it failed, nothing of it leaves, and give says it was not kept as given, so
+    # that a decider's approval of it is never taken (the re-review of the final security review's fix rounds, R1).
+    assert a.give(second.id, large) is False
     instead = await b.answer(second.id, 5)
     assert instead is not None and set(instead) == {"error"} and " off" not in instead["error"]
     assert _strings(a.bus, prefix) <= 3 * 1024 * 1024
@@ -1179,16 +1262,111 @@ def test_settings_heavier_than_the_limit_are_not_kept(db, bus, monkeypatch):
     heavy = store.prepare(Config(terms=[TermConfig(value=f"Client {n:04}") for n in range(200)]))
     with pytest.raises(OSError, match="4096"):
         store.save(heavy)
-    with pytest.raises(OSError, match="8192"):  # a person's snapshot: both parts' limits
+    with pytest.raises(OSError, match="12288"):  # a person's snapshot: three parts' limits (R58)
         store.save_reviewed(heavy)
     assert _kept(db, "own") is None and _kept(db, "reviewed") is None
 
 
+def test_the_approved_own_part_is_kept_with_a_person_s_snapshot_only_when_it_is_what_was_approved(db, bus):
+    """R58: a save approved keeps its own part with the snapshot; settings applied while the own part kept holds more
+    (a composition) leave the approved own part as it was; a snapshot kept before E5 reads, with no own part, until it
+    is written again."""
+    identity_in(db)
+    store = PgSettings(db, SharedSettings(db, bus, MASTER), EMILY, ROOT_KEY)
+    found = store.load()
+    approved = store.prepare(found.model_copy(update={"terms": [TermConfig(value="Vega")]}))
+    store.save(approved)
+    store.save_reviewed(approved)
+    assert store.approved_own() == store._own() and store.reviewed() == approved
+    lowered = store.prepare(approved.model_copy(update={"allow_values": ["ACME"]}))
+    store.save(lowered)  # her own part now holds what nobody approved
+    store.save_reviewed(approved)  # what is applied is the approved settings (a composition), not what is kept
+    assert "allow_values" not in (store.approved_own() or {})
+    _keep(
+        db, "reviewed", Sealer(ROOT_KEY, b"settings").seal_json(approved.model_dump(mode="json"), f"{EMILY}:reviewed")
+    )
+    fresh = PgSettings(db, SharedSettings(db, bus, MASTER), EMILY, ROOT_KEY)
+    assert fresh.reviewed() == approved and fresh.approved_own() is None
+    # R71 (the re-review's RR3-m1): the upgrade's first write while a change waits keeps no own part; the next write
+    # of the same settings once nothing waits keeps it, never returning early on a pair without one.
+    fresh.load()
+    fresh.save_reviewed(approved)  # her own part kept holds ACME: not the approved settings
+    assert fresh.approved_own() is None
+    fresh.save(fresh.prepare(approved))  # what waited is gone: the settings kept are the approved ones again
+    fresh.save_reviewed(approved)
+    assert fresh.approved_own() == fresh._own() and "allow_values" not in fresh._own()
+
+
+def test_a_person_s_snapshot_reads_as_the_settings_approved_to_a_release_before_e5(db, bus):
+    """The whole-branch security review's M1: a release before E5 reads a person's approved snapshot as settings
+    (``Config.model_validate``, which ignores a key it has no field for), and an instance of one may still run while the
+    instances are replaced one at a time. The snapshot keeps the settings approved at its top level, so that it reads
+    them, never Latet's defaults (which would apply what waits for her as approved); the own part approved with them is
+    kept beside them, under a key the settings have no field for."""
+    identity_in(db)
+    shared = SharedSettings(db, bus, MASTER)
+    store = PgSettings(db, shared, EMILY, ROOT_KEY)
+    found = store.load()
+    approved = store.prepare(found.model_copy(update={"terms": [TermConfig(value="Vega")], "profile": Profile.MAX}))
+    store.save(approved)
+    store.save_reviewed(approved)
+    assert store.approved_own() == store._own()
+    kept = Sealer(ROOT_KEY, b"settings").open_json(_kept(db, "reviewed"), f"{EMILY}:reviewed")
+    assert Config.model_validate(kept) == approved  # how a release before E5 makes settings of it
+    assert repinned(validated(reused(kept, shared.get())), shared.get()) == approved  # its whole reading
+    # What such a release writes back is the settings alone: read here, no own part is approved with them, and what
+    # arrives next goes to whoever decides for the company (``own_lowers`` answers True).
+    _keep(db, "reviewed", Sealer(ROOT_KEY, b"settings").seal_json(Config.model_validate(kept).model_dump(mode="json"),
+                                                                   f"{EMILY}:reviewed"))  # fmt: skip
+    fresh = PgSettings(db, shared, EMILY, ROOT_KEY)
+    assert fresh.reviewed() == approved and fresh.approved_own() is None
+
+
+def test_a_pair_written_on_e5_s_branch_before_the_review_still_reads_and_is_written_again_as_it_is_now(db, bus):
+    """The pair ``{"settings", "own"}`` that E5's branch wrote before the security review's M1 reads as it did: the
+    settings approved, and the own part approved with them; once the settings kept are the settings approved, it is
+    written again in the shape a release before E5 reads."""
+    identity_in(db)
+    shared = SharedSettings(db, bus, MASTER)
+    store = PgSettings(db, shared, EMILY, ROOT_KEY)
+    found = store.load()
+    approved = store.prepare(found.model_copy(update={"terms": [TermConfig(value="Vega")]}))
+    store.save(approved)
+    own = store._own()
+    sealer = Sealer(ROOT_KEY, b"settings")
+    _keep(db, "reviewed", sealer.seal_json({"settings": approved.model_dump(mode="json"), "own": own},
+                                           f"{EMILY}:reviewed"))  # fmt: skip
+    fresh = PgSettings(db, shared, EMILY, ROOT_KEY)
+    fresh.load()
+    assert fresh.reviewed() == approved and fresh.approved_own() == own
+    fresh.save_reviewed(approved)
+    kept = sealer.open_json(_kept(db, "reviewed"), f"{EMILY}:reviewed")
+    assert Config.model_validate(kept) == approved and fresh.approved_own() == own
+
+
+def test_an_own_part_that_does_not_open_is_never_approved_nor_replaced_by_an_older_one(db, bus):
+    """The review of Task 2, m3: settings approved while the own part kept does not open keep no own part approved, not
+    the one approved before either (an item of her own added since would be missing from it, and its removal unseen):
+    what arrives next goes to whoever decides for the company."""
+    identity_in(db)
+    store = PgSettings(db, SharedSettings(db, bus, MASTER), EMILY, ROOT_KEY)
+    found = store.load()
+    approved = store.prepare(found.model_copy(update={"terms": [TermConfig(value="Vega")]}))
+    store.save(approved)
+    store.save_reviewed(approved)
+    assert store.approved_own() == store._own()
+    _keep(db, "own", b"written by hand")  # it does not open
+    later = approved.model_copy(update={"terms": [*approved.terms, TermConfig(value="Lyra")]})
+    store.save_reviewed(later)
+    kept = store.reviewed()
+    assert store.approved_own() is None and kept is not None and "Lyra" in _terms(kept)
+
+
 def test_a_persons_approval_is_kept_when_both_parts_of_her_settings_are_near_their_limits(db, bus, monkeypatch):
-    """A person's approved snapshot holds the shared settings whole and her own part: bound at the sum of both parts'
-    limits, her approval of settings whose two parts each weigh near theirs is kept, where it was refused at every
-    apply (whatever lowered protection was then composed back and asked again). An API key's holds its own part alone,
-    bound as that part is."""
+    """A person's approved snapshot holds the shared settings whole and her own part twice (the settings approved, and
+    the own part approved with them): bound at three parts' limits, her approval of settings whose two parts each weigh
+    near theirs is kept, where it was refused at every apply (whatever lowered protection was then composed back and
+    asked again). An API key's holds its own part alone, bound as that part is."""
     identity_in(db)
     shared = SharedSettings(db, bus, MASTER)
     gateways = [Destination(name=f"gateway-{n:04}", url=f"https://gateway-{n:04}.acme.com") for n in range(150)]
@@ -1505,12 +1683,12 @@ def test_a_snapshot_that_cannot_be_kept_still_tells_the_own_part_written_for_it(
     store.load()
     store.save(store.prepare(Config(retention_days=30)))  # what waits for the person: counted, and told to nobody
     config = store.prepare(Config(terms=[ORION]))  # other settings are applied
-    monkeypatch.setattr(space_settings, "SETTINGS_LIMIT", 500)  # their own part fits, their snapshot does not
-    with pytest.raises(OSError, match="1000"):  # a person's snapshot: both parts' limits
+    monkeypatch.setattr(space_settings, "SETTINGS_LIMIT", 400)  # their own part fits, their snapshot does not
+    with pytest.raises(OSError, match="1200"):  # a person's snapshot: three parts' limits (R58)
         store.save_reviewed(config)
     assert told == [] and _counter(db, settings_owner(EMILY)) == 1  # what waits is still told to nobody
     store.save(config)
-    with pytest.raises(OSError, match="1000"):
+    with pytest.raises(OSError, match="1200"):
         store.save_reviewed(config)
     assert told == [2] and _counter(db, settings_owner(EMILY)) == 2  # the own part's own count, and no second one
     assert _kept(db, "reviewed") is None

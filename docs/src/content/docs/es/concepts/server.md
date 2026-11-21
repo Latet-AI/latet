@@ -13,33 +13,33 @@ la detección ni protege el tráfico que nunca llega a Latet.
 ## Clientes conectados
 
 El equipo debe usar la ruta del servidor y mantener privadas las vinculaciones de conexión
-y credenciales. El enmascarado en el servidor cubre los clientes puerta de enlace.
-Claude Code también necesita el plugin: en el terminal Windows conectado admitido, la
+y credenciales. El enmascaramiento en el servidor cubre los clientes en modo puerta de enlace.
+Claude Code también necesita el plugin: en el caso compatible, un terminal de Windows conectado, la
 vinculación privada del proceso auxiliar y los ajustes de confianza eligen el bridge del
-servidor. El token personal pasa por stdin; la vinculación de metadatos no almacena tokens.
+servidor. El token personal del proceso auxiliar pasa por stdin; la vinculación de metadatos no almacena tokens.
 Una vinculación ausente o insegura detiene esa ruta.
 
 Para las peticiones reconocidas como Claude, el plugin enmascara las descripciones de
 herramientas, y la comprobación final del servidor también lee las descripciones, los esquemas
 de parámetros y los ejemplos de las herramientas: un valor que quede en claro en ellos detiene la
-petición. Los marcadores no certifican que el plugin se haya ejecutado. Lee el
+petición. Los marcadores de la petición no demuestran que el plugin se haya ejecutado. Lee el
 [alcance de la protección](../protection-scope/) para conocer esta excepción limitada y
-los controles separados de esquemas de salida. [Conectar un equipo](../../getting-started/server/)
-explica la aplicación, el diagnóstico, el reenvío de identidad y la desconexión.
+las comprobaciones aparte de los esquemas de salida. [Conectar un equipo](../../getting-started/server/)
+explica cómo configurar los agentes, el diagnóstico, el reenvío de la identidad y la desconexión.
 
-Si Latet está apagado en una carpeta, una petición que una instancia recibe para ella antes de que el plugin se
-lo haya comunicado al servidor se enmascara como si Latet estuviera encendido: ante la duda, protege.
+Si Latet está desactivado en una carpeta, una petición que una instancia recibe para ella antes de que el plugin se
+lo haya comunicado al servidor se enmascara como si Latet estuviera activado: ante la duda, protege.
 
 ### El token y la clave de un equipo
 
 Cuando un equipo se conecta, el servidor le da dos secretos, cada uno mostrado una sola vez. El
 **token** va a los agentes: Claude Code lo guarda en sus ajustes y su entorno (`LATET_BRIDGE_TOKEN`),
 donde cada comando que ejecuta puede leerlo. Desde cualquier lugar donde se alcance el servidor, el
-token abre el bridge del plugin y el proxy del espacio (quien lo tenga puede hacer enmascarar textos en
-el espacio y hacer restaurar los valores ficticios que tenga), dice de quién es y se revoca a sí mismo. La
+token abre el bridge del plugin y el proxy del espacio (quien lo tenga puede hacer que se enmascaren textos en
+el espacio y que se restauren los valores reales de los valores ficticios que contienen), dice de quién es y se revoca a sí mismo. La
 **clave del equipo** se queda en el almacén de credenciales del equipo, o en el archivo privado del
 token, y ningún agente la recibe: el servidor la pide también antes de dar un enlace de inicio de sesión
-al panel o de añadir algo a la identidad de la persona, así que el token solo nunca abre el panel, donde
+al panel o de añadir algo a la identidad de la persona, así que el token por sí solo nunca abre el panel, donde
 se puede mostrar cada original, y nunca reduce la protección de la persona: el único cambio que puede
 hacer en sus ajustes es añadir un destino para una dirección, lo que no reduce nada. La clave impide que
 un token filtrado (desde el entorno, los ajustes, un registro o con un solo `curl`) abra el panel; no
@@ -50,7 +50,7 @@ detiene un comando escrito para leer los dos del almacén de credenciales. En un
 ### Lo que queda en el equipo
 
 - **El `latet.yaml` de un repositorio no se aplica.** El servidor no lee ningún archivo del equipo:
-  lo que un equipo de trabajo comparte en su archivo de proyecto (un perfil más estricto, sus términos
+  lo que un grupo de compañeros comparte en el archivo del proyecto (un perfil más estricto, sus términos
   y reconocedores) no llega a las peticiones de una persona conectada. En un proyecto así,
   `latet doctor` y `latet claude` lo dicen. Ajústalo en tu panel: importa el `latet.yaml` del
   proyecto en **Reglas** con **Importar reglas**.
@@ -69,8 +69,8 @@ ejemplo la autoridad de su empresa. Un certificado autofirmado solo llega a los 
 `latet server certificate --make`, limitado al nombre o la dirección del servidor; un certificado de la
 autoridad de la empresa funciona tal cual.
 
-Al arrancar, los agentes también llaman a sus propios proveedores, fuera de Latet: Claude Code
-`api.anthropic.com`, con su clave de API, salvo que su tráfico no esencial esté desactivado en su configuración;
+Al arrancar, los agentes también llaman a sus propios fabricantes, fuera de Latet: Claude Code
+`api.anthropic.com`, con su clave de API, salvo que su tráfico no esencial esté desactivado en sus ajustes;
 Codex `chatgpt.com` y `api.github.com` para sus plugins; OpenCode el registro de npm y GitHub. Ninguna de esas
 llamadas lleva la dirección del espacio, su clave de ruta ni el token. Donde el servidor deba ser el único camino
 hacia los modelos, bloquea los hosts de los proveedores de modelos, entre ellos `api.anthropic.com` y
@@ -87,15 +87,15 @@ deny   every other host of the AI providers
 
 ## Espacios e instancias
 
-Cada persona y cada clave de API tiene un espacio separado, con su caja fuerte, historial
-y ajustes. Los equipos de una persona comparten ese espacio. Una clave de API representa
+Cada persona y cada clave de API tiene un espacio separado, con su propia caja fuerte, su
+historial y sus ajustes. Los equipos de una persona comparten ese espacio. Una clave de API representa
 un programa, no tiene panel personal y recibe sus ajustes del administrador.
 
 Una instancia es un proceso del servidor de Latet en ejecución. Varias instancias pueden
 servir la misma dirección HTTPS pública detrás de un equilibrador de carga, usando la
 misma base de datos PostgreSQL, Valkey y clave maestra, y una máquina puede ejecutar varias,
 llamadas workers. PostgreSQL guarda el estado duradero; Valkey coordina el estado temporal. Las
-solicitudes no necesitan afinidad de sesión. Añadir instancias no crea copias separadas del espacio
+peticiones no necesitan afinidad de sesión. Añadir instancias no crea copias separadas del espacio
 de una persona. Consulta los requisitos de los servicios en
 [Operación del servidor](../server-operations/).
 
@@ -106,7 +106,7 @@ palabras de la caja fuerte y cada valor que ninguna palabra de un texto encuentr
 en PostgreSQL cuando un texto los necesita. Antes de cada petición lee en PostgreSQL qué han cambiado
 las otras instancias, así que un valor guardado u olvidado en una instancia antes de que empiece una
 petición lo ve esa petición en cualquier otra. Una persona cuya caja fuerte contiene valores
-guardados antes de Latet 0.10.0 se sirve como la servía la 0.10.0 hasta que su espacio se vuelve a
+guardados antes de Latet 0.10.0 recibe el mismo servicio que con la 0.10.0 hasta que su espacio se vuelve a
 construir después de que se crean sus palabras: su espacio guarda en memoria toda su caja fuerte, sea
 cual sea su tamaño, y no lee ningún contador de cambios, así que un valor que otra instancia guarda le
 llega por su mensaje o, cuando el mensaje se pierde, por la siguiente comprobación del latido.
@@ -121,7 +121,7 @@ correspondiente no se pueden recuperar los datos cifrados.
 
 Algunos metadatos siguen siendo legibles en PostgreSQL: nombres y direcciones de correo
 de las identidades, identificadores externos, etiquetas, permisos y fechas de los tokens, nombres
-de reglas de la caja fuerte, contadores y fechas, y actores, acciones, destinos, identificadores,
+de reglas de la caja fuerte, contadores y fechas, y actores, acciones, objetos, identificadores,
 recuentos y direcciones de clientes del registro de administración. Los identificadores
 de proyecto y conversación del historial usan hashes con clave. Cada caja fuerte, la de una persona
 como la de una clave de API, guarda además las palabras de sus valores y de sus valores ficticios
@@ -141,7 +141,7 @@ Valkey usa nombres derivados con clave, datos sensibles cifrados y mensajes de c
 
 El cifrado en reposo no oculta los originales al servidor en ejecución ni a su operador.
 Las vistas autorizadas del panel reciben los originales en el navegador. Un administrador
-puede emitir el código de registro de una persona y usarlo para acceder a su panel;
+puede emitir el código de un solo uso de una persona y usarlo para acceder a su panel;
 esa operación queda registrada. También puede configurar un servicio revisor que reciba
 texto original. Por tanto, debes confiar en los administradores del servidor, en quien
 opera la instalación y en ese revisor. El cifrado y las firmas no impiden que alguien
@@ -160,13 +160,13 @@ texto, el historial y su conservación. Los establecen los administradores. Las 
 personas establecen las suyas en su panel, y un administrador establece las de una clave de API
 con `latet server config --key` y `latet server rules --key`.
 
-Un equipo de trabajo comparte sus reglas a mano: una persona las exporta (**Exportar reglas** en la página
+Un grupo de compañeros comparte sus reglas a mano: una persona las exporta (**Exportar reglas** en la página
 **Reglas** del panel, o `latet rules export` en un equipo no conectado a un servidor) y cada uno
 importa el archivo en su propio panel. [Exportar e importar](../export-import/) describe el
-archivo. Las reglas establecidas para todos, que nadie puede relajar, están previstas para la
-Enterprise Edition.
+archivo. Las reglas establecidas para todos, que nadie puede relajar, son las
+[reglas bloqueadas](../../enterprise/locked-rules/) de la Enterprise Edition de un servidor.
 
-Un cambio compartido que reduce la protección, como un destino movido o el revisor apagado, espera
+Un cambio compartido que reduce la protección, como un destino trasladado o el revisor desactivado, espera
 la aprobación de la persona. Mientras tanto, siguen en vigor los ajustes más estrictos que ya
 aprobó. Guardar cambios propios no aprueba el cambio compartido pendiente, aunque el guardado
 incluya el mismo elemento. Un guardado personal no puede eliminar sin avisar un destino
@@ -202,17 +202,17 @@ conexión todavía abierta); la siguiente solo se intenta cuando la conexión a 
 nada de la petición. Para estos destinos no se usa ningún proxy. Solo un administrador, en los ajustes compartidos,
 define un destino dentro de la red.
 
-Un servidor solo IPv6 detrás de un DNS64 con el prefijo conocido no alcanza, por tanto, ningún destino propio
+Un servidor solo IPv6 detrás de un DNS64 con el prefijo bien conocido no alcanza, por tanto, ningún destino propio
 accesible solo por IPv4.
 
 ## Los límites de un espacio
 
-- **Reglas:** los ajustes propios de una persona contienen como máximo 500 reconocedores, 500 reglas de campos
+- **Reglas:** los ajustes propios de una persona contienen como máximo 500 reconocedores, 500 reglas de campo
   y 500 patrones de valores que nunca se enmascaran, contados sobre los ajustes y todos sus proyectos. Un
   guardado que los supere se rechaza.
 - **Proyectos:** como máximo 200 por persona.
 - **Valores:** un valor de más de 16.384 caracteres se suprime en lugar de sustituirse por un valor ficticio,
-  y nunca se guarda ni se restaura; un término tiene como máximo 8.192 caracteres.
+  y nunca se guarda ni se restaura; un término tiene como máximo 8192 caracteres.
 - **Memoria:** una instancia, y cada worker, da a sus espacios 2 GiB fijos, y un espacio usa como máximo la
   mitad, con hasta una octava parte de esa mitad más para sus detectores (128 MiB). Un espacio que llega a su
   parte no aprende valores nuevos: una petición que trae uno se detiene con un mensaje que lo dice, hasta que se
@@ -223,7 +223,7 @@ accesible solo por IPv4.
 
 ## El límite de la protección
 
-Latet solo puede examinar las solicitudes compatibles que pasan por él. Si la política
+Latet solo puede examinar las peticiones compatibles que pasan por él. Si la política
 de la empresa exige que todo el tráfico de los modelos pase por el servidor, la red
 debe impedir que los equipos lleguen directamente a los proveedores. Configura y mantén
 esa restricción en el límite de la red; Latet no la instala ni la aplica. El tráfico
@@ -231,7 +231,7 @@ de red arbitrario de las herramientas queda fuera de esta garantía.
 
 [Qué está protegido y qué no](../protection-scope/) describe los límites de detección,
 imágenes y protocolos. El contenido no compatible puede rechazarse o retenerse en una
-ruta de servidor protegida; una marca histórica o un endpoint disponible del proveedor
+ruta de servidor protegida; un indicador histórico o un punto de conexión disponible del proveedor
 no demuestra compatibilidad. Un servidor no puede leer el repositorio de un equipo
 conectado solo porque aparezca un proyecto en su panel. La información del proyecto
 que tiene es la que se le ha facilitado.

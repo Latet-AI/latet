@@ -20,9 +20,14 @@ Quest'unico comando:
   `openai_base_url`, per OpenCode gli override di `baseURL`. Se nel frattempo hai modificato uno di
   questi file, Latet rimuove solo ciò che ha aggiunto e mantiene le tue modifiche;
 - rimuove l'avvio all'accesso;
-- ferma il daemon.
+- ferma il daemon;
+- su Windows, dove Latet ha riservato la sua porta (vedi
+  [La porta 5283 è già in uso](../../troubleshooting/#la-porta-5283-è-già-in-uso)), chiede se
+  liberare anche la porta riservata, con una sola conferma di un amministratore. Se rispondi di no,
+  la porta resta riservata, e `latet reserve-port --remove` la libera più avanti: eseguilo prima del
+  passaggio 2.
 
-Non cambia gli strumenti che hai puntato tu su Latet, nelle loro impostazioni o nella tua shell:
+Non cambia gli strumenti che hai fatto puntare tu a Latet, nelle loro impostazioni o nella tua shell:
 GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie, Android Studio, Hermes
 Agent, OpenClaw, Goose, OpenHands, Aider, e una riga `latet env` nel profilo della tua shell.
 Rimetti in ciascuno il suo indirizzo, altrimenti falliscono con errori di connessione quando il
@@ -78,8 +83,8 @@ Se hai impostato `LATET_DATA_DIR` o `LATET_CONFIG`, guarda invece lì. La cartel
 - `logs/`, `bridge.token`, `integrations.json` (il registro di ciò che `latet global-install` ha
   cambiato), `claude-marketplace/` (la copia del plugin di Claude Code), `tutorial.json` (i capitoli
   del [tutorial](../tutorial/) che hai completato), `repositories.json` (le cartelle dei repository con
-  un `latet.yaml` che Latet ha visto), e `root.key` se il tuo sistema non ha un archivio delle
-  credenziali.
+  un `latet.yaml` che Latet ha visto), `port-reservations.json` (su Windows, le porte che Latet ha
+  riservato), e `root.key` se il tuo sistema non ha un archivio delle credenziali.
 
 La chiave che cifra la cassaforte sta nell'archivio delle credenziali del tuo sistema operativo
 (Gestione credenziali di Windows, il Portachiavi di macOS, o il portachiavi del desktop su Linux),
@@ -105,12 +110,16 @@ Annulla le modifiche a mano:
   che puntano a `127.0.0.1:5283`.
 - **Altri client**: rimuovi le variabili `OPENAI_BASE_URL`, `OPENAI_API_BASE`, `ANTHROPIC_BASE_URL`,
   `GOOGLE_GEMINI_BASE_URL` e `GOOGLE_VERTEX_BASE_URL`, o rimetti l'URL di base che usavi prima.
-  Negli strumenti che hai puntato tu su Latet nelle loro impostazioni, rimetti il loro indirizzo.
+  Negli strumenti che hai fatto puntare tu a Latet nelle loro impostazioni, rimetti il loro indirizzo.
 - **Avvio all'accesso**: su Windows, elimina il valore `Latet` in
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Su macOS, esegui
   `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/dev.latet.daemon.plist`, poi elimina quel
   file. Su Linux, esegui `systemctl --user disable latet.service`, poi elimina
   `~/.config/systemd/user/latet.service`.
+- **La porta di Latet, su Windows**: `port-reservations.json`, nella cartella dei dati, elenca le
+  porte che Latet ha riservato. Per ciascuna, esegui questo in una finestra di PowerShell avviata
+  come amministratore, con la porta al posto di `5283`:
+  `netsh int ipv4 delete excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent`.
 
 Le copie dei tuoi file di configurazione di prima di `latet global-install` sono nella cartella
 `backups/` della cartella dei dati.

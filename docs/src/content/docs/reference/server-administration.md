@@ -16,14 +16,20 @@ latet server --server https://latet.acme.lan status
 
 `status` lists every instance of the server that is alive, each worker of each machine on a line of its
 own: its id, its worker number, whether it is ready, its memory and its vaults' indexes in MiB, its
-spaces and its version; what an instance did not say is shown as unknown or left out. An instance of
-Latet 0.10 or older says nothing of itself: when an instance of 0.11 answers, it lists one of 0.10
-still alive by its id, as Latet 0.10 or older; a server still on 0.10 answers with the instance that
-answered alone. Before an upgrade, `latet server migrate` is the check: it changes no table while an
-instance of any version is alive, one of 0.10 for 30 seconds after it stops, and says how many are
-alive and of which version. The list comes from a bounded read of Valkey's keys: when that read was cut
-at its bound, `status` says `instances: the list is partial, cut at its bound: an instance may be
-alive and not listed`, and its answer's `instances_whole` is false (null when Valkey did not answer).
+spaces and its version; what an instance did not say is shown as unknown or left out. A line of its own,
+`new request members:`, says how a request member no request profile names yet is read for every
+identity: `read and checked` (`unknown_members: check`, where an identity's own settings may set
+`refuse`), `refused for every identity` where the company's policy locks `refuse`, or `cannot be said
+now` when the server cannot read its shared settings or the policy at that moment ([New request
+members](../../getting-started/upgrading-to-0-11/#new-request-members)). An instance of Latet 0.10 or
+older says nothing of itself: when an instance of 0.11 answers, it lists one of 0.10 still alive by its
+id, as Latet 0.10 or older; a server still on 0.10 answers with the instance that answered alone. Before
+an upgrade, `latet server migrate` is the check: it changes no table while an instance of any version is
+alive, one of 0.10 for 30 seconds after it stops, and says how many are alive and of which version. The
+list comes from a bounded read of Valkey's keys: when that read was cut at its bound, `status` says
+`instances: the list is partial, cut at its bound: an instance may be alive and not listed, and run
+another release or edition`, and its answer's `instances_whole` is false (null when Valkey did not
+answer).
 
 On the server's machine, `latet server run --workers N` starts N instances, the workers, on the one
 port, each a process of its own; `LATET_SERVER_WORKERS` or `workers` in `server.yaml` gives the same,
@@ -68,8 +74,9 @@ removing entries from the end leaves the remaining chain whole.
 `latet server init` prints the first token to whoever initializes the server, and each token can issue
 others. A token is not a person: the administration log names the token that did each thing
 (`admin:a_3fk7…`), and an administrator needs no space of their own on the server, though they can be
-added as a person like anyone else. In the Community Edition every token can do everything;
-roles, such as a read-only auditor, are planned for the Enterprise Edition.
+added as a person like anyone else. Every administration token can do everything, in either
+edition. With the Enterprise Edition, people of the company can be given roles in the dashboard, such as an auditor who
+reads the reports and the administration log and changes nothing.
 
 A token issued without `--days` or `--never` ends after `admin_token_days` (90 days unless the
 server's settings say otherwise), or earlier when the token that issued it ends first; one with
@@ -94,8 +101,10 @@ it. A token with `--days` cannot end after the token that issues it: the server 
 database can be reached, `latet server init --new-admin-token` issues a new one (with `--never`, a
 spare kept apart). In the Compose deployment, run the initialization's `docker run` from
 [Server operations](../../concepts/server-operations/) again, ending in
-`server init --new-admin-token`, with Docker's logging off as before. Revoke the lost ones
-afterwards, if they have not ended. People, API keys, settings, vaults and history are unchanged
+`server init --new-admin-token`, with Docker's logging off as before. As there, a person runs
+it, in a terminal of their own, never an AI agent: whoever runs it holds the new token, and inside
+a container Latet's guard against agents cannot see who runs it. Revoke the lost ones afterwards,
+if they have not ended. People, API keys, settings, vaults and history are unchanged
 either way.
 
 **A token that leaked**: revoke it at once from another token, then read what it did:
@@ -142,6 +151,15 @@ Actions name what changed (`person.added`, `code.issued`, `token.added`, `token.
 recorded under the call's name (`status.read`, `log.read`): `--action 'admin-token.*'` selects every
 change of the administration tokens.
 
+Two actions record how a request member no request profile names yet is read (`unknown_members`),
+never a folder or a member's name. `setting.defaulted` is written once for the server, by `server`, at
+the first start of 0.15.0: its target `unknown_members`, the value `check` that every identity moved
+to, and the version. `setting.loosened` is an approval that moves a person's or an API key's settings
+from `refuse` to `check`: the setting, the value, the kind of its scope (`identity` when the settings
+themselves move, `project` when a project stops refusing) and how many projects; its actor is the
+identity whose change it is, or the person who decided it for them. The administration's own save of
+an API key's settings is `settings.changed`, as before.
+
 An API key's tokens are named by their id, never by their secret or their name: `token.added` gives
 the new token and its permissions, `key.rotated` the token that stands (`token`) and the one it
 replaced (`replaced`), and `key.updated` a change such as the key's vault limit (`vault_limit`).
@@ -150,6 +168,7 @@ and how many values it restored, never a text or a value. `--action apps.unmaske
 unmasked, and when. `key.forgotten` and `apps.forgotten` are values taken out of an API key's vault,
 by `keys forget` and through the applications API: how many values were asked, forgotten and not in
 the vault, and for the API the token, never a value.
+
 To resume, pass the printed log cursor with `--cursor` and exactly the same original filters.
 Use absolute dates or exact epoch seconds when you need to resume later: a relative time such
 as `7d` changes between invocations. Never replace `--until` with a rounded time from the
@@ -171,6 +190,15 @@ The first page fixes an insertion ceiling: later entries, even with earlier time
 not join that traversal. Retention or deletion can still remove unread entries. Exhaustion
 only means that no more matching rows were visible to those reads; it is not an immutable
 export or a chain check. Use `log verify` separately, retaining its missing-tail limitation above.
+
+Latet Enterprise's term sync records four actions, with the names of sources and counts, never a term or a secret:
+
+| Action | What it records |
+| --- | --- |
+| `terms.source.changed` | Term sync's sources were set (`added`, `removed`, `changed`: their names; `fields`: the fields that changed in each, never their values) |
+| `terms.secret.changed` | A source's secret was set or removed (`saved`, `removed`: the sources' names) |
+| `terms.removed` | Terms no longer in their source were removed (`count`, `by_type`, `source`; `unreadable` when they were those no key of the server opens and no source gives any more) |
+| `terms.sync.asked` | A sync was asked for (`source`: its name, or none for every source) |
 
 ## Unread image metrics
 

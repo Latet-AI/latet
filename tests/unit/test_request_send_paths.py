@@ -69,6 +69,32 @@ ALLOWED: dict[Site, str] = {
     Site("releases.py", "_from_page", "http.get"): "a release check",
     Site("server/client.py", "ServerClient._exchange", "self._http.stream"): "a computer's calls to its Latet server",
 }
+# Latet Enterprise's own services, where its package is there: the company's SIEM (E4: an event's batch to a webhook,
+# Splunk's HEC or syslog over TLS, each address pinned by egress), the company's identity provider (E3: OpenID
+# Connect's discovery, keys and token, each address pinned by egress) and the company's term sources (E6: a url
+# source's document of terms, Microsoft Entra ID's token and Microsoft Graph's pages, each address pinned by egress).
+# Latet's own calls to the company's systems, carrying events or a sign-in or reading the company's own lists, never an
+# agent's request to a provider.
+if (SRC / "ee").is_dir():
+    ALLOWED |= {
+        Site("ee/events/delivery.py", "SiemDelivery._halves", "output.send"): "E4: an event batch to the SIEM",
+        Site("ee/events/siem.py", "HttpOutput._post", "client.stream"): "E4: an event batch to a webhook or Splunk",
+        Site(
+            "ee/events/siem.py", "PinnedTransport.handle_async_request", "self._sent.handle_async_request"
+        ): "E4: the SIEM's address, pinned by egress",
+        Site("ee/events/siem.py", "SyslogOutput.send", "tls.send"): "E4: an event batch to syslog over TLS",
+        Site("ee/events/siem.py", "send_test", "output.send"): "E4: `latet server siem test`'s one event",
+        Site(
+            "ee/oidc.py", "PinnedTransport.handle_async_request", "self._sent.handle_async_request"
+        ): "E3: the identity provider's address, pinned by egress",
+        Site("ee/oidc.py", "_read", "http.stream"): "E3: the identity provider's discovery, keys and token",
+        Site(
+            "ee/sync/sources.py", "_Pinned.handle_request", "self._sent.handle_request"
+        ): "E6: a term source's address, pinned by egress (the company's own list, never an agent's request)",
+        Site("ee/sync/sources.py", "read_url", "http.stream"): "E6: a url source's document of terms",
+        Site("ee/sync/graph.py", "_send", "http.stream"): "E6: Microsoft Entra ID's token and Microsoft Graph's pages, "
+        "pinned by egress (the company's directory, never an agent's request)",
+    }
 
 
 def _annotated_client(annotation: ast.expr | None, httpx_names: set[str], clients: set[str]) -> bool:

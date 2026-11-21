@@ -42,7 +42,7 @@ latet opencode run "add the payments key from .env to config/local.toml"
 
 `latet opencode` donne aussi à OpenCode une clé de lancement, dans `options.headers` de chaque
 fournisseur qu'il redirige, pour que Latet considère le projet de la session comme de confiance et applique
-entièrement ses réglages. OpenCode configuré durablement n'en porte pas : le projet qu'il nomme dans
+entièrement ses réglages. OpenCode configuré pour de bon n'en porte pas : le projet qu'il nomme dans
 ses requêtes est déclaré, et seules ses règles qui ajoutent de la protection s'appliquent
 ([Projets](../../concepts/projects/#de-confiance-et-déclarés)). Vos propres en-têtes dans `options.headers` d'un
 fournisseur sont refusés, chacun nommé, tant qu'une
@@ -67,10 +67,10 @@ ancien que la 1.19.5.
   Claude Code et Codex passent par Latet avec ces clouds aussi : voir
   [Points de terminaison d'entreprise](../company-endpoints/).
 - **Les modèles d'Anthropic, d'OpenAI et de Google sur OpenRouter passent d'eux-mêmes.** Ceux de tout
-  autre fournisseur (`meta-llama/…`, `deepseek/…`) sont refusés tant qu'ils ne sont pas listés dans
+  autre éditeur (`meta-llama/…`, `deepseek/…`) sont refusés tant qu'ils ne sont pas listés dans
   `request_resources` :
   [Bedrock et Vertex : ce qu'il faut lister](../../getting-started/upgrading-to-0-11/#bedrock-et-vertex--ce-quil-faut-lister).
-- **Une organisation de la console peut déplacer un fournisseur.** Quand OpenCode est connecté à une
+- **Une organisation de la console peut rediriger un fournisseur.** Quand OpenCode est connecté à une
   organisation de la console OpenCode, les réglages de l'organisation peuvent changer l'adresse d'un
   fournisseur, et les requêtes de ce fournisseur ne passent alors plus par Latet. Latet ne peut pas le
   voir : lancez `latet doctor`, et vérifiez les réglages de l'organisation.

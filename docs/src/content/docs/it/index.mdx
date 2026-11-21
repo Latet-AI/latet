@@ -32,7 +32,7 @@ controllata prima di uscire, qualunque sia la fonte del testo che contiene:
 
 | Cosa esce dal tuo computer | Per esempio | Cosa fa Latet |
 | --- | --- | --- |
-| I tuoi prompt | *"Invia l'IBAN <span class="real">GB82 WEST 1234 5698 7654 32</span> a <span class="real">Emily Carter</span>"* | Ogni valore diventa un valore fittizio dello stesso formato, il nome tramite il modello locale facoltativo per i nomi; la risposta torna con quelli reali |
+| I tuoi prompt | *"Invia l'IBAN <span class="real">GB82 WEST 1234 5698 7654 32</span> a <span class="real">Emily Carter</span>"* | Ogni valore diventa un valore fittizio dello stesso formato, il nome con il modello locale dei nomi, facoltativo; la risposta torna con quelli reali |
 | I file che l'agente legge | `.env`, `config.yaml`, fixture di test, un'esportazione dei clienti | Chiavi, password, stringhe di connessione e dati personali vengono mascherati; nei file che l'agente scrive tornano i valori reali |
 | Output dei comandi e log | `docker logs`, uno stack trace, `kubectl describe` | Token, indirizzi email, indirizzi IP pubblici e numeri identificativi al loro interno vengono mascherati |
 | Query sui database | `psql`, o un server MCP che risponde a `SELECT * FROM customers` | Le colonne segrete sempre; con la [modalità dati rigorosa](concepts/production-data/) ogni valore, con valori fittizi che mantengono funzionanti join e conteggi |
@@ -55,7 +55,7 @@ controllata prima di uscire, qualunque sia la fonte del testo che contiene:
 		così il codice e la configurazione continuano ad avere senso per il modello.
 	</Card>
 	<Card title="Ripristina sul tuo computer" icon="laptop">
-		Gli originali vengono rimessi localmente, nelle risposte, nell'output in streaming e negli
+		Gli originali vengono rimessi al loro posto in locale, nelle risposte, nell'output in streaming e negli
 		argomenti delle chiamate agli strumenti, così i file che il tuo agente scrive contengono i valori
 		reali.
 	</Card>
@@ -104,7 +104,7 @@ Windsurf e gli altri strumenti le cui richieste partono dai server del produttor
 <CardGrid>
 	<LinkCard
 		title="Abbonamenti Claude Pro e Max"
-		description="Claude Code funziona senza modifiche e accede con il proprio login; il corpo di ogni richiesta esce byte per byte, e vengono tolte e contate solo poche intestazioni."
+		description="Claude Code funziona senza modifiche e accede con il proprio login; il corpo di ogni richiesta esce byte per byte, e solo pochi header vengono tolti e contati."
 		href="agents/claude-code/#abbonamenti-pro-e-max"
 	/>
 	<LinkCard

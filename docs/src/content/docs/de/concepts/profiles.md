@@ -88,11 +88,12 @@ Die Typnamen sind die, die das Dashboard neben jedem maskierten Wert anzeigt, et
 Richtlinie werden maskiert.
 
 `allow` lässt den Wert dieses Typs im Klartext, und nichts weiter: Ein Wert eines maskierten Typs,
-der darin geschrieben steht, geht nie mit ihm hinaus. Mit `EMAIL: allow` erreicht `IT60X0542811101000000123456.ops@acme-intra.it`
-das Modell mit der IBAN durch einen Ersatzwert ersetzt und `.ops@acme-intra.it` so, wie es
-geschrieben ist; ein Geheimnis oder ein Begriff von Ihnen in einer Adresse wird mit der ganzen
-Adresse maskiert, wie bisher. Ein Begriff oder eine Feldregel eines durchgelassenen Typs lässt im
-Klartext, was nur sie finden; was ein Detektor eines maskierten Typs dort findet, wird maskiert.
+der darin geschrieben steht, geht nie mit ihm hinaus. Mit `EMAIL: allow` erreicht
+`IT60X0542811101000000123456.ops@acme-intra.it` das Modell mit einem Ersatzwert anstelle der IBAN
+und `.ops@acme-intra.it` so, wie es geschrieben ist; ein Geheimnis oder ein Begriff von Ihnen in
+einer Adresse wird mit der ganzen Adresse maskiert, wie bisher. Was nur ein Begriff oder eine
+Feldregel eines durchgelassenen Typs findet, bleibt im Klartext; was ein Detektor eines maskierten
+Typs dort findet, wird maskiert.
 
 `redact` eignet sich für Werte, die das Modell nie braucht, nicht einmal als Ersatzwert. Es ist
 unumkehrbar: Das Modell erhält den Platzhalter, und Latet setzt das Original nie wieder in Antworten
@@ -113,7 +114,7 @@ enthält den Platzhalter.
 
 ## Zulassungslisten
 
-Wenn Latet etwas maskiert, das nicht sensibel ist (ein falsch positives Ergebnis), weisen Sie es an,
+Wenn Latet etwas maskiert, das nicht sensibel ist (ein Fehlalarm), weisen Sie es an,
 diesen Wert in Ruhe zu lassen:
 
 ```yaml

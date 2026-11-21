@@ -15,7 +15,7 @@ from urllib.parse import SplitResult, parse_qs, quote, unquote, urlsplit, urluns
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from latet.config import _yaml_error_at, load_yaml
+from latet.config import load_yaml, yaml_error_at
 from latet.fileio import FileReadError, read_regular_bytes
 from latet.secret_text import KEY_BYTES, KEY_LONGEST, key_problem
 from latet.server.start_errors import SettingRefused
@@ -729,7 +729,7 @@ def _file_settings(path: Path) -> dict[Any, Any]:
         try:
             loaded = load_yaml(text) or {}
         except yaml.YAMLError as exc:
-            problem = f"{path} is not valid YAML{_yaml_error_at(exc, text)}"
+            problem = f"{path} is not valid YAML{yaml_error_at(exc, text)}"
     if problem:
         raise ValueError(problem)
     if not isinstance(loaded, dict):

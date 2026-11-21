@@ -117,7 +117,7 @@ def _app_boundaries(shared, app, reason):
         layer = getattr(layer, "app", None)
         depth += 1
     shared[id(app.router)] = reason
-    assert len(app.routes) <= 128
+    assert len(app.routes) <= 256  # bounded: 0.11's server routes and Latet Enterprise's (SSO, SCIM, the edition's)
     for route in app.routes:
         shared[id(route)] = reason
         if type(route) is Route:

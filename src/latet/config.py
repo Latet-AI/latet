@@ -61,6 +61,12 @@ PROFILE_STRICTNESS = {Profile.SECRETS: 0, Profile.BALANCED: 1, Profile.MAX: 2}
 POLICY_STRICTNESS = {Policy.ALLOW: 0, Policy.MASK: 1, Policy.REDACT: 2}
 
 
+# What the loader says of an alias it refuses: Latet's own words, never the file's, so a refusal may repeat them.
+NO_ALIASES = "aliases (*name) are not allowed"
+# ... and of a date, a time or a number Python cannot hold, in its words too.
+OUT_OF_RANGE = "a date, a time or a number out of range"
+
+
 class _NoAliases(yaml.SafeLoader):
     """``yaml.safe_load`` without aliases: a few hundred bytes of nested aliases expand to gigabytes,
     and no settings file needs them."""
@@ -68,7 +74,7 @@ class _NoAliases(yaml.SafeLoader):
     def compose_node(self, parent: Any, index: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
         if self.check_event(yaml.AliasEvent):
             event = self.peek_event()
-            raise ComposerError(None, None, "aliases (*name) are not allowed", event.start_mark)
+            raise ComposerError(None, None, NO_ALIASES, event.start_mark)
         return super().compose_node(parent, index)
 
     def construct_object(self, node: Any, deep: bool = False) -> Any:
@@ -77,7 +83,7 @@ class _NoAliases(yaml.SafeLoader):
         try:
             return super().construct_object(node, deep)
         except (ValueError, OverflowError):
-            raise ConstructorError(None, None, "a date, a time or a number out of range", node.start_mark) from None
+            raise ConstructorError(None, None, OUT_OF_RANGE, node.start_mark) from None
 
 
 def load_yaml(text: str) -> Any:
@@ -98,7 +104,7 @@ def load_value(text: str) -> Any:
     return load_yaml(text)
 
 
-def _yaml_error_at(exc: yaml.YAMLError, text: str) -> str:
+def yaml_error_at(exc: yaml.YAMLError, text: str) -> str:
     """`` (line 3, column 7)``: where PyYAML found the mistake in ``text``, and never the line it quotes; nothing when
     it does not say."""
     if isinstance(exc, yaml.MarkedYAMLError):
@@ -307,6 +313,8 @@ ReviewKind = Literal["user_text", "attachment", "system", "tool_result", "tool_i
 # given, what its tools fetch, and the text in images.
 REVIEW_EVERYTHING: tuple[ReviewKind, ...] = ("user_text", "attachment", "system", "tool_result", "image_text")
 ImagesSetting = Literal["allow", "mask", "block"]
+# How a request member no request profile names is read (``unknown_members``): read whole and checked, or refused.
+UnknownMembers = Literal["check", "refuse"]
 ReviewMode = Literal["off", "background", "inline"]
 REVIEW_MODES: tuple[ReviewMode, ...] = ("off", "background", "inline")  # in order of protection
 MAX_GUIDANCE = 2000  # characters of your guidance for the reviewer: the global one, and a project's
@@ -657,6 +665,12 @@ class ProjectSettings(BaseModel):
         description="`mask` sends images only with their text read and masked, `block` sends no images or documents.",
     )
     ocr: Literal["auto", "off"] | None = Field(default=None, description="Reading the text in images.")
+    unknown_members: Literal["refuse"] | None = Field(
+        default=None,
+        description="`refuse`: a request here with a field no request profile names yet is refused, as `refuse` in "
+        "your settings refuses it (on Claude Code, Bedrock and Vertex a field of text alone still passes once "
+        "checked). Only `refuse`: a project cannot loosen it.",
+    )
     llm_review: ReviewMode | None = Field(
         default=None,
         description="How much the local reviewer reads here, when it is on: `off`, `background` or `inline`.",
@@ -838,6 +852,7 @@ class RequestResource(BaseModel):
 EXCEPTION_DAYS, EXCEPTION_DAYS_MOST = 30, 90
 EXCEPTIONS_MOST, PROJECT_EXCEPTIONS_MOST, EXCEPTION_COMPONENTS_MOST = 128, 32, 64
 EXCEPTION_DESCRIPTION_MOST = 200
+EXCEPTION_APPROVER_MOST = 200  # a name as a server keeps one (``latet.server.identities.NAME_LENGTH``)
 _HEADER_NAME = re.compile(r"[a-z0-9!#$%&'+.^_`|~-]{1,64}")  # a header's token, but no ``*``: never a wildcard
 _QUERY_NAME = re.compile(r"[A-Za-z0-9._~-]{1,64}")
 # What no exception can name: what Latet adds or takes away itself (framing, hop-by-hop, its own ``x-latet-`` headers).
@@ -949,10 +964,23 @@ class RequestException(BaseModel):
         default=None,
         description="With body components, the revision of the body declaration it was approved under: set by Latet.",
     )
-    issuer: Literal["owner", "person", "administration"] | None = Field(
+    issuer: Literal["owner", "person", "administration", "security", "controllers"] | None = Field(
         default=None,
-        description="Who approved it: `owner` (you, on your computer), `person` (you, on a server) or "
-        "`administration` (a server's administration, for an API key). Set by Latet.",
+        description="Who approved it: `owner` (you, on your computer), `person` (you, on a server), "
+        "`administration` (a server's administration, for an API key), `security` (your company's security team) or "
+        "`controllers` (another of the people who control an API key), the last two with Latet Enterprise. Set by "
+        "Latet.",
+    )
+    approver: str | None = Field(
+        default=None,
+        max_length=EXCEPTION_APPROVER_MOST,
+        description="With `security` or `controllers`, the name of the person who approved it, as the company's "
+        "record of approvals names them. Set by Latet.",
+    )
+    approver_id: str | None = Field(
+        default=None,
+        pattern=r"^u_[a-z2-7]{10}$",
+        description="With `security` or `controllers`, the server's id of the person who approved it. Set by Latet.",
     )
 
     @field_validator("profile")
@@ -969,11 +997,11 @@ class RequestException(BaseModel):
     def _project(cls, folder: str | None) -> str | None:
         return canonical_folder(folder) if folder is not None else None
 
-    @field_validator("description")
+    @field_validator("description", "approver")
     @classmethod
     def _words(cls, text: str | None) -> str | None:
         if text is not None and any(ord(c) < 32 or ord(c) == 127 for c in text):
-            raise ValueError("no control character in an exception's description")
+            raise ValueError("no control character in an exception's description or its approver's name")
         return text
 
     @model_validator(mode="after")
@@ -983,6 +1011,10 @@ class RequestException(BaseModel):
         stamps = (self.id is None, self.granted is None, self.revision is None)
         if len(set(stamps)) != 1:
             raise ValueError("an exception's id, approval time and revision are Latet's, set as you approve it")
+        named = (self.approver is not None, self.approver_id is not None)
+        if any(named) and (not all(named) or self.id is None or self.issuer not in ("security", "controllers")):
+            raise ValueError("who approved an exception is Latet's, set as the company's security team or an API key's "
+                             "controllers approve it")  # fmt: skip
         if self.granted is not None and self.granted.tzinfo is None:
             raise ValueError("an exception's approval time is a time with its zone")
         return self
@@ -1114,6 +1146,14 @@ class Config(BaseModel):
         "sends only images whose text was read and masked; `block` sends no images. Documents, audio and remote "
         "media are refused under each. The max profile sends no images either, unless this says `mask`.",
     )
+    unknown_members: UnknownMembers = Field(
+        default="check",
+        description="A field of a request that no request profile names yet, such as one a new release of an agent "
+        "adds: `check` reads it whole and sends it as it came when nothing in it would be masked and it names no file, "
+        "address, stored conversation or model, and refuses the request otherwise; `refuse` refuses the request, as "
+        "Latet did before 0.15.0, save on Claude Code, Bedrock and Vertex a field of text alone outside a provider's "
+        "own item, which still passes once the final check has read it. Moving to `check` waits for your approval.",
+    )
     llm_review: LlmReview = Field(
         default_factory=LlmReview,
         description="The local reviewer: a language model on your own server that reads what the detectors left in "
@@ -1189,6 +1229,32 @@ class Config(BaseModel):
         if twice:
             raise ValueError(f"{_entries(twice)} have the same name: each destination needs its own")
         return destinations
+
+    # The terms a company locks (Latet Enterprise, locked rules), which the settings in use carry to the build: a
+    # detector of their own finds them, no value or pattern of yours lets one through, and nothing you leave in clear
+    # around one leaves it in clear (``Masker.mask``). Not a setting: set by the floor's raise, never in the dump, kept
+    # by a copy (``model_copy``, so a project's rules have them too).
+    _locked_terms: list[TermConfig] = PrivateAttr(default_factory=list)
+
+    @property
+    def locked_terms(self) -> list[TermConfig]:
+        return self._locked_terms
+
+    def lock_terms(self, terms: Iterable[TermConfig]) -> None:
+        self._locked_terms = list(terms)
+
+    # With only a company's exceptions counting (Latet Enterprise, `exceptions: company`): every span of yours left in
+    # clear (a term's of a type let through, a recognizer's, your identity's, and their repeats) is cut around what the
+    # masking masks without them (``Masker._carved``), so that it leaves in clear nothing masked without it, and a term
+    # typed EMAIL still brings its domain along. Not a setting, as ``_locked_terms``.
+    _carved: bool = PrivateAttr(default=False)
+
+    @property
+    def carves_terms(self) -> bool:
+        return self._carved
+
+    def carve_terms(self) -> None:
+        self._carved = True
 
     def data_mode(self) -> Literal["normal", "strict"]:
         """Strict data mode as it applies: `data` when set, else the profile's (`strict` with `max`)."""
@@ -1338,7 +1404,7 @@ def load_config(path: Path | None = None, notices: list[str] | None = None) -> C
         except yaml.YAMLError as exc:
             # Where, never what: PyYAML's message quotes the line, which can be a term, your identity or a value you
             # let through, and a log, a reload's answer or a traceback would carry it. `from None`: not chained either.
-            raise ConfigError(f"{path} is not valid YAML{_yaml_error_at(exc, text)}") from None
+            raise ConfigError(f"{path} is not valid YAML{yaml_error_at(exc, text)}") from None
     for notice in left_out(data):
         log.warning("%s: %s", path.name, notice)
         if notices is not None:

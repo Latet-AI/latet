@@ -49,8 +49,8 @@ Au-delà du profil, la page **Règles** du tableau de bord et `config.yaml` vous
 - `pii` : les types de données personnelles à détecter, par exemple `[EMAIL, IBAN]`. La liste
   remplace le choix du profil : un type qu'elle omet n'est pas détecté, y compris les numéros
   d'identité de `id_regions` (et ceux de tous les pays dans `max`). S'il est omis, chaque type
-  qu'active le profil est détecté. Dans vos réglages pour un projet, `pii` ajoute des types aux types
-  globaux.
+  qu'active le profil est détecté. Dans vos réglages pour un projet, `pii` ajoute plutôt des types aux
+  types globaux.
 - `phone_regions` : les pays dont les numéros de téléphone sont reconnus sans préfixe international
   (par défaut `IT`, `US`, `GB`).
 - `include_private_ips: true` : masquer les adresses IP privées en `balanced` aussi.
@@ -89,7 +89,7 @@ types sans politique sont masqués.
 l'intérieur ne passe jamais avec elle. Avec `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
 arrive au modèle avec l'IBAN remplacé par une valeur factice et `.ops@acme-intra.it` tel qu'il est
 écrit ; un secret ou un de vos termes écrit dans une adresse est masqué avec l'adresse entière,
-comme avant. Un terme ou une règle de champ d'un type laissé passer laisse en clair ce que lui seul
+comme avant. Un terme ou une règle de champ d'un type autorisé laisse en clair ce que lui seul
 trouve ; ce qu'un détecteur d'un type masqué y trouve est masqué.
 
 `redact` convient aux valeurs dont le modèle n'a jamais besoin, pas même sous forme factice. Cela
@@ -128,8 +128,8 @@ ajoute la valeur comme terme personnalisé. Dans une requête d'un [projet](../p
 d'abord si cela s'applique à *Ce projet* ou *Partout*.
 
 Chaque clic de ce genre ajoute une valeur, et la liste grandit. Sur la page **Règles** du tableau de
-bord, l'onglet *Valeurs autorisées* la montre en tableau, valeurs et motifs ensemble avec leur
-genre : cherchez-y, filtrez-la, ouvrez une ligne pour la modifier (le panneau d'un motif l'essaie
+bord, l'onglet *Valeurs autorisées* la présente sous forme de tableau, valeurs et motifs ensemble,
+avec leur nature : faites-y une recherche, filtrez-la, ouvrez une ligne pour la modifier (le panneau d'un motif l'essaie
 sur une valeur), ou sélectionnez des lignes et supprimez-les. *Exporter* et *Importer* déplacent la
 liste en CSV (`kind,value`) ; une importation ajoute ce qui est nouveau et, comme elle laisse passer
 des valeurs, ne l'applique que si vous cochez *Les appliquer aussi*.

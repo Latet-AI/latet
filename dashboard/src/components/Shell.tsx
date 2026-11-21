@@ -3,7 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router'
 import { api, isMock, notifyUnauthorized } from '../api/client'
 import { LANGUAGE_NAMES, LANGUAGES, setLanguage, tk, type Language } from '../i18n'
+import { LicenseBar } from '../ee/components/LicenseBar'
+import { ConnectedNotice, SignInReason } from '../ee/components/Notices'
+import { SpaceBar, SpaceMenu } from '../ee/components/Space'
+import { useCompanyApprovals } from '../ee/lib/company-approvals-context'
 import { useApprovals } from '../lib/approvals-context'
+import { visibleItems } from '../lib/edition'
 import { PROFILE_LABEL } from '../lib/labels'
 import { useDeploymentKey, useMe } from '../lib/me'
 import { pageOnServer, serverHost } from '../lib/serverPage'
@@ -18,9 +23,13 @@ interface NavItem {
   to: string
   label: string
   icon: IconName
-  /** Shows how many texts, and changes to your settings, wait for your approval. */
-  count?: 'approvals'
+  /** Shows how many texts, and changes to your settings, wait for your approval (`approvals`); or how many wait for
+   * your decision for your company (`company`, Latet Enterprise's Company approvals). */
+  count?: 'approvals' | 'company'
 }
+
+/** What a menu item's count says, to a screen reader and on hover. */
+const COUNT_LABEL = { approvals: tk('nav.waiting'), company: tk('nav.ee.companyWaiting') } as const
 
 // The tutorial's sandbox has its chapters first, as a group of their own.
 const TUTORIAL_NAV: NavItem[] = [{ to: '/tutorial', label: tk('nav.tutorial'), icon: 'book' }]
@@ -39,6 +48,20 @@ const NAV: NavItem[][] = [
     { to: '/playground', label: tk('nav.playground'), icon: 'playground' },
   ],
   [{ to: '/integrations', label: tk('nav.integrations'), icon: 'integrations' }],
+]
+
+// The Enterprise Edition's pages, in a group of their own after the others: each shown when /me lists it for you.
+// Each later part adds its page here.
+const ENTERPRISE_NAV: (NavItem & { page: string })[] = [
+  { to: '/license', label: tk('nav.ee.license'), icon: 'key', page: 'license' },
+  { to: '/policy', label: tk('nav.ee.policy'), icon: 'shield', page: 'policy' },
+  { to: '/people', label: tk('nav.ee.people'), icon: 'people', page: 'people' },
+  { to: '/sign-in', label: tk('nav.ee.signIn'), icon: 'key', page: 'sign-in' },
+  { to: '/reports', label: tk('nav.ee.reports'), icon: 'reports', page: 'reports' },
+  { to: '/reports/siem', label: tk('nav.ee.siem'), icon: 'siem', page: 'siem' },
+  { to: '/audit', label: tk('nav.ee.audit'), icon: 'audit', page: 'audit' },
+  { to: '/company-approvals', label: tk('nav.ee.companyApprovals'), icon: 'approvals', page: 'company-approvals', count: 'company' },
+  { to: '/term-sync', label: tk('nav.ee.termSync'), icon: 'refresh', page: 'term-sync' },
 ]
 
 /** The sections of the page on screen, under its entry: a click scrolls to one. */
@@ -194,8 +217,11 @@ function Layout({ children }: { children: ReactNode }) {
   const key = useDeploymentKey()
   const { pathname } = useLocation()
   const { waiting } = useApprovals()
+  const company = useCompanyApprovals()
+  const counts = { approvals: waiting, company: company.waiting }
   const { me } = useMe()
-  const nav = me?.tutorial ? [TUTORIAL_NAV, ...NAV] : NAV
+  const enterprise = visibleItems(ENTERPRISE_NAV, me)
+  const nav = [...(me?.tutorial ? [TUTORIAL_NAV] : []), ...NAV, ...(enterprise.length > 0 ? [enterprise] : [])]
   return (
     <div className="flex min-h-screen">
       <a
@@ -219,26 +245,28 @@ function Layout({ children }: { children: ReactNode }) {
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
+                    end={item.to === '/reports'}
                     title={t(item.label)}
                     // The current page: a green wash and a heavier label. In the icon rail (below lg) the label is
-                    // for screen readers only, so a ring says it as well: not by colour alone.
+                    // for screen readers only, so a ring says it as well: not by colour alone. A label too long for
+                    // one line beside its count (Company approvals in a translation) takes two, its icon kept whole.
                     className={({ isActive }) =>
-                      `group relative flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui max-lg:justify-center max-lg:px-0 ${
+                      `group relative flex min-h-8 items-center gap-2.5 rounded-md px-2.5 py-1 text-ui max-lg:justify-center max-lg:px-0 ${
                         isActive
                           ? 'bg-nav font-medium text-nav-ink max-lg:shadow-[inset_0_0_0_1.5px_var(--nav-ink)]'
                           : 'text-ink-2 hover:bg-wash hover:text-ink'
                       }`
                     }
                   >
-                    <Icon name={item.icon} />
-                    <span className="max-lg:sr-only">{t(item.label)}</span>
-                    {item.count === 'approvals' && waiting > 0 && (
+                    <Icon name={item.icon} className="flex-none" />
+                    <span className="min-w-0 leading-tight max-lg:sr-only">{t(item.label)}</span>
+                    {item.count && counts[item.count] > 0 && (
                       <span
                         className="ml-auto inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-real px-1 text-micro font-semibold text-surface tabular-nums max-lg:absolute max-lg:top-0.5 max-lg:right-1 max-lg:ml-0 max-lg:h-[14px] max-lg:min-w-[14px] max-lg:text-[9px]"
-                        title={t('nav.waiting', { count: waiting })}
+                        title={t(COUNT_LABEL[item.count], { count: counts[item.count] })}
                       >
-                        <span aria-hidden="true">{waiting}</span>
-                        <span className="sr-only">{t('nav.waiting', { count: waiting })}</span>
+                        <span aria-hidden="true">{counts[item.count]}</span>
+                        <span className="sr-only">{t(COUNT_LABEL[item.count], { count: counts[item.count] })}</span>
                       </span>
                     )}
                   </NavLink>
@@ -254,6 +282,7 @@ function Layout({ children }: { children: ReactNode }) {
               {t('shell.mock')}
             </p>
           )}
+          <SpaceMenu />
           <DaemonStatus />
           <LanguageMenu />
           <div className="max-lg:flex max-lg:justify-center max-lg:[&_[role=radiogroup]]:flex-col">
@@ -263,7 +292,11 @@ function Layout({ children }: { children: ReactNode }) {
       </aside>
       <main id="main" className="min-w-0 flex-1 px-7 pt-6 pb-16 max-lg:px-5" tabIndex={-1}>
         <div className="mx-auto max-w-[1560px]">
+          <SpaceBar />
           <TutorialBar />
+          <LicenseBar />
+          <SignInReason />
+          <ConnectedNotice />
           {children}
         </div>
       </main>

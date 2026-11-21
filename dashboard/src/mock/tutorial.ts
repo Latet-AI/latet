@@ -39,7 +39,7 @@ import { CATEGORY_TYPE, REVIEW_CATEGORIES } from '../lib/reviewer'
 import type { Decision } from './approvals'
 import { slot, textOf, type MockSlot, type Part, type Value } from './builder'
 import { drawing, initialConfig, makeExchange, MOCK_ASSETS, vault, type MockExchange, type MockImage, type MockLeak } from './fixtures'
-import { ALNUM, chars, hashSeed, seeded, shape } from './rng'
+import { ALNUM, chars, hashSeed, secretShape, seeded, shape } from './rng'
 
 /** What the mock borrows from the rest of the mock dashboard. */
 export interface TutorialHost {
@@ -91,7 +91,7 @@ export const STEP_FAILED = 'the agent ran, but its request was not recorded in t
 
 // Generated, not written out: a key in the source would be taken for a real one by a secret scanner.
 const KEY = chars(seeded(4041), ALNUM, 40)
-const KEY_FAKE = shape(seeded(4042), KEY)
+const KEY_FAKE = secretShape(seeded(4042), KEY) // drawn as the engine draws a secret's fake
 // The other values are the chapters' (src/latet/tutorial/chapters/), with the fakes the sandbox's fixed key gives
 // them: what the user sees at every run.
 const EMAIL = 'james.wilson@acme.com'

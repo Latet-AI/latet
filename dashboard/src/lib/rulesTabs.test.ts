@@ -146,7 +146,7 @@ describe('projectDirtyTabs', () => {
     const sections: readonly string[] = PROJECT_TABS.flatMap((tab) => tab.anchors)
     for (const section of Object.values(PROJECT_FIELD_SECTIONS)) expect(sections).toContain(section)
     const unplaced = Object.keys(personalDraftOf(null)).filter((field) => !(field in PROJECT_FIELD_SECTIONS))
-    expect(unplaced.sort()).toEqual(['disabled_secret_rules', 'id_regions', 'include_private_ips', 'ner', 'ocr', 'phone_regions', 'pii'])
+    expect(unplaced.sort()).toEqual(['disabled_secret_rules', 'id_regions', 'include_private_ips', 'ner', 'ocr', 'phone_regions', 'pii', 'unknown_members'])
   })
 })
 

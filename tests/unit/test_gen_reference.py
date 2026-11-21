@@ -132,3 +132,8 @@ def test_the_connection_environment_rows_have_distinct_documented_roles():
     assert "fingerprint" in rows["LATET_SERVER_FINGERPRINT"].lower()
     assert "administration" in rows["LATET_SERVER_ADMIN_TOKEN"].lower()
     assert "secret" in rows["LATET_SERVER_ADMIN_TOKEN"].lower()
+
+
+def test_the_configuration_page_names_no_computers_enterprise_settings():
+    page = gen.configuration_page()
+    assert "ee.yaml" not in page and "LATET_MANAGED_DIR" not in page and "LATET_EE_CONFIG" not in page

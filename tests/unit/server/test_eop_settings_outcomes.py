@@ -10,6 +10,7 @@ from starlette.testclient import TestClient
 
 from latet.api import rest
 from latet.config import TERM_LONGEST, Config, Destination, TermConfig
+from latet.edition import Community
 from latet.gateway.app import OnServer, create_app
 from latet.gateway.approvals import Change
 from latet.runtime import digest, make_runtime
@@ -28,7 +29,9 @@ CANARY = "es9-private@acme.com"
 
 def _runtime(tmp_path, settings, backends=None):
     backends = backends or replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     return rt
 

@@ -49,7 +49,7 @@ session, with a made-up key; then turn it on for every session, when you are rea
 
    - Run `latet dashboard` and open the latest request on the **Live** page. Where your `.env`
      content was, the provider received a fake of the same shape, for example
-     `demo_9Tz6ZsM0aB8uA6vS8gA0`, labelled `ASSIGNED_SECRET`. Your fake will differ: surrogates
+     `jpxt_AmxvjKfWEB5QQDaACLqI`, labelled `ASSIGNED_SECRET`. Your fake will differ: surrogates
      are derived from a key created on your machine.
    - `config.local.json` on disk contains the real key, `demo_7Hq2LmX9pR4tV8nB3cK6`, because
      Latet put it back locally before the agent's tool wrote the file.
@@ -92,8 +92,10 @@ session, with a made-up key; then turn it on for every session, when you are rea
      1.6 GB), downloaded with `--ner` if you have not downloaded it yet.
    - **Text in images**: the text recognition models (about 31 MB), downloaded with `--ocr` if you
      have not downloaded them yet.
-   - **Port**: the port the daemon listens on: 5283, or a free one next to it if another program
-     uses it (your agents follow).
+   - **Port**: the port the daemon listens on: 5283, or, if another program uses it or Windows
+     holds it, the first free one above it, past the ports Windows holds (your agents follow).
+     Where Windows may take the port when it starts, it also names `latet reserve-port`, which
+     reserves it for Latet.
 
    It also says how to take it all away: `latet global-uninstall`. Options change
    the defaults, such as `--agents claude --no-autostart`; `--yes` applies it without asking.

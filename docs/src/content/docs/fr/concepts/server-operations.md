@@ -1,12 +1,12 @@
 ---
 title: Exploitation du serveur
-description: Gérer stockage, réseau, clés, limites et observabilité d'un serveur Latet.
+description: Gérer le stockage, le réseau, les clés, les limites et l'observabilité d'un serveur Latet.
 ---
 
 Ces exigences s'appliquent à chaque instance d'un serveur Latet configuré. Conservez
 la même adresse HTTPS publique, la même base PostgreSQL, le même Valkey et la même clé
 principale sur toutes les instances. [Latet sur un serveur](../server/) explique les
-données qui atteignent le serveur et celles qui restent lisibles dans ses magasins.
+données qui atteignent le serveur et celles qui restent lisibles dans ses systèmes de stockage.
 
 ## Configuration et clés
 
@@ -39,12 +39,12 @@ le trousseau ou une clé locale enregistrée d'une personne.
 Installez le paquet serveur dans un emplacement de confiance à l'échelle du système,
 hors des dossiers personnels. Préparez `server.yaml` avec les URL, chemins de fichiers
 secrets et réglages TLS décrits plus haut ; le service doit pouvoir lire ces fichiers
-protégés. Créez d'abord la clé principale et initialisez dans votre terminal administrateur
+protégés. Créez d'abord la clé principale et lancez l'initialisation dans votre terminal administrateur
 privé : le premier jeton d'administration est affiché une fois. Ne conservez pas cette
 sortie dans des journaux partagés.
 
-Sous Linux, quelques choses viennent d'abord, en tant que root. Installez Latet avec l'extra
-`server` pour toute la machine : les dossiers d'uv pour les outils, les commandes et Python,
+Sous Linux, quelques étapes viennent d'abord, en tant que root. Installez Latet avec le composant
+optionnel `server` pour toute la machine : les dossiers d'uv pour les outils, les commandes et Python,
 tous hors des dossiers personnels. Créez l'utilisateur et le groupe `latet` sous lesquels
 tourne le service, puis le dossier qui contient les réglages et les secrets, avec la clé
 principale et le mot de passe de la base de données :
@@ -82,8 +82,8 @@ chown root:latet server.yaml master.key db.password valkey.password server.key
 chmod 0640 server.yaml master.key db.password valkey.password server.key
 ```
 
-Ajoutez `ner` et `ocr` à l'extra pour la détection des noms et la reconnaissance de texte.
-L'installation du service dit ce qui manque parmi ces choses : une installation sous un
+Ajoutez les composants optionnels `ner` et `ocr` pour la détection des noms et la reconnaissance
+de texte. L'installation du service signale celles de ces conditions qui ne sont pas remplies : une installation sous un
 dossier personnel, aucun utilisateur ou groupe `latet`, ou un fichier avec un autre
 propriétaire ou un autre mode.
 
@@ -100,7 +100,7 @@ systemctl start latet-server
 Sous Windows, la configuration par défaut est `C:/ProgramData/Latet/server.yaml`.
 Le service s'exécute sous `NT SERVICE\LatetServer`, avec des ACL de dossiers protégées.
 Son journal est `C:/ProgramData/Latet/logs/server.log`, avec rotation sur cinq fichiers
-de 10 MiB :
+de 10 Mio :
 
 ```powershell
 latet server init --config C:/ProgramData/Latet/server.yaml
@@ -149,7 +149,7 @@ configuration, exportez la base avec `pg_dump --no-owner --no-privileges`, déma
 sur un nouveau volume et restaurez l'export en tant que `latet`.
 
 Écrivez l'adresse du serveur dans un fichier nommé `.env` à côté de `compose.yaml`, que Compose
-lit pour chaque commande, afin qu'une mise à niveau lancée plus tard depuis un autre terminal la
+lit pour chaque commande, afin qu'une mise à jour lancée plus tard depuis un autre terminal la
 conserve (il ne contient aucun secret) :
 
 ```sh
@@ -159,7 +159,11 @@ printf 'LATET_SERVER_URL=https://latet.acme.lan\nLATET_SERVER_HOST=latet.acme.la
 Cet exemple pour shell POSIX choisit le projet `latet`, avec le réseau interne
 `latet_latet-back`. L'initialisation utilise `--log-driver none` de Docker car elle
 affiche le jeton d'administration ; gardez le terminal privé et transférez ce jeton dans
-votre magasin de secrets. Vérifiez la réussite avant de démarrer les instances :
+votre magasin de secrets. C'est une personne qui lance l'initialisation, dans son propre terminal,
+jamais un agent IA : qui la lance détient le jeton d'administration, et, dans un conteneur, le
+garde-fou de Latet contre les agents qui lancent des commandes d'administration ne peut pas savoir
+qui la lance.
+Vérifiez la réussite avant de démarrer les instances :
 
 ```sh
 # --wait returns only once PostgreSQL and Valkey are healthy (at most 120 s): go on only if it succeeds
@@ -188,26 +192,26 @@ Après une initialisation réussie, démarrez les instances et Caddy :
 docker compose -p latet --profile server up -d latet-server-1 latet-server-2 caddy
 ```
 
-Dans le profil serveur, seul Caddy publie un port : `443`. Le service local séparé
-`latet` reste dans le fichier Compose ; la liste explicite ci-dessus ne le démarre pas.
+Dans le profil serveur, seul Caddy publie un port : `443`. Le service séparé `latet`,
+prévu par défaut pour une machine, reste dans le fichier Compose ; la liste explicite ci-dessus ne le démarre pas.
 Le réseau frontal est `172.28.0.0/24`, avec allocation automatique dans
 `172.28.0.128/25` ; l'adresse fixe de Caddy, `172.28.0.2`, est hors de cette plage
 et constitue le seul proxy de confiance. Le réseau arrière est interne.
 
-Caddy utilise les fichiers TLS fournis, une limite de requête de **32 MiB**, la transmission
+Caddy utilise les fichiers TLS fournis, une limite de requête de **32 Mio**, la transmission
 immédiate des flux et les mises à niveau WebSocket. Gardez les journaux d'accès désactivés
 et conservez l'exclusion globale `log default { exclude http.log.error }` : sinon les
 erreurs du proxy peuvent journaliser les URI et les en-têtes d'authentification personnalisés.
-Caddy n'inclut pas de limiteur de débit ; les limites par client relèvent d'un proxy
+Le Caddy fourni n'a pas de limiteur de débit ; les limites par client relèvent d'un proxy
 externe ou d'un WAF.
 
 Les conteneurs serveur utilisent des journaux JSON-file bornés et non bloquants.
 Les instances tournent sous l'utilisateur non privilégié de l'image, uid et gid `10001`,
 jamais en root. Elles ont une racine en lecture seule, des capacités supprimées et un `/tmp`
 temporaire ; cet exemple n'impose pas de limite mémoire aux instances de production.
-Dimensionnez les espaces, modèles et traitements OCR simultanés sans reprendre les
-limites des tests de fumée. Valkey a une mémoire bornée avec `noeviction`.
-L'image inclut les avis de tiers.
+Prévoyez la mémoire nécessaire aux espaces, aux modèles et aux traitements OCR simultanés,
+plutôt que de reprendre les limites des tests de fumée. Valkey a une mémoire bornée avec `noeviction`.
+L'image inclut ses mentions des composants tiers.
 
 ## PostgreSQL et Valkey
 
@@ -219,7 +223,7 @@ complètent pas les réglages manquants. Encodez les caractères réservés des 
 dans les URL avec l'encodage pour cent, ou utilisez le fichier de mot de passe. Le délai
 de connexion n'inclut pas la résolution DNS.
 
-Utilisez Valkey 7.2 ou ultérieur, ou Redis 7, comme un seul serveur logique ; les réplicas
+Utilisez Valkey 7.2 ou une version ultérieure, ou Redis 7, comme un seul serveur logique ; les réplicas
 sont possibles, Cluster n'est pas pris en charge. Les scripts travaillent sur plusieurs
 préfixes de clés. Réglez `maxmemory-policy` sur `noeviction`, prévoyez de la mémoire pour
 les espaces attendus et surveillez la capacité. Perdre l'état de coordination n'équivaut
@@ -249,22 +253,22 @@ ACL SETUSER latet on >password ~latet:* resetchannels &latet:identity:* &latet:a
 Conservez littéralement les motifs d'abonnement : les abonnements par motif exigent ces
 autorisations exactes. Les scripts Lua et `SCAN` restent disponibles pour la coordination
 et la purge ciblée ; `MONITOR`, `CONFIG`, `KEYS` et `DEBUG` sont refusés. Un test automatisé
-isolé vérifie cette recette en remplaçant uniquement utilisateur, mot de passe et espace
-de noms ; il n'examine ni ne configure votre service déployé.
+isolé vérifie cette recette en remplaçant uniquement l'utilisateur, le mot de passe et
+l'espace de noms ; il n'examine ni ne configure votre service déployé.
 
 Exécutez les migrations en tant que propriétaire du schéma. La première crée le schéma
 et nécessite `CREATE` sur la base ; les suivantes n'ont pas besoin de ce droit de création.
 Le verrou de migration attend au plus 600 secondes. Un rôle applicatif sans `DELETE`
 sur `audit` et `audit_anchor` ne peut pas purger le journal d'administration : accordez
 ces droits ou conservez le rôle du propriétaire pour les instances. Gardez une sauvegarde
-récupérable avant une mise à niveau. Un pooler de connexions doit préserver les
+récupérable avant une mise à jour. Un pooler de connexions doit préserver les
 `options` de démarrage PostgreSQL requises.
 
 ### Dimensionner Valkey
 
-Les budgets en octets par identité sont de 32 MiB pour les textes tels qu'ils sont
-sortis, 64 MiB pour la file d'approbation et 16 MiB pour les événements du flux stockés
-par référence. Leur somme, **112 MiB, n'est pas une limite de mémoire totale**. D'autres
+Les budgets en octets par identité sont de 32 Mio pour les textes tels qu'ils sont
+sortis, 64 Mio pour la file d'approbation et 16 Mio pour les événements du flux stockés
+par référence. Leur somme, **112 Mio, n'est pas une limite de mémoire totale**. D'autres
 familles sont limitées en nombre d'entrées : la taille de leurs enregistrements compte
 aussi. Les conversations admettent 1 000 000 de champs et textes approuvés répartis
 sur au plus 10 000 conversations. Les marques de blocs vérifiés et enregistrés admettent
@@ -275,37 +279,37 @@ reviennent dans une requête ultérieure.
 
 Ce sont des exemples de planification, pas des mesures. On suppose 256 octets alloués
 par entrée de conversation et 192 par marque de bloc. Les autres tailles désignent le
-texte clair encodé : les estimations ajoutent les 30 octets de la structure de chiffrement,
+texte en clair encodé : les estimations ajoutent les 30 octets de la structure de chiffrement,
 l'arrondi d'allocation et 256 octets estimés pour la clé et l'index. Les trois budgets
 en octets comptent déjà ces coûts.
 
 | Famille | Exemple d'occupation modérée | Nombres saturés, mêmes tailles d'enregistrement |
 | --- | --- | --- |
-| Textes / file / événements | 8 / 8 / 1 MiB | 32 / 64 / 16 MiB |
+| Textes / file / événements | 8 / 8 / 1 Mio | 32 / 64 / 16 Mio |
 | Entrées de conversation | 20 000 de 256 octets | 1 000 000 de 256 octets |
 | Marques vérifiées / enregistrées | 10 000 chacune de 192 octets | 200 000 chacune de 192 octets |
-| Textes inverses | 5 000 de 2 KiB | 50 000 de 2 KiB |
+| Textes inverses | 5 000 de 2 Kio | 50 000 de 2 Kio |
 | Associations de réponses | 5 000 de 64 octets | 50 000 de 64 octets |
-| Sessions AWS | 10 de 2 KiB | 200 de 2 KiB |
+| Sessions AWS | 10 de 2 Kio | 200 de 2 Kio |
 | Sessions du tableau de bord | 2 de 128 octets | 10 de 128 octets |
-| **Sous-total modélisé par identité** | **40,76 MiB** | **581,75 MiB** |
+| **Sous-total modélisé par identité** | **40,76 Mio** | **581,75 Mio** |
 
-Une réserve illustrative de 50 % donne 61,13 et 872,62 MiB par identité, soit environ
-5,97 et 85,22 GiB pour 100 identités. Prévoyez séparément la mémoire de base de Valkey,
-les connexions, la réplication/persistance et les structures restantes ou la fragmentation
+Une réserve illustrative de 50 % donne 61,13 et 872,62 Mio par identité, soit environ
+5,97 et 85,22 Gio pour 100 identités. Prévoyez séparément la mémoire de base de Valkey,
+les connexions, la réplication ou la persistance et les structures restantes ou la fragmentation
 qui dépassent cette réserve. Comptez les identités dont les données sont encore conservées,
 pas seulement celles qui envoient des requêtes maintenant. Les caches applicatifs et les
 modèles OCR nécessitent leur propre RAM.
 
-L'exemple saturé **n'est pas le pire cas absolu** : les petits enregistrements restent
-une hypothèse. La file des écritures en attente de 4 MiB ne limite pas à 4 MiB la famille
-persistante des textes inverses. Une succession d'enregistrements proches de 4 MiB peut
-approcher 195 GiB pour 50 000 enregistrements inverses seuls, avant les autres familles.
+L'exemple saturé **n'est pas le pire cas absolu** : la petite taille de ses enregistrements
+est une hypothèse. La file d'attente de 4 Mio du processus d'écriture ne limite pas à 4 Mio la famille
+persistante des textes inverses. Une succession d'enregistrements proches de 4 Mio peut
+approcher 195 Gio pour 50 000 enregistrements inverses seuls, avant les autres familles.
 C'est une estimation large tirée du code source, pas une charge mesurée ni un quota total.
 Une longue clé de conversation ou un long chemin de dossier peut aussi dépasser la taille
 supposée. Gardez `noeviction`, surveillez tailles et occupation réelles, et dimensionnez
-pour la charge admise ; les nombres d'entrées seuls ne garantissent pas un petit plafond
-de mémoire par identité.
+pour la charge admise ; ne promettez pas un plafond de mémoire réduit par identité d'après les
+seuls nombres d'entrées.
 
 Latet 0.11 ajoute trois sortes de clés, chacune bornée, aucune ne contenant un texte, une valeur ou
 une valeur factice :
@@ -317,7 +321,7 @@ une valeur factice :
   `noeviction` à court de mémoire) n'enregistre rien : un tel élément est alors admis par la règle
   intégrée pour les champs chiffrés du fournisseur là où elle s'applique, ou refusé, jamais avec une réponse
   `503`.
-- **Les clés de lancement** des agents lancés par Latet sur les ordinateurs connectés : un
+- **Les clés de lancement** des agents lancés par Latet sur les machines connectées : un
   enregistrement scellé d'au plus 16 Kio par lancement ouvert à ce moment, au plus 64 à la fois par
   identité.
 - **Les exceptions de requête utilisées pendant que l'historique est désactivé** : une ligne par
@@ -334,7 +338,7 @@ adresses ne sont pas considérés comme fiables. Synchronisez les horloges avec 
 de 60 secondes au plus. Restreignez séparément l'accès direct aux fournisseurs si le
 serveur est le point de contrôle obligatoire de l'entreprise.
 
-La limite par défaut du corps d'une requête est de 32 MiB. `requests_in_flight` vaut 16
+La limite par défaut du corps d'une requête est de 32 Mio. `requests_in_flight` vaut 16
 par identité sur une instance, avec des quotas séparés pour les destinations, le tableau
 de bord, le bridge et l'API pour les applications. Les requêtes longues et les flux ont leurs propres limites. Un
 refus de capacité appelle une vérification de la charge et des limites, pas la désactivation
@@ -391,7 +395,7 @@ clé d'API : il garde en mémoire les valeurs que la personne a utilisées en de
 que soit son âge, et cherche toute autre valeur dans PostgreSQL quand un texte en a besoin,
 si bien qu'aucune instance ne garde entier un grand coffre-fort. Un coffre-fort gardé par une
 version antérieure de Latet est servi depuis la mémoire, comme avant, jusqu'à ce que ses mots
-soient faits, une seule fois, en arrière-plan sur une instance ; l'espace construit ensuite
+soient calculés, une seule fois, en arrière-plan sur une instance ; l'espace construit ensuite
 travaille avec PostgreSQL.
 
 Mesuré avec Latet 0.11 sur la machine d'[à quelle vitesse](../../applications/#à-quelle-vitesse),
@@ -414,7 +418,7 @@ besoin au même moment et la compte dans la mémoire de l'espace tant qu'elle du
 valeurs, mesuré avec Latet 0.11, les 500 premières lignes au-delà d'une limite ont pris environ
 10 secondes, lecture comprise, et la lecture occupait environ 380 Mo sur l'instance ou le worker qui
 l'a faite, à peu près ce que gardait le coffre-fort de la 0.10.0) ; l'espace d'une clé d'API cherche
-les mots de ses textes comme Latet 0.10.2.
+les mots de ses textes comme le faisait Latet 0.10.2.
 
 ### Connexions, limites et confiance
 
@@ -424,7 +428,7 @@ les mots de ses textes comme Latet 0.10.2.
   identifiants non reconnus valides récemment, tant que les tentatives durent ; un proxy ou un pare-feu en amont qui
   limite chaque client l'évite. Tant que les threads qui vérifient les identifiants sont occupés, les
   inscriptions de machines et les identifiants nouveaux pour toutes les instances reçoivent 503 avec
-  `Retry-After`, et un lien de connexion au tableau de bord est renvoyé vers `?login=busy`.
+  `Retry-After`, et un lien de connexion au tableau de bord est redirigé vers `?login=busy`.
 - **Le jeton et la clé d'une machine :** le jeton que gardent les agents d'une machine ouvre le bridge du plugin,
   le proxy de l'espace et les deux appels de la machine au démarrage d'un agent (une destination ajoutée pour
   une adresse, qui ne réduit rien, et la valeur factice du nom d'utilisateur), dit à qui il appartient et se
@@ -450,12 +454,15 @@ les mots de ses textes comme Latet 0.10.2.
   défaut), et au-delà un appel attend cinq secondes au plus. Le `maxclients` de Valkey doit couvrir les connexions
   de toutes les instances. La connexion à Valkey, son TLS et sa première réponse partagent une seule limite de
   cinq secondes.
-- **Mémoire :** chaque instance, et aussi chaque worker, donne aux espaces qu'elle garde 2 Gio, pesés d'après les
+- **Mémoire :** chaque instance, et aussi chaque worker, donne aux espaces qu'elle garde 2 Gio, évalués d'après les
   comptes que tiennent leurs parties plutôt que lus sur le processus. Un espace en prend au plus la moitié, et ses
   détecteurs jusqu'à un huitième de cette moitié en plus (128 Mio), qu'un espace occupé garde tant que ses
   requêtes tournent : plusieurs espaces occupés peuvent dépasser les 2 Gio d'autant chacun. Le processus
-  lui-même, les modèles de reconnaissance et les index en construction s'y ajoutent. Un worker est redémarré
-  quand il s'arrête ou se tait, jamais pour sa mémoire : prévoyez la mémoire de la machine pour N workers
+  lui-même, les modèles de reconnaissance et les index en construction s'y ajoutent. Avec la synchronisation des
+  termes de Latet Enterprise, chaque instance, et aussi chaque worker, garde une seule copie des termes synchronisés
+  pour tous les espaces qu'elle sert : environ 30 Mo à 50 000 termes, en plus des 2 Gio, et autant pendant un
+  instant quand de nouveaux termes les remplacent. Un worker est redémarré quand il s'arrête ou se tait, jamais
+  pour sa mémoire : prévoyez la mémoire de la machine pour N workers
   ([plusieurs instances sur une machine](#plusieurs-instances-sur-une-machine)).
 - **Les certificats des fournisseurs :** une instance fait confiance au magasin de certificats du système
   d'exploitation ; sous Linux, aux chemins par défaut d'OpenSSL, que `SSL_CERT_FILE` et `SSL_CERT_DIR` changent
@@ -467,7 +474,7 @@ les mots de ses textes comme Latet 0.10.2.
 ## Mettre à jour et ajouter des instances
 
 De la 0.10 à la 0.11, lisez d'abord [Passer à la 0.11](../../getting-started/upgrading-to-0-11/) : la
-0.11 refuse les parties des requêtes qu'elle ne lit pas, sur un serveur comme sur un ordinateur, et
+0.11 refuse les parties des requêtes qu'elle ne lit pas, sur un serveur comme sur une machine, et
 `latet doctor` liste ce qui s'arrêtera.
 
 La 0.11 change aussi les tables, si bien que le serveur s'arrête pour sa migration :
@@ -480,15 +487,15 @@ La 0.11 change aussi les tables, si bien que le serveur s'arrête pour sa migrat
 3. Attendez 30 secondes, puis lancez `latet server migrate` une fois, avec la 0.11 : une instance de
    la 0.10 laisse sa clé dans Valkey quand elle s'arrête, et compte comme en vie jusqu'à ce que la
    clé expire, 30 secondes après son dernier battement. Tant qu'une instance de la 0.10 ou de la 0.11
-   est en vie, elle ne migre rien, dit combien sont en vie et de quelle version (`1 instance of the
+   est en vie, la commande ne migre rien, dit combien sont en vie et de quelle version (`1 instance of the
    server is alive (1 of Latet 0.10 or older): nothing was migrated`) et se termine avec 2 :
    arrêtez-les et relancez-la. Avec une migration à appliquer, ni elle ni `latet server init` ne
    migrent rien non plus tant que Valkey ne répond pas. La migration ajoute à chaque ligne de mot de
    chaque coffre-fort une place vide pour son empreinte et pour le numéro de la modification qui l'a
    écrite en dernier, avec leurs index : sur une base de données aux gros coffres-forts, cela prend
    plus de temps que les migrations précédentes, et les empreintes elles-mêmes sont calculées plus
-   tard, en arrière-plan (plus bas). Une fois les migrations appliquées, elle interroge Valkey de
-   nouveau, et quand une instance est devenue en vie entre-temps elle le dit après ce qu'elle a
+   tard, en arrière-plan (plus bas). Une fois les migrations appliquées, la commande interroge Valkey
+   de nouveau, et quand une instance a démarré entre-temps, elle le dit après ce qu'elle a
    appliqué et se termine avec 1 (`The tables are migrated, and 1 instance of the server is alive (1
    of Latet 0.10 or older): stop it, then start it with this version of Latet`).
 4. Démarrez chaque instance avec la 0.11. Aucun appel n'est servi entre l'arrêt et ce démarrage.
@@ -507,25 +514,28 @@ dès qu'une se termine. Le journal dit une fois quand l'index d'un espace cesse 
 vault index of <id> is not used (<why>): its lookups go to PostgreSQL until it is built again`) et
 une fois quand il l'est de nouveau. Un coffre-fort au-delà de 16 777 216 empreintes, environ huit
 millions de valeurs, n'a pas d'index tant que son espace dure : ses recherches vont à PostgreSQL, et
-un nouvel espace essaie une fois de nouveau. Le coffre-fort d'une personne gardé avant Latet 0.10.0,
+un nouvel espace de ce coffre-fort essaie de nouveau, une fois. Le coffre-fort d'une personne gardé avant Latet 0.10.0,
 dont les valeurs n'ont pas encore de mots, est gardé entier en mémoire, comme avant, jusqu'à ce que
-ses mots et ses empreintes soient faits, une fois, sur une instance ; l'espace de la personne
+ses mots et ses empreintes soient calculés, une fois, sur une instance ; l'espace de la personne
 construit ensuite travaille avec PostgreSQL. La 0.11 ne refait les mots d'aucune clé ([mettre à jour
 un serveur](../../applications/#mettre-à-jour-un-serveur)).
 
 Latet lit chaque requête selon le profil de sa route, qui nomme chaque champ, en-tête et paramètre de
 requête qu'elle porte. À chaque version de Latet, et au moins toutes les deux semaines, les versions les
 plus récentes des agents que Latet prend en charge passent par les requêtes que ces profils décrivent.
-Sur une requête que Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), un nouveau membre du
-corps qui contient du texte, un nouvel en-tête `anthropic-*` ou une nouvelle valeur d'`anthropic-beta`
-passe une fois lu par la vérification finale, et un nouvel en-tête `x-claude-code-*` est retiré.
-Quand la mise à jour d'un agent envoie autre chose qu'aucun profil ne nomme, la nouvelle révision du
+Un nouveau membre du corps est lu en entier et vérifié, et passe tel quel quand rien en lui ne serait
+masqué et qu'il ne nomme rien sur quoi le fournisseur agit ([Nouveaux membres des
+requêtes](../../getting-started/upgrading-to-0-11/#nouveaux-membres-des-requêtes)). Sur une requête que
+Latet ne fait que vérifier (Claude Code, Bedrock, Vertex), un nouvel en-tête `anthropic-*` ou une
+nouvelle valeur d'`anthropic-beta` passe une fois lu par la vérification finale, et un nouvel en-tête
+`x-claude-code-*` est retiré. Quand la mise à jour d'un agent envoie autre chose qu'aucun profil ne
+nomme, comme un autre en-tête ou un membre du corps qui nomme une ressource, la nouvelle révision du
 profil sort dans une version corrective ; tant que vous ne l'avez pas installée, cette requête est
 refusée, en nommant sa catégorie, et rien n'en part. Gardez les instances sur la dernière version
 corrective de leur version.
 
-Les instances partagent les mêmes tables, et une instance ne démarre que sur des tables de sa version. La
-base de données est à vous de la garder : Latet n'en copie rien. Avant de récupérer une nouvelle image et de
+Les instances partagent les mêmes tables, et une instance ne démarre que sur des tables de sa version. C'est
+à vous de conserver la base de données : Latet n'en copie rien. Avant de récupérer une nouvelle image et de
 lancer `latet server migrate`, faites-en une copie avec `pg_dump`, qui reste cohérente même pendant que les
 instances écrivent :
 
@@ -535,7 +545,7 @@ pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.
 
 Pour revenir en arrière, restaurez cette copie (`pg_restore --clean --if-exists`) et démarrez l'image
 précédente : une instance ne démarre pas sur les tables d'une version plus récente. Les valeurs de la copie
-restent chiffrées, comme dans la base : seule la clé maîtresse du serveur les ouvre. Avant une mise à jour, demandez à la
+restent chiffrées, comme dans la base : seule la clé principale du serveur les ouvre. Avant une mise à jour, demandez à la
 nouvelle version si elle modifie les tables :
 
 ```sh
@@ -560,6 +570,12 @@ latet server migrate --check
   la fois, de personnes comme de clés, si bien que plusieurs grandes clés construites ensemble après un
   redémarrage retiennent les premiers appels de tous les autres espaces de cette instance : envoyez un appel à
   chaque grande clé, une clé après l'autre, avant que le trafic ne revienne.
+
+Avec Latet Enterprise, les [directives](../../enterprise/locked-rules/) du serveur s'appliquent sur chaque instance au
+fur et à mesure de sa mise à jour : une instance d'une version antérieure, ou sans l'édition Enterprise, n'en applique
+aucune. Pendant que vous remplacez les instances une par une, ne fixez les directives qu'une fois que chaque instance
+exécute cette version, ou fixez-les de nouveau à ce moment-là ; `latet server policy set` avertit tant qu'une instance
+active ne les applique pas encore.
 
 Dans l'exemple Compose, quand les tables changent, les mêmes étapes tournent dans des conteneurs de la
 nouvelle image (la pause laisse expirer les clés des instances de la 0.10 arrêtées ; une instance de
@@ -596,8 +612,8 @@ Commencez par un worker pour chaque cœur que la machine donne au serveur.
   6,28 fois ce qu'en masquait un seul et restauré 5,21 fois, là où cette version visait 5 fois
   ([à quelle vitesse](../../applications/#à-quelle-vitesse)). Moins de cœurs libres, ou quelques
   connexions de longue durée, donnent moins : N workers ne font pas N fois un seul.
-- **Comment les connexions leur parviennent :** sous Linux, chaque worker écoute sur le port avec un
-  socket à lui, et le système répartit les nouvelles connexions entre eux selon un hachage des
+- **Comment les connexions leur parviennent :** sous Linux, chaque worker écoute sur le port avec son
+  propre socket, et le système répartit les nouvelles connexions entre eux selon un hachage des
   adresses et des ports de chacune. De nombreuses connexions se répartissent de façon égale ;
   quelques connexions de longue durée, comme celles d'un répartiteur de charge, peuvent malgré tout
   se répartir de façon inégale, et plus il y a de connexions, mieux elles se répartissent. Sous
@@ -606,7 +622,7 @@ Commencez par un worker pour chaque cœur que la machine donne au serveur.
   le noyau répartisse les connexions, faites tourner le serveur sous Linux ou dans l'image du
   conteneur.
 - **L'utilisateur du serveur :** sous Linux, le processus qui démarre les workers garde le port
-  pendant toute la durée du serveur, si bien qu'aucun autre programme ne le prend, même quand aucun
+  pendant toute l'exécution du serveur, si bien qu'aucun autre programme ne le prend, même quand aucun
   worker n'écoute ; juste après l'arrêt d'un serveur à une seule instance sur le même port, il
   attend jusqu'à une minute que les connexions fermées de ce serveur disparaissent. Un programme ne
   peut écouter sur le port à côté des workers que s'il tourne sous le même utilisateur que le
@@ -638,11 +654,11 @@ Commencez par un worker pour chaque cœur que la machine donne au serveur.
   de services décide. Un worker qui n'est pas prêt (PostgreSQL ou Valkey ne répondent pas) reste :
   c'est le contrôle de disponibilité du répartiteur qui décide. `latet server status` liste chaque
   instance en vie, chaque worker de chaque machine, avec son numéro de worker, s'il est prêt, sa
-  mémoire et sa version ; un worker mort reste listé jusqu'à 30 secondes après le démarrage de celui
+  mémoire, sa version et son édition (Community ou Enterprise) ; un worker mort reste listé jusqu'à 30 secondes après le démarrage de celui
   qui le remplace. Une requête qu'un worker servait quand il s'est arrêté n'obtient pas de réponse :
   son client reçoit une erreur et doit la renvoyer, et aucune n'obtient de réponse non masquée. Sous
-  Linux, les connexions qui attendaient encore un worker arrêté sont coupées, et
-  leurs clients doivent se reconnecter, et un worker qui n'envoie plus de battement fait attendre sa
+  Linux, les connexions qui attendaient encore un worker arrêté sont coupées et
+  leurs clients doivent se reconnecter ; un worker qui n'envoie plus de battement fait attendre sa
   part des nouvelles connexions jusqu'à ce qu'il soit arrêté.
 - **Passer les connexions en attente aux autres workers (facultatif) :** à partir de Linux 5.14,
   avec `net.ipv4.tcp_migrate_req` à 1, le système passe aux autres workers les connexions qui
@@ -653,7 +669,7 @@ Commencez par un worker pour chaque cœur que la machine donne au serveur.
   de démarrer un conteneur qui le définit.
 - **Arrêt :** un signal d'arrêt atteint chaque worker, et chacun a 30 secondes pour terminer le travail en
   cours, comme une instance seule.
-- **Windows :** plusieurs workers demandent Linux ou l'image du conteneur. Sous Windows,
+- **Windows :** plusieurs workers nécessitent Linux ou l'image du conteneur. Sous Windows,
   `latet server run` en refuse plus d'un : un socket n'y sert qu'un processus, et la seule boucle
   d'événements qui pourrait le partager arrête un worker au-delà de 512 connexions. Démarrez une instance
   sur chaque machine Windows derrière le répartiteur de charge ; le service Windows en démarre une, quoi que
@@ -663,7 +679,7 @@ Commencez par un worker pour chaque cœur que la machine donne au serveur.
 
 Un Latet installé comme service système, comme ci-dessus, se met à jour avec la commande qui l'a
 installé, relancée avec le wheel de la nouvelle version, les mêmes dossiers `UV_*` et les mêmes
-extras (`server`, avec `ner` et `ocr` s'il les a) :
+composants optionnels (`server`, avec `ner` et `ocr` s'il les a) :
 
 ```sh
 UV_TOOL_DIR=/opt/latet/tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/latet/python \
@@ -674,21 +690,21 @@ Demandez ensuite à la nouvelle version si elle change les tables, comme ci-dess
 (`latet server migrate --check`), et redémarrez le service (`systemctl restart latet-server`). Sous
 Windows, qui ne remplace aucun fichier d'un programme en cours d'exécution, arrêtez le service avant
 l'installation (`Stop-Service LatetServer`) et démarrez-le après (`Start-Service LatetServer`).
-`latet upgrade` installe dans les dossiers d'uv : sur un Latet installé dans des dossiers à lui, il
+`latet upgrade` installe dans les dossiers d'uv : sur un Latet installé dans ses propres dossiers, il
 s'arrête avant de rien changer et affiche cette commande, avec les dossiers qu'il a trouvés.
 
 Jusqu'à la 0.10.4, `latet upgrade` ne nommait que la détection des noms et la lecture du texte des
-images, et uv retirait les autres extras : un serveur mis à jour ainsi perdait `server` (psycopg et
-redis), et `latet server run` refusait ensuite de démarrer. Un serveur en 0.10.4 ou antérieure passe
+images, et uv retirait les autres composants optionnels : un serveur mis à jour ainsi perdait `server` (psycopg et
+redis), et `latet server run` refusait ensuite de démarrer. Un serveur en version 0.10.4 ou antérieure passe
 donc une fois à une version ultérieure avec la commande ci-dessus, en nommant `server`, ou avec le
 script d'installation téléchargé de nouveau depuis GitHub et lancé avec les mêmes variables `UV_*`.
 Un serveur qui a déjà perdu `server` le retrouve avec la commande ci-dessus : le script
-d'installation ne peut pas savoir qu'un extra a disparu.
+d'installation ne peut pas savoir qu'un composant optionnel a disparu.
 
 ## Modèles de reconnaissance sur un serveur
 
 La détection des noms et la reconnaissance de texte lisent leurs modèles dans le dossier de données du
-serveur, pas sur l'ordinateur de l'administrateur. Installez-les là, avec le compte sous lequel
+serveur, pas sur la machine de l'administrateur. Installez-les là, avec le compte sous lequel
 tournent les instances : `latet ner install` et `latet ocr install` avec `LATET_DATA_DIR` pointant vers
 ce dossier. Dans l'exemple Compose, ce dossier est le volume `latet-server-data`, monté sur `/data`
 dans chaque instance : installez-les depuis un conteneur d'une instance, puis redémarrez les instances.
@@ -735,7 +751,8 @@ l'[API pour les applications](../../applications/) : aucune variable, un jeton d
 `Authorization`, avec les seules permissions dont il a besoin. Ses appels partagent l'espace de la clé avec
 les agents de la clé, et donc son coffre-fort et ses valeurs factices.
 
-Deux sortes de son travail font la queue pour tout le serveur, pas pour chaque clé. L'entrée du journal
+Deux sortes de travaux d'une clé passent par une file d'attente commune à tout le serveur, et non
+propre à chaque clé. L'entrée du journal
 d'administration de chaque restauration est écrite avant sa réponse, une à la fois sur la chaîne du
 journal, par deux threads de chaque instance pour les restaurations de toutes les clés ; et les oublis
 tournent deux à la fois sur chaque instance, pour toutes les clés. Une clé qui envoie beaucoup de
@@ -745,8 +762,8 @@ d'administration grandit d'une ligne par appel de restauration.
 
 ## Journaux, métriques et récupération
 
-Les journaux applicatifs vont sur la sortie standard en `text` ou `json`. Protégez et
-faites tourner les fichiers de journaux du déploiement. Le journal d'administration
+Les journaux applicatifs vont sur la sortie standard en `text` ou `json`. Protégez les
+fichiers de journaux du déploiement et organisez leur rotation. Le journal d'administration
 est distinct et consigne les opérations, dont l'émission de codes et les changements
 d'identifiants. Lisez-le avec `latet server log` et vérifiez sa chaîne avec
 `latet server log verify`. Gardez la tête renvoyée hors de la base : supprimer la fin
@@ -754,10 +771,14 @@ de la chaîne peut laisser la partie restante valide.
 
 Le verdict de chaîne de la commande status est mis en cache et peut être inconnu ;
 ce n'est pas une nouvelle vérification complète. Les métriques Prometheus utilisent
-un point d'écoute séparé, `127.0.0.1:7283` par défaut, et nécessitent `metrics_token_file`.
+un écouteur séparé, `127.0.0.1:7283` par défaut, et nécessitent `metrics_token_file`.
 Distinguez un verdict inconnu d'une
 chaîne rompue. La [référence d'administration](../../reference/server-administration/)
 définit la pagination du journal et le sens précis de `latet_ocr_unread_total{reason}`.
+
+Avec la synchronisation des termes de Latet Enterprise, configurez une alerte pour chaque instance où
+`latet_terms_masked` manque, où `latet_terms_behind_seconds` dépasse 60 ou où `latet_terms_unreadable` dépasse 0 :
+cette instance n'a jamais chargé les termes synchronisés, ou en masque de plus anciens que ceux du serveur.
 
 Chaque restauration par l'API pour les applications est une entrée `apps.unmasked` du journal
 d'administration, avec le jeton et le nombre de valeurs restaurées, et chaque oubli une entrée
@@ -769,8 +790,8 @@ et les requêtes comme `latet_http_requests_total{kind="apps"}`), sans étiquett
 
 Dans cette configuration Compose, collectez `127.0.0.1:7283` depuis l'intérieur de chaque
 instance avec son jeton de métriques. Il n'y a ni port publié, ni route Caddy, ni réseau de
-surveillance fourni. Un autre déploiement doit prévoir explicitement un accès protégé et
-authentifié ; le port HTTPS de l'application ne fournit pas ces métriques. L'écouteur des
+surveillance fourni. Un autre déploiement doit prévoir explicitement un chemin de collecte protégé
+et authentifié ; le port HTTPS de l'application ne fournit pas ces métriques. L'écouteur des
 métriques ne répond qu'à `GET /_latet/metrics`, à tout autre chemin par `404` : Prometheus demande
 `/metrics`, sauf si son `metrics_path` dit autre chose.
 
@@ -812,9 +833,9 @@ groups:
         expr: increase(latet_log_dropped_total[10m]) > 0
 ```
 
-Sauvegardez PostgreSQL, la clé principale correspondante et la configuration avec les
-contrôles d'accès appropriés. Testez la restauration dans un environnement isolé avant
+Sauvegardez PostgreSQL, la clé principale correspondante et la configuration du déploiement
+avec les contrôles d'accès appropriés. Testez la restauration dans un environnement isolé avant
 de compter sur la sauvegarde. Restaurer une ancienne base peut aussi restaurer d'anciennes
 autorisations : réconciliez identifiants et révocations avant de rouvrir le service.
 La conservation de l'historique et son effacement dans le tableau de bord ne suppriment
-ni sauvegardes ni coffre-fort. Surveillez ces magasins séparément.
+ni sauvegardes ni coffre-fort. Surveillez ces stockages séparément.

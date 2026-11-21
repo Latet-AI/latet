@@ -81,6 +81,21 @@ jobs:
       - name: The wheel holds the client and its license alone
         run: python3 -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert all(n.startswith(('latet_client/', 'latet_client-')) for n in names), names; assert 'latet_client/py.typed' in names and any(n.endswith('licenses/LICENSE') for n in names), names"
 
+  community:
+    # The Community Edition alone: the free suite with the Enterprise code removed, so the free code never depends on
+    # it, in the processes the tests start too (Latet is installed editable: the folder gone, `latet.ee` is not there).
+    # `--without-ee` does the same in one process, for a run on a developer's computer.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: The Enterprise code removed
+        run: rm -rf src/latet/ee tests/ee
+      - run: uv run --no-sync pytest -q --without-ee
+
   server:
     # The tests of a Latet server's backends, against PostgreSQL and Valkey as service containers, Valkey asking for a
     # password as a server's does, and a PostgreSQL that speaks TLS, which the services script starts with a
@@ -158,6 +173,18 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv build --wheel -o dist
+      - name: The wheel carries the Enterprise code and its license
+        if: runner.os == 'Linux'
+        run: |
+          uv run --no-project python - <<'EOF'
+          import glob, sys, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          wanted = ["latet/ee/__init__.py", "latet/ee/migrations/100_enterprise.sql"]
+          missing = [n for n in wanted if n not in names]
+          if not any(n.endswith(".dist-info/licenses/ee/LICENSE") for n in names):
+              missing.append("ee/LICENSE in the wheel's metadata")
+          sys.exit(f"not in the wheel: {missing}" if missing else 0)
+          EOF
       - name: install.sh
         if: runner.os != 'Windows'
         run: |

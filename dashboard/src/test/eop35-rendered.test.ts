@@ -99,6 +99,7 @@ describe.each(['person', 'key'] as const)('EOP35 actual consumers: server %s', (
   it.each([
     ['history', ['blocked', 'leak', 'history'], null, 'plugin'],
     ['leak', ['blocked', 'leak'], null, 'http'],
+    ['toolInput', ['blocked', 'leak'], 'sensitive values would leave in clear: EMAIL[21]; it is in the parameter schema of the tool mcp__crm__find, which Latet checks but cannot mask in this request', 'http'],
     ['uninspected', ['blocked', 'uninspected:image'], null, 'http'],
     ['imagesSetting', ['blocked', 'uninspected:image'], 'images: block is set', 'http'],
     ['imagesMask', ['blocked', 'uninspected:image'], 'images: mask is set', 'http'],

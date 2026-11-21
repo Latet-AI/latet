@@ -156,11 +156,13 @@ With `ANTHROPIC_BASE_URL` pointing at it, every request passes through the daemo
 
 - checks the outgoing request for sensitive values in clear, and blocks it if it finds one: Claude
   Code then shows an API error with the message `Latet: sensitive values would leave in clear`;
-- reads every other part of it: a header, a query parameter or a member of the body that no profile
-  names is refused ([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)),
-  except a new body member that holds text, a new `anthropic-*` header or a new `anthropic-beta`
-  value, which pass once the final check has read them, and a new `x-claude-code-*` header, which it
-  takes off and counts;
+- reads every other part of it: a header or a query parameter that no profile names is refused
+  ([Every part of a request](../../concepts/protection-scope/#every-part-of-a-request)), except a
+  new `anthropic-*` header or a new `anthropic-beta` value, which pass once the final check has read
+  them, and a new `x-claude-code-*` header, which it takes off and counts; a member of the body that
+  no profile names yet is read whole and checked, and passes as it came when nothing in it would be
+  masked and it names nothing the provider acts on ([New request
+  members](../../getting-started/upgrading-to-0-11/#new-request-members));
 - otherwise forwards the body byte for byte, and the headers less those it takes off and counts
   ([Headers Latet takes off](../../getting-started/upgrading-to-0-11/#headers-latet-takes-off));
 - records the exchange for the [dashboard](../../dashboard/), without its credentials.

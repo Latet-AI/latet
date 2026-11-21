@@ -16,6 +16,8 @@ from starlette.routing import Router
 
 from latet.api import rest
 from latet.config import Config
+from latet.edition import Community
+from latet.gateway.app import OnServer
 
 from .conftest import EMILY, URL, as_identity
 
@@ -25,12 +27,13 @@ def _dashboard():
         return job()
 
     rt = SimpleNamespace(
-        gateway=SimpleNamespace(port=8765, on_server=SimpleNamespace(url=URL, identity=EMILY.id), work=work),
+        gateway=SimpleNamespace(port=8765, on_server=OnServer(URL, EMILY.id, kind=EMILY.kind), work=work),
         backends=None,
         identity=EMILY,
         exchanges=SimpleNamespace(),
         config=Config(),
         built=SimpleNamespace(vault=SimpleNamespace()),
+        edition=Community(),  # whose routes the dashboard mounts, as a runtime's
     )
     return rest.Dashboard(rt)
 
@@ -197,7 +200,7 @@ async def test_existing_server_reads_do_not_call_the_default_executor(monkeypatc
 async def test_forget_clear_and_decide_use_the_existing_saved_turn(monkeypatch, method, route, body):
     dashboard, work_calls, side_effects = _dashboard(), [], []
     dashboard.rt.forget = lambda identifier: side_effects.append(("forget", identifier)) or object()
-    dashboard.rt.decide_change = lambda *args: side_effects.append(("decide", args)) or "approved"
+    dashboard.rt.decide_change = lambda *args, **kwargs: side_effects.append(("decide", args)) or "approved"
     dashboard.rt.exchanges.clear = lambda: side_effects.append(("clear",))
 
     async def work(job):

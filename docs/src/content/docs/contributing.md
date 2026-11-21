@@ -98,6 +98,16 @@ may contact their own external hosts. Use isolated test homes and synthetic cred
 local fixtures do not guarantee zero external traffic. Tests marked `live` use the local name
 and text recognition models: they are skipped where those models are not installed, as in CI.
 
+## Enterprise code
+
+Latet Enterprise's code is in `src/latet/ee/` and `dashboard/src/ee/`, and its tests are in
+`tests/ee/`: every folder named `ee` is under the Latet Enterprise License, and the
+[contributor license agreement](https://github.com/Latet-AI/latet/blob/main/CLA.md) covers a contribution there as it covers any other. The
+Community Edition never needs that code: `uv run pytest -q --without-ee` runs the suite as if those
+folders were not there, as CI's `community` job does with them removed. The tests against real
+programs in Docker (Keycloak, OpenLDAP and Prometheus) are opt-in:
+[`tests/ee/providers/README.md`](https://github.com/Latet-AI/latet/blob/main/tests/ee/providers/README.md) says how to run them.
+
 ## Dashboard
 
 The dashboard lives in `dashboard/` (React, Vite and [i18next](https://www.i18next.com)) and needs

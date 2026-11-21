@@ -34,7 +34,7 @@ function bridge(
       }
     }
     if (path === 'rehydrate') reply = { items: body.items.map((t) => t.replaceAll('FAKE-999', 'SECRET-123')), restored: 1 }
-    if (path === 'ping') reply = { ok: true, version: '0.12.1' }
+    if (path === 'ping') reply = { ok: true, version: '0.15.0' }
     if (path === 'outbound') {
       const fake = body.values.some((v) => v.includes('FAKE-999'))
       reply = fake ? { found: ['PERSON'], reason: `Latet stopped this ${body.tool} call.` } : { found: [], reason: null }
@@ -336,15 +336,15 @@ test('a prompt the local reviewer stopped is not sent', async ($, on) => {
 })
 
 // A fake bridge with the Live Reviewer on: a prompt waits, is asked about twice, then comes back as
-// `decide` says (with VALUE masked, or stopped).
-function liveBridge(on, decide: 'approve' | 'reject', calls: string[] = [], viewers = 1) {
+// `decide` says (with VALUE masked, or stopped). `extra` goes with the first answer alone, as the daemon's.
+function liveBridge(on, decide: 'approve' | 'reject', calls: string[] = [], viewers = 1, extra: Record<string, unknown> = {}) {
   let polls = 0
   on('http.fetch', ($, e) => {
     const path = e.url.split('/_latet/engine/v1/')[1]
     calls.push(path)
     const body = e.init?.body ? JSON.parse(e.init.body) : {}
-    let reply: unknown = { pending: 'b1', viewers }
-    if (path === 'ping') reply = { ok: true, version: '0.12.1' }
+    let reply: unknown = { pending: 'b1', viewers, ...(path === 'mask' ? extra : {}) } // who decides: said by `mask` alone
+    if (path === 'ping') reply = { ok: true, version: '0.15.0' }
     if (path === 'route-check') reply = { ok: true, reason: null, toast: null }
     if (path === 'instructions') reply = { findings: [] }
     if (path === 'approvals/wait') {
@@ -395,6 +395,84 @@ test('a prompt you stop in the Live Reviewer is not sent', async ($, on) => {
   expect(result.drop).toBe('Latet did not send this prompt: you did not approve it in the Live Reviewer.')
   expect(toasts.join(' ')).toContain('latet dashboard')
 })
+
+const WAITING_SECURITY = "Latet: waiting for your company's security team to approve it"
+const reviews = (who: string, nobody = false) =>
+  `Latet: your company's security team${who} reviews your new texts before they are sent; they see them as you do.` +
+  (nobody ? ' Nobody can decide yet: ask your Latet administrator.' : '')
+
+// What Claude Code says and shows while a prompt waits: the status lines, and the messages.
+function watched(on) {
+  const status: (string | undefined)[] = []
+  const toasts: string[] = []
+  on('ui.status', ($, e) => {
+    status.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.toast', ($, e) => {
+    toasts.push(String(e.text))
+    return { value: undefined }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  return { status, toasts }
+}
+
+test("a text your company's security team reviews says so, and never asks you to open a dashboard", async ($, on) => {
+  liveBridge(on, 'approve', [], 0, { decides: 'security', deciders: ['Mark Ellis'] })
+  const { status, toasts } = watched(on)
+  await startLocal($, on)
+  const result = await $.prompt.submit({ text: 'call Ada about Orion', wait: false })
+  expect(result.text).toBe('call Ada about PROJECT-1')
+  expect(status).toEqual([WAITING_SECURITY, undefined])
+  expect(toasts).toEqual([reviews(' (Mark Ellis)')])
+  // Said once a session: another text that waits is not told again, and a new session is.
+  expect((await $.prompt.submit({ text: 'call Ada about Orion', wait: false })).text).toBe('call Ada about PROJECT-1')
+  expect(status).toEqual([WAITING_SECURITY, undefined, WAITING_SECURITY, undefined])
+  expect(toasts).toEqual([reviews(' (Mark Ellis)')])
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  expect((await $.prompt.submit({ text: 'call Ada about Orion', wait: false })).text).toBe('call Ada about PROJECT-1')
+  expect(toasts).toEqual([reviews(' (Mark Ellis)'), reviews(' (Mark Ellis)')])
+})
+
+test('a new session is told again that no dashboard is open', async ($, on) => {
+  liveBridge(on, 'approve', [], 0)
+  const { toasts } = watched(on)
+  await startLocal($, on)
+  await $.prompt.submit({ text: 'call Ada about Orion', wait: false })
+  await $.prompt.submit({ text: 'call Ada about Orion', wait: false })
+  expect(toasts.filter((text) => text.includes('latet dashboard'))).toHaveLength(1)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  await $.prompt.submit({ text: 'call Ada about Orion', wait: false })
+  expect(toasts.filter((text) => text.includes('latet dashboard'))).toHaveLength(2)
+})
+
+// Who reviews, as Claude Code says it: the daemon's names alone (strings), without controls, five at most,
+// each cut at 80 characters, or, from an empty list, that nobody can decide yet (as the dashboard says it);
+// whatever the answer holds, the prompt still leaves as it was approved.
+const ESC = String.fromCharCode(0x1b)
+const OVERRIDE = String.fromCharCode(0x202e)
+const reviewers: [string, unknown, string, boolean?][] = [
+  ['nobody named', [], '', true],
+  ['two names', ['Mark Ellis', 'Ada Lovelace'], ' (Mark Ellis, Ada Lovelace)'],
+  ['names among what is no name', [{}, { toString: 1 }, 7, null, 'Mark Ellis'], ' (Mark Ellis)'],
+  ['no list', 'Mark Ellis', ''],
+  [
+    'a long list of long names',
+    ['Ada Lovelace', `Alan${ESC} Turing`, `Grace ${OVERRIDE}Hopper`, 'N'.repeat(200), ESC, 'Radia Perlman', 'Tim Berners-Lee', 'Mark Ellis'],
+    ` (Ada Lovelace, Alan Turing, Grace Hopper, ${'N'.repeat(80)}…, Radia Perlman and 2 more)`,
+  ],
+]
+for (const [name, deciders, who, nobody = false] of reviewers) {
+  test(`who reviews your texts is said from ${name}`, async ($, on) => {
+    liveBridge(on, 'approve', [], 1, { decides: 'security', deciders })
+    const { status, toasts } = watched(on)
+    await startLocal($, on)
+    const result = await $.prompt.submit({ text: 'call Ada about Orion', wait: false })
+    expect(result.text).toBe('call Ada about PROJECT-1')
+    expect(status).toEqual([WAITING_SECURITY, undefined])
+    expect(toasts).toEqual([reviews(who, nobody)])
+  })
+}
 
 test('a web search with a stand-in in it is stopped, and the model is told why', async ($, on) => {
   const calls: string[] = []
@@ -550,7 +628,7 @@ test('an image result is refused when the daemon cannot mask it', async ($, on) 
   on('http.fetch', ($, e) => {
     if (down) return { deny: 'connection refused' }
     const path = e.url.split('/_latet/engine/v1/')[1]
-    if (path === 'ping') return { value: { status: 200, ok: true, headers: {}, text: '{"version":"0.12.1"}' } }
+    if (path === 'ping') return { value: { status: 200, ok: true, headers: {}, text: '{"version":"0.15.0"}' } }
     if (path === 'route-check') return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true}' } }
     if (path === 'instructions') return { value: { status: 200, ok: true, headers: {}, text: '{"findings":[]}' } }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ items: [], restored: 0 }) } }
@@ -640,7 +718,7 @@ function checking(on, status: number, calls: string[] = []) {
     calls.push(path)
     const body = e.init?.body ? JSON.parse(e.init.body) : {}
     if (path === 'route-check') return { value: { status, ok: status < 300, headers: {}, text: '{"error":"no"}' } }
-    let reply: unknown = { ok: true, version: '0.12.1', findings: [] }
+    let reply: unknown = { ok: true, version: '0.15.0', findings: [] }
     if (path === 'mask') reply = { items: body.items.map((i) => ({ text: i.text.replaceAll('SECRET-123', 'FAKE-999'), count: 1 })) }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(reply) } }
   })
@@ -728,4 +806,90 @@ test('a tool description that cannot be masked is withheld, never sent as it is 
   const result = await $.tool.describe({ tool: 'mcp__crm__lookup', description: 'Looks up SECRET-123 in the CRM' })
   expect(result.description).not.toContain('SECRET-123')
   expect(result.description).toContain('withheld by Latet')
+})
+
+test('the context of the first message is masked: CLAUDE.md, the files behind it and the e-mail line', async ($, on) => {
+  bridge(on)
+  on('prompt.context', ($, e) => ({ blocks: e.blocks, instructionFiles: e.instructionFiles })) // core: what it was given
+  await startLocal($, on)
+  const result = await $.prompt.context({
+    blocks: [
+      { name: 'claudeMd', text: 'Contents of /work/CLAUDE.md (project instructions):\n\nthe key is SECRET-123' },
+      { name: 'userEmail', text: 'The user email is SECRET-123.' },
+      { name: 'currentDate', text: "Today's date is 2026-11-13." },
+    ],
+    instructionFiles: [{ path: '/work/CLAUDE.md', kind: 'project', content: 'the key is SECRET-123' }],
+  })
+  expect(result.blocks.map((b) => b.text)).toEqual([
+    'Contents of /work/CLAUDE.md (project instructions):\n\nthe key is FAKE-999',
+    'The user email is FAKE-999.',
+    "Today's date is 2026-11-13.",
+  ])
+  expect(JSON.stringify(result)).not.toContain('SECRET-123')
+})
+
+test('a context Claude Code reads before the session starts is withheld, and read again once the route is known', async ($, on) => {
+  // Claude Code 2.1.322 and later compute an interactive session's context before they raise session.start, and
+  // keep the answer for the whole conversation: refused then, it is asked again at the next turn.
+  bridge(on)
+  on('prompt.context', ($, e) => ({ blocks: e.blocks, instructionFiles: e.instructionFiles })) // core: what it was given
+  const invalidated: string[] = []
+  on('ui.invalidate', ($, e) => {
+    invalidated.push(e.event)
+    return { value: undefined }
+  })
+  session(on, { LATET_BRIDGE_URL: 'http://127.0.0.1:5283', LATET_AUTOSTART: '0' })
+  const context = {
+    blocks: [
+      { name: 'claudeMd', text: 'the key is SECRET-123' },
+      { name: 'userEmail', text: 'The user email is SECRET-123.' },
+    ],
+  }
+  const early = await $.prompt.context(context)
+  expect(early.blocks.every((b) => b.text.includes('withheld by Latet'))).toBe(true)
+  expect(invalidated).toEqual([])
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  expect(invalidated).toEqual(['prompt.context'])
+  const again = await $.prompt.context(context)
+  expect(again.blocks.map((b) => b.text)).toEqual(['the key is FAKE-999', 'The user email is FAKE-999.'])
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  expect(invalidated).toEqual(['prompt.context']) // asked again once: a context read after the start stands
+})
+
+test('a row appended while the session starts waits for its route and is masked, never withheld', async ($, on) => {
+  // claude -p appends the SessionStart hooks' context while the plugin's session.start still reads its settings.
+  const calls: string[] = []
+  const bodies: Record<string, unknown>[] = []
+  bridge(on, calls, false, bodies)
+  let entered!: () => void, release!: () => void
+  const reading = new Promise<void>((resolve) => { entered = resolve })
+  const released = new Promise<void>((resolve) => { release = resolve })
+  on('env.get', ($, e) => ({ value: { LATET_BRIDGE_URL: 'http://127.0.0.1:5283', LATET_AUTOSTART: '0' }[e.name] }))
+  on('settings.read', async ($, e) => {
+    if (e.source === 'user') { entered(); await released }
+    return { value: { env: {} } }
+  })
+  on('session.id', () => ({ value: 's-route' }))
+  on('session.messages', () => ({ value: [] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('clock.sleep', async () => {
+    await Promise.resolve() // the engine's timer: here a turn of the event loop
+    return { value: undefined }
+  })
+  const appended: unknown[] = []
+  on('session.append', ($, e, next) => {
+    appended.push(e.message.content)
+    return next(e)
+  })
+  const starting = $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: false })
+  await reading
+  const row = $.session.append({
+    door: 'hook-context',
+    message: { role: 'user', content: [{ type: 'text', text: 'hook context SECRET-123' }] },
+  })
+  release()
+  await starting
+  await row
+  expect(JSON.stringify(appended)).toContain('hook context FAKE-999')
+  expect(JSON.stringify(appended)).not.toContain('withheld by Latet')
 })

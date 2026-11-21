@@ -21,9 +21,9 @@ Settings that are not valid are refused in words that name each field that is wr
 of what is wrong with it, never what it holds: pydantic's own words quote the value they refuse, and a value of the
 settings may be a customer's name. The shared settings live in PostgreSQL, sealed with the master key
 (``SharedSettings``), and weigh ``SETTINGS_LIMIT`` at most sealed, as an identity's own part does (a person's snapshot,
-which holds both, twice that). A row of them that does not open (written by hand, sealed with another key, or not
-valid settings) is refused, never read as none (``UnreadableShared``); settings written whole without an etag replace
-it, nothing of it read."""
+which holds them and her own part twice, three times that). A row of them that does not open (written by hand, sealed
+with another key, or not valid settings) is refused, never read as none (``UnreadableShared``); settings written whole
+without an etag replace it, nothing of it read."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ import logging
 import socket
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
@@ -81,15 +81,35 @@ _LISTS = (*UNION_KEYS, "upstreams")
 # edition; and, with ``OWN_KEYS``, every setting is in one of them (a test checks it).
 RULE_KEYS = (
     *UNION_KEYS, "profile", "pii", "id_regions", "phone_regions", "include_private_ips", "policies", "data",
-    "dump_guard", "ner", "images", "auto_mode_review", "live_review",
+    "dump_guard", "ner", "images", "unknown_members", "auto_mode_review", "live_review",
 )  # fmt: skip
 SETTING_KEYS = ("upstreams", "llm_review", "ocr", "history", "retention_days", *SERVER_KEYS)
+# True on either edition (a server that names none is given them too, ``rules_for_everyone``): fix round 2 of the
+# release minors, the review's L1.
 RULES_FOR_EVERYONE = (
-    "protection rules set for everyone are not part of the Community Edition (they are planned for the Enterprise "
-    "Edition): share rules by hand with a rules file (`latet rules export`, then `latet rules import` or Import in the "
-    "dashboard), an API key's with `latet server rules --key KEY import FILE`, or a project's `latet.yaml` on "
-    "computers not connected to a server"
+    "protection rules set for everyone are not part of the Community Edition (with the Enterprise Edition they are "
+    "the company's policy, set with `latet server policy set`): share rules by hand with a rules file (`latet rules "
+    "export`, then `latet rules import` or Import in the dashboard), an API key's with `latet server rules --key KEY "
+    "import FILE`, or a project's `latet.yaml` on computers not connected to a server"
 )
+# The same refusal on a server with the Enterprise Edition, whose rules for everyone are the company's policy (E6's
+# [D1]: Locked rules), never the shared settings: the words a refusal of a rule key gives there
+# (``rules_for_everyone``).
+RULES_IN_THE_POLICY = (
+    "protection rules set for everyone are not shared settings on a server with the Enterprise Edition: they are your "
+    "company's policy, which no person and no API key goes below, set with `latet server policy set FILE` (Locked "
+    "rules, in the documentation); an API key's own rules with `latet server rules --key KEY import FILE`"
+)
+
+
+def rules_for_everyone(edition: str | None) -> str:
+    """The words of a refusal of a rule for everyone among the shared settings, for a server of ``edition`` (its
+    ``Edition.name``, as the shared settings name it): the policy's with the Enterprise Edition, the Community
+    Edition's ways to share rules by hand otherwise (an edition not named, by a server before the shared settings named
+    one, included)."""
+    return RULES_IN_THE_POLICY if edition == "enterprise" else RULES_FOR_EVERYONE
+
+
 _NAMES = {
     "terms": ("term", "terms"),
     "recognizers": ("recognizer", "recognizers"),
@@ -113,7 +133,8 @@ _SHOWN = 10  # the fields that a refusal of settings that are not valid names, a
 # (each re-application of every space that holds such settings would say it).
 _UNCOMPOSED = Paced()
 # Bytes the shared settings and an identity's own part may each weigh, sealed: far past any real settings, and each
-# instance reads, opens and checks them whenever they change. A person's approved snapshot, which holds both, twice that
+# instance reads, opens and checks them whenever they change. A person's approved snapshot, which holds the shared
+# settings and her own part twice (the settings approved, and the own part approved with them), three times that
 # (``space_settings``); an API key's, its own part, the same.
 SETTINGS_LIMIT = 4 * 1024 * 1024
 
@@ -202,7 +223,8 @@ class UnreadableShared(ValueError):
 
 class SharedTooLarge(ValueError):
     """Shared settings that would weigh more sealed than ``SETTINGS_LIMIT``: not kept. Every identity's settings hold
-    them: an identity's own part is bound alike, and a person's approved snapshot, which holds both, at twice that."""
+    them: an identity's own part is bound alike, and a person's approved snapshot, which holds them and her own part
+    twice (the settings approved, and the own part approved with them: E5), at three times that."""
 
     def __init__(self, weight: int) -> None:
         super().__init__(
@@ -483,6 +505,34 @@ def own_part(shared: Config, config: Config, *, before: Mapping[str, Any] | None
     return out
 
 
+def own_lowers(settings: object, config: Config | None = None) -> bool:
+    """Whether the identity's own part kept lowers protection against the own part it approved last, both laid over
+    the shared settings of now (E5's [D1]): an own item removed (a term, a recognizer, a field rule), one made weaker
+    under its mark (a term made ``allow``, a destination of its own moved under its name), a setting of its own fallen
+    back to a lower shared value, a value let through. What the shared settings alone changed is the same on both sides
+    and lowers nothing here: it stays the person's to decide. True whenever it cannot be told (settings that are no
+    server's, no approved own part kept, a part that cannot be read): then whoever decides for the company does.
+
+    ``config``: the settings a change was made from (its own part laid over the shared settings of its load,
+    ``_made_over``), weighed against the own part approved laid over those same shared settings, in place of the own
+    part read again: another instance may have written it since, and what the change would apply is what it holds (the
+    whole-branch security review's L1)."""
+    from latet.protection import loosened
+
+    if not isinstance(settings, OwnSettings):
+        return True
+    try:
+        approved = settings.approved_own()
+        if approved is None:
+            return True
+        if config is not None:
+            return bool(loosened(layered(settings._made_over(), approved), config))
+        shared = settings.shared()
+        return bool(loosened(layered(shared, approved), layered(shared, settings._own())))
+    except (OSError, ValueError):  # unreadable now, or not valid settings: the company decides
+        return True
+
+
 def shared_in_force(shared: Config, config: Config) -> Config:
     """The shared items ``config`` holds: ``shared`` with each of its lists made of the items of ``config`` whose mark
     one of its own has (``_mark``), in ``config``'s order and as ``config`` holds them. ``config`` being the settings in
@@ -522,14 +572,31 @@ def reviewer_key_named(config: Config) -> list[str]:
 
 
 def in_force(stored: Config, rules: Mapping[str, Any]) -> Config:
-    """The shared settings every identity is laid over: the server's settings as ``stored``, only the rules for
-    everyone an edition gives (``rules``, ``Edition.shared_rules``) and, for anything else, its default. A rule kept in
-    the stored settings from an earlier version, and a setting no list places, are never in force; an edition gives
-    rules alone, never a destination or a reviewer, which go through checks of their own."""
+    """The shared settings every identity is laid over: the server's settings as ``stored``, the rules for everyone an
+    edition gives (``rules``, ``Edition.shared_rules``) and, for anything else, its default. A rule kept in the stored
+    settings from an earlier version, and a setting no list places, are never in force. What the edition gives is
+    checked first: a key that is no rule (a destination, a reviewer, a name no setting has), or rules that are not
+    valid settings, raise UnreadableShared naming the keys that are settings, fields and kinds of error, never a value
+    (a key no setting has is counted, never quoted: it may be a value), and nothing of them is applied."""
+    not_rules = sorted(key for key in rules if key in Config.model_fields and key not in RULE_KEYS)
+    unknown = sum(key not in Config.model_fields for key in rules)
+    if not_rules or unknown:
+        said = list(not_rules)
+        if unknown:
+            many = f"{unknown} key{'s' if unknown != 1 else ''} no setting has"
+            said.append(f"and {many}" if said else many)
+        raise UnreadableShared(f"the rules for everyone the edition gives are not rules: {', '.join(said)}")
     default = Config()
     update = {key: getattr(default, key) for key in Config.model_fields if key not in SETTING_KEYS}
-    update.update({key: value for key, value in rules.items() if key in RULE_KEYS})
-    return stored.model_copy(update=update)
+    base = stored.model_copy(update=update)
+    if not rules:
+        return base
+    wrong: list[str] = []
+    try:
+        return validated({**base.model_dump(), **rules})
+    except ValidationError as exc:
+        wrong = wrong_fields(exc)
+    raise UnreadableShared(f"the rules for everyone the edition gives are not valid: {', '.join(wrong)}")
 
 
 def kept_rules(stored: Config, rules: Mapping[str, Any]) -> dict[str, Any]:
@@ -555,17 +622,21 @@ def kept_said(kept: Mapping[str, Any]) -> str:
     return ", ".join(said)
 
 
-def with_kept_rules(config: Config, stored: Config | None) -> Config:
-    """The shared settings ``config`` as written: its settings, with the rules kept in ``stored`` (an earlier version's,
-    which only an explicit forget deletes), or their defaults when there is no stored row to read."""
+def with_kept_rules(config: Config, stored: Config | None, given: Collection[str] = ()) -> Config:
+    """The shared settings ``config`` as written: its settings and the rules an edition gives (``given``, their keys),
+    which ``config`` holds as its builder decided (the administration's write, the row's own; an edition's write path,
+    its new ones), with every other rule as ``stored`` keeps it (an earlier version's, which only an explicit forget
+    deletes), or its default when there is no stored row to read: so a write of the shared settings changes no rule an
+    edition gives, and forgetting the kept rules deletes those alone. With ``given`` empty, every rule is
+    ``stored``'s."""
     source = stored if stored is not None else Config()
-    return config.model_copy(update={key: getattr(source, key) for key in RULE_KEYS})
+    return config.model_copy(update={key: getattr(source, key) for key in RULE_KEYS if key not in given})
 
 
 def shared_refusals(config: Config) -> list[str]:
     """What shared settings may not set: what is each identity's own, what would write on the server, and what would
     have it read its own files or variables (``reviewer_key_named``). Rules for everyone are refused where they are
-    written (``RULES_FOR_EVERYONE``)."""
+    written (``rules_for_everyone``)."""
     default = Config()
     out = []
     if config.identity != default.identity:
@@ -989,6 +1060,11 @@ class OwnSettings:
     def save_reviewed(self, config: Config) -> None:
         raise NotImplementedError
 
+    def approved_own(self) -> dict[str, Any] | None:
+        """The own part of the settings approved last, as it was kept when they were approved (E5's [D1]); None when
+        none is kept (the subclass's: PostgreSQL's snapshot, memory in tests)."""
+        return None
+
     def shared(self) -> Config:
         """The settings the server shares, under this identity's: read only (on a server the instance's copy itself,
         which nobody changes)."""
@@ -1172,7 +1248,8 @@ class SharedSettings:
         kept from before it is read again. ``copy=False``: the instance's copy itself, for a caller that only reads it
         (an identity's settings laid over it, weighed, composed: never changed), spared a copy of every term at each
         use; nobody changes it. Raises ValueError, in words that hold nothing of them, when what the database keeps
-        does not open with the master key or is not valid settings."""
+        does not open with the master key or is not valid settings, or when what the edition gives as rules is not
+        (``in_force``): no space is built on half of the rules."""
         return self.counted(at_least=at_least, copy=copy)[0]
 
     def counted(self, *, at_least: int = 0, copy: bool = True) -> tuple[Config, int]:

@@ -16,6 +16,16 @@ That answer would come from Latet in place of Anthropic's reviewer, so we ask fi
 explains the case with the pull request ready, we send it to Anthropic, and it is merged only with
 their agreement, attached to the issue.
 
+## MCP tools masked before Claude Code reads them
+
+An MCP tool's parameter schema can hold a value Latet masks, such as a sample address, and Claude
+Code sends it with its requests, where Latet's plugin cannot reach it: today Latet stops those
+requests (see [Troubleshooting](../troubleshooting/)). Latet would instead stand between Claude Code
+and the MCP servers you configure: it would mask the tools' descriptions and schemas in the list
+Claude Code reads, and put the real values back in the calls the model makes, so Claude Code's
+requests stay as Claude Code built them. It would cover the servers you add yourself, not the
+connectors that come from claude.ai.
+
 ## A signed installer for Windows
 
 Antiviruses check the programs they do not know each time they start, and the launchers of a Python
@@ -65,10 +75,18 @@ conversation as uploaded on its own through a provider's files API, on a compute
 
 ## Latet Enterprise
 
-Latet Enterprise is for a company whose security team sets the rules for everyone. On top of the
-Community Edition it adds rules for everyone that nobody can lower, administration roles such as a
-read-only auditor, central approvals of changes that lower protection, single sign-on, audit reports
-and events for a SIEM. [Join the waitlist](https://latet.ai/#waitlist) to hear when it is out.
+Latet Enterprise is for a company whose security team sets the rules for everyone: rules that
+nobody can lower, single sign-on with groups and roles such as a read-only auditor, central
+approvals of changes that lower protection, audit reports, events for a SIEM and synced terms (see
+[Editions and license](../enterprise/)). Two additions to it are planned:
+
+- **Groups from Microsoft AD FS.** Connected directly, AD FS gives Latet a person's user name but
+  not their groups: it adds them only to an answer sent back by form post. Latet would ask for that
+  answer, so that AD FS's groups put people in Latet's groups and decide who gets an account, as
+  other providers' groups do, without Keycloak in between.
+- **Disconnect on Your computers.** A person would disconnect a computer of theirs, one they no
+  longer have for example, from **Your computers** in the dashboard, without asking an
+  administrator.
 
 ## More languages
 

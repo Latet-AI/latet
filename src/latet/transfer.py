@@ -35,6 +35,7 @@ from latet.config import (
     ProjectSettings,
     join_guidance,
     load_yaml,
+    yaml_error_at,
 )
 from latet.engine.detectors.base import quiet_options
 from latet.schema import RULES_SCHEMA_URL
@@ -47,10 +48,13 @@ LIMITS = {"terms": 5000, "recognizers": 500, "fields": 500, "allow_values": 5000
 # What a rules file holds, in the order it is written.
 PROTECTING = (
     "profile", "pii", "id_regions", "phone_regions", "include_private_ips", "ner", "terms", "recognizers",
-    "policies", "fields", "data", "data_files", "data_hosts", "dump_guard", "images", "ocr",
+    "policies", "fields", "data", "data_files", "data_hosts", "dump_guard", "images", "ocr", "unknown_members",
 )  # fmt: skip
 EXCEPTIONS = ("allow_values", "allow_patterns", "disabled_secret_rules", "data_tools")
 KEYS = (*PROTECTING, *EXCEPTIONS, "guidance")
+# What a company's policy file says besides its rules (Latet Enterprise, locked rules): read by latet.ee.policy, left
+# out of the rules here.
+POLICY_KEYS = ("exceptions",)
 HEADER = (
     f"# yaml-language-server: $schema={RULES_SCHEMA_URL}\n"
     "# Latet rules: `latet rules import FILE`, or Import rules in the dashboard.\n"
@@ -60,6 +64,12 @@ HEADER = (
 
 class RulesError(ValueError):
     """A file that cannot be imported at all: not YAML, too large, made by a newer Latet."""
+
+    def __init__(self, message: str, *, yaml_mistake: tuple[str, str] | None = None) -> None:
+        super().__init__(message)
+        # Not YAML: PyYAML's words for the mistake (which can quote the file: a tag, a character) and where it is
+        # (`` (line 3, column 7)``), for a caller that says it in Latet's words alone.
+        self.yaml_mistake = yaml_mistake
 
 
 # --- export -------------------------------------------------------------------------------------------
@@ -153,25 +163,41 @@ def _problem(exc: ValidationError) -> str:
     return "; ".join(str(e["msg"]) for e in errors[:3])
 
 
-def read_rules(text: str) -> tuple[ProjectSettings, list[str]]:
-    """A rules file's settings, and what in it was not read. A key with a mistake is left out (and
-    said); a file that cannot be read at all raises ``RulesError``. A config.yaml or a latet.yaml
-    is read too: what is not a rule in it is left out."""
-    from latet.engine.detectors.pii import ALL_PII
-    from latet.engine.detectors.terms import TERM_LONGEST, has_letter_or_digit
-    from latet.rules_report import report
-
+def rules_data(text: str) -> dict[str, Any]:
+    """A rules file's mapping, its keys as text. ``RulesError`` when it cannot be read at all: too large, not YAML
+    (said with where the mistake is), not a mapping."""
     if len(text.encode("utf-8")) > MAX_BYTES:
         raise RulesError(f"larger than {MAX_BYTES // (1024 * 1024)} MB")
     try:
         data = load_yaml(text)
     except yaml.YAMLError as exc:
-        raise RulesError(f"not valid YAML: {str(exc).splitlines()[0]}") from None
+        problem, at = str(exc).splitlines()[0], yaml_error_at(exc, text)
+        raise RulesError(f"not valid YAML: {problem}{at}", yaml_mistake=(problem, at)) from None
     if data is None:
         data = {}
     if not isinstance(data, dict):
         raise RulesError("not a mapping of rules")
-    data = {str(k): v for k, v in data.items()}
+    return {str(k): v for k, v in data.items()}
+
+
+def read_rules(text: str) -> tuple[ProjectSettings, list[str]]:
+    """A rules file's settings, and what in it was not read. A key with a mistake is left out (and
+    said); a file that cannot be read at all raises ``RulesError``. A config.yaml or a latet.yaml
+    is read too: what is not a rule in it is left out."""
+    return rules_of(rules_data(text))
+
+
+def rules_of(data: dict[str, Any], unread: set[str] | None = None) -> tuple[ProjectSettings, list[str]]:
+    """The settings of a rules file's mapping (``rules_data``), and what in it was not read: each said by its key, a
+    term and a recognizer by their place (``entry 3``), never quoting them. ``unread``, when given, gains the keys left
+    out whole (a mistake in them, or not a rule)."""
+    left_out = unread if unread is not None else set()
+    from latet.engine.detectors.pii import ALL_PII
+    from latet.engine.detectors.recognizers import problem_about
+    from latet.engine.detectors.terms import TERM_LONGEST, has_letter_or_digit
+    from latet.rules_report import report
+
+    data = dict(data)
     version = data.pop(VERSION_KEY, FORMAT)
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RulesError(f"{VERSION_KEY}: not a version of the format")
@@ -189,8 +215,13 @@ def read_rules(text: str) -> tuple[ProjectSettings, list[str]]:
                 ProjectSettings.model_validate({name: value})
             except ValidationError as exc:
                 notices.append(f"{key}: {_problem(exc)}")
+                left_out.add(key)
                 continue
             kept[name] = value
+            continue
+        left_out.add(key)
+        if key in POLICY_KEYS:
+            notices.append(f"{key}: a setting of a company's policy (Latet Enterprise), not a rule")
         elif key in Config.model_fields or key in ProjectEntry.model_fields:
             notices.append(f"{key}: not a rule, it stays on each machine")
         else:
@@ -215,8 +246,8 @@ def read_rules(text: str) -> tuple[ProjectSettings, list[str]]:
     settings.allow_patterns = patterns
     usable = []
     for place, term in enumerate(settings.terms, 1):
-        if not has_letter_or_digit(term.value):
-            notices.append(f"term {term.value!r}: {TERM_WITHOUT_LETTERS}")
+        if not has_letter_or_digit(term.value):  # by its place, never quoted: a term is a value of yours
+            notices.append(f"terms: entry {place}: {TERM_WITHOUT_LETTERS}")
         elif len(term.value) > TERM_LONGEST:  # by its place, never quoted: it could leave no rule built (S-03)
             notices.append(f"terms: entry {place} holds more than {TERM_LONGEST} characters, left out")
         else:
@@ -224,9 +255,10 @@ def read_rules(text: str) -> tuple[ProjectSettings, list[str]]:
     settings.terms = usable
     if settings.recognizers:
         recognizers = []
-        for item, entry in zip(report(settings.recognizers), settings.recognizers, strict=True):
-            if item["state"] == "error":
-                notices.append(f"recognizer {item.get('name') or '?'}: {'; '.join(item['errors'])}")
+        for place, (item, entry) in enumerate(zip(report(settings.recognizers), settings.recognizers, strict=True), 1):
+            if item["state"] == "error":  # by its place and the key: a problem's words can quote the pattern (re2's)
+                about = problem_about(item["errors"][0]) if item["errors"] else "definition"
+                notices.append(f"recognizers: entry {place} is left out: a problem with its {about}")
             else:
                 recognizers.append(entry)
         settings.recognizers = recognizers
@@ -449,7 +481,7 @@ def _add_guidance(target: Any, guidance: str) -> None:
 
 def _scalars(current: Config, imported: ProjectSettings, add: Any, hold: Any) -> None:
     """One value each: taken when stricter than the one in use, held back when weaker."""
-    from latet.protection import _private_ips
+    from latet.protection import private_ips
 
     def take(key: str, value: Any, stricter: bool, sentence: str) -> None:
         (add if stricter else hold)(sentence, lambda t: setattr(t, key, value))
@@ -457,7 +489,7 @@ def _scalars(current: Config, imported: ProjectSettings, add: Any, hold: Any) ->
     if imported.profile is not None and imported.profile != current.profile:
         up = PROFILE_STRICTNESS[imported.profile] > PROFILE_STRICTNESS[current.profile]
         take("profile", imported.profile, up, f"profile: {imported.profile.value} (yours: {current.profile.value})")
-    if imported.include_private_ips is not None and imported.include_private_ips != _private_ips(current):
+    if imported.include_private_ips is not None and imported.include_private_ips != private_ips(current):
         on = imported.include_private_ips
         take("include_private_ips", on, on, f"private IP addresses: {'masked' if on else 'left in clear'}")
     if imported.ner is not None and imported.ner != current.ner:
@@ -469,6 +501,8 @@ def _scalars(current: Config, imported: ProjectSettings, add: Any, hold: Any) ->
         take("images", imported.images, stricter, f"images: {imported.images} (yours: {current.images})")
     if imported.ocr is not None and imported.ocr != current.ocr:
         take("ocr", imported.ocr, imported.ocr == "auto", f"the text in images: {imported.ocr}")
+    if imported.unknown_members is not None and imported.unknown_members != current.unknown_members:
+        take("unknown_members", imported.unknown_members, True, "new request members: refused")  # `refuse` alone
     if imported.dump_guard is not None:  # 0: never, also in a project (where not set means the global one)
         theirs, yours = imported.dump_guard or None, current.dump_guard or None
         if theirs != yours:

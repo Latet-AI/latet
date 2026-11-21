@@ -86,11 +86,12 @@ Los nombres de los tipos son los que muestra el panel junto a cada valor enmasca
 política se enmascaran.
 
 `allow` deja en claro el valor de ese tipo, y nada más: un valor de un tipo enmascarado escrito
-dentro de él nunca sale con él. Con `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
+dentro de él nunca pasa con él. Con `EMAIL: allow`, `IT60X0542811101000000123456.ops@acme-intra.it`
 llega al modelo con el IBAN sustituido por uno ficticio y `.ops@acme-intra.it` tal como está
 escrito; un secreto o un término tuyo escrito en una dirección se enmascara con la dirección
-entera, como antes. Un término o una regla de campo de un tipo que se deja pasar deja en claro lo
-que solo él encuentra; lo que un detector de un tipo enmascarado encuentra ahí se enmascara.
+entera, como antes. Un término o una regla de campo de un tipo al que se deja pasar deja en claro lo
+que solo encuentra ese término o esa regla; lo que encuentra ahí un detector de un tipo enmascarado
+se enmascara.
 
 `redact` sirve para los valores que el modelo nunca necesita, ni siquiera en forma ficticia.
 Funciona en un solo sentido: el modelo recibe el marcador, y Latet nunca vuelve a poner el original
@@ -104,7 +105,7 @@ encontrado el valor:
   también lo suprime allí.
 
 Un valor de más de 16.384 caracteres, como una cadena JSON entera en el
-[modo de datos estricto](../production-data/#modo-de-datos-estricto), se oculta sea cual sea la
+[modo de datos estricto](../production-data/#modo-de-datos-estricto), se suprime sea cual sea la
 política de su tipo, salvo que ese tipo sea `allow`: es demasiado largo para que la caja fuerte lo
 guarde, así que nunca se restaura, y un archivo que el agente escriba a partir de él contiene el
 marcador.

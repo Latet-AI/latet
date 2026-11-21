@@ -69,6 +69,11 @@ is.
 
 - **A Latet 0.9.3 or earlier** gives Hermes back the surrogates in place of the real values: upgrade
   Latet first (`latet upgrade`).
+- **A Latet from 0.11.0 to 0.12.1** refuses some of Hermes's requests: those of a conversation
+  started from its command line or its gateway (a session id that begins with `local-`), those of a
+  ChatGPT workspace with a data residency, and a resumed conversation whose answers carry their
+  phase. Latet 0.15.0 lets each through by its exact form, checked against the source of Hermes
+  Agent 0.23.1: upgrade Latet.
 - **A fallback provider with a `base_url` of its own** keeps that address: in `fallback_providers`,
   set Latet's address there too, or remove the line. Otherwise a request that falls back to it goes
   to ChatGPT with nothing masked.

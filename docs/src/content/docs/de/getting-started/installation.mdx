@@ -32,25 +32,41 @@ irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | 
 
 Das Skript erledigt zwei Dinge, in dieser Reihenfolge:
 
-1. Es installiert uv, den Python-Werkzeugmanager, falls es auf Ihrem Rechner noch fehlt.
+1. Es installiert uv, den Tool-Manager für Python, falls es auf Ihrem Rechner noch fehlt.
 2. Es installiert mit uv die neueste [Version](https://github.com/Latet-AI/latet/releases) von
-   Latet aus GitHub als isoliertes Kommandozeilen-Tool. Die lokale Namenserkennung und die
+   Latet aus GitHub als isoliertes Befehlszeilen-Tool. Die lokale Namenserkennung und die
    Texterkennung in Bildern sind dabei; ihre Modelle werden erst heruntergeladen, wenn Sie es
    verlangen. Wo sie sich nicht installieren lassen, wird Latet ohne sie installiert, und das Skript
    weist am Ende darauf hin; ein Latet, das bereits mit ihnen installiert ist, bleibt dagegen, wie
-   es war. Die übrigen Extras eines installierten Latet (auf einem Server `server`) bleiben. Läuft
-   ein älteres Latet, beendet das Skript es und startet es nicht wieder. Zum
+   es war. Die übrigen Extras eines installierten Latet (auf einem Server `server`) bleiben
+   erhalten. Läuft ein älteres Latet, beendet das Skript es und startet es nicht wieder, es sei
+   denn, es stellt Latet unter Windows an seinem Ende auf einen freien Port um (siehe unten). Zum
    Aktualisieren ist `latet upgrade` der bessere Weg. Nachdem das Skript ein Latet aktualisiert hat,
    führen Sie `latet start` aus, und `latet agents apply claude`, wenn Claude Code dauerhaft über
    Latet läuft, damit es das neue Plugin erhält.
+
+Unter Windows endet das Skript mit einer Frage, die es nur stellt, wo Windows den Port von Latet
+belegen kann. Hyper-V, WSL und Docker reservieren bei jedem Start von Windows Blöcke von Ports, und
+auf manchen Rechnern kann Port 5283 darunter sein: Latet kann dann bis zum nächsten Neustart nicht
+starten. Das Skript fragt, ob es den Port für Latet reservieren soll, oder, wo Windows ihn bereits
+belegt, ob es Latet auf einen freien Port umstellen und diesen reservieren soll. Bei Ja bittet
+Windows einmal um die Bestätigung eines Administrators; wo Latet den Port wechselt, speichert das Ja
+außerdem den neuen Port in `config.yaml`, stellt die Agenten, die `latet global-install`
+eingerichtet hat, auf ihn um und startet Latet auf ihm. Bei Nein gibt das Skript den Befehl aus, der
+es später erledigt: `latet reserve-port`. Das ist der einzige Schritt, der die Bestätigung eines
+Administrators verlangt, und nur, wenn Sie Ja sagen: Der Rest der Installation braucht keine
+Administratorrechte. Siehe
+[Port 5283 ist bereits belegt](../../troubleshooting/#port-5283-ist-bereits-belegt).
 
 Öffnen Sie unter macOS und Linux danach ein neues Terminal: Das Skript trägt Latet in Ihren `PATH`
 für die Terminals ein, die Sie als Nächstes öffnen, nicht für das, in dem es lief.
 Findet auch dieses `latet` nicht, führen Sie `uv tool update-shell` aus und öffnen Sie ein weiteres.
 
-Sonst ändert das Skript nichts: keine Einstellungen Ihrer Agenten, nichts, was bei der Anmeldung
-startet. Neu bei Latet? [`latet tutorial`](../tutorial/) zeigt es in etwa 30 Minuten bei der Arbeit. Lassen
-Sie dann eine Sitzung mit `latet claude` oder `latet codex` über Latet laufen, wie der
+Das Skript ändert sonst nichts, abgesehen vom Port, wenn Sie unter Windows Ja sagen: nichts, was
+bei der Anmeldung startet, und keine Einstellungen Ihrer Agenten, außer dass die Agenten, die
+`latet global-install` eingerichtet hat, Latet folgen, wo es den Port wechselt. Neu bei Latet?
+[`latet tutorial`](../tutorial/) zeigt es in etwa 30 Minuten bei der Arbeit. Lassen Sie dann eine
+Sitzung mit `latet claude` oder `latet codex` über Latet laufen, wie der
 [Schnellstart](../quickstart/#ausprobieren-ohne-etwas-zu-ändern) zeigt, und leiten Sie Ihre Agenten
 mit `latet global-install` dauerhaft über Latet, sobald es zu Ihrer Arbeit passt.
 
@@ -58,7 +74,7 @@ Zwei Umgebungsvariablen ändern, was das Skript tut:
 
 | Variable | Wirkung |
 | --- | --- |
-| `LATET_NO_MODIFY_PATH=1` | Lässt Ihren `PATH` und Ihr Shell-Profil unverändert. Wenn das Skript uv installiert, setzen Sie auch `UV_NO_MODIFY_PATH=1`, für den eigenen Installer von uv. |
+| `LATET_NO_MODIFY_PATH=1` | Lässt Ihren `PATH` und Ihr Shell-Profil unverändert. Wenn das Skript uv installiert, setzen Sie auch `UV_NO_MODIFY_PATH=1`, für das eigene Installationsskript von uv. |
 | `LATET_SOURCE` | Was statt der neuesten Version installiert wird: eine Wheel-Datei oder eine Anforderung wie `latet @ <url>`. |
 
 ## Empfohlen: Namen und Bilder vom ersten Tag an
@@ -97,7 +113,7 @@ kann Dateien, die in Gebrauch sind, nicht ersetzen), installiert das neue Plugin
 wenn Sie Claude Code verwenden, und startet den Daemon wieder. Ein Latet, das ohne Namenserkennung
 oder Texterkennung in Bildern installiert wurde, erhält sie auf diesem Weg. Wo die neue Version sie
 nicht haben kann, bleibt ein Latet, das sie hat, wie es war, und eines ohne sie wird ohne sie
-aktualisiert. Die übrigen Extras, mit denen es installiert wurde, bleiben (auf einem Server
+aktualisiert. Die übrigen Extras, mit denen es installiert wurde, bleiben erhalten (auf einem Server
 `server`); einen als Betriebssystemdienst installierten Server aktualisieren Sie, wie es der
 [Serverbetrieb](../../concepts/server-operations/#ein-als-betriebssystemdienst-installiertes-latet-aktualisieren)
 beschreibt. Unter Windows, das keine Dateien eines laufenden Programms ersetzt, läuft das Upgrade
@@ -107,18 +123,18 @@ Installationsskript erneut ausführen: Sein eigenes `latet upgrade` könnte es s
 nicht mehr startet.
 
 **Von 0.10 auf 0.11** lesen Sie zuerst [Umstieg auf 0.11](../upgrading-to-0-11/): Latet 0.11 liest
-jeden Teil einer Anfrage und lehnt Aufrufe ab, die 0.10 ungelesen gesendet hat. `latet doctor` listet
-vor dem Upgrade auf, was stehen bleiben wird.
+jeden Teil einer Anfrage und lehnt Aufrufe ab, die 0.10 ungelesen gesendet hat. `latet doctor` zeigt
+vor dem Upgrade, was danach gestoppt wird.
 
 Bevor es den Daemon beendet, kopiert `latet upgrade`, was die neue Version beim Öffnen ändern kann:
 den Tresor, den Verlauf und Ihre Einstellungen (`config.yaml` und die Einstellungen, die Sie zuletzt
-bestätigt haben), nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet, und nennt den Ort
+freigegeben haben), nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet, und nennt den Ort
 in einer Zeile. Die Werte in der Kopie bleiben mit dem Schlüssel dieses Rechners verschlüsselt, der
 nicht mitkopiert wird. Die drei neuesten Kopien bleiben erhalten: Ältere werden gelöscht, sobald die
 nächste vollständig ist, nie vorher. Ein Upgrade auf die bereits installierte Version legt keine
-Kopie an. Ein Upgrade ohne Platz auf der Festplatte für seine Kopie, neben den vorhandenen Kopien,
-und für die Installation bricht ab, ohne etwas zu ändern, und nennt den Platz, den es braucht;
-ebenso eines, dessen Kopie sich nicht anlegen lässt. Die Kopien folgen dem, was Sie entfernen,
+Kopie an. Fehlt auf der Festplatte der Platz für die Kopie (neben den vorhandenen
+Kopien) und für die Installation, bricht das Upgrade ab, ohne etwas zu ändern, und nennt den Platz,
+den es braucht; ebenso, wenn sich die Kopie nicht anlegen lässt. Die Kopien folgen dem, was Sie entfernen,
 solange Latet 0.9.10 oder eine spätere Version läuft: *Vergessen* entfernt einen Wert auch aus
 ihnen, das Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt als
 Ihrer; nach `latet upgrade --to` auf eine ältere Version erreicht sie ein *Vergessen* dort nicht.
@@ -133,19 +149,19 @@ latet upgrade --to 0.9.9
 ```
 
 Bei der Rückkehr zu der Version, unter der eine Kopie angelegt wurde, bietet es an, diese Kopie
-zurückzuspielen. Es nennt, wie viele Werte der Tresor seit der Kopie gelernt hat, die verloren
-gingen, und fragt Sie in Ihrem Terminal. Die Vorgabe lässt Ihre Daten, wie sie sind: Die ältere
+zurückzuspielen. Es nennt, wie viele Werte der Tresor seit der Kopie gelernt hat, die dabei
+verloren gingen, und fragt Sie in Ihrem Terminal. Standardmäßig bleiben Ihre Daten, wie sie sind: Die ältere
 Version liest sie weiterhin, wo die neuere nur etwas hinzugefügt hat. Spielen Sie die Kopie zurück,
 werden Ihre jetzigen Dateien zuerst in eine eigene Kopie gesichert; scheitert das Zurückspielen auf
-halbem Weg, kommen Ihre Dateien an ihren Platz zurück, und es sagt das. Einer älteren Version fehlen
+halbem Weg, kommen Ihre Dateien an ihren Platz zurück, und der Befehl meldet das. Einer älteren Version fehlen
 die Korrekturen der späteren: Ein Agent kann `latet upgrade --to` auf eine ältere Version nicht
-ausführen, Sie führen es selbst aus.
+ausführen, das tun Sie selbst.
 
 ## Mit einem KI-Agenten installieren
 
 Bitten Sie Ihren KI-Agenten,
 [`llms-install.md`](https://github.com/Latet-AI/latet/blob/main/llms-install.md) im Repository zu
-befolgen. Er installiert Latet, das allein nichts ändert, und erklärt Ihnen dann, wie Sie
+befolgen. Er installiert Latet, das von sich aus nichts ändert, und erklärt Ihnen dann, wie Sie
 weitermachen können: es zuerst mit `latet tutorial` bei der Arbeit sehen; es Sitzung für Sitzung
 ausprobieren, ohne dass eine Einstellung Ihrer Agenten geändert wird; es in jeder Sitzung
 einschalten; Ihre anderen Tools einrichten; die lokalen Modelle herunterladen. Er wartet auf Ihre
@@ -213,7 +229,7 @@ Dashboards ein; mehr dazu unter [Lokaler Prüfer](../../concepts/llm-review/).
 
 ## Aus dem Quellcode ausführen
 
-Für Mitwirkende, oder um Änderungen auszuprobieren, die noch in keiner veröffentlichten Version
+Für Mitwirkende, oder um Änderungen auszuprobieren, die in keiner veröffentlichten Version
 enthalten sind.
 
 ```sh

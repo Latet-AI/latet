@@ -20,17 +20,17 @@ führt auf Englisch jede Instanzeinstellung mit ihrem Standardwert und Zweck auf
 Übergeben Sie den Hauptschlüssel mit `master_key_file` oder der unterstützten
 Umgebungseingabe für den Hauptschlüssel. Verwenden Sie vorzugsweise eine geschützte
 Geheimnisdatei, kein Repository und keine Befehlszeile. Alle Instanzen benötigen denselben
-Schlüssel. Sichern Sie ihn getrennt mit eingeschränktem Zugriff: Eine neue Zufallszeichenfolge
+Schlüssel. Sichern Sie ihn getrennt mit eingeschränktem Zugriff: Ein neuer Zufallsschlüssel
 in der Datei rotiert keine verschlüsselten Daten und macht vorhandene Daten unlesbar.
 Ein Tresoreintrag, der sich nicht öffnen lässt (mit einem anderen Schlüssel versiegelt oder in
 der Datenbank geändert), wird ausgelassen: Das Log nennt seine ID, nie seinen Wert, und die
 Maskierung geht mit den übrigen Einträgen weiter.
 
 Verwenden Sie `database_password_file`, `valkey_password_file`, `metrics_token_file` und
-`reviewer_key_file` für die jeweiligen Geheimnisse. Der Prüfschlüssel wird einmal beim
-Start gelesen und nur an den von den Administratoren gewählten gemeinsamen Prüfdienst
-gesendet. Er muss dessen Zugangsschlüssel sein, niemals Hauptschlüssel oder Administrationstoken.
-Der Server sucht keinen Prüfschlüssel in der Umgebung, im Schlüsselbund oder in einem
+`reviewer_key_file` für die jeweiligen Geheimnisse. Der Schlüssel des Prüfers wird einmal beim
+Start gelesen und nur an den von den Administratoren gewählten gemeinsamen Prüfer gesendet. Er
+muss der Zugangsschlüssel dieses Prüfers sein, niemals ein Hauptschlüssel oder Administrationstoken.
+Der Server sucht den Schlüssel eines Prüfers nie in der Umgebung, im Schlüsselbund oder in einem
 gespeicherten lokalen Schlüssel einer Person.
 
 ## Betriebssystemdienste
@@ -39,11 +39,11 @@ Installieren Sie das Serverpaket an einem vertrauenswürdigen systemweiten Ort a
 persönlicher Ordner. Bereiten Sie `server.yaml` mit den oben beschriebenen URLs,
 Geheimnisdateipfaden und TLS-Einstellungen vor; der Dienst muss die geschützten Dateien
 lesen können. Erstellen Sie den Hauptschlüssel vorab und initialisieren Sie in Ihrem
-privaten Administrator-Terminal: das erste Administrationstoken wird einmal ausgegeben.
+privaten Administrator-Terminal: Das erste Administrationstoken wird einmal ausgegeben.
 Erfassen Sie diese Ausgabe nicht in gemeinsamen Logs.
 
 Unter Linux kommen zuerst einige Dinge, als root. Installieren Sie Latet mit dem Extra `server`
-für die ganze Maschine: die Ordner von uv für Tools, Befehle und Python alle außerhalb der
+systemweit: die Ordner von uv für Tools, Befehle und Python alle außerhalb der
 persönlichen Ordner. Legen Sie den Benutzer und die Gruppe `latet` an, unter denen der Dienst
 läuft, dann den Ordner, der die Einstellungen und die Geheimnisse enthält, mit dem Hauptschlüssel
 und dem Passwort der Datenbank darin:
@@ -72,8 +72,8 @@ certificate: /etc/latet/server.crt
 key: /etc/latet/server.key
 ```
 
-Übergeben Sie `server.yaml` und jede darin genannte Geheimnisdatei, `key` eingeschlossen, an root
-und die Gruppe `latet`, nur für diese lesbar (`0640` oder `0440`):
+Weisen Sie `server.yaml` und jede darin genannte Geheimnisdatei, `key` eingeschlossen, root und der
+Gruppe `latet` als Eigentümer zu, nur für diese lesbar (`0640` oder `0440`):
 
 ```sh
 cd /etc/latet
@@ -82,11 +82,11 @@ chmod 0640 server.yaml master.key db.password valkey.password server.key
 ```
 
 Fügen Sie `ner` und `ocr` zum Extra hinzu, für Namens- und Texterkennung. Die Installation
-des Dienstes sagt, was davon fehlt: eine Installation unter einem persönlichen Ordner, kein
+des Dienstes meldet, was davon nicht erfüllt ist: eine Installation unter einem persönlichen Ordner, kein
 Benutzer oder keine Gruppe `latet`, oder eine Datei mit einem anderen Eigentümer oder Modus.
 
 Die Standardkonfiguration ist `/etc/latet/server.yaml`, die Unit heißt `latet-server` und
-das Datenverzeichnis ist `/var/lib/latet`:
+der Datenordner ist `/var/lib/latet`:
 
 ```sh
 latet server init --config /etc/latet/server.yaml
@@ -118,7 +118,7 @@ bereits installierten Dienst auf Ihrem Rechner.
 ## Das Compose-Serverprofil
 
 Verwenden Sie `compose.yaml` und `deploy/Caddyfile` aus dem Repository. Bereiten Sie
-ein privates Host-Verzeichnis `secrets/` vor: unter POSIX gehört es dem Administrator
+ein privates Host-Verzeichnis `secrets/` vor: Unter POSIX gehört es dem Administrator
 und hat Modus `0700`; die einzeln eingebundenen Dateien haben Modus `0444`, damit
 der jeweilige Containerbenutzer sie lesen kann. Beschränken Sie unter Windows die
 Verzeichnis- und Datei-ACLs auf Administratoren und das benötigte Docker-Dienstkonto.
@@ -157,7 +157,11 @@ printf 'LATET_SERVER_URL=https://latet.acme.lan\nLATET_SERVER_HOST=latet.acme.la
 Dieses POSIX-Shell-Beispiel wählt Projekt `latet` mit dem internen Netzwerk
 `latet_latet-back`. Die Initialisierung verwendet Dockers `--log-driver none`, da sie
 das Administrationstoken ausgibt; halten Sie das Terminal privat und übertragen Sie das
-Token in Ihren Geheimnisspeicher. Prüfen Sie den Erfolg, bevor Sie die Instanzen starten:
+Token in Ihren Geheimnisspeicher. Eine Person führt die Initialisierung in einem eigenen Terminal
+aus, nie ein KI-Agent: Wer sie ausführt, erhält das Administrationstoken, und in einem Container
+kann Latets Schutz davor, dass Agenten Administrationsbefehle ausführen, nicht erkennen, wer sie
+ausführt.
+Prüfen Sie den Erfolg, bevor Sie die Instanzen starten:
 
 ```sh
 # --wait returns only once PostgreSQL and Valkey are healthy (at most 120 s): go on only if it succeeds
@@ -302,13 +306,13 @@ knapp 4 MiB können bei 50.000 Rückzuordnungsdatensätzen allein in die Größe
 Quellcode, keine Messung oder Gesamtquote. Auch ein langer Unterhaltungsschlüssel oder
 Ordnerpfad kann die angenommene Eintragsgröße überschreiten. Behalten Sie `noeviction`
 bei, beobachten Sie tatsächliche Größen und Belegung und planen Sie für die zugelassene
-Last; Eintragszahlen allein garantieren keine kleine Speicherobergrenze pro Identität.
+Last; versprechen Sie aus den Eintragszahlen allein keine kleine Speicherobergrenze pro Identität.
 
 Latet 0.11 fügt drei Arten von Schlüsseln hinzu, jede begrenzt, keine mit einem Text, einem Wert oder
 einem Ersatzwert:
 
 - **Was der Anbieter einer Unterhaltung gegeben hat** (Thinking-Signaturen, verschlüsseltes
-  Reasoning, Kompaktierungen), als Hashes mit Schlüssel, damit die nächste Runde auf jeder Instanz
+  Reasoning, Kompaktierungen), als schlüsselabhängige Hashes, damit die nächste Runde auf jeder Instanz
   durchgeht: höchstens 20.000 Einträge und 4 MiB pro Identität und 256 MiB für den ganzen Server,
   eine Woche nach ihrer letzten Verwendung aufbewahrt. Ein Schreibvorgang, den Valkey ablehnt (eine
   Grenze oder `noeviction` ohne Speicher), zeichnet nichts auf: Ein solches Element wird dann durch die
@@ -330,9 +334,9 @@ anderer Adressen wird nicht vertraut. Synchronisieren Sie die Uhren mit höchste
 60 Sekunden Abweichung. Beschränken Sie direkte Anbieterzugriffe gesondert, wenn der
 Server der vorgeschriebene Kontrollpunkt des Unternehmens ist.
 
-Das voreingestellte Limit für Anfragekörper beträgt 32 MiB. `requests_in_flight` ist
-standardmäßig 16 je Identität auf einer Instanz, mit getrennten Kontingenten für Ziel-,
-Dashboard-, Bridge- und Anwendungsanfragen. Long Polling und Streams haben eigene Grenzen. Prüfen
+Das Standardlimit für den Body einer Anfrage beträgt 32 MiB. `requests_in_flight` ist
+standardmäßig 16 je Identität auf einer Instanz, mit getrennten Kontingenten für Anfragen an Ziele,
+an das Dashboard, an die Bridge und an die API für Anwendungen. Long Polling und Streams haben eigene Grenzen. Prüfen
 Sie bei Kapazitätsablehnungen Last und Grenzen, statt den Schutz abzuschalten. Beim
 Herunterfahren bleiben einer Instanz 30 Sekunden zum Abschluss. Lange Streams können
 abbrechen; Clients müssen Verbindungsabbrüche behandeln.
@@ -380,7 +384,7 @@ Bereichs zugerechnet): Die Texte der Person werden maskiert, ohne PostgreSQL nac
 zu fragen, etwa doppelt so schnell wie mit dem Nachschlagen. Jede Anfrage fragt PostgreSQL
 trotzdem zuerst, was die anderen Instanzen geändert haben, sodass ein Wert, der auf einer
 Instanz gespeichert oder vergessen wurde, von der nächsten Anfrage auf jeder anderen gesehen
-wird. Über 35.000 Werten, und in einem darüber aufgebauten Bereich, bis er neu aufgebaut wird (auch
+wird. Bei mehr als 35.000 Werten, und in einem darüber aufgebauten Bereich, bis er neu aufgebaut wird (auch
 nachdem Werte vergessen wurden), arbeitet der Bereich einer Person wie der eines API-Schlüssels: Er
 hält die Werte im Speicher, die die Person zuletzt verwendet hat (`key_working_values`), und
 dauerhaft jeden Wert, den kein Wort eines Textes findet, unabhängig von seinem Alter, und
@@ -400,7 +404,7 @@ gegenüber 59. Bei 200.000 Werten belegte der Bereich einer Person nach ihren Ze
 von 0.10.0 495 MB belegte.
 
 Der Bereich einer Person hält jeden Wert, den kein Wort eines Textes findet, wenn andere
-Buchstaben an ihn grenzen, unabhängig davon, was `key_held_secrets` sagt (etwa 23 KB pro
+Buchstaben an ihn grenzen, unabhängig davon, was `key_held_secrets` festlegt (etwa 23 KB pro
 Stück auf jeder Instanz). Eine Anfrage, deren Texte die Grenzen einer Suche überschreiten,
 etwa eine Lockdatei oder ein langes Log mit Hashes, wird nie abgelehnt: Der Bereich einer
 Person, der seinen Tresor ganz hält, liest ihn aus dem Speicher; ein größerer liest seinen
@@ -445,25 +449,28 @@ seiner Texte wie Latet 0.10.2.
   darüber wartet ein Aufruf höchstens fünf Sekunden. `maxclients` von Valkey muss die Verbindungen aller Instanzen
   abdecken. Der Verbindungsaufbau zu Valkey, sein TLS und seine erste Antwort teilen sich eine Grenze von fünf
   Sekunden.
-- **Speicher:** Jede Instanz, auch jeder Worker, gibt den Bereichen, die sie hält, 2 GiB, gewogen aus den
-  Zählungen, die ihre Teile führen, nicht am Prozess gemessen. Ein Bereich nimmt höchstens die Hälfte davon, und
+- **Speicher:** Jede Instanz, auch jeder Worker, gibt den Bereichen, die sie hält, 2 GiB, berechnet aus den
+  Zählerständen, die ihre Teile führen, nicht am Prozess gemessen. Ein Bereich nimmt höchstens die Hälfte davon, und
   seine Detektoren bis zu einem Achtel dieser Hälfte mehr (128 MiB), das ein beschäftigter Bereich behält, solange
   seine Anfragen laufen: Mehrere beschäftigte Bereiche können die 2 GiB um je so viel überschreiten. Der Prozess
-  selbst, die Erkennungsmodelle und die Indizes im Aufbau kommen hinzu. Ein Worker wird neu gestartet, wenn er
-  endet oder verstummt, nie wegen seines Speichers: Planen Sie den Speicher der Maschine für N Worker
+  selbst, die Erkennungsmodelle und die Indizes im Aufbau kommen hinzu. Mit der Begriffssynchronisierung von Latet
+  Enterprise hält jede Instanz, auch jeder Worker, eine einzige Kopie der synchronisierten Begriffe für alle
+  Bereiche, die sie bedient: etwa 30 MB bei 50.000 Begriffen, zusätzlich zu den 2 GiB, und für einen Moment noch
+  einmal so viel, während neue Begriffe sie ersetzen. Ein Worker wird neu gestartet, wenn er endet oder verstummt,
+  nie wegen seines Speichers: Planen Sie den Speicher der Maschine für N Worker
   ([mehrere Instanzen auf einer Maschine](#mehrere-instanzen-auf-einer-maschine)).
 - **Die Zertifikate der Anbieter:** Eine Instanz vertraut dem Zertifikatsspeicher des Betriebssystems; unter
   Linux den Standardpfaden von OpenSSL, die `SSL_CERT_FILE` und `SSL_CERT_DIR` für den ganzen Prozess ändern.
   Ändern Sie sie nur, um die Zertifizierungsstelle Ihres Unternehmens hinzuzufügen.
 - **`SSLKEYLOGFILE`** darf für eine Instanz nicht gesetzt sein: Die TLS-Verbindungen, die sie lesen, darunter die
   zu Valkey, schreiben ihre Sitzungsschlüssel in diese Datei, und wer sie liest, liest diesen Verkehr. Eine
-  Instanz, die damit gestartet wird, meldet das in ihrem Protokoll.
+  Instanz, die damit gestartet wird, meldet das in ihrem Log.
 
 ## Aktualisieren und Instanzen hinzufügen
 
 Von 0.10 auf 0.11 lesen Sie zuerst [Umstieg auf 0.11](../../getting-started/upgrading-to-0-11/): 0.11
 lehnt die Teile von Anfragen ab, die es nicht liest, auf einem Server wie auf einem Rechner, und
-`latet doctor` listet auf, was stehen bleiben wird.
+`latet doctor` listet auf, was dann gestoppt wird.
 
 0.11 ändert auch die Tabellen, daher hält der Server für seine Migration an:
 
@@ -474,12 +481,12 @@ lehnt die Teile von Anfragen ab, die es nicht liest, auf einem Server wie auf ei
    meldet: Die Prüfung, dass keine übrig ist, ist die des nächsten Schritts.
 3. Warten Sie 30 Sekunden und führen Sie dann `latet server migrate` einmal aus, mit 0.11: Eine
    Instanz von 0.10 lässt ihren Schlüssel in Valkey, wenn sie anhält, und zählt als laufend, bis der
-   Schlüssel abläuft, 30 Sekunden nach ihrem letzten Herzschlag. Solange eine Instanz von 0.10 oder
+   Schlüssel abläuft, 30 Sekunden nach ihrem letzten Heartbeat. Solange eine Instanz von 0.10 oder
    0.11 läuft, migriert es nichts, sagt, wie viele laufen und mit welcher Version (`1 instance of the
    server is alive (1 of Latet 0.10 or older): nothing was migrated`), und endet mit 2: Halten Sie
    sie an und führen Sie es erneut aus. Steht eine Migration an, migrieren es und `latet server init`
    auch nichts, solange Valkey nicht antwortet. Die Migration gibt jeder Wortzeile jedes Tresors einen
-   leeren Platz für ihren Fingerabdruck und für die Zählung der Änderung, die sie zuletzt geschrieben
+   leeren Platz für ihren Fingerabdruck und für den Zählerstand der Änderung, die sie zuletzt geschrieben
    hat, mit ihren Indizes: Auf einer Datenbank mit großen Tresoren dauert das länger als frühere
    Migrationen, und die Fingerabdrücke selbst werden später gebildet, im Hintergrund (unten). Sind
    die Migrationen angewandt, fragt es Valkey erneut, und wenn inzwischen eine Instanz zu laufen
@@ -493,13 +500,13 @@ Danach, im Hintergrund: Die Fingerabdrücke jedes Tresors, den 0.10 gespeichert 
 Instanz, die seinen Bereich aufbaut, einmal, eine Instanz nach der anderen, und jede Instanz baut
 ihren eigenen Index daraus auf, für den Tresor einer Person wie für den eines API-Schlüssels. Bis
 dahin werden die Anfragen und Aufrufe dieser Identität beantwortet, indem ihre Wörter in PostgreSQL
-gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgewiesen. Eine Instanz, deren
+gesucht werden, wie 0.10 es tat, langsamer, und keiner wird deswegen abgelehnt. Eine Instanz, deren
 Index nicht aufgebaut werden kann (die Fingerabdrücke noch nicht alle gebildet, PostgreSQL oder
 Valkey antworten nicht, ein fehlgeschlagenes Nachführen des Index), lässt diese Identität bei der
 Suche in PostgreSQL und baut den Index erneut auf: sofort, wenn das Bilden der Fingerabdrücke endet,
 auf dieser oder einer anderen Instanz, sonst 10, 20 und 30 Sekunden nach jedem Versuch und dann
 einmal pro Minute, zwei Aufbauten gleichzeitig auf jeder Instanz, der nächste, sobald einer endet.
-Das Protokoll sagt einmal, wenn der Index eines Bereichs nicht mehr genutzt wird (`the vault index
+Das Log meldet einmal, wenn der Index eines Bereichs nicht mehr genutzt wird (`the vault index
 of <id> is not used (<why>): its lookups go to PostgreSQL until it is built again`), und einmal,
 wenn er wieder genutzt wird. Ein Tresor über 16.777.216 Fingerabdrücken, etwa acht Millionen Werten,
 bekommt keinen Index, solange sein Bereich besteht: Seine Suchen gehen an PostgreSQL, und ein neuer
@@ -510,15 +517,18 @@ arbeitet mit PostgreSQL. 0.11 bildet die Wörter keines Schlüssels neu ([einen 
 aktualisieren](../../applications/#einen-server-aktualisieren)).
 
 Latet liest jede Anfrage nach dem Profil ihrer Route, das jedes Feld, jeden Header und jeden
-Query-Parameter nennt, den sie trägt. Bei jedem Release von Latet, und mindestens alle zwei Wochen,
-laufen die neuesten Versionen der Agenten, die Latet unterstützt, durch die Anfragen, die diese Profile
-beschreiben. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), gehen ein neues
-Element des Inhalts mit Text, ein neuer `anthropic-*`-Header und ein neuer `anthropic-beta`-Wert
-durch, sobald die abschließende Prüfung sie gelesen hat, und ein neuer `x-claude-code-*`-Header wird
-entfernt. Wenn das Update eines Agenten etwas anderes sendet, das kein Profil nennt, erscheint die
-neue Revision des Profils in einem Patch-Release; bis Sie es installieren, wird diese Anfrage
-abgelehnt, mit ihrer Kategorie, und nichts davon wird gesendet. Halten Sie die Instanzen auf dem
-neuesten Patch-Release ihrer Version.
+Abfrageparameter nennt, den sie trägt. Bei jeder neuen Version von Latet, und mindestens alle zwei
+Wochen, laufen die neuesten Versionen der Agenten, die Latet unterstützt, durch die Anfragen, die diese
+Profile beschreiben. Ein neues Element des Bodys wird ganz gelesen und geprüft und geht unverändert
+durch, wenn darin nichts maskiert werden müsste und es nichts nennt, worauf der Anbieter handelt ([Neue
+Elemente in Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen)). Bei einer
+Anfrage, die Latet nur prüft (Claude Code, Bedrock, Vertex), gehen ein neuer `anthropic-*`-Header und
+ein neuer `anthropic-beta`-Wert durch, sobald die abschließende Prüfung sie gelesen hat, und ein neuer
+`x-claude-code-*`-Header wird entfernt. Wenn das Update eines Agenten etwas anderes sendet, das kein
+Profil nennt, etwa einen anderen Header oder ein Element des Bodys, das eine Ressource nennt, erscheint
+die neue Revision des Profils in einer Patch-Version; bis Sie sie installieren, wird diese Anfrage
+abgelehnt, mit ihrer Kategorie, und nichts davon wird gesendet. Halten Sie die Instanzen innerhalb ihrer
+Version auf dem neuesten Patch-Stand.
 
 Die Instanzen teilen sich dieselben Tabellen, und eine Instanz startet nur auf Tabellen ihrer eigenen Version.
 Die Datenbank zu sichern ist Ihre Sache: Latet kopiert nichts davon. Bevor Sie ein neues Image laden und
@@ -531,7 +541,7 @@ pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.
 
 Um zurückzukehren, spielen Sie diese Kopie wieder ein (`pg_restore --clean --if-exists`) und starten Sie das
 vorherige Image: Eine Instanz startet nicht auf Tabellen einer neueren Version. Die Werte in der Kopie bleiben
-verschlüsselt, wie in der Datenbank: Nur der Master-Schlüssel des Servers öffnet sie. Fragen Sie vor einer
+verschlüsselt, wie in der Datenbank: Nur der Hauptschlüssel des Servers öffnet sie. Fragen Sie vor einer
 Aktualisierung die neue Version, ob sie die Tabellen ändert:
 
 ```sh
@@ -549,7 +559,7 @@ latet server migrate --check
   eine neuere Instanz einen Wert, den eine ältere in den Tresor eines Schlüssels schreibt, unter
   Umständen erst, wenn der Bereich des Schlüssels neu aufgebaut wird
   ([einen Server aktualisieren](../../applications/#einen-server-aktualisieren)).
-- **Eine Version, die die Wörter eines Schlüssels neu bildet** (das Changelog sagt es; 0.11 tut es nicht): Die
+- **Eine Version, die die Wörter eines Schlüssels neu bildet** (das Changelog weist darauf hin; 0.11 tut es nicht): Die
   erste Instanz, die den Bereich eines API-Schlüssels aufbaut, bildet die Wörter seines Tresors neu, bevor sie
   den ersten Aufruf dieses Schlüssels beantwortet, wofür Latet 0.10.0 etwa 40 Sekunden für 200.000 Werte und
   viereinhalb Minuten für 1.000.000 brauchte. Das geschieht einmal pro Schlüssel, aber eine Instanz baut vier
@@ -557,6 +567,11 @@ latet server migrate --check
   Neustart zusammen aufgebaut werden, die ersten Aufrufe aller anderen Bereiche auf dieser Instanz aufhalten:
   Senden Sie jedem großen Schlüssel einen Aufruf, einen Schlüssel nach dem anderen, bevor der Verkehr
   zurückkommt.
+
+Mit Latet Enterprise gelten die [Vorgaben](../../enterprise/locked-rules/) des Servers auf jeder Instanz, sobald sie
+aktualisiert ist: Eine Instanz einer früheren Version oder ohne die Enterprise Edition wendet keine an. Während Sie
+die Instanzen nacheinander ersetzen, legen Sie die Vorgaben erst fest, wenn jede Instanz diese Version ausführt, oder
+legen Sie sie dann erneut fest; `latet server policy set` warnt, solange eine laufende Instanz sie noch nicht anwendet.
 
 Im Compose-Beispiel laufen dieselben Schritte in Containern des neuen Images, wenn sich die Tabellen
 ändern (die Pause lässt die Schlüssel angehaltener Instanzen von 0.10 ablaufen; eine Instanz von 0.11
@@ -585,7 +600,7 @@ ist. Im Compose-Beispiel setzen Sie `LATET_SERVER_WORKERS` in der Datei `.env`. 
 Worker für jeden Kern, den die Maschine dem Server gibt.
 
 - **Wie viele:** `--workers` auf der Befehlszeile, sonst `LATET_SERVER_WORKERS`, sonst `workers` in
-  `server.yaml`, sonst einer; von 1 bis 64. Die Einstellungen weisen eine Anzahl ab, deren
+  `server.yaml`, sonst einer; von 1 bis 64. Die Einstellungen lehnen eine Anzahl ab, deren
   Metrik-Ports (unten) über 65535 hinausgingen oder den eigenen Port der Instanz belegten. Im
   Compose-Beispiel startet jeder Server-Container seine eigenen Worker: Zwei Container mit
   `LATET_SERVER_WORKERS=4` sind acht Instanzen, mit acht Verbindungspools.
@@ -629,19 +644,20 @@ Worker für jeden Kern, den die Maschine dem Server gibt.
   Port (7283, 7284 und so weiter): Fragen Sie jeden ab. `latet_process_memory_bytes` ist der Speicher
   eines Workers (sein residenter Speicher unter Linux, seine privaten Bytes unter Windows) und
   `latet_vault_index_bytes` der Teil davon, den die Indizes seiner Tresore belegen.
-- **Überwachung:** Ein Worker, der endet oder 30 Sekunden lang keinen Herzschlag sendet, wird
+- **Überwachung:** Ein Worker, der endet oder 30 Sekunden lang keinen Heartbeat sendet, wird
   beendet und neu gestartet, höchstens einmal alle zehn Sekunden. Ein Worker, der dreimal
   hintereinander nicht starten kann (seine Einstellungen, seine Datenbank oder sein Zertifikat
-  weisen ihn ab), hält alle Worker und den Server an, wie eine einzelne Instanz anhält, damit der
+  lehnen ihn ab), hält alle Worker und den Server an, wie eine einzelne Instanz anhält, damit der
   Dienstverwalter entscheidet. Ein Worker, der nicht bereit ist (PostgreSQL oder Valkey antworten
   nicht), bleibt: Es entscheidet die Bereitschaftsprüfung des Lastverteilers. `latet server status`
   listet jede laufende Instanz auf, jeden Worker jeder Maschine, mit der Nummer des Workers, seiner
-  Bereitschaft, seinem Speicher und seiner Version; ein abgestürzter Worker bleibt bis zu 30 Sekunden
+  Bereitschaft, seinem Speicher, seiner Version und seiner Edition (Community oder Enterprise); ein
+  abgestürzter Worker bleibt bis zu 30 Sekunden
   nach dem Start seines Nachfolgers in der Liste. Eine Anfrage, die ein Worker bediente, als er
   endete, wird nicht beantwortet: Ihr Client erhält einen Fehler und muss sie erneut senden, und keine
   wird unmaskiert beantwortet. Unter Linux werden die Verbindungen, die noch auf einen beendeten
   Worker warten, abgebrochen, und ihre Clients müssen sich neu verbinden, und ein Worker, der keinen
-  Herzschlag mehr sendet, lässt seinen Anteil an neuen Verbindungen warten, bis er beendet wird.
+  Heartbeat mehr sendet, lässt seinen Anteil an neuen Verbindungen warten, bis er beendet wird.
 - **Wartende Verbindungen übergeben (optional):** Ab Linux 5.14 übergibt das System mit
   `net.ipv4.tcp_migrate_req` auf 1 die Verbindungen, die auf einen endenden Worker warten, den
   anderen Workern, statt sie abzubrechen. Im Compose-Beispiel entfernen Sie das Kommentarzeichen vor
@@ -654,8 +670,8 @@ Worker für jeden Kern, den die Maschine dem Server gibt.
 - **Windows:** Mehrere Worker brauchen Linux oder das Container-Image. Unter Windows lehnt
   `latet server run` mehr als einen ab: Dort bedient ein Socket nur einen Prozess, und die einzige
   Ereignisschleife, die ihn teilen könnte, beendet einen Worker ab 512 Verbindungen. Starten Sie eine
-  Instanz auf jeder Windows-Maschine hinter dem Lastverteiler; der Windows-Dienst startet eine, gleich was
-  die Einstellung sagt.
+  Instanz auf jeder Windows-Maschine hinter dem Lastverteiler; der Windows-Dienst startet eine,
+  unabhängig davon, was die Einstellung festlegt.
 
 ### Ein als Betriebssystemdienst installiertes Latet aktualisieren
 
@@ -721,10 +737,10 @@ latet env --key-file program.key --server https://latet.acme.lan
 ```
 
 Die ausgegebenen Variablen enthalten den Routenschlüssel: Halten Sie sie so geheim wie den Schlüssel, nie in
-einem Repository oder einem gemeinsam genutzten Profil. Nur der erste Token des Schlüssels hat diese
-Adressen: Ein Token, der mit `keys add-token` erstellt wurde, hat keine, welche Berechtigungen er auch
-hat, und ruft nur die API für Anwendungen auf. `latet env` fragt den Server, welcher Art der Token ist:
-Für einen solchen Token gibt es keine Variable aus und sagt das.
+einem Repository oder einem gemeinsam genutzten Profil. Nur das erste Token des Schlüssels hat diese
+Adressen: Ein Token, das mit `keys add-token` erstellt wurde, hat keine, welche Berechtigungen es auch
+hat, und ruft nur die API für Anwendungen auf. `latet env` fragt den Server, welcher Art das Token ist:
+Für ein solches Token gibt es keine Variable aus und weist darauf hin.
 
 Das Programm muss dem Zertifikat des Servers vertrauen: einem Zertifikat einer Zertifizierungsstelle, der es schon
 vertraut, oder dem Zertifikat, das seinen eigenen Vertrauenseinstellungen hinzugefügt wurde.
@@ -735,28 +751,33 @@ Ein Programm, das seine eigenen Logs oder Dokumente maskiert, ruft stattdessen d
 Schlüssels mit dessen Agenten, also auch dessen Tresor und Ersatzwerte.
 
 Zwei Arten seiner Arbeit stehen für den ganzen Server an, nicht pro Schlüssel. Der Eintrag jeder
-Wiederherstellung im Verwaltungsprotokoll wird vor ihrer Antwort geschrieben, einer nach dem anderen
+Wiederherstellung im Administrationsprotokoll wird vor ihrer Antwort geschrieben, einer nach dem anderen
 an der Kette des Protokolls, von zwei Threads jeder Instanz für die Wiederherstellungen aller
 Schlüssel; und das Vergessen läuft auf jeder Instanz zu zweit, für alle Schlüssel. Ein Schlüssel, der
 viele Wiederherstellungen auf einmal sendet oder eine lange Liste vergisst, verzögert die
-Wiederherstellungen oder das Vergessen der anderen Schlüssel, nie eine Anmeldung, einen Widerruf oder
-das, was Agenten senden. Das Verwaltungsprotokoll wächst um eine Zeile pro Aufruf zur
-Wiederherstellung.
+Wiederherstellungen oder das Vergessen der anderen Schlüssel, nie die Registrierung eines Rechners,
+einen Widerruf oder das, was Agenten senden. Das Administrationsprotokoll wächst um eine Zeile pro
+Aufruf zur Wiederherstellung.
 
-## Protokolle, Metriken und Wiederherstellung
+## Logs, Metriken und Wiederherstellung
 
-Anwendungsprotokolle gehen als `text` oder `json` an die Standardausgabe. Schützen und
-rotieren Sie die Protokolldateien des Betriebs. Das Administrationsprotokoll ist getrennt
+Anwendungslogs gehen als `text` oder `json` an die Standardausgabe. Schützen und
+rotieren Sie die Logdateien des Betriebs. Das Administrationsprotokoll ist getrennt
 und erfasst Vorgänge einschließlich Codeausstellung und Zugangsdatenänderungen. Lesen
 Sie es mit `latet server log` und prüfen Sie seine Kette mit `latet server log verify`.
-Bewahren Sie den zurückgegebenen Kopf außerhalb der Datenbank auf: Das Löschen des Endes
-kann die verbleibende Kette gültig lassen.
+Bewahren Sie den zurückgegebenen Kopf außerhalb der Datenbank auf: Das Löschen des Endes der
+Kette kann die verbleibende Kette gültig lassen.
 
 Das Kettenurteil des Statusbefehls ist zwischengespeichert und kann unbekannt sein; es
 ist keine neue vollständige Prüfung. Prometheus-Metriken verwenden einen getrennten
 Listener, standardmäßig `127.0.0.1:7283`, und benötigen `metrics_token_file`. Unterscheiden Sie ein unbekanntes
-Urteil von einer beschädigten Kette. Die [Verwaltungsreferenz](../../reference/server-administration/)
-definiert Protokollseiten und die genaue Bedeutung von `latet_ocr_unread_total{reason}`.
+Urteil von einer beschädigten Kette. Die [Administrationsreferenz](../../reference/server-administration/)
+definiert die Seitenaufteilung des Administrationsprotokolls und die genaue Bedeutung von
+`latet_ocr_unread_total{reason}`.
+
+Mit der Begriffssynchronisierung von Latet Enterprise richten Sie einen Alarm für jede Instanz ein, bei der
+`latet_terms_masked` fehlt, bei der `latet_terms_behind_seconds` über 60 oder bei der `latet_terms_unreadable` über 0
+liegt: Diese Instanz hat die synchronisierten Begriffe nie geladen oder maskiert ältere, als der Server hat.
 
 Jede Wiederherstellung über die API für Anwendungen ist ein Eintrag `apps.unmasked` im
 Administrationsprotokoll, mit dem Token und der Zahl der wiederhergestellten Werte, und jedes
@@ -771,11 +792,11 @@ ihrem Metrik-Token aus. Es gibt keinen veröffentlichten Metrik-Port, keine Cadd
 kein mitgeliefertes Überwachungsnetz. Eine andere Bereitstellung muss ausdrücklich einen
 geschützten, authentifizierten Zugriff einrichten; der HTTPS-Port der Anwendung liefert
 diese Metriken nicht. Der Metrik-Listener beantwortet nur `GET /_latet/metrics`, jeden anderen
-Pfad mit `404`: Prometheus fragt nach `/metrics`, sofern sein `metrics_path` nichts anderes sagt.
+Pfad mit `404`: Prometheus fragt nach `/metrics`, sofern sein `metrics_path` nichts anderes festlegt.
 
 Eine Instanz pro Stunde durchläuft die Kette des Administrationsprotokolls und bewahrt das Ergebnis auf; der
 Status und die Metriken zeigen dieses Ergebnis, zwei Stunden lang, und nennen es unbekannt, wenn keines
-vorliegt (ein neuer Server oder ein frisch gestartetes Valkey). Latet hat kein Werkzeug, das eine gebrochene
+vorliegt (ein neuer Server oder ein frisch gestartetes Valkey). Latet hat kein Tool, das eine beschädigte
 Kette repariert: Vergleichen Sie sie mit dem Kopf, den Sie außerhalb der Datenbank aufbewahrt haben, suchen Sie
 den genannten Eintrag und stellen Sie die Datenbank aus einer Sicherung wieder her, wenn das Protokoll verändert
 wurde.

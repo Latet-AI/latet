@@ -23,7 +23,7 @@ En un despliegue conectado también se aplica el [límite de confianza del servi
 los originales pueden llegar al servidor y a las vistas autenticadas del panel.
 Los administradores gestionan la configuración del servidor y los ajustes que comparte, como sus
 destinos y su revisor; huellas, credenciales y vinculaciones de agentes siguen en los equipos.
-Impón por separado las restricciones de acceso a proveedores si el servidor debe ser el punto de
+Impón por separado las restricciones de salida hacia los proveedores si el servidor debe ser el punto de
 control de la empresa.
 Un servidor no toma los marcadores de una petición como prueba de que el plugin de Claude Code se
 ha ejecutado: comprueba también las descripciones, los esquemas y los ejemplos de las herramientas.
@@ -38,34 +38,36 @@ ha ejecutado: comprueba también las descripciones, los esquemas y los ejemplos 
 ## Conversaciones, proyectos y restauración
 
 Los identificadores de conversación agrupan peticiones; no autentican a una persona ni crean una
-bóveda. La pasarela usa la primera cabecera no vacía en este orden: `x-claude-code-session-id`,
-`session-id`, `session_id`, `thread-id`, `x-session-id`. Para la Responses API siguen un
-`previous_response_id` conocido y después un `prompt_cache_key` de tipo cadena. Estos nombres se
-buscan en el espacio de la identidad actual del servidor o en la instancia local.
+caja fuerte. La puerta de enlace usa la primera cabecera no vacía en este orden:
+`x-claude-code-session-id`, `session-id`, `session_id`, `thread-id`, `x-session-id`. Para la
+Responses API siguen un `previous_response_id` conocido y después un `prompt_cache_key` de tipo
+cadena. Estos nombres se buscan en el espacio de la identidad actual del servidor o en el Latet
+local.
 
 Sin uno de estos identificadores, Latet deriva una clave del inicio del historial de la petición,
 usando solo los primeros 8192 caracteres de su serialización compacta. Chats distintos con inicios
 idénticos, o con diferencias solo después de ese prefijo, pueden compartir una conversación. Es la
-reutilización de la misma entrada, no una colisión criptográfica del hash. Mantiene juntas las
-peticiones sucesivas de clientes sin estado, pero no permite determinar qué chat lógico pretendía
-identificar el cliente.
+reutilización de la misma entrada, no una colisión de un hash criptográfico. Mantiene juntas las
+peticiones sucesivas sin estado, pero no permite determinar qué chat lógico pretendía identificar el
+cliente.
 
 En esa conversación compartida, la respuesta puede restaurar valores registrados por cualquiera de
-los dos chats. Por ejemplo, si el proveedor responde en el chat B con un sustituto emitido antes en
-el chat A, Latet puede restaurar localmente el original de A. Identificadores explícitos distintos
+los dos chats. Por ejemplo, si el proveedor responde en el chat B con un valor ficticio emitido antes
+en el chat A, Latet puede restaurar localmente el original de A. Identificadores explícitos distintos
 evitan esa agrupación accidental cuando el cliente los usa de forma coherente. No son un límite de
-autorización. En el texto de las peticiones HTTP normales, un sustituto pegado por el cliente se
-enmascara como un nuevo valor literal; no significa el original que representaba. Una respuesta del
-proveedor con un sustituto desconocido no da acceso a los originales de otro espacio del servidor.
+autorización. En el texto de las peticiones HTTP normales, un valor ficticio pegado por el cliente se
+enmascara como un nuevo valor literal; no equivale al original que representó en su momento. Una
+respuesta del proveedor con un valor ficticio desconocido no da acceso a los originales de otro
+espacio del servidor.
 
-Cada identidad del servidor tiene su propia bóveda y sus registros de conversación. Cabeceras,
+Cada identidad del servidor tiene su propia caja fuerte y sus registros de conversación. Cabeceras,
 identificadores de respuesta, claves de caché o inicios iguales no atraviesan ese límite. Los mismos
-bytes de un sustituto pueden existir en bóvedas separadas; la restauración usa la asociación de la
-bóveda receptora. En un equipo, los proyectos de una misma instancia de Latet comparten su bóveda:
-cuando se admite, `x-latet-project`
+bytes de un valor ficticio pueden existir en cajas fuertes distintas; la restauración usa la
+asociación propia de la caja fuerte receptora. En un equipo, los proyectos de un mismo
+Latet comparten su caja fuerte: cuando se admite, `x-latet-project`
 selecciona los ajustes del proyecto, no un almacén separado ni una conversación nueva. Carpetas de
-datos y bóvedas configuradas por separado proporcionan almacenes separados; trabajar en repositorios
-distintos no basta. Consulta [Proyectos](../concepts/projects/) y
+datos y cajas fuertes configuradas por separado proporcionan almacenes separados; trabajar en
+repositorios distintos no basta. Consulta [Proyectos](../concepts/projects/) y
 [Latet en un servidor](../concepts/server/).
 
 **Qué reglas de proyecto se aplican.** Una carpeta que nombra una petición (la cabecera
@@ -74,20 +76,21 @@ distintos no basta. Consulta [Proyectos](../concepts/projects/) y
 excepciones de petición no, y un proyecto declarado en el que Latet está desactivado se rechaza. Un
 proyecto es *de confianza* solo cuando Latet lo conoce por sí mismo, de dos fuentes:
 
-- **El vínculo del plugin de Claude Code.** El plugin vincula una sesión al proyecto de una carpeta que
-  Latet conoce; cada una de sus llamadas mantiene el vínculo, que termina tras 30 minutos sin ninguna.
-  Tiene un límite aceptado: una petición de Anthropic Messages que lleva el id de una sesión tuya
+- **La vinculación del plugin de Claude Code.** El plugin vincula una sesión al proyecto de una
+  carpeta que Latet conoce; cada una de sus llamadas mantiene la vinculación, que termina tras
+  30 minutos sin ninguna.
+  Tiene un límite aceptado: una petición de Anthropic Messages que lleva el ID de una sesión tuya
   activa vinculada por el plugin se decide con ese proyecto, relajaciones y excepciones incluidas, sea
   cual sea el cliente tuyo que la envíe. La sigue leyendo la comprobación final y nunca se reescribe, y
-  las peticiones de ninguna otra persona alcanzan el vínculo. Las llamadas que Claude Code hace antes
-  de la primera llamada del plugin que vincula la sesión (sus llamadas de arranque) se deciden solo con
-  tus propias reglas, ni con las reglas añadidas del proyecto ni con sus relajaciones.
+  las peticiones de ninguna otra persona alcanzan la vinculación. Las llamadas que Claude Code hace
+  antes de la primera llamada del plugin que vincula la sesión (sus llamadas de arranque) se deciden
+  solo con tus propias reglas, sin las reglas añadidas del proyecto ni sus relajaciones.
 - **Una clave de lanzamiento.** Un agente que lanza Latet lleva una clave secreta de ese lanzamiento,
   ligada al proyecto de la carpeta y a ti; Latet la comprueba, la quita antes de reenviar nada, y solo
   guarda un hash con clave de ella. Cualquier programa que tenga la clave cuenta como ese lanzamiento:
-  funciona con el mismo usuario, y Latet no pretende ligar una clave a un proceso. Una sesión que
-  arrancó `latet claude` necesita su clave, así que su id de sesión por sí solo no alcanza ninguna
-  relajación del proyecto.
+  funciona con el mismo usuario, y Latet no pretende ligar una clave a un proceso. Una sesión
+  iniciada por `latet claude` necesita su clave, así que su ID de sesión por sí solo no da acceso a
+  ninguna relajación del proyecto.
 
 Consulta [Proyectos](../concepts/projects/#de-confianza-y-declarados).
 
@@ -123,7 +126,7 @@ Consulta [Proyectos](../concepts/projects/#de-confianza-y-declarados).
   un comando que envía datos por la red, como `curl`; el original restaurado saldría entonces por ese
   comando. Latet mantiene los valores ficticios en las herramientas web y en los conectores de
   claude.ai, pero un comando de shell o un servidor MCP local recibe el valor real. Mantén activadas
-  las solicitudes de permiso de tu agente para los comandos de red.
+  las peticiones de permiso de tu agente para los comandos de red.
 - **La deducción a partir del contexto.** Los valores ficticios mantienen el formato del original, y el
   texto que los rodea puede revelar para qué se usa un valor.
 - **Las superficies que Latet no puede ver**: las sesiones en la nube, Chat y Cowork de Claude Desktop,
@@ -242,7 +245,7 @@ en un único archivo:
 - Se ejecuta en tu propio servidor: en este equipo, o en otro equipo tuyo una vez que lo confirmes
   (`remote: true`), por https fuera de tu red local. Lee el texto original, así que dale solo un
   servidor que controles tú.
-- Puede añadir a lo que se enmascara, nunca quitar nada; lo que encuentra se comprueba contra el texto
+- Puede ampliar lo que se enmascara, nunca quitar nada; lo que encuentra se comprueba contra el texto
   (un valor que se inventa, o uno dentro de un marcador de posición, se descarta).
 - Una salida de una herramienta con instrucciones para él puede, como mucho, hacer que encuentre menos;
   los detectores se siguen aplicando, y una respuesta vacía a un texto que se dirige al revisor no se da
@@ -260,7 +263,7 @@ en un único archivo:
 - Las imágenes se leen en tu equipo; los modelos se descargan una vez, en una revisión fijada, cada
   archivo se comprueba contra un SHA-256 fijado, y después se ejecutan sin conexión.
 - Las imágenes tal como se enviaron se guardan en el historial del panel, selladas, solo con
-  `history: full` (10 MB como máximo cada una), y se van con su intercambio.
+  `history: full` (10 MB como máximo cada una), y desaparecen con su intercambio.
 - Lo que decides sobre una imagen en el Revisor en directo, y una imagen que el revisor local retuvo,
   se recuerdan sellados en la base de datos de la caja fuerte, mediante un hash con clave de la imagen.
 - Una imagen que no se puede leer se retiene, nunca se envía tal como estaba; en una petición que
@@ -287,12 +290,12 @@ en un único archivo:
   la inicial de cada palabra en mayúscula. Un valor escrito en el nombre de una cabecera con otra
   mezcla de mayúsculas y minúsculas, ya sea un valor tuyo como `ACME-Payroll-7731` o un secreto
   cuya forma las mezcla, como una clave de API de Google (`AIza…`), no se encuentra ahí: el nombre
-  solo se rechaza cuando sale de uno de los límites de una cabecera nueva, una palabra de más de 16
+  solo se rechaza cuando incumple uno de los límites de una cabecera nueva, una palabra de más de 16
   caracteres (como suele ocurrir con una clave o un token), más de 48 caracteres después de
   `anthropic-` o un carácter que no sea una letra minúscula, una cifra o un guion. En una petición
   que Latet reescribe se rechazan antes de que se enmascare nada de ella.
   Las cabeceras que un perfil declara eliminables se quitan y se cuentan en el panel: la telemetría y el trazado de los SDK (`x-stainless-*`,
-  `traceparent`...), y las propias de los agentes que pueden contener texto libre, como los id de un
+  `traceparent`...), y las propias de los agentes que pueden contener texto libre, como los ID de un
   subagente de Claude Code o los metadatos del turno de Codex, que contienen la ruta y los remotos de
   tu repositorio ([Las cabeceras que quita Latet](../getting-started/upgrading-to-0-11/#las-cabeceras-que-quita-latet)). En una petición que Latet solo comprueba,
   son el único cambio: su cuerpo sale byte a byte.
@@ -315,7 +318,7 @@ en un único archivo:
 - Las peticiones de Claude Code, o que llevan el token de una suscripción de Claude, nunca se
   reescriben, solo se comprueban.
 - Cuando el enmascaramiento falla, la petición se rechaza en lugar de enviarse: un cuerpo que Latet no
-  puede descodificar, un detector obligatorio que da error o un valor que no puede sustituir acaban
+  puede decodificar, un detector obligatorio que da error o un valor que no puede sustituir acaban
   todos en un error que dice que no se ha enviado nada. En Claude Code, cuando no se puede llegar al
   daemon, el plugin retiene el contenido.
 - El TLS hacia el destino se verifica con el almacén de certificados de tu sistema operativo, así que
@@ -337,12 +340,12 @@ sesión, como hace cuando la usas tú. Los comandos solo usan la red para lo que
 en GitHub y la descarga. No hay telemetría ni analítica, ni en el daemon, ni en el panel, ni en este
 sitio de documentación.
 
-**En un servidor Latet** ([Latet en un servidor](../concepts/server/))
+**En un servidor de Latet** ([Latet en un servidor](../concepts/server/))
 
 - La administración responde solo por HTTPS, a un programa: una petición desde una página web se
-  rechaza, y un token de administración solo se comprueba después de que su dirección supere un límite
-  de intentos rechazados.
-- El servidor no guarda ningún secreto que emite: solo un hash con clave de cada token, clave y
+  rechaza, y un token de administración solo se comprueba después de que su dirección pase el control
+  de un límite de intentos rechazados.
+- El servidor no guarda ningún secreto que emita: solo un hash con clave de cada token, clave y
   código. La clave de cada espacio está sellada con la clave maestra del servidor, que se guarda aparte
   de las copias de seguridad de la base de datos.
 - Cada llamada de administración se anota en un registro encadenado, también las lecturas y los
@@ -351,13 +354,13 @@ sitio de documentación.
   el panel: este necesita además la clave del equipo, que no se da a ningún agente.
 - Una excepción de petición forma parte de los ajustes propios de una persona y se aplica cuando esa
   persona la aprueba. Aprobar una permanente escribe una entrada en el registro de administración,
-  solo con su id y el tipo de su alcance, nunca su descripción; `latet server status` enumera las
+  solo con su ID y el tipo de su alcance, nunca su descripción; `latet server status` enumera las
   permanentes del mismo modo. Las lee de un índice que PostgreSQL guarda junto a los ajustes sellados:
-  por cada excepción aprobada, su id, el tipo de su alcance, si es permanente, su fin, y si está en
+  por cada excepción aprobada, su ID, el tipo de su alcance, si es permanente, su fin, y si está en
   vigor, espera una nueva aprobación tras una revisión de su perfil o no la permite la edición; nunca
   su descripción, su destino, la carpeta de un proyecto ni lo que nombra.
 - Con el historial desactivado, las excepciones usadas se cuentan en memoria, y se comparten a través
-  de Valkey por instancia e identidad, solo ids y números, para el panel. Valkey tal como lo entrega
+  de Valkey por instancia e identidad, solo ID y números, para el panel. Valkey tal como lo entrega
   Latet no guarda nada en disco; un operador que active su persistencia escribe estos recuentos en
   disco.
 - Con varios workers en Linux, el puerto queda retenido para el servidor todo el tiempo, incluso
@@ -369,11 +372,11 @@ sitio de documentación.
   la identidad, y junto a cada una de sus palabras un hash con clave y una huella: una huella de 64
   bits con una clave derivada de la de la identidad, que las instancias guardan en memoria para
   encontrar los valores de un texto. Quien lee la base de datos no saca de ellas ninguna palabra,
-  pero ve qué filas de una identidad comparten una palabra, cuántas son y, por los números de cambio
-  de las filas, qué filas cambiaron y en qué orden: una huella no es un cifrado. Dos palabras pueden
+  pero ve qué filas de una identidad comparten una palabra, cuántas son y, por los contadores de
+  cambios de las filas, qué filas cambiaron y en qué orden: una huella no es un cifrado. Dos palabras pueden
   tener la misma huella, así que cada valor o valor ficticio al que lleva una huella se descifra y se
   compara con el texto antes de enmascarar o restaurar nada.
-- Lo que Valkey guarda y transporta para una caja fuerte son ids, tipos, recuentos y datos sellados:
+- Lo que Valkey guarda y transporta para una caja fuerte son ID, tipos, recuentos y datos sellados:
   ningún valor, valor ficticio, palabra ni huella en claro, y ningún hash con clave de la caja fuerte.
   Hay pruebas que lo comprueban en todo lo que las instancias envían a Valkey mientras enmascaran,
   restauran y olvidan valores para una clave de API y para una persona, rehacen las huellas de una

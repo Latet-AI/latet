@@ -43,6 +43,7 @@ class SlotKind(StrEnum):
     TOOL_DESCRIPTION = "tool_description"
     OUTBOUND_TOOL = "outbound_tool"  # the input of a tool that runs outside this computer, as the model wrote it
     IMAGE_TEXT = "image_text"  # the text read in an image of the request
+    NEW_MEMBER = "new_member"  # a request member Latet has no rule for: read as a person's text, every class blocks
     OTHER = "other"
 
     @property

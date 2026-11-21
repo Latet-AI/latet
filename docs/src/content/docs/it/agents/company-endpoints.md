@@ -8,7 +8,7 @@ azienda, invece di andare direttamente ad Anthropic o a OpenAI: il suo gateway L
 Portkey...), Amazon Bedrock, Google Vertex, Microsoft Foundry o Azure OpenAI. Il modello è lo stesso;
 cambia chi lo vende e dove vanno le richieste.
 
-Latet legge quel percorso dalle impostazioni dell'agente stesso e si mette davanti. Le richieste
+Latet legge quel percorso dalle impostazioni dell'agente stesso e gli si mette davanti. Le richieste
 raggiungono lo stesso endpoint, con le stesse chiavi, dopo che Latet le ha controllate (Claude Code) o
 mascherate (Codex). Niente da configurare a mano: lo fanno `latet claude`, `latet codex` e
 `latet global-install`.
@@ -23,7 +23,7 @@ mascherate (Codex). Niente da configurare a mano: lo fanno `latet claude`, `late
   [`upstreams`](../../reference/configuration/#upstreams-items), con un nome preso dall'indirizzo
   (`https://llm.acme.com` diventa `llm-acme-com`), e l'agente invia invece a
   `http://127.0.0.1:5283/llm-acme-com`. Lo stesso indirizzo ha sempre la stessa destinazione.
-  Alcuni nomi sono delle rotte di Latet, e una destinazione non può usarli:
+  Latet riserva alcuni nomi ai propri percorsi, e una destinazione non può usarli:
   `anthropic`, `openai`, `chatgpt`, `openrouter`, `gemini`, `bedrock`, `vertex` e `backend-api`.
 - **Bedrock e Vertex hanno percorsi propri**, `/bedrock/<region>/` e `/vertex/`, che raggiungono solo
   gli indirizzi di Amazon e di Google.
@@ -32,8 +32,8 @@ mascherate (Codex). Niente da configurare a mano: lo fanno `latet claude`, `late
 
 Per una sessione, `latet claude` passa le sue impostazioni con l'opzione `--settings` di Claude Code,
 che prevale sulle tue impostazioni e su quelle del progetto; `latet codex` aggiunge opzioni `-c`. In
-modo permanente, `latet global-install` scrive lo stesso nei file degli agenti, e
-`latet global-uninstall` rimette ogni indirizzo che ha sostituito, anche se nel frattempo hai
+modo permanente, `latet global-install` scrive le stesse impostazioni nei file degli agenti, e
+`latet global-uninstall` ripristina ogni indirizzo che ha sostituito, anche se nel frattempo hai
 modificato il file.
 
 ## Il gateway della tua azienda
@@ -46,7 +46,7 @@ Claude Code configurato con il gateway della tua azienda:
 
 Con `latet claude`, Claude Code invia a `http://127.0.0.1:5283/llm-acme-com`, e Latet inoltra ogni
 richiesta a `https://llm.acme.com`, con la chiave della tua azienda così come l'ha inviata Claude Code.
-Codex funziona allo stesso modo, con `openai_base_url` o con un provider suo:
+Codex funziona allo stesso modo, con `openai_base_url` o con un provider proprio:
 
 ```toml title="~/.codex/config.toml"
 model_provider = "acme"
@@ -57,22 +57,23 @@ base_url = "https://llm.acme.com/v1"
 env_key = "ACME_API_KEY"
 ```
 
-Si sposta solo l'indirizzo di quel provider; la sua chiave, e tutto il resto, restano come li hai
-scritti. Un provider scritto nel file di un profilo (`~/.codex/work.config.toml`) viene spostato lì, e
-`latet codex --profile work` fa passare da Latet i provider di quel profilo e il suo `openai_base_url`.
+Cambia solo l'indirizzo di quel provider; la sua chiave, e tutto il resto, restano come li hai
+scritti. Per un provider scritto nel file di un profilo (`~/.codex/work.config.toml`) l'indirizzo cambia
+in quel file, e `latet codex --profile work` fa passare da Latet i provider di quel profilo e il suo
+`openai_base_url`.
 
 ## Amazon Bedrock
 
-Claude Code su Bedrock (`CLAUDE_CODE_USE_BEDROCK=1`) dimostra chi è in uno di due modi, e Latet li
-gestisce entrambi.
+Claude Code su Bedrock (`CLAUDE_CODE_USE_BEDROCK=1`) dimostra la propria identità in uno di due modi,
+e Latet li gestisce entrambi.
 
 - **Una chiave API di Bedrock** (`AWS_BEARER_TOKEN_BEDROCK`) viaggia con ogni richiesta come una
   password: passa attraverso Latet così com'è.
 - **Il tuo login AWS** (un profilo AWS, un login SSO, chiavi in `~/.aws`): Claude Code firma ogni
-  richiesta per l'indirizzo a cui la invia. Una firma fatta per l'indirizzo di Latet non varrebbe da
-  Amazon, come una raccomandata a cui è stato cambiato l'indirizzo. Quindi Claude Code invia a Latet
-  richieste non firmate (`CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`), e Latet firma ognuna per Amazon, dopo
-  averla controllata, con il tuo profilo AWS.
+  richiesta per l'indirizzo a cui la invia. Una firma fatta per l'indirizzo di Latet non sarebbe valida
+  presso Amazon, come una raccomandata a cui è stato cambiato l'indirizzo. Quindi Claude Code invia a
+  Latet richieste non firmate (`CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`), e Latet firma ciascuna per Amazon,
+  dopo averla controllata, con il tuo profilo AWS.
 
 Per firmare, Latet legge il tuo profilo come fanno gli strumenti di Amazon: con la AWS CLI
 (`aws configure export-credentials`) quando è installata, il che copre i login SSO e i ruoli, oppure
@@ -81,8 +82,8 @@ dalle chiavi scritte in `~/.aws`. Latet cerca `aws` nel suo PATH, poi in `/usr/l
 su Windows): il Latet che si avvia quando accedi al computer non vede il PATH della tua shell. Se la
 tua AWS CLI è altrove, avvia Latet da una shell in cui `aws` funziona. Le credenziali restano nella
 memoria di Latet, non vengono mai scritte da nessuna parte, e firmano solo le richieste ad Amazon
-Bedrock. Quando il tuo login scade, Claude Code lo dice a parole chiare:
-`run aws sso login --profile work`; una volta fatto, torna a funzionare senza riavviare niente.
+Bedrock. Quando il tuo login scade, Claude Code lo dice chiaramente:
+`run aws sso login --profile work`; dopo averlo fatto, tutto torna a funzionare senza riavviare niente.
 Le impostazioni `awsAuthRefresh` e `awsCredentialExport` di Claude Code non vengono usate mentre
 firma Latet: Latet legge da solo il tuo profilo AWS, quindi il login che avrebbero eseguito lo esegui
 tu. `latet doctor` avvisa quando sono impostate.
@@ -94,8 +95,8 @@ far firmare richieste a tuo nome. Le credenziali che esistono solo nelle variabi
 in memoria, e solo finché quella sessione è in corso: `latet claude` tiene aperta una connessione con
 Latet, e quando termina (anche se lo chiudi a forza) Latet dimentica le credenziali entro pochi
 secondi. Le dimentica anche alla loro scadenza, quando il tuo strumento ne imposta una
-(`AWS_SESSION_EXPIRATION` o `AWS_CREDENTIAL_EXPIRATION`). Dopo di che Claude Code dice a parole chiare
-che le credenziali non ci sono più: rinnovale e avvia di nuovo `latet claude`. `global-install` ha
+(`AWS_SESSION_EXPIRATION` o `AWS_CREDENTIAL_EXPIRATION`). Dopodiché Claude Code dice chiaramente che
+le credenziali non ci sono più: rinnovale e avvia di nuovo `latet claude`. `global-install` ha
 bisogno di un profilo AWS, che Latet può leggere da solo.
 
 Con il tuo login AWS, scrivere nelle impostazioni l'indirizzo pubblico di Bedrock
@@ -130,17 +131,17 @@ risorsa viene salvato (`foundry-acme`, `azure-acme`) e la chiave passa così com
 Latet legge ogni parte di una richiesta verso una destinazione, come verso un provider
 ([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)). Il `request_profile`
 di una destinazione, impostato su di essa in [`upstreams`](../../reference/configuration/#upstreams-items),
-dice quali chiamate accetta: `standard` (le rotte delle API di Anthropic e di OpenAI, il valore
+dice quali chiamate accetta: `standard` (i percorsi propri delle API di Anthropic e di OpenAI, il valore
 predefinito), `azure-openai-1` (Azure OpenAI, con la sua `api-version`) o `foundry-1` (Microsoft
 Foundry). Ogni altra chiamata viene rifiutata.
 
 - **La sua credenziale.** Un gateway che prende la sua chiave in `authorization` o in `x-api-key` non
-  ha bisogno d'altro. Uno che la vuole in un header suo (`x-acme-key`) rifiuta finché un'eccezione non
-  nomina quell'header come credenziale della destinazione, che Latet invia com'è arrivata e non legge
+  ha bisogno d'altro. Uno che la vuole in un header proprio (`x-acme-key`) rifiuta finché un'eccezione non
+  indica quell'header come credenziale della destinazione, che Latet invia com'è arrivata e non legge
   mai: vedi [Approvare un'eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta).
 - **I nomi dei suoi modelli e le versioni.** Un id di modello nella forma documentata da un provider
   passa. I nomi propri di un gateway (`acme-large`), l'`api-version` che accetta una destinazione Azure
-  OpenAI o Foundry, ogni ARN di Bedrock, compreso quello di un profilo di inferenza applicativo, e un
+  OpenAI o Foundry, ogni ARN di Bedrock, compreso quello di un profilo di inferenza dell'applicazione, e un
   progetto di Vertex vanno prima elencati in `request_resources`:
   [Bedrock e Vertex: cosa elencare](../../getting-started/upgrading-to-0-11/#bedrock-e-vertex-cosa-elencare).
 - **Le firme del ragionamento attraverso un gateway.** Una conversazione attraverso LiteLLM o un altro
@@ -150,8 +151,8 @@ Foundry). Ogni altra chiamata viene rifiutata.
 
 ## Un modello su questo computer
 
-Un indirizzo su questo computer (`http://localhost:11434` per Ollama, per esempio) viene lasciato
-stare: un modello che gira qui non invia niente altrove, e Latet non può distinguerlo da un proxy che
+Su un indirizzo di questo computer (`http://localhost:11434` per Ollama, per esempio) Latet non
+interviene: un modello che gira qui non invia niente altrove, e Latet non può distinguerlo da un proxy che
 inoltra al cloud. Se è un proxy del genere, LiteLLM per esempio, aggiungilo come destinazione, e Latet
 si mette davanti:
 
@@ -163,7 +164,7 @@ Poi avvia una nuova sessione di `latet claude` o di `latet codex`; se hai config
 con `latet global-install`, esegui di nuovo `latet agents apply`: fino ad allora le loro impostazioni
 continuano a inviare direttamente al proxy.
 
-Latet te lo ricorda ogni volta che lascia stare un indirizzo del genere. Gli indirizzi sulla tua rete
+Latet te lo ricorda ogni volta che non interviene su un indirizzo del genere. Gli indirizzi sulla tua rete
 locale e su internet passano sempre da Latet.
 
 ## Dove Latet non può mettersi davanti
@@ -183,11 +184,11 @@ locale e su internet passano sempre da Latet.
 - **L'indirizzo FIPS di Amazon Bedrock** (un `ANTHROPIC_BEDROCK_BASE_URL` su
   `bedrock-runtime-fips.us-east-1.amazonaws.com`): non supportato. Latet può inviare solo
   all'indirizzo standard, che non è un endpoint FIPS, quindi lo dice e non avvia Claude Code, invece
-  di lasciar cadere il tuo requisito FIPS. Usa il gateway della tua azienda, o l'indirizzo standard se
+  di ignorare il tuo requisito FIPS. Usa il gateway della tua azienda, o l'indirizzo standard se
   non ti serve FIPS. Con una chiave API di Bedrock (`AWS_BEARER_TOKEN_BEDROCK`) non c'è niente da
   firmare, e l'indirizzo FIPS resta la destinazione, come qualsiasi indirizzo aziendale.
 - **Più di un cloud alla volta** (`CLAUDE_CODE_USE_BEDROCK` e `CLAUDE_CODE_USE_VERTEX`, per esempio):
-  Latet non può sapere quale usa Claude Code, quindi lo dice e non lo avvia. Tienine uno.
+  Latet non può sapere quale usa Claude Code, quindi lo dice e non lo avvia. Lasciane uno solo.
 - **Un indirizzo che due programmi potrebbero leggere in modo diverso** (con dentro un backslash, uno
   spazio, un nome utente o una password), o un server fuori dalla tua rete locale raggiunto via
   `http`: Latet non lo fa passare, e dice perché.
@@ -210,8 +211,8 @@ latet config add upstreams "{name: llm-acme-com, url: https://llm.acme.com}"
 
 Ogni computer ha comunque bisogno del plugin di Latet per Claude Code: esegui lì `latet global-install`,
 oppure avvia Claude Code con `latet claude`. Senza il plugin, le richieste di Claude Code arrivano a
-Latet non mascherate, quindi Latet le controlla soltanto e ferma ognuna che contiene un valore
-sensibile in chiaro. L'indirizzo indica la porta 5283: su un computer il cui Latet gira su un'altra
+Latet non mascherate, quindi Latet le controlla soltanto e ferma ogni richiesta che contiene un
+valore sensibile in chiaro. L'indirizzo indica la porta 5283: su un computer il cui Latet gira su un'altra
 porta, Latet dice che le impostazioni gestite mandano Claude Code altrove, e non lo avvia.
 
 ## Controlli lungo il percorso
@@ -223,9 +224,9 @@ porta, Latet dice che le impostazioni gestite mandano Claude Code altrove, e non
   progetto non può nemmeno far puntare il plugin a un altro Latet. Anche quando il controllo stesso
   non riesce, i prompt vengono fermati.
 - **`latet agents status`** mostra il percorso di ogni agente. **`latet doctor`** lo mostra
-  anch'esso, con una variabile della tua shell che le impostazioni di Claude Code scavalcano (non
-  l'indirizzo della tua azienda quando Latet ci ha messo davanti il suo: è giusto così), e se la AWS
-  CLI c'è quando Latet firma per Bedrock.
+  anche, e segnala una variabile della tua shell che le impostazioni di Claude Code scavalcano (non
+  l'indirizzo della tua azienda quando Latet ci ha messo davanti il suo: è giusto così) e se la AWS
+  CLI è presente quando Latet firma per Bedrock.
 - **La dashboard** elenca le tue destinazioni in Agenti protetti → Dove vanno le richieste, con l'agente
   che ha indicato ciascuna e quando è stata usata l'ultima volta, e su ogni scambio mostra dove è
   andato e se Latet l'ha firmato. Rimuoverne una lì toglie quella sola destinazione e nessun'altra.
@@ -247,6 +248,6 @@ porta, Latet dice che le impostazioni gestite mandano Claude Code altrove, e non
 Il vero Claude Code (2.1.294) e il vero Codex (0.161.0), attraverso Latet, con provider che rispondono
 come fa ciascun cloud, su un solo computer: il gateway di un'azienda, Bedrock con una chiave API, con
 un profilo per cui Latet ha firmato e con l'ARN di un modello, Vertex, e un provider di Codex nella
-forma di Azure. Le firme di Latet corrispondono a quelle della libreria di AWS, richiesta per
+forma di Azure. Le firme di Latet corrispondono a quelle della libreria ufficiale di AWS, richiesta per
 richiesta. Se usi uno di questi cloud al lavoro,
 [facci sapere come va](https://github.com/Latet-AI/latet/issues).

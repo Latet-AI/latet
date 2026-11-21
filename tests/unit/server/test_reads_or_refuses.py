@@ -22,6 +22,7 @@ from websockets.sync.server import serve
 
 from latet.bridge.api import Bridge, _answered
 from latet.config import Config, Destination
+from latet.edition import Community
 from latet.engine.build import build
 from latet.engine.types import SlotKind
 from latet.engine.vault import Vault
@@ -542,7 +543,9 @@ def test_a_spaces_websocket_refuses_each_frame_it_does_not_read_and_sends_it_now
     relay = Destination(name="relay", url=f"http://127.0.0.1:{upstream.port}")  # the administrator's, to its upstream
     settings = MemorySettings(SHARED.model_copy(update={"upstreams": [relay]}))
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=settings)
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     rt.gateway.on_server = OnServer(URL, EMILY.id)
     try:
         with _client(rt) as c, c.websocket_connect("/relay/v1/responses", headers=HOST) as socket:

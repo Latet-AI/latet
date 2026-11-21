@@ -273,14 +273,41 @@ def test_the_anthropic_model_lists_beta_keeps_its_value_grammar(query):
         assert counts(made) == (0, 0)
 
 
-@pytest.mark.parametrize(
-    "part",
-    [{"text": "hello", "drift_member": "x"}, {"text": "hello", "driftMember": {"a": 1}}, {"drift_member": "x"}],
-)
-async def test_an_unknown_member_inside_a_gemini_part_is_body_unknown_member(cell, part):
+GEMINI_PARTS = [
+    {"text": "hello", "drift_member": "x"},
+    {"text": "hello", "driftMember": {"a": 1}},
+    {"drift_member": "x"},
+]
+
+
+def _part(part: dict) -> Case:
     body = json.dumps({"contents": [{"role": "user", "parts": [part]}]}).encode()
-    target = "/gemini/v1beta/models/gemini-2.5-pro:generateContent"
-    observation = await run_case(cell, Case("part", (), "POST", target, GEMINI_KEY, body))
+    return Case("part", (), "POST", "/gemini/v1beta/models/gemini-2.5-pro:generateContent", GEMINI_KEY, body)
+
+
+@pytest.mark.parametrize("part", GEMINI_PARTS)
+async def test_an_unknown_member_inside_a_gemini_part_is_read_by_the_new_rule(cell, part):
+    """A member of a Gemini part no field names, of control values: read by the new rule (notes/unknown-members-
+    design.md §1), sent as it came."""
+    observation = await run_case(cell, _part(part))
+    assert observation["client"]["status"] == 200, observation["client"]
+    assert observation["counts"]["send"] == 1
+    assert json.loads(cell.transport.sent[0].content)["contents"][0]["parts"][0] == part
+
+
+@pytest.fixture
+async def strict_cell(tmp_path):
+    upstream = RecordingWSUpstream().start()
+    try:
+        async with computer_cell(tmp_path, upstream, unknown_members="refuse") as made:
+            yield made
+    finally:
+        upstream.stop()
+
+
+@pytest.mark.parametrize("part", GEMINI_PARTS)
+async def test_strict_an_unknown_member_inside_a_gemini_part_is_body_unknown_member(strict_cell, part):
+    observation = await run_case(strict_cell, _part(part))
     _refused(observation, "body-unknown-member")
     assert "unknown member" in observation["client"]["body"]["error"]
 
@@ -303,3 +330,24 @@ async def test_a_model_list_that_passed_is_recorded_under_its_profile(cell, targ
     runtime = await cell.runtime()
     [raw] = runtime.gateway.recorder._rc_records
     assert type(raw.summary.get("profile")) is str and raw.summary["profile"]
+
+
+async def test_claude_codes_preconnect_is_recorded_under_its_profile_as_claude_codes(cell):
+    """Claude Code's HEAD /api/hello as it starts (Bun's fetch, no body, no credential) passes as it came and is
+    recorded under its profile's route, as Claude Code's, never as an unknown route or a refusal."""
+    headers = (("user-agent", "Bun/1.3.4"), ("accept", "*/*"), ("accept-encoding", "gzip, deflate, br, zstd"))
+    observation = await run_case(cell, Case("hello", (), "HEAD", "/anthropic/api/hello", headers))
+    assert observation["client"]["status"] == 200 and observation["counts"]["send"] == 1
+    [record] = observation["records"]
+    runtime = await cell.runtime()
+    [raw] = runtime.gateway.recorder._rc_records
+    assert record["flags"] == [], record["flags"]  # neither an unknown route nor an error: a HEAD's answer has no body
+    assert record["path"] == "/{destination}/api/hello" and record["agent"] == "claude-code"
+    assert raw.summary["profile"] == "anthropic.hello.1"
+    # As the dashboard reads it back: its route and its profile kept, never shown as /other.
+    from latet.gateway.request_policy import body_protocol
+    from latet.storage.exchanges import safe_summary
+
+    kept = safe_summary(dict(raw.summary))
+    assert (kept["path"], kept["profile"], kept["flags"]) == ("/{destination}/api/hello", "anthropic.hello.1", [])
+    assert body_protocol("anthropic.hello.1") is None

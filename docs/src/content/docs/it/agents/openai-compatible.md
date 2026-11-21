@@ -29,7 +29,7 @@ latet run python welcome.py
 Il comando vede `OPENAI_BASE_URL` e `OPENAI_API_BASE` impostati su `http://127.0.0.1:5283/openai/v1`,
 `ANTHROPIC_BASE_URL` impostato su `http://127.0.0.1:5283/anthropic`, e `GOOGLE_GEMINI_BASE_URL` e
 `GOOGLE_VERTEX_BASE_URL` impostati su `http://127.0.0.1:5283/gemini` e `http://127.0.0.1:5283/vertex`.
-Gli SDK ufficiali di OpenAI, di Anthropic e Google GenAI leggono queste variabili: per quelli di
+Gli SDK ufficiali di OpenAI, di Anthropic e di Google GenAI leggono queste variabili: per quelli di
 Google vedi [Gemini CLI e Google GenAI](../gemini/).
 
 Un programma avviato da `latet run` non porta nessuna chiave di avvio, quindi una cartella che nomina
@@ -52,7 +52,7 @@ latet env | Invoke-Expression    # Windows PowerShell
 `--shell bash`, `--shell powershell` o `--shell cmd` sceglie la sintassi; quella predefinita segue il
 tuo sistema. Per mantenere le variabili, aggiungi le righe stampate al profilo della tua shell. Claude
 Code avviato con `claude` in una shell del genere arriva a Latet senza il suo plugin: le sue richieste
-vengono solo controllate, e ognuna che contiene un valore sensibile in chiaro viene fermata. Avvialo
+vengono solo controllate, e quelle che contengono un valore sensibile in chiaro vengono fermate. Avvialo
 con `latet claude`, oppure configuralo con `latet global-install`, che gli danno anche il plugin.
 
 ## Esempio
@@ -81,13 +81,13 @@ Eseguilo con `latet run python welcome.py`:
 Viene ripristinato solo il valore fittizio in sé. Se il modello ha scritto anche *Dear Laura*, un nome
 che ha dedotto dall'indirizzo fittizio, quella parola resta come l'ha scritta il modello.
 
-Le risposte in streaming funzionano allo stesso modo, un pezzo alla volta.
+Le risposte in streaming funzionano allo stesso modo, pezzo per pezzo.
 
 ## Framework per agenti
 
 LangChain, LangGraph, AutoGen e CrewAI raggiungono il modello attraverso gli SDK ufficiali o
 LiteLLM, che leggono le variabili impostate da `latet run`: avvia il programma con `latet run`, come
-qualsiasi script. Ognuno è provato davvero attraverso Latet, configurato come qui sotto:
+qualsiasi script. Ognuno è stato provato davvero attraverso Latet, configurato come qui sotto:
 
 | Framework | Configurazione | Provato |
 | --- | --- | --- |
@@ -95,18 +95,18 @@ qualsiasi script. Ognuno è provato davvero attraverso Latet, configurato come q
 | AutoGen | `OpenAIChatCompletionClient`, senza URL di base | Un `AssistantAgent` |
 | CrewAI | `LLM(model="openai/gpt-5.1")`, senza URL di base | Il suo `LLM` e una crew con un compito |
 
-Per impostare l'indirizzo nel tuo codice, indicalo come `base_url`: `http://127.0.0.1:5283/openai/v1`
+Per impostare invece l'indirizzo nel tuo codice, indicalo come `base_url`: `http://127.0.0.1:5283/openai/v1`
 per i client di OpenAI, `http://127.0.0.1:5283/anthropic` per quelli di Anthropic.
 
 Aider raggiunge il modello attraverso LiteLLM, che legge `OPENAI_API_BASE`: avvialo con
 `latet run aider --model openai/gpt-5.1`, oppure tieni `openai-api-base: http://127.0.0.1:5283/openai/v1`
-nel suo `.aider.conf.yml`. È provato davvero allo stesso modo.
+nel suo `.aider.conf.yml`. È stato provato davvero allo stesso modo.
 
 **Cosa Latet non vede.** Latet sta tra il tuo programma e il modello, e da nessun'altra parte. Uno
 strumento che il tuo agente chiama da sé, come un'API di ricerca sul web, un database o un vector
 store nel cloud, riceve i valori reali: il modello lo richiede con valori fittizi, e Latet rimette
 gli originali nella sua risposta prima che il tuo programma esegua lo strumento. Tieni questi
-strumenti sulla tua macchina, oppure considera ciò che ricevono come inviato in chiaro.
+strumenti sul tuo computer, oppure considera ciò che ricevono come inviato in chiaro.
 
 ## Cosa legge il gateway
 
@@ -120,12 +120,17 @@ strumenti sulla tua macchina, oppure considera ciò che ricevono come inviato in
   un'immagine non viene inviata. Le immagini indicate dal loro indirizzo, l'audio e i file vengono
   rifiutati.
 - **L'elenco dei modelli e la lettura di un modello** passano su OpenAI, Anthropic e OpenRouter.
-  **Ogni altra richiesta** (file, batch, audio, generazione di immagini, moderazione, recupero di una
-  risposta salvata) viene rifiutata, e così un header, un parametro di query o un membro del corpo che
-  nessun profilo nomina: i tuoi `default_headers` o `extra_body` in un SDK, per esempio, finché
-  un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non li lascia passare.
-  Gli header di telemetria e di tracing degli SDK stessi (`x-stainless-*`, `traceparent`...) vengono
-  tolti e contati. Quello che Latet legge sui percorsi di Google è elencato in [Gemini CLI e Google GenAI](../gemini/#cosa-legge-il-gateway).
+  **Ogni altra richiesta** (file, batch, audio, generazione di immagini, moderazione, recupero di
+  una risposta salvata) viene rifiutata, e lo stesso vale per un header o un parametro di query che
+  nessun profilo nomina: i tuoi `default_headers` in un SDK, per esempio, finché un'[eccezione
+  esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non li lascia
+  passare. Un membro del corpo che nessun profilo nomina ancora, come uno degli `extra_body` di un
+  SDK, viene letto per intero e controllato, e passa così com'è quando nulla al suo interno andrebbe
+  mascherato e non indica nulla su cui il provider agisce ([Nuovi membri delle
+  richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)). Gli header di
+  telemetria e di tracing degli SDK stessi (`x-stainless-*`, `traceparent`...) vengono tolti e
+  contati. Quello che Latet legge sui percorsi di Google è elencato in [Gemini CLI e Google
+  GenAI](../gemini/#cosa-legge-il-gateway).
 
 Una richiesta ad Anthropic che arriva da Claude Code, o che contiene il token di un abbonamento
 Claude, non viene mai riscritta: viene solo controllata, e bloccata se contiene un valore sensibile.
@@ -135,7 +140,7 @@ Vedi [Claude Code](../claude-code/).
 
 - Il gateway è in ascolto solo su `127.0.0.1` e rifiuta le richieste che arrivano da una pagina web.
 - Una richiesta a un percorso diverso da quelli qui sopra riceve un errore `404`:
-  `no upstream for this path`. Una chiamata sotto uno di essi che Latet non legge riceve un errore
+  `no upstream for this path`. Una chiamata a uno di essi che Latet non legge riceve un errore
   `400` che dice che non è stato inviato niente: `request envelope refused (envelope-route)`.
 - **Un altro provider compatibile con OpenAI** (DeepSeek, Mistral, un server di modelli sulla tua
   rete): aggiungilo come destinazione, poi usa il suo percorso come URL di base dell'agente, qui

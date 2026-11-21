@@ -1,19 +1,19 @@
 ---
 title: Logs maskieren, bevor sie die Anwendung verlassen
-description: Eine Anwendung maskiert ihre Logzeilen mit einem Latet-Server, bevor sie sie versendet, und ein Support-Werkzeug stellt die Zeile wieder her, die es braucht.
+description: Eine Anwendung maskiert ihre Logzeilen mit einem Latet-Server, bevor sie sie versendet, und ein Support-Tool stellt die Zeile wieder her, die es braucht.
 sidebar:
   label: Logs
 ---
 
 Die Logs einer Anwendung nennen ihre Kunden: deren E-Mail-Adressen, IP-Adressen, IBANs, ab und zu
-einen Token. Unverändert versendet, liegen sie monatelang in einem Log-Dienst und werden von allen
+ein Token. Unverändert versendet, liegen sie monatelang in einem Log-Dienst und werden von allen
 gelesen, die die Logs lesen. Mit der [API für Anwendungen](../) maskiert die Anwendung jeden Stapel
 von Zeilen mit einem Latet-Server, bevor sie ihn versendet, und der Log-Dienst erhält Ersatzwerte. Da
 ein Wert immer denselben Ersatzwert erhält, lassen sich die Zeilen eines Kunden weiterhin suchen,
-zählen und über Tage verfolgen; wenn der Support wissen muss, wer es war, stellt ein Werkzeug mit dem
+zählen und über Tage verfolgen; wenn der Support wissen muss, wer es war, stellt ein Tool mit dem
 passenden Token die Zeile wieder her.
 
-## Die Token
+## Die Tokens
 
 Ein API-Schlüssel für die Logs, deren Kunden Sie gemeinsam verfolgen wollen, mit einem Token für jede
 Seite:
@@ -24,9 +24,9 @@ latet server --server https://latet.acme.lan keys add-token "Shop logs" shipper 
 latet server --server https://latet.acme.lan keys add-token "Shop logs" support --unmask --out support.token
 ```
 
-Die Anwendung erhält `shipper.token`, der maskieren kann und keinen echten Wert sehen kann; das
-Support-Werkzeug erhält `support.token`, der wiederherstellen kann und sonst nichts. Der erste Token,
-`shop-logs.key`, bleibt beim Administrator: Er hat alle Berechtigungen. Mit einem anderen Schlüssel
+Die Anwendung erhält `shipper.token`, das maskieren kann und keinen echten Wert sehen kann; das
+Support-Tool erhält `support.token`, das wiederherstellen kann und sonst nichts. Das erste Token,
+`shop-logs.key`, bleibt beim Administrator: Es hat alle Berechtigungen. Mit einem anderen Schlüssel
 maskierte Zeilen erhalten andere Ersatzwerte; verwenden Sie also einen Schlüssel für die Dienste,
 deren Logs Sie gemeinsam durchsuchen.
 
@@ -82,19 +82,19 @@ Senden Sie sie nie unmaskiert. Der Client wiederholt einen 429 und einen 503 von
 der Wartezeit, die der Server verlangt), bevor er den Fehler auslöst. Dieselben Zeilen zweimal zu
 maskieren ergibt dieselben Ersatzwerte, ein erneuter Versuch ist also sicher.
 
-Jede Abweisung des Servers ist ein `LatetError`, mit ihrem Status und ihren Worten, und ein Aufruf,
+Jede Ablehnung des Servers ist ein `LatetError`, mit ihrem Status und ihren Worten, und ein Aufruf,
 der nicht durchkam, ist ein `ConnectionFailed` (Status 0). `ConnectionFailed` tritt an die Stelle der
 Fehler von `httpx`, auch derer eines `httpx.Client`, den Sie als `client=` übergeben, und enthält
-keine Anfrage, sodass der Token in keinem Fehler steht: Fangen Sie die Fehler des Clients ab, nicht
+keine Anfrage, sodass das Token in keinem Fehler steht: Fangen Sie die Fehler des Clients ab, nicht
 die von `httpx`. Eine `http://`-Adresse eines anderen Rechners ergibt eine `ClearTextWarning`, weil
-der Token und die Zeilen im Klartext reisen würden. Der Client urteilt allein nach der Adresse; auch
+das Token und die Zeilen im Klartext reisen würden. Der Client urteilt allein nach der Adresse; auch
 ein eigener `client=`, der den Server auf anderem Weg über TLS erreicht, erhält die Warnung also. Das
 Python-Modul `warnings` schaltet sie stumm.
 
 ## Das Format der Zeilen
 
 Was die Detektoren erkennen, wird überall in einer Zeile maskiert: E-Mail-Adressen, IBANs,
-Kartennummern, öffentliche IP-Adressen, Token und Schlüssel, die Begriffe und Erkenner des
+Kartennummern, öffentliche IP-Adressen, Tokens und Schlüssel, die Begriffe und Erkenner des
 Schlüssels. Für den Rest setzen Sie die Regeln des Schlüssels
 ([gemeinsame Einstellungen und Regeln von API-Schlüsseln](../../getting-started/server/#gemeinsame-einstellungen-und-regeln-von-api-schlüsseln-festlegen)):
 
@@ -110,12 +110,12 @@ Schlüssels. Für den Rest setzen Sie die Regeln des Schlüssels
 - **Namen** im freien Text einer Meldung werden mit dem auf dem Server installierten lokalen
   Namensmodell gefunden, in `prose`-Texten; in `data`-Texten mit dem Profil `max`.
 
-`scan` zeigt mit einem Token, der analysieren darf, was eine Stichprobe Ihrer Zeilen maskieren würde, ohne
-etwas zu behalten: Probieren Sie es mit echten Zeilen aus, bevor Sie das Maskieren einschalten.
+`scan` zeigt mit einem Token, das analysieren darf, was eine Stichprobe Ihrer Zeilen maskieren würde,
+ohne etwas zu behalten: Probieren Sie es mit echten Zeilen aus, bevor Sie das Maskieren einschalten.
 
 ## Eine Zeile wiederherstellen
 
-Eine Person im Support kopiert eine maskierte Zeile aus dem Log-Dienst; ihr Werkzeug stellt sie wieder
+Eine Person im Support kopiert eine maskierte Zeile aus dem Log-Dienst; ihr Tool stellt sie wieder
 her:
 
 ```python
@@ -125,7 +125,7 @@ print(support.unmask(line).text)
 # 2026-10-26T09:14:05Z WARN card declined customer=mario.rossi@acme.it ip=93.184.216.34
 ```
 
-Um alle Zeilen eines Kunden zu finden, maskieren Sie seine Adresse mit einem Token, der maskieren
+Um alle Zeilen eines Kunden zu finden, maskieren Sie seine Adresse mit einem Token, das maskieren
 darf, und suchen im Log-Dienst nach dem Ersatzwert. Jede Wiederherstellung wird im
 Administrationsprotokoll des Servers festgehalten, mit dem Token und der Zahl der wiederhergestellten
 Werte; `latet server log --action apps.unmasked` listet sie auf.
@@ -135,7 +135,7 @@ Werte; `latet server log --action apps.unmasked` listet sie auf.
 Auf einer Instanz maskiert der Server etwa 190 Zeilen pro Sekunde für einen neuen Schlüssel und 410
 bis 440 für einen Schlüssel, dessen Tresor 200.000 bis 1.000.000 Werte enthält; er stellt 1.500 bis
 2.700 wieder her ([die Messungen](../#wie-schnell-es-ist)). Die Aufrufe eines Schlüssels laufen auf
-einer Instanz nacheinander; ein Dienst, der schneller loggt, braucht also mehr Instanzen hinter dem
+einer Instanz nacheinander; ein Dienst, der schneller loggt als das, braucht also mehr Instanzen hinter dem
 Lastverteiler, oder seine Zeilen werden auf Schlüssel aufgeteilt, deren Kunden nicht gemeinsam
 verfolgt werden müssen.
 
@@ -145,6 +145,6 @@ verlieren oder unmaskiert zu senden.
 
 ## Ohne Python
 
-Jede Sprache kann die API über HTTPS aufrufen: ein `POST` mit einem JSON-Körper und dem Token in einem
+Jede Sprache kann die API über HTTPS aufrufen: ein `POST` mit einem JSON-Body und dem Token in einem
 Header `Authorization: Bearer`. Die [HTTP-Referenz](../../reference/apps-api/) enthält den Vertrag,
 seine Fehler und eine OpenAPI-Beschreibung, aus der sich ein Client erzeugen lässt.

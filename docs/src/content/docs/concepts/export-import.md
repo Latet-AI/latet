@@ -116,7 +116,8 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" export bil
 latet server --server https://latet.acme.lan rules --key "Billing CI" import team-rules.yaml
 ```
 
-Rules set for everyone on a server, which nobody can lower, are planned for the Enterprise Edition.
+With the Enterprise Edition, rules set for everyone on a server, which nobody can lower, are the company's policy: a
+rules file in this same format, set with `latet server policy set`.
 
 ## Your installation, for another machine
 

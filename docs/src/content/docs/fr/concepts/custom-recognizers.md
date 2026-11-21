@@ -8,7 +8,7 @@ formats de votre entreprise : numéros de badge, codes de contrat, identifiants 
 **reconnaisseur** lui en apprend un. C'est un motif, avec éventuellement des chiffres de contrôle et
 des mots-clés, et quelques exemples inventés sur lesquels il est vérifié.
 
-Utilisez plutôt un [terme](../detection/#vos-propres-termes) quand il y a une seule valeur exacte à cacher,
+Utilisez plutôt un [terme](../detection/#vos-propres-termes) quand il y a une seule valeur exacte à masquer,
 comme le nom d'un client. Un reconnaisseur sert pour toutes les valeurs écrites d'une certaine façon.
 
 ## Ne collez jamais de vraies valeurs
@@ -17,7 +17,7 @@ Un reconnaisseur décrit un format. Ses exemples sont inventés : écrivez-les �
 description, ou prenez une vraie valeur et changez chaque lettre et chaque chiffre, en gardant la
 disposition. `latet rules add` refuse un exemple que Latet a déjà vu comme vraie valeur. Quand un
 agent IA écrit le reconnaisseur pour vous, décrivez-lui le format avec des mots : deux lettres
-majuscules, un tiret, six chiffres, dans la colonne badge de l'export RH.
+majuscules, un tiret, six chiffres, présents dans la colonne badge de l'export RH.
 
 ## Trouver les formats
 
@@ -85,9 +85,9 @@ latet rules list --project .
 ```
 
 La page **Règles** du tableau de bord fait la même chose une fois que vous avez choisi le projet dans
-le sélecteur en haut de la page : son tableau *Reconnaisseurs* montre ceux du projet, de vos réglages
-et de `latet.yaml`, avec vos reconnaisseurs globaux, et un nouveau va là où le dit le *Enregistrer
-dans* de son panneau.
+le sélecteur en haut de la page : son tableau *Reconnaisseurs* montre ceux propres au projet, issus de
+vos réglages et de `latet.yaml`, avec vos reconnaisseurs globaux, et un nouveau reconnaisseur est
+enregistré là où l'indique le champ *Enregistrer dans* de son panneau.
 
 ## Ce que contient un reconnaisseur
 

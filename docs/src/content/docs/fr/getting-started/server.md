@@ -3,10 +3,10 @@ title: Configurer et administrer un serveur Latet
 description: Déployer un serveur, connecter une machine et gérer personnes, clés d'API et réglages partagés.
 ---
 
-Exécutez les commandes d'administration dans votre propre terminal sur une machine avec Latet.
-Lisez [les espaces et la confiance](../../concepts/server/) avant d'accorder un accès.
-Un administrateur prépare le déploiement ; chaque personne connecte sa propre machine.
-Un agent d'IA peut expliquer les étapes et vérifier la machine, mais les commandes qui modifient
+Exécutez les commandes d'administration dans votre propre terminal, sur une machine où Latet est
+installé. Lisez [comment fonctionnent les espaces et la confiance](../../concepts/server/) avant
+d'accorder un accès. Un administrateur prépare le déploiement ; chaque personne connecte sa propre
+machine. Un agent IA peut expliquer les étapes et vérifier la machine, mais les commandes qui modifient
 l'administration, `config get`, `rules export`, `latet server init`, `latet server service install`
 et `latet connect` refusent de s'exécuter dans un agent : indiquez-lui [`llms-server.md`](https://github.com/Latet-AI/latet/blob/main/llms-server.md).
 Ne donnez jamais un jeton d'administration à un agent : avec un jeton, les commandes qui ne font que
@@ -14,8 +14,8 @@ lire (l'état, les listes de personnes et de clés, le journal) s'exécutent pou
 
 ## Préparer le déploiement
 
-Choisissez le [service système ou Compose](../../concepts/server-operations/).
-Le service nécessite une installation de confiance à l'échelle du système et une configuration
+Choisissez le [déploiement en service système ou avec Compose](../../concepts/server-operations/).
+Un service système nécessite une installation de confiance à l'échelle du système et une configuration
 protégée ; le profil serveur de Compose fournit PostgreSQL, Valkey, deux instances et Caddy.
 Sous Linux, une instance peut tourner en plusieurs workers, un pour chaque cœur que la
 machine donne au serveur (`latet server run --workers N`, ou `LATET_SERVER_WORKERS` dans le
@@ -25,10 +25,10 @@ propres connexions à PostgreSQL et Valkey
 Un premier serveur peut commencer avec un seul.
 Définissez l'adresse HTTPS publique et préparez d'abord la clé principale et les fichiers
 secrets. L'initialisation affiche un jeton d'administration : gardez-le dans un terminal privé
-et un magasin de secrets. Pour un conteneur, suivez l'initialisation avec les journaux Docker
-désactivés du guide d'exploitation ; une initialisation journalisée peut conserver ce jeton.
+et un magasin de secrets. Pour un conteneur, suivez l'initialisation du guide d'exploitation, avec
+les journaux Docker désactivés ; une initialisation journalisée ordinaire peut conserver ce jeton.
 
-Utilisez un certificat auquel les machines font confiance. Pour un premier essai, créez un
+Utilisez un certificat auquel vos machines font confiance. Pour un premier test, créez un
 certificat serveur auto-signé et vérifiez son empreinte :
 
 ```sh
@@ -49,9 +49,9 @@ export LATET_SERVER_FINGERPRINT="<fingerprint>"
 latet server --server https://latet.acme.lan status
 ```
 
-Saisissez le jeton d'administration à l'invite masquée. La réponse indique la base de
+Saisissez le jeton d'administration à l'invite, qui ne l'affiche pas. La réponse indique la base de
 données, Valkey, les identités, l'instance qui a répondu et chaque instance en vie, chaque
-worker sur une ligne à lui avec sa disponibilité, sa mémoire et sa version. Elle ne vérifie pas chaque
+worker sur sa propre ligne avec sa disponibilité, sa mémoire et sa version. Elle ne vérifie pas chaque
 agent et ne prouve pas que tout le trafic d'une machine passe par Latet.
 
 Pour administrer régulièrement le serveur, `--admin-token-file FILE` lit un fichier privé
@@ -95,7 +95,7 @@ opérations n'efface les copies dans les sauvegardes, les navigateurs ou chez le
 fournisseurs de modèles. Lisez la confirmation avant une suppression.
 
 Lors d'une suppression, les données de la personne dans PostgreSQL partent avec elle, ses données dans Valkey
-sont effacées une fois par une instance (de nouveau à la vérification suivante si cela ne peut finir), ce qui y
+sont effacées une fois par une instance (de nouveau à la vérification suivante si cela ne peut pas aboutir), ce qui y
 reste expire de lui-même, en huit jours au plus, et ses sessions du tableau de bord et AWS prennent fin aussitôt.
 
 ## Connecter la machine d'une personne
@@ -108,7 +108,7 @@ latet connect https://latet.acme.lan
 
 Saisissez le code à usage unique à l'invite. Avec un certificat auto-signé, ajoutez
 `--fingerprint FINGERPRINT` avec l'empreinte vérifiée auprès de l'administrateur.
-Ne supprimez pas la liaison au certificat pour contourner une erreur. L'enregistrement de
+Ne retirez pas l'empreinte pour contourner une erreur de certificat. L'enregistrement de
 connexion, y compris le fichier choisi par `LATET_CONNECTION`, contient métadonnées et
 empreinte ; le jeton personnel et la clé de la machine restent ensemble, à part, dans le magasin
 d'identifiants ou un fichier privé.
@@ -122,7 +122,8 @@ latet claude
 ```
 
 `latet agents apply claude` et `latet global-install` écrivent le jeton personnel dans le
-`settings.json` de l'utilisateur Claude, sous `LATET_BRIDGE_TOKEN` ; la commande indique où.
+`settings.json` de Claude au niveau de l'utilisateur, sous `LATET_BRIDGE_TOKEN` ; la commande
+indique où.
 C'est l'exception d'installation à la règle qui exclut le jeton des fichiers d'agents.
 La liaison privée du processus auxiliaire contient des métadonnées ; il reçoit le jeton
 existant par stdin. Un logiciel capable d'observer cette entrée peut le lire. Ce contrat
@@ -151,18 +152,18 @@ latet disconnect
 `status` et `doctor` fournissent des diagnostics bornés, pas une preuve pour chaque parcours
 d'agent. `dashboard` ouvre le tableau de bord de la personne sur le serveur ; sur une machine connectée,
 un agent ne peut pas l'exécuter. Il n'affiche
-le lien privé de connexion qu'avec `--print-url` ; gardez-le privé. Pendant la connexion,
+le lien privé de connexion qu'avec `--print-url` ; gardez-le privé. Tant que la machine est connectée,
 `config`, `rules`, `llm`, `project`, `identity` et `reload` refusent de lire les réglages comme
 de les modifier ; seuls `config schema`, `rules test` et `identity send` s'exécutent. Utilisez
 le tableau de bord du serveur ou les commandes d'administration.
 `latet identity send` renvoie explicitement les informations d'identité de cette machine.
-`latet start` refuse aussi : pendant la connexion, rien n'utilise le daemon de cette machine.
+`latet start` refuse aussi : tant qu'elle est connectée, rien n'utilise le daemon de cette machine.
 
-`latet disconnect` révoque le jeton de cette machine et retire les liaisons des agents à la
-connexion, y compris le jeton Claude enregistré. La révocation termine aussi les sessions
+`latet disconnect` révoque le jeton de cette machine et retire les liaisons des agents créées pour
+la connexion, y compris le jeton Claude enregistré. La révocation termine aussi les sessions
 du tableau de bord de la personne sur ses autres machines. Si elle ne peut être confirmée,
 lisez le résultat et faites vérifier les identifiants des jetons par un administrateur avant
-de réessayer. Sur une machine connectée, le mode d'impression (`claude -p`) n'est pas pris en charge : le
+de réessayer. Sur une machine connectée, le mode non interactif (`claude -p`) n'est pas pris en charge : le
 plugin retient ses requêtes et le dit. Utilisez le terminal interactif. Le
 [guide Claude Code](../../agents/claude-code/) distingue la prise en charge connectée des interfaces locales.
 
@@ -246,9 +247,9 @@ Pour donner les mêmes règles à une équipe, partagez-les à la main : exporte
 **Exporter les règles** sur la page **Règles** d'un tableau de bord) et importez le fichier dans
 chacun des autres (`latet rules import FILE`, ou **Importer des règles** dans le tableau de bord) ;
 celles d'une clé d'API avec `latet server rules --key KEY import FILE`. Sur les machines qui ne sont
-connectées à aucun serveur, le `latet.yaml` d'un projet les porte dans son dépôt. Les règles
-définies pour tout le monde, que personne ne peut assouplir, sont prévues pour l'édition
-Enterprise.
+connectées à aucun serveur, le `latet.yaml` d'un projet les porte dans son dépôt. Avec l'édition
+Enterprise, les règles définies pour tout le monde, que personne ne peut assouplir, sont les
+directives de l'entreprise, un fichier de règles défini avec `latet server policy set`.
 
 Un changement des réglages partagés qui réduit la protection d'une personne, comme une destination
 déplacée vers une autre adresse ou le relecteur désactivé, attend son approbation.

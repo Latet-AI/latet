@@ -305,6 +305,7 @@ _HISTORY_ROUTES = frozenset(
         "/{destination}/v1/embeddings",
         "/{destination}/v1/models",
         "/{destination}/v1/models/{model}",
+        "/{destination}/api/hello",
         "/{destination}/chat/completions",
         "/{destination}/completions",
         "/{destination}/embeddings",
@@ -591,6 +592,9 @@ def safe_summary(summary: dict[str, Any]) -> dict[str, Any]:
             # What it was let through by besides a complete reading (P2-7): built-in rules and exceptions by category,
             # its envelope's profile by id, and the counts of what its profile removed. Never a value.
             "passes": _history_passes(summary.get("passes")),
+            # How it read a member no request profile declares, which mode decided it (``check`` or ``refuse``,
+            # notes/unknown-members-design.md §3): None for an exchange recorded before 0.15.0 or only observed.
+            "unknown_members": _history_code(summary.get("unknown_members"), ("check", "refuse")),
             "profile": _history_profile(summary.get("profile")),
             "removed": _history_removed(summary.get("removed")),
             "coverage": "unknown",
@@ -687,6 +691,7 @@ def safe_leaks(leaks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "tool_description",
         "outbound_tool",
         "image_text",
+        "new_member",
         "other",
     )
     return [
@@ -739,10 +744,23 @@ def new_exchange_id() -> str:
     return f"ex_{int(time.time() * 1000):x}{os.urandom(3).hex()}"
 
 
+def history_sealer(root_key: bytes) -> AESGCM:
+    """What a history's blocks, references, headers and answers are sealed with, made from the root key (``latet leak``
+    reads a private copy of the history with it)."""
+    return AESGCM(hmac.new(root_key, b"exchanges", hashlib.sha256).digest())
+
+
+def history_opened(aead: AESGCM, sealed: bytes, aad: str) -> Any:
+    """What ``ExchangeStore`` sealed under ``aad``, opened with ``aead`` (``history_sealer``). Raises InvalidTag where
+    another key sealed it."""
+    opened = aead.decrypt(sealed[:12], sealed[12:], aad.encode())
+    return json.loads(zstandard.ZstdDecompressor().decompress(opened))
+
+
 class ExchangeStore:
     def __init__(self, path: Path, root_key: bytes, retention_days: int = 14) -> None:
         make_private_folder(path.parent)
-        self._aead = AESGCM(hmac.new(root_key, b"exchanges", hashlib.sha256).digest())
+        self._aead = history_sealer(root_key)
         self._id_key = hmac.new(root_key, b"exchange-ids", hashlib.sha256).digest()
         self._destination_key = hmac.new(root_key, _DESTINATION_DOMAIN, hashlib.sha256).digest()
         self._history_group_key = hmac.new(root_key, b"history-group-index:v1", hashlib.sha256).digest()
@@ -810,8 +828,7 @@ class ExchangeStore:
     def _open(self, sealed: bytes | None, aad: str) -> Any:
         if sealed is None:
             return None
-        opened = self._aead.decrypt(sealed[:12], sealed[12:], aad.encode())
-        return json.loads(zstandard.ZstdDecompressor().decompress(opened))
+        return history_opened(self._aead, sealed, aad)
 
     def block_id(self, masked: str) -> str:
         return hmac.new(self._id_key, masked.encode(), hashlib.sha256).hexdigest()[:32]

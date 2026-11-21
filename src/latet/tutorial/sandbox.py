@@ -26,6 +26,7 @@ import platformdirs
 
 from latet.api.rest import Dashboard
 from latet.config import APP, Config, config_dir, config_path, data_dir, save_config
+from latet.edition import Community
 from latet.logline import described
 from latet.runtime import Runtime, make_runtime
 from latet.tutorial.agent import TutorialAgent
@@ -169,7 +170,14 @@ class Sandbox:
         root.mkdir(parents=True, exist_ok=True)
         config = Config.model_validate({**BASE, "port": port})
         save_config(config, root / CONFIG)
-        runtime = make_runtime(config, data=root / DATA, config_file=root / CONFIG, root_key=ROOT_KEY)
+        runtime = make_runtime(
+            config,
+            data=root / DATA,
+            config_file=root / CONFIG,
+            root_key=ROOT_KEY,
+            # The Community Edition, whatever license this computer has: the tutorial shows Latet as everyone has it.
+            edition=Community(),
+        )
         try:
             model = PretendModel()
             gateway = runtime.gateway

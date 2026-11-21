@@ -29,6 +29,20 @@ class ImageError(Exception):
     """An image that cannot be read: not an image, too large, or animated."""
 
 
+def media_of(raw: bytes) -> str | None:
+    """The media type ``raw`` decodes as, of those Latet reads (``FORMATS``), told by its first bytes as Pillow tells
+    them; None for any other (an SVG, a page), whatever a request said it is."""
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return None
+
+
 @dataclass(slots=True)
 class Decoded:
     image: Image.Image  # RGB or RGBA, orientation applied

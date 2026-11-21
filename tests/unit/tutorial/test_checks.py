@@ -38,13 +38,13 @@ def test_what_the_model_received_in_the_step_or_in_the_whole_run():
 
 
 def test_what_the_model_captured():
-    ctx = Context(captured={"KEY": "3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN"})
+    ctx = Context(captured={"KEY": "bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA"})
     holds = {"name": "KEY", "not": "3D8QnFhA0QhAC9t5j7t6JtgLgPWLFMHbLRuT7TWZ", "matches": "[A-Za-z0-9]{40}"}
     assert evaluate(_checks({"received": holds}), ctx) == []
     failures = evaluate(_checks({"received": {"name": "KEY", "equals": "x", "matches": "[0-9]+"}}), ctx)
     assert failures == [
-        "the model received '3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN' as KEY, not 'x'",
-        "KEY is '3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN', which does not match [0-9]+",
+        "the model received 'bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA' as KEY, not 'x'",
+        "KEY is 'bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA', which does not match [0-9]+",
     ]
     assert evaluate(_checks({"received": {"name": "EMAIL", "equals": "x"}}), ctx) == ["the model never received EMAIL"]
 

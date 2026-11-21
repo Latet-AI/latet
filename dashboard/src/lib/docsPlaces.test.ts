@@ -12,11 +12,16 @@ describe('the documentation of each place', () => {
     expect(PROJECT_TABS.flatMap((tab) => tab.anchors).filter((anchor) => !(anchor in PROJECT_DOCS))).toEqual([])
   })
 
-  it('explains every way a request is stopped, the Live Reviewer’s three included', () => {
+  it('explains every way a request is stopped, the Live Reviewer’s four included', () => {
     expect(Object.keys(BLOCK_DOCS).sort()).toEqual(
-      ['history', 'imagesMask', 'imagesSetting', 'leak', 'localReviewer', 'other', 'outbound', 'plugin', 'review', 'uninspected'],
+      ['history', 'imagesMask', 'imagesSetting', 'leak', 'localReviewer', 'other', 'outbound', 'plugin', 'review', 'toolInput', 'uninspected'],
     )
-    expect(Object.keys(LIVE_DOCS).sort()).toEqual(['abandoned', 'expired', 'rejected'])
+    // `changed`: approved by your company's security team, withheld as it left (Latet Enterprise), which the page of
+    // central approvals explains.
+    expect(Object.keys(LIVE_DOCS).sort()).toEqual(['abandoned', 'changed', 'expired', 'rejected'])
+    expect(links[LIVE_DOCS.changed].page).toBe('enterprise/approvals/')
+    // A value in a tool's parameter schema, which nothing masks in Claude Code: its own section of Troubleshooting.
+    expect(links[BLOCK_DOCS.toolInput].anchor).toBe('an-mcp-tools-schema-stops-claude-codes-requests')
   })
 
   it('explains the flags that say what happened, not those with a notice of their own or nothing to explain', () => {

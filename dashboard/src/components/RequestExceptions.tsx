@@ -39,6 +39,7 @@ const REASON: Record<RequestException['reason'], string> = {
 const STATE_LABEL: Record<ExceptionState, string> = {
   pending: tk('exceptions.state.pending'),
   'needs approval again (profile revised)': tk('exceptions.state.revised'),
+  'not approved by the company': tk('exceptions.state.notCompany'),
   expired: tk('exceptions.state.expiredLabel'),
   expiring: tk('exceptions.state.expiringLabel'),
   active: tk('exceptions.state.activeLabel'),
@@ -49,6 +50,7 @@ const STATE_LABEL: Record<ExceptionState, string> = {
 const STATE_GLYPH: Record<ExceptionState, 'ok' | 'warn' | 'fail'> = {
   pending: 'warn',
   'needs approval again (profile revised)': 'fail',
+  'not approved by the company': 'fail',
   expired: 'fail',
   expiring: 'warn',
   active: 'ok',
@@ -60,6 +62,9 @@ const ISSUER: Record<NonNullable<RequestException['issuer']>, string> = {
   owner: tk('exceptions.issuer.owner'),
   person: tk('exceptions.issuer.person'),
   administration: tk('exceptions.issuer.administration'),
+  // Latet Enterprise: a decider of the company's, by their name.
+  security: tk('exceptions.issuer.security'),
+  controllers: tk('exceptions.issuer.controllers'),
 }
 
 const HOW: Record<ExceptionChange['how'], string> = {
@@ -117,7 +122,9 @@ function StateCell({ item }: { item: RequestException }) {
         {ends && item.state === 'expired' && <span className="block text-meta text-ink-2">{t('exceptions.state.ended', { date: ends })}</span>}
         {item.issuer && item.state !== 'pending' && (
           <span className="block text-meta text-ink-3" data-issuer={item.issuer}>
-            {t(ISSUER[item.issuer])}
+            {item.issuer === 'controllers' && !item.approver
+              ? t('exceptions.issuer.controllersUnnamed') // approved in the key's space, with no central approvals
+              : t(ISSUER[item.issuer], { name: item.approver ?? '' })}
           </span>
         )}
         {item.state === 'pending' && (

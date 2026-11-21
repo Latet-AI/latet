@@ -1,11 +1,14 @@
 """Which changes to the settings lower protection, and which agents are recognised."""
 
+import json
 import os
 import random
 import string
 import time
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from latet.cli import agent
 from latet.config import (
@@ -20,11 +23,11 @@ from latet.config import (
     ProjectSettings,
     TermConfig,
 )
-from latet.engine.build import build
+from latet.engine.build import build, build_masker
 from latet.engine.detectors.pii import effective_pii
 from latet.engine.types import SlotKind
 from latet.engine.vault import Vault
-from latet.protection import changed_keys, guidance_changes, loosened
+from latet.protection import _terms_lowered, changed_keys, guidance_changes, loosened
 
 from ..conftest import ROOT_KEY
 
@@ -181,6 +184,99 @@ def test_leaving_max_says_strict_data_mode_goes_too():
     assert "profile: from max to balanced" in reasons and "strict data mode: turned off" in reasons
     kept = loosened(Config(profile="max", data="strict"), Config(profile="balanced", data="strict"))
     assert "profile: from max to balanced" in kept and not any("strict data mode" in r for r in kept)  # set: it stays
+
+
+def test_what_only_adds_protection_is_not_taken_for_less():
+    every_tool = Config(data="strict")  # no data_tools: every tool
+    assert loosened(Config(data="strict", data_tools=["psql"]), every_tool) == []
+    assert "strict data mode: covers fewer tools" in loosened(every_tool, Config(data="strict", data_tools=["psql"]))
+    assert loosened(Config(fields=[{"name": "notes", "mask": False}]), Config()) == []  # its values masked again
+    assert "field rules: changed or removed" in loosened(Config(fields=[{"name": "notes"}]), Config())
+
+
+def test_a_field_rule_is_weighed_as_the_first_of_its_name_that_is_in_use():
+    """Of a field's rules the first wins: one put before yours that masks less puts yours out of use; yours made a
+    secret, or masked where it kept the field in clear, or given a type whose policy is as strict, masks as much; a
+    rule after one of its name was never in use."""
+    iban = FieldRule(name="iban", type="IBAN")
+    said = ["field rules: changed or removed"]
+    secret = iban.model_copy(update={"secret": True})
+    assert loosened(Config(fields=[secret]), Config(fields=[FieldRule(name="IBAN"), secret])) == said  # out of use
+    assert loosened(Config(fields=[iban]), Config(fields=[iban.model_copy(update={"secret": True})])) == []
+    assert loosened(Config(fields=[FieldRule(name="token", secret=True)]), Config(fields=[{"name": "token"}])) == said
+    typed = Config(fields=[iban], policies={"IBAN": "redact"})
+    assert loosened(Config(fields=[{"name": "iban"}]), typed) == []  # as FIELD: mask, now redact
+    redacted = {"FIELD": "redact"}
+    assert (
+        loosened(Config(fields=[{"name": "iban"}], policies=redacted), Config(fields=[iban], policies=redacted)) == said
+    )
+    redacted_iban = {"IBAN": "redact"}  # its type dropped: masked as FIELD, no longer redacted
+    assert (
+        loosened(
+            Config(fields=[iban], policies=redacted_iban), Config(fields=[{"name": "iban"}], policies=redacted_iban)
+        )
+        == said
+    )
+    assert loosened(Config(fields=[iban]), Config(fields=[{"name": "iban", "type": "CUSTOMER"}])) == []  # as masked
+    allowing = {"name": "customer", "type": "CUSTOMER", "pattern": "CU-[0-9]{6}", "policy": "allow"}
+    to_an_allowed_type = Config(fields=[{"name": "iban", "type": "CUSTOMER"}], recognizers=[allowing])
+    assert "field rules: changed or removed" in loosened(
+        Config(fields=[iban], recognizers=[allowing]), to_an_allowed_type
+    )
+    assert loosened(Config(fields=[iban, {"name": "iban", "mask": False}]), Config(fields=[iban])) == []
+
+
+def test_a_term_matched_without_case_covers_the_same_value_in_any_case():
+    """A value is still masked, in as many forms, by an entry of it in another case that matches any case."""
+    falcon = TermConfig(value="Project Falcon")
+    exact = TermConfig(value="project falcon", case_sensitive=True)
+    assert loosened(Config(terms=[exact]), Config(terms=[falcon])) == []
+    assert loosened(Config(terms=[TermConfig(value="PROJECT FALCON")]), Config(terms=[falcon])) == []
+    inside = TermConfig(value="project falcon", whole_word=False)
+    assert loosened(Config(terms=[inside]), Config(terms=[falcon])) == ["terms: 1 matches fewer forms"]
+    upper = TermConfig(value="PROJECT FALCON", case_sensitive=True)
+    assert loosened(Config(terms=[falcon]), Config(terms=[upper])) == ["terms: 1 value no longer masked"]
+    # Case folded as RE2 folds it, one character for another: a sharp s is not "ss" there.
+    sharp = TermConfig(value="Stra\N{LATIN SMALL LETTER SHARP S}e AG")
+    assert loosened(Config(terms=[sharp]), Config(terms=[TermConfig(value="STRASSE AG")])) == [
+        "terms: 1 value no longer masked"
+    ]
+    masker, _ = build_masker(Config(ner="off", terms=[TermConfig(value="STRASSE AG")]), Vault(ROOT_KEY))
+    assert sharp.value in masker.mask(f"see {sharp.value} today").text  # what the engine does: not found
+
+
+def test_a_recognizer_changed_into_one_that_leaves_more_in_clear_lowers_protection():
+    """A recognizer that left what it found in clear, changed into one that finds other values and leaves them in clear
+    too (its type's policy is allow), is said as a change that lowers protection: the weighing reads the recognizers,
+    not what else is masked inside what they find. Since 0.9.10 the engine masks an address the e-mail detector finds
+    inside such a find all the same (a value let through leaves in clear itself and nothing more)."""
+    allowed = {"PUB": "allow"}
+    before = Config(
+        ner="off", recognizers=[{"name": "pub", "type": "PUB", "pattern": "PUB-[0-9]{6}"}], policies=allowed
+    )
+    mail = {"name": "pub", "type": "PUB", "pattern": r"mail [a-z.]+@acme-intra\.it"}
+    after = before.model_copy(update={"recognizers": [mail]})
+    reasons = loosened(before, after)
+    assert "recognizers: 1 changed or removed" in reasons
+    assert "recognizers: 1 that leave what they find in clear (policy allow)" in reasons
+    masker, _ = build_masker(after, Vault(ROOT_KEY))
+    masked = masker.mask("mail ops@acme-intra.it now").text
+    assert "ops@acme-intra.it" not in masked and masked.startswith("mail ")  # what the engine does since 0.9.10
+
+
+def test_a_recognizer_that_left_what_it_found_in_clear_masks_nothing_less_when_taken_out():
+    allowing = {"name": "public", "type": "PUBLIC", "pattern": "PUB-[0-9]{6}", "policy": "allow"}
+    typed = {"name": "public", "type": "PUBLIC", "pattern": "PUB-[0-9]{6}"}
+    assert loosened(Config(recognizers=[allowing]), Config()) == []
+    assert (
+        loosened(Config(recognizers=[typed], policies={"PUBLIC": "allow"}), Config(policies={"PUBLIC": "allow"})) == []
+    )
+    said = ["recognizers: 1 changed or removed"]
+    assert (
+        loosened(Config(recognizers=[allowing], policies={"PUBLIC": "mask"}), Config(policies={"PUBLIC": "mask"}))
+        == said
+    )
+    assert loosened(Config(recognizers=[typed]), Config()) == said
 
 
 def test_changed_keys():
@@ -751,6 +847,22 @@ def test_an_email_term_of_a_type_let_through_still_masks_its_domain_and_removing
     assert loosened(with_rule, allowed) == ["field rules: changed or removed"]
 
 
+@pytest.mark.parametrize("email", ["allow", "mask"])
+def test_a_field_rule_typed_email_retyped_to_another_type_is_said_since_its_domain_is_no_longer_masked(email):
+    """A field rule typed EMAIL brings the domain of its field's address along (``Masker._repeats``), whatever EMAIL's
+    policy: retyped to a type of its own, as strictly masked, the domain leaves in clear where it appears outside the
+    field. Said as a field rule changed; typed EMAIL again where EMAIL is masked, nothing is lowered."""
+    base = Config(policies={"EMAIL": email}, pii=["PHONE"])
+    text = json.dumps({"contact": "ops@acme-intra.it", "note": "the API is api.acme-intra.it"})
+    typed = base.model_copy(update={"fields": [FieldRule(name="contact", type="EMAIL")]})
+    retyped = base.model_copy(update={"fields": [FieldRule(name="contact", type="CONTACT")]})
+    assert "api.acme-intra.it" not in _sent(typed, text, SlotKind.TOOL_RESULT)[0]
+    assert "api.acme-intra.it" in _sent(retyped, text, SlotKind.TOOL_RESULT)[0]
+    assert loosened(typed, retyped) == ["field rules: changed or removed"]
+    if email == "mask":
+        assert loosened(retyped, typed) == []
+
+
 def test_a_policy_taken_away_that_lets_a_recognizers_own_allow_apply_lowers_protection():
     """A recognizer's own policy is its type's default and an entry of ``policies`` wins over it: taking away
     ``ACME_REF: mask`` lets the recognizer's ``allow`` apply, and what it finds leaves in clear, as a policy set to allow
@@ -940,3 +1052,57 @@ def test_a_recognizer_retyped_to_a_type_the_vault_remembers_values_as_is_weighed
     before, after = Config(recognizers=[HOSTS]), Config(recognizers=[{**HOSTS, "type": "REF"}])
     assert "RF-482913" not in masked(before, text) and "RF-482913" in masked(after, text)
     assert loosened(before, after) == ["recognizers: 1 changed or removed"]
+
+
+def _terms_lowered_as_merged(old, new):
+    """``protection._terms_lowered`` as Latet 0.10.0 came into the Enterprise line (every value normalized, the entries
+    in any case gathered whatever ``old`` holds): what its fast paths must answer alike."""
+    import unicodedata
+
+    ways, folded = {}, {}
+    for term in new:
+        key = unicodedata.normalize("NFC", term.value)
+        ways.setdefault(key, set()).add((term.case_sensitive, term.whole_word))
+        if not term.case_sensitive:
+            folded.setdefault(key.lower(), set()).add(term.whole_word)
+    removed, narrowed = 0, set()
+    for term in old:
+        key = unicodedata.normalize("NFC", term.value)
+        now, any_case = ways.get(key, set()), folded.get(key.lower(), set())
+        if not now and not any_case:
+            removed += 1
+        elif not any(
+            (not case or term.case_sensitive) and (not whole or term.whole_word) for case, whole in now
+        ) and not any(not whole or term.whole_word for whole in any_case):
+            narrowed.add(term.value)
+    return removed, len(narrowed)
+
+
+# Values in any case, composed and decomposed, and those Python's lower case and RE2's folding read apart.
+TERM_VALUES = [
+    "Falcon",
+    "falcon",
+    "FALCON",
+    "Zo\N{LATIN SMALL LETTER E WITH DIAERESIS}",
+    "Zoe\N{COMBINING DIAERESIS}",
+    "ZOE\N{COMBINING DIAERESIS}",
+    "Stra\N{LATIN SMALL LETTER SHARP S}e",
+    "STRASSE",
+    "\N{LATIN CAPITAL LETTER I WITH DOT ABOVE}stanbul",
+    "i\N{COMBINING DOT ABOVE}stanbul",
+    "acme-intra.it",
+]
+TERM_ENTRIES = st.builds(
+    lambda value, case, whole: TermConfig(value=value, case_sensitive=case, whole_word=whole),
+    st.sampled_from(TERM_VALUES),
+    st.booleans(),
+    st.booleans(),
+)
+
+
+@settings(max_examples=400, deadline=None)
+@given(st.lists(TERM_ENTRIES, max_size=8), st.lists(TERM_ENTRIES, max_size=8))
+def test_the_terms_weighing_fast_paths_answer_as_the_full_weighing(old, new):
+    """The fast paths of ``_terms_lowered`` (an ASCII value read as it is, an old entry whose very entry the new list
+    holds skipped, the entries in any case gathered at the first need) answer as the full weighing does."""
+    assert _terms_lowered(old, new) == _terms_lowered_as_merged(old, new)

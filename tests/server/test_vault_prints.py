@@ -251,13 +251,18 @@ def test_a_new_value_costs_no_more_statements_than_before(told, monkeypatch):
     assert store.save_entity(_entity(0, "a.b@posta.it", "c.d@posta.it")) is None  # the count's row is there
     sent: list[str] = []
     execute, many = psycopg.Cursor.execute, psycopg.Cursor.executemany
+    # This thread's alone: another of the process (the Enterprise Edition's jobs, E4's SIEM delivery reading its
+    # queue) sends statements of its own meanwhile, none of them a value's.
+    mine = threading.get_ident()
 
     def counted(cursor, query, params=None, **kwargs):
-        sent.append(query)
+        if threading.get_ident() == mine:
+            sent.append(query)
         return execute(cursor, query, params, **kwargs)
 
     def counted_many(cursor, query, params_seq, **kwargs):
-        sent.append(query)
+        if threading.get_ident() == mine:
+            sent.append(query)
         return many(cursor, query, params_seq, **kwargs)
 
     monkeypatch.setattr(psycopg.Cursor, "execute", counted)

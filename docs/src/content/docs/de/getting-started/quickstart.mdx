@@ -52,7 +52,7 @@ jede Sitzung ein, wenn Sie so weit sind.
 
    - Führen Sie `latet dashboard` aus, und öffnen Sie die neueste Anfrage auf der Seite **Live**. Wo
      der Inhalt Ihrer `.env` stand, hat der Anbieter einen Ersatzwert im selben Format erhalten, zum
-     Beispiel `demo_9Tz6ZsM0aB8uA6vS8gA0`, gekennzeichnet als `ASSIGNED_SECRET`. Ihr Ersatzwert wird
+     Beispiel `jpxt_AmxvjKfWEB5QQDaACLqI`, gekennzeichnet als `ASSIGNED_SECRET`. Ihr Ersatzwert wird
      ein anderer sein: Ersatzwerte werden aus einem Schlüssel abgeleitet, der auf Ihrem Rechner
      erzeugt wurde.
    - `config.local.json` auf der Festplatte enthält den echten Schlüssel,
@@ -64,7 +64,7 @@ jede Sitzung ein, wenn Sie so weit sind.
 
 </Steps>
 
-Ein allein gestartetes `claude` läuft nicht über Latet: Das tut nur der Wrapper, bis Sie
+Ein direkt gestartetes `claude` läuft nicht über Latet: Das tut nur der Wrapper, bis Sie
 `latet global-install` ausführen.
 
 ## Für jede Sitzung einschalten
@@ -100,8 +100,10 @@ Ein allein gestartetes `claude` läuft nicht über Latet: Das tut nur der Wrappe
      heruntergeladen mit `--ner`, falls Sie es noch nicht heruntergeladen haben.
    - **Text in Bildern**: die Modelle für die Texterkennung (etwa 31 MB), heruntergeladen mit
      `--ocr`, falls Sie sie noch nicht heruntergeladen haben.
-   - **Port**: der Port, auf dem der Daemon lauscht: 5283 oder der nächste freie, falls ein anderes
-     Programm ihn belegt (Ihre Agenten werden ebenfalls umgestellt).
+   - **Port**: der Port, auf dem der Daemon lauscht: 5283 oder, falls ein anderes Programm oder
+     Windows ihn belegt, der erste freie darüber, nach den Ports, die Windows belegt (Ihre Agenten
+     werden ebenfalls umgestellt). Wo Windows den Port bei seinem Start belegen kann, nennt der
+     Befehl auch `latet reserve-port`, das ihn für Latet reserviert.
 
    Er sagt auch, wie Sie alles wieder entfernen: `latet global-uninstall`. Optionen ändern die
    Standardwerte, etwa `--agents claude --no-autostart`; `--yes` wendet alles an, ohne zu fragen.

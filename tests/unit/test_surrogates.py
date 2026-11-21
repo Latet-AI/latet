@@ -33,6 +33,7 @@ from latet.engine.surrogates.generators import (
     gen_person,
     gen_street,
     gen_username,
+    secret_shape,
     shape,
     written_email,
 )
@@ -276,11 +277,13 @@ def test_a_long_value_gets_its_fake_in_time_linear_in_its_length_and_a_shorter_o
     """A fake is drawn from a seed of its value: a seed of the whole of a long value was hashed again for every 32
     bytes the fake took, so that a password of a million characters in a tool's JSON took minutes to mask, holding a
     thread of the server. Past ``SEED_LONGEST`` characters the seed holds a digest of the value instead; a value up to
-    that length keeps the fake it always had (the tutorial's pins, every vault's next draws), exactly."""
+    that length keeps the seed it always had (the tutorial's pins, every vault's next draws), exactly: a password's
+    fake is drawn from it as a secret's is (``secret_shape``, 0.15.0)."""
     vault = Vault(KEY)
     value = "x7" * (vault_module.SEED_LONGEST // 2)  # SEED_LONGEST characters: the seed holds it whole, as always
     seed = f"PASSWORD\x00{value}\x000".encode()
-    assert vault._generate("PASSWORD", EntityClass.SECRET, value, 0, None) == shape(value, Drbg(vault._k_sur, seed))
+    fake = vault._generate("PASSWORD", EntityClass.SECRET, value, 0, None)
+    assert fake == secret_shape(value, Drbg(vault._k_sur, seed))
     password = os.urandom(500_001).hex()[:1_000_000]
     started = time.perf_counter()
     entity = vault.intern("PASSWORD", EntityClass.SECRET, password)  # drawn by the vault itself, past the masker's cap

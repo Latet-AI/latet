@@ -6,6 +6,7 @@ import json
 import pytest
 
 from latet.config import TermConfig
+from latet.gateway.body_coverage import NEW_MEMBER_RULE
 from latet.gateway.mediate import PASSTHROUGH, REWRITE, _session_key, cwd_from
 from latet.gateway.outbound import server_calls
 from latet.gateway.routes import Upstream
@@ -96,7 +97,10 @@ def test_what_latet_does_not_read_is_refused_in_words_true_on_a_computer():
         mediator.prepare(GEMINI, "POST", "/gemini/v1beta/interactions", KEY, b'{"input": "x"}').block_reason,
         mediator.prepare(GEMINI, "PUT", "/gemini/v1beta/interactions", KEY, b'{"input": "x"}').block_reason,
         mediator.prepare(OPENAI, "POST", "/openai/v1/files", {}, b"[1]").block_reason,
-        mediator.prepare(GEMINI, "POST", CALL, KEY, _request({"role": "user", "parts": [{"weird": 1}]})).block_reason,
+        # A part's member no field names that the new rule refuses (it names a destination).
+        mediator.prepare(
+            GEMINI, "POST", CALL, KEY, _request({"role": "user", "parts": [{"weird": "https://x.example/a"}]})
+        ).block_reason,
         mediator.unread_frame("a binary frame", mediator.engine.session("frames")).block_reason,  # type: ignore[union-attr]
     ]
     assert all(reasons) and not [reason for reason in reasons if "server" in (reason or "")], reasons
@@ -130,9 +134,24 @@ def test_gemini_clis_working_directory_names_the_project():
     assert cwd_from({}, scan) == "C:\\work\\acme"
 
 
-def test_an_unknown_member_of_a_part_is_refused_on_either_machine():
+def test_an_unknown_member_of_a_part_is_read_by_the_new_rule_on_either_machine():
     """One code path, the same on a computer and a server (R-116): the mediator has no machine to ask. A part's member
-    no field names is refused as an unknown member, under its safe code, and nothing is sent (P2-8a, root's ruling 6)."""
+    no field names, of a control value, is read by the new rule and leaves as it came, the part's text beside it
+    masked; one the new rule refuses is refused as an unknown member, under its safe code, and nothing is sent (P2-8a,
+    root's ruling 6)."""
+    body = _request({"role": "user", "parts": [{"text": f"to {EMAIL}"}, {"weird": 1}]})
+    prepared = _mediator().prepare(GEMINI, "POST", CALL, KEY, body)
+    assert prepared.block_reason is None and NEW_MEMBER_RULE in prepared.body_rules
+    sent = json.loads(prepared.body)
+    assert sent["contents"][0]["parts"][1] == {"weird": 1} and EMAIL not in prepared.body.decode()
+    body = _request({"role": "user", "parts": [{"text": f"to {EMAIL}"}, {"weird": "https://x.example/a"}]})
+    refused = _mediator().prepare(GEMINI, "POST", CALL, KEY, body)
+    assert refused.block_reason is not None and "unknown member" in refused.block_reason
+    assert refused.envelope_refusal == "body-unknown-member"
+    assert refused.body == b""
+
+
+def test_strict_an_unknown_member_of_a_part_is_refused_on_either_machine(strict):
     body = _request({"role": "user", "parts": [{"text": f"to {EMAIL}"}, {"weird": 1}]})
     refused = _mediator().prepare(GEMINI, "POST", CALL, KEY, body)
     assert refused.block_reason is not None and "unknown member" in refused.block_reason

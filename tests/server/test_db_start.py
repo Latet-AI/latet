@@ -21,6 +21,7 @@ from latet.server import db as db_module
 from latet.server.db import Database, DatabaseError, SchemaMismatch, _lock_key, check_schema, migrate
 from latet.server.start_errors import SettingRefused
 
+from ..owned import owned
 from .conftest import DATABASE, PINS
 from .libpq_environment import hostile
 from .support import role_catalog
@@ -223,7 +224,8 @@ def test_a_postgresql_that_answers_nothing_gives_the_connection_back_after_a_bou
 def test_a_role_without_create_on_the_database_migrates_the_schema_made_for_it(schema, migration_master):
     """An operator who gives the server's role its schema and nothing more on the database (least privilege): CREATE
     SCHEMA, even IF NOT EXISTS, would ask for CREATE on the database before it looks."""
-    role, password = "latet_r_" + secrets.token_hex(4), "r0le-" + secrets.token_hex(4)
+    role = owned("latet_r_" + secrets.token_hex(4), "role", DATABASE)
+    password = "r0le-" + secrets.token_hex(4)
     with role_catalog() as admin:
         admin.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(password)))
         admin.execute(sql.SQL("CREATE SCHEMA {} AUTHORIZATION {}").format(sql.Identifier(schema), sql.Identifier(role)))
@@ -464,7 +466,7 @@ def test_a_password_with_every_mark_of_an_address_is_the_password_all_the_same(s
     """The address is read once, by libpq, and the connection is made of what it read: a password that holds a space, a
     quote, a backslash and the marks of an address reaches the server as it was written."""
     password = "p@ss w:rd/#?%&='" + chr(34) + chr(92) + "+"
-    role = "latet_t_" + secrets.token_hex(4)
+    role = owned("latet_t_" + secrets.token_hex(4), "role", DATABASE)
     with role_catalog() as admin:
         admin.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(password)))
     try:
@@ -658,7 +660,7 @@ def in_encoding():
     made: list[str] = []
 
     def make(encoding: str) -> str:
-        name = "latet_t_" + secrets.token_hex(5)
+        name = owned("latet_t_" + secrets.token_hex(5), "database", DATABASE)
         with psycopg.connect(DATABASE, autocommit=True) as admin:
             admin.execute(
                 sql.SQL("CREATE DATABASE {} ENCODING {} LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0").format(

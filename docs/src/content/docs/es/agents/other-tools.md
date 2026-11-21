@@ -24,12 +24,12 @@ proveedor de OpenRouter integrado no te deja cambiar la dirección llega a OpenR
 proveedor compatible con OpenAI, con la dirección de OpenRouter de la tabla.
 
 Junie CLI, Kilo Code, Continue y Crush también leen ajustes del proyecto que abres, y los ajustes
-propios de un proyecto pueden apuntarlos a otra dirección: revísalos antes de trabajar en un
+propios de un proyecto pueden hacer que apunten a otra dirección: revísalos antes de trabajar en un
 repositorio que no escribiste tú.
 
 Latet lee cada parte de cada petición que envían estas herramientas
 ([Cada parte de una petición](../../concepts/protection-scope/#cada-parte-de-una-petición)). Sus listas de modelos
-pasan por las rutas de arriba. Una cabecera que una herramienta te deja añadir se rechaza, nombrándola,
+pasan por las rutas de arriba. Una cabecera que una herramienta te deja añadir se rechaza, con su nombre,
 hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la deje pasar, y
 una llamada que Latet no lee (archivos, audio, generación de imágenes) se rechaza. Estas herramientas
 se configuran a mano, así que una carpeta que nombran solo añade protección
@@ -139,9 +139,9 @@ $env:COPILOT_OFFLINE = "true"
 latet copilot
 ```
 
-`latet copilot` dirige la dirección del proveedor a Latet solo para esa sesión: las de OpenAI,
-Anthropic y OpenRouter van a las rutas propias de Latet, otra dirección se convierte en uno de tus
-destinos, y una en este ordenador se queda como está. Con OpenRouter, define
+`latet copilot` hace que la dirección del proveedor apunte a Latet solo para esa sesión: las de
+OpenAI, Anthropic y OpenRouter van a las rutas propias de Latet, otra dirección se convierte en uno de
+tus destinos, y una en este equipo se queda como está. Con OpenRouter, define
 `COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` y tu clave de OpenRouter; para Anthropic,
 `COPILOT_PROVIDER_TYPE=anthropic` y tu clave de Anthropic. Para iniciar `copilot` tú mismo, define en
 su lugar `COPILOT_PROVIDER_BASE_URL` con la dirección de Latet: `http://127.0.0.1:5283/openai/v1`,
@@ -150,8 +150,8 @@ su lugar `COPILOT_PROVIDER_BASE_URL` con la dirección de Latet: `http://127.0.0
 `latet copilot` también da a Copilot una clave de lanzamiento en `COPILOT_PROVIDER_HEADERS`, añadida a
 las cabeceras que defines ahí, en un proveedor compatible con OpenAI por Chat Completions: Latet
 considera entonces de confianza el proyecto de la sesión. Por la Responses API, la API de Anthropic o
-un WebSocket no pasa ninguna y lo dice, y el proyecto queda declarado. Las cabeceras tuyas en
-`COPILOT_PROVIDER_HEADERS` se rechazan, nombrando cada una, hasta que una excepción exacta la deje
+un WebSocket no pasa ninguna y lo dice, y el proyecto queda declarado. Cada cabecera propia que pongas
+en `COPILOT_PROVIDER_HEADERS` se rechaza, con su nombre, hasta que una excepción exacta la deje
 pasar.
 
 `COPILOT_PROVIDER_WIRE_API=responses` usa la Responses API en su lugar. El modelo tiene que admitir
@@ -368,7 +368,7 @@ Prime Agent lee la dirección de cada proveedor de `models.json`, en `~/.prime/a
 A partir de ahí, cada modelo de estos proveedores pasa por Latet, con la clave de API que diste a
 Prime Agent con `/login` o en `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` y `OPENROUTER_API_KEY`.
 
-**Con una suscripción en lugar de una clave.** Con la sesión iniciada en una suscripción de Claude,
+**Con una suscripción en lugar de una clave.** Con la sesión iniciada con una suscripción de Claude,
 Prime Agent se presenta ante Anthropic como Claude Code. Sus peticiones pasan igualmente por Latet,
 que comprueba las peticiones hechas con una suscripción de Claude y nunca las reescribe: la que
 llevaría un secreto o datos personales en claro se detiene, con un mensaje en lugar de una respuesta.
@@ -386,7 +386,7 @@ siguen usando el servicio de Google.
 
 ## Claude Desktop en una puerta de enlace
 
-Claude Desktop puede funcionar sobre una puerta de enlace de inferencia en lugar del servicio de
+Claude Desktop puede funcionar con una puerta de enlace de inferencia en lugar del servicio de
 Anthropic, sin el inicio de sesión de Claude: una organización lo usa para dirigirlo a su propio
 proveedor. Entonces no hay suscripción Pro ni Max: las peticiones se pagan por uso, con una clave de
 API de Anthropic o a través del proveedor de tu empresa. En un solo equipo, sin iniciar sesión,

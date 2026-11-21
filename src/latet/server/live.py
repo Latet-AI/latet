@@ -151,6 +151,8 @@ INBOX_LIMIT = 500
 # token's identity is (``identities.CACHE_SECONDS``): one person's flood of dashboard requests takes no credentials'
 # thread past its first. Its end, on any instance, is told on ``SIGNINS`` and drops it everywhere at once.
 SESSION_HELD = 5.0
+Via = Literal["code", "sso"]  # how a dashboard session was opened: a one-time code, or the company's single sign-on
+VIAS: tuple[Via, ...] = ("code", "sso")
 SESSIONS_HELD = 10_000  # sessions an instance holds so at most: the one used longest ago goes first
 SIGNINS = "signins"  # the bus's channel of the sign-ins' ends
 # A person's dashboard sessions kept at most, as an identity's AWS sessions are (``AWS_SESSIONS_KEPT``): opening one
@@ -1710,7 +1712,11 @@ class ValkeySignIns:
     asked for it (``issue_code``'s ``token``), for the server's sign-in to open a session only while that token is there
     (``redeemed``): one revoked meanwhile, whatever any instance's memory held of it, opens nothing. Each subject's
     records are listed, by when they end, for ending them all at once; those that ended leave the list as the next is
-    listed."""
+    listed.
+
+    A session records how it was opened (``via``, sealed with it): ``code``, the one-time code of `latet dashboard`
+    (the Community's way), or ``sso``, the company's single sign-on (E3), which a server may require for the
+    dashboard's company-wide changes. A record without it, opened before it was kept, reads as ``code``."""
 
     def __init__(self, bus: Bus, master: MasterKey, *, clock: Callable[[], float] = time.time) -> None:
         self.bus, self._clock = bus, clock
@@ -1721,7 +1727,7 @@ class ValkeySignIns:
         # ``time.monotonic`` reads) its memory answers for them without asking Valkey (``held``). A session's or a
         # subject's end, on any instance, drops them at once (``end``, ``heard``); a read made while one was dropped
         # keeps nothing (``_generation``), as the identities' memory does.
-        self._held: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._held: OrderedDict[str, tuple[str, Via, float]] = OrderedDict()
         self._generation = 0
 
     @property
@@ -1732,15 +1738,20 @@ class ValkeySignIns:
     def held(self, sid: str) -> str | None:
         """The subject of a session this instance found open in the last ``SESSION_HELD`` seconds, from its memory
         alone: no store is asked (the gate, on the event loop). None when it does not hold it."""
+        found = self.held_session(sid)
+        return found[0] if found is not None else None
+
+    def held_session(self, sid: str) -> tuple[str, Via] | None:
+        """``held``, with how the session was opened."""
         if not sid:
             return None
         name, now = _hash(sid), time.monotonic()
         with self._lock:
             found = self._held.get(name)
-            if found is None or found[1] <= now:
+            if found is None or found[2] <= now:
                 return None
             self._held.move_to_end(name)
-            return found[0]
+            return found[0], found[1]
 
     def heard(self, message: Mapping[str, Any]) -> None:
         """A sign-in's end told on the bus's ``signins`` channel by an instance, this one too: what this instance's
@@ -1761,12 +1772,12 @@ class ValkeySignIns:
                 for name in [name for name, found in self._held.items() if found[0] == subject]:
                     del self._held[name]
 
-    def _hold(self, name: str, subject: str, generation: int) -> None:
+    def _hold(self, name: str, subject: str, via: Via, generation: int) -> None:
         """A session found open, held ``SESSION_HELD`` seconds, unless something was dropped since its read began."""
         with self._lock:
             if self._generation != generation:
                 return
-            self._held[name] = (subject, time.monotonic() + SESSION_HELD)
+            self._held[name] = (subject, via, time.monotonic() + SESSION_HELD)
             self._held.move_to_end(name)
             while len(self._held) > SESSIONS_HELD:
                 self._held.popitem(last=False)
@@ -1777,11 +1788,15 @@ class ValkeySignIns:
         them nobody who holds a dashboard."""
         return f"signin:subject:{self._sealer.keyed(f'subject{chr(0)}{subject}').hex()[:32]}"
 
-    def _put(self, kind: str, secret: str, subject: str, ttl: float, token: str | None = None) -> None:
+    def _put(
+        self, kind: str, secret: str, subject: str, ttl: float, token: str | None = None, via: Via | None = None
+    ) -> None:
         key = self.bus.key(f"signin:{kind}:{_hash(secret)}")
         index = self.bus.key(self.index(subject))
         now = self._clock()
         record: dict[str, Any] = {"s": subject, "e": now + ttl} | ({"t": token} if token is not None else {})
+        if via is not None:
+            record["v"] = via
         pipe = self.bus.client.pipeline()
         pipe.set(key, self._sealer.seal_json(record, key), ex=int(ttl) + 60)
         pipe.zremrangebyscore(index, "-inf", f"({now}")  # those that ended
@@ -1789,20 +1804,21 @@ class ValkeySignIns:
         pipe.expire(index, int(SESSION_TTL) + 60)  # longer than any record it lists
         pipe.execute()
 
-    def _record(self, key: str, raw: bytes | None) -> tuple[str, str | None] | None:
-        """The subject a record names while it lasts, and the token it is bound to (None: none)."""
+    def _record(self, key: str, raw: bytes | None) -> tuple[str, str | None, Via] | None:
+        """The subject a record names while it lasts, the token it is bound to (None: none), and how it was opened
+        (``code`` for a record that does not say)."""
         if raw is None:
             return None
         try:
             data = self._sealer.open_json(raw, key)
-            subject, end, token = data["s"], float(data["e"]), data.get("t")
+            subject, end, token, via = data["s"], float(data["e"]), data.get("t"), data.get("v", "code")
         except _UNREADABLE:  # written by hand, moved from another key, or sealed by another server: no session
             UNREADABLE.met("signin")
             return None
-        if not isinstance(subject, str) or not (token is None or isinstance(token, str)):
+        if not isinstance(subject, str) or not (token is None or isinstance(token, str)) or via not in VIAS:
             UNREADABLE.met("signin")
             return None
-        return (subject, token) if end >= self._clock() else None
+        return (subject, token, via) if end >= self._clock() else None
 
     def issue_code(self, subject: str, *, token: str | None = None) -> str:
         """A one-time code for ``subject``, good for two minutes; ``token``: the keyed hash of the token that asked for
@@ -1820,16 +1836,20 @@ class ValkeySignIns:
         raw = self.bus.client.getdel(key)
         if self.code_redeemed is not None:
             self.code_redeemed(code)
-        return self._record(key, raw)
+        found = self._record(key, raw)
+        return (found[0], found[1]) if found is not None else None
 
     def redeem(self, code: str) -> str | None:
         found = self.redeemed(code)
         return found[0] if found is not None else None
 
-    def open(self, subject: str) -> str:
-        """A session for ``subject``, the newest of the ``SESSIONS_KEPT`` it keeps (``_keep_newest``)."""
+    def open(self, subject: str, *, via: Via = "code") -> str:
+        """A session for ``subject``, the newest of the ``SESSIONS_KEPT`` it keeps (``_keep_newest``), opened ``via``
+        a one-time code or the company's single sign-on."""
+        if via not in VIAS:
+            raise ValueError("a session is opened with a one-time code or the company's sign-in")
         sid = secrets.token_urlsafe(32)
-        self._put("session", sid, subject, SESSION_TTL)
+        self._put("session", sid, subject, SESSION_TTL, via=via)
         self._keep_newest(subject)
         return sid
 
@@ -1855,6 +1875,11 @@ class ValkeySignIns:
     def subject_of(self, sid: str) -> str | None:
         """The session's subject while its twelve hours from its opening last: read, and nothing written (a look neither
         renews it nor ends it); held in this instance's memory for ``SESSION_HELD`` seconds (``held``)."""
+        found = self.session_of(sid)
+        return found[0] if found is not None else None
+
+    def session_of(self, sid: str) -> tuple[str, Via] | None:
+        """``subject_of``, with how the session was opened."""
         if not sid:
             return None
         name = _hash(sid)
@@ -1864,8 +1889,8 @@ class ValkeySignIns:
         found = self._record(key, self.bus.client.get(key))
         if found is None:
             return None
-        self._hold(name, found[0], generation)
-        return found[0]
+        self._hold(name, found[0], found[2], generation)
+        return found[0], found[2]
 
     def end(self, sid: str | None = None, subject: str | None = None) -> None:
         """The session ``sid``, and every session and code of ``subject``, ended in Valkey; then dropped from this

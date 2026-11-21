@@ -439,11 +439,11 @@ def test_five_pages_agreeing_on_stale_numbers_are_found():
         "it": ("191", "2.894", "126 / 31 ms", "1.000.000 di valori | 773 | 2.967"),
         "de": ("191", "2.894", "126 / 31 ms", "1.000.000 Werte | 773 | 2.967"),
         "fr": ("191", "2 894", "126 / 31 ms", "1 000 000 de valeurs | 773 | 2 967"),
-        "es": ("191", "2.894", "126 / 31 ms", "1.000.000 de valores | 773 | 2.967"),
+        "es": ("191", "2894", "126 / 31 ms", "1.000.000 de valores | 773 | 2967"),  # four digits with no separator
     }
     for lang in LANGUAGES:  # 0.10.0's table: 189, 2,691, 77 / 28 ms for a new key, 410 and 1,498 at 1,000,000
         mask, unmask, document, million = old[lang]
-        sep = {"en": ",", "fr": " "}.get(lang, ".")
+        sep = {"en": ",", "fr": " ", "es": ""}.get(lang, ".")
         pages[lang] = pages[lang].replace(f"| {mask} | {unmask} | {document} |", f"| 189 | 2{sep}691 | 77 / 28 ms |")
         pages[lang] = pages[lang].replace(million, million.split(" | ")[0] + f" | 410 | 1{sep}498")
     found = _found(pages, "en:", "accepted")

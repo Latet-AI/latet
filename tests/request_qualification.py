@@ -3,8 +3,10 @@
 - ``NEGATIVE``: for each request family a routed agent uses, its main call, its ancillary calls (the model list, the
   cache, the cancel) and one unsupported sibling, each with the outcome it must have;
 - ``DRIFT``: for each family, one added top-level body member, one added nested member, one added header, one added
-  query name (and a removable header where the family declares one), each with its documented outcome: a refusal
-  naming the path's category, D4's header rule, D6 where a request is checked only.
+  query name (and a removable header where the family declares one), each with its documented outcome: an added body
+  member read by the new rule and sent, the history naming its pass (0.15.0, notes/unknown-members-design.md), or,
+  under ``unknown_members: refuse`` (``Fixture.strict``), a refusal naming the path's category; D4's header rule; D6
+  where a request is checked only, in either mode.
 
 Every case goes through the actual ingress of a cell (``tests/request_coverage.py``: a computer's runtime, or a server's
 gate and an API key's space) to the recording transport at S1-S4: no provider is called. A case that carries the canary
@@ -89,7 +91,8 @@ class Expect:
     """What a case must give: ``status`` (None: whatever the provider's fake answered, or a WebSocket), how many
     requests left at S1 (``sends``), the history record's category (``code``), words the agent is told (``words``: in
     the error, an error frame or the close reason), a WebSocket's ``close`` code and ``frames_up``; ``canary``: the
-    case carries ``EMAIL``, which must be absent from everything that left; ``removed``: a header that must not leave."""
+    case carries ``EMAIL``, which must be absent from everything that left; ``removed``: a header that must not leave;
+    ``passes``: a category the history must name among what each request recorded passed by (``new-member``)."""
 
     status: int | None = 200
     sends: int = 1
@@ -99,6 +102,7 @@ class Expect:
     frames_up: int | None = None
     canary: bool = False
     removed: str | None = None
+    passes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,12 @@ class Fixture:
     kind: str  # NEGATIVE: main, ancillary, sibling; DRIFT: top, nested, header, query, removable
     case: Case
     expect: Expect
+    # What it gives where a member no profile declares is refused as before the new rule (``unknown_members:
+    # refuse``), when that differs from ``expect``: the refusal the case had before 0.15.0.
+    strict: Expect | None = None
+
+    def expected(self, unknown_members: str = "check") -> Expect:
+        return self.strict if unknown_members == "refuse" and self.strict is not None else self.expect
 
 
 SENT = Expect()
@@ -118,6 +128,10 @@ QUERY_REFUSED = Expect(400, 0, "envelope-query-unknown", "query parameter drift"
 
 def unknown(where: str) -> Expect:
     return Expect(400, 0, "body-unknown-member", f"unknown member in {where}")
+
+
+# An added body member of a control value, read by the new rule: sent as it came, its pass in the history.
+READ = Expect(passes="new-member")
 
 
 def _body(doc: dict[str, Any]) -> bytes:
@@ -509,6 +523,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         Fixture(
             "top",
             _http("d-anthropic-top", "/anthropic/v1/messages", ANTHROPIC_KEY, anthropic(extra={"drift_member": "x"})),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -516,6 +531,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
             _http(
                 "d-anthropic-nested", "/anthropic/v1/messages", ANTHROPIC_KEY, anthropic(message={"drift_member": "x"})
             ),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -541,7 +557,8 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
     ),
     "claude-code": (
         # D6: a request checked only lets a new member through when its value is a text or a list of texts, read by the
-        # final check; an object, or a text carrying a sensitive value, is refused.
+        # final check, in either mode; the new rule an object (refused where new members are refused); a text carrying a
+        # sensitive value is refused.
         Fixture(
             "top",
             _http("d-cc-top", "/anthropic/v1/messages?beta=true", CLAUDE_CODE, anthropic(extra={"drift_member": "x"})),
@@ -565,6 +582,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 CLAUDE_CODE,
                 anthropic(extra={"drift_member": {"a": 1}}),
             ),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -627,11 +645,13 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         Fixture(
             "top",
             _http("d-chat-top", "/openai/v1/chat/completions", OPENAI, chat(extra={"drift_member": "x"})),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
             "nested",
             _http("d-chat-nested", "/openai/v1/chat/completions", OPENAI, chat(message={"drift_member": "x"})),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -655,6 +675,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         Fixture(
             "top",
             _http("d-responses-top", "/openai/v1/responses", OPENAI, responses(extra={"drift_member": "x"})),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -665,6 +686,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 OPENAI,
                 responses(extra={"reasoning": {"effort": "low", "drift_member": "x"}}),
             ),
+            READ,
             unknown("reasoning control"),
         ),
         Fixture(
@@ -685,6 +707,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 OPENAI,
                 _body({"model": "text-embedding-3-small", "input": "hello", "drift_member": "x"}),
             ),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -727,6 +750,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 CODEX_HTTP,
                 responses(model="gpt-5.2-codex", codex=True, extra={"drift_member": "x"}),
             ),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -737,6 +761,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 CODEX_HTTP,
                 responses(model="gpt-5.2-codex", codex=True, content={"drift_member": "x"}),
             ),
+            READ,
             unknown("message content block"),
         ),
         Fixture(
@@ -761,16 +786,19 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         ),
     ),
     "codex-ws": (
-        # A frame takes no request exception (F-2): its unknown member is refused in an error frame, nothing of the turn
-        # sent; the handshake's header or query parameter closes the socket naming it (root's ruling 5).
+        # A frame takes no request exception (F-2): its unknown member is read by the new rule and the turn sent, or,
+        # where new members are refused, refused in an error frame, nothing of the turn sent; the handshake's header or
+        # query parameter closes the socket naming it (root's ruling 5).
         Fixture(
             "top",
             _ws("d-ws-top", CODEX_WS, turn(extra={"drift_member": "x"})),
+            Expect(None, 0, frames_up=1),
             Expect(None, 0, words="unknown member in top-level", frames_up=0),
         ),
         Fixture(
             "nested",
             _ws("d-ws-nested", CODEX_WS, turn(item={"drift_member": "x"})),
+            Expect(None, 0, frames_up=1),
             Expect(None, 0, words="unknown member in input item", frames_up=0),
         ),
         Fixture(
@@ -788,11 +816,13 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         Fixture(
             "top",
             _http("d-gemini-top", f"{GEMINI_CALL}:generateContent", GEMINI, gemini(extra={"drift_member": "x"})),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
             "nested",
             _http("d-gemini-content", f"{GEMINI_CALL}:generateContent", GEMINI, gemini(content={"drift_member": "x"})),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -803,11 +833,13 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 GEMINI,
                 gemini(extra={"generationConfig": {"temperature": 0.2, "drift_member": "x"}}),
             ),
+            READ,
             unknown("generation control"),
         ),
         Fixture(
             "nested",
             _http("d-gemini-part", f"{GEMINI_CALL}:generateContent", GEMINI, gemini(part={"drift_member": "x"})),
+            READ,
             unknown("message content block"),
         ),
         Fixture(
@@ -838,6 +870,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 OPENROUTER,
                 chat(model="openai/gpt-4o", extra={"drift_member": "x"}),
             ),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
@@ -848,6 +881,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 OPENROUTER,
                 chat(model="openai/gpt-4o", message={"drift_member": "x"}),
             ),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -882,6 +916,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
             _http(
                 "d-bedrock-nested", f"{BEDROCK_MODEL}/invoke", BEDROCK, bedrock(message={"drift_member": {"a": "x"}})
             ),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -924,6 +959,7 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
                 bedrock(version="vertex-2023-10-16", message={"drift_member": {"a": "x"}}),
                 computer=True,
             ),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -953,11 +989,13 @@ DRIFT: dict[str, tuple[Fixture, ...]] = {
         Fixture(
             "top",
             _http("d-company-top", "/llm/v1/chat/completions", COMPANY, chat(extra={"drift_member": "x"})),
+            READ,
             unknown("top-level"),
         ),
         Fixture(
             "nested",
             _http("d-company-nested", "/llm/v1/chat/completions", COMPANY, chat(message={"drift_member": "x"})),
+            READ,
             unknown("message"),
         ),
         Fixture(
@@ -979,9 +1017,19 @@ async def apply_resources(cell: Any) -> None:
     runtime.apply_config(runtime.config.model_copy(update={"request_resources": rows}))
 
 
-def problems(cell: Any, observation: dict[str, Any], expect: Expect) -> list[str]:
+async def recorded_passes(cell: Any) -> list[list[str]]:
+    """What each request of the last case was recorded as passed by (the history's ``passes``), by category."""
+    runtime = await cell.runtime()
+    recorder = runtime.gateway.recorder if runtime is not None else None
+    return [list(record.summary.get("passes") or ()) for record in getattr(recorder, "_rc_records", [])]
+
+
+def problems(
+    cell: Any, observation: dict[str, Any], expect: Expect, passes: list[list[str]] | None = None
+) -> list[str]:
     """What ``observation`` (``run_case``'s) does otherwise than ``expect``; empty when it holds. Reads the cell's
-    recording transport and WebSocket upstream raw for the canary and the removed header."""
+    recording transport and WebSocket upstream raw for the canary and the removed header; ``passes``, what each request
+    was recorded as passed by (``recorded_passes``), for ``Expect.passes``."""
     found: list[str] = []
     counts, client = observation["counts"], observation["client"]
     said = json.dumps(client, ensure_ascii=False)
@@ -1017,6 +1065,8 @@ def problems(cell: Any, observation: dict[str, Any], expect: Expect) -> list[str
         names = {name.lower() for sent in cell.transport.sent for name, _ in sent.headers}
         if expect.removed.encode() in names:
             found.append(f"{expect.removed} left")
+    if expect.passes is not None and (not passes or any(expect.passes not in each for each in passes)):
+        found.append(f"history passes {passes!r}, expected {expect.passes!r} in each")
     return found
 
 

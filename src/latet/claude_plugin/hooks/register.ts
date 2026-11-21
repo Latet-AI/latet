@@ -10,7 +10,7 @@ import type { EngineInterface } from 'claude-code'
 
 const DEFAULT_BRIDGE = 'http://127.0.0.1:5283'
 // Kept equal to plugin.json and the Python package by the release check.
-const PLUGIN_VERSION = '0.12.1'
+const PLUGIN_VERSION = '0.15.0'
 const API = '/_latet/engine/v1/'
 // Tools whose arguments leave this machine (web, Anthropic-hosted connectors) or start another
 // model conversation: they keep the surrogates the model wrote.
@@ -55,6 +55,13 @@ let unchecked: Record<string, unknown> | null = null
 let untrusted: string | null = null
 // The session start got as far as a verdict, or as facts to check later: otherwise prompts are stopped.
 let routeKnown = false
+// A session.start under way, before it knows its route: a row appended meanwhile waits for it (`routeSettled`).
+let starting = false
+const START_WAIT_MS = 5000
+const START_POLL_MS = 25
+// The answers Claude Code keeps that it asked for before the route was known, and so were withheld: Claude Code 2.1.322
+// and later compute an interactive session's context before they raise session.start. Asked again once it is known.
+const askedEarly = new Set<string>()
 const LOOPBACK = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/?$/
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const // rising precedence
 // Where each is set matters too, never its value: a proxy's address may hold a password.
@@ -98,6 +105,25 @@ async function onWindows($): Promise<boolean> {
   } catch { return true } // unknown: the binding's own words, which name `latet agents apply claude`
 }
 function withheld(): string { return remote ? WITHHELD_REMOTE : WITHHELD }
+/** Notes an answer Claude Code keeps, asked for before the route is known: it is withheld now, and asked again. */
+function early(event: string): void { if (!routeKnown) askedEarly.add(event) }
+/** Has Claude Code ask again, at its next turn, for the answers it kept from before the route was known. */
+function askAgain($): void {
+  for (const event of askedEarly) {
+    try {
+      $.ui.invalidate(event)
+    } catch {
+      // A Claude Code without it keeps the withheld answer: still nothing is sent unmasked.
+    }
+  }
+  askedEarly.clear()
+}
+/** Waits, bounded, for a session.start under way to know its route; at once when none is under way. */
+async function routeSettled($): Promise<void> {
+  for (let waited = 0; !routeKnown && starting && waited < START_WAIT_MS; waited += START_POLL_MS) {
+    await $.clock.sleep(START_POLL_MS)
+  }
+}
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -295,7 +321,11 @@ async function helperCall($: EngineInterface, operation: string, body: Record<st
     if (operation === 'mask' || operation === 'approvals/wait') {
       if (response.pending !== undefined) {
         if (typeof response.pending !== 'string' || !response.pending ||
-          (response.viewers !== undefined && (typeof response.viewers !== 'number' || !Number.isSafeInteger(response.viewers) || response.viewers < 0))) refused()
+          (response.viewers !== undefined && (typeof response.viewers !== 'number' || !Number.isSafeInteger(response.viewers) || response.viewers < 0)) ||
+          // Who decides on it (Latet Enterprise): a word, and the names of the people who decide.
+          (response.decides !== undefined && typeof response.decides !== 'string') ||
+          (response.deciders !== undefined && (!Array.isArray(response.deciders) ||
+            response.deciders.some((name: unknown) => typeof name !== 'string')))) refused()
       } else if (!Array.isArray(response.items)) refused()
     }
     if (operation === 'rehydrate' && (!Array.isArray(response.items) || !Array.isArray(body?.items) ||
@@ -407,19 +437,66 @@ type Masked = { text: string; blocked?: string }
 const WAITING = 'Latet: waiting for your approval in the dashboard'
 const NO_DASHBOARD = 'Latet: a text waits for your approval, and no dashboard is open: run `latet dashboard`.'
 let toldNoDashboard = false
+const WAITING_SECURITY = "Latet: waiting for your company's security team to approve it"
+let toldSecurity = false
+const NAMES_SAID = 5 // who reviews, as said: five names at most, then how many more
+const NAME_SAID = 80 // characters of each name said
+// What is taken out of a name before it is shown, as the server takes it out of one (`identities._UNWANTED_RANGES`):
+// the C0 and C1 controls, the bidirectional controls, what shows as nothing or splits a line, a lone surrogate.
+const UNSHOWN: [number, number][] = [
+  [0x0000, 0x001f], [0x007f, 0x009f], [0x061c, 0x061c], [0x200b, 0x200b], [0x200e, 0x200f],
+  [0x2028, 0x202e], [0x2060, 0x2060], [0x2066, 0x2069], [0xd800, 0xdfff], [0xfeff, 0xfeff],
+]
+
+/** A name as it is shown: without what `UNSHOWN` lists, trimmed. */
+function shownName(name: string): string {
+  let kept = ''
+  for (const char of name) {
+    const code = char.codePointAt(0) ?? 0
+    if (!UNSHOWN.some(([low, high]) => code >= low && code <= high)) kept += char
+  }
+  return kept.trim()
+}
+
+/** Said once a session: who reviews the texts, when it is not you (Latet Enterprise). The names are the daemon's
+ * (its server's, on a computer connected to one): its strings alone, as `shownName` shows them, the first
+ * `NAMES_SAID` each cut at `NAME_SAID` characters, then how many more. Anything else in the answer is left out. */
+function securityReviews(deciders: unknown): string {
+  const names: string[] = []
+  let more = 0
+  for (const name of Array.isArray(deciders) ? deciders : []) {
+    const shown = typeof name === 'string' ? [...shownName(name)] : []
+    if (shown.length === 0) continue
+    if (names.length === NAMES_SAID) more += 1
+    else names.push(shown.length > NAME_SAID ? `${shown.slice(0, NAME_SAID).join('').trimEnd()}…` : shown.join(''))
+  }
+  const who = names.length > 0 ? ` (${names.join(', ')}${more > 0 ? ` and ${more} more` : ''})` : ''
+  // An empty list is the daemon saying nobody holds the role yet: the text waits until someone does (as the dashboard
+  // says it).
+  const nobody = Array.isArray(deciders) && deciders.length === 0
+    ? ' Nobody can decide yet: ask your Latet administrator.'
+    : ''
+  return `Latet: your company's security team${who} reviews your new texts before they are sent; they see them as you do.${nobody}`
+}
 
 /** The daemon's masked items: a text, and why it was stopped when it was (the local reviewer, or you).
  *
- * With the Live Reviewer on, new texts wait for you in the dashboard: the daemon answers `pending` at
- * once, and is asked again until you decide (each call is held up to 20 s; a fetch gives up at 30). */
+ * With the Live Reviewer on, new texts wait in the dashboard: for you, or for your company's security
+ * team (Latet Enterprise). The daemon answers `pending` at once, with who decides, and is asked again
+ * until it is decided (each call is held up to 20 s; a fetch gives up at 30). */
 async function maskItems($, items: Item[]): Promise<Masked[]> {
   if (items.length === 0) return []
   let result = await bridgeCall($, 'mask', { items })
   if (result.pending) {
-    $.ui.status(WAITING)
+    const security = result.decides === 'security' // said by the first answer alone: kept while it asks again
+    $.ui.status(security ? WAITING_SECURITY : WAITING)
     try {
+      if (security && !toldSecurity) {
+        $.ui.toast(securityReviews(result.deciders))
+        toldSecurity = true // once it was shown
+      }
       while (result.pending) {
-        if (!result.viewers && !toldNoDashboard) {
+        if (!security && !result.viewers && !toldNoDashboard) {
           toldNoDashboard = true
           $.ui.toast(NO_DASHBOARD)
         }
@@ -586,6 +663,9 @@ function instructionsWarning(found: Array<{ file: string; line: number; type: st
 export function register(on) {
   on('session.start', async ($, e, next) => {
     routeKnown = false
+    starting = true
+    toldNoDashboard = false // what is said once a session is said again in a new one
+    toldSecurity = false
     launchId = null
     const ownedLaunch = await $.env.get('LATET_LAUNCH_ID')
     if (typeof ownedLaunch === 'string' && /^[0-9a-f]{32}$/.test(ownedLaunch)) launchId = ownedLaunch
@@ -626,6 +706,8 @@ export function register(on) {
       } catch (error) { untrusted = causeOf(error) }
     }
     routeKnown = true // from here on: a verdict, or facts the first prompt checks
+    starting = false
+    askAgain($)
     if (untrusted) {
       route = { ok: false, reason: untrusted }
       $.ui.toast(`Latet: ${untrusted}. Prompts are stopped.`)
@@ -666,9 +748,11 @@ export function register(on) {
         // An older daemon has no such check: nothing to say.
       }
     }
+    askAgain($) // an answer asked for while the route was being learnt, settled after the first ask again
     return next(e)
   }).catch(async ($, e, next) => {
     // Never hold the session back: masking hooks fail closed on their own if the daemon is away.
+    starting = false
     if (!routeKnown) route = { ok: false, reason: 'Latet could not read where Claude Code sends its requests' }
     $.ui.toast(remote ? `Latet: ${startCause}.` : 'Latet: the local daemon did not answer; requests will be withheld until it does.')
     return next.called ? undefined : next(e)
@@ -701,6 +785,7 @@ export function register(on) {
   )
 
   on('prompt.section', async ($, e, next) => {
+    early('prompt.section')
     const result = await next(e)
     if (!result.text) return result
     const [text] = await mask($, [{ text: result.text, kind: 'system' }])
@@ -708,6 +793,7 @@ export function register(on) {
   }).catch(async () => ({ text: withheld() }))
 
   on('prompt.context', async ($, e, next) => {
+    early('prompt.context')
     const result = await next(e)
     const texts = await mask($, result.blocks.map((b) => ({ text: b.text, kind: 'system' })))
     return { ...result, blocks: result.blocks.map((b, i) => ({ ...b, text: texts[i] })) }
@@ -717,6 +803,7 @@ export function register(on) {
   })
 
   on('prompt.attachment', async ($, e, next) => {
+    early('prompt.attachment')
     const result = await next(e)
     if (!result.text) return result
     const [text] = await mask($, [{ text: result.text, kind: 'attachment' }])
@@ -731,6 +818,7 @@ export function register(on) {
   }).catch(async () => ({ text: withheld() }))
 
   on('tool.describe', async ($, e, next) => {
+    early('tool.describe')
     const result = await next(e)
     const [description] = await mask($, [{ text: result.description, kind: 'tool_description' }])
     return { ...result, description }
@@ -742,6 +830,7 @@ export function register(on) {
 
   on('session.append', async ($, e, next) => {
     if (SKIP_DOORS.has(e.door) || !e.message.role) return next(e)
+    await routeSettled($) // a row is kept for good: one appended while the session starts waits for its route
     const pasted = e.door === 'prompt' ? pastedImages(e.message.content) : null
     if (pasted !== null) {
       // An image you pasted cannot be changed, only left out: a masked copy is offered to read instead.

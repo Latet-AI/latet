@@ -24,13 +24,13 @@ provider OpenRouter integrato non permette di cambiarne l'indirizzo raggiunge Op
 un provider compatibile con OpenAI, con l'indirizzo di OpenRouter qui sopra.
 
 Junie CLI, Kilo Code, Continue e Crush leggono le impostazioni anche dal progetto che apri, e le
-impostazioni di un progetto possono puntarli a un altro indirizzo: controllale prima di lavorare in un
+impostazioni di un progetto possono farli puntare a un altro indirizzo: controllale prima di lavorare in un
 repository che non hai scritto tu.
 
 Latet legge ogni parte di ogni richiesta che questi strumenti inviano
 ([Ogni parte di una richiesta](../../concepts/protection-scope/#ogni-parte-di-una-richiesta)). I loro elenchi dei
 modelli passano sui percorsi qui sopra. Un header che uno strumento ti lascia aggiungere viene
-rifiutato, nominandolo, finché
+rifiutato, e Latet ne indica il nome, finché
 un'[eccezione esatta](../../getting-started/upgrading-to-0-11/#approvare-uneccezione-esatta) non lo lascia passare, e
 una chiamata che Latet non legge (file, audio, generazione di immagini) viene rifiutata. Questi
 strumenti sono configurati a mano, quindi una cartella che nominano aggiunge solo protezione
@@ -38,7 +38,7 @@ strumenti sono configurati a mano, quindi una cartella che nominano aggiunge sol
 
 ## In sintesi
 
-*Provato* significa che lo strumento stesso è stato fatto passare da Latet verso un provider di
+Provato significa che lo strumento stesso è stato fatto passare da Latet verso un provider di
 prova, su ogni API che parla: il provider ha ricevuto valori fittizi, e lo strumento ha mostrato
 quelli reali.
 
@@ -62,7 +62,7 @@ quelli reali.
 ## GitHub Copilot in VS Code
 
 Il **Custom Endpoint** di VS Code invia Copilot Chat a un modello all'indirizzo che scegli tu.
-Funziona con o senza l'accesso a GitHub, con o senza un piano Copilot; con Copilot Business ed
+Funziona con o senza l'accesso a GitHub, con o senza un abbonamento Copilot; con Copilot Business ed
 Enterprise, un amministratore può disattivarlo.
 
 1. Esegui **Chat: Manage Language Models**, poi **Add Models** → **Custom Endpoint**.
@@ -119,7 +119,7 @@ quei compiti con `chat.utilityModel` e `chat.utilitySmallModel`.
 
 La CLI di Copilot passa da Latet con un tuo provider: una chiave di OpenAI, Anthropic o OpenRouter,
 o un altro indirizzo, dati nelle variabili d'ambiente. Con l'accesso a GitHub, sui modelli di un
-piano Copilot, invia al servizio Copilot di GitHub, davanti al quale Latet non può mettersi:
+abbonamento Copilot, invia al servizio Copilot di GitHub, davanti al quale Latet non può mettersi:
 `latet copilot` lo dice e non avvia nulla.
 
 ```sh
@@ -141,19 +141,19 @@ latet copilot
 ```
 
 `latet copilot` fa puntare l'indirizzo del provider a Latet solo per quella sessione: quelli di
-OpenAI, Anthropic e OpenRouter vanno alle rotte di Latet, un altro indirizzo diventa una delle tue
+OpenAI, Anthropic e OpenRouter vanno ai percorsi propri di Latet, un altro indirizzo diventa una delle tue
 destinazioni, e uno su questo computer resta com'è. Con OpenRouter, imposta
 `COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` e la tua chiave di OpenRouter; per
-Anthropic, `COPILOT_PROVIDER_TYPE=anthropic` e la tua chiave di Anthropic. Per avviare tu stesso
-`copilot`, imposta invece `COPILOT_PROVIDER_BASE_URL` all'indirizzo di Latet:
+Anthropic, `COPILOT_PROVIDER_TYPE=anthropic` e la tua chiave di Anthropic. Per avviare invece tu stesso
+`copilot`, imposta `COPILOT_PROVIDER_BASE_URL` sull'indirizzo di Latet per quel provider:
 `http://127.0.0.1:5283/openai/v1`, `/openrouter/api/v1` o `/anthropic`.
 
 `latet copilot` dà anche a Copilot una chiave di avvio in `COPILOT_PROVIDER_HEADERS`, aggiunta agli
 header che hai impostato lì, su un provider compatibile con OpenAI via Chat Completions: Latet
-considera allora attendibile il progetto della sessione. Via la Responses API, l'API di Anthropic o un
-WebSocket non ne passa nessuna e lo dice, e il progetto è dichiarato. Gli header tuoi in
-`COPILOT_PROVIDER_HEADERS` vengono rifiutati, nominandoli uno per uno, finché un'eccezione esatta non
-li lascia passare.
+considera allora attendibile il progetto della sessione. Con la Responses API, l'API di Anthropic o un
+WebSocket non ne passa nessuna, e lo dice; il progetto è allora dichiarato. I tuoi header in
+`COPILOT_PROVIDER_HEADERS` vengono rifiutati, e Latet li indica uno per uno, finché un'eccezione
+esatta non li lascia passare.
 
 `COPILOT_PROVIDER_WIRE_API=responses` usa invece la Responses API. Il modello deve supportare le
 chiamate agli strumenti e lo streaming. Senza `COPILOT_OFFLINE=true`, la CLI invia comunque la
@@ -315,9 +315,9 @@ il modello in `OPENAI_API_KEY` e `OPENAI_MODEL`, oppure in `ANTHROPIC_API_KEY` e
 Senza `latet run`, imposta tu gli URL di base: `http://127.0.0.1:5283/openai/v1` e
 `http://127.0.0.1:5283/anthropic`.
 
-**Un indirizzo email che scrivi tu.** Qwen Code legge ogni `@` in un prompt che scrivi come un file
-da allegare, e invia `mario.rossi@acme.it` come `mario.rossi @acme.it`. Latet non lo riconosce come
-un indirizzo, quindi esce in chiaro. Gli indirizzi nei file, nell'output dei comandi e nelle pagine
+**Un indirizzo email che scrivi tu.** In un prompt che scrivi, Qwen Code prende ogni `@` per un file
+da allegare, e invia `mario.rossi@acme.it` come `mario.rossi @acme.it`. Latet non riconosce quel testo
+come un indirizzo, quindi esce in chiaro. Gli indirizzi nei file, nell'output dei comandi e nelle pagine
 che Qwen Code legge non vengono modificati, e Latet li maschera.
 
 ## Crush
@@ -371,10 +371,10 @@ Prime Agent legge l'indirizzo di ogni provider da `models.json`, in `~/.prime/ag
 Da quel momento ogni modello di questi provider passa da Latet, con la chiave API che hai dato a
 Prime Agent con `/login` o in `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` e `OPENROUTER_API_KEY`.
 
-**Con un abbonamento invece di una chiave.** Con l'accesso a un abbonamento Claude, Prime Agent si
-presenta ad Anthropic come Claude Code. Le sue richieste passano comunque da Latet, che controlla le
-richieste fatte con un abbonamento Claude e non le riscrive mai: quella che porterebbe con sé un
-segreto o un dato personale in chiaro viene fermata, con un messaggio al posto della risposta. Usa
+**Con un abbonamento invece di una chiave.** Con l'accesso tramite un abbonamento Claude, Prime Agent
+si presenta ad Anthropic come Claude Code. Le sue richieste passano comunque da Latet, che controlla le
+richieste fatte con un abbonamento Claude e non le riscrive mai: una richiesta che porterebbe con sé
+un segreto o dati personali in chiaro viene fermata, con un messaggio al posto della risposta. Usa
 una chiave API per farle mascherare. Le richieste fatte con un abbonamento ChatGPT, e quelle a Prime
 Inference, il servizio di Prime Intellect, non passano da Latet.
 
@@ -390,7 +390,7 @@ continuano a usare il servizio di Google.
 ## Claude Desktop su un gateway
 
 Claude Desktop può funzionare con un gateway di inferenza invece che con il servizio di Anthropic,
-senza l'accesso a Claude: un'organizzazione lo usa per collegarlo al proprio provider. In questo caso
+senza l'accesso a Claude: un'organizzazione lo usa per connetterlo al proprio provider. In questo caso
 non c'è un abbonamento Pro o Max: le richieste si pagano a consumo, con una chiave API di Anthropic o
 attraverso il provider della tua azienda. Su un singolo computer, senza fare l'accesso, attiva
 **Help → Troubleshooting → Enable Developer Mode**, poi apri
@@ -410,15 +410,15 @@ passando da Latet.
 
 **Cosa ne fa Latet.** Queste richieste le costruisce il motore di Claude Code, e Latet non riscrive
 mai una richiesta di Claude Code: le controlla una per una, e ferma quella che porterebbe con sé un
-segreto o un dato personale in chiaro, con un messaggio al posto della risposta. Non le maschera,
-come fa invece per gli altri strumenti di questa pagina: la
+segreto o dati personali in chiaro, con un messaggio al posto della risposta. Non le maschera, a
+differenza di quanto fa per gli altri strumenti di questa pagina: la
 [guida ai gateway](https://code.claude.com/docs/en/llm-gateway-protocol) di Anthropic chiede a un
 gateway di esaminare le richieste di Claude Code, non di modificarle. Nella scheda Code il plugin di
 Latet maschera i contenuti prima che la richiesta venga costruita, quindi la scheda Code ha sia il
 mascheramento sia il controllo.
 
-Con l'accesso a Claude, Claude Desktop non usa un gateway: Chat e Cowork non sono coperte, e nella
-scheda Code il plugin maschera senza nessun controllo dietro. Vedi
+Con l'accesso a Claude, Claude Desktop non usa un gateway: Chat e Cowork non sono coperti, e nella
+scheda Code il plugin maschera senza alcun controllo a valle. Vedi
 [Claude Code](../claude-code/#copertura).
 
 ## Cosa Latet non può proteggere

@@ -6,40 +6,40 @@ sidebar:
 ---
 
 Die [API für Anwendungen](../../applications/) eines Latet-Servers beantwortet vier Operationen unter
-`https://<Ihr Server>/_latet/apps/v1/`. Dies ist Version 1: Eine Änderung, die ein dafür geschriebenes
-Programm brechen würde, kommt als `v2`, daneben. Die [OpenAPI-Beschreibung](../../../apps-api.openapi.json)
-sagt dasselbe für Werkzeuge, die einen Client erzeugen; Python-Programme können `latet-client`
+`https://<Ihr Server>/_latet/apps/v1/`. Dies ist Version 1: Eine Änderung, mit der ein dafür
+geschriebenes Programm nicht mehr funktionieren würde, kommt als `v2`, daneben. Die [OpenAPI-Beschreibung](../../../apps-api.openapi.json)
+sagt dasselbe für Tools, die einen Client erzeugen; Python-Programme können `latet-client`
 verwenden ([Logs](../../applications/logs/), [RAG](../../applications/rag/)). Ein Latet-Server liefert
 die Beschreibung seiner eigenen Version auch selbst aus, ohne Token, unter
 `https://<Ihr Server>/_latet/docs/apps-api.openapi.json`.
 
 ## Authentifizierung
 
-Jeder Aufruf trägt den Token eines API-Schlüssels in einem einzigen Header:
+Jeder Aufruf trägt das Token eines API-Schlüssels in einem einzigen Header:
 
 ```http
 Authorization: Bearer latet_key_...
 ```
 
-Ein Token ist `latet_key_` gefolgt von 43 Zeichen, und der Administrator erzeugt ihn
+Ein Token ist `latet_key_` gefolgt von 43 Zeichen, und der Administrator erzeugt es
 (`latet server keys add`, `keys add-token`). Jede Operation braucht ihre eigene Berechtigung: `scan`,
-`mask` (das `scan` einschließt), `unmask` oder `forget` (das keine andere einschließt und das der erste
-Token eines Schlüssels nicht hat). Der Server weist ab:
+`mask` (das `scan` einschließt), `unmask` oder `forget` (das keine andere einschließt und das das erste
+Token eines Schlüssels nicht hat). Der Server lehnt ab:
 
 - mit **401** und `WWW-Authenticate: Bearer` einen Aufruf ohne `Authorization`-Header, mit zweien, mit
-  einem anderen Schema als `Bearer` oder mit einem Token, den er nicht kennt (widerrufen, rotiert, von
+  einem anderen Schema als `Bearer` oder mit einem Token, das er nicht kennt (widerrufen, rotiert, von
   einem deaktivierten oder entfernten Schlüssel);
-- mit **403** den Rechner-Token einer Person, einen Token ohne die Berechtigung der Operation und jede
+- mit **403** das Rechnertoken einer Person, ein Token ohne die Berechtigung der Operation und jede
   Anfrage, die einen Header `Origin` oder `Sec-Fetch-Site` trägt, wie die eines Browsers: Die API ist
   für Programme, nie für eine Webseite.
 
-Token, die der Server abweist, zählen gegen die Adresse, von der sie kommen, wie auf jedem Pfad des
-Servers: über der Grenze 429. Rufen Sie den Server über HTTPS auf; sonst reisen der Token und die Texte
-im Klartext.
+Tokens, die der Server ablehnt, zählen für die Adresse, von der sie kommen, wie auf jeder Route des
+Servers: Über der Grenze antwortet er mit 429. Rufen Sie den Server über HTTPS auf; sonst gehen das
+Token und die Texte im Klartext über das Netz.
 
 ## Anfragen
 
-| Operation | Pfad | Berechtigung | Körper |
+| Operation | Pfad | Berechtigung | Body |
 | --- | --- | --- | --- |
 | Analysieren | `POST /_latet/apps/v1/scan` | `scan` | `{"texts": [...], "kind": "prose"}` |
 | Maskieren | `POST /_latet/apps/v1/mask` | `mask` | `{"texts": [...], "kind": "prose"}` |
@@ -48,16 +48,16 @@ im Klartext.
 
 - `texts` ist eine Liste von 1 bis 1.000 Zeichenketten, die in derselben Reihenfolge beantwortet
   werden. Ein leerer Text kommt unverändert zurück, ohne Funde und mit `restored: 0`.
-- `values` ist eine Liste von 1 bis 1.000 Zeichenketten, die Werte, die den Tresor des Schlüssels
-  verlassen sollen, jeder genau so gesucht, wie er geschrieben ist
+- `values` ist eine Liste von 1 bis 1.000 Zeichenketten, die Werte, die aus dem Tresor des Schlüssels
+  entfernt werden sollen, jeder genau so gesucht, wie er geschrieben ist
   ([Werte vergessen](../../applications/forget/)).
-- `kind` ist `prose` (Text, den Menschen geschrieben haben, die Voreinstellung) oder `data` (Logs,
+- `kind` ist `prose` (Text, den Menschen geschrieben haben, der Standard) oder `data` (Logs,
   Datensätze, die Ausgabe eines Programms); siehe [Prosa und Daten](../../applications/#prosa-und-daten).
-  `null` oder ein anderes Wort wird abgewiesen. Wiederherstellen nimmt keine Art.
-- Der Körper ist ein JSON-Objekt von höchstens `apps_request_mb` des Servers (8 MiB, wenn seine
-  Einstellungen nichts anderes sagen, nie mehr als sein `max_request_mb`).
+  `null` oder ein anderes Wort wird abgelehnt. Beim Wiederherstellen gibt es kein `kind`.
+- Der Body ist ein JSON-Objekt von höchstens `apps_request_mb` des Servers (8 MiB, wenn seine
+  Einstellungen nichts anderes festlegen, nie mehr als sein `max_request_mb`).
 
-Analysieren und Wiederherstellen mit curl, der Token über die Standardeingabe übergeben wie beim
+Analysieren und Wiederherstellen mit curl, das Token über die Standardeingabe übergeben wie beim
 [ersten Aufruf](../../applications/#ein-erster-aufruf), der maskiert; die Antworten stehen weiter unten:
 
 ```sh
@@ -72,7 +72,8 @@ printf 'Authorization: Bearer %s' "$(cat shop.key)" | curl -sS -H @- -H "Content
 ## Antworten
 
 Jede Antwort von Analysieren, Maskieren und Wiederherstellen ist ein JSON-Objekt, dessen `results` für
-jeden gesendeten Text einen Eintrag enthalten, in Reihenfolge; ein Vergessen antwortet mit zwei Zahlen.
+jeden gesendeten Text einen Eintrag enthalten, in derselben Reihenfolge; ein Vergessen antwortet mit
+zwei Zahlen.
 
 **Analysieren** sagt, wo die Werte im gesendeten Text stehen, und behält nichts:
 
@@ -134,33 +135,36 @@ oder einer Feldregel des Schlüssels. `class` ist die Familie dessen, was ihn ge
 ## Fehler
 
 Ein Fehler ist `{"error": "<Worte>"}`. Die Worte, auf Englisch, sind für Menschen: Sie zitieren nie
-einen gesendeten Text, und die Abweisungen am Eingang des Servers (Authentifizierung, Grenzen)
+einen gesendeten Text, und die Ablehnungen am Eingang des Servers (Authentifizierung, Grenzen)
 beginnen mit `latet: `. Entscheiden Sie nach dem Status.
 
 | Status | Wann | Was tun |
 | --- | --- | --- |
-| 400 | Der Körper ist kein JSON-Objekt mit `texts` als Liste von 1 bis 1.000 Zeichenketten und, für Analysieren und Maskieren, einer Art (`kind`) `prose` oder `data`; beim Vergessen mit `values` als Liste von 1 bis 1.000 Zeichenketten. | Den Aufruf korrigieren. |
-| 401 | Kein Token, zwei `Authorization`-Header, ein anderes Schema oder ein Token, den der Server nicht kennt. | Den Token prüfen; einen neuen anfordern. |
-| 403 | Dem Token fehlt die Berechtigung (`this token lacks the mask permission`), es ist der Token einer Person, oder eine Webseite hat die Anfrage gestellt. | Einen Token mit der Berechtigung verwenden. |
+| 400 | Der Body ist kein JSON-Objekt mit `texts` als Liste von 1 bis 1.000 Zeichenketten und, für Analysieren und Maskieren, einer Art (`kind`) `prose` oder `data`; beim Vergessen mit `values` als Liste von 1 bis 1.000 Zeichenketten. | Den Aufruf korrigieren. |
+| 401 | Kein Token, zwei `Authorization`-Header, ein anderes Schema oder ein Token, das der Server nicht kennt. | Das Token prüfen; ein neues anfordern. |
+| 403 | Dem Token fehlt die Berechtigung (`this token lacks the mask permission`), es ist das Token einer Person, oder eine Webseite hat die Anfrage gestellt. | Ein Token mit der Berechtigung verwenden. |
 | 404 | Ein anderer Pfad unter `/_latet/apps/v1/`. | |
 | 405 | Eine andere Methode als `POST` (`Allow: POST`). | |
-| 413 | Der Körper ist größer als `apps_request_mb`. | Weniger Texte pro Aufruf senden. |
+| 413 | Der Body ist größer als `apps_request_mb`. | Weniger Texte pro Aufruf senden. |
 | 422 | Analysieren, Maskieren und Wiederherstellen: Die Texte nennen mehr als 100.000 Werte oder Ersatzwerte des Tresors, mehr als ein Aufruf abwägen darf. Nichts wurde maskiert oder wiederhergestellt. | Weniger Texte pro Aufruf senden. |
-| 429 | Zu viele abgewiesene Token von dieser Adresse, oder der Schlüssel hat `requests_in_flight` Anwendungsanfragen auf dieser Instanz (16, wenn die Einstellungen nichts anderes sagen). | `Retry-After` abwarten, dann erneut versuchen. |
+| 429 | Zu viele abgelehnte Tokens von dieser Adresse, oder der Schlüssel hat `requests_in_flight` Anfragen an die API für Anwendungen auf dieser Instanz (16, wenn die Einstellungen nichts anderes festlegen). | `Retry-After` abwarten, dann erneut versuchen. |
 | 500 | Ein anderer Fehler; seine Worte nennen keinen Wert. | Erneut versuchen; dem Administrator melden, wenn es anhält. |
 | 503 | Ein Speicher des Servers hat nicht geantwortet, der Bereich des Schlüssels ist auf dieser Instanz gerade nicht verfügbar, oder das Administrationsprotokoll hat den Eintrag nicht aufgenommen: Beim Wiederherstellen wurde nichts wiederhergestellt, beim Vergessen nichts vergessen. Analysieren, Maskieren und Wiederherstellen antworten auch mit 503, wenn die Einstellungen des Schlüssels noch angewendet wurden, als der Aufruf kam oder beantwortet wurde (`the settings of this space changed while the call was answered: send it again`): Vom Aufruf kam nichts zurück. | Warten (`Retry-After`, wenn angegeben), dann erneut versuchen. |
-| 507 | Nur beim Maskieren: Der Tresor des Schlüssels enthält die meisten Werte, die er darf. Vom Aufruf kam nichts zurück, und nichts ging im Klartext hinaus. | Ein Administrator hebt die Grenze mit `latet server keys limit` an. |
+| 507 | Nur beim Maskieren: Der Tresor des Schlüssels enthält bereits so viele Werte, wie er darf. Vom Aufruf kam nichts zurück, und nichts ging im Klartext hinaus. | Ein Administrator hebt die Grenze mit `latet server keys limit` an. |
 
 Ein Maskieren oder ein Wiederherstellen lässt sich gefahrlos wiederholen: Ein Wert, den der Tresor
 behalten hat, erhält wieder denselben Ersatzwert, und ein Wert, den ein gescheiterter Aufruf nicht
-behalten hat, erhält wieder einen. Auch ein Vergessen lässt sich wiederholen: Ein Wert, der schon fort
-ist, zählt unter `unknown`. Ein gescheiterter `mask`-Aufruf kann einige seiner neuen Werte
-behalten haben ([der Tresor eines Schlüssels](../../applications/#der-tresor-eines-schlüssels) sagt,
-wann).
+behalten hat, erhält wieder einen. Auch ein Vergessen lässt sich gefahrlos wiederholen: Ein Wert, der
+schon fort ist, wird als `unknown` gezählt. Ein gescheiterter `mask`-Aufruf kann einige seiner neuen
+Werte behalten haben ([der Tresor eines Schlüssels](../../applications/#der-tresor-eines-schlüssels)
+beschreibt, wann).
 
 ## Header
 
-- Jede Antwort sagt `Cache-Control: no-store`: Kein Cache behält einen Text oder einen Wert.
+- Jede Antwort enthält `Cache-Control: no-store`: Kein Cache behält einen Text oder einen Wert.
+- Jede Antwort enthält `Content-Security-Policy: default-src 'none'; sandbox`: Ein Browser, der eine
+  öffnet, führt darin kein Skript aus und behandelt sie nie als Seite des Servers. HTTP-Clients ignorieren
+  diesen Header.
 - `Retry-After`, in Sekunden, kommt mit jedem 429 und mit manchen 503.
 
 ## Grenzen
@@ -168,10 +172,10 @@ wann).
 | Grenze | Wert | Festgelegt durch |
 | --- | --- | --- |
 | Texte pro Aufruf, oder Werte pro Vergessen | 1.000 | Latet |
-| Körper eines Aufrufs | 8 MiB | `apps_request_mb` des Servers |
-| Gleichzeitige Anwendungsanfragen eines Schlüssels auf einer Instanz | 16 | `requests_in_flight` des Servers |
+| Body eines Aufrufs | 8 MiB | `apps_request_mb` des Servers |
+| Gleichzeitige Anfragen eines Schlüssels an die API für Anwendungen auf einer Instanz | 16 | `requests_in_flight` des Servers |
 | Werte oder Ersatzwerte des Tresors, die die Texte eines Aufrufs nennen dürfen | 100.000 | Latet |
-| Werte, die der Tresor eines Schlüssels fasst | 200.000 | `vault_limit` des Servers, oder die eigene des Schlüssels: `latet server keys limit` |
+| Werte, die der Tresor eines Schlüssels fasst | 200.000 | `vault_limit` des Servers, oder die eigene Grenze des Schlüssels: `latet server keys limit` |
 | Werte aus dem Tresor eines Schlüssels, die eine Instanz im Speicher hält | 5.000 | `key_working_values` des Servers |
 
 ## Was der Server festhält
@@ -187,10 +191,10 @@ wann).
 - **Die Metriken** zählen die Anfragen der API als `latet_http_requests_total{kind="apps"}`, nach
   Status, und ihre Texte und Werte nach Operation: `latet_apps_texts_total{operation}` und
   `latet_apps_values_total{operation}` (die Werte, die das Analysieren gefunden, das Maskieren ersetzt und
-  das Wiederherstellen zurückgesetzt hat; beim Vergessen die angefragten und die vergessenen Werte).
+  das Wiederherstellen wiederhergestellt hat; beim Vergessen die angefragten und die vergessenen Werte).
   Sie haben kein Label für den Schlüssel: Wer was getan hat,
   steht im Administrationsprotokoll.
 - **Das Log des Servers** hat eine Zeile pro Aufruf: die Methode, den Pfad, den Status und die Dauer,
-  nie einen Header, den Körper oder einen Wert. Abweisungen (401, 403, 404, 405, 413, 429 und die des
+  nie einen Header, den Body oder einen Wert. Ablehnungen (401, 403, 404, 405, 413, 429 und die des
   Servers selbst) werden einmal pro Minute mit ihrer Anzahl zusammengefasst, statt je eine Zeile zu
   erhalten.

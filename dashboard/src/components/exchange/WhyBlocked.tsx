@@ -4,7 +4,15 @@ import { Link } from 'react-router'
 import { api } from '../../api/client'
 import type { AutoModeReview, ExchangeDetail } from '../../api/types'
 import { tk } from '../../i18n'
-import { explainBlock, outboundTools, outboundValues, type BlockExplanation, type BlockKind, type OutboundValue } from '../../lib/blocks'
+import {
+  explainBlock,
+  outboundTools,
+  outboundValues,
+  waitedForTeam,
+  type BlockExplanation,
+  type BlockKind,
+  type OutboundValue,
+} from '../../lib/blocks'
 import { BLOCK_DOCS, LIVE_DOCS } from '../../lib/docsPlaces'
 import { DocsWhyLink } from '../DocsLinks'
 import { flagDetail, REVIEW_DETAIL_LABEL } from '../../lib/labels'
@@ -82,12 +90,28 @@ const COPY: Record<
     todo: tk('exchange.why.leak.todo'),
     unmarked: tk('exchange.why.leak.todoUnmarked'),
   },
+  toolInput: {
+    title: tk('exchange.why.toolInput.title'),
+    happened: tk('exchange.why.toolInput.happened'),
+    meant: tk('exchange.why.toolInput.meant'),
+    todo: tk('exchange.why.toolInput.todo'),
+    unmarked: tk('exchange.why.toolInput.todoUnmarked'),
+  },
   other: {
     title: tk('exchange.why.other.title'),
     happened: tk('exchange.why.other.happened'),
     meant: tk('exchange.why.other.meant'),
     todo: tk('exchange.why.other.todo'),
   },
+}
+
+// A text your company's security team approved, withheld as it left: masked then, it was not what they approved
+// (Latet Enterprise). Theirs to decide always, whatever the reason names.
+const CHANGED_COPY = {
+  title: tk('exchange.why.live.changedTeam.title'),
+  happened: tk('exchange.why.live.changedTeam.happened'),
+  meant: tk('exchange.why.live.meant'),
+  todo: tk('exchange.why.live.changedTeam.todo'),
 }
 
 const LIVE_COPY = {
@@ -109,6 +133,31 @@ const LIVE_COPY = {
     meant: tk('exchange.why.live.meant'),
     todo: tk('exchange.why.live.abandoned.todo'),
   },
+  changed: CHANGED_COPY,
+}
+
+// A text that waited for your company's security team (Latet Enterprise): they stopped it, or it waited too long for
+// them, or the agent gave it up while it waited for them.
+const LIVE_TEAM_COPY = {
+  rejected: {
+    title: tk('exchange.why.live.rejectedTeam.title'),
+    happened: tk('exchange.why.live.rejectedTeam.happened'),
+    meant: tk('exchange.why.live.meant'),
+    todo: tk('exchange.why.live.rejectedTeam.todo'),
+  },
+  expired: {
+    title: tk('exchange.why.live.expiredTeam.title'),
+    happened: tk('exchange.why.live.expiredTeam.happened'),
+    meant: tk('exchange.why.live.meant'),
+    todo: tk('exchange.why.live.expiredTeam.todo'),
+  },
+  abandoned: {
+    title: tk('exchange.why.live.abandoned.title'),
+    happened: tk('exchange.why.live.abandonedTeam.happened'),
+    meant: tk('exchange.why.live.meant'),
+    todo: tk('exchange.why.live.abandoned.todo'),
+  },
+  changed: CHANGED_COPY,
 }
 
 /** Why a request was stopped, in plain words: what happened, what it meant for you, what you can do. */
@@ -123,7 +172,12 @@ function WhyCard({ why, leakTypes }: { why: BlockExplanation; leakTypes: string[
   const { t } = useTranslation()
   const key = useDeploymentKey()
   const fmt = useFormat()
-  const copy = why.kind === 'live' ? LIVE_COPY[why.live ?? 'rejected'] : COPY[why.kind as Exclude<BlockKind, 'live' | 'outbound'>]
+  const { me } = useMe()
+  // The Live Reviewer's words by who it waited for: you, or your company's security team (its reason says; for a text
+  // the agent gave up on, where your texts go now).
+  const team = waitedForTeam(why, me?.edition?.approvals?.live_review === 'security')
+  const live = team ? LIVE_TEAM_COPY : LIVE_COPY
+  const copy = why.kind === 'live' ? live[why.live ?? 'rejected'] : COPY[why.kind as Exclude<BlockKind, 'live' | 'outbound'>]
   const values = {
     details: fmt.list(why.details.map((d) => t(REVIEW_DETAIL_LABEL[d]))),
     others: fmt.list(why.others),

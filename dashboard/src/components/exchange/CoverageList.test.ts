@@ -5,7 +5,8 @@ import { describe, expect, test } from 'vitest'
 import type { ExchangeDetail, ExchangeSummary } from '../../api/types'
 import i18n from '../../i18n'
 import { parseFlag } from '../../lib/flags'
-import { coverageOutcome, projectBinding, refusalCategory, remedyFor, sessionLaunch, showsVerified } from '../../lib/coverage'
+import { coverageOutcome, projectBinding, refusalCategory, remedyFor, remedyOf, sessionLaunch, showsVerified } from '../../lib/coverage'
+import { KIND_LABEL } from '../../lib/labels'
 import { Verdict } from '../../pages/ExchangePage'
 import { CoverageList, LAUNCH_LABEL, PASS_LABEL } from './CoverageList'
 
@@ -43,6 +44,7 @@ function summary(over: Partial<ExchangeSummary> = {}): ExchangeSummary {
     coverage: 'complete-accounting',
     launch: null,
     passes: [],
+    unknown_members: 'check',
     profile: 'anthropic.messages.1',
     removed: { headers: 0, members: 0 },
     ...over,
@@ -166,6 +168,124 @@ describe('a body member no profile names (root, concern 5)', () => {
     } finally {
       await i18n.changeLanguage('en')
     }
+  })
+})
+
+describe('a member no request profile names yet (unknown_members, 0.15.0)', () => {
+  // A member's name is the client's own text (R-79): the history keeps none, and the page says its category alone.
+  const MEMBER = 'x_mode_hint_7731'
+
+  test('read whole and checked: said by its category, never by its name, and nothing left unread', () => {
+    const checked = summary({ passes: ['new-member'], unknown_members: 'check' })
+    expect(say(PASS_LABEL['new-member'])).toBe('a field no request profile names yet, read and checked')
+    expect(coverageOutcome(checked)).toEqual({ kind: 'passed', passes: ['new-member'], unread: false })
+    const shown = text(render(checked))
+    expect(shown).toContain(say(PASS_LABEL['new-member']))
+    expect(shown).not.toContain(say('coverage.outcome.unread'))
+    expect(showsVerified(checked)).toBe(true)
+  })
+
+  test('in every language, in words of its own', async () => {
+    try {
+      for (const lang of ['it', 'de', 'fr', 'es']) {
+        await i18n.changeLanguage(lang)
+        expect(i18n.exists(PASS_LABEL['new-member'])).toBe(true)
+        expect(i18n.t(PASS_LABEL['new-member'])).not.toBe(i18n.getFixedT('en')(PASS_LABEL['new-member']))
+        expect(text(render(summary({ passes: ['new-member'] })))).toContain(say(PASS_LABEL['new-member']))
+      }
+    } finally {
+      await i18n.changeLanguage('en')
+    }
+  })
+
+  test('never names the member, whatever a summary was given', () => {
+    const leaky = {
+      ...summary({ passes: ['new-member', 'checked-only'], unknown_members: 'check' }),
+      member: MEMBER,
+      rule: `field-secret:${MEMBER}`,
+      block_reason: `assignment:${MEMBER}`,
+    } as unknown as ExchangeSummary
+    const html = render(leaky)
+    expect(html).not.toContain(MEMBER)
+    const strict = { ...summary({ flags: ['blocked'], block_reason: 'body-unknown-member', overhead_ms: null, unknown_members: 'refuse' }), member: MEMBER }
+    expect(render(strict as unknown as ExchangeSummary)).not.toContain(MEMBER)
+  })
+
+  test('a value found in one has a leak kind of its own', async () => {
+    expect(KIND_LABEL.new_member).toBe('kinds.new_member')
+    try {
+      for (const lang of ['en', 'it', 'de', 'fr', 'es']) {
+        await i18n.changeLanguage(lang)
+        expect(i18n.exists(KIND_LABEL.new_member)).toBe(true)
+        if (lang !== 'en') expect(i18n.t(KIND_LABEL.new_member)).not.toBe(i18n.getFixedT('en')(KIND_LABEL.new_member))
+      }
+    } finally {
+      await i18n.changeLanguage('en')
+    }
+  })
+
+  test('refused under unknown_members: refuse: the remedy names the setting wherever it is set, links its section, and still offers the exception that works there', async () => {
+    // An exact exception is read before the setting (body_coverage._granted): under `refuse` it still lets such a member
+    // through, so the page keeps saying how to approve one (fix round 1, review I-2).
+    const strict = summary({ flags: ['blocked'], block_reason: 'body-unknown-member', overhead_ms: null, status: 400, unknown_members: 'refuse' })
+    expect(remedyOf(strict, refusalCategory('body-unknown-member'))).toBe('strict-exception')
+    const anchors: Record<string, string> = {
+      en: 'new-request-members',
+      it: 'nuovi-membri-delle-richieste',
+      de: 'neue-elemente-in-anfragen',
+      fr: 'nouveaux-membres-des-requêtes',
+      es: 'nuevos-miembros-de-las-peticiones',
+    }
+    try {
+      for (const lang of ['en', 'it', 'de', 'fr', 'es']) {
+        await i18n.changeLanguage(lang)
+        const html = render(strict)
+        expect(text(html)).toContain('unknown_members: refuse')
+        expect(text(html)).toContain('unknown_members: check')
+        expect(text(html)).toContain(say('coverage.remedy.strictDocsLink'))
+        expect(text(html)).toContain(say('coverage.remedy.exception-docs'))
+        expect(decodeURIComponent(html)).toContain(`getting-started/upgrading-to-0-11/#${anchors[lang]}`)
+        expect(html).toMatch(/approving-an-exact-exception|approvare-uneccezione-esatta|eine-genaue-ausnahme-genehmigen|approuver-une-exception-exacte|aprobar-una-excepci/)
+        expect(html).not.toContain('<button')
+        if (lang !== 'en') {
+          expect(i18n.t('coverage.remedy.strict')).not.toBe(i18n.getFixedT('en')('coverage.remedy.strict'))
+          expect(i18n.t('coverage.remedy.strictDocsLink')).not.toBe(i18n.getFixedT('en')('coverage.remedy.strictDocsLink'))
+        }
+      }
+    } finally {
+      await i18n.changeLanguage('en')
+    }
+  })
+
+  test("the strict remedy names a company's policy too: a lock the person cannot lift", () => {
+    const words: Record<string, RegExp> = { en: /policy/, it: /direttive/, de: /Vorgaben/, fr: /directives/, es: /directrices/ }
+    for (const lang of ['en', 'it', 'de', 'fr', 'es']) expect(i18n.getFixedT(lang)('coverage.remedy.strict')).toMatch(words[lang]!)
+  })
+
+  test.each([
+    ['where no exception reaches it', summary({ flags: ['blocked'], block_reason: 'body-unknown-member-no-exception', overhead_ms: null, unknown_members: 'refuse' })],
+    ['on a WebSocket, which takes none', summary({ transport: 'ws', flags: ['blocked'], block_reason: 'body-unknown-member', overhead_ms: null, unknown_members: 'refuse' })],
+  ])('refused under unknown_members: refuse %s: the setting and its section alone, no exception', (_, refused) => {
+    expect(remedyOf(refused, refusalCategory(refused.block_reason))).toBe('strict')
+    const html = render(refused)
+    expect(text(html)).toContain('unknown_members: refuse')
+    expect(text(html)).toContain(say('coverage.remedy.strictDocsLink'))
+    expect(html).toContain('getting-started/upgrading-to-0-11/#new-request-members')
+    expect(text(html)).not.toContain(say('coverage.remedy.exception-docs'))
+    expect(html).not.toContain('approving-an-exact-exception')
+  })
+
+  test('refused under check, or by an older Latet that recorded no mode: today\'s remedy, never the setting', () => {
+    for (const mode of ['check', null, undefined] as const) {
+      const refused = summary({ flags: ['blocked'], block_reason: 'body-unknown-member', overhead_ms: null, unknown_members: mode })
+      expect(remedyOf(refused, refusalCategory('body-unknown-member'))).toBe('exception-docs')
+      const shown = text(render(refused))
+      expect(shown).toContain(say('coverage.remedy.exception-docs'))
+      expect(shown).not.toContain('unknown_members: refuse')
+    }
+    // Any other refusal under refuse keeps its own remedy: the setting decides only a member no profile names.
+    const other = summary({ flags: ['blocked'], block_reason: 'envelope-header-unknown', overhead_ms: null, unknown_members: 'refuse' })
+    expect(remedyOf(other, refusalCategory('envelope-header-unknown'))).toBe('exception')
   })
 })
 

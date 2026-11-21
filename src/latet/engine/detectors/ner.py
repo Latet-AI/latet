@@ -398,6 +398,11 @@ _POSTCODE = re.compile(r"(?:^|(?<=[\s,]))(\d{4,5})(?=\s+[^\W\d_])")
 # The place after "a"/"in" at the end ("... 5 a Firenze"): no digits, so "via in Selci 84 a Roma" is not
 # cut at its first "in".
 _IN_CITY = re.compile(r"\s+(?:a|in|à|en|ad)\s+([^\W\d_](?:[^\W\d_]|[" + _APOSTROPHES + r" -])*?)$")
+# The same word with no place after it: the model labelled the city too, under the threshold, so the address ended
+# on the word before it ("via Garibaldi 12 a| Bologna"). The word is the sentence's, not the street's.
+_BEFORE_CITY = re.compile(r"\s+(?:a|in|à|en|ad)$")
+# Nothing before a word but the text's start or a sentence's end.
+_SENTENCE_START = re.compile(r"(?:^|[.!?\n])[ \t]*$")
 _PROVINCE = re.compile(r"\s+\(?[A-Z]{2}\)?$")
 
 
@@ -455,7 +460,10 @@ def _address_start(text: str, start: int, end: int) -> int:
     words = list(re.finditer(r"\S+", text[start:end]))
     for i, w in enumerate(words):
         if w.group().lower().strip(".,") in STREET_TYPES:
-            if i and all(x.group().islower() for x in words[:i]):
+            lead = [x.group() for x in words[:i]]
+            if lead and _SENTENCE_START.search(text, 0, start + words[0].start()) is not None:
+                lead[0] = lead[0].lower()  # "Abito in via ...": a capital only for opening the sentence
+            if lead and all(x.islower() for x in lead):
                 return start + w.start()
             break
     before = re.search(r"(\S+) $", text[max(0, start - 20) : start])
@@ -466,6 +474,8 @@ def _address_start(text: str, start: int, end: int) -> int:
 
 def _split_address(text: str, start: int, end: int) -> list[tuple[int, int, str]]:
     """Street, postcode and city out of one address: the fakes for each keep their own shape."""
+    if (before_city := _BEFORE_CITY.search(text[start:end])) is not None:
+        end = start + before_city.start()
     value = text[start:end]
     post = _POSTCODE.search(value, 1)
     if post is None and (lead := _POSTCODE.match(value)) is not None and _place_only(value[lead.end(1) :]):

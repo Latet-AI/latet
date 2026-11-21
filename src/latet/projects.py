@@ -19,10 +19,10 @@ import secrets
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, TypeGuard
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard
 
 import re2
 import yaml
@@ -39,6 +39,7 @@ from latet.config import (
     Profile,
     ProjectEntry,
     ProjectSettings,
+    TermConfig,
     join_guidance,
     write_atomic,
 )
@@ -80,6 +81,9 @@ from latet.protection import (
 from latet.schema import PROJECT_SCHEMA_URL
 from latet.state.local import REPOSITORIES_KEPT, LocalRepositories, own_file, rememberable
 from latet.vision.policy import IMAGES_RANK, image_policy
+
+if TYPE_CHECKING:
+    from latet.engine.detectors.base import Detector
 
 log = logging.getLogger(__name__)
 
@@ -188,7 +192,7 @@ def _unbuilt(config: Config, enabled: bool, vault: Vault, refusing: _PastShare |
     key = f"unbuilt:{secrets.token_hex(8)}"  # its own: no text masked or checked under it is kept as it left
     return Scope(
         key, key, Masker(vault, [refusing or _Unbuilt()]), enabled, image_policy(config), config.dump_guard,
-        config.llm_review, config.live_review, ocr=config.ocr == "auto",
+        config.llm_review, config.live_review, ocr=config.ocr == "auto", unknown_members=config.unknown_members,
     )  # fmt: skip
 
 
@@ -359,6 +363,11 @@ def file_rules(config: Config) -> list[FieldRule]:
     return [rule for rule in config.fields if rule._layer == FILE_LAYER]
 
 
+def _term_entry(term: TermConfig) -> tuple[str, str, bool, bool]:
+    """A term as a layer's entries are told apart: its value, the type it is found as, and the forms it matches."""
+    return term.value, found_type(term), term.case_sensitive, term.whole_word
+
+
 # Why an entry of a repository file is set aside (``Notice.reason``): it would leave values in clear there, a recognizer
 # that lets what it finds through, or a term or a field rule of a type left in clear. The dashboard words it.
 IN_CLEAR_REASON = "repo_in_clear"
@@ -373,15 +382,15 @@ def _layer(
     *,
     adding: bool = False,
     through: Collection[str] = (),
-    held: Collection[tuple[str, str]] | None = None,
+    held: Collection[tuple[str, str, bool, bool]] | None = None,
 ) -> list[Notice]:
     """Apply one layer onto ``config``. The repository's may only make it stricter. ``adding``: your own entry taken
     as a repository file's is, only where it adds protection (``effective_config(only_adding=True)``), and its Live
     Reviewer turned on with it, which only adds protection too. ``through``: the types left in clear in the folder in
     the end (``_left_in_clear``), of which a repository file's recognizer, term or field rule is set aside, as its
     recognizer that lets what it finds through is: any would leave values in clear there, where nothing is weighed as a
-    change. ``held``: the values and types whose terms this layer leaves to the ones before it (by default, every one
-    they hold)."""
+    change. ``held``: the entries of terms (``_term_entry``) this layer leaves to the ones before it (by default, every
+    one they hold)."""
     strict = source == "repo"
     out: list[Notice] = []
 
@@ -422,7 +431,9 @@ def _layer(
         else:
             config.ner = s.ner
     if s.terms:
-        have = set(held) if held is not None else {(t.value, found_type(t)) for t in config.terms}
+        # An entry the settings hold already is not added again; one of the same value matching it otherwise (any case,
+        # inside words) is: left out, its value would be matched in fewer forms here than the layer says.
+        have = set(held) if held is not None else {_term_entry(t) for t in config.terms}
         usable = []
         for place, t in enumerate(s.terms, 1):
             if not has_letter_or_digit(t.value):
@@ -434,7 +445,7 @@ def _layer(
                 set_aside(f"terms.{place}", "a repository file cannot hold a term of a type left in clear there")
             else:
                 usable.append(t)
-        new = [t for t in usable if (t.value, t.type.upper()) not in have]
+        new = [t for t in usable if _term_entry(t) not in have]
         config.terms = [*config.terms, *new]
     if s.recognizers:
         recognizers = list(s.recognizers)
@@ -496,6 +507,8 @@ def _layer(
             ignore("ocr", "a repository file can only turn reading the text in images on")
         else:
             config.ocr = s.ocr
+    if s.unknown_members is not None:  # `refuse` alone: a project, its repository's file too, only tightens it
+        config.unknown_members = s.unknown_members
     if s.llm_review is not None:
         current = config.llm_review.mode() if config.llm_review.enabled else "off"
         if strict and REVIEW_MODES.index(s.llm_review) < REVIEW_MODES.index(current):
@@ -563,7 +576,7 @@ def effective_config(
         source: Literal["repo", "personal"] = "repo" if only_adding else "personal"
         # Your terms for the folder are left to the global ones alone: an entry of the file of one of their values and
         # types applies with yours, adding forms to them, never in their place (its case its own, yours not).
-        held = {(t.value, found_type(t)) for t in base.terms} if personal.terms else None
+        held = {_term_entry(t) for t in base.terms} if personal.terms else None
         notices += _layer(config, personal, source, extra_pii, adding=only_adding, through=through, held=held)
     notices += _apart(config, start, filed)
     if extra_pii:
@@ -724,10 +737,10 @@ def personal_for(entries: list[ProjectEntry], root: str) -> ProjectEntry | None:
 
 def masker_weight(config: Config) -> int:
     """What a masker built from ``config`` holds, roughly (``_MASKER_BASE``): a project's, and a space's own on a
-    server (``spaces.space_size``)."""
+    server (``spaces.space_size``), the terms a company locks (Latet Enterprise) with their detector of their own."""
     return (
         _MASKER_BASE
-        + _MASKER_PER_TERM * len(config.terms)
+        + _MASKER_PER_TERM * (len(config.terms) + len(config.locked_terms))
         + _MASKER_PER_RECOGNIZER * len(config.recognizers)
         + _MASKER_PER_PATTERN * (len(config.allow_patterns) + len(config.fields))
         + _MASKER_PER_VALUE * len(config.allow_values)
@@ -1018,6 +1031,8 @@ class Projects:
         models: Path | None = None,
         files: bool = True,
         seen: SeenRepositories | None = None,
+        *,
+        extra: Sequence[Detector] = (),
     ) -> None:
         self._config = config
         self._vault = vault
@@ -1027,6 +1042,7 @@ class Projects:
         # A computer's: the repositories with a latet.yaml seen before the daemon started too, weighed with a change of
         # the settings (``repositories``); a repository worked out here joins them. None: none remembered (a server).
         self._seen = seen
+        self._extra = tuple(extra)  # the edition's: the terms the company syncs, in every project's masker
         self._generation = 0
         self._lock = threading.RLock()
         self._by_cwd: LRU[str, str] = LRU(2_000)  # working directory → project id
@@ -1046,6 +1062,9 @@ class Projects:
         # (outside the lock), the runtime then running what you approved and opening the change. None: nothing kept.
         self.before: Config | None = None
         self.on_held_back: Callable[[], None] | None = None
+        # Settings raised to the company's floor (Latet Enterprise: ``Runtime.raised``), as the global ones given to
+        # ``use`` are: what ``before`` is raised with where a project is worked out under it. As they are without one.
+        self.raised: Callable[[Config], Config] = lambda config: config
         self._held_back = False  # a build used ``before`` since the runtime was last told
         # On a Latet server: the words of why its space, its projects weighing so much (with the masker they would
         # build), would be past its share of the instance's memory (``server.spaces``); None when it fits, as on a
@@ -1383,9 +1402,10 @@ class Projects:
         config, more = self._effective(repo, personal)
         if repo is not None and self.before is not None:
             # Settings the daemon started on, weighed here as a change of them is (``protection._repositories``): where
-            # they lower the repository's own latet.yaml against those you approved before, those apply here, and the
-            # runtime is told.
-            approved, _ = effective_config(self.before, repo, personal_for(self.before.projects, root))
+            # they lower the repository's own latet.yaml against those you approved before, those apply here, raised to
+            # the company's floor as the global ones are, and the runtime is told.
+            before = self.raised(self.before)
+            approved, _ = effective_config(before, repo, personal_for(before.projects, root))
             if lowered_in_project(approved, config):
                 config, self._held_back = approved, True
         notices = [*notices, *more]
@@ -1443,7 +1463,11 @@ class Projects:
                 raise _NotBuilt(words, rules)
             # On a server (no files of its own: one of many spaces in its process) the terms within an RE2 budget sized
             # to them, weighed whole: what their automaton grows to as it works, which Python's count does not see.
-            masker, statuses = build_masker(config, self._vault, self._identity, self._models, bounded=not self._files)
+            # The edition's detectors (``extra``: the terms the company syncs) are the instance's, shared by every
+            # masker: never weighed in a space's share, as only ``TermsDetector``s are summed.
+            masker, statuses = build_masker(
+                config, self._vault, self._identity, self._models, bounded=not self._files, extra=self._extra
+            )
             weight = rules + sum(d.memory for d in masker.detectors if isinstance(d, TermsDetector))
             if (words := self.past_share(held + weight)) is not None:
                 raise _NotBuilt(words, weight)  # built, and let go
@@ -1459,6 +1483,7 @@ class Projects:
                     config.llm_review,
                     config.live_review,
                     ocr=config.ocr == "auto",
+                    unknown_members=config.unknown_members,
                 ),
                 statuses,
             )

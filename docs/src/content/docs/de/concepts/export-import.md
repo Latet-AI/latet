@@ -21,10 +21,10 @@ Oder **Regeln exportieren** und **Regeln importieren** oben auf der Seite **Rege
 Der Import zeigt, was er tun würde, bevor sich etwas ändert. Die Tabellen *Begriffe*, *Erkenner* und
 *Zugelassene Werte* haben ein eigenes *Exportieren* und *Importieren*, nur für diese Liste: die
 Begriffe und die Werte als CSV, die Erkenner als Regeldatei. Ein solcher Export hat dieselben
-Vorkehrungen: Ein Erkenner, dessen Beispiele einen Wert enthalten, den Latet tatsächlich gesehen
-hat, bleibt draußen, und eine CSV-Zelle, die eine Tabellenkalkulation als Formel ausführen würde,
-wird nach einem Apostroph geschrieben. Ein solcher Import geht durch dieselbe Vorschau, fügt hinzu
-und ersetzt nie, und hält auf dieselbe Weise zurück, was den Schutz senkt; die Tabelle *Erkenner*
+Vorkehrungen: Ein Erkenner, dessen Beispiele einen Wert enthalten, den Latet als echten Wert gesehen
+hat, wird ausgelassen, und eine CSV-Zelle, die eine Tabellenkalkulation als Formel ausführen würde,
+wird mit einem vorangestellten Apostroph geschrieben. Ein solcher Import geht durch dieselbe
+Vorschau, fügt hinzu und ersetzt nie, und hält auf dieselbe Weise zurück, was den Schutz verringert; die Tabelle *Erkenner*
 nimmt eine Datei, die nur Erkenner enthält.
 
 **Was die Datei enthält:**
@@ -39,9 +39,9 @@ nimmt eine Datei, die nur Erkenner enthält.
 
 Nie die Identität, den Port, die Projektordner oder die Server dieses Rechners.
 
-Eine Regeldatei enthält höchstens 2 MB. Über 5.000 Begriffen, 500 Erkennern, 500 Feldregeln, 5.000
-Werten oder 500 Mustern, die nie maskiert werden, werden nur die ersten gelesen, und der Import sagt
-das. Eine Datei, die ein neueres Latet erstellt hat, wird abgelehnt.
+Eine Regeldatei ist höchstens 2 MB groß. Bei mehr als 5.000 Begriffen, 500 Erkennern, 500
+Feldregeln, 5.000 Werten oder 500 Mustern, die nie maskiert werden, werden nur die ersten gelesen,
+und der Import weist darauf hin. Eine Datei, die ein neueres Latet erstellt hat, wird abgelehnt.
 
 **Die Begriffe sind Werte im Klartext.** Der Name eines Kunden unter Ihren Begriffen steht
 unverändert in der Datei: Versenden Sie die Datei so, wie Sie die Namen selbst versenden würden. Ein
@@ -90,7 +90,7 @@ ab, und eine Ergänzung, die den Schutz in einem von ihnen verringert, wartet eb
 Freigabe.
 
 Auch eine `config.yaml` oder die `latet.yaml` eines Projekts lässt sich importieren: Was darin keine
-Regel ist (der Port, die Identität...), wird ausgelassen, und der Import sagt das.
+Regel ist (der Port, die Identität...), wird ausgelassen, und der Import weist darauf hin.
 
 ### Die Regeln eines Projekts
 
@@ -113,7 +113,7 @@ Im Dashboard bietet auch die Seite **Regeln** eines Projekts beides, unter
 ### Auf einem Latet-Server
 
 Auf einem Rechner, der mit einem [Latet-Server](../server/) verbunden ist, liegen Ihre Regeln in
-Ihrem Bereich auf dem Server, und `latet rules export` und `import` verweigern den Dienst.
+Ihrem Bereich auf dem Server, und `latet rules export` und `import` verweigern die Ausführung.
 **Regeln exportieren** und **Regeln importieren** oben auf der Seite **Regeln** in Ihrem Dashboard
 auf dem Server funktionieren wie oben beschrieben, mit Ihren eigenen Regeln: Ein Team teilt seine
 Regeln als Datei, und jede Person importiert sie. Die `latet.yaml` eines Projekts gilt dort nicht:
@@ -126,8 +126,9 @@ latet server --server https://latet.acme.lan rules --key "Billing CI" export bil
 latet server --server https://latet.acme.lan rules --key "Billing CI" import team-rules.yaml
 ```
 
-Regeln, die auf einem Server für alle festgelegt sind und die niemand lockern kann, sind für die
-Enterprise Edition geplant.
+Mit der Enterprise Edition sind Regeln, die auf einem Server für alle festgelegt sind und die
+niemand lockern kann, die Vorgaben des Unternehmens: eine Regeldatei in genau diesem Format, gesetzt
+mit `latet server policy set`.
 
 ## Ihre Installation, für einen anderen Rechner
 
@@ -159,8 +160,8 @@ leicht zu merken und schwer zu erraten) und schreibt eine einzige Datei:
 `latet restore` liest und prüft zuerst die ganze Datei, zeigt, was sie enthält und was in ihren
 Einstellungen den Schutz gegenüber Ihren verringert, und fragt Sie. Dann:
 
-- **Dieser Rechner behält seine eigenen Einstellungen:** seinen Port, seine Identität (zu der des
-  Backups hinzugefügt, damit beide maskiert werden), und von `capture_dir` und `api_key_file` wird
+- **Dieser Rechner behält seine eigenen Einstellungen:** seinen Port, seine Identität (zu der aus der
+  Sicherung hinzugefügt, damit beide maskiert werden), und von `capture_dir` und `api_key_file` wird
   nichts übernommen, da das Pfade des anderen Rechners sind.
 - **Projektordner an einem anderen Ort:** `--paths C:\Users\anna\dev=D:\work` verschiebt diejenigen
   unter dem ersten Ordner unter den zweiten. Ordner, die es hier nicht gibt, werden aufgelistet.

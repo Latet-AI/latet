@@ -1,0 +1,144 @@
+---
+title: Ediciones y licencia
+description: La Community Edition, gratuita para cualquier empresa, y Latet Enterprise para sus funciones en un servidor de Latet; el archivo de licencia, cómo se cuentan las personas y las claves de API, la prueba gratuita y qué ocurre cuando termina, ofrecer Latet a otros y qué ocurre cuando una licencia termina.
+---
+
+Latet viene en dos ediciones, de un solo repositorio y un solo paquete:
+
+- **Latet Community Edition:** todo lo que protege a una persona, y Latet en un servidor para un grupo de compañeros o
+  una empresa. Es gratuita para cualquier empresa, sea cual sea su tamaño o su facturación, para su propio trabajo, y
+  para el uso personal y no comercial, bajo la Latet Sustainable Use License.
+- **Latet Enterprise Edition:** el mismo programa en un [servidor de Latet](../getting-started/server/), con las
+  funciones Enterprise activadas por un archivo de licencia. El código de estas funciones está en las carpetas `ee`
+  del repositorio, bajo la Latet Enterprise License.
+
+## Quién necesita Latet Enterprise
+
+Solo una empresa que quiera las funciones Enterprise en producción: [reglas establecidas para todos que nadie puede
+relajar](./locked-rules/), [aprobaciones centrales](./approvals/), [informes de auditoría](./reports/), [eventos a sus sistemas de seguridad](./siem/),
+[términos sincronizados](./term-sync/), [inicio de sesión único (SSO) y roles](./sign-in/). Son funciones de un servidor de Latet: Latet en un
+equipo sin servidor es la Community Edition, tenga lo que tenga instalado. La Community Edition no necesita ninguna
+licencia, tampoco para Latet en un servidor. Desarrollar y probar con las funciones Enterprise es gratis.
+
+Vender Latet, ofrecerlo a otros como servicio, integrarlo en un producto que vendas o hacer un fork comercial
+requiere una licencia comercial, sea cual sea la edición: las licencias comerciales y OEM se solicitan en
+[info@latet.ai](mailto:info@latet.ai). [LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md)
+lo explica con palabras sencillas, con ejemplos, y enlaza los términos legales.
+
+## La prueba gratuita
+
+Para probar antes las funciones Enterprise con trabajo real, escribe a [info@latet.ai](mailto:info@latet.ai)
+indicando el nombre de tu empresa. Recibes un archivo de licencia de prueba, válido durante 32 días desde el día en
+que se genera, una sola vez por empresa. No hay que descargar nada ni registrarse: el archivo llega por correo
+electrónico, y lo instalas en tu servidor de Latet como cualquier archivo de licencia (más abajo).
+
+## El archivo de licencia
+
+Latet Enterprise viene con un archivo de licencia: un pequeño archivo JSON firmado por el licenciante. Indica el
+nombre de tu empresa, el número de usuarios comprados, las funciones que activa, su último día y si es una prueba.
+Cambiar un solo carácter invalida su firma, y Latet lo rechaza. Su disposición, los saltos de línea y los espacios no
+cuentan, así que un archivo abierto y guardado de nuevo sigue siendo válido.
+
+Instálalo en tu servidor de Latet desde cualquier equipo que tenga el token de administración del servidor
+([Latet en un servidor](../getting-started/server/)):
+
+```sh
+latet server license install acme.json
+```
+
+El servidor comprueba el archivo, rechaza el que esté modificado, firmado por otro o ya vencido, y lo guarda en su
+base de datos: todas las instancias lo aplican al instante, y no hay nada que reiniciar. `latet server license show`
+muestra la licencia con los usuarios activos, `latet server status` añade una línea sobre ella, y
+`latet server license remove` la quita; a un agente de IA se le rechaza tanto instalarla como quitarla, y quitarla
+pide confirmación. Cada cambio queda en el registro de administración del servidor. Una vez instalada una licencia,
+la página **Licencia** del panel la muestra: a los administradores del servidor cuando la licencia incluye `roles`, a
+todos en los demás casos. Allí, los administradores instalan un archivo de licencia o quitan la licencia mientras
+esta sea válida, esté a punto de vencer o esté en su período de gracia; si el inicio de sesión único está
+configurado, es un cambio que se aplica a todos, y requiere una sesión abierta con la cuenta de empresa
+([Inicio de sesión, grupos y roles](./sign-in/)). Cuando la licencia está en pausa, una prueba ha terminado o el
+archivo no se puede usar, se hace con estos comandos.
+
+Un archivo de licencia en un equipo sin servidor no activa nada: allí, Latet es la Community Edition.
+
+## Usuarios, contados como los cuenta Jira
+
+La licencia cubre un número de usuarios activos:
+
+- **Quién se cuenta:** cada persona cuya cuenta está activada y tiene acceso a Latet, lo haya usado o no ese mes,
+  una sola vez, tenga los equipos que tenga; y cada clave de API activada, que un programa usa en lugar de una
+  persona, como un usuario. Por eso solo los administradores del servidor crean claves de API.
+- **El servidor cuenta** sus personas y claves de API activadas. Desactivar una libera su plaza al instante; su
+  espacio se conserva, y al activarla de nuevo recupera su plaza.
+
+A partir del 90 % de los usuarios comprados, los administradores del servidor ven un aviso en
+`latet server license show` y `latet server status`, con cuántos usuarios están activos y el día en que empezaría
+una pausa. La página **Licencia** muestra el estado de la licencia y, a los administradores del servidor, cuántos
+usuarios están activos; nadie más ve el recuento.
+
+## Ofrecer Latet a otros
+
+Para ofrecer Latet a otros como servicio, o para alojarlo o gestionarlo para otras empresas o para tus clientes, hace
+falta una licencia comercial según la Latet Sustainable Use License, sea cual sea la edición que uses: escribe a
+[info@latet.ai](mailto:info@latet.ai). El Latet Enterprise de un proveedor cuenta a cada persona y cada clave de API
+con acceso, sea quien sea su empleador, en todos sus servidores. Cada servidor cuenta solo sus propios usuarios y
+Latet nunca contacta con el licenciante, así que los usuarios repartidos entre varios servidores se suman de buena
+fe. Un consultor que instala Latet para una empresa, la cual luego lo usa para su propio trabajo, no necesita nada:
+la empresa lo usa como suyo.
+
+## Cuando una licencia termina
+
+Un producto de seguridad que desbloqueara reglas o dejara fuera a las personas cuando se retrasa una renovación sería
+un fallo, no una comprobación de licencia. El vencimiento, o tener más usuarios de los comprados, nunca reduce la
+protección:
+
+- **30 días antes del final,** la página **Licencia**, `latet server license show` y `latet server status` lo
+  indican.
+- **Después del final,** todo sigue funcionando 30 días más.
+- **Luego se pausa lo que produce algo nuevo:** informes y exportaciones, eventos a tus sistemas de seguridad y
+  sincronización de términos; los términos de la última sincronización se siguen enmascarando. Lo que protege sigue
+  funcionando, las personas siguen iniciando sesión, y las aprobaciones conservan su ruta.
+- **Tener más usuarios de los comprados** funciona igual: un aviso al instante, todo como antes durante 30 días, y
+  luego la misma pausa, hasta que se libere una plaza o la licencia se amplíe. Nadie se queda fuera: una persona sin
+  acceso a Latet dejaría su agente parado, o lo usaría saltándose Latet.
+- **Un archivo modificado o ilegible** no se puede usar: lo que gestiona, produce o decide queda desactivado,
+  incluido el inicio de sesión único (las personas inician sesión como en un servidor Community, más abajo), y
+  `latet server license show` y `latet server status` indican qué problema tiene. Lo que protege se queda como lo
+  dejó la última licencia verificada, tal como la verificó la instancia que la instaló, y así se guarda en la base de
+  datos para todas las instancias.
+
+## Cuando una prueba termina
+
+- **Antes del final,** 7 días antes de su último día y de nuevo 1 día antes, la página **Licencia**,
+  `latet server license show` y `latet server status` indican cuándo termina.
+- **Una prueba no tiene 30 días más.** Al día siguiente de su último día, la gestión Enterprise se detiene: las
+  páginas y los comandos de administración Enterprise indican que la prueba ha terminado, y lo que contienen se puede
+  consultar, pero no cambiar: las reglas para todos, los grupos, los roles, quién controla cada clave de API y los
+  ajustes de inicio de sesión. Los informes y los eventos a tus sistemas de seguridad se detienen, y también las
+  aprobaciones centrales.
+- **El inicio de sesión único (SSO) se detiene, y nadie se queda fuera.** El botón de inicio de sesión de la empresa
+  desaparece; cada persona inicia sesión como en un servidor Community: `latet dashboard` en un equipo conectado al
+  servidor o, si todavía no lo tiene, un código de un solo uso que le da un administrador
+  (`latet server people code <person>`), y luego `latet connect` y `latet dashboard`. Las sesiones del panel ya
+  abiertas duran hasta completar sus 12 horas.
+- **Los roles siguen decidiendo quién ve qué,** en solo lectura: quien podía consultar la página Personas y grupos o
+  los ajustes de inicio de sesión sigue pudiendo, y nadie más.
+- **La sincronización con tu proveedor de identidad (SCIM) solo da de baja a personas:** todavía puede desactivar y
+  eliminar a una persona, y no crea ni modifica nada, grupos incluidos. A quien deja la empresa también se le puede
+  desactivar con `latet server people disable`.
+- **El espacio de una clave de API se cierra:** las personas que la controlaban vuelven a trabajar en sus propios
+  espacios.
+- **La protección nunca se toca.** Las reglas bloqueadas en vigor al final siguen en vigor exactamente como están,
+  y ya no se pueden cambiar; el tráfico de los agentes sigue circulando, enmascarado; nada sale sin enmascarar
+  porque una prueba haya terminado.
+- **Luego los administradores del servidor eligen:** instalar un archivo de licencia
+  (`latet server license install`), o quitar la licencia de la prueba (`latet server license remove`), con lo que
+  vuelve la Community Edition, y con ella solo sus propias reglas: las reglas bloqueadas y las reglas para todos se
+  van con la prueba.
+- **El final es el último día del propio archivo,** según el reloj del servidor. El servidor registra el final en
+  cuanto el reloj de su base de datos lo confirma, así que atrasar un reloj no reactiva una prueba.
+
+## Sin conexiones con el licenciante
+
+Latet nunca contacta con nadie para comprobar una licencia: ni activación, ni cuenta, ni telemetría. La Community
+Edition no necesita ninguna clave. Las funciones Enterprise comprueban su archivo de licencia en tu servidor, con
+la clave pública del licenciante, que Latet incluye.

@@ -440,6 +440,16 @@ async def test_no_part_of_a_computer_key_is_left_in_a_paths_line(logs):
     assert line["path"] == "/other" and "Zq0x" not in logs.getvalue()
 
 
+async def test_no_part_of_a_scim_token_is_left_in_a_paths_line(logs):
+    configure_logging("json", "info", stream=logs)
+    secret = "latet_scim_Q0-abcdefghijklmnopqrstuvwxyzABC9_Zq0x-Ty1"
+    await _call(RequestLog(_answering(200)), _scope(f"/scim/v2/{secret}/Users", "GET"))
+    [line] = _lines(logs)
+    # 0.11 writes a request's area, never its path's text (P2-5): nothing of the token, its prefix included. SCIM's
+    # area is its own (the merge review of 0.11.0's M5).
+    assert line["path"] == "/scim" and "Zq0x" not in logs.getvalue() and "latet_scim_" not in logs.getvalue()
+
+
 # The body of a secret of Latet's as it is made (the SCIM token's, as the older four's, is read to its end whatever its
 # length); a bridge token's has 43 characters and a one-time code's 32, and a log leaves out those alone.
 BODY = "Q0-abcdefghijklmnopqrstuvwxyzABC9_Zq0x-Ty1X"
@@ -510,6 +520,51 @@ def test_a_dashboard_projects_id_is_not_written(logs):
         client.put(f"/_latet/api/v1/projects/{project}/personal")
     [line] = _lines(logs)
     assert line["path"] == "/dashboard" and project not in logs.getvalue()
+
+
+def test_a_projects_id_in_an_api_keys_space_is_not_written_either(logs):
+    """F7: a controller works in the key's space through the person's dashboard (Latet Enterprise), its paths under
+    /_latet/api/v1/ee/keys/<key>/space/: the project's id there goes as in one's own."""
+    configure_logging("json", "info", stream=logs)
+    project = project_id("/home/emily/src/falcon-holdings")
+    with TestClient(_app()) as client:
+        client.put(f"/_latet/api/v1/projects/{project}/personal")
+        client.put(f"/_latet/api/v1/ee/keys/u_billingci0/space/projects/{project}/repo")
+        client.put(f"/_latet/api/v1/ee/keys/u_billingci0/space/ee/keys/u_nightlyimp/space/projects/{project}/repo")
+    paths = [line["path"] for line in _lines(logs)]
+    # 0.11 writes the dashboard's area, never the path's text (P2-5): neither the project's id nor the key's.
+    assert paths == ["/dashboard", "/dashboard", "/dashboard"]
+    assert project not in logs.getvalue() and "u_billingci0" not in logs.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("path", "area"),
+    [
+        ("/scim/v2/Users", "/scim"),
+        ("/scim/v2/Users/2819c223-7f76-453a-919d-413861904646?attributes=userName", "/scim"),
+        ("/scim/v2/Groups?filter=displayName%20eq%20%22Billing%22", "/scim"),
+        ("/scim", "/scim"),
+        ("/_latet/sso", "/sso"),
+        ("/_latet/sso/login", "/sso"),
+        ("/_latet/sso/callback?code=SplxlOBeZQQYbYS6WxSbIA&state=af0ifjsldkj", "/sso"),
+        ("/_latet/sso/link", "/sso"),
+        ("/scimv2/Users", "/other"),  # only the area's own segment
+        ("/_latet/ssox/login", "/other"),
+    ],
+)
+async def test_scim_and_single_sign_on_calls_are_written_by_areas_of_their_own(logs, path, area):
+    """The merge review of 0.11.0's M5: Latet Enterprise's SCIM routes (``/scim/v2/...``) and single sign-on's
+    (``/_latet/sso/...``) have areas of their own in the request log, never ``/other``; the rest of the path (a user's
+    id, a filter, the provider's code) is never written."""
+    from latet import logline
+
+    assert logline.safe_request_path(path) == area
+    configure_logging("json", "info", stream=logs)
+    await _call(RequestLog(_answering(200)), _scope(path, "GET"))
+    [line] = _lines(logs)
+    assert line["path"] == area
+    for part in ("2819c223", "Billing", "SplxlOBeZQQYbYS6WxSbIA", "af0ifjsldkj", "Users", "callback"):
+        assert part not in logs.getvalue()
 
 
 SESSION = "ab" * 16  # a Bedrock session's id, which a signing route carries
@@ -1529,3 +1584,24 @@ async def test_equal_log_categories_keep_distinct_original_pacing_areas(
         )
     )
     assert first not in logs.getvalue() and second not in logs.getvalue()
+
+
+async def test_refused_scim_and_sign_in_calls_are_counted_by_areas_of_their_own(logs):
+    """Fix round 2 of the release minors (the review's L6): the requests said once a minute are counted by their area,
+    and SCIM's and single sign-on's have their own, never the server's own: a burst of refused SCIM calls (a provider
+    with a wrong token) is not counted with the sign-in's, nor with any other path's."""
+    flush()
+    configure_logging("json", "info", stream=logs)
+    app = RequestLog(_answering(401), clock=lambda: 1000.0)
+    for path, count in (("/scim/v2/Users", 3), ("/_latet/sso/callback", 4), ("/elsewhere", 2)):
+        for _ in range(count):
+            await _call(app, _refused_by_the_gate(path))
+    flush()
+    said = sorted(line["message"] for line in _lines(logs) if "more request" in line["message"])
+    assert said == sorted(
+        (
+            "2 more requests to SCIM refused 401 by the gate since the line before",
+            "3 more requests to single sign-on refused 401 by the gate since the line before",
+            "1 more request to the server's own refused 401 by the gate since the line before",
+        )
+    )

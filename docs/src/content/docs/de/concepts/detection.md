@@ -17,21 +17,21 @@ Auch Latets eigene Zugangsdaten sind enthalten: `LATET_PERSONAL_TOKEN` (`latet_p
 `LATET_SCIM_TOKEN` (`latet_scim_`, das SCIM-Token eines Enterprise-Servers), `LATET_BRIDGE_TOKEN`
 (`latet_brg_`, das Token, das das Plugin für Claude Code dem Daemon Ihres Rechners gibt), `LATET_LAUNCH_KEY`
 (`latet_lk_`, der Schlüssel, den `latet claude`, `latet codex` und die anderen Startbefehle dem Agenten
-geben, den sie starten, und den ein Befehl, der die Umgebung des Agenten ausgibt, in die Ausgabe eines
-Werkzeugs schreibt) und
-`LATET_ONE_TIME_CODE` (`latet_code_`, der Code, den eine Administratorin oder ein Administrator einer Person
-gibt, um einen Rechner zu verbinden), jeweils mit 43 URL-sicheren Zeichen (32 beim Einmalcode; `A-Z`,
+geben, den sie starten, und den ein Befehl, der die Umgebung des Agenten ausgibt, in eine
+Tool-Ausgabe schreibt) und
+`LATET_ONE_TIME_CODE` (`latet_code_`, der Code, den ein Administrator einer Person gibt, um einen
+Rechner zu verbinden), jeweils mit 43 URL-sicheren Zeichen (32 beim Einmalcode; `A-Z`,
 `a-z`, `0-9`, `_`, `-`) nach dem Präfix. Ein Bridge-Token oder ein Einmalcode aus einer früheren Version
-hat kein Präfix: Er wird am Namen maskiert, unter dem er geschrieben steht, wie jedes Geheimnis. In `https://<host>/u/<route-key>` werden
+hat kein Präfix: Solche Werte werden wie jedes Geheimnis anhand des Namens maskiert, unter dem sie stehen. In `https://<host>/u/<route-key>` werden
 die 16 bis 128 URL-sicheren Zeichen des Routenschlüssels als `LATET_ROUTE_KEY` maskiert; der Host
 und die übrigen Pfadsegmente bleiben erhalten. Das gilt auf Ihrem Rechner und in einem Serverbereich,
-auch für Umgebungsabbilder, Claude Codes `settings.json` und Codex' `config.toml`. Lokale
-Werkzeugaufrufe erhalten die echten Werte zurück. Ein externer Werkzeugaufruf mit einem Ersatzwert
-wird gestoppt, wo Latet ihn abfangen kann (siehe [Schutzumfang](../protection-scope/)).
+auch für ausgegebene Umgebungsvariablen, Claude Codes `settings.json` und Codex' `config.toml`.
+Lokale Tool-Aufrufe erhalten die echten Werte zurück. Ein ausgehender Tool-Aufruf mit einem
+Ersatzwert wird gestoppt, wo Latet ihn abfangen kann (siehe [Schutzumfang](../protection-scope/)).
 
 - **Bekannte Formate.** Der Standard-Regelsatz von [gitleaks](https://github.com/gitleaks/gitleaks)
   (222 Regeln) ist in Latet enthalten und läuft auf [RE2](https://github.com/google/re2), mit den
-  Schlüsselwörtern, Entropie-Schwellenwerten und Allowlists, die gitleaks verwendet. Er deckt die
+  Schlüsselwörtern, Entropie-Schwellenwerten und Zulassungslisten, die gitleaks verwendet. Er deckt die
   API-Schlüssel und Tokens vieler Anbieter ab, etwa GitHub, Anthropic, OpenAI, AWS, Stripe oder Slack.
 - **Werte, die sensiblen Namen zugewiesen werden**, in `.env`-Dateien, in der Konfiguration und im
   Code. Es entscheidet der Name, egal wie der Wert aussieht: `DB_PASSWORD=...`, `"api_key": "..."`
@@ -54,11 +54,10 @@ wird gestoppt, wo Latet ihn abfangen kann (siehe [Schutzumfang](../protection-sc
   kleingeschriebenes Wort mit höchstens 20 Zeichen und höchstens einem `-` oder `_`, eine Zahl mit
   höchstens 10 Ziffern, eine Uhrzeit, ein Datum oder ein Boolean; jeder andere Wert dort
   (`password_changed=Winter2024x`, eine Passphrase wie `correct-horse-battery-staple`, eine längere
-  Zahl) wird maskiert. Ein Name, der auf `reset`,
-  `source`, `arg`,
-  `option` oder `flag` endet, bleibt der Name eines Geheimnisses (`password_reset`, `token_source`);
-  nur eine Option, die so endet (`--pass-arg=...`), bleibt nach `--` mitten in einer Zeile unberührt,
-  denn sie nimmt den Namen von etwas.
+  Zahl) wird maskiert. Ein Name, der auf `reset`, `source`, `arg`, `option` oder `flag` endet,
+  bleibt der Name eines Geheimnisses (`password_reset`, `token_source`); nur eine Option, die so
+  endet (`--pass-arg=...`), bleibt nach `--` mitten in einer Zeile unberührt, denn sie erwartet den
+  Namen von etwas.
 - **Private Schlüssel**: der gesamte Inhalt eines privaten PEM-, OpenSSH- oder PGP-Schlüsselblocks.
   Die Zeilen `BEGIN` und `END` bleiben sichtbar, sodass das Modell weiterhin weiß, dass dort ein
   Schlüssel steht.
@@ -82,20 +81,21 @@ und was das Modell erhält, wenn der Agent sie liest:
 ```sh
 APP_NAME=shop
 SMTP_HOST=mail.northwind-legal.com
-SMTP_PASSWORD=jeeepo3ixhbkw
-PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
+SMTP_PASSWORD=7vdn5d1nku0hy
+PAYMENTS_API_KEY=gd_1a2f2438f7bc60e0f872
 ```
 
 Der Hostname ist kein geheimer Wert und bleibt. Das Passwort und der Schlüssel werden durch
 Ersatzwerte gleicher Länge und im selben Format ersetzt (Ihre werden andere sein). Ein Geheimnis mit
-weniger als zwölf Zeichen erhält stattdessen einen längeren Ersatzwert derselben Arten, seine
-Sonderzeichen an ihrer Stelle, zwölf Buchstaben und Ziffern, fünfzehn Ziffern für eine Zahl:
-`password=1234` geht als `password=582194736201937` hinaus, `token=ab12f3` als `token=9e04c7b1d2fa`.
-Ein Ersatzwert, so kurz wie der Wert, käme zufällig in den IDs und Zahlen späterer Texte vor, und
-eine Wiederherstellung würde sie verändern. Ein kurzer Ersatzwert, der vor Latet 0.10.2 vergeben
-wurde (acht Zeichen oder weniger), bleibt: Eine Unterhaltung stellt ihn wie bisher wieder her,
-`unmask` der [API für Anwendungen](../../applications/#der-tresor-eines-schlüssels), das einen
-ganzen Tresor liest, nur dort, wo er als ganzes Wort steht.
+weniger als zwölf Zeichen erhält stattdessen einen längeren Ersatzwert aus denselben Zeichenarten,
+mit den Sonderzeichen an ihrer Stelle: zwölf Buchstaben und Ziffern, bei einer Zahl fünfzehn
+Ziffern. `password=1234` geht als `password=582194736201937` hinaus, `token=ab12f3` als
+`token=9e04c7b1d2fa`. Ein Ersatzwert, so kurz wie der Wert, käme zufällig in den IDs und Zahlen
+späterer Texte vor, und das Wiedereinsetzen der echten Werte würde sie verändern. Ein kurzer
+Ersatzwert, der vor Latet 0.10.2 vergeben wurde (acht Zeichen oder weniger), bleibt: In einer
+Unterhaltung wird dafür wie bisher der echte Wert wieder eingesetzt, beim `unmask` der
+[API für Anwendungen](../../applications/#der-tresor-eines-schlüssels), das einen ganzen Tresor
+liest, nur dort, wo er als ganzes Wort steht.
 
 ### Platzhalter
 
@@ -119,7 +119,7 @@ auch ein Verweis im Code unberührt: `process.env.API_KEY`, `os.environ["TOKEN"]
 den Werten hinzu, die nie maskiert werden ([Zulassungslisten](../profiles/#zulassungslisten)), in Ihren
 Einstellungen für ein Projekt, wenn er zu einem gehört.
 
-Auch ein Wert aus reinen Sonderzeichen bleibt unberührt, gleich wer ihn findet und wie lang er ist:
+Auch ein Wert aus reinen Sonderzeichen bleibt unberührt, gleich, was ihn findet, und wie lang er ist:
 `!!!!!!!!` als Passwort, `--------------------` nach `Bearer`, ein Treffer eines Ihrer
 [Erkenner](../custom-recognizers/) oder ein Wert, den der [lokale Prüfer](../llm-review/) meldet.
 Der Ersatzwert behält die Sonderzeichen des Originals bei, er wäre also das Original selbst.
@@ -230,9 +230,9 @@ Das Modell arbeitet ohne Gewähr:
   werden nicht mitmaskiert.
 - **Es hält manche Wörter für Namen.** Fachwörter wie *Redis* oder *Postgres* werden herausgefiltert,
   und `balanced` verlangt mindestens zwei Wörter.
-- **Es ist bei langen Texten langsam.** Es liest auf einer Desktop-CPU etwa 700 Token pro Sekunde,
+- **Es ist bei langen Texten langsam.** Es liest auf einer Desktop-CPU etwa 700 Tokens pro Sekunde,
   in einem eigenen Thread, sodass andere Anfragen nicht darauf warten. Ein Text mit mehr als
-  4.096 Token (8.192 in `max`) oder 16.000 Zeichen (64.000 in `max`) wird nicht gelesen, und die
+  4.096 Tokens (8.192 in `max`) oder 16.000 Zeichen (64.000 in `max`) wird nicht gelesen, und die
   Anfrage wird im Dashboard markiert.
 
 ## Ihre eigenen Begriffe
@@ -264,8 +264,8 @@ Ein Begriff hat höchstens 8.192 Zeichen: Ein längerer wird für sich allein ge
 etwa einer Million Buchstaben lässt sich gar nicht suchen. Das Dashboard, `latet config` und ein
 Import lehnen einen längeren Begriff ab. Steht einer von Hand in `config.yaml`, wird er ausgelassen,
 und `latet reload`, das Log des Daemons und `latet config validate` nennen den Eintrag; steht einer
-in der `latet.yaml` eines Projekts, wird er ebenfalls ausgelassen, und die Seite des Projekts sagt
-es.
+in der `latet.yaml` eines Projekts, wird er ebenfalls ausgelassen, und die Seite des Projekts weist
+darauf hin.
 
 Für ein Format statt eines Werts, etwa jede Ausweisnummer der Form `AB-123456`, schreiben Sie einen
 [eigenen Erkenner](../custom-recognizers/): ein Muster, Prüfziffern und Schlüsselwörter, getestet an
@@ -315,9 +315,9 @@ Text gehören: `Paolo%20Fontana` in einem Link, `\'` in einem String in Anführu
 Agenten kommt der Wert genau so zurück, wie er geschrieben war: Ein Link bleibt ein Link, und eine
 Bearbeitung findet ihre Zeile wieder. Schreibt das Modell den Ersatzwert so, wie er sich liest,
 `Paolo Fontana`, erhält der Agent den Wert so, wie er sich liest. Der Tresor hält fest, wie jeder Wert
-gefunden wurde, so wie er geschrieben ist oder dort, wo sich seine Escapes lesen. Das gilt daher für
-einen Wert jeder Art, der so gefunden wurde: Eine Telefonnummer, bekannt als `333 1234567` und in
-einer Abfrage als `333+1234567` angetroffen, kommt ebenfalls als `333 1234567` zurück.
+gefunden wurde: so, wie er geschrieben ist, oder so, wie sich seine Escape-Sequenzen lesen. Das gilt
+daher für einen Wert jeder Art, der so gefunden wurde: Eine Telefonnummer, bekannt als `333 1234567`
+und in einer Query als `333+1234567` angetroffen, kommt ebenfalls als `333 1234567` zurück.
 
 ## Wenn zwei Detektoren denselben Text finden
 
@@ -332,7 +332,8 @@ nach dem anderen.
 Fällt ein anderer Detektor als der für personenbezogene Daten und das lokale Namensmodell aus
 (geheime Werte, Ihre Begriffe, Identität, bekannte Werte), schlägt das Maskieren fehl, und die
 Anfrage wird blockiert: Nichts geht ungeprüft hinaus. Fällt der Detektor für personenbezogene Daten
-oder das lokale Namensmodell aus, wird er übersprungen, und die Anfrage wird im Dashboard markiert.
+oder das lokale Namensmodell aus, wird dieser Schritt übersprungen, und die Anfrage wird im
+Dashboard markiert.
 
 ## Warum RE2
 

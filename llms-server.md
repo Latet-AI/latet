@@ -48,7 +48,8 @@ master key or a private key into the conversation.
 5. **Answer questions** about how a server works: what it shares with every space (its
    destinations, the local reviewer, text recognition, history and how long it is kept), that each
    person's and each API key's rules are their own, and that rules set for everyone, that nobody can
-   lower, are planned for the Enterprise Edition. See <https://docs.latet.ai/concepts/server/>.
+   lower, are the company's policy with the Enterprise Edition (`latet server policy set`). See
+   <https://docs.latet.ai/concepts/server/>.
 6. **Help with programs that mask their own text**, such as an application's logs or a RAG
    pipeline's documents: they call the server's applications API with a token of an API key that
    holds only the permissions they need (`scan`, `mask`, `unmask`, and `forget` for a process that

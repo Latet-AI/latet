@@ -18,6 +18,7 @@ from psycopg.conninfo import conninfo_to_dict
 
 from latet.server.db import Database, DatabaseError, migrate
 
+from ..owned import owned
 from .conftest import _HERE, unmet
 from .libpq_environment import hostile
 
@@ -36,7 +37,7 @@ def tls_database():
     found = conninfo_to_dict(TLS_DATABASE)
     if found.get("host") not in _HERE or found.get("hostaddr") or found.get("sslmode") != "verify-full":
         unmet("LATET_TEST_TLS_DATABASE_URL names no PostgreSQL on 127.0.0.1 or ::1 to verify in full")
-    schema = "latet_t_" + secrets.token_hex(5)
+    schema = owned("latet_t_" + secrets.token_hex(5), "schema", TLS_DATABASE)  # named first: tests/owned.py
     yield TLS_DATABASE, schema
     with psycopg.connect(TLS_DATABASE, autocommit=True) as conn:
         conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))

@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { DocsPageLink } from '../components/DocsLinks'
 import { LogoMark } from '../components/Icon'
 import { CommandLine } from '../components/ui'
+import { CompanySignIn } from '../ee/components/CompanySignIn'
 import { CMD_DASHBOARD, CMD_DASHBOARD_PRINT, CMD_TUTORIAL } from '../lib/commands'
 import { signInOnServer, type LoginRefusal } from '../lib/signin'
 import { useAsync } from '../lib/useAsync'
@@ -47,6 +48,7 @@ export function AuthPage({ refusal }: { refusal: LoginRefusal }) {
             {said}
           </p>
         )}
+        {!sandbox && <CompanySignIn />}
         <p className="mt-3 text-body text-ink-2">{sandbox ? t('auth.tutorialBody') : server ? t('auth.serverBody') : t('auth.body')}</p>
         <div className="mt-5">
           <CommandLine command={sandbox ? CMD_TUTORIAL : CMD_DASHBOARD} />

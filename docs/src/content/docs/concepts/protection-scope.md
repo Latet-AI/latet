@@ -63,12 +63,18 @@ nothing it did not account for:
   is read by the final check and passes, and a new `x-claude-code-*` header is taken off.
 - **The body.** Its texts are masked, or checked where Latet only checks the request. Every other
   member is held to its form (a model's id, a tool's name, a setting) and read by the final check
-  where it holds text. A member no profile names is refused, the agent told where it was, never its
-  name.
+  where it holds text. A member no profile names yet is read whole and checked: it leaves as it came
+  when nothing in it would be masked and it names no file, address, stored conversation or model,
+  and the request is refused otherwise, the agent told where the member was, never its name ([New
+  request members](../../getting-started/upgrading-to-0-11/#new-request-members)). `unknown_members:
+  refuse` refuses such members as before 0.15.0: a request that has one is refused, unless, on a
+  request Latet only checks, the member holds a text or a list of texts outside a provider's item,
+  which the final check reads.
 
 In the dashboard, each exchange says whether every part of its request was read, or what let a
-part through: *checked only* (a value the final check read and did not need to mask), *allowed by
-rule* (one of Latet's built-in rules, such as the provider's own encrypted fields given back), or an
+part through: *checked only* (a value the final check read and did not need to mask), *a field no
+request profile names yet, read and checked*, *allowed by rule* (one of Latet's built-in rules, such
+as the provider's own encrypted fields given back), or an
 [exception](../../getting-started/upgrading-to-0-11/#approving-an-exact-exception) you approved. A refusal tells the agent that nothing was sent. When a second attempt is refused
 after a first one reached the provider (a Bedrock request signed again once its AWS login had
 expired), the agent is told that no further attempt was sent and that the first may have arrived,
@@ -136,9 +142,10 @@ only in the Code tab, with the plugin. See [Claude Code](../../agents/claude-cod
 
 **Context and metadata.** File names, paths, code structure, comments and business logic are sent
 as they are, apart from the values Latet detects in them, such as your user name inside a home
-path. Surrogates keep the shape of the original (length, format, prefix; a secret shorter than
-twelve characters gets a longer surrogate), and the surrounding text can reveal what a value is
-("the production database password").
+path. Surrogates keep the shape of the original (length, format, the prefix a vendor puts before
+every key of its kind, such as `ghp_`; a secret shorter than twelve characters gets a longer
+surrogate), and the surrounding text can reveal what a value is ("the production database
+password").
 
 **What a JSON document holds where masking does not reach.** A card number written as a JSON
 number, which the `balanced` profile does not mask, is found by the final check, which then stops
@@ -186,16 +193,18 @@ masking and refusal rules.
 
 **Request fields outside the conversation.** In gateway mode, the tools' descriptions, the schemas
 of their parameters and the examples of their input are masked like the conversation, and so are the
-schema of a structured output, a predicted output, and what a request says of whom it is for (`user`,
-`safety_identifier`, `metadata`). The tools' names, what lets the provider run a tool of its own (a
-remote MCP server's address and headers, a web search's location) and the other request settings are
-each held to the form their profile gives them, and read by the final check where they hold text; one
-no profile names stops the request ([Every part of a request](#every-part-of-a-request)). In Claude
-Code, the plugin masks the tools' descriptions, and the final check reads `metadata`, the schema of
-a structured output and the schemas of the tools' parameters (see below). A client other
-than Claude Code on a route Latet only checks (a subscription's sign-in, Bedrock, Vertex) has no
-plugin: the final check reads its tools' descriptions, parameters and examples too, and stops a
-request that would let a value out in clear in them.
+schema of a structured output, a predicted output, and what a request says of whom it is for
+(`user`, `safety_identifier`, `metadata`). The tools' names, what lets the provider run a tool of
+its own (a remote MCP server's address and headers, a web search's location) and the other request
+settings are each held to the form their profile gives them, and read by the final check where they
+hold text; one no profile names yet is read whole and checked, and stops the request when something
+in it would be masked or it names a file, an address, a stored conversation or a model ([New request
+members](../../getting-started/upgrading-to-0-11/#new-request-members)). In Claude Code, the plugin
+masks the tools' descriptions, and the final check reads `metadata`, the schema of a structured
+output and the schemas of the tools' parameters (see below). A client other than Claude Code on a
+route Latet only checks (a subscription's sign-in, Bedrock, Vertex) has no plugin: the final check
+reads its tools' descriptions, parameters and examples too, and stops a request that would let a
+value out in clear in them.
 
 **Claude Code's tools.** The plugin masks the tools' descriptions, including those of
 `tool_addition`. Latet does not take the request's markers as proof that the plugin ran, on a
@@ -254,6 +263,7 @@ them in the dashboard instead of blocking them: they were sent already, and bloc
 conversation. Start a new conversation to leave them behind.
 
 **Data sent earlier.** Anything sent before Latet was installed, or, before 0.11, from a project
-where it was off, is already with the provider.
+where it was off, is already with the provider. Your agents keep their conversations on disk:
+[`latet leak`](../leaks/) lists the secrets in them.
 
 See the [security and threat model](../../security/) for the reasoning behind these limits.

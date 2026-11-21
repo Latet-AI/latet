@@ -334,6 +334,29 @@ def test_exact_digest_scope_has_no_cross_identity_destination_profile_role_or_po
     assert EchoCheck(b"a" * 32, store, scope, "conversation", body).rules(body) == {}
 
 
+@pytest.mark.parametrize("company", [False, True], ids=["fixed-provider", "company"])
+def test_echo_evidence_kept_before_the_rule_of_new_members_still_admits_its_echo(company, monkeypatch):
+    """Evidence of an echo a Latet before 0.15.0's rule of new request members kept (a Latet server keeps it a week, in
+    Valkey), bound as it bound it, to the policy's revision of then, phase-2-policy-1: the same echo, sent again in its
+    conversation after the upgrade, is admitted, and no later revision of the policy unbinds it."""
+    from latet.gateway import request_policy, request_profiles
+
+    route = Upstream("company", "/company", "https://company.example.invalid") if company else OPENAI
+    scope = opaque_scope(route, "POST", route.prefix + "/v1/responses", "responses")
+    assert scope is not None
+    assert scope.binding[-1] == request_profiles.ECHO_REVISION == "phase-2-policy-1" != request_policy.REVISION
+    kept = EchoScope((*scope.binding[:-1], "phase-2-policy-1"), scope.protocol, scope.fallback)  # as 0.12.1 bound it
+    body = {"input": [{"type": "image_generation_call", "result": OPAQUE}]}
+    store = LocalEchoes()
+    capture = OpaqueCapture(EchoCheck(b"a" * 32, store, kept, "conversation", body), store)
+    capture.body({"output": body["input"]})
+    assert capture.commit()
+    assert set(EchoCheck(b"a" * 32, store, scope, "conversation", body).rules(body).values()) == {ECHO_RULE}
+    monkeypatch.setattr(request_policy, "REVISION", "phase-2-policy-9")
+    assert opaque_scope(route, "POST", route.prefix + "/v1/responses", "responses") == scope
+    store.close()
+
+
 def matrix_rows():
     for kind, key, fallback in [
         ("thinking", "signature", True),

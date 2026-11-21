@@ -10,12 +10,23 @@ Was sich bereits geändert hat, steht im [Changelog](../changelog/).
 ## Der Auto-Modus von Claude Code, eine klare Ablehnung
 
 Wenn eine Prüfung im Auto-Modus eine Angabe enthielte, die Sie lokal behalten (Ihren Benutzernamen,
-Ihre Pfade), stoppt Latet sie heute, und Claude Code meldet seinen Prüfer als nicht verfügbar und
+Ihre Pfade), hält Latet sie derzeit auf, und Claude Code meldet seinen Prüfer als nicht verfügbar und
 lehnt die Aktion ab. Latet könnte stattdessen mit dem eigenen Urteil des Prüfers antworten,
 *blocked*, sodass die Ablehnung als das erscheint, was sie ist. Diese Antwort käme von Latet anstelle
 des Prüfers von Anthropic, deshalb fragen wir zuerst: Ein Issue erklärt den Fall, mit dem fertigen
 Pull-Request, wir senden es an Anthropic, und der Pull-Request wird nur mit der Zustimmung von
 Anthropic gemergt, die dem Issue beigefügt wird.
+
+## MCP-Tools maskiert, bevor Claude Code sie liest
+
+Das Parameterschema eines MCP-Tools kann einen Wert enthalten, den Latet maskiert, etwa eine
+Beispieladresse, und Claude Code sendet es mit seinen Anfragen, wo Latets Plugin es nicht erreicht:
+Heute stoppt Latet diese Anfragen (siehe [Fehlerbehebung](../troubleshooting/)). Latet würde sich
+stattdessen zwischen Claude Code und die MCP-Server stellen, die Sie einrichten: Es würde die
+Beschreibungen und Schemas der Tools in der Liste maskieren, die Claude Code liest, und die echten
+Werte in die Aufrufe des Modells zurücksetzen, sodass die Anfragen von Claude Code so bleiben, wie
+Claude Code sie gebaut hat. Das gälte für die Server, die Sie selbst hinzufügen, nicht für die
+Konnektoren, die von claude.ai kommen.
 
 ## Ein signierter Installer für Windows
 
@@ -26,11 +37,11 @@ signierter Installer, auch über winget, lässt sie sofort starten.
 
 ## Ihr eigenes Namensmodell
 
-Heute verwendet Latet ein einziges Namensmodell, [Privacy Filter](https://huggingface.co/openai/privacy-filter)
+Derzeit verwendet Latet ein einziges Namensmodell, [Privacy Filter](https://huggingface.co/openai/privacy-filter)
 von OpenAI, das es auf Anfrage herunterlädt (`latet ner install`) und das viele Sprachen liest. Ein
 eigenes Modell würde die Namen und Begriffe Ihres Fachgebiets finden, etwa Medikamente und Diagnosen in einer Klinik oder Parteien und Gerichte in einer Kanzlei:
 ein ONNX-Token-Klassifikator auf Ihrem Rechner oder ein Endpunkt, den Sie betreiben, etwa ein
-GLiNER- oder Presidio-Dienst. Mehrere Modelle könnten zusammenarbeiten, und jedes fügt hinzu, was es
+GLiNER- oder Presidio-Dienst. Mehrere Modelle könnten zusammenarbeiten, wobei jedes ergänzt, was es
 findet.
 
 ## Mehr von Googles Gemini API
@@ -55,25 +66,34 @@ bevor jede Anfrage erstellt wird, wie es das Plugin für Claude Code tut. Die Ma
 vom Anbieter ab: Sie würde neben API-Schlüsseln auch JetBrains AI und Abonnements abdecken, und jede
 Anfrage liefe zusätzlich über das Gateway von Latet und erschiene im Dashboard. JetBrains ThinkRail
 nutzt pi, also wären auch seine Unterhaltungen geschützt; seine Subagenten und eine Schaltfläche für
-das Dashboard warten darauf, dass ThinkRail Erweiterungen von anderen lädt.
+das Dashboard warten darauf, dass ThinkRail Erweiterungen von Dritten lädt.
 
 ## Dateien mit sensiblen Daten
 
 Dateien, die ein Agent an das Modell sendet, etwa PDFs, Word-Dokumente und Excel-Tabellen, würden
-wie Text maskiert, ein Format nach dem anderen. In jeder Datei eines Formats, das es lesen kann,
-würde Latet die sensiblen Werte durch Ersatzwerte ersetzen und die maskierte Datei senden; in der
+wie Text maskiert, ein Format nach dem anderen. In jeder Datei eines Formats, das es liest,
+würde Latet die sensiblen Werte gegen Ersatzwerte austauschen und die maskierte Datei senden; in der
 Antwort würde es die Originale wieder einsetzen, auch in Dateien, die das Modell zurückschickt. Eine
-Datei in einem Format, das Latet nicht liest, wird abgelehnt, in einer Unterhaltung wie für sich über
-die Datei-API eines Anbieters hochgeladen, auf einem Rechner wie auf einem Server (siehe
+Datei in einem Format, das Latet nicht liest, wird abgelehnt, ob sie in einer Unterhaltung steht oder einzeln
+über die Datei-API eines Anbieters hochgeladen wird, auf einem Rechner wie auf einem Server (siehe
 [Was geschützt ist und was nicht](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 
-Latet Enterprise ist für ein Unternehmen, dessen Sicherheitsteam die Regeln für alle festlegt. Zusätzlich
-zur Community Edition bringt es Regeln für alle, die niemand lockern kann, Rollen in der
-Administration, etwa einen Prüfer mit reinem Lesezugriff, zentrale Freigaben von Änderungen, die den
-Schutz verringern, Single Sign-on, Auditberichte und Ereignisse für ein SIEM. Auf der
-[Warteliste](https://latet.ai/#waitlist) erfahren Sie, wann es erscheint.
+Latet Enterprise richtet sich an Unternehmen, deren Sicherheitsteam die Regeln für alle festlegt.
+Es bringt Regeln, die niemand lockern kann, Single Sign-on mit Gruppen und Rollen wie der eines
+Auditors mit reinem Lesezugriff, zentrale Freigaben von Änderungen, die den Schutz verringern,
+Audit-Berichte, Ereignisse für ein SIEM und synchronisierte Begriffe (siehe
+[Editionen und Lizenz](../enterprise/)). Zwei Erweiterungen sind geplant:
+
+- **Gruppen aus Microsoft AD FS.** Direkt angebunden gibt AD FS Latet den Benutzernamen einer
+  Person, aber nicht ihre Gruppen: Es fügt sie nur einer Antwort hinzu, die per Form-Post
+  zurückkommt. Latet würde diese Antwort anfordern, damit die Gruppen aus AD FS Personen in die
+  Latet-Gruppen aufnehmen und darüber entscheiden, wer ein Konto erhält, wie es die Gruppen anderer
+  Anbieter tun, ohne Keycloak dazwischen.
+- **Trennen in der Liste Ihre Rechner.** Eine Person würde einen ihrer Rechner, etwa einen, den sie
+  nicht mehr hat, im Dashboard in der Liste **Ihre Rechner** selbst trennen, ohne einen
+  Administrator darum zu bitten.
 
 ## Weitere Sprachen
 

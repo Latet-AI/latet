@@ -20,6 +20,7 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 
+from latet.engine.detectors.terms import LiveTerms
 from latet.gateway import request_policy, request_transport, ws
 from latet.gateway.capture import Capture
 from latet.gateway.routes import RouteTable, Upstream
@@ -302,7 +303,7 @@ async def test_frame_authorization_is_rechecked_at_send(monkeypatch):
     sending = request_transport.send_frame
 
     async def changed(connection, authorized):
-        monkeypatch.setattr(request_policy, "BUILT_IN_POLICY", request_policy.PolicySnapshot(()))
+        monkeypatch.setattr(request_policy, "CHECK_POLICY", request_policy.PolicySnapshot(()))
         return await sending(connection, authorized)
 
     monkeypatch.setattr(request_transport, "send_frame", changed)
@@ -471,6 +472,30 @@ async def test_revoked_socket_sends_no_next_frame(change):
         event = await case.frame(create("second"))
         assert len(case.sent) == 1, "revoked connection sent another frame"
         assert event["type"] == "websocket.close" and event["code"] == 1008
+
+
+@pytest.mark.parametrize("tag", ["2.1", "1.1"], ids=["a-sync", "the-same-terms"])
+async def test_a_socket_whose_synced_terms_moved_sends_no_next_frame(tag):
+    """The terms a company syncs (Latet Enterprise): an open socket ends at a change of them as it does at a change of
+    the rules; a sync that changes no term (the same tag) leaves it open."""
+    halden = ("Halden Insurance", "CLIENT")
+    mediator = _mediator()
+    live = LiveTerms()
+    live.use([halden], "1.1")
+    mediator.engine.masker.detectors.append(live)  # as ``build(…, extra=)`` puts them in the one masker
+    try:
+        async with socket_case(mediator=mediator, terminal=True) as case:
+            assert (await case.frame(create()))["type"] == "response.completed"
+            live.use([halden, ("Kestrel Analytics", "CLIENT")] if tag == "2.1" else [halden], tag)
+            event = await case.frame(create("write to Halden Insurance"))
+            if tag == "2.1":
+                assert len(case.sent) == 1, "a socket whose synced terms moved sent another frame"
+                assert event["type"] == "websocket.close" and event["code"] == 1008
+            else:
+                assert event["type"] == "response.completed" and len(case.sent) == 2
+                assert "Halden" not in case.sent[1]
+    finally:
+        mediator.close()
 
 
 async def test_a_handshake_during_a_save_waits_for_it_and_connects(monkeypatch):

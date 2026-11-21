@@ -20,9 +20,11 @@ import {
 import { useDocsHref } from '../DocsLinks'
 import { Tooltip } from '../Floating'
 import { Icon, StatusGlyph } from '../Icon'
+import { InlineCodeText } from '../ui'
 
 export const PASS_LABEL: Record<PassCategory, string> = {
   'checked-only': tk('coverage.pass.checked-only'),
+  'new-member': tk('coverage.pass.new-member'),
   'image-remainder': tk('coverage.pass.image-remainder'),
   'sent-before': tk('coverage.pass.sent-before'),
   'model-written': tk('coverage.pass.model-written'),
@@ -71,6 +73,8 @@ const REMEDY: Record<Remedy, string> = {
   resource: tk('coverage.remedy.resource'),
   again: tk('coverage.remedy.again'),
   websocket: tk('coverage.remedy.websocket'),
+  strict: tk('coverage.remedy.strict'),
+  'strict-exception': tk('coverage.remedy.strict'),
   none: tk('coverage.remedy.none'),
 }
 
@@ -107,7 +111,9 @@ export function CoverageList({ summary }: { summary: ExchangeSummary }) {
   const binding = projectBinding(summary)
   const removed = removedNote(summary)
   const refusal = outcome.kind === 'blocked' ? refusalCategory(summary.block_reason) : null
+  const remedy = refusal !== null ? remedyOf(summary, refusal) : null
   const approving = useDocsHref('section.approveException')
+  const newMembers = useDocsHref('section.newMembers')
   return (
     <section aria-label={t('coverage.title')} className="mt-3">
       <ul className="space-y-1 text-ui text-ink" data-coverage>
@@ -116,10 +122,27 @@ export function CoverageList({ summary }: { summary: ExchangeSummary }) {
             {outcome.sent === 'before' ? t('coverage.blocked.before') : t('coverage.blocked.attempted')}
           </Line>
         )}
-        {refusal !== null && (
+        {refusal !== null && remedy !== null && (
           <Line status="fail">
-            {t(REFUSAL[refusal])} <span className="text-ink-2">{t(REMEDY[remedyOf(summary, refusal)])}</span>
-            {remedyOf(summary, refusal) === 'exception-docs' && (
+            {t(REFUSAL[refusal])}{' '}
+            <span className="text-ink-2">
+              <InlineCodeText text={t(REMEDY[remedy])} />
+            </span>
+            {(remedy === 'strict' || remedy === 'strict-exception') && (
+              <>
+                {' '}
+                <a href={newMembers} target="_blank" rel="noreferrer" className="link">
+                  {t('coverage.remedy.strictDocsLink')}
+                </a>
+              </>
+            )}
+            {remedy === 'strict-exception' && (
+              <>
+                {' '}
+                <span className="text-ink-2">{t('coverage.remedy.exception-docs')}</span>
+              </>
+            )}
+            {(remedy === 'exception-docs' || remedy === 'strict-exception') && (
               <>
                 {' '}
                 <a href={approving} target="_blank" rel="noreferrer" className="link">

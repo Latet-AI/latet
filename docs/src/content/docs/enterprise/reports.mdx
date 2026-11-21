@@ -1,0 +1,137 @@
+---
+title: Reports and administration log
+description: What a server counts, who can read and export it, how people appear, and what the administration log records.
+---
+
+import Screenshot from '../../../components/Screenshot.astro';
+
+On a [Latet server](../../getting-started/server/), Enterprise keeps hourly counts in PostgreSQL for **Reports** and forwards events to configured [SIEM outputs](../siem/). **Administration log** shows the server's administrative actions. A computer without a server has neither Enterprise reports nor SIEM outputs.
+
+Ordinary events contain counts, type codes, IDs and project names, never protected values, source texts, replacement values, file paths, conversation keys or credentials. A project whose name holds a term masked there (the person's or the project's terms, those of the company's [locked rules](../locked-rules/) or its [synced terms](../term-sync/)) is sent as `masked-` and 8 characters instead of its name, the same for every person and every folder of that name: they are made with the server's secret key, so nobody without it can tell which name they stand for (`masked` alone when that key cannot be read). Only terms are looked for in a project name. Administration records legitimately identify actors and targets; their privacy rules differ from ordinary reports, as explained below.
+
+## What is counted
+
+| Event | What it records |
+| --- | --- |
+| `exchange` | A mediated request; masked values by type, each entity once per conversation where counting is available |
+| `stopped` | A request stopped after an exchange exists, with a reason code |
+| `apps` | Each answered `scan` or `mask` call to the [applications API](../../applications/), not each text. `scan` counts the call, not its findings. `mask` counts each vault entity once per call; redactions without an entity count each replacement. `stopped` counts unanswered texts |
+| `policy` | Changes to [locked rules](../locked-rules/) (`set`, `removed`) and refusals to lower them (`refused`) |
+| `approval` | A text of the Live Reviewer that waited was decided, by the person or by the security team: its `outcome` (`approved`, `rejected`, `abandoned`, `expired`), `stopped` 1 when it was not approved (rejected, abandoned, expired), and who decided (`by`) when it was not the person ([Central approvals](../approvals/)) |
+| `change` | A change that lowers protection ended: its `outcome` (`approved`, `rejected`, `stale`, `superseded`), where it came from as `reason` (`command`, `file`, `start`, `dashboard`), and who decided (`by`) when it was not the person |
+| `sign-in` | Company sign-in outcomes described in [Sign-in, groups and roles](../sign-in/) |
+| `sync` | The server synced a source of terms, or someone removed terms no longer in their source: its `outcome` (`ok`, `failed`, `removed`) and, for a sync that failed, why as `reason`; the source as `rule` (`term-sync:<name>`, or `term-sync` alone for a removal that names no source: every removal but `latet server terms remove --source`; a filter on the prefix `term-sync` catches them all); the terms by type in `masked`, never a term; the person who asked for the sync or removed the terms as `by` ([Term sync](../term-sync/)) |
+| `license` | Installation, removal, invalidity or a changed license state and its reason codes |
+| `admin` | An administration-log entry forwarded to the SIEM, with its chain position |
+
+Applications API unmask and forget operations are administration actions (`apps.unmasked`, `apps.forgotten`), not additional `apps` events. Decisions on approvals are counted as `approval` and `change`, by who decided where the people setting names them; each sync and each removal of synced terms is a `sync` event.
+
+Counting does not require saved conversation history. With `history: off`, Claude Code and other verify-only exchanges count requests, stops and projects but no masked values: the plugin masked before the server saw them. `history: metadata` can count those values. History-off and full recording also differ for provider-run tool inputs and JSON slots already containing replacement values. Refusals before an exchange exists, such as egress refusals, an unknown route's 404 or an unread Bedrock API, are outside reports.
+
+The recorder's `uncounted` fallback retains the request count without value counts when recording fails or 500 jobs already wait **in that recorder**. Reports show this count. It does not recover events subsequently lost from the pipeline. Custom type names are normalized to uppercase ASCII codes, up to 64 characters: `CLIENT-NAME` becomes `CLIENT_NAME`.
+
+### Why a request was stopped
+
+| `reason` | Meaning |
+| --- | --- |
+| `leak` | The final check found a value that would leave in clear, in the body or in a header or query parameter |
+| `history` | Clear values came from earlier conversation history |
+| `auto-mode-review` | Claude Code's auto mode reviewer would receive a disallowed detail |
+| `live-reviewer` | The Live Reviewer refused, abandoned or timed out |
+| `local-reviewer` | The local reviewer stopped the request or could not review it |
+| `settings-changed` | The settings changed while the request was prepared, for example by a term sync; its agent is told to send it again |
+| `unread` | Unread content, such as an image or document, under settings that stop it |
+| `unreadable` | An unreadable request body, including one that gives a JSON key twice |
+| `unread-request` | A request body, header, query parameter or route Latet does not read: a shape or content it does not support, or a part no request profile names |
+| `too-large` | A decoded request body exceeds `max_request_mb` |
+| `not-messages` | A Bedrock or Vertex call outside Claude's messages |
+| `masking-failed` | Masking failed |
+| `aws-signing` | Signing the Bedrock request failed |
+| `route-bypass` | A Claude Code session bypasses Latet |
+| `outbound-tool` | A provider-run tool would receive replacement values |
+| `other` | Another reason |
+
+## Reports and exports
+
+Open **Reports** and select 7, 30 or 90 days, or custom dates. Dates must exist, between `2000-01-01` and `2999-12-31`, with at most 366 days including both endpoints. Trends compare the immediately preceding period of equal length. Beyond 92 days, charts **and exports** use weekly buckets.
+
+Filters select group, project, agent and value type. A value type narrows request counts to requests that masked that type. Breakdowns show requests, masked values and stopped requests by group, project, agent, API key and type, plus people when enabled. Application calls appear by operation, with agent `apps`. Ranked lists show the top 200 and **Others** totals; project choices are the top 200 by requests, and each filter offers at most 200 choices.
+
+Dates follow the server instance's time zone: use the same `TZ` on every instance (the container defaults to UTC). Counts use whole UTC-hour buckets. A midnight boundary in a half-hour or quarter-hour zone does not slice an hour's counts precisely.
+
+<Screenshot name="reports" alt="Reports with period filters, totals, trend and breakdowns" caption="Reports, viewed with the Security role." />
+
+CSV and JSON exports contain daily or weekly rows by group, identity kind/name, project and agent, with value-type counts. Above **500,000 rows** the export is refused with 413; narrow the period or filters. JSON includes administration entries only for a reader permitted to see them. Above **5,000 entries**, it omits the entire `administration` member and sets `administration_truncated: true`; use the Administration log export instead. CSV protects formula-like text cells and preserves UTF-8 with BOM and CRLF line endings.
+
+Reports and Audit exports require a company-account session when `company_changes: sso`, like [changes that apply to everyone](../sign-in/#changes-that-apply-to-everyone). Reading pages does not require that extra sign-in. Exports record `reports.exported` or `audit.exported`, including format and period. Administrators can use the [CLI](../../reference/cli/):
+
+```sh
+latet server reports export --from 2026-10-01 --to 2026-10-31 -o october.csv
+```
+
+`-o` creates a new regular file and preserves the returned bytes; existing files, links and special targets are refused. Without it, stdout is escaped terminal display, not a byte-preserving export.
+
+One report request or Reports/Audit export may run per dashboard person per instance, and only one export per instance through the end of sending. Contention returns 429. Audit reads do not take the person slot. Two dashboard worker threads per process perform this work; exports are built whole in memory. Recorded sizing observations were roughly 800 MB for 500,000 rows and four seconds/16 queries for one large yearly report, not capacity or latency guarantees.
+
+## Access and license
+
+| Role | Reports | Administration log | SIEM outputs |
+| --- | --- | --- | --- |
+| Group lead | Their own groups | No | No |
+| Security | All groups | Yes | Read, configure and test |
+| Auditor | All groups | Yes | Read only |
+| Admin | No | Yes, including addresses | No |
+
+These are individual roles; combined roles combine permissions. Dashboard access also requires `roles` and the relevant feature: **`reports` for Reports and Audit; `siem` for SIEM outputs**. A SIEM-only license grants no Reports/Audit access. Without `roles`, use the administration-token CLI for licensed reports/SIEM; `latet server log` remains available independently of Enterprise. An API-key space has none of these pages; its controllers see its own **Stats**.
+
+A group lead must belong to a group. The ordinary event is attributed to the person's first group by name at recording time. A later membership change affects future attribution, not stored counts; group membership changes are audited. API keys are programs, shown by name regardless of the people setting, with no group; their token is never a report field.
+
+When production pauses after expiry/overuse grace, at trial end, or with an unusable license, Reports/Audit reads and exports and SIEM sends/tests stop. SIEM configuration remains readable with the appropriate access, but changes are gated. See [Editions and license](../). Counting continues only while `licensed(reports)` **or** `licensed(siem)` remains true, including retained verified features during an unusable license. No license, or a replacement with neither feature, switches counting off. Recovery does not promise a complete history: retention, schema refusals, queue loss and recording exclusions still apply. [SIEM delivery](../siem/) explains paused forwarding separately.
+
+The expiry and user-overage grace periods are 30 days; an ended trial has no grace period. SIEM configuration changes require a valid, expiring or grace-period license. With history off, counting reads only replacements attached to pending request slots; fuller recording can also inspect existing replacement values and provider-run tool inputs. Do not compare their value totals as equivalent measurements.
+
+## People and retention
+
+```sh
+latet server reports settings --people pseudonymous
+latet server reports settings --retention-days 365
+```
+
+Only the CLI changes these settings; `reports.changed` records the change. `reports.retention_days` is 1–3650 days, default 365, for hourly event counts. Administration retention is separate, controlled by `LATET_SERVER_AUDIT_RETENTION_DAYS`.
+
+- `group-only` (default): ordinary events/reports retain the group rather than the person. Switching to it also hides previously retained people from reports; it does not erase their retained data.
+- `pseudonymous`: a stable `p_…` pseudonym derived with the server's secret key, sealed under its master key. A person has one pseudonym in their requests (`exchange` and `stopped` events, and reports by person; an `apps` event names its API key, never a person), another in the other events (`sign-in`, `change`, `approval`, `policy`, `sync`, `license`) and in decisions by who made them, and a third in `admin` events: none can be matched with another by its value. Treat the second as a name all the same, and those events and the decisions by who made them as named: a first company sign-in, a decision, a license and a sync are each written beside an administration-log entry that names the person. What `pseudonymous` protects is a person's requests. Rows kept by ID while `named` was in force show no person, never a pseudonym; they count among **Others**.
+- `named`: the Latet identity `u_…` in events, with a current name in reports when known.
+
+Changes govern newly recorded data; enabling `named` does not identify earlier group-only events. Removed people/groups remain represented by retained IDs or pseudonyms until retention removes their counts. Decision actor `by`, when present, follows the people setting. Pseudonymous events sent to a SIEM can still be tied to a name by matching their times against other logs that name people, such as the administration log, the **Company approvals** page (who asked, and when) or the identity provider's sign-in log. A small group or an identifying project name can reveal a person even under `group-only`.
+
+Project cardinality is capped at 50 per person per hour and 1,000 per group per hour under `group-only`. Ungrouped people share a bucket. Overflow joins `other`; a real project named `other` shares that total.
+
+Before choosing person-level reporting, involve your company's employee representatives and local counsel. Italy's [art. 4 L. 300/1970](https://www.normattiva.it/atto/caricaDettaglioAtto?atto.articolo.numero=4&atto.codiceRedazionale=070U0300&atto.dataPubblicazioneGazzetta=1970-05-27) distinguishes agreement/authorisation requirements from work-tool and access/attendance exceptions, retaining information and privacy conditions. Germany's [BetrVG §87(1) no. 6](https://www.gesetze-im-internet.de/betrvg/__87.html) provides works-council co-determination for relevant monitoring technology, subject to its statutory conditions. Applicability depends on the deployment; neither setting establishes compliance. This is not legal advice.
+
+## The administration log
+
+**Administration log** names who acted, on what, when, and the action's administrative details, independently of `reports.people`. Only administrators see source addresses, including in exports. Actors include people/API keys by name (ID when no longer known), administration tokens, SCIM provisioning tokens, the server and unknown callers refused before identification. It also records people's own actions, such as connecting a computer, linking an account or a program's unmask.
+
+<Screenshot name="audit" alt="Administration log with actor, action, target, details and administrator-only address columns" caption="Administration log, viewed by an administrator." />
+
+The page shows the **newest 5,000 matching entries**, newest first, without browser pagination. Action/actor choices come from those filtered rows. Action and actor filters accept a trailing `*` as a prefix; other wildcard characters are literal, and each filter is at most 200 Unicode code points. Filter dates use the server instance's zone; displayed timestamps use the browser's zone. An unavailable timestamp does not remove its row.
+
+The separate CSV/JSON export reads the whole filtered period, oldest first, up to **100,000 entries**, then refuses with 413 rather than cutting it. Narrow dates/filters when needed; the visible 5,000-row cap is not the export cap.
+
+Besides the [sign-in administration actions](../sign-in/#what-the-administration-log-records), entries include `reports.exported`, `audit.exported`, `reports.changed`, `siem.changed` (names and origins), `siem.secret.changed` (saved/removed secret names, never values), `siem.tested` (attempt and output name, recorded **before** connecting, not the receiver result), `siem.forwarding`, `siem.gap` and `siem.skipped`, and those of [central approvals](../approvals/): `approvals.changed` (who decides), `approval.opened` (a decider's first opening of another person's text, never the text), `approval.decided`, `key.approval.decided` and `key.approval.admin-decided` (each decision taken, written before it is carried out), and those of [term sync](../term-sync/): `terms.source.changed`, `terms.secret.changed`, `terms.removed` and `terms.sync.asked` (names of sources and counts, never a term or a secret). Administration API calls also record route actions such as `ee.reports.read` and `ee.audit.read`.
+
+### Administration identities sent to the SIEM
+
+Forwarded `admin` events contain the action in `outcome`, target in `rule`, actor in `identity` or `reason`, and `chain` hashes. They exclude the log entry's details and source address.
+
+- An action requiring admin/security names its person actor even after demotion. An actor currently holding either role when forwarding reads the entry is also named. API-key actors remain identified.
+- On [Central approvals](../approvals/), the security team's decisions (`approval.decided`) and openings of a person's text (`approval.opened`), and an admin's decisions on a key nobody else controls (`key.approval.admin-decided`), name who acted; a key's controllers' (`key.approval.decided`) follow the people setting, and so does a person's withdrawal of their own request (`approval.decided` with `withdrawn`).
+- Other personal actions follow `reports.people`: null identity plus group under `group-only`, a pseudonym under `pseudonymous`, an ID under `named`.
+- An entry forwarded late, after the forwarding stopped (its note unreadable or not authentic, Valkey or the settings not answering), keeps people as `reports.people` was when it was written, or as it is now if that is more private: switching to `named` names none of the entries still waiting.
+- Other actors use `reason`: `admin:<id>`, `scim:<id>`, `server` or `unknown`.
+- Person targets follow the people setting, except a person granted/revoked admin or security is named regardless. A role granted to a group names that group, not all existing members.
+- Under `pseudonymous`, the pseudonym an `admin` event gives a person (in `identity` or `rule`) is of a domain of its own: the same in every `admin` event, never the `p_…` of that person's other events or report rows. The administration log names whom each entry concerns, with the time and the id its event carries, so a shared pseudonym would name every request of that person to whoever reads both.
+- Membership additions/removals name the member when the group holds admin/security **when forwarding reads the entry**, possibly after a pause; otherwise the target remains the group. The original administration record retains who joined or left.
+
+The server checks its keyed log chain with `latet server log verify`; external copies of its head and retained anchors help detect a shortened log. The SIEM page explains [gaps and verification](../siem/#gaps-and-verification), including what exported markers can and cannot prove.

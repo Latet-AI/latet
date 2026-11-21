@@ -31,7 +31,7 @@ latet server --server https://latet.acme.lan keys add-token "Support desk" n8n -
 | Scan | `scan`, o `mask` |
 | Mask | `mask` |
 | Unmask | `unmask` |
-| Forget | `forget`, que ningún otro permiso trae |
+| Forget | `forget`, que ningún otro permiso incluye |
 
 En n8n, las credenciales **Latet API** guardan la dirección del servidor (`https://latet.acme.lan`) y
 el token, es decir, el contenido de `n8n.token`. Usa una dirección `https://`: por `http://`, el token
@@ -42,12 +42,12 @@ así funciona en el nodo.
 ## Qué hace cada operación
 
 Cada operación lee el texto de cada elemento de un campo (**Text Field**, `text` por defecto) y envía
-los elementos en llamadas de 1.000 textos como mucho.
+los elementos en llamadas de 1000 textos como mucho.
 
 - **Scan** dice dónde están los valores en cada texto, por tipo, y no guarda nada.
 - **Mask** devuelve cada texto con valores ficticios en lugar de sus valores, el mismo valor ficticio
   para el mismo valor en cada llamada de la clave. **Kind** dice qué son los textos: **Prose** para el
-  texto que escriben las personas, **Data** para registros, filas y la salida de un programa
+  texto que escriben las personas, **Data** para registros, fichas y la salida de un programa
   ([prosa y datos](../#prosa-y-datos)).
 - **Unmask** vuelve a poner los valores reales en lugar de los valores ficticios de la clave. El
   servidor escribe cada restauración en su registro de administración.

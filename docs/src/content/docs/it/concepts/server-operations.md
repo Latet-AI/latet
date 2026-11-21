@@ -42,7 +42,7 @@ il primo token amministrativo viene stampato una volta. Non conservarlo in log c
 
 Su Linux servono prima alcune cose, da root. Installa Latet con l'extra `server` per tutta la
 macchina: le cartelle di uv per strumenti, comandi e Python tutte fuori dalle cartelle
-personali. Crea l'utente e il gruppo `latet` con cui gira il servizio, poi la cartella che
+personali. Crea l'utente e il gruppo `latet` con cui viene eseguito il servizio, poi la cartella che
 contiene le impostazioni e i segreti, con dentro la chiave principale e la password del database:
 
 ```sh
@@ -55,7 +55,7 @@ install -d -m 0750 -o root -g latet /etc/latet
 ```
 
 Metti la password di Valkey in `/etc/latet/valkey.password`, e il certificato TLS con la sua chiave
-in `/etc/latet/server.crt` e `/etc/latet/server.key`. Poi scrivi `/etc/latet/server.yaml`; ecco
+in `/etc/latet/server.crt` e `/etc/latet/server.key`. Poi scrivi `/etc/latet/server.yaml`; eccone
 uno minimo per un servizio sull'host:
 
 ```yaml
@@ -69,7 +69,7 @@ certificate: /etc/latet/server.crt
 key: /etc/latet/server.key
 ```
 
-Assegna `server.yaml` e ogni file segreto che indica, `key` compresa, a root e al gruppo `latet`,
+Assegna `server.yaml` e ogni file segreto che indica, compreso quello di `key`, a root e al gruppo `latet`,
 leggibili solo da loro (`0640`, oppure `0440`):
 
 ```sh
@@ -79,7 +79,7 @@ chmod 0640 server.yaml master.key db.password valkey.password server.key
 ```
 
 Aggiungi `ner` e `ocr` all'extra per il rilevamento dei nomi e il riconoscimento del testo.
-L'installazione del servizio dice quale di queste cose manca: un'installazione sotto una
+L'installazione del servizio segnala quale di questi problemi trova: un'installazione sotto una
 cartella personale, nessun utente o gruppo `latet`, oppure un file con un altro proprietario
 o un'altra modalità.
 
@@ -94,7 +94,7 @@ systemctl start latet-server
 ```
 
 Su Windows la configurazione predefinita è `C:/ProgramData/Latet/server.yaml`.
-Il servizio gira come `NT SERVICE\LatetServer`, con ACL protette sulle cartelle.
+Il servizio viene eseguito come `NT SERVICE\LatetServer`, con ACL protette sulle cartelle.
 Il log è `C:/ProgramData/Latet/logs/server.log`, con rotazione su cinque file da 10 MiB:
 
 ```powershell
@@ -104,13 +104,13 @@ latet server service install --config C:/ProgramData/Latet/server.yaml
 Start-Service LatetServer
 ```
 
-`--print` mostra il piano senza installare. L'installazione richiede root su Linux o
-privilegi amministrativi su Windows e abilita il servizio all'avvio; avvialo esplicitamente
-quando sei pronto. Le invocazioni degli agenti sono rifiutate anche con `--print` o
-`--yes`. Dal tuo terminale l'installazione chiede conferma prima di cambiare qualcosa, con `--yes`
+`--print` mostra il piano di installazione senza installare nulla. L'installazione vera e propria
+richiede root su Linux o privilegi amministrativi su Windows e attiva il servizio all'avvio;
+avvialo esplicitamente quando sei pronto. Se a eseguire i comandi è un agente, vengono rifiutati
+anche con `--print` o `--yes`. Dal tuo terminale l'installazione chiede conferma prima di cambiare qualcosa, con `--yes`
 o senza; `--yes` permette a uno script tuo, senza terminale, di installare senza la domanda.
 L'installazione in un container è rifiutata. Questi comandi descrivono la procedura, non un
-servizio già installato sul computer.
+servizio già installato sul tuo computer.
 
 ## Il profilo server di Compose
 
@@ -125,18 +125,18 @@ Crea nella cartella `master.key` (32 byte casuali in base64), `db-admin.password
 `db.password`, `valkey.password` e `metrics.token` prima di inizializzare. Usa valori
 casuali robusti; `db.password` e `valkey.password` devono essere esadecimali per i comandi
 di avvio forniti (`openssl rand -hex 32`). Non sostituire una chiave principale esistente
-per semplificare la configurazione. L'opzionale `reviewer.key` richiede di decommentare
+per semplificare la configurazione. Il file facoltativo `reviewer.key` richiede di decommentare
 insieme impostazione del file, montaggio e definizione del segreto. Questi segreti
 provengono solo da file, senza ripiego su variabili d'ambiente. Fornisci i file TLS in
 `certs/` e proteggi la chiave privata.
 
-Le istanze si collegano a PostgreSQL come ruolo `latet`, che non è un superutente. Su un
+Le istanze si connettono a PostgreSQL come ruolo `latet`, che non è un superutente. Su un
 volume di dati nuovo, `deploy/postgres-init.sh` lo crea con la password di `db.password`,
 come proprietario del database `latet`. Il superutente di PostgreSQL, `postgres`, ha
 `db-admin.password`, che nessuna istanza riceve: un'istanza compromessa non può eseguire un
 programma nel container del database (`COPY … PROGRAM` richiede un superutente). Lo script
-gira solo finché il volume è nuovo e non modifica un database esistente. Un'installazione il
-cui volume è stato creato prima tiene `latet` come superutente di PostgreSQL, un attributo che
+viene eseguito solo finché il volume è nuovo e non modifica un database esistente. Un'installazione
+il cui volume è stato creato prima di questo script tiene `latet` come superutente di PostgreSQL, un attributo che
 PostgreSQL non lascia mai perdere a quel ruolo (`ALTER ROLE latet NOSUPERUSER` viene rifiutato):
 per passare alla nuova configurazione, esporta il database con
 `pg_dump --no-owner --no-privileges`, avvia PostgreSQL su un volume nuovo e ripristina
@@ -153,7 +153,10 @@ printf 'LATET_SERVER_URL=https://latet.acme.lan\nLATET_SERVER_HOST=latet.acme.la
 Questo esempio per shell POSIX sceglie il progetto `latet`, con rete interna
 `latet_latet-back`. L'inizializzazione usa `--log-driver none` di Docker perché stampa
 il token amministrativo; mantieni privato il terminale e trasferisci il token nel tuo
-archivio di segreti. Verifica che l'inizializzazione sia riuscita prima di avviare le istanze:
+archivio di segreti. L'inizializzazione la esegue una persona, in un terminale suo, mai un agente
+AI: chi la esegue ottiene il token amministrativo, e dentro un container la protezione con cui
+Latet impedisce agli agenti di eseguire comandi di amministrazione non può vedere chi la esegue.
+Verifica che l'inizializzazione sia riuscita prima di avviare le istanze:
 
 ```sh
 # --wait returns only once PostgreSQL and Valkey are healthy (at most 120 s): go on only if it succeeds
@@ -182,11 +185,11 @@ Quando l'inizializzazione termina con successo, avvia le istanze e Caddy:
 docker compose -p latet --profile server up -d latet-server-1 latet-server-2 caddy
 ```
 
-Nel profilo server solo Caddy pubblica una porta: `443`. Il servizio separato per computer
-`latet` resta nel file Compose; l'elenco esplicito sopra non lo avvia. La rete frontale è
+Nel profilo server solo Caddy pubblica una porta: `443`. Il servizio predefinito separato per un
+computer, `latet`, resta nel file Compose; l'elenco esplicito sopra non lo avvia. La rete di front-end è
 `172.28.0.0/24`, con assegnazione automatica da `172.28.0.128/25`; l'indirizzo fisso
 di Caddy `172.28.0.2` è fuori da quell'intervallo ed è l'unico proxy attendibile.
-La rete posteriore è interna.
+La rete di back-end è interna.
 
 Caddy usa i file TLS forniti, un limite di richiesta di **32 MiB**, inoltro immediato
 degli stream e upgrade WebSocket. Lascia disattivati i log di accesso e conserva
@@ -195,11 +198,11 @@ possono altrimenti registrare URI e header di autenticazione personalizzati.
 Caddy non include un limitatore di frequenza; i limiti per client spettano a un proxy
 esterno o a un WAF.
 
-I container server usano log JSON-file limitati e non bloccanti. Le istanze girano con
-l'utente non privilegiato dell'immagine, uid e gid `10001`, mai come root. Hanno root
-in sola lettura, capability rimosse e `/tmp` temporanea; questo esempio non impone un
-limite di memoria alle istanze in produzione. Dimensiona spazi, modelli e OCR concorrente
-senza copiare i limiti degli smoke test. Valkey ha memoria limitata con `noeviction`.
+I container server usano log JSON-file limitati e non bloccanti. Le istanze vengono eseguite
+con l'utente non privilegiato dell'immagine, uid e gid `10001`, mai come root. Hanno il filesystem
+radice in sola lettura, capability rimosse e `/tmp` temporanea; questo esempio non impone un
+limite di memoria alle istanze in produzione. Dimensiona le risorse per spazi, modelli e lavoro OCR
+concorrente, invece di copiare i limiti degli smoke test. Valkey ha memoria limitata con `noeviction`.
 L'immagine include gli avvisi di terze parti.
 
 ## PostgreSQL e Valkey
@@ -215,7 +218,7 @@ connessione non comprende la risoluzione DNS.
 Usa Valkey 7.2 o successivo, oppure Redis 7, come unico server logico; sono possibili
 repliche, mentre Cluster non è supportato. Gli script operano su più prefissi di chiave.
 Imposta `maxmemory-policy` su `noeviction`, assegna memoria per gli spazi previsti e
-controlla la capacità. Perdere stato di coordinamento non equivale a eliminare una cache applicativa innocua.
+controlla la capacità. Perdere lo stato di coordinamento non equivale a svuotare una cache applicativa innocua.
 
 Richiedi autenticazione e TLS verificato (`rediss://`) quando Valkey non è sulla macchina
 dell'istanza. Le eccezioni `database_private_network`, `valkey_private_network` e
@@ -280,7 +283,7 @@ in byte comprendono già questi costi.
 | Sessioni della dashboard | 2 da 128 byte | 10 da 128 byte |
 | **Subtotale stimato per identità** | **40,76 MiB** | **581,75 MiB** |
 
-Con una riserva illustrativa del 50% diventano 61,13 e 872,62 MiB per identità, oppure
+Con una riserva del 50%, a titolo di esempio, diventano 61,13 e 872,62 MiB per identità, cioè
 circa 5,97 e 85,22 GiB per 100 identità. Prevedi separatamente memoria di base di Valkey,
 connessioni, replica/persistenza e strutture residue o frammentazione che superino tale
 riserva. Conta le identità i cui dati sono ancora conservati, non solo quelle che fanno
@@ -289,11 +292,11 @@ richieste ora. Cache dei processi applicativi e modelli OCR richiedono RAM separ
 L'esempio saturo **non è il caso peggiore assoluto**: i record piccoli restano un'ipotesi.
 La coda di scrittura in attesa da 4 MiB non limita a 4 MiB la famiglia persistente dei
 testi inversi. Una successione di record prossimi a 4 MiB può avvicinarsi a 195 GiB per
-50.000 soli record inversi, prima delle altre famiglie. È una stima prudenziale ricavata
-dal sorgente, non un carico misurato o una quota totale. Anche una chiave di conversazione
+50.000 soli record inversi, prima delle altre famiglie. È una stima approssimativa ricavata
+dal codice sorgente, non un carico misurato o una quota totale. Anche una chiave di conversazione
 o una cartella lunga può superare la dimensione ipotizzata. Mantieni `noeviction`, osserva
-dimensioni e occupazione effettive e dimensiona per il carico ammesso: i soli conteggi
-non garantiscono un piccolo tetto di memoria per identità.
+dimensioni e occupazione effettive e dimensiona per il carico ammesso; non promettere, in base ai
+soli conteggi delle voci, un tetto di memoria contenuto per identità.
 
 Latet 0.11 aggiunge tre tipi di chiavi, ciascuno limitato, e nessuno contiene un testo, un valore o un
 valore fittizio:
@@ -317,13 +320,13 @@ valore fittizio:
 Termina TLS nell'istanza o nel bilanciatore di carico. Imposta `forwarded_allow_ips` sui
 proxy effettivamente attendibili, mai `*`; gli header inoltrati da altri indirizzi non
 sono considerati attendibili. Mantieni gli orologi sincronizzati, entro 60 secondi.
-Limita separatamente l'accesso diretto ai fornitori se il server è il punto di controllo obbligatorio dell'azienda.
+Limita separatamente l'accesso diretto ai provider se il server è il punto di controllo obbligatorio dell'azienda.
 
-Il limite predefinito del corpo della richiesta è 32 MiB. `requests_in_flight` vale 16
-per identità su un'istanza, con quote separate per richieste alle destinazioni, alla
-dashboard, al bridge e all'API per le applicazioni. Long polling e flussi hanno limiti propri. Un rifiuto per capacità
-richiede di controllare carico e limiti, non di disabilitare la protezione. All'arresto
-un'istanza ha 30 secondi per terminare; i flussi lunghi possono interrompersi, quindi
+Il limite predefinito del corpo della richiesta è 32 MiB. `requests_in_flight` vale per impostazione
+predefinita 16 per identità su un'istanza, con quote separate per richieste alle destinazioni, alla
+dashboard, al bridge e all'API per le applicazioni. Long polling e stream hanno limiti propri. Un rifiuto per capacità
+richiede di controllare carico e limiti, non di disattivare la protezione. All'arresto
+un'istanza ha 30 secondi per terminare; gli stream lunghi possono essere interrotti, quindi
 i client devono gestire la disconnessione.
 
 Un'istanza fa la maggior parte del suo lavoro su un solo core del processore. Una macchina con più
@@ -340,10 +343,10 @@ di una chiave nuova 104 ms invece di 97, un corpo JSON da 1 MiB 391 ms invece di
 4.000 slot 1.088 ms invece di 779, e una richiesta di 500 testi già mascherati e uno nuovo 183 ms
 invece di 158.
 
-L'OCR usa lettori limitati, ognuno con i modelli in memoria. `ocr_readers` vale 2 e non può
-superare i processori disponibili per l'istanza (con più worker, la parte di un worker: i processori
-della macchina divisi per i worker). `ocr_read_seconds` vale 30;
-`ocr_wait_seconds` vale 35 e non può essere inferiore al tempo di lettura. Aumentare i
+L'OCR usa un numero limitato di lettori, ognuno con i modelli in memoria. `ocr_readers` vale per
+impostazione predefinita 2 e non può superare i processori disponibili per l'istanza (con più worker,
+la parte di un worker: i processori della macchina divisi per i worker). `ocr_read_seconds` vale per
+impostazione predefinita 30; `ocr_wait_seconds` 35, e non può essere inferiore al tempo di lettura. Aumentare i
 lettori costa memoria oltre alla CPU. Un'immagine non letta viene trattenuta oppure la
 richiesta verificata viene rifiutata, secondo il percorso protetto; aumentare i timeout non migliora l'accuratezza del riconoscimento.
 
@@ -420,7 +423,7 @@ della 0.10.0); lo spazio di una chiave API cerca le parole dei suoi testi come f
 - **PostgreSQL:** ogni istanza tiene fino a `database_pool` connessioni (10 per impostazione predefinita), per
   il lavoro di ogni identità, e ogni worker è un'istanza; il `max_connections` di PostgreSQL deve coprire il
   pool di ogni istanza e i comandi degli amministratori. Mentre costruisce l'indice di una cassaforte, di una
-  chiave API o di una persona, un'istanza apre anche fino a due connessioni sue, chiuse alla fine della
+  chiave API o di una persona, un'istanza apre anche fino a due connessioni proprie, chiuse alla fine della
   costruzione: contale anche nel `max_connections`. Se non ce ne sono di libere, la costruzione usa una
   connessione del pool. Una chiamata all'API per le applicazioni che conserva valori nuovi ne tiene una finché
   non finisce, al massimo tre decimi del pool (tre su dieci); oltre, le chiamate conservano ogni valore nuovo
@@ -430,14 +433,16 @@ della 0.10.0); lo spazio di una chiave API cerca le parole dei suoi testi come f
   impostazione predefinita), e oltre una chiamata attende al massimo cinque secondi. Il `maxclients` di Valkey
   deve coprire le connessioni di tutte le istanze. La connessione a Valkey, il suo TLS e la sua prima risposta
   condividono un unico limite di cinque secondi.
-- **Memoria:** ogni istanza, e anche ogni worker, dà agli spazi che tiene 2 GiB, pesati dai conteggi che le loro
+- **Memoria:** ogni istanza, e anche ogni worker, dà agli spazi che tiene 2 GiB, calcolati dai conteggi che le loro
   parti tengono anziché letti dal processo. Uno spazio ne prende al massimo la metà, e i suoi rilevatori fino a
   un ottavo di quella metà in più (128 MiB), che uno spazio occupato tiene mentre le sue richieste sono in corso:
   più spazi occupati possono superare i 2 GiB di tanto ciascuno. Il processo stesso, i modelli di riconoscimento
-  e gli indici in costruzione vanno in più. Un worker viene riavviato quando termina o resta in silenzio, mai per
-  la sua memoria: pianifica la memoria della macchina per N worker
-  ([più istanze su una macchina](#più-istanze-su-una-macchina)).
-- **I certificati dei fornitori:** un'istanza si fida dell'archivio dei certificati del sistema operativo; su
+  e gli indici in costruzione si aggiungono a questi. Con la sincronizzazione dei termini di Latet Enterprise, ogni istanza, e
+  anche ogni worker, tiene una sola copia dei termini sincronizzati per tutti gli spazi che serve: circa 30 MB con
+  50.000 termini, in più dei 2 GiB, e altrettanto per un momento mentre nuovi termini li sostituiscono. Un worker
+  viene riavviato quando termina o resta in silenzio, mai per la sua memoria: pianifica la memoria della macchina
+  per N worker ([più istanze su una macchina](#più-istanze-su-una-macchina)).
+- **I certificati dei provider:** un'istanza considera attendibile l'archivio dei certificati del sistema operativo; su
   Linux, i percorsi predefiniti di OpenSSL, che `SSL_CERT_FILE` e `SSL_CERT_DIR` cambiano per tutto il processo.
   Cambiali solo per aggiungere l'autorità della tua azienda.
 - **`SSLKEYLOGFILE`** non deve essere impostata per un'istanza: le connessioni TLS che la leggono, tra cui
@@ -461,14 +466,14 @@ La 0.11 cambia anche le tabelle, quindi il server si ferma per la sua migrazione
    0.10 lascia la sua chiave in Valkey quando si ferma, e conta come attiva finché la chiave non
    scade, 30 secondi dopo il suo ultimo battito. Finché un'istanza della 0.10 o della 0.11 è attiva,
    non migra nulla, dice quante sono attive e di quale versione (`1 instance of the server is alive
-   (1 of Latet 0.10 or older): nothing was migrated`) ed esce con 2: fermale ed eseguilo di nuovo.
-   Con una migrazione da applicare, né il comando né `latet server init` migrano nulla nemmeno finché
-   Valkey non risponde. La migrazione aggiunge a ogni riga di parola di ogni cassaforte un posto vuoto
+   (1 of Latet 0.10 or older): nothing was migrated`) e termina con il codice 2: fermale ed eseguilo
+   di nuovo. Se c'è una migrazione da applicare, il comando e `latet server init` non migrano nulla
+   anche quando Valkey non risponde. La migrazione aggiunge a ogni riga di parola di ogni cassaforte un posto vuoto
    per la sua impronta e per il conteggio della modifica che l'ha scritta per ultima, con i loro
    indici: su un database con casseforti grandi richiede più tempo delle migrazioni precedenti, e le
    impronte stesse vengono calcolate dopo, in background (sotto). Una volta applicate le migrazioni,
-   chiede di nuovo a Valkey, e quando un'istanza è diventata attiva nel frattempo lo dice dopo ciò che
-   ha applicato ed esce con 1 (`The tables are migrated, and 1 instance of the server is alive (1 of
+   chiede di nuovo a Valkey, e quando un'istanza è diventata attiva nel frattempo lo segnala dopo ciò
+   che ha applicato e termina con il codice 1 (`The tables are migrated, and 1 instance of the server is alive (1 of
    Latet 0.10 or older): stop it, then start it with this version of Latet`).
 4. Avvia ogni istanza con la 0.11. Tra l'arresto e questo avvio nessuna chiamata riceve risposta.
 
@@ -481,7 +486,7 @@ il cui indice non si può costruire (le impronte non ancora tutte calcolate, Pos
 rispondono, un aggiornamento dell'indice fallito) tiene quell'identità sulla ricerca in PostgreSQL e
 costruisce di nuovo l'indice: subito quando finisce il calcolo delle impronte, su quell'istanza o su
 un'altra, altrimenti 10, 20 e 30 secondi dopo ogni tentativo e poi una volta al minuto, due costruzioni
-alla volta su ogni istanza, la successiva appena una finisce. Il log dice una volta quando l'indice di
+alla volta su ogni istanza, la successiva appena una finisce. Il log segnala una volta quando l'indice di
 uno spazio smette di essere usato (`the vault index of <id> is not used (<why>): its lookups go to
 PostgreSQL until it is built again`) e una volta quando viene usato di nuovo. Una cassaforte oltre
 16.777.216 impronte, circa otto milioni di valori, non ha indice finché il suo spazio dura: le sue
@@ -491,16 +496,19 @@ memoria, come prima, finché le sue parole e le sue impronte non vengono create,
 un'istanza; lo spazio della persona costruito dopo lavora su PostgreSQL. La 0.11 non rifà le parole
 di nessuna chiave ([aggiornare un server](../../applications/#aggiornare-un-server)).
 
-Latet legge ogni richiesta secondo il profilo del suo percorso, che nomina ogni campo, intestazione e
+Latet legge ogni richiesta secondo il profilo del suo percorso, che nomina ogni campo, header e
 parametro di query che porta. A ogni rilascio di Latet, e almeno ogni due settimane, le versioni più
-recenti degli agenti che Latet supporta passano per le richieste che questi profili descrivono. In
-una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex), un membro nuovo del
-corpo che contiene testo, un'intestazione `anthropic-*` nuova o un valore nuovo di `anthropic-beta`
-passa una volta letto dal controllo finale, e un'intestazione `x-claude-code-*` nuova viene tolta.
-Quando l'aggiornamento di un agente invia qualsiasi altra cosa che nessun profilo nomina, la nuova
-revisione del profilo esce in una versione di correzione; finché non la installi, quella richiesta
-viene rifiutata, nominando la sua categoria, e non ne parte nulla. Tieni le istanze sull'ultima
-versione di correzione della loro versione.
+recenti degli agenti che Latet supporta vengono provate con le richieste che questi profili descrivono.
+Un membro nuovo del corpo viene letto per intero e controllato, e passa così com'è quando nulla al suo
+interno andrebbe mascherato e non indica nulla su cui il provider agisce ([Nuovi membri delle
+richieste](../../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)). In una richiesta che
+Latet si limita a verificare (Claude Code, Bedrock, Vertex), un header `anthropic-*` nuovo o un valore
+nuovo di `anthropic-beta` passa una volta letto dal controllo finale, e un header `x-claude-code-*`
+nuovo viene tolto. Quando l'aggiornamento di un agente invia qualsiasi altra cosa che nessun profilo
+nomina, come un altro header o un membro del corpo che indica una risorsa, la nuova revisione del
+profilo esce in una versione di correzione; finché non la installi, quella richiesta viene rifiutata,
+nominando la sua categoria, e non ne viene inviato nulla. Tieni le istanze sull'ultima versione di
+correzione della loro versione.
 
 Le istanze condividono le stesse tabelle, e un'istanza parte solo su tabelle della sua versione. Il
 database è tuo da custodire: Latet non ne copia nulla. Prima di scaricare una nuova immagine e di
@@ -513,7 +521,7 @@ pg_dump --format=custom --file=latet-before-upgrade.dump "postgresql://latet@db.
 
 Per tornare indietro, ripristina quella copia (`pg_restore --clean --if-exists`) e avvia l'immagine
 precedente: un'istanza non parte su tabelle di una versione più nuova. I valori nella copia restano
-cifrati, come nel database: solo la chiave master del server li apre. Prima di un aggiornamento, chiedi alla
+cifrati, come nel database: solo la chiave principale del server li apre. Prima di un aggiornamento, chiedi alla
 nuova versione se cambia le tabelle:
 
 ```sh
@@ -526,7 +534,7 @@ latet server migrate --check
   versione, poi avvia le istanze con quella. `latet server migrate` si rifiuta finché un'istanza è attiva (una
   della 0.10 per 30 secondi dopo il suo arresto), e un'istanza non parte su tabelle di un'altra versione.
 - **I programmi usano l'API per le applicazioni:** ferma ogni istanza più vecchia prima che partano
-  quelle nuove, anche quando le tabelle restano uguali. Mentre due versioni girano insieme, un valore
+  quelle nuove, anche quando le tabelle restano uguali. Mentre due versioni sono in esecuzione insieme, un valore
   che un'istanza più vecchia scrive nella cassaforte di una chiave può non essere trovato da una più
   nuova finché lo spazio della chiave non viene ricostruito
   ([aggiornare un server](../../applications/#aggiornare-un-server)).
@@ -538,8 +546,13 @@ latet server migrate --check
   prime chiamate di tutti gli altri spazi su quell'istanza: invia una chiamata a ogni chiave grande, una chiave
   dopo l'altra, prima che riprenda il traffico.
 
-Nell'esempio Compose, quando le tabelle cambiano, gli stessi passi girano in container della nuova
-immagine (la pausa lascia scadere le chiavi delle istanze della 0.10 fermate; un'istanza della 0.11
+Con Latet Enterprise, le [direttive](../../enterprise/locked-rules/) del server si applicano su ogni istanza man mano
+che viene aggiornata: un'istanza di una versione precedente, o senza l'Enterprise Edition, non ne applica nessuna.
+Mentre sostituisci le istanze una alla volta, imposta le direttive solo quando ogni istanza usa questa versione,
+oppure impostale di nuovo allora; `latet server policy set` avvisa finché un'istanza attiva non le applica ancora.
+
+Nell'esempio Compose, quando le tabelle cambiano, gli stessi passi vengono eseguiti in container
+della nuova immagine (la pausa lascia scadere le chiavi delle istanze della 0.10 fermate; un'istanza della 0.11
 toglie la propria quando si ferma):
 
 ```sh
@@ -559,7 +572,7 @@ stato in PostgreSQL e Valkey, quindi ognuna può rispondere a qualsiasi richiest
 
 Un'istanza fa la maggior parte del suo lavoro su un solo core del processore. Per usare più core di una
 macchina, `latet server run --workers N` (o l'impostazione `workers`, `LATET_SERVER_WORKERS`) avvia N
-istanze, dette worker, sulla stessa porta, ognuna in un processo suo: condividono PostgreSQL e Valkey
+istanze, dette worker, sulla stessa porta, ognuna in un proprio processo: condividono PostgreSQL e Valkey
 come farebbero istanze su N macchine, e il bilanciatore resta com'è. Nell'esempio Compose, imposta
 `LATET_SERVER_WORKERS` nel file `.env`. Comincia con un worker per ogni core che la macchina dà al server.
 
@@ -572,20 +585,20 @@ come farebbero istanze su N macchine, e il bilanciatore resta com'è. Nell'esemp
   mascherato 6,28 volte quanto uno e ripristinato 5,21 volte, dove questa versione si proponeva di
   arrivare a 5 volte ([quanto è veloce](../../applications/#quanto-è-veloce)). Con meno core liberi,
   o con poche connessioni di lunga durata, si ottiene meno: N worker non valgono N volte uno.
-- **Come arrivano le connessioni:** su Linux ogni worker ascolta sulla porta con un socket suo, e il
+- **Come arrivano le connessioni:** su Linux ogni worker ascolta sulla porta con un proprio socket, e il
   sistema distribuisce le nuove connessioni tra loro in base a un hash degli indirizzi e delle porte
   di ciascuna. Molte connessioni si distribuiscono in modo uniforme; poche connessioni di lunga
   durata, come quelle di un bilanciatore, possono comunque finire distribuite in modo non uniforme,
   e più connessioni si distribuiscono meglio. Su macOS, che darebbe ogni connessione a uno solo dei
   socket aperti su una porta, i worker condividono invece un unico socket, e le connessioni li
-  raggiungono in modo meno uniforme. Perché sia il kernel a distribuire le connessioni, fai girare
-  il server su Linux o nell'immagine del container.
+  raggiungono in modo meno uniforme. Perché sia il kernel a distribuire le connessioni, esegui il
+  server su Linux o nell'immagine del container.
 - **L'utente del server:** su Linux il processo che avvia i worker tiene la porta per tutta la
   durata del server, così nessun altro programma la prende, nemmeno mentre nessun worker è in
   ascolto; subito dopo l'arresto di un server con una sola istanza sulla stessa porta, aspetta fino
   a un minuto che le connessioni chiuse di quel server scompaiano. Un programma può ascoltare sulla
-  porta accanto ai worker solo se gira con lo stesso utente del server, e in quel caso potrebbe
-  prendersi una parte delle connessioni, o tutte. Fai girare il server con un utente che non esegue
+  porta accanto ai worker solo se viene eseguito con lo stesso utente del server, e in quel caso
+  potrebbe prendersi una parte delle connessioni, o tutte. Esegui il server con un utente che non esegue
   nient'altro: l'utente `latet` del servizio di sistema, o quello del container.
 - **Memoria e connessioni:** ogni worker tiene in memoria circa quanto un'istanza: su Linux circa
   110 MB residenti a riposo, e da 185 a 227 MB con lo spazio di una chiave API di 200.000 valori dopo
@@ -610,7 +623,8 @@ come farebbero istanze su N macchine, e il bilanciatore resta com'è. Nell'esemp
   tutti i worker e il server, come si ferma un'istanza sola, così decide il gestore dei servizi. Un
   worker che non è pronto (PostgreSQL o Valkey non rispondono) resta: decide il controllo di
   prontezza del bilanciatore. `latet server status` elenca ogni istanza attiva, ogni worker di ogni
-  macchina, con il numero del worker, se è pronta, la sua memoria e la sua versione; un worker morto
+  macchina, con il numero del worker, se è pronta, la sua memoria, la sua versione e la sua edizione
+  (Community o Enterprise); un worker morto
   resta in elenco fino a 30 secondi dopo l'avvio di quello che lo sostituisce. Una richiesta che un
   worker stava servendo quando è terminato non riceve risposta: il suo client riceve un errore e deve
   inviarla di nuovo, e nessuna riceve risposta senza mascheramento. Su Linux le connessioni ancora in
@@ -646,7 +660,7 @@ Poi chiedi alla nuova versione se cambia le tabelle, come sopra (`latet server m
 riavvia il servizio (`systemctl restart latet-server`). Su Windows, che non sostituisce i file di un
 programma in esecuzione, ferma il servizio prima dell'installazione (`Stop-Service LatetServer`) e
 avvialo dopo (`Start-Service LatetServer`). `latet upgrade` installa nelle cartelle di uv: su un Latet
-installato in cartelle sue si ferma prima di cambiare qualcosa e stampa questo comando, con le
+installato in cartelle proprie si ferma prima di cambiare qualcosa e stampa questo comando, con le
 cartelle che ha trovato.
 
 Fino alla 0.10.4, `latet upgrade` indicava solo il rilevamento dei nomi e il testo nelle immagini, e uv
@@ -659,7 +673,7 @@ scaricato di nuovo da GitHub ed eseguito con le stesse variabili `UV_*`. Un serv
 ## Modelli di riconoscimento su un server
 
 Il rilevamento dei nomi e il riconoscimento del testo leggono i modelli dalla cartella dati del
-server, non dal computer dell'amministratore. Installali lì, con l'account con cui girano le istanze:
+server, non dal computer dell'amministratore. Installali lì, con l'account con cui vengono eseguite le istanze:
 `latet ner install` e `latet ocr install` con `LATET_DATA_DIR` impostata su quella cartella.
 Nell'esempio Compose la cartella è il volume `latet-server-data`, montato in `/data` in ogni istanza:
 installali da un container di un'istanza, poi riavvia le istanze.
@@ -670,7 +684,7 @@ docker compose -p latet --profile server run --rm latet-server-1 ocr install --y
 docker compose -p latet --profile server restart latet-server-1 latet-server-2
 ```
 
-Con il servizio Linux, le istanze girano come utente `latet`, e la loro cartella è
+Con il servizio Linux, le istanze vengono eseguite come utente `latet`, e la loro cartella è
 `/var/lib/latet`, che systemd crea quando il servizio parte per la prima volta. Una volta partito,
 installa i modelli come quell'utente, poi riavvia il servizio:
 
@@ -684,7 +698,7 @@ Per il servizio Windows, questa pagina non dà una procedura per installare i mo
 
 ## Programmi con una chiave API
 
-Un programma raggiunge i suoi percorsi con la sua chiave API e tiene la propria chiave del fornitore.
+Un programma raggiunge i suoi percorsi con la sua chiave API e tiene la propria chiave del provider.
 Scrivi la chiave API in un file privato, poi stampa le variabili che fanno passare il programma dal
 server:
 
@@ -696,22 +710,22 @@ Le variabili stampate contengono la chiave di percorso: tienile segrete quanto l
 in un profilo condiviso. Solo il primo token della chiave ha questi indirizzi: un token creato con
 `keys add-token` non ne ha, qualunque siano i suoi permessi, e chiama soltanto l'API per le applicazioni.
 `latet env` chiede al server di che tipo è il token: per un token così non stampa alcuna variabile e lo
-dice.
+segnala.
 
-Il programma deve fidarsi del certificato del server: uno di un'autorità di cui si fida già, oppure il
-certificato aggiunto alle sue impostazioni di fiducia.
+Il programma deve considerare attendibile il certificato del server: uno emesso da un'autorità che
+considera già attendibile, oppure il certificato aggiunto alle sue impostazioni di attendibilità.
 
 Un programma che maschera i propri log o documenti chiama invece l'[API per le applicazioni](../../applications/):
-nessuna variabile, un token della chiave nella sua intestazione `Authorization`, con i soli permessi
+nessuna variabile, un token della chiave nel suo header `Authorization`, con i soli permessi
 che gli servono. Le sue chiamate condividono lo spazio della chiave con gli agenti della chiave, e
 quindi la sua cassaforte e i suoi valori fittizi.
 
 Due tipi del suo lavoro fanno coda per tutto il server, non per ogni chiave. La voce del registro
 amministrativo di ogni ripristino viene scritta prima della sua risposta, una alla volta sulla catena
-del registro, da due thread di ogni istanza per i ripristini di tutte le chiavi; e gli oblii girano due
-alla volta su ogni istanza, per tutte le chiavi. Una chiave che invia molti ripristini insieme, o che
-dimentica una lista lunga, ritarda i ripristini o gli oblii delle altre chiavi, mai un'iscrizione, una
-revoca o ciò che inviano gli agenti. Il registro amministrativo cresce di una riga per ogni chiamata di
+del registro, da due thread di ogni istanza per i ripristini di tutte le chiavi; e le operazioni di
+oblio vengono eseguite due alla volta su ogni istanza, per tutte le chiavi. Una chiave che invia molti
+ripristini insieme, o che dimentica una lista lunga, ritarda i ripristini o gli oblii delle altre
+chiavi, mai la registrazione di un computer, una revoca o ciò che inviano gli agenti. Il registro amministrativo cresce di una riga per ogni chiamata di
 ripristino.
 
 ## Log, metriche e recupero
@@ -728,24 +742,27 @@ impostazione predefinita `127.0.0.1:7283`, e richiedono `metrics_token_file`. Di
 da una catena interrotta. Il [riferimento amministrativo](../../reference/server-administration/)
 definisce la paginazione del registro e il significato preciso di `latet_ocr_unread_total{reason}`.
 
+Con la sincronizzazione dei termini di Latet Enterprise, imposta un avviso per ogni istanza in cui manca
+`latet_terms_masked`, in cui `latet_terms_behind_seconds` supera 60 o in cui `latet_terms_unreadable` supera 0:
+quell'istanza non ha mai caricato i termini sincronizzati, o ne maschera di più vecchi di quelli che ha il server.
+
 Ogni ripristino attraverso l'API per le applicazioni è una voce `apps.unmasked` del registro
 amministrativo, con il token e quanti valori ha ripristinato, e ogni oblio una voce `apps.forgotten`,
 con il token e quanti valori ha tolto dalla cassaforte della chiave; analisi e mascheramento sono
-contati
-solo nelle metriche (`latet_apps_texts_total` e `latet_apps_values_total`, per operazione, e le
+contati solo nelle metriche (`latet_apps_texts_total` e `latet_apps_values_total`, per operazione, e le
 richieste come `latet_http_requests_total{kind="apps"}`), senza un'etichetta per la chiave
 ([che cosa registra il server](../../reference/apps-api/#che-cosa-registra-il-server)).
 
 In questa configurazione Compose, leggi `127.0.0.1:7283` dall'interno di ogni istanza con
 il token delle metriche. Non ci sono una porta pubblicata, un percorso Caddy o una rete
-di monitoraggio fornita. Un'altra distribuzione deve predisporre esplicitamente un percorso
+di monitoraggio fornita. Un'installazione diversa deve predisporre esplicitamente un percorso
 di lettura protetto e autenticato; la porta HTTPS dell'applicazione non serve queste metriche.
 Il listener delle metriche risponde solo a `GET /_latet/metrics`, a ogni altro percorso con `404`:
 Prometheus chiede `/metrics`, a meno che il suo `metrics_path` non dica altro.
 
 Un'istanza all'ora percorre la catena del registro amministrativo e ne conserva il verdetto; lo stato e le
-metriche mostrano quel verdetto per due ore, e lo dicono sconosciuto quando non ce n'è uno (un server
-nuovo, o Valkey ripartito da zero). Latet non ha uno strumento che ripari una catena rotta: confrontala con la
+metriche mostrano quel verdetto per due ore, e lo indicano come sconosciuto quando non ce n'è uno (un
+server nuovo, o Valkey ripartito da zero). Latet non ha uno strumento che ripari una catena interrotta: confrontala con la
 testa che hai conservato fuori dal database, trova la voce che indica e ripristina il database da un backup se il
 registro è stato alterato.
 
@@ -785,5 +802,5 @@ Esegui backup di PostgreSQL, della chiave principale corrispondente e della conf
 con controlli di accesso appropriati. Prova il ripristino in un ambiente isolato prima
 di affidarti al backup. Ripristinare un vecchio database può ripristinare anche vecchie
 autorizzazioni: riconcilia credenziali e revoche prima di riaprire il servizio.
-Conservazione della cronologia e sua cancellazione dalla dashboard non eliminano backup
-o cassaforte. Controlla questi archivi separatamente.
+Il periodo di conservazione della cronologia e la sua cancellazione dalla dashboard non eliminano i
+backup né la cassaforte. Controlla questi archivi separatamente.

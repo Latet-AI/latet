@@ -11,6 +11,7 @@ from psycopg import sql
 from latet.server.bus import redis_url
 from latet.server.db import Database, DatabaseError, migrate
 
+from ..owned import owned
 from .support import DATABASE, VALKEY
 
 pytestmark = pytest.mark.server
@@ -22,8 +23,8 @@ def _schema_exists(connection, schema):
 
 @pytest.fixture
 def owned_launch_namespaces(request):
-    schema = "latet_t_" + secrets.token_hex(5)
-    prefix = "latet_t_" + secrets.token_hex(5) + ":"
+    schema = owned("latet_t_" + secrets.token_hex(5), "schema", DATABASE)
+    prefix = owned("latet_t_" + secrets.token_hex(5) + ":", "prefix", VALKEY)
     with psycopg.connect(DATABASE, connect_timeout=5) as conn:
         if _schema_exists(conn, schema):
             raise RuntimeError("schema must be absent before ownership")

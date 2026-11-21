@@ -38,6 +38,7 @@ from latet.engine.surrogates.generators import (
     gen_email,
     gen_secret,
     gen_short_secret,
+    secret_shape,
     shape,
 )
 from latet.engine.types import SECRET_FAKE_SHORTEST, SHORT_FAKE_LONGEST, EntityClass
@@ -56,7 +57,8 @@ _TOUCHED_KEPT = 16_384
 _SHAPE_SECRETS = {"PASSWORD", "PRIVATE_KEY", "URL_PASSWORD"}
 # The longest value whose fake is drawn from a seed of the whole of it (``Vault._generate``): a longer one's seed holds
 # a digest of it, so that its fake is drawn in time linear in its length. A PEM key of RSA 4096 bits, a certificate, a
-# token keep the fakes they always had.
+# token keep the seed they always had, and a fake the vault keeps stays as it is; a secret's fake drawn anew since
+# 0.15.0 is drawn otherwise from that seed (``generators.secret_shape``), whatever its length.
 SEED_LONGEST = 4096
 # Entity types whose surrogates are ordinary words: they are restored only as whole words.
 _WORDLIKE = {"PERSON", "USERNAME", "CLIENT", "COMPANY", "ORG", "CUSTOM", "PROJECT", "STREET_ADDRESS", "CITY"}
@@ -759,13 +761,14 @@ class Vault:
             try:
                 return generator(original, rng)
             except (ValueError, AssertionError, IndexError):  # no fake of its kind (every name would show it)
-                return shape(original, Drbg(self._k_sur, seed + b"\x00shape"))
+                drawn = secret_shape if eclass == EntityClass.SECRET else shape  # a secret's: of its runs' kinds
+                return drawn(original, Drbg(self._k_sur, seed + b"\x00shape"))
         if eclass == EntityClass.STRUCT:
             return gen_data(original, rng)
         if eclass == EntityClass.SECRET:
             if len(original) < SECRET_FAKE_SHORTEST:  # 0.10.2: a fake no id or number holds by chance
                 return gen_short_secret(original, rng)
-            return shape(original, rng) if etype in _SHAPE_SECRETS else gen_secret(original, rng)
+            return secret_shape(original, rng) if etype in _SHAPE_SECRETS else gen_secret(original, rng, etype)
         if eclass == EntityClass.CUSTOM and original.replace(" ", "").isalpha():
             try:
                 return gen_company(original, rng, wide)

@@ -15,11 +15,11 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from hashlib import sha256
 from itertools import chain, product
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from latet.engine.response_guard import safe_text
 from latet.engine.wellformed import well_formed
-from latet.gateway import coverage
+from latet.gateway import coverage, new_members
 from latet.gateway.body_selectors import BodyGrants, exception_rule, selectable
 from latet.gateway.model_ids import body_model
 from latet.gateway.routes import Upstream
@@ -40,6 +40,12 @@ M3 = "image remainder after text recognition"
 HISTORY = "sent before in this conversation"
 REPORTED = "reported as written by the model"
 REMOVED = "removed before the send"
+# A member no profile declares, read whole and checked as masking reads a text, where D6's string case does not reach
+# (``new_members``): the walk's new rule (notes/unknown-members-design.md §1, step 4).
+NEW_MEMBER_RULE = "unknown member read and checked (1)"
+# What the walk does with a member no profile declares that D6's string case and no exception take: reads it by the new
+# rule (``check``), or refuses it, as Latet did before it had the rule (``refuse``).
+UnknownMembers = Literal["check", "refuse"]
 # Codex c1382380 core/src/client.rs:580-603 (prompt_cache_key: the session's ThreadId, or
 # "{InternalSessionSource}:{parent}" or "guardian:{parent}"), as its session-id header.
 _UUID = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
@@ -54,6 +60,9 @@ _METADATA_KEY = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 # A response id the provider issued (OpenAI's documented resp_ ids; Codex sends back the id it was answered with,
 # core/src/client.rs:1996-2069, from an earlier connection too after a resume or a reconnect): never bound to one.
 _RESPONSE_ID = re.compile(r"resp_[A-Za-z0-9]{1,128}")
+# Anthropic's output_config.effort, at the top level, in a fallback and in a system message of the conversation; xhigh
+# is Claude Code's default since 2.1.323 (its --effort takes these five).
+_ANTHROPIC_EFFORT = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 
 _SAFE_CODES = frozenset({"coverage-limit", "body-unknown-member", "body-unknown-member-no-exception"})
@@ -598,6 +607,23 @@ class BodyInspection:
     exceptions: set[str] = field(default_factory=set)
     # The shape the ledger accounted in this reading (None: an account read again, ``inspect_body``'s ``accounted``).
     shape: BodyFreeze | None = None
+    # The texts of the members no profile declares that the new rule read (``NEW_MEMBER_RULE``), in reading order: for
+    # the final check's stricter reading (``Verifier.verify``'s ``new_members``), never as checked-only texts.
+    new_members: list[str] = field(default_factory=list)
+    # Their values as their fields (``new_members.fields``), for the final check's reading by field rules
+    # (``Verifier.verify``'s ``new_member_fields``).
+    new_member_fields: list[str] = field(default_factory=list)
+    # How the request was refused before the rule, at the first member it read: its holder's category, and whether an
+    # exact exception could name it (``BodyRefused``'s ``reachable``). What refuses it where the final check cannot read
+    # its new members in time (``Verifier.verify``'s ``NewMembersUnread``); None for a request with none.
+    new_member_refusal: tuple[str, bool] | None = None
+
+    def refuse_new_members(self) -> BodyRefused:
+        """The refusal of a request whose new members the final check could not read: as before the rule."""
+        if self.new_member_refusal is None:
+            raise ValueError("a request with no new member")
+        category, reachable = self.new_member_refusal
+        return BodyRefused(category, unknown=True, reachable=reachable)
 
 
 def cancel_fields(frame: dict[str, Any], ledger: Ledger) -> tuple[str, ...]:
@@ -681,8 +707,20 @@ class _Body:
         root: Any = None,
         excepted: bool = True,
         cache_create: bool = False,
+        unknown_members: UnknownMembers = "check",
+        observe: Callable[[tuple[str | int, ...]], None] | None = None,
     ) -> None:
+        if unknown_members not in ("check", "refuse"):
+            raise ValueError("not a way to read unknown members")
         self.protocol, self.upstream, self.verify, self.ledger = protocol, upstream, verify, ledger
+        self.unknown_members = unknown_members
+        # Told the place of each member no profile declares, before it is read or refused: never by a request.
+        self.observe = observe
+        # What the unknown members of the provider's item the walk is in hold, as leaves and bytes (``_new_member``).
+        self.item_spent = [0, 0]
+        # The distinct texts the new rule read in this walk, and their bytes (``new_members.TEXTS``, ``BYTES``).
+        self.new_read: set[str] = set()
+        self.new_bytes = 0
         self.cache_create = cache_create  # a Gemini cache's creation: its model may be named models/{id}
         self.result = BodyInspection()
         self.selected = {(id(slot.container), slot.key) for slot in scan.slots}
@@ -840,11 +878,16 @@ class _Body:
     def obj(self, value: Any, fields: dict[str, Any], category: str, *, provider: bool = False) -> None:
         if not isinstance(value, dict):
             raise BodyRefused(category)
+        if provider and not self.provider_depth:
+            self.item_spent = [0, 0]
         self.provider_depth += int(provider)
         try:
             for key, item in value.items():
                 rule = fields.get(key)
                 if rule is None:
+                    if self.observe is not None:
+                        path = self._path(value)
+                        self.observe((*(path if path is not None else ()), key))
                     if (
                         (self.verify or self.declarations)
                         and not self.provider_depth
@@ -857,8 +900,17 @@ class _Body:
                             self.text(text)
                         if not self.declarations:
                             self.result.rules.add(D6)
+                        elif self.projection and self.unknown_members == "check" and isinstance(item, list):
+                            # A copy no walk reads after this screen: where Latet rewrites, the new rule reads these
+                            # strings joined too, so they are screened joined (a key split across them).
+                            joined = new_members.joined(item)
+                            if joined is not None:
+                                self._made(joined)
+                                self.text(joined)
                     elif self._granted(value, key, item):
                         continue
+                    elif self.unknown_members == "check":
+                        self._new_member(value, key, item, category)
                     elif not self.declarations:
                         # No exception's selector reaches a provider item or a frame (``_granted``, F-2), nor a
                         # member whose name its grammar refuses (``selectable``, re-review R-1).
@@ -867,6 +919,67 @@ class _Body:
                     self._read(self.member, value, key, rule)
         finally:
             self.provider_depth -= int(provider)
+
+    def _new_member(self, holder: dict[str, Any], key: str, item: Any, category: str) -> None:
+        """The new rule: a member no profile declares, which neither D6's string case nor an exception takes, read
+        whole (``new_members.texts``), or refused as before the rule when it names a resource, a destination or a model,
+        holds a blob or what is no finite JSON data, or, inside a provider's item, more than short tokens: in all of
+        the item's unknown members, ``new_members.PROVIDER_LEAVES`` leaves and ``PROVIDER_BYTES`` bytes at most. Its
+        texts, its values as their fields and the rule go to the inspection, ``new_members.TEXTS`` distinct texts and
+        ``BYTES`` bytes at most in the request's new members together: past them, the request is refused as before the
+        rule, at its first new member, as all of it is where the final check cannot read them in time
+        (``new_member_refusal``). The launch-key screen (``declarations``) reads its texts instead, and leaves a member
+        refused here to the walk that refuses it, save in a copy no walk reads after it (a key given twice,
+        ``projection``), whose texts it screens all the same, refused or not, refusing nothing else there."""
+        if not self.declarations and self.result.new_member_refusal is None:
+            # Where the walk refused the request before the rule: here, its first such member (the order is the same).
+            self.result.new_member_refusal = (category, self._reachable(holder, key))
+        refused = new_members.refusal(key, item, provider=bool(self.provider_depth))
+        if refused is None and self.provider_depth:
+            leaves, size = new_members.measure(key, item)
+            self.item_spent[0] += leaves
+            self.item_spent[1] += size
+            if self.item_spent[0] > new_members.PROVIDER_LEAVES or self.item_spent[1] > new_members.PROVIDER_BYTES:
+                refused = new_members.PROVIDER
+        if refused is not None and not self.declarations:
+            raise BodyRefused(category, unknown=True, reachable=self._reachable(holder, key))
+        if refused is not None and not self.projection:
+            return
+        read: list[str] = []
+        for text, made in new_members.read(key, item):
+            if made:  # a key with its value, an array's strings joined: charged before the next is made
+                self._made(text)
+            if not self.declarations:
+                self._spend(text)
+            read.append(text)
+        if self.declarations:
+            for text in read:
+                self.text(text)
+            return
+        found: list[str] = []
+        for text in new_members.fields(key, item):  # made here too: charged, and counted, one by one
+            self._made(text)
+            self._spend(text)
+            found.append(text)
+        self.result.new_members.extend(read)
+        self.result.new_member_fields.extend(found)
+        self.result.rules.add(NEW_MEMBER_RULE)
+
+    def _spend(self, text: str) -> None:
+        """A text the new rule read, counted once in the request's new members: past ``new_members.TEXTS`` distinct
+        texts or ``BYTES`` bytes, the request is refused as before the rule."""
+        if text in self.new_read:
+            return
+        self.new_read.add(text)
+        self.new_bytes += len(text.encode("utf-8", "surrogatepass"))
+        if len(self.new_read) > new_members.TEXTS or self.new_bytes > new_members.BYTES:
+            raise self.result.refuse_new_members()
+
+    def _made(self, text: str) -> None:
+        """A text the walk made (a key with its value, an array's strings joined), charged to the ledger as one more
+        occurrence and its characters."""
+        self.ledger.charge(1, len(text))
+        self.ledger.declared_occurrences += 1
 
     def _reachable(self, holder: dict[str, Any], key: str) -> bool:
         """Whether an exact exception could name the member ``key`` of ``holder``: a body exceptions may apply to,
@@ -1035,13 +1148,20 @@ class _Body:
             {
                 "model": "model",
                 "output_config": lambda x: self.obj(
-                    x,
-                    {"format": self.format, "effort": frozenset({"low", "medium", "high", "max"})},
-                    "fallback output settings",
+                    x, {"format": self.format, "effort": _ANTHROPIC_EFFORT}, "fallback output settings"
                 ),
                 "output_format": self.format,
             },
             "fallback",
+        )
+
+    def context_edit(self, value: Any) -> None:
+        """One edit of Anthropic's context editing, as Claude Code 2.1.323 sends it (the beta
+        context-management-2025-06-27): the thinking of earlier turns kept whole. Any other edit is refused."""
+        self.obj(
+            value,
+            {"type": frozenset({"clear_thinking_20251015"}), "keep": frozenset({"all"})},
+            "context management",
         )
 
     def cache(self, value: Any) -> None:
@@ -1182,19 +1302,21 @@ class _Body:
         )
 
     def message(self, value: Any) -> None:
-        self.obj(
-            value,
-            {
-                "role": frozenset({"system", "developer", "user", "assistant", "tool", "function"}),
-                "content": self.content,
-                "refusal": "text",
-                "name": "name",
-                "tool_call_id": "reference",
-                "tool_calls": lambda x: self.listed(x, self.call),
-                "function_call": self.function,
-            },
-            "message",
-        )
+        fields: dict[str, Any] = {
+            "role": frozenset({"system", "developer", "user", "assistant", "tool", "function"}),
+            "content": self.content,
+            "refusal": "text",
+            "name": "name",
+            "tool_call_id": "reference",
+            "tool_calls": lambda x: self.listed(x, self.call),
+            "function_call": self.function,
+        }
+        if self.protocol == "anthropic" and isinstance(value, dict) and value.get("role") == "system":
+            # A system message in the conversation sets the effort from its turn on, as Claude Code 2.1.323 sends it
+            # (the beta per-turn-control-2026-07-01): the effort alone. On any other role or protocol, a member no
+            # profile declares.
+            fields["output_config"] = lambda x: self.obj(x, {"effort": _ANTHROPIC_EFFORT}, "output settings")
+        self.obj(value, fields, "message")
 
     def function(self, value: Any) -> None:
         self.obj(value, {"name": "name", "arguments": "text", "input": "text"}, "tool input")
@@ -1353,6 +1475,11 @@ class _Body:
         }
         if kind == "message":
             fields |= {"role": frozenset({"system", "developer", "user", "assistant"}), "content": self.content}
+            if value.get("role") == "assistant":
+                # The model's own message replayed with its phase, Codex 72532eca's MessagePhase
+                # (protocol/src/models.rs:1053-1062), as Hermes Agent replays it (issue 17). On any other role, a
+                # member no profile declares.
+                fields["phase"] = frozenset({"commentary", "partial_answer", "final_answer"})
         elif kind in {"function_call", "custom_tool_call"}:
             fields |= {"call_id": "id", "name": "name", "arguments": "text", "input": "text"}
         elif kind in {
@@ -1487,7 +1614,10 @@ class _Body:
                 "top_k": "number",
                 "output_format": self.format,
                 "output_config": lambda x: self.obj(
-                    x, {"format": self.format, "effort": frozenset({"low", "medium", "high", "max"})}, "output settings"
+                    x, {"format": self.format, "effort": _ANTHROPIC_EFFORT}, "output settings"
+                ),
+                "context_management": lambda x: self.obj(
+                    x, {"edits": lambda edits: self.listed(edits, self.context_edit)}, "context management"
                 ),
                 "thinking": lambda x: self.obj(
                     x,
@@ -1727,11 +1857,22 @@ def declared_body_safe(
     *,
     projection: bool = False,
     grants: BodyGrants | None = None,
+    unknown_members: UnknownMembers = "check",
 ) -> bool:
-    """Screen what the closed declaration reads, and what the exceptions in force (``grants``) admit, for a protected
-    launch credential."""
+    """Screen what the closed declaration reads, what the exceptions in force (``grants``) admit and what the new rule
+    reads of a member no profile declares (``unknown_members``, as ``inspect_body``), for a protected launch
+    credential."""
     reader = _Body(
-        protocol, upstream, scan, False, ledger, declarations=True, projection=projection, grants=grants, root=body
+        protocol,
+        upstream,
+        scan,
+        False,
+        ledger,
+        declarations=True,
+        projection=projection,
+        grants=grants,
+        root=body,
+        unknown_members=unknown_members,
     )
     try:
         reader.request(body)
@@ -1753,6 +1894,8 @@ def inspect_body(
     excepted: bool = True,
     accounted: BodyFreeze | None = None,
     cache_create: bool = False,
+    unknown_members: UnknownMembers = "check",
+    observe: Callable[[tuple[str | int, ...]], None] | None = None,
 ) -> BodyInspection:
     """Read ``body`` by the closed declaration of its protocol. ``grants`` are the body selectors of the exceptions in
     force for this exact route (``body_selectors``): an undeclared member they name is checked and passes, naming its
@@ -1761,7 +1904,11 @@ def inspect_body(
     member's refusal says (``BodyRefused``). ``accounted``: the shape the ledger last accounted of this body (the
     inspection's ``shape``): a body of that very shape since, its leaf strings alone changed as masking changes them,
     has the final paths, the active set and the receipts that account made, and is not accounted again (P2-8); any
-    other is. ``cache_create``: the body creates a Gemini cache, whose model the GenAI SDK names as ``models/{id}``."""
+    other is. ``cache_create``: the body creates a Gemini cache, whose model the GenAI SDK names as ``models/{id}``.
+    ``unknown_members``: an undeclared member that neither D6's string case nor an exception takes is read by the new
+    rule (``check``: its texts in the inspection's ``new_members``, ``NEW_MEMBER_RULE`` in its ``rules``) or refused as
+    before the rule (``refuse``). ``observe``: told the place of each undeclared member (its keys and indexes from the
+    body's top), read or refused, for a check of agents' requests; never given by a request's preparation."""
     shape = None
     if accounted is None or not accounted.same_shape(body):
         shape = ledger.account(body, initial=not ledger.initialized)
@@ -1776,6 +1923,8 @@ def inspect_body(
         root=body,
         excepted=excepted,
         cache_create=cache_create,
+        unknown_members=unknown_members,
+        observe=observe,
     )
     reader.request(body)
     if shape is not None:

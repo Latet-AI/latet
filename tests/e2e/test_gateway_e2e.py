@@ -204,6 +204,42 @@ def test_codex_websocket(client, upstream):
     _assert_no_leak(upstream)
 
 
+def test_hermes_signed_in_with_chatgpt_replays_its_conversation_over_http(client, upstream):
+    """Hermes Agent's ChatGPT requests over HTTP (issue 17): a conversation of its unified runtime (a ``local-`` session
+    id), a workspace's residency, and its history replayed with each assistant message's ``phase``, a tool call and its
+    output. Masked on the way out, restored on the way back; the residency reaches the provider as it was sent."""
+    body = {
+        "model": "x",
+        "stream": True,
+        "store": False,
+        "input": [
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "check the contact"}]},
+            {"type": "message", "role": "assistant", "status": "completed", "phase": "commentary",
+             "content": [{"type": "output_text", "text": "Reading the file first."}]},
+            {"type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "call_1", "output": f"Contact {EMAIL}"},
+            {"type": "message", "role": "assistant", "status": "completed", "phase": "final_answer",
+             "content": [{"type": "output_text", "text": "The contact is in the file."}]},
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": PROMPT}]},
+        ],
+    }  # fmt: skip
+    before = len(upstream.requests)
+    headers = {
+        "authorization": "Bearer fake-chatgpt-token",
+        "session_id": "local-" + "9f2c4e1a" * 8,
+        "x-openai-internal-codex-residency": "eu",
+    }
+    response = client.post("/backend-api/codex/responses", json=body, headers=headers)
+    assert response.status_code == 200, response.text
+    assert len(upstream.requests) == before + 1
+    assert upstream.requests[-1]["headers"]["x-openai-internal-codex-residency"] == "eu"
+    sent = json.loads(upstream.received[-1])["input"]
+    assert [item.get("phase") for item in sent] == [None, "commentary", None, None, "final_answer", None]
+    events = _sse_data(response.text)
+    assert "".join(e["delta"] for e in events if e["type"] == "response.output_text.delta") == "You said: " + PROMPT
+    _assert_no_leak(upstream)
+
+
 PORTAL = "https://portal.acme-intra.it/home"
 
 
@@ -255,6 +291,55 @@ def test_an_output_that_left_in_clear_is_sent_as_it_left_once_the_gateway_saw_it
         assert client.post("/anthropic/v1/messages", json=later, headers=headers).status_code == 200
     sent = json.loads(upstream.received[-1])["messages"]
     assert sent[2]["content"][0]["content"] == site and "acme-intra.it" not in sent[4]["content"][0]["content"]
+
+
+_NAMED_TOKEN = "Abcdefghij0123456789KLMNopq"
+
+
+@pytest.mark.parametrize(
+    "named",
+    [
+        f"the docs call it {_NAMED_TOKEN} throughout",
+        json.dumps({"note": f"the docs call it {_NAMED_TOKEN} throughout"}),
+    ],
+    ids=["a text", "a JSON document"],
+)
+def test_an_output_that_left_in_clear_is_masked_anew_once_the_vault_learns_its_value_is_a_secret(
+    upstream, monkeypatch, named
+):
+    """As above, but what the later output teaches is a secret (a bearer token the first output named in passing): the
+    first output is not sent again with it in clear. It is masked anew once, on the request that teaches it, and then
+    leaves as it was masked anew, request after request; a secret is never sent again for the provider's cache (issue
+    21). A JSON document is asked of what it leaves as, never masked anew on every request (the review of 125a2bcf)."""
+    token = _NAMED_TOKEN
+    teaches = f"curl -H 'Authorization: Bearer {token}' https://api.x"
+    headers = {"x-api-key": "test"}
+    anew: list[str] = []
+    mask_new = Mediator._mask_new
+
+    def counted(self, value, *args, **kwargs):
+        if value == named:
+            anew.append(value)
+        return mask_new(self, value, *args, **kwargs)
+
+    monkeypatch.setattr(Mediator, "_mask_new", counted)
+    client, _ = _gateway(upstream)
+    with client:
+        assert client.post("/anthropic/v1/messages", json=_conversation("which?", named), headers=headers).status_code
+        assert token in json.loads(upstream.received[-1])["messages"][2]["content"][0]["content"]  # left in clear
+        outputs = [named, teaches]
+        sent_again = []
+        for step in range(3):
+            anew.clear()
+            response = client.post("/anthropic/v1/messages", json=_conversation("which?", *outputs), headers=headers)
+            assert response.status_code == 200, response.text
+            assert token not in upstream.received[-1].decode()
+            sent_again.append(json.loads(upstream.received[-1])["messages"][2]["content"][0]["content"])
+            assert bool(anew) is (step == 0)  # masked anew on the request that teaches the secret alone
+            outputs.append(f"step {step}")
+        assert sent_again[0] == sent_again[1] == sent_again[2]  # stable from then
+        fake = json.loads(upstream.received[-1])["messages"][4]["content"][0]["content"].split("Bearer ")[1]
+        assert fake.split("'")[0] in sent_again[0]  # the same fake as the later output's
 
 
 def test_a_known_value_written_with_escapes_leaves_as_a_fake_and_comes_back_exactly(upstream):
@@ -576,6 +661,60 @@ def test_claude_code_is_verified_not_rewritten(client, upstream):
     assert r.headers["x-should-retry"] == "false"
     assert "Latet" in r.json()["error"]["message"]
     assert len(upstream.received) == before  # nothing left the machine
+
+
+def _claude_code_2_1_323(text: str = "hello there") -> dict:
+    """Claude Code 2.1.323's members, as captured by shape (tests/unit/test_request_claude_code_body.py): a system
+    message in the conversation with its effort, context editing, and the effort xhigh."""
+    system_turn = {
+        "role": "system",
+        "content": [{"type": "text", "text": "The tools changed.", "cache_control": {"type": "ephemeral"}}],
+        "output_config": {"effort": "xhigh"},
+    }
+    return {
+        "model": "x",
+        "stream": True,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}, system_turn],
+        "thinking": {"type": "adaptive", "display": "omitted"},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+        "output_config": {"effort": "xhigh"},
+    }
+
+
+@pytest.mark.parametrize("leak_at", [("messages", 1, "content", 0, "text"), ("context_management", "edits", 0, "note")])
+def test_claude_code_2_1_323_s_request_is_verified_and_forwarded_byte_for_byte(client, upstream, leak_at):
+    """Its own request is checked and leaves as it was sent; a value in the system message's text, or in a text beside
+    the new members, stops it, and nothing leaves."""
+    headers = {"user-agent": "claude-cli/2.1.323 (external, cli)", "x-claude-code-session-id": CC_SESSION}
+    raw = json.dumps(_claude_code_2_1_323(), separators=(",", ":")).encode()
+    r = client.post("/anthropic/v1/messages", content=raw, headers={**headers, "content-type": "application/json"})
+    assert r.status_code == 200, r.text
+    assert upstream.received[-1] == raw
+    leaking = json.loads(raw)
+    holder = leaking
+    for step in leak_at[:-1]:
+        holder = holder[step]
+    holder[leak_at[-1]] = PROMPT
+    before = len(upstream.received)
+    r = client.post("/anthropic/v1/messages", json=leaking, headers=headers)
+    assert r.status_code == 400
+    assert "Latet" in r.json()["error"]["message"]
+    assert len(upstream.received) == before
+
+
+def test_another_agent_s_system_message_with_its_effort_is_masked_and_restored(client, upstream):
+    """The same members from an agent Latet masks (an Anthropic API key, no Claude Code): the conversation's values
+    leave as fakes and the answer comes back with the real ones."""
+    body = _claude_code_2_1_323(PROMPT)
+    del body["thinking"]["display"]  # declared nowhere: only Claude Code's own request reads it, as checked text
+    r = client.post("/anthropic/v1/messages", json=body, headers={"x-api-key": "test"})
+    assert r.status_code == 200, r.text
+    sent = json.loads(upstream.received[-1])
+    assert sent["messages"][1]["output_config"] == {"effort": "xhigh"}
+    assert sent["context_management"] == body["context_management"]
+    text = "".join(e["delta"]["text"] for e in _sse_data(r.text) if e.get("delta", {}).get("type") == "text_delta")
+    assert text == "You said: " + PROMPT
+    _assert_no_leak(upstream)
 
 
 def test_another_agent_that_calls_itself_claude_cli_is_masked_not_blocked(client, upstream):

@@ -11,11 +11,16 @@ import type {
   ReviewDetail,
 } from '../api/types'
 import { ClearHistoryButton } from '../components/ClearHistory'
+import { YourComputers } from '../ee/components/Computers'
+import { Locked, PolicyNotice } from '../ee/components/Locked'
+import { lockLines, locksOf, profileAllowed, type Locks } from '../ee/lib/policy'
+import { usePolicy } from '../ee/usePolicy'
 import { DocsWhyLink, TitleWithDocs } from '../components/DocsLinks'
 import { RULES_DOCS } from '../lib/docsPlaces'
 import { RulesTransfer } from '../components/RulesTransfer'
 import { ScopeBar } from '../components/ScopeBar'
 import { PendingChangeNotice } from '../components/SettingsChange'
+import { WhoDecidesNote } from '../components/WhoDecides'
 import { ProjectRules } from './ProjectRules'
 import { Icon } from '../components/Icon'
 import { LeaveGuard } from '../components/LeaveGuard'
@@ -35,6 +40,7 @@ import { RecognizersTable, recognizersSpec, type Drafting } from '../components/
 import { foundIn } from '../components/rules/RuleList'
 import { TermsTable, termsSpec } from '../components/rules/terms'
 import { formatList } from '../lib/format'
+import { fullNameNote } from '../lib/identityName'
 import { useFormat } from '../lib/useFormat'
 import { RulesTabs, shownSections, TAB_LABEL, useRulesTabs, type RulesSection } from '../components/RulesTabs'
 import { SaveBar, SaveRow } from '../components/SaveBar'
@@ -43,6 +49,7 @@ import { StringList } from '../components/StringList'
 import { useDeploymentKey, useMe } from '../lib/me'
 import { keepUnsaved } from '../lib/panelSave'
 import { defaultPii, groupByCountry } from '../lib/pii'
+import { heldSaveWords, liveReviewWords, pendingOf } from '../lib/approvals'
 import { savedChangePending, stale } from '../lib/refused'
 import { editable, remadeFrom, type Editable } from '../lib/saves'
 import { identityOffered, reviewerAskable, reviewerOffered } from '../lib/tutorial'
@@ -82,6 +89,9 @@ const SECTION_OF: { readonly [K in keyof Editable]: RulesAnchor } = FIELD_SECTIO
 
 /** The ids of the tabs of Rules and of their panels (`tabIds`). */
 const TABS_ID = 'rules'
+
+/** Who decides, said above the rules (Latet Enterprise): on the changes to them, and on the Live Reviewer's texts. */
+const WHO_DECIDES = 'both' as const
 
 type ReviewMode = 'block' | 'allow' | 'choose'
 
@@ -183,10 +193,13 @@ function PersonalData({
   config,
   draft,
   set,
+  locks,
 }: {
   config: ConfigView
   draft: Editable
   set: <K extends keyof Editable>(key: K, value: Editable[K]) => void
+  /** What the company's policy locks (Latet Enterprise): those types and countries stay on. */
+  locks: Locks | null
 }) {
   const { t, i18n } = useTranslation()
   const language = i18n.resolvedLanguage ?? i18n.language ?? 'en'
@@ -204,6 +217,8 @@ function PersonalData({
   const available = config.id_regions_available ?? []
   const defaults = defaultPii(catalog, config.pii_base ?? config.pii_available, draft.id_regions, everyRegion)
   const useDefault = draft.pii === null
+  const lockedTypes = locks?.pii ?? []
+  const lockedRegions = locks?.regions ?? []
   const enabled = draft.pii ?? defaults
   // By default only what is in use; when choosing, every country.
   const shown = useDefault ? (everyRegion ? available : draft.id_regions) : available
@@ -224,7 +239,8 @@ function PersonalData({
           {[...available]
             .sort((a, b) => countryName(a).localeCompare(countryName(b), language))
             .map((code) => {
-              const on = everyRegion || draft.id_regions.includes(code)
+              const kept = lockedRegions.includes(code)
+              const on = everyRegion || kept || draft.id_regions.includes(code)
               return (
                 <li key={code}>
                   <label
@@ -236,7 +252,7 @@ function PersonalData({
                       type="checkbox"
                       className="accent-[var(--ink)]"
                       checked={on}
-                      disabled={everyRegion || secretsOnly}
+                      disabled={everyRegion || kept || secretsOnly}
                       onChange={(e) => toggleRegion(code, e.target.checked)}
                     />
                     {countryName(code)}
@@ -265,8 +281,8 @@ function PersonalData({
                     <input
                       type="checkbox"
                       className="mt-0.5 accent-[var(--ink)]"
-                      checked={enabled.includes(type)}
-                      disabled={useDefault || secretsOnly}
+                      checked={enabled.includes(type) || lockedTypes.includes(type)}
+                      disabled={useDefault || secretsOnly || lockedTypes.includes(type)}
                       onChange={(e) => set('pii', e.target.checked ? [...enabled, type] : enabled.filter((x) => x !== type))}
                     />
                     <span>
@@ -289,10 +305,13 @@ function OcrStatusNote({
   config,
   draft,
   set,
+  locked = false,
 }: {
   config: ConfigView
   draft: Editable
   set: <K extends keyof Editable>(key: K, value: Editable[K]) => void
+  /** The company's policy keeps the text in images read: it cannot be turned off here. */
+  locked?: boolean
 }) {
   const { t } = useTranslation()
   const key = useDeploymentKey()
@@ -318,6 +337,7 @@ function OcrStatusNote({
         onChange={(on) => set('ocr', on ? 'auto' : 'off')}
         label={t('rules.ocr.toggle')}
         description={draft.ocr === 'auto' ? t(key('rules.ocr.on')) : t('rules.ocr.off')}
+        disabled={locked && draft.ocr === 'auto'}
       />
     </div>
   )
@@ -408,6 +428,7 @@ function GlobalRules() {
       <PageHeader title={t('rules.title')} description={t('rules.description')} actions={actions} docs="page.rules" />
       <ScopeBar current={null} />
       <PendingChangeNotice />
+      <WhoDecidesNote show={WHO_DECIDES} />
     </>
   )
   if (config.loading) return <>{header()}<Loading /></>
@@ -417,7 +438,7 @@ function GlobalRules() {
 
 function RulesForm({
   config,
-  onSaved,
+  onSaved: settingsSaved,
   header,
 }: {
   config: ConfigView
@@ -454,6 +475,15 @@ function RulesForm({
   const set = <K extends keyof Editable>(key: K, value: Editable[K]) => setDraft((d) => ({ ...d, [key]: value }))
   const setData = <K extends keyof DataDraft>(key: K, value: DataDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value ?? (key === 'images' ? 'allow' : value) }))
+  // The company's policy (Latet Enterprise): what it locks, shown under each section; read again after a save, for what
+  // is below it may have changed.
+  const policy = usePolicy()
+  const locks = locksOf(policy.view)
+  const lines = locks ? lockLines(locks) : {}
+  const onSaved = () => {
+    settingsSaved()
+    policy.reload()
+  }
 
   /** The form made again from `fresh`: what it shows, and the etag a save sends back. */
   const remake = (fresh: ConfigView) => {
@@ -463,6 +493,16 @@ function RulesForm({
     setSaved(fresh)
     setLost([])
   }
+  /** The form made again from the settings as they are now, read again; whether it was (not when they cannot be read
+   * now: the form stays as it is). */
+  const remakeFromServer = () =>
+    api.config().then(
+      (fresh) => {
+        remake(fresh)
+        return true
+      },
+      () => false,
+    )
 
   // A panel saved a row, or an action changed the rows selected: the settings are read again, and the save bar's edits
   // not saved yet are carried onto them where nothing they touch changed meanwhile; the others are dropped, and said.
@@ -487,6 +527,7 @@ function RulesForm({
   const tabs = useRulesTabs(RULES_TABS)
 
   const secretsOnly = draft.profile === 'secrets'
+  const nameNote = fullNameNote(config.identity) // whose name it is, and that it cannot be changed here when the provider names you
   // The tables show the global rules as last read; while the search at the top holds text, each says how many of its
   // rows it finds, and its section shows when any.
   const scope: RulesScope = { kind: 'global', settings: saved }
@@ -513,6 +554,17 @@ function RulesForm({
       reloadConfig()
       onSaved()
     } catch (error) {
+      const waiting = pendingOf(error)
+      if (waiting) {
+        // It lowers protection and someone else decides on it (your company's security team, or another person who
+        // controls the API key): it waits for them (Approvals), and the form goes back to the settings in use, read
+        // again as a stale save reads them. Not read again, the form still holds the change: only its waiting is said.
+        setSaveError(null)
+        const remade = await remakeFromServer()
+        reloadConfig()
+        toast.show(t(heldSaveWords(waiting, remade)), 'info')
+        return
+      }
       setSaveError(error)
       if (savedChangePending(error)) {
         // The submitted draft is durable. Keep its notice, and keep the old etag if the read fails or the draft changed.
@@ -525,7 +577,7 @@ function RulesForm({
       } else if (stale(error)) {
         // Your settings changed since the page read them (another tab, a change applied meanwhile): nothing was saved,
         // and the form shows them as they are now, for the change to be made again.
-        await api.config().then((fresh) => remake(fresh), () => undefined)
+        await remakeFromServer()
         reloadConfig()
         onSaved()
       }
@@ -549,17 +601,21 @@ function RulesForm({
       title: t('rules.profile.title'),
       description: t('rules.profile.description'),
       body: (
+        <>
+        <Locked lines={lines.profile} />
         <div role="radiogroup" aria-label={t('rules.profile.title')} className="grid grid-cols-3 gap-2 max-xl:grid-cols-1">
           {PROFILES.map((profile: Profile) => {
             const checked = draft.profile === profile
+            // A profile below the company's cannot be chosen.
+            const allowed = profileAllowed(locks, profile)
             return (
               <label
                 key={profile}
                 className={`relative flex cursor-pointer flex-col gap-1 rounded-lg border p-3 ${
                   checked ? 'border-ink bg-surface shadow-[inset_0_0_0_1px_var(--ink)]' : 'border-line bg-surface hover:border-line-2'
-                }`}
+                } ${allowed ? '' : 'cursor-not-allowed opacity-55'}`}
               >
-                <input type="radio" name="profile" value={profile} checked={checked} onChange={() => set('profile', profile)} className="peer sr-only" />
+                <input type="radio" name="profile" value={profile} checked={checked} disabled={!allowed} onChange={() => set('profile', profile)} className="peer sr-only" />
                 <span className="pointer-events-none absolute inset-0 rounded-lg peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--focus)]" />
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-ui font-semibold text-ink">{t(PROFILE_LABEL[profile])}</span>
@@ -570,23 +626,31 @@ function RulesForm({
             )
           })}
         </div>
+        </>
       ),
     },
     [ANCHORS.pii]: {
       title: t('rules.pii.title'),
       description: secretsOnly ? t('rules.pii.secretsOnly') : t('rules.pii.description'),
-      body: <PersonalData config={config} draft={draft} set={set} />,
+      body: (
+        <>
+          <Locked lines={lines.pii} />
+          <PersonalData config={config} draft={draft} set={set} locks={locks} />
+        </>
+      ),
     },
     [ANCHORS.ner]: {
       title: t('rules.ner.title'),
       description: t(key('rules.ner.description')),
       body: (
         <div className="space-y-3">
+          <Locked lines={lines.ner} />
           <Switch
             checked={draft.ner === 'auto'}
             onChange={(on) => set('ner', on ? 'auto' : 'off')}
             label={t('rules.ner.toggle')}
             description={t(key('rules.ner.toggleHelp'))}
+            disabled={Boolean(locks?.ner) && draft.ner === 'auto'}
           />
           <NerStatusNote config={config} draft={draft} dirty={draft.ner !== base.ner || draft.profile !== base.profile} />
         </div>
@@ -596,37 +660,49 @@ function RulesForm({
       title: t('rules.phones.title'),
       description: t('rules.phones.description'),
       body: (
-        <StringList
-          values={draft.phone_regions}
-          onChange={(v) => set('phone_regions', v)}
-          placeholder={t('rules.phones.placeholder')}
-          addLabel={t('rules.phones.add')}
-          transform={(v) => v.toUpperCase()}
-          validate={(v) => (/^[A-Z]{2}$/.test(v) ? null : t('rules.phones.invalid'))}
-          emptyLabel={t('rules.phones.empty')}
-        />
+        <>
+          <Locked lines={lines.phones} />
+          <StringList
+            values={draft.phone_regions}
+            onChange={(v) => set('phone_regions', v)}
+            placeholder={t('rules.phones.placeholder')}
+            addLabel={t('rules.phones.add')}
+            transform={(v) => v.toUpperCase()}
+            validate={(v) => (/^[A-Z]{2}$/.test(v) ? null : t('rules.phones.invalid'))}
+            emptyLabel={t('rules.phones.empty')}
+            locked={locks?.phones}
+          />
+        </>
       ),
     },
     [ANCHORS.privateIps]: {
       title: t('rules.privateIps.title'),
       description: t('rules.privateIps.description'),
       body: (
-        <Segmented<'default' | 'mask' | 'keep'>
-          label={t('rules.privateIps.title')}
-          value={draft.include_private_ips === null ? 'default' : draft.include_private_ips ? 'mask' : 'keep'}
-          onChange={(v) => set('include_private_ips', v === 'default' ? null : v === 'mask')}
-          options={[
-            { value: 'default', label: t('rules.privateIps.default') },
-            { value: 'mask', label: t('rules.privateIps.mask') },
-            { value: 'keep', label: t('rules.privateIps.keep') },
-          ]}
-        />
+        <>
+          <Locked lines={lines.privateIps} />
+          <Segmented<'default' | 'mask' | 'keep'>
+            label={t('rules.privateIps.title')}
+            value={draft.include_private_ips === null ? 'default' : draft.include_private_ips ? 'mask' : 'keep'}
+            onChange={(v) => set('include_private_ips', v === 'default' ? null : v === 'mask')}
+            options={[
+              { value: 'default' as const, label: t('rules.privateIps.default') },
+              { value: 'mask' as const, label: t('rules.privateIps.mask') },
+              { value: 'keep' as const, label: t('rules.privateIps.keep') },
+            ].filter((option) => !locks?.privateIps || option.value !== 'keep')}
+          />
+        </>
       ),
     },
     [ANCHORS.terms]: {
       title: t('rules.terms.title'),
       description: t('rules.terms.description'),
-      body: <TermsTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'terms'} />,
+      body: (
+        <>
+          <Locked lines={lines.terms} />
+          <TermsTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'terms'} />
+        </>
+      ),
       found: foundIn(t, termsSpec(t, format.number), scope, tabs.query),
       wide: true,
     },
@@ -634,7 +710,10 @@ function RulesForm({
       title: t('rules.recognizers.title'),
       description: t('rules.recognizers.description'),
       body: (
-        <RecognizersTable scope={scope} onSaved={afterPanelSave} drafting={drafting} search={tabs.query} shown={tabs.active === 'recognizers'} />
+        <>
+          <Locked lines={lines.recognizers} />
+          <RecognizersTable scope={scope} onSaved={afterPanelSave} drafting={drafting} search={tabs.query} shown={tabs.active === 'recognizers'} />
+        </>
       ),
       wide: true,
       found: foundIn(t, recognizersSpec(t, key, scope), scope, tabs.query),
@@ -642,14 +721,24 @@ function RulesForm({
     [ANCHORS.allow]: {
       title: t('rules.allow.title'),
       description: t('rules.allow.description'),
-      body: <AllowedTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'values'} />,
+      body: (
+        <>
+          <Locked lines={lines.allow} />
+          <AllowedTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'values'} />
+        </>
+      ),
       found: foundIn(t, allowSpec(t), scope, tabs.query),
       wide: true,
     },
     [ANCHORS.policies]: {
       title: t('rules.policies.title'),
       description: t('rules.policies.description'),
-      body: <PoliciesTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'policies'} />,
+      body: (
+        <>
+          <Locked lines={lines.policies} />
+          <PoliciesTable scope={scope} onSaved={afterPanelSave} search={tabs.query} shown={tabs.active === 'policies'} />
+        </>
+      ),
       found: foundIn(t, policiesSpec(t, scope), scope, tabs.query),
       wide: true,
     },
@@ -658,6 +747,7 @@ function RulesForm({
       description: t(key('reviewer.description')),
       body: (
         <>
+          <Locked lines={lines.reviewer} />
           {/* The tutorial's sandbox reaches nothing outside it, the local reviewer's server included, and refuses it:
               but in a chapter with the Tutorial Reviewer, which is simulated, and takes your guidance only. */}
           {reviewerAskable(me) ? (
@@ -684,7 +774,7 @@ function RulesForm({
     },
     [ANCHORS.live]: {
       title: t('liveReview.title'),
-      description: t('liveReview.description'),
+      description: t(liveReviewWords(me?.edition?.approvals).description), // for you, or for the security team
       body: <LiveReviewEditor value={draft.live_review} onChange={(live) => set('live_review', live)} />,
     },
     [ANCHORS.data]: {
@@ -692,8 +782,9 @@ function RulesForm({
       description: t('data.description'),
       body: (
         <>
-          <DataEditor value={draft} set={setData} layer="global" />
-          <OcrStatusNote config={config} draft={draft} set={set} />
+          <Locked lines={lines.data} />
+          <DataEditor value={draft} set={setData} layer="global" imagesAtLeast={locks?.images ?? null} newMembersLocked={locks?.unknownMembers ?? false} />
+          <OcrStatusNote config={config} draft={draft} set={set} locked={Boolean(locks?.ocr)} />
         </>
       ),
     },
@@ -731,11 +822,15 @@ function RulesForm({
               </>
             )}
             <dt className="text-ink-3">{t('rules.identity.fullName')}</dt>
-            <dd className="text-ink">{config.identity.full_name ?? t('common.none')}</dd>
+            <dd className="text-ink">
+              {config.identity.full_name ?? t('common.none')}
+              {nameNote !== null && <span className="block text-meta text-ink-3">{t(nameNote)}</span>}
+            </dd>
             <dt className="text-ink-3">{t('rules.identity.emails')}</dt>
             <dd className="mono text-ink">{config.identity.emails.join(', ') || t('common.none')}</dd>
           </dl>
           <p className="text-meta text-ink-3">{t(key('rules.identity.detected'))}</p>
+          <YourComputers />
 
           <div className="mt-2 border-t border-line pt-4">
             <TitleWithDocs title={t('rules.review.title')} docs="section.autoModeReview" className="text-ui font-semibold text-ink" />
@@ -808,6 +903,8 @@ function RulesForm({
   return (
     <>
       {header(<RulesTransfer dirty={dirty} onImported={imported} />)}
+
+      <PolicyNotice view={policy.view} linked={me?.edition?.pages.includes('policy') ?? false} />
 
       {lost.length > 0 && (
         <div role="status" className="mb-4 flex items-start gap-2 rounded-lg border border-warn/60 bg-warn/10 p-3 text-ui text-ink">

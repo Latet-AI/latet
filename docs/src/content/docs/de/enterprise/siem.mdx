@@ -1,0 +1,156 @@
+---
+title: Ereignisse an Ihr SIEM
+description: SIEM-Ausgaben konfigurieren, Geheimnisse schützen, Zustellung und Lücken verstehen und aufbewahrte Belege prüfen.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Latet Enterprise leitet Serverereignisse und Einträge des Administrationsprotokolls an Ihre Sicherheitssysteme weiter. [Berichte und Administrationsprotokoll](../reports/) erläutert Zählung, Personen, Rollen und Lizenzbedingungen. SIEM benötigt die Funktion `siem`; es gewährt keinen Zugriff auf Berichte oder Audit, die `reports` benötigen.
+
+## Ausgaben konfigurieren
+
+Die Rolle Sicherheit konfiguriert und testet Ausgaben unter **Ereignisse an Ihr SIEM**; die Rolle Auditor liest sie. Dashboard-Zugriff benötigt `roles`. Unternehmensweite Änderungen und Tests erfordern bei `company_changes: sso` die Unternehmenskonto-Sitzung. Leser sehen Zielursprünge, keine geheimnistragenden Pfade, Abfragen oder Header. Ein konkurrierender Speichervorgang liefert 409 und lädt die aktuellen Einstellungen neu; prüfen Sie diese vor einem neuen Versuch.
+
+<Screenshot name="siem" alt="SIEM-Ausgaben mit Zustellungs-, Warteschlangen-, Verlust- und Fehlerstatus sowie Testfunktionen" caption="Ereignisse an Ihr SIEM aus Sicht der Rolle Sicherheit." />
+
+Bis zu 50 Ausgaben werden unterstützt. Namen bestehen aus Kleinbuchstaben, Ziffern und Bindestrichen, höchstens 40 Zeichen. Ein bestehender Name ist unveränderlich: Umbenennen entfernt die alte Ausgabe und fügt eine neue hinzu, mit den unten beschriebenen Folgen für Warteschlange und Geheimnis. Auch die [CLI](../../reference/cli/) mit Administrationstoken konfiguriert Ausgaben:
+
+```yaml
+# outputs.yaml: latet server siem set outputs.yaml
+- name: splunk
+  kind: splunk
+  url: https://splunk.acme.com:8088/services/collector/event
+  secret: siem-splunk
+- name: collector
+  kind: webhook
+  url: https://collector.acme.com/latet
+  headers:
+    Authorization: "Bearer {secret}"
+  secret: siem-collector
+  format: ndjson
+- name: syslog
+  kind: syslog
+  url: tls://siem.acme.com:6514
+```
+
+`latet server siem set outputs.yaml` akzeptiert eine YAML-/JSON-Liste oder `siem: [...]`, höchstens 64 KiB vor und nach JSON-Kodierung. Aliase, nicht JSON-fähige Werte/Schlüssel, übermäßige Verschachtelung und zu große Strukturen werden abgelehnt. Der Befehl ersetzt die Liste: Nehmen Sie die Ausgaben, die Sie behalten möchten, wieder in die Liste auf. `latet server siem show` liest Konfiguration/Status; `latet server siem secret splunk` fragt das Geheimnis verdeckt ab, ohne Option zur Übergabe des Werts.
+
+| Art | Übertragungsformat |
+| --- | --- |
+| `webhook` | HTTPS-POST, JSON-Array (`json`) oder ein Ereignis je Zeile (`ndjson`), mit konfigurierten Headern |
+| `splunk` | HTTP-Event-Collector-Hüllen, `sourcetype: latet:event`, Serverhostname als `host` |
+| `syslog` | [RFC 5424](https://www.rfc-editor.org/rfc/rfc5424.html)-Nachrichten über [RFC 5425 TLS](https://www.rfc-editor.org/rfc/rfc5425.html), Facility 13, Hostname und Ereignis-JSON |
+
+Verwenden Sie einen Empfänger oder Vermittler, der diese Formate akzeptiert und nachgelagerte Authentifizierung verwaltet. Direkte Google-SecOps-Webhook-Feeds und Azure Logs Ingestion werden von den Adress-/Zugangsdatenregeln dieser Implementierung nicht unterstützt. Ein erfolgreicher HTTP-Transporttest belegt keine nachgelagerte Indexierung.
+
+## Geheimnisse und Zielbindung
+
+Jede Ausgabe verwendet nur `siem-<output-name>`. Ihr Geheimnis liegt in PostgreSQL unter dem Hauptschlüssel des Servers versiegelt; das Dashboard nimmt es einmal entgegen und zeigt es nie wieder an. Instanzen bauen Ausgaben regelmäßig neu auf und lesen Geheimnisse erneut (normalerweise alle 60 Sekunden).
+
+- Schreiben Sie `{secret}` an die Stelle von Zugangsdaten in Pfad, Abfragewert oder Header, niemals in Hostname/Port. Beim Einfügen in eine URL wird das Geheimnis prozentkodiert. Geheimnis-/Header-Eingaben verwenden sichtbares ASCII.
+- Zugangsdatenähnliche Abfrage-/Headernamen erfordern den Platzhalter. Dekodierte Pfadsegmente **und Abfragenamen/-werte** werden auf eingebettete Tokenformen geprüft: lange alphanumerische Zeichenfolgen mit gemischter oder kleiner Schreibweise, mindestens 32 Hexziffern und GUIDs. Kodierung oder Einbettung schafft keine Ausnahme. Enge Ausnahmen sind die Workflow-ID nach `/workflows/` auf `*.logic.azure.com` und genau ein exakt `channel` geschriebener Abfrageparameter mit GUID bei einer `splunk`-Ausgabe.
+- Die Bindung umfasst Ausgabename, Art, normalisiertes Ziel, Pfad/Abfrage und Namen/Werte geheimnistragender Header. Hostschreibweise, abschließende Punkte, Standardports und harmlose Header-Großschreibung/-Reihenfolge werden normalisiert; diese Schreibänderungen allein heben die Bindung nicht auf. Eine Änderung des gebundenen Ziels oder geheimnistragenden Headers erfordert erneutes Setzen des Geheimnisses, bevor es dorthin gesendet werden kann.
+- Entfernen einer Ausgabe entfernt ihr Geheimnis. Umbenennen überträgt es nicht. Ein fehlendes oder anders gebundenes Geheimnis hält die Zustellung mit erklärendem Status an.
+- Webhooks mit Geheimnis ergänzen `x-latet-signature: sha256=…`, HMAC-SHA256 des Bodys. Die Signatur hat keinen Zeitstempel: Empfänger müssen anhand der Ereignis-IDs deduplizieren und erneut eingespielte Nachrichten (Replays) ablehnen.
+- Header wie `Host`, `Content-Length`, Weiterleitungsheader, `Cookie`, `Origin`, proxy-/browsergesteuerte Header und `x-latet-*` werden abgelehnt. Grenzen: 32 unabhängig von Großschreibung eindeutige Headernamen, 64 Zeichen je Name und 4.096 je Wert. URLs verwenden sichtbares ASCII ohne Leerzeichen, höchstens 2.048 Zeichen, ohne Benutzer/Passwort oder Fragment; internationale Hostnamen in `xn--`-Form. Syslog akzeptiert weder eine Abfrage noch einen bedeutungstragenden Pfad.
+
+## Wohin sich Ausgaben verbinden
+
+Der Server prüft das Ziel beim Speichern und aufgelöste Adressen bei jeder Verbindung; die Verbindung wird an eine geprüfte Adresse gebunden: an die erste, die sie annimmt; an die nächste nur, wenn die Verbindung zur vorigen abgelehnt oder nicht rechtzeitig aufgebaut wird und noch nichts von einem Batch gesendet wurde. Private Unternehmensnetze sind erlaubt. Link-lokale (einschließlich Cloud-Metadaten), reservierte, unbestimmte und Multicast-Adressen, IPv6-Formen mit IPv4 sowie IPv6-Zonen werden abgelehnt. DNS-Namen können dies nicht umgehen. IPv4 benötigt kanonische Punkt-Dezimalschreibweise; Hostnamen mit Unterstrichen werden abgelehnt, verwenden Sie einen gültigen Dienstalias.
+
+Nur ausdrücklich `localhost`, `127.0.0.1` oder `[::1]` dürfen den Server selbst bezeichnen; HTTP ist nur dort erlaubt. Über HTTPS oder TLS funktioniert `localhost` wie `127.0.0.1`, denn das Zertifikat des Empfängers wird bei jeder Adresse geprüft; über HTTP schreiben Sie die Adresse, auf der der Empfänger lauscht (`127.0.0.1` oder `[::1]`), nie `localhost`: `localhost` wird zuerst unter `::1` versucht, und jedes Programm auf dem Server, das dort lauscht, bekäme die Ereignisse und das Geheimnis der Ausgabe. Lokale Ausgaben, auch HTTPS/TLS, lassen sich **nur per CLI bearbeiten und testen**, nicht im Dashboard. Das gilt auch für ihr Geheimnis: Es wird mit `latet server siem secret` festgelegt. Im Dashboard bleiben sie sichtbar und entfernbar. Beispiele für Administratoren:
+
+```sh
+latet server siem test syslog
+latet server siem show
+latet server status
+```
+
+Tests sind auf einen je Ausgabe pro zehn Sekunden, 30 je Ausgabe und Stunde und 30 je Dashboard-Person oder Administrationstoken und Stunde begrenzt. Dashboard-Ergänzungen oder Wechsel zu anderem Schema/Host/Port erlauben zehn Ziele je Person und Stunde, danach 429. Abgelehnte Speicherversuche und 409-Wiederholungen können das Kontingent verbrauchen. CLI-Speichervorgänge haben dieses Zielkontingent nicht. Jeder Speicher-/Testvorgang wird protokolliert.
+
+Umgebungsproxies wie `HTTPS_PROXY` werden ignoriert. TLS prüft den Zielnamen gegen den Zertifikatsvertrauensspeicher des Servers; installieren Sie dort bei Bedarf Ihre private CA. Unter Windows/macOS kann der Betriebssystem-Vertrauensspeicher Zertifikat-AIA-URLs außerhalb dieser Egress-Prüfungen abrufen. Jeder Sendevorgang hat eine 20-Sekunden-Frist. Die Bodys unkomprimierter Antworten sind auf 64 KiB begrenzt; komprimierte werden weder gelesen noch entpackt, HTTP 2xx zählt dennoch als Transportannahme. Syslogs TLS-`close_notify` kann innerhalb der Sendefrist bis zu zwei Sekunden warten.
+
+## Zustellung und zurückgehaltene Batches
+
+Anfragen warten nicht auf SIEM-Zustellung. Jede Ausgabe hat eine PostgreSQL-Warteschlange; Instanzen erhalten abwechselnd ihre Lease und senden geordnete Batches mit bis zu 500 Ereignissen. Eine Lease läuft nach 60 Sekunden ab, was **kein** Übernahme- oder Zustellungs-SLA ist: Die Ausgaben werden nacheinander bedient, und das Rundenbudget von zehn Sekunden wird zwischen den Durchgängen geprüft.
+
+HTTP 2xx bedeutet Transportannahme, nicht Indexierung oder Splunk-Indexer-Bestätigung. Syslog hat keine Anwendungsbestätigung. Die Zustellung verwendet Mindestens-einmal-Wiederholungen, solange Ereignisse in der Warteschlange bleiben: Verlorene Bestätigungen nach Annahme, Abstürze oder abgelaufene Leases können Duplikate erzeugen. Deduplizieren Sie anhand von `id`; weitergeleitete Administrationseinträge haben stabile IDs. Aufbewahrung, Warteschlangengrenzen und bewusste Überspringungen verhindern eine allgemeine Verlustfreiheits- oder Genau-einmal-Garantie.
+
+- Netzwerkfehler, Weiterleitungen (nie verfolgt), HTTP 401, 403, 404, 405, 408, 409, 410, 411, 415, 425, 429 und 5xx erhalten/wiederholen den Batch nach 5, 10, 30, 60, dann 300 Sekunden.
+- Andere Ablehnungen teilen den Batch, um abgelehnte Ereignisse zu isolieren. Bei gemischtem Ergebnis können einzeln abgelehnte Ereignisse, die keine Administrationseinträge sind, verworfen und gezählt werden; Administrationseinträge werden zurückgehalten.
+- Eine vollständig abgelehnte Folge bleibt zurückgehalten und wartet vor dem nächsten Versuch, auch eine Folge nur aus gewöhnlichen Ereignissen, mit `held: true` und `blocked: false`. Ein späterer Netzwerkfehler hebt die Ablehnungssperre bis zum nächsten Empfängerversuch auf. Prüfen Sie vor Überspringen die Empfängerlogs.
+- Nur die CLI mit Administrationstoken löst eine zurückgehaltene Folge: `latet server siem skip <output>`. Aktive Leases/Zustandsprüfungen können dies ablehnen; Ablauf allein garantiert keinen Erfolg eine Minute später. Überspringen umfasst spät bestätigte Zeilen innerhalb der Folge. Bei rein gewöhnlichen Ereignissen sind `from`/`to` null, der `count` der Administrationseinträge ist 0, und `dropped` kann positiv sein; es entsteht kein Marker nur für gewöhnliche Ereignisse. Bereiche von Administrationseinträgen werden wie unten attestiert.
+- Überschreitet die gesamte Warteschlange einer Ausgabe 200.000 Ereignisse, verwirft die Bereinigung zuerst älteste `apps`, dann andere gewöhnliche Ereignisse. Administrationseinträge werden nie bereinigt; die Gesamtzahl kann daher darüber bleiben. Die Pipeline je Instanz hält höchstens 10.000 wartende Ereignisse, `apps` höchstens die Hälfte; Datenbank-, Shutdown- und Schemafehler können Ereignisse vor Speicherung der Zählwerte verlieren.
+
+**Testereignis senden** sendet ein `test`-Ereignis außerhalb des Ereignisprotokolls. Es meldet das Transportergebnis, keinen Nachweis, dass ein Index es enthält. Dashboard, CLI und Status zeigen letzten Erfolg, Fehler/Beginn, wartende/verworfene/kollabierte Zählwerte, Zurückhaltung und Geheimnisprobleme.
+
+## Lücken und Verifikation
+
+Die Weiterleitung der Administrationseinträge beginnt, sobald SIEM lizenziert ist, nahe der letzten aufbewahrten Stunde, nicht am Anfang aller Historie. `siem.forwarding` hält den Start fest. Die authentifizierte Weiterleitungsnotiz speichert den Fortschritt. Eine unlesbare Notiz stoppt die Weiterleitung; Löschen bei vorhandenem Startnachweis ebenfalls. Wiederherstellen einer älteren authentischen Notiz kann Einträge erneut senden, echte Lücken erneut markieren und später Einträge einer früher pausierten Zeit weiterleiten. Sobald die Aufbewahrung `siem.forwarding` entfernt, kann Löschen wieder wie ein Erstlauf wirken. Bewahren Sie externe Kopien und Kettenanker auf.
+
+Die SIEM-Kopie kann diese Lücken bei den Administrationseinträgen haben:
+
+- **Keine Ausgabe oder keine SIEM-Erzeugung:** Die Weiterleitung notiert den ungesendeten Bereich. Sein Marker begleitet den nächsten weitergeleiteten Administrationseintrag; Wiederaufnahme selbst erzeugt normalerweise einen Eintrag. Bereits wartende Ereignisse können wieder gesendet werden. Dies verspricht nicht, dass pausierte Einträge nie wiederholt werden können.
+- **Entfernte Ausgabe:** Sobald eine Instanz die Entfernung sieht, endet diese Kopie ohne Abschlussmarker. Eine veraltete Instanz kann noch einen Batch senden. Warteschlange und Geheimnis werden entfernt; der Status zählt aufgegebene Administrationseinträge. Andere Ausgaben erhalten die Entfernungsaktion.
+- **Langer Rückstau:** Oberhalb 1.000.000 wartender Administrationseinträge je Ausgabe kollabieren die ältesten in einen attestierten Marker bis auf 990.000. Dies ist keine harte Plattengrenze. Grobe Schätzungen sind 400 MB je Ausgabe und 20 GB für 50 solche Rückstaus. Status warnt ab 100.000; ein Kollaps verursacht FAIL bis zur nächsten erfolgreichen Zustellung.
+- **Administratives Überspringen:** Übersprungene Bereiche von Administrationseinträgen erhalten einen Marker und eine verkettete `siem.skipped`-Attestation. Überspringen eines abgelehnten Markers entfernt ihn aus der Empfängerkopie; `siem.skipped` bewahrt seinen Bereich auf dem Server.
+
+Ein Bereichsmarker hat `type: admin`, `outcome: siem.gap`, `reason: audit:<first>-<last>`, ganzzahliges `stopped` gleich seiner Eintragszahl, null-Identität/-Ziel sowie `chain.prev` vom ersten Eintrag und `chain.hash` vom letzten. Er enthält keine Eintragsdetails. Marker und verkettete `siem.gap`-/`siem.skipped`-Attestation werden gemeinsam bestätigt. Ein Marker allein beweist nichts; ein passender authentifizierter aufbewahrter Eintrag muss seinen Bereich attestieren. Er belegt Nichtsendung, nicht die Ursache: Vergleichen Sie Lizenz-/Einstellungseinträge. Das eigene `siem.gap`-Ereignis des Protokolls hat seine eigene Kettenposition und `reason: server`, nicht `audit:…`.
+
+```sh
+latet server log verify
+latet server log verify --siem siem-export.ndjson
+```
+
+Die Verifikation durchläuft die schlüsselgestützte Serverkette, meldet ihren Kopf und prüft wartende Marker. Mit `--siem` prüft sie außerdem jedes extrahierte `outcome: siem.gap`-Objekt, auch bei fehlerhafter Ereignishülle. Akzeptiert wird eine **reguläre Datei ohne Link bis 256 MiB**: Ereignis-JSON-Arrays oder NDJSON, HEC-Hüllen, Splunk-`result._raw`-Exporte und Elastic-Hits mit `_source`. Dateien ohne erkanntes Latet-Ereignis werden abgelehnt.
+
+Aufbewahrte Attestationen werden vor dem Alter geprüft. Nur alte Bereiche ohne aufbewahrte Attestation werden nach Ablauf ihrer Einträge als ungeprüft gemeldet; allein führen diese alten Bereiche nicht zum Fehlschlag. Eine beschädigte oder nicht durchlaufbare Kette, fehlerhafte/unattestierte aktuelle Marker oder fehlende/fehlerhafte Server-Prüfinformationen scheitern mit Exit 1; Community-`--siem`, unlesbare Eingaben und ereignislose Dateien enden mit 2. Fehlerhafte Marker/Serverantworten werden nie zu einem bestandenen Ergebnis.
+
+`--siem` prüft Marker, nicht Vollständigkeit oder Echtheit jedes gewöhnlichen exportierten Ereignisses. Ein Datenbankschreiber kann weiterhin Zustellung unterdrücken oder Kettenfelder in ein gefälschtes gewöhnliches Ereignis kopieren. Serverkette und extern aufbewahrte Anker bleiben notwendige Belege. Beim größten gemessenen Rückstau kann die Prüfung etwa 1,5 Minuten einen schreibgeschützten Snapshot halten und vacuum verzögern; bei Zeitüberschreitung kann sie mit einem Fehler enden (fail closed), statt eine unvollständige Prüfung zu bestätigen.
+
+## Ereignisfelder
+
+| Feld | Bedeutung |
+| --- | --- |
+| `v` | Schemaversion, 1 |
+| `id` | Ereigniskennung, 32 Hexziffern; Deduplizierungsschlüssel |
+| `ts` | Ereigniszeit in UTC |
+| `type` | Aktuelle Erzeuger: `exchange`, `stopped`, `apps`, `policy`, `approval`, `change`, `sign-in`, `sync`, `license`, `admin`; `test` nur durch Tests |
+| `identity` | Person gemäß Personeneinstellung oder API-Schlüssel-ID; admin-Akteur folgt der [Regel für Administrationsidentitäten](../reports/#administrationsidentitäten-im-siem) |
+| `kind` | `person`, `key` oder null, auch bei System-/Markerereignissen |
+| `group` | Erste Personengruppe zum Aufzeichnungszeitpunkt oder null |
+| `agent` | Agentencode wie `claude-code`, `codex`, `opencode`, `apps` oder null |
+| `project` | Ordnername mit höchstens 200 druckbaren Zeichen ohne Pfadtrenner oder null; Überlauf ist `other`; `masked-` mit 8 Zeichen, wenn sein Name einen maskierten Begriff enthält ([Berichte](../reports/)) |
+| `masked` | Zählwerte nach normalisiertem Typ wie `EMAIL` oder `CLIENT_NAME` |
+| `stopped` | Gestoppte Anfragezahl; unbeantwortete Texte bei `apps`; 1 bei einem nicht freigegebenen `approval` (abgelehnt, aufgegeben, abgelaufen); dargestellte Eintragszahl bei Lückenmarkern |
+| `reason` | Stopp-/Lizenzcode; woher ein `change` kam; warum ein `sync` fehlschlug; nichtmenschlicher admin-Akteur; oder `audit:<first>-<last>` eines Markers; sonst null |
+| `outcome` | Operations-/Ergebniscode: `scan`/`mask`, Vorgaben-/Lizenzresultat, wie ein `approval` oder ein `change` endete, wie ein `sync` endete (`ok`, `failed`, `removed`), admin-Aktion oder `siem.gap`; sonst null |
+| `by` | Wer über ein `approval` oder einen `change` entschieden hat, wenn es nicht die Person war ([zentrale Freigaben](../approvals/)), oder die Person, die einen `sync` angefordert oder synchronisierte Begriffe entfernt hat ([Begriffssynchronisierung](../term-sync/)), so aufbewahrt, wie die Personeneinstellung eine Person aufbewahrt; sonst null |
+| `rule` | Regel-/Einstellungs-ID, `t_…`-Token-ID des `apps`-Aufrufers (nie der Wert), die Quelle eines `sync` als `term-sync:<name>` (nur `term-sync` bei einem Entfernen, das keine Quelle nennt) oder admin-Ziel gemäß Datenschutzregel; sonst null |
+| `chain` | admin-`prev`/`hash`, jeweils 64 Hexziffern (`prev` am Kettenanfang leer); Markerendpunkte wie oben; sonst null |
+
+## Metriken und Prüfungen
+
+Der Metriklistener des Servers stellt `/_latet/metrics` bereit; siehe [Serverbetrieb](../../concepts/server-operations/). SIEM-Labels gruppieren nach Ausgabe-`kind`, nicht Name.
+
+| Metrik | Bedeutung |
+| --- | --- |
+| `latet_events_kept_total{type}` | Von dieser Instanz gezählte Ereignisse |
+| `latet_events_lost_total` | Vor Zählung verlorene Ereignisse, einschließlich Warteschlangendruck, Datenbank-/Shutdown-Verlusten und Schemaablehnungen |
+| `latet_events_other_project_total` | Anschließend gezählte Ereignisse, deren Projekt die stündliche Begrenzung pro Identität dieser Instanz auf `other` umgestellt hat; ausschließlich in der Datenbank behandelter Gruppen-/Gesamtüberlauf und die bloße Verwendung des Namens `other` sind ausgenommen |
+| `latet_siem_queued{kind}` | Alle 30 Sekunden aktualisierte gemeinsame Datenbank-Warteschlangenschätzung; über Instanzen `max`, nicht Summe verwenden |
+| `latet_siem_sent_total{kind}` | Von dieser Instanz transportseitig angenommene Ereignisse |
+| `latet_siem_failed_total{kind}` | Fehlgeschlagene Batches zur Wiederholung |
+| `latet_siem_dropped_total{kind}` | Durch Ablehnung oder Bereinigung verworfene gewöhnliche Ereignisse |
+| `latet_approvals_company_waiting{kind, route}` | Änderungen (`change`) und Texte (`batch`), die auf das Sicherheitsteam (`security`) oder auf die Personen warten, die einen API-Schlüssel steuern (`controllers`); jede Instanz liest den Wert alle 30 Sekunden aus der Datenbank und meldet denselben: Nehmen Sie den größten. [Zentrale Freigaben](../approvals/) |
+| `latet_approvals_company_decided_total{kind, state}` | Was über diese Instanz aufgehört hat zu warten, nach der Art, wie es endete (`approved`, `rejected`, `withdrawn`, `stale`, `superseded`, `expired`, `abandoned`, `gone`; dazu `approved-unapplied` und `approved-changed`, unter den freigegebenen erneut gezählt, für eine Freigabe, die die Einstellungen der Person nicht übernommen haben, und für einen freigegebenen, dann nicht gesendeten Text): Addieren Sie die Instanzen |
+| `latet_terms_masked` | Synchronisierte Begriffe, die diese Instanz jetzt maskiert; fehlt, bis ihre Begriffe zum ersten Mal geladen wurden ([Begriffssynchronisierung](../term-sync/)) |
+| `latet_terms_behind_seconds` | Sekunden, seit denen diese Instanz ältere synchronisierte Begriffe maskiert, als der Server hat (0: keine); Alarm über 60 |
+| `latet_terms_kept{state}` | Aufbewahrte synchronisierte Begriffe, noch in ihrer Quelle (`in-source`) oder nicht mehr (`gone`); jede Instanz liest den Wert alle 30 Sekunden aus der Datenbank und meldet denselben: Nehmen Sie den größten |
+| `latet_terms_unreadable` | Synchronisierte Begriffe, die diese Instanz nicht öffnen kann (ein anderer Hauptschlüssel hat sie versiegelt); Alarm über 0 |
+| `latet_terms_sources{kind, state}` | Die Quellen der Begriffssynchronisierung nach Art und danach, wie ihre letzte Synchronisierung lief (`ok`, `failed`, `never`); alle 30 Sekunden aus der Datenbank gelesen: Nehmen Sie den größten |
+| `latet_terms_runs_total{kind, outcome}` | Auf dieser Instanz gelaufene Synchronisierungen, nach ihrem Ausgang (`ok` oder der Code des Grundes, warum sie fehlschlugen): Addieren Sie die Instanzen |
+
+`latet server status` meldet Event-log-Einstellungen/-Erzeugung und aufgegebene Administrationseinträge sowie Zustellung, Fehler, zurückgehaltene Folge und Geheimniszustand jeder Ausgabe. Der Skip-Hinweis gilt für gewöhnliche zurückgehaltene Folgen und blockierte Administrationseinträge. Eine angezeigte `siem.gap`-Auditzeile ist ein Eintrag, kein kryptografisches Prüfergebnis.
+
+Automatisierte Tests verwenden lokale/simulierte Webhook-, HEC- und TLS-Syslog-Empfänger, Fehler und Mehrinstanzszenarien. Ein Mehrinstanzszenario mit regulären Bestätigungen prüft einmalige geordnete Ankunft; dies ist keine Garantie nach verlorenen Bestätigungen, Abstürzen oder Lease-Ablauf. Ein Test mit einer echten Splunk-Installation oder eine manuelle Indexierungsprobe wird nicht behauptet.

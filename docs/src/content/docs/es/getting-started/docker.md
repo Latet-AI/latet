@@ -9,8 +9,8 @@ resto del equipo. La imagen contiene el daemon, el panel y el entorno de ejecuci
 opcionales; sus modelos solo se descargan si lo pides. Tus agentes se quedan en tu equipo y se
 comunican con el contenedor en `127.0.0.1`.
 
-El contenedor no puede cambiar los ajustes de tus agentes ni ver quién eres, así que dos pasos que
-`latet global-install` hace por sí solo aquí se hacen a mano: conectar los agentes al contenedor, y
+El contenedor no puede cambiar los ajustes de tus agentes ni ver quién eres, así que aquí se hacen a
+mano dos pasos que `latet global-install` hace por sí solo: conectar los agentes al contenedor, y
 comunicarle tu identidad. Los dos consisten en copiar y pegar.
 
 ## Inícialo
@@ -73,7 +73,7 @@ volumen `latet-data` del contenedor con `docker cp`, lo fusiona allí y lo copia
 Después reinicia los agentes. Para estas rutas, los [modos](../../concepts/how-it-works/) y la
 protección son los mismos que con el daemon instalado en tu equipo: Anthropic para Claude Code, OpenAI
 o ChatGPT para Codex, y los proveedores de OpenCode. Claude Code en Bedrock, Vertex AI o Microsoft
-Foundry, un proveedor propio de Codex y la puerta de enlace de una empresa los configuran
+Foundry, un proveedor propio de Codex y la pasarela de una empresa los configuran
 `latet claude`, `latet codex` y `latet global-install`, que se ejecutan en tu equipo: para ellos usa
 Latet instalado en tu equipo.
 

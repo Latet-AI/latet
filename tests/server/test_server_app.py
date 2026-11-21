@@ -140,7 +140,7 @@ async def test_a_lost_connection_closes_the_spaces_and_forgets_what_the_instance
     async with listening(server):
         await server.spaces.runtime(emily)
         assert server.identities.by_secret(token) is not None and server.identities.holds(secret=token)
-        assert drop_listeners(server.bus) == 1
+        assert drop_listeners(server.bus) >= 1  # the instance's ear among them, beside the edition's listener
         await until(lambda: not server.listening.is_set() and server.spaces.count() == 0)
         assert not server.identities.holds(secret=token)  # read again from PostgreSQL
         await until(server.listening.is_set)
@@ -160,7 +160,7 @@ async def test_an_ear_listens_again_without_waiting_for_its_spaces_to_close(serv
             closed.set()
 
         monkeypatch.setattr(server.spaces, "_close", slow)
-        assert drop_listeners(server.bus) == 1
+        assert drop_listeners(server.bus) >= 1  # the instance's ear among them, beside the edition's listener
         await until(lambda: not server.listening.is_set())
         await until(server.listening.is_set, seconds=3.0)  # after RETRY_SECONDS, not after the closes
         assert not closed.is_set()

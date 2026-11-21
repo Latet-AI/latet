@@ -59,6 +59,7 @@ function project(id: string, name: string, repo: ProjectSettings | null, persona
       fields: [],
       dump_guard: null,
       images: 'allow',
+      unknown_members: 'check',
       llm_review: 'off',
     },
     recognizer_status: [],
@@ -169,6 +170,8 @@ function withEffective(p: ProjectDetail, config: ConfigView): ProjectDetail {
       fields: [...(mine.fields ?? []), ...(repo.fields ?? []).filter((f) => f.mask !== false), ...config.fields],
       dump_guard: mine.dump_guard !== undefined ? mine.dump_guard : (repo.dump_guard ?? config.dump_guard),
       images: mine.images ?? (repo.images === 'block' ? 'block' : config.images),
+      // A project, or its repository's file, may only refuse them.
+      unknown_members: repo.unknown_members === 'refuse' || mine.unknown_members === 'refuse' ? 'refuse' : (config.unknown_members ?? 'check'),
       llm_review: config.llm_review.enabled ? (mine.llm_review ?? repo.llm_review ?? 'inline') : 'off',
     },
     recognizer_status: [...(repo.recognizers ?? []), ...(mine.recognizers ?? [])].map((r) => ({

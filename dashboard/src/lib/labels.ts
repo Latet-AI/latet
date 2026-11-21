@@ -74,11 +74,25 @@ export const KIND_LABEL: Record<SlotKind, string> = {
   tool_description: tk('kinds.tool_description'),
   outbound_tool: tk('kinds.outbound_tool'),
   image_text: tk('kinds.image_text'),
+  new_member: tk('kinds.new_member'),
   other: tk('kinds.other'),
 }
 
-/** The kinds a text can be tried as (a tool outside this computer is not one you type). */
-export const SLOT_KINDS = (Object.keys(KIND_LABEL) as SlotKind[]).filter((kind) => kind !== 'outbound_tool')
+// What a tool's definition says of its input, by its key (gateway: protocols/base.py's _TOOL_SCHEMAS): in Claude Code
+// the plugin masks a tool's description alone, so a value here stops its requests (gateway/mediate.py: _TOOL_INPUT_PARTS).
+const TOOL_SCHEMA = /\.(?:input_schema|parameters|format)$/
+const TOOL_EXAMPLES = /\.input_examples$/
+
+/** A block's kind as a title: a tool's parameter schema and its input examples apart from its description. */
+export function slotKindLabel(kind: string, path: string): string | undefined {
+  if (kind === 'tool_description' && TOOL_SCHEMA.test(path)) return tk('kinds.tool_schema')
+  if (kind === 'tool_description' && TOOL_EXAMPLES.test(path)) return tk('kinds.tool_examples')
+  return KIND_LABEL[kind as SlotKind]
+}
+
+/** The kinds a text can be tried as (a tool outside this computer is not one you type, nor a member no request profile
+ * names, which is a leak's kind alone). */
+export const SLOT_KINDS = (Object.keys(KIND_LABEL) as SlotKind[]).filter((kind) => kind !== 'outbound_tool' && kind !== 'new_member')
 
 /** What Claude Code's auto mode reviewer is sent of this machine's identity, as a title. */
 export const REVIEW_DETAIL_TITLE: Record<ReviewDetail, string> = {

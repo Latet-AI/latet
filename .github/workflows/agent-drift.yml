@@ -1,0 +1,154 @@
+name: Agent drift
+
+# Daily and by hand (Run workflow): the latest Claude Code (and its next tag, when that names another version) and the
+# latest Codex, each run once against a stand-in of its provider on this runner (scripts/agent_drift/stand_in.py),
+# which streams a scripted turn: a call of a harmless shell command, then a final text. Every request they send is
+# recorded and read by Latet's inspection as the gateway reads it (scripts/agent_drift/report.py), and each member no
+# profile declares is named in the run's summary by its JSON path: the canary's own traffic, never a person's. The run
+# fails when it finds one, when the inspection refuses a body, and when an agent crashed, hung, sent no request or left
+# its turn unfinished; GitHub tells the owner of a failed scheduled run by e-mail. No provider is reached: the agents'
+# base URLs point at the stand-in, their keys are fake, their telemetry is off, and the providers' hosts resolve to
+# this runner. No secret is used. The records stay on the runner: none is uploaded, since they hold the agents' own
+# prompts and tools (a member's values can be seen by running the stand-in and the agent on a computer of one's own).
+on:
+  schedule:
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-drift
+  cancel-in-progress: false
+
+jobs:
+  agent-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Nothing of the agents' own beyond their model calls: no telemetry, error reports, updates or surveys.
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      DISABLE_TELEMETRY: "1"
+      DISABLE_ERROR_REPORTING: "1"
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_ENABLE_TELEMETRY: "0"
+      # Fake keys: the stand-in takes any, and records none.
+      ANTHROPIC_API_KEY: sk-ant-api03-agent-drift-not-a-key
+      AGENT_DRIFT_OPENAI_KEY: sk-agent-drift-not-a-key
+      PROMPT: Run the shell command echo latet-canary, then say done.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # No cache: this job runs the agents' newest code from npm on the default branch, and a cache it saved would be
+      # restored in other workflows' runs.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --locked
+      - name: The agents, from npm
+        id: agents
+        run: |
+          agents="$RUNNER_TEMP/agents"
+          npm install --no-audit --no-fund --prefix "$agents/claude-latest" @anthropic-ai/claude-code@latest
+          npm install --no-audit --no-fund --prefix "$agents/codex-latest" @openai/codex@latest
+          latest="$(npm view @anthropic-ai/claude-code dist-tags.latest)"
+          next="$(npm view @anthropic-ai/claude-code dist-tags.next)"
+          if [ -z "$next" ]; then
+            echo "Claude Code has no next tag: latest ($latest) alone is run."
+          elif [ "$next" = "$latest" ]; then
+            echo "Claude Code's next tag is latest's version ($latest): it is run once."
+          elif printf '%s' "$next" | grep -Eq '^[0-9A-Za-z.+-]+$'; then
+            npm install --no-audit --no-fund --prefix "$agents/claude-next" "@anthropic-ai/claude-code@$next"
+            echo "next=$next" >> "$GITHUB_OUTPUT"
+          else
+            echo "Claude Code's next tag names no version: $next"
+            exit 1
+          fi
+          for agent in "$agents"/*/node_modules/.bin/claude "$agents"/*/node_modules/.bin/codex; do
+            echo "$agent: $("$agent" --version)"
+          done
+      - name: No provider reachable from this runner
+        # From here on the providers' API and sign-in hosts resolve to this runner, where nothing answers them: an
+        # agent that went past its stand-in reaches no provider.
+        run: |
+          for host in api.anthropic.com claude.ai console.anthropic.com platform.claude.com statsig.anthropic.com \
+            api.openai.com chatgpt.com auth.openai.com; do
+            printf '0.0.0.0 %s\n:: %s\n' "$host" "$host" | sudo tee -a /etc/hosts > /dev/null
+          done
+          for url in https://api.anthropic.com https://api.openai.com; do
+            if curl -s --max-time 5 -o /dev/null "$url"; then
+              echo "$url still answers"
+              exit 1
+            fi
+          done
+      - name: The runs' folders, and Codex's provider at its stand-in
+        # Run after every step before it succeeded, the providers' hosts shut off among them: each agent waits for it.
+        id: ready
+        run: |
+          mkdir -p "$RUNNER_TEMP/drift" "$RUNNER_TEMP/codex-home" "$RUNNER_TEMP/work"
+          # The agents work in a repository of their own, as a person's would, with nothing in it.
+          git -C "$RUNNER_TEMP/work" init -q
+          git -C "$RUNNER_TEMP/work" -c user.name=drift -c user.email=drift@example.invalid commit -q --allow-empty -m init
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<'EOF'
+          model_provider = "agent-drift"
+          check_for_update_on_startup = false
+
+          [model_providers.agent-drift]
+          name = "Agent drift stand-in"
+          base_url = "http://127.0.0.1:18603/openai/v1"
+          env_key = "AGENT_DRIFT_OPENAI_KEY"
+          wire_api = "responses"
+
+          [otel]
+          exporter = "none"
+
+          [analytics]
+          enabled = false
+          EOF
+      - name: Claude Code (latest), against its stand-in
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        timeout-minutes: 8
+        working-directory: ${{ runner.temp }}/work
+        env:
+          ANTHROPIC_BASE_URL: http://127.0.0.1:18601/anthropic
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-latest-home
+        run: |
+          "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/scripts/agent_drift/stand_in.py" --port 18601 \
+            --record "$RUNNER_TEMP/drift/claude-latest.jsonl" --timeout 300 -- \
+            "$RUNNER_TEMP/agents/claude-latest/node_modules/.bin/claude" -p "$PROMPT" \
+            --allowedTools "Bash(echo:*)" --max-turns 4
+      - name: Claude Code (next), against its stand-in
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && steps.agents.outputs.next != '' }}
+        timeout-minutes: 8
+        working-directory: ${{ runner.temp }}/work
+        env:
+          ANTHROPIC_BASE_URL: http://127.0.0.1:18602/anthropic
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-next-home
+        run: |
+          "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/scripts/agent_drift/stand_in.py" --port 18602 \
+            --record "$RUNNER_TEMP/drift/claude-next.jsonl" --timeout 300 -- \
+            "$RUNNER_TEMP/agents/claude-next/node_modules/.bin/claude" -p "$PROMPT" \
+            --allowedTools "Bash(echo:*)" --max-turns 4
+      - name: Codex (latest), against its stand-in
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        timeout-minutes: 8
+        working-directory: ${{ runner.temp }}/work
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+        run: |
+          "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/scripts/agent_drift/stand_in.py" --port 18603 \
+            --record "$RUNNER_TEMP/drift/codex-latest.jsonl" --timeout 300 -- \
+            "$RUNNER_TEMP/agents/codex-latest/node_modules/.bin/codex" exec --sandbox read-only --color never "$PROMPT"
+      - name: The members no profile declares
+        if: ${{ !cancelled() }}
+        env:
+          NEXT: ${{ steps.agents.outputs.next }}
+        run: |
+          records="$RUNNER_TEMP/drift/claude-latest.jsonl $RUNNER_TEMP/drift/codex-latest.jsonl"
+          if [ -n "$NEXT" ]; then records="$records $RUNNER_TEMP/drift/claude-next.jsonl"; fi
+          uv run python scripts/agent_drift/report.py $records

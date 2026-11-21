@@ -427,6 +427,41 @@ def test_helper_valid_positive_precedes_invalid_binding_zero_network_and_zero_cr
     assert len(helper_bound.created) == 1  # Invalid binding did not construct another TLS/HTTP transport.
 
 
+_MASK = {**_SESSION, "items": [{"text": "owned-input", "kind": "user_text"}]}
+_WAITING = {"pending": "a" * 32, "viewers": 0}
+
+
+@pytest.mark.parametrize(
+    "who",
+    [{}, {"decides": "self", "deciders": []}, {"decides": "security", "deciders": ["Mark Ellis", "Ada Lovelace"]}],
+    ids=["unsaid", "self", "security"],
+)
+def test_helper_passes_on_who_decides_on_a_text_that_waits(helper_bound, monkeypatch, who):
+    monkeypatch.setitem(_RESPONSES, "mask", {**_WAITING, **who})
+    code, result = helper_bound.invoke(helper_bound.envelope("mask", _MASK))
+    assert code == 0 and result == {"v": 1, "ok": True, "response": {**_WAITING, **who}}
+    assert helper_bound.sent == [("mask", _MASK)]
+
+
+@pytest.mark.parametrize(
+    "who",
+    [
+        {"decides": 1},
+        {"decides": None},
+        {"decides": "security", "deciders": "Mark Ellis"},
+        {"decides": "security", "deciders": None},
+        {"decides": "security", "deciders": [{}]},
+        {"decides": "security", "deciders": ["Mark Ellis", 7]},
+    ],
+    ids=["decides-number", "decides-null", "deciders-string", "deciders-null", "decider-object", "decider-number"],
+)
+def test_helper_refuses_who_decides_in_a_shape_the_server_never_answers(helper_bound, monkeypatch, who):
+    monkeypatch.setitem(_RESPONSES, "mask", {**_WAITING, **who})
+    code, result = helper_bound.invoke(helper_bound.envelope("mask", _MASK))
+    assert code == 2 and result == {"v": 1, "ok": False, "code": "response"}
+    assert helper_bound.sent == [("mask", _MASK)]
+
+
 def test_helper_complete_stdout_depth_includes_the_protocol_envelope(helper_bound, monkeypatch):
     def reply(nesting):
         extra = None

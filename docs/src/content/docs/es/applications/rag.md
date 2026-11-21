@@ -122,22 +122,22 @@ nodo qué ve entonces la persona.
 - **Los nombres** los encuentra el modelo de nombres local instalado en el servidor
   ([modelos de reconocimiento en un servidor](../../concepts/server-operations/#modelos-de-reconocimiento-en-un-servidor)),
   en los documentos enviados como `prose`, el valor predeterminado. Sin él, el revisor local del
-  servidor, cuando las reglas de la clave indican uno, los encuentra lo mejor que puede; los términos
-  de la clave atrapan los nombres que conoces.
+  servidor, cuando las reglas de la clave indican uno, los encuentra sin garantías; los términos de la
+  clave detectan los nombres que conoces.
 - **Lo que restaura `unmask`.** Los valores ficticios que el modelo escribe tal como se le dieron, en
   mayúsculas, o codificados en un enlace; no uno que reescribe de otra forma, como un IBAN agrupado de
-  cuatro en cuatro. El nombre de una persona solo vuelve entero: un nombre de pila solo se queda como
+  cuatro en cuatro. El nombre de una persona solo vuelve entero: un nombre de pila suelto se queda como
   lo escribió el modelo. Pide al modelo, en el prompt, que cite nombres, direcciones y números
   exactamente como los escriben los documentos.
 - **Indexa a partir de los originales.** Para volver a indexar un documento, enmascara su original:
   los mismos valores reciben los mismos valores ficticios. Enmascarar una copia ya enmascarada da
   valores ficticios de valores ficticios, que una sola restauración solo devuelve un paso atrás.
-- **Listas largas.** Una llamada admite hasta 1.000 textos y el `apps_request_mb` del servidor; el
+- **Listas largas.** Una llamada admite hasta 1000 textos y el `apps_request_mb` del servidor; el
   cliente divide una lista más larga en varias llamadas, una tras otra. Un valor que solo enseña a la
   caja fuerte una llamada posterior (por ejemplo, un nombre que el revisor encuentra en un documento)
   no se enmascara en los documentos de las llamadas anteriores: mantén en una sola llamada los
   documentos que deben enmascararse juntos. Un documento de unos 20 KB tarda de 80 a 95 ms en
   enmascararse y 30 ms en restaurarse en una instancia ([las mediciones](../#velocidad)).
 - **Quién restaura.** Cada restauración está en el registro de administración del servidor. Una
-  herramienta que responde a muchas personas escribe una entrada por llamada; quién preguntó le toca
-  registrarlo a la aplicación.
+  herramienta que responde a muchas personas escribe una entrada por llamada; registrar quién preguntó
+  le corresponde a la aplicación.

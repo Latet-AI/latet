@@ -354,6 +354,28 @@ def test_a_sign_in_record_written_by_hand_or_sealed_by_another_server_opens_no_d
     assert ValkeySignIns(b, MASTER, clock=clock).subject_of(forged) is None  # bound to its own key
 
 
+def test_a_session_says_how_it_was_opened_and_one_that_does_not_say_was_opened_with_a_code(buses, clock):
+    """Decision (c): a session records whether a one-time code or the company's single sign-on opened it, sealed with
+    it; a record kept before that (no ``v``) reads as a code's, and one that names another way opens nothing."""
+    a, b = buses
+    mine, theirs = ValkeySignIns(a, MASTER, clock=clock), ValkeySignIns(b, MASTER, clock=clock)
+    sso, code = mine.open(EMILY, via="sso"), mine.open(DANIEL)
+    assert theirs.session_of(sso) == (EMILY, "sso") and theirs.session_of(code) == (DANIEL, "code")
+    assert theirs.held_session(sso) == (EMILY, "sso") and theirs.held(sso) == EMILY  # held with its kind
+    assert theirs.held_session(code) == (DANIEL, "code")
+    with pytest.raises(ValueError, match="one-time code or the company's sign-in"):
+        mine.open(EMILY, via="password")  # type: ignore[arg-type]
+    sealer = MASTER.sealer(b"sign-ins")
+    older, odd = "a-session-kept-before", "a-session-of-another-way"
+    for sid, record in (
+        (older, {"s": EMILY, "e": clock.now + 3600}),
+        (odd, {"s": EMILY, "e": clock.now + 3600, "v": "x"}),
+    ):
+        key = a.key(f"signin:session:{_hash(sid)}")
+        a.client.set(key, sealer.seal_json(record, key))
+    assert theirs.session_of(older) == (EMILY, "code") and theirs.session_of(odd) is None
+
+
 def test_a_person_keeps_their_newest_sessions_and_the_older_end_on_every_instance(buses, clock, monkeypatch):
     """B3: a person keeps their newest ``SESSIONS_KEPT`` dashboard sessions, as an identity keeps its newest AWS
     sessions: one more ends the oldest, in Valkey and in every instance's memory (told on ``signins``), and leaves

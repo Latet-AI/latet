@@ -1,10 +1,10 @@
 ---
 title: Puntos de conexión de empresa
-description: Claude Code y Codex a través de la puerta de enlace de tu empresa, Amazon Bedrock, Google Vertex, Microsoft Foundry o Azure OpenAI, con Latet delante.
+description: Claude Code y Codex a través de la pasarela de tu empresa, Amazon Bedrock, Google Vertex, Microsoft Foundry o Azure OpenAI, con Latet delante.
 ---
 
 En el trabajo, Claude Code y Codex suelen llegar al modelo por una ruta que eligió tu empresa, en lugar
-de ir directamente a Anthropic o a OpenAI: su propia puerta de enlace de LLM (LiteLLM, Portkey...),
+de ir directamente a Anthropic o a OpenAI: su propia pasarela de LLM (LiteLLM, Portkey...),
 Amazon Bedrock, Google Vertex, Microsoft Foundry o Azure OpenAI. El modelo es el mismo; lo que cambia
 es quién lo vende y adónde van las peticiones.
 
@@ -23,7 +23,7 @@ enmascarado (Codex). No hay nada que configurar a mano: lo hacen `latet claude`,
   [`upstreams`](../../reference/configuration/#upstreams-items), con un nombre sacado de la dirección
   (`https://llm.acme.com` se convierte en `llm-acme-com`), y el agente envía en su lugar a
   `http://127.0.0.1:5283/llm-acme-com`. La misma dirección recibe siempre el mismo destino.
-  Algunos nombres son de las rutas de Latet, y un destino no puede usarlos:
+  Latet reserva algunos nombres para sus propias rutas, y un destino no puede usarlos:
   `anthropic`, `openai`, `chatgpt`, `openrouter`, `gemini`, `bedrock`, `vertex` y `backend-api`.
 - **Bedrock y Vertex tienen sus propias rutas**, `/bedrock/<region>/` y `/vertex/`, que solo llegan a
   las direcciones de Amazon y de Google.
@@ -35,9 +35,9 @@ impone a tus ajustes y a los del proyecto; `latet codex` añade opciones `-c`. D
 `latet global-install` escribe lo mismo en los archivos de los agentes, y `latet global-uninstall`
 restablece cada dirección que sustituyó, aunque hayas editado el archivo desde entonces.
 
-## La puerta de enlace de tu empresa
+## La pasarela de tu empresa
 
-Claude Code configurado con la puerta de enlace de tu empresa:
+Claude Code configurado con la pasarela de tu empresa:
 
 ```json title="~/.claude/settings.json"
 { "env": { "ANTHROPIC_BASE_URL": "https://llm.acme.com", "ANTHROPIC_AUTH_TOKEN": "sk-acme-..." } }
@@ -77,8 +77,8 @@ Para firmar, Latet lee tu perfil como lo hacen las propias herramientas de Amazo
 (`aws configure export-credentials`) cuando está instalada, lo que cubre los inicios de sesión SSO y
 los roles, o a partir de las claves escritas en `~/.aws`. Latet busca `aws` en su propio PATH, y después
 en `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`, `~/.local/bin` y `/snap/bin` (en
-`C:\Program Files\Amazon\AWSCLIV2` en Windows): el Latet que arranca al iniciar sesión no ve el PATH de
-tu shell. Si tu AWS CLI está en otro sitio, inicia Latet desde un shell en el que funcione `aws`. Las
+`C:\Program Files\Amazon\AWSCLIV2` en Windows): el Latet que se inicia al arrancar la sesión no ve el PATH de
+tu shell. Si tu AWS CLI está en otro sitio, inicia Latet desde una shell en la que funcione `aws`. Las
 credenciales se quedan en la memoria de Latet, nunca se escriben en ningún sitio y solo firman
 peticiones a Amazon Bedrock. Cuando caduca tu inicio de sesión, Claude Code lo dice con palabras
 claras: `run aws sso login --profile work`; una vez que lo hayas ejecutado, vuelve a funcionar sin
@@ -121,7 +121,7 @@ envía a la dirección de Google que le corresponde: el punto de conexión globa
 
 Claude Code en Microsoft Foundry (`CLAUDE_CODE_USE_FOUNDRY=1`, con `ANTHROPIC_FOUNDRY_RESOURCE` o
 `ANTHROPIC_FOUNDRY_BASE_URL`) y Codex en Azure OpenAI (un proveedor cuyo `base_url` es
-`https://<resource>.openai.azure.com/openai/v1`) son destinos como una puerta de enlace: se guarda la
+`https://<resource>.openai.azure.com/openai/v1`) son destinos como una pasarela de empresa: se guarda la
 dirección del recurso (`foundry-acme`, `azure-acme`) y la clave pasa tal cual.
 
 ## Lo que deja pasar un destino
@@ -133,17 +133,18 @@ dice qué llamadas acepta: `standard` (las rutas propias de las API de Anthropic
 predeterminado), `azure-openai-1` (Azure OpenAI, con su `api-version`) o `foundry-1` (Microsoft
 Foundry). Cualquier otra llamada se rechaza.
 
-- **Su propia credencial.** Una pasarela que recibe su clave en `authorization` o `x-api-key` no
-  necesita nada más. Una que la quiere en una cabecera propia (`x-acme-key`) rechaza hasta que una
-  excepción nombre esa cabecera como credencial del destino, que Latet envía tal como llegó y nunca lee:
+- **Su propia credencial.** Una pasarela de empresa que recibe su clave en `authorization` o `x-api-key`
+  no necesita nada más. Con una que la quiere en una cabecera propia (`x-acme-key`), la petición se
+  rechaza hasta que una excepción nombre esa cabecera como credencial del destino, que Latet envía tal
+  como llegó y nunca lee:
   consulta [Aprobar una excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta).
-- **Sus nombres de modelo y versiones.** Un id de modelo en la forma que documenta un proveedor pasa.
-  Los nombres propios de una pasarela (`acme-large`), la `api-version` que acepta un destino de Azure
-  OpenAI o Foundry, cualquier ARN de Bedrock, incluido el de un perfil de inferencia de aplicación, y
-  un proyecto de Vertex se enumeran antes en `request_resources`:
+- **Sus nombres de modelo y versiones.** Un ID de modelo con el formato que documenta un proveedor
+  pasa. Los nombres propios de una pasarela de empresa (`acme-large`), la `api-version` que acepta un
+  destino de Azure OpenAI o Foundry, cualquier ARN de Bedrock, incluido el de un perfil de inferencia
+  de aplicación, y un proyecto de Vertex deben enumerarse antes en `request_resources`:
   [Bedrock y Vertex: qué hay que enumerar](../../getting-started/upgrading-to-0-11/#bedrock-y-vertex-qué-hay-que-enumerar).
-- **Las firmas del razonamiento a través de una pasarela.** Una conversación a través de LiteLLM u
-  otra pasarela que reenvía las firmas del razonamiento de Claude pasa mientras Latet recuerda haberlas
+- **Las firmas del razonamiento a través de una pasarela de empresa.** Una conversación a través de
+  LiteLLM u otra pasarela de empresa que reenvía las firmas del razonamiento de Claude pasa mientras Latet recuerda haberlas
   visto volver. Tras un reinicio del daemon, su siguiente turno se rechaza: empieza una conversación
   nueva.
 
@@ -171,17 +172,17 @@ de internet siempre pasan por Latet.
   dice y no inicia Claude Code. Tu departamento de TI puede hacer que esa dirección apunte a Latet,
   como se muestra más abajo.
 - **La API Mantle de Amazon Bedrock** (`CLAUDE_CODE_USE_MANTLE`): Latet no la lee. Usa la API
-  Invoke de Bedrock (`CLAUDE_CODE_USE_BEDROCK`) o la puerta de enlace de tu empresa.
+  Invoke de Bedrock (`CLAUDE_CODE_USE_BEDROCK`) o la pasarela de tu empresa.
 - **Amazon Bedrock a través de un punto de conexión de VPC** (un `ANTHROPIC_BEDROCK_BASE_URL` en
   `vpce-….vpce.amazonaws.com`): no se admite. Latet tendría que firmar para ese punto de
   conexión, y Amazon rechaza una firma hecha para la dirección de Latet. Latet lo dice y no inicia
-  Claude Code: usa la dirección pública de Bedrock, o la puerta de enlace de tu empresa. Con una clave
+  Claude Code: usa la dirección pública de Bedrock, o la pasarela de tu empresa. Con una clave
   de API de Bedrock (`AWS_BEARER_TOKEN_BEDROCK`) no hay que firmar nada, y el punto de conexión es un
   destino como cualquier dirección de empresa.
 - **La dirección FIPS de Amazon Bedrock** (un `ANTHROPIC_BEDROCK_BASE_URL` en
   `bedrock-runtime-fips.us-east-1.amazonaws.com`): no se admite. Latet solo puede enviar a la
   dirección estándar, que no es un punto de conexión FIPS, así que lo dice y no inicia Claude Code, en
-  lugar de saltarse tu requisito de FIPS. Usa la puerta de enlace de tu empresa, o la dirección
+  lugar de saltarse tu requisito de FIPS. Usa la pasarela de tu empresa, o la dirección
   estándar si no necesitas FIPS. Con una clave de API de Bedrock (`AWS_BEARER_TOKEN_BEDROCK`) no hay
   que firmar nada, y la dirección FIPS sigue siendo el destino, como cualquier dirección de empresa.
 - **Más de una nube a la vez** (`CLAUDE_CODE_USE_BEDROCK` y `CLAUDE_CODE_USE_VERTEX`, por ejemplo):
@@ -241,7 +242,7 @@ ajustes gestionados envían Claude Code a otro sitio, y no lo inicia.
 ## Con qué se ha probado
 
 El Claude Code real (2.1.294) y el Codex real (0.161.0), a través de Latet, contra proveedores que
-responden como cada nube, en un solo equipo: la puerta de enlace de una empresa, Bedrock con una clave
+responden como cada nube, en un solo equipo: la pasarela de una empresa, Bedrock con una clave
 de API, con un perfil para el que firmó Latet y con el ARN de un modelo, Vertex, y un proveedor de
 Codex con la forma de Azure. Las firmas de Latet coinciden con las de la propia biblioteca de AWS,
 petición a petición. Si usas una de estas nubes en el trabajo,

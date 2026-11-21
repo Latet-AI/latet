@@ -15,6 +15,7 @@ import { launchOf, showsVerified } from '../lib/coverage'
 import { CMD_CLAUDE, CMD_CODEX } from '../lib/commands'
 import { hasFlag } from '../lib/flags'
 import { foundAfterSending, lateTarget } from '../lib/reviewer'
+import { yourBatches } from '../lib/approvals'
 import { useApprovals } from '../lib/approvals-context'
 import { AGENT_LABEL, classCounts, FILTER_FLAGS, filterAgents, FLAG_LABEL, MODE_HELP, MODES, typeClassesFor } from '../lib/labels'
 import { useDeploymentKey, useMe, useTypeClass } from '../lib/me'
@@ -60,7 +61,8 @@ export function LivePage() {
   const { t } = useTranslation()
   const key = useDeploymentKey()
   const { me } = useMe()
-  const waiting = useApprovals().batches.length
+  // The texts waiting for your approval: not those your company's security team decides on (Latet Enterprise).
+  const waiting = yourBatches(useApprovals().batches).length
   const [params, setParams] = useSearchParams()
   const filters: Filters = {
     agent: params.get('agent') ?? '',

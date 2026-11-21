@@ -3,8 +3,8 @@ title: Feuille de route
 description: Les prochaines étapes de Latet, la plus proche d'abord.
 ---
 
-Les prochaines étapes, la plus proche d'abord. Les idées et l'aide sont les bienvenues : ouvrez une
-[issue](https://github.com/Latet-AI/latet/issues), ou consultez [Contribuer](../contributing/). Ce
+Les prochaines étapes, la plus proche d'abord. Les idées et l'aide sont les bienvenues : ouvrez un
+[ticket](https://github.com/Latet-AI/latet/issues), ou consultez [Contribuer](../contributing/). Ce
 qui a déjà changé se trouve dans le [journal des modifications](../changelog/).
 
 ## Le mode auto de Claude Code, un refus explicite
@@ -13,9 +13,20 @@ Quand une relecture du mode auto transporterait un détail que vous gardez en lo
 d'utilisateur, vos chemins), Latet l'arrête aujourd'hui, et Claude Code signale son relecteur comme
 indisponible et refuse l'action. Latet pourrait plutôt répondre avec le verdict propre du relecteur,
 *blocked*, pour que le refus apparaisse pour ce qu'il est. Cette réponse viendrait de Latet à la
-place du relecteur d'Anthropic, alors nous demandons d'abord : une issue expose le cas avec la pull
+place du relecteur d'Anthropic, alors nous demandons d'abord : un ticket expose le cas avec la pull
 request prête, nous l'envoyons à Anthropic, et la pull request n'est fusionnée qu'avec l'accord
-d'Anthropic, joint à l'issue.
+d'Anthropic, joint au ticket.
+
+## Les outils MCP masqués avant que Claude Code ne les lise
+
+Le schéma des paramètres d'un outil MCP peut contenir une valeur que Latet masque, comme une adresse
+d'exemple, et Claude Code l'envoie avec ses requêtes, là où le plugin de Latet ne l'atteint pas :
+aujourd'hui Latet arrête ces requêtes (voir [Dépannage](../troubleshooting/)). Latet se placerait
+plutôt entre Claude Code et les serveurs MCP que vous configurez : il masquerait les descriptions et
+les schémas des outils dans la liste que Claude Code lit, et remettrait les vraies valeurs dans les
+appels du modèle, si bien que les requêtes de Claude Code resteraient telles que Claude Code les a
+construites. Cela couvrirait les serveurs que vous ajoutez vous-même, pas les connecteurs qui
+viennent de claude.ai.
 
 ## Un programme d'installation signé pour Windows
 
@@ -66,17 +77,25 @@ seraient masqués comme le texte, un format après l'autre. Dans chaque fichier 
 lire, Latet remplacerait les valeurs sensibles par des valeurs factices et enverrait le fichier
 masqué, puis remettrait les originaux en place dans la réponse, y compris dans les fichiers que le
 modèle renvoie. Un fichier dans un format que Latet ne lit pas est refusé, dans une conversation
-comme envoyé à part par l'API de fichiers d'un fournisseur, sur un ordinateur comme sur un serveur
+comme envoyé à part par l'API de fichiers d'un fournisseur, sur une machine comme sur un serveur
 (voir [Ce qui est protégé et ce qui ne l'est pas](../concepts/protection-scope/)).
 
 ## Latet Enterprise
 
 Latet Enterprise s'adresse à une entreprise dont l'équipe de sécurité fixe les règles pour tout le
-monde. En plus de l'édition Community, il ajoute des règles pour tout le monde que personne ne peut
-assouplir, des rôles d'administration comme celui d'auditeur en lecture seule, des approbations
-centralisées des changements qui réduisent la protection, l'authentification unique, des rapports
-d'audit et des événements pour un SIEM. [Inscrivez-vous à la liste d'attente](https://latet.ai/#waitlist)
-pour savoir quand il sortira.
+monde : des règles que personne ne peut assouplir, l'authentification unique avec des groupes et des
+rôles comme celui d'auditeur en lecture seule, des approbations centralisées des changements qui
+réduisent la protection, des rapports d'audit, des événements pour un SIEM et des termes
+synchronisés (voir [Éditions et licence](../enterprise/)). Deux ajouts y sont prévus :
+
+- **Les groupes de Microsoft AD FS.** Connecté directement, AD FS donne à Latet le nom d'utilisateur
+  d'une personne, mais pas ses groupes : il ne les ajoute qu'à une réponse renvoyée par un form post.
+  Latet demanderait cette réponse, pour que les groupes d'AD FS placent les personnes dans les
+  groupes Latet et décident qui reçoit un compte, comme le font les groupes des autres fournisseurs,
+  sans Keycloak entre les deux.
+- **Déconnecter depuis Vos machines.** Une personne déconnecterait elle-même l'une de ses machines,
+  par exemple une machine qu'elle n'a plus, depuis **Vos machines** dans le tableau de bord, sans le
+  demander à un administrateur.
 
 ## D'autres langues
 

@@ -69,9 +69,9 @@ Bindestrich, sechs Ziffern.
 Die Seite **Regeln** im Dashboard erledigt dasselbe in ihrem Tab *Erkenner*: eine Tabelle Ihrer
 Erkenner, jede Zeile mit dem Namen, dem Typ, dem, was er findet (das Muster, gekürzt), dem, was mit
 seinen Werten geschieht, und wie er geladen wurde. *Erkenner hinzufügen* öffnet einen Bereich mit
-jedem Feld: ausfüllen und *Ausprobieren* mit einem eigenen Text (nichts, was Sie dort eingeben,
-wird aufbewahrt). Bevor Sie speichern, zeigt sie das Ergebnis jedes Beispiels und die Treffer in
-gewöhnlichem Code. Wählen Sie Zeilen aus, um sie ein- oder auszuschalten oder zu löschen;
+allen Feldern: Füllen Sie ihn aus und testen Sie ihn mit *Ausprobieren* an einem eigenen Text
+(nichts, was Sie dort eingeben, wird aufbewahrt). Bevor Sie speichern, zeigt der Bereich das
+Ergebnis jedes Beispiels und die Treffer in gewöhnlichem Code. Wählen Sie Zeilen aus, um sie ein- oder auszuschalten oder zu löschen;
 *Exportieren* und *Importieren* übertragen sie als Regeldatei. Ist der
 [lokale Prüfer](../llm-review/#erkenner-aus-einer-beschreibung) eingeschaltet, schreibt *Entwurf aus
 einer Beschreibung* den Erkenner aus einem Satz für Sie (*"Ausweisnummern: BD, ein Bindestrich und
@@ -89,9 +89,9 @@ latet rules list --project .
 ```
 
 Die Seite **Regeln** im Dashboard erledigt dasselbe, sobald Sie oben in der Auswahl das Projekt
-wählen: Ihre Tabelle *Erkenner* zeigt die des Projekts, aus Ihren Einstellungen und aus der
-`latet.yaml`, mit Ihren globalen, und ein neuer kommt dorthin, wo *Speichern in* in seinem Bereich
-es sagt.
+wählen: Die Tabelle *Erkenner* zeigt die eigenen Erkenner des Projekts, aus Ihren Einstellungen und
+aus der `latet.yaml`, zusammen mit Ihren globalen, und ein neuer wird dort gespeichert, wo es
+*Speichern in* in seinem Bereich angibt.
 
 ## Woraus ein Erkenner besteht
 

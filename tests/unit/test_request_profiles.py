@@ -505,3 +505,42 @@ def test_vertex_enumerated_location_keeps_the_documented_host_mapping(location, 
         assert client.post(target, json={"messages": [{"role": "user", "content": "hello"}]}).status_code == 200
         assert counts(made) == (1, 1)
         assert transport.sent[0].host == host
+
+
+# Claude Code's preconnect as it starts (2.1.319 to 2.1.323): HEAD {ANTHROPIC_BASE_URL}/api/hello from Bun's fetch, no
+# body, no credential, its answer ignored. Its headers as Bun sends them.
+_HELLO = {"user-agent": "Bun/1.3.4", "accept": "*/*", "accept-encoding": "gzip, deflate, br, zstd"}
+
+
+def test_claude_codes_preconnect_passes_as_it_came_and_is_no_unknown_route():
+    with gateway(upstream=_ANTHROPIC) as (client, transport, made, _):
+        response = client.head("/anthropic/api/hello", headers=_HELLO)
+        assert response.status_code == 200
+        assert counts(made) == (1, 1)
+        sent = transport.sent[0]
+        assert (sent.method, sent.host, sent.raw_path) == ("HEAD", "api.anthropic.com", b"/api/hello")
+        assert sent.content == b""
+
+
+@pytest.mark.parametrize(
+    ("upstream", "method", "target", "headers", "body"),
+    [
+        (_ANTHROPIC, "GET", "/anthropic/api/hello", _HELLO, b""),
+        (_ANTHROPIC, "POST", "/anthropic/api/hello", _HELLO, b""),
+        (_ANTHROPIC, "PUT", "/anthropic/api/hello", _HELLO, b""),
+        (_ANTHROPIC, "HEAD", "/anthropic/api/hello?name=mario-rossi", _HELLO, b""),
+        (_ANTHROPIC, "HEAD", "/anthropic/api/hello/mario-rossi", _HELLO, b""),
+        (_ANTHROPIC, "HEAD", "/anthropic/api/hello", _HELLO, b"mario.rossi@example.com"),
+        (_ANTHROPIC, "HEAD", "/anthropic/api/hello", {**_HELLO, "x-private-mariorossi": "secret-canary"}, b""),
+        (Upstream("openai", "/openai", "https://api.openai.com"), "HEAD", "/openai/api/hello", _HELLO, b""),
+        (_GEMINI, "HEAD", "/gemini/api/hello", _HELLO, b""),
+    ],
+    ids=["get", "post", "put", "query", "suffix", "body", "header", "openai", "gemini"],
+)
+def test_only_that_preconnect_passes(upstream, method, target, headers, body):
+    """Only HEAD, only /api/hello on Anthropic's destination, as it came: another method, a query, a longer path, a
+    body, a header no profile names or another destination are refused as before, and nothing leaves."""
+    with gateway(upstream=upstream) as (client, transport, made, _):
+        response = client.request(method, target, headers=headers, content=body)
+        assert response.status_code == 400
+        assert counts(made) == (0, 0) and transport.sent == []

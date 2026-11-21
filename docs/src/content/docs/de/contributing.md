@@ -5,8 +5,8 @@ description: Eine Entwicklungsumgebung einrichten, die Prüfungen ausführen, di
 
 Bevor Sie mit etwas Größerem beginnen, eröffnen Sie ein Issue, um es zu besprechen.
 
-Für eine Veröffentlichung folgen Sie [Latet veröffentlichen](../releasing/): zusammenführen,
-die vollständige CI für den genauen main-Commit abwarten, dann das Tag erstellen.
+Für die Veröffentlichung einer Version folgen Sie [Latet veröffentlichen](../releasing/): zusammenführen,
+die vollständige CI für genau diesen main-Commit abwarten, dann das Tag erstellen.
 
 ## Entwicklungsumgebung
 
@@ -27,8 +27,8 @@ uv run latet claude      # Claude Code with the plugin from src/latet/claude_plu
 uv run latet doctor
 ```
 
-Um eine Testinstanz von einem Latet zu trennen, das Sie wirklich nutzen, setzen Sie `LATET_DATA_DIR`
-und `LATET_CONFIG` auf einen Scratch-Ordner und wählen in dieser `config.yaml` einen anderen Port.
+Um eine Testinstanz von dem Latet getrennt zu halten, das Sie tatsächlich nutzen, setzen Sie `LATET_DATA_DIR`
+und `LATET_CONFIG` auf einen eigenen Testordner und wählen in dieser `config.yaml` einen anderen Port.
 
 `latet serve --capture <folder>` schreibt jeden Austausch in lokale Dateien (Header mit
 Zugangsdaten geschwärzt), was hilft, wenn Sie ein Protokoll untersuchen. Einen Modus, der ohne
@@ -43,7 +43,7 @@ Führen Sie diese Prüfungen aus, bevor Sie einen Pull-Request eröffnen. Die CI
 Lint- und Test-Jobs aus, die Tests unter Windows, macOS und Linux mit mehr Property-Test-Beispielen
 (`HYPOTHESIS_PROFILE=ci`). Außerdem führt die CI `uv run python scripts/gen_notices.py --check` aus,
 die Servertests und die unten beschriebenen Prüfungen für Plugin, Dashboard und Dokumentation, und
-sie baut die Installer und das Container-Image.
+sie baut die Installationsskripte und das Container-Image.
 
 ```sh
 uv run pytest
@@ -58,7 +58,7 @@ uv run python scripts/gen_reference.py --check
   einen Konfigurationsschlüssel oder einen Detektor geändert haben, erzeugen Sie sie mit
   `uv run python scripts/gen_reference.py` neu. Bearbeiten Sie sie nie von Hand.
 - **Claude-Code-Plugin.** `claude plugin validate src/latet/claude_plugin` prüft das Plugin
-  mit einer kompatiblen installierten Version. `claude plugin test`, ausgeführt in
+  mit einer kompatiblen installierten Version von Claude Code. `claude plugin test`, ausgeführt in
   `src/latet/claude_plugin/`, ist nicht in jeder installierten Laufzeitumgebung verfügbar;
   verwenden Sie es nur, wenn sie den Testbefehl anbietet.
 - **Fehlalarme.** `tests/unit/test_fp_budget.py` lässt die Detektoren über die Standardbibliothek
@@ -76,7 +76,7 @@ personenbezogene Daten oder Mitschnitte des Datenverkehrs.
 ## Servertests
 
 Verwenden Sie Docker und das vorhandene Hilfsskript für isolierte Testdienste mit
-PostgreSQL, Valkey und PostgreSQL mit TLS. Beim ersten Start werden fehlende Images geladen:
+PostgreSQL, Valkey und PostgreSQL mit TLS. Beim ersten Start werden fehlende Images heruntergeladen:
 
 ```sh
 uv run python scripts/server-services.py up
@@ -92,17 +92,28 @@ uv run pytest -q -m server
 ```
 
 Jeder Test verwendet sein eigenes Datenbankschema und Valkey-Präfix. Der CI-Job `server`
-stellt die Dienste bereit und verlangt sie: ein unerreichbarer Dienst muss den Test
-fehlschlagen lassen, statt ihn still zu überspringen. Stoppen Sie Ihre Hilfsskript-Dienste
-mit `uv run python scripts/server-services.py down`; stimmen Sie gemeinsame Dienste mit ihrem Betreiber ab.
+stellt die Dienste bereit und verlangt sie: Ein unerreichbarer Dienst muss den Test
+fehlschlagen lassen, statt ihn stillschweigend zu überspringen. Stoppen Sie die Dienste, die Ihr Hilfsskript
+gestartet hat, mit `uv run python scripts/server-services.py down`; stimmen Sie sich bei gemeinsam genutzten
+Diensten mit deren Betreiber ab.
 
 Tests realer Agenten werden mit `LATET_AGENT_TESTS=1` und `uv run pytest -m agents`
 ausdrücklich aktiviert. Sie starten installierte Drittanbieterprogramme gegen lokale
-Testanbieter; diese Programme können dennoch eigene externe Hosts kontaktieren.
+simulierte Anbieter; diese Programme können dennoch eigene externe Hosts kontaktieren.
 Verwenden Sie isolierte Benutzerverzeichnisse und synthetische Zugangsdaten; lokale Fixtures
-garantieren keinen ausbleibenden externen Verkehr. Mit `live` markierte Tests verwenden die lokalen
+garantieren nicht, dass kein externer Datenverkehr entsteht. Mit `live` markierte Tests verwenden die lokalen
 Modelle für Namens- und Texterkennung: Sie werden übersprungen, wo diese Modelle nicht installiert
 sind, wie in der CI.
+
+## Der Enterprise-Code
+
+Der Code von Latet Enterprise liegt in `src/latet/ee/` und `dashboard/src/ee/`, seine Tests liegen
+in `tests/ee/`: Jeder Ordner namens `ee` steht unter der Latet Enterprise License, und die
+[Lizenzvereinbarung für Beitragende](https://github.com/Latet-AI/latet/blob/main/CLA.md) gilt für einen Beitrag dort wie für jeden anderen. Die
+Community Edition braucht diesen Code nie: `uv run pytest -q --without-ee` führt die Testsuite aus,
+als gäbe es diese Ordner nicht, wie es der CI-Job `community` tut, nachdem er sie entfernt hat. Die
+Tests gegen reale Programme in Docker (Keycloak, OpenLDAP und Prometheus) laufen nur, wenn Sie sie
+ausdrücklich einschalten: [`tests/ee/providers/README.md`](https://github.com/Latet-AI/latet/blob/main/tests/ee/providers/README.md) beschreibt, wie Sie sie ausführen.
 
 ## Dashboard
 
@@ -162,7 +173,7 @@ in beiden Farbschemata: Führen Sie nach einer Änderung, die auf einem davon zu
 `npm run screenshots` in `dashboard/` aus (`npm run screenshots -- live it` erstellt nur einige neu).
 Beim ersten Mal lädt `npx playwright install chromium` den Browser herunter, den es verwendet. Eine
 MDX-Seite zeigt einen mit `<Screenshot name="live" alt="…" />`, nachdem sie
-`docs/src/components/Screenshot.astro` als `dashboard.mdx` importiert hat.
+`docs/src/components/Screenshot.astro` importiert hat, wie es `dashboard.mdx` tut.
 
 ## So fügen Sie eine Sprache hinzu
 
@@ -170,7 +181,7 @@ MDX-Seite zeigt einen mit `<Screenshot name="live" alt="…" />`, nachdem sie
 
 Die Dokumentation gibt es in fünf Sprachen: Englisch auf der obersten Ebene, als Referenz, und
 Italienisch, Deutsch, Französisch und Spanisch unter `/it/`, `/de/`, `/fr/` und `/es/` (die `locales`
-in `docs/astro.config.mjs`). Eine noch nicht übersetzte Seite zeigt die englische, mit einem Hinweis.
+in `docs/astro.config.mjs`). Eine Seite ohne Übersetzung zeigt die englische, mit einem Hinweis.
 Die aus dem Code erzeugten Referenzseiten bleiben in jeder Sprache englisch.
 
 - **Eine Seite übersetzen** heißt, sie unter `docs/src/content/docs/<lang>/` anzulegen, unter
@@ -201,7 +212,7 @@ eine weitere Sprache hinzu (hier Portugiesisch):
    abweichenden Variablen und die Pluralformen auf, die der Datei fehlen.
 3. Registrieren Sie die Sprache in `dashboard/src/i18n.ts`, mit ihrem Namen in der eigenen Sprache
    (`LANGUAGE_NAMES`), und fügen Sie sie den Sprachen hinzu, die `dashboard/src/i18n.test.ts`
-   erwartet. Diese Testdatei nimmt Portugiesisch als eine Sprache, die dem Dashboard fehlt
+   erwartet. Diese Testdatei verwendet Portugiesisch als Beispiel für eine Sprache, die das Dashboard nicht hat
    (`pt-BR`, `docsUrl(…, 'pt')`): Stellen Sie diese Fälle auf eine andere Sprache um. Solange es die
    Dokumentation nicht in der neuen Sprache gibt, lassen Sie `docsUrl` für sie auf die englischen
    Seiten führen; sobald es sie gibt, fügen Sie die Sprache zu `LANGUAGES` in
@@ -222,8 +233,8 @@ Tests spielen jedes Kapitel in jeder Sprache durch und prüfen jede Sprache nach
 redaktionellen Regeln (`tests/unit/tutorial/test_chapters.py`). Eine neue Sprache braucht in dieser
 Datei auch ihre eigenen Regeln, in `ON_SCREEN` und `JARGON`, sonst schlagen die Tests fehl.
 
-Ein Pull-Request darf nur die englischen Texte eines Kapitels ändern. Gewinnt oder verliert ein
-Text einen Platzhalter, braucht er dieselbe Änderung in den anderen Sprachen, sonst schlagen die
+Ein Pull-Request darf nur die englischen Texte eines Kapitels ändern. Erhält ein Text einen
+Platzhalter mehr oder weniger, braucht er dieselbe Änderung in den anderen Sprachen, sonst schlagen die
 Tests fehl; den Rest übersetzen die Maintainer.
 
 ## So fügen Sie ein Land hinzu
@@ -251,7 +262,7 @@ liegen in `ids/vat.py`.
    hinzu (`PII_CATALOG` und `id_regions_available` in `dashboard/src/mock/fixtures.ts`, `ID_TYPES`
    in `dashboard/src/mock/builder.ts`). Führen Sie dann `uv run python scripts/gen_reference.py` für
    die Referenztabellen aus.
-5. Führen Sie das Fehlalarm-Budget aus (`tests/unit/test_fp_budget.py`): Keine Regel für
+5. Führen Sie den Test des Fehlalarm-Budgets aus (`tests/unit/test_fp_budget.py`): Keine Regel für
    Identifikationsnummern darf auf der Stichprobe aus der Standardbibliothek anschlagen.
 
 ## So messen Sie einen lokalen Prüfer

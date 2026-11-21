@@ -129,6 +129,7 @@ def test_calls_no_built_in_profile_covers_are_listed_by_method_and_route_templat
             # Covered in 0.11 by D1's built-in profiles, or the main calls: not listed.
             {"path": "/anthropic/v1/models", "flags": ["unknown-route"]},
             {"path": "/openai/v1/models/gpt-5.1", "flags": ["unknown-route"]},
+            {"path": "/anthropic/api/hello", "flags": ["unknown-route"]},  # Claude Code's preconnect, a HEAD
             {"path": "/anthropic/v1/messages", "protocol": "anthropic", "body_bytes": 800},
             {"path": "/bedrock/eu-west-1/model/anthropic.claude-sonnet-4-5/invoke", "body_bytes": 800},
             # 0.11's own rows: a route template or an area, already decided under 0.11.

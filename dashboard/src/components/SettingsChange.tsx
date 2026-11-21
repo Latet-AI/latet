@@ -1,17 +1,21 @@
 // A change to your settings that lowers protection waits for your approval: the card on the Approvals
-// page where you approve it or undo it, and the notice on the Rules page while it waits.
+// page where you approve it or undo it, and the notice on the Rules page while it waits. With Latet Enterprise on a
+// server it may wait for someone else (your company's security team, or the people who control an API key): then the
+// card names them and offers Undo alone.
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { ApiError, api } from '../api/client'
 import type { DestinationChange, GuidanceChange, SettingsChange } from '../api/types'
-import { changeOrigin } from '../lib/approvals'
+import { changeOrigin, decidersText, moreDeciders, othersDecide } from '../lib/approvals'
 import { useApprovals } from '../lib/approvals-context'
 import { formatRelative } from '../lib/format'
 import { useMe } from '../lib/me'
 import { refusedWords } from '../lib/refused'
 import { useFormat } from '../lib/useFormat'
+import { FloorRefused } from '../ee/components/Locked'
+import { floorRefusal } from '../ee/lib/policy'
 import { DocsWhyLink } from './DocsLinks'
 import { Icon } from './Icon'
 import { ExceptionsAsked } from './RequestExceptions'
@@ -53,12 +57,18 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
   const { removeChange } = useApprovals()
   const { me, reloadConfig } = useMe()
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
+  // The company's policy refused to apply it (Latet Enterprise, locked rules): it stays waiting, and the settings are named.
+  const [floor, setFloor] = useState<string[] | null>(null)
   const titleId = `change-${change.id}`
+  const others = othersDecide(change) // someone else decides on it (Latet Enterprise): you may undo it, not approve it
   const server = Boolean(me?.server) // a Latet server has no config.yaml: an undone change leaves your settings as in use
+  // Who decides, named: 20 at most on the change, with how many more /me counts for the changes' route.
+  const deciders = decidersText(t, fmt.list, change.deciders, moreDeciders(change.deciders, me?.edition?.approvals?.deciders_more))
 
   const decide = async (action: 'approve' | 'reject') => {
     if (busy) return
     setBusy(action)
+    setFloor(null)
     try {
       await api.decideChange(change.id, action)
       removeChange(change.id)
@@ -70,7 +80,10 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
       }
     } catch (err) {
       const refused = refusedWords(t, err)
-      if (refused !== null) {
+      const below = floorRefusal(err)
+      if (below !== null) {
+        setFloor(below)
+      } else if (refused !== null) {
         // Settled on the server and its settings not kept: none of it applies, and it is asked again once they are read.
         removeChange(change.id)
         toast.show(refused, 'fail')
@@ -94,7 +107,11 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h2 id={titleId} className="text-title font-semibold text-ink">
-              {t('approvals.change.title')}
+              {change.decides === 'controllers'
+                ? t('approvals.whoDecides.titleControllers')
+                : others
+                  ? t('approvals.whoDecides.titleSecurity')
+                  : t('approvals.change.title')}
             </h2>
             <span className="text-meta text-ink-3 tabular-nums">
               {t('approvals.arrived', { time: formatRelative(fmt.locale, Math.min(change.created, now), now) })}
@@ -136,9 +153,18 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
             </p>
           )}
 
+          {floor !== null && (
+            <div className="mt-3" role="status">
+              <FloorRefused reasons={floor} />
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="min-w-0 text-meta text-ink-2">{t('approvals.change.help')}</p>
+            <p className="min-w-0 text-meta text-ink-2">
+              {others ? t('approvals.whoDecides.changeHelp', { names: deciders }) : t('approvals.change.help')}
+            </p>
             <div className="flex flex-wrap gap-2">
+              {/* Undo first: the documentation's screenshot script presses it. */}
               <button
                 type="button"
                 className="btn"
@@ -149,16 +175,18 @@ function ChangeCard({ change, now }: { change: SettingsChange; now: number }) {
                 <Icon name="x" size={14} />
                 {busy === 'reject' ? t('approvals.change.undoing') : t('approvals.change.undo')}
               </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy !== null}
-                title={t('approvals.change.approveHelp')}
-                onClick={() => void decide('approve')}
-              >
-                <Icon name="check" size={14} />
-                {busy === 'approve' ? t('approvals.approving') : t('approvals.approve')}
-              </button>
+              {!others && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy !== null}
+                  title={t('approvals.change.approveHelp')}
+                  onClick={() => void decide('approve')}
+                >
+                  <Icon name="check" size={14} />
+                  {busy === 'approve' ? t('approvals.approving') : t('approvals.approve')}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -221,7 +249,8 @@ export function PendingChangeNotice() {
       <span className="flex items-start gap-2">
         <Icon name="info" size={15} className="mt-0.5 flex-none" />
         <span>
-          {t('approvals.change.notice')} <DocsWhyLink target="why.settingsChange" />
+          {changes[0] && othersDecide(changes[0]) ? t('approvals.whoDecides.notice') : t('approvals.change.notice')}{' '}
+          <DocsWhyLink target="why.settingsChange" />
         </span>
       </span>
       <Link to="/approvals#settings" className="btn btn-sm">

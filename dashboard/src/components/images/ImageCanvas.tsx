@@ -33,8 +33,10 @@ export function ImageCanvas({
   const { t } = useTranslation()
   const [view, setView] = useState<View>('original')
   const [draft, setDraft] = useState<{ from: [number, number]; to: [number, number] } | null>(null)
-  const [failed, setFailed] = useState<View | null>(null)
+  // The address that did not load: the image painted again (a new address) is asked for, never taken for gone.
+  const [failed, setFailed] = useState<string | null>(null)
   const { width, height } = image
+  const shownSrc = src(view)
   const full = choice.rects.length >= MAX_RECTS
   const drawing = !choice.withhold && !full
 
@@ -108,14 +110,14 @@ export function ImageCanvas({
       </div>
 
       <div className="flex justify-center bg-well p-3">
-        {failed === view ? (
+        {failed === shownSrc ? (
           <p className="py-8 text-meta text-ink-3">{t('approvals.image.gone')}</p>
         ) : (
           <div className="relative inline-block max-w-full">
             <img
-              src={src(view)}
+              src={shownSrc}
               alt={t('approvals.image.alt')}
-              onError={() => setFailed(view)}
+              onError={() => setFailed(shownSrc)}
               draggable={false}
               className={`block max-h-[520px] max-w-full select-none ${choice.withhold ? 'opacity-30' : ''}`}
             />

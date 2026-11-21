@@ -231,7 +231,8 @@ To give a team the same rules, share them by hand: export them from one place
 **Rules** page of a dashboard) and import the file in each (`latet rules import FILE`, or
 **Import rules** in the dashboard); an API key's with `latet server rules --key KEY import FILE`.
 On computers not connected to a server, a project's `latet.yaml` carries them in its repository.
-Rules set for everyone, which nobody can lower, are planned for the Enterprise Edition.
+With the Enterprise Edition, rules set for everyone, which nobody can lower, are the company's
+policy, a rules file set with `latet server policy set`.
 
 A change to the shared settings that reduces a person's protection, such as a destination moved
 to another address or the reviewer turned off, waits for their approval. Saving their own edits

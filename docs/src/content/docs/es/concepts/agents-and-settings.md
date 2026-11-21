@@ -1,6 +1,6 @@
 ---
 title: Los agentes y tus ajustes
-description: Deja que tu agente consulte y cambie los ajustes de Latet. Lo que añade protección se aplica; lo que la reduce te espera.
+description: Deja que tu agente consulte y cambie los ajustes de Latet. Lo que añade protección se aplica; lo que la reduce espera tu aprobación.
 ---
 
 :::caution[Una barrera de protección, no una cerradura]
@@ -58,19 +58,24 @@ reciente lo sustituye. En un terminal tuyo, en cambio, es el comando el que te p
 Al agente se le dice qué reduce el cambio, nunca un valor, y que espera tu aprobación: la guía le
 pide que te diga qué ha cambiado y por qué.
 
-**Un repositorio que Latet no puede leer ahora.** Un cambio también se pesa en cada repositorio con
+**Un repositorio que Latet no puede leer ahora.** Un cambio también se evalúa en cada repositorio con
 un `latet.yaml` propio que Latet ha visto. Un proceso auxiliar vuelve a leer sus archivos, con 10
 segundos para todos y 2 para cada uno, en una recarga o un arranque cuyo cambio podría reducir la
 protección en un repositorio, y en una importación en el panel (consulta
 [Los repositorios que Latet recuerda](../projects/#los-repositorios-que-latet-recuerda)). Cuando uno
-no se puede leer en ese tiempo, o no se puede leer en absoluto por ahora (una carpeta compartida que
+no se puede leer en ese tiempo, o ahora no se puede leer en absoluto (una carpeta compartida que
 no responde, un permiso denegado), un cambio que allí podría reducir la protección ni se aplica ni
 espera tu aprobación: `latet reload` lo dice y no cambia nada, y lo mismo una importación en el
 panel, hasta que el repositorio se pueda volver a leer. Un cambio que no puede reducir nada en un
 repositorio (un término añadido, el puerto, el historial) se aplica como siempre. Un arranque que
-encuentra `config.yaml` cambiado y no puede pesarlo así ejecuta los ajustes que aprobaste por última
-vez. `latet repositories` muestra de qué repositorio se trata, y `latet repositories forget` lo saca
+encuentra `config.yaml` cambiado y no puede evaluarlo así funciona con los ajustes que aprobaste por
+última vez. `latet repositories` muestra de qué repositorio se trata, y `latet repositories forget` lo saca
 de la lista, en un terminal tuyo.
+
+**En un servidor de Latet con Latet Enterprise,** un cambio que reduce la protección (allí, lo que guardas en el panel
+y lo que el servidor encuentra reducido cuando vuelve a aplicar tus ajustes) puede ir en su lugar al equipo de
+seguridad de tu empresa: el panel dice quién decide, y puedes deshacer el cambio, pero no aprobarlo. Consulta
+[Aprobaciones centrales](../../enterprise/approvals/).
 
 ## Lo que los agentes no pueden hacer
 
@@ -83,7 +88,7 @@ tus agentes), `latet dashboard` y `latet identity send` en un equipo conectado, 
 
 ## Cómo lo reconoce Latet, y qué valor tiene
 
-Un agente marca los shells en los que ejecuta comandos con variables propias, que Latet reconoce:
+Un agente marca las shells en las que ejecuta comandos con variables propias, que Latet reconoce:
 Claude Code, Codex, OpenCode, Gemini CLI, Cursor, Hermes Agent, Goose, OpenClaw, y cualquier agente
 que defina `AGENT`. El daemon también indica el agente en el cambio que te muestra.
 
@@ -105,18 +110,19 @@ resto del modelo de amenazas.
 ## En un equipo conectado
 
 Los ajustes compartidos y los ajustes y reglas propios de cada identidad residen en el servidor.
-Usa `latet dashboard` para una persona y la administración `latet server` para los ajustes
-compartidos o los de una clave de API. Mientras hay conexión, `config`, `rules`, `llm`, `project`,
+Usa `latet dashboard` para los ajustes de una persona y la administración de `latet server` para los
+ajustes compartidos o los de una clave de API. Con el equipo conectado, `config`, `rules`, `llm`, `project`,
 `identity`, `repositories` y `reload` rechazan tanto leer los ajustes como cambiarlos; solo funcionan
 `config schema`, `rules test` e `identity send`. `latet identity send` reenvía
 explícitamente los datos de identidad de este equipo.
 
-Metadatos de conexión, huella del certificado, credenciales y vinculaciones de agentes
-siguen en el equipo. `LATET_CONNECTION` elige metadatos, no un archivo del token personal.
-La integración de Claude escribe el token en Windows en sus ajustes de usuario como excepción de
-instalación documentada (en Linux y macOS no se escribe ningún token, porque Claude Code pasa por un
-servidor solo desde Windows); desconectar elimina la vinculación. Destinos del revisor del
-servidor, claves, certificados e instalación OCR/NER corresponden a los administradores.
+Los metadatos de la conexión, la huella del certificado, las credenciales y las vinculaciones de los
+agentes se quedan en el equipo. `LATET_CONNECTION` elige los metadatos, no un archivo con el token
+personal. Configurar Claude en Windows escribe el token en los ajustes de usuario de Claude, como la
+excepción de instalación documentada (en Linux y macOS no se escribe ningún token, porque Claude Code pasa por un
+servidor solo desde Windows); desconectar elimina esa vinculación. Los puntos de conexión del
+revisor del servidor, sus claves, sus certificados y la instalación de OCR/NER corresponden a los
+administradores.
 Un proyecto en el panel no permite al servidor escanear el repositorio del equipo.
 Consulta [configuración del servidor](../../getting-started/server/) y
 [ajustes compartidos y reglas propias](../server/).

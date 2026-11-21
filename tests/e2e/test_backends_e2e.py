@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from latet.config import Config, IdentityConfig, LiveReview, save_config
+from latet.edition import Community
 from latet.gateway.app import create_app
 from latet.gateway.routes import Upstream
 from latet.runtime import make_runtime
@@ -41,7 +42,12 @@ async def _two(tmp_path, upstream, **settings):
     backends = local_backends(tmp_path / "data", tmp_path / "config.yaml", ROOT_KEY)
     runtimes = [
         make_runtime(
-            config, data=tmp_path / "data", config_file=tmp_path / "config.yaml", root_key=ROOT_KEY, backends=backends
+            config,
+            data=tmp_path / "data",
+            config_file=tmp_path / "config.yaml",
+            root_key=ROOT_KEY,
+            backends=backends,
+            edition=Community(),
         )
         for _ in range(2)
     ]

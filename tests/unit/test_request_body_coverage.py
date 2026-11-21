@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
+from latet.gateway.body_coverage import D6, NEW_MEMBER_RULE
 from latet.gateway.mediate import Mediator, Prepared
 from latet.gateway.routes import Upstream
 from latet.protocols import anthropic, codec, openai_responses
@@ -74,11 +75,34 @@ def test_known_readable_body_remains_sendable(mediator, family, path, body):
     assert result.block_reason is None
 
 
+RESIDUALS = ["UNDECLARED_CANARY", ["one", "two"], 4111111111111111, {"nested": "UNDECLARED_CANARY"}]
+
+
 @pytest.mark.parametrize(("family", "path", "body"), CASES)
-@pytest.mark.parametrize(
-    "value", ["UNDECLARED_CANARY", ["one", "two"], 4111111111111111, {"nested": "UNDECLARED_CANARY"}]
-)
+@pytest.mark.parametrize("value", RESIDUALS)
 def test_every_adapter_residual_requires_rule_or_blocks(mediator, family, path, body, value):
+    body = copy.deepcopy(body)
+    body["unknown_CANARY_member"] = value
+    result = prepare(mediator, family, path, body)
+    assert result.block_reason is not None or NEW_MEMBER_RULE in result.body_rules, "an unprofiled residual was sent"
+    assert "unknown_CANARY_member" not in (result.block_reason or "")
+    assert "UNDECLARED_CANARY" not in (result.block_reason or "")
+
+
+@pytest.mark.parametrize(("family", "path", "body"), CASES)
+def test_a_card_number_in_an_adapter_residual_blocks(mediator, family, path, body):
+    """A new member is read by the final check as masking reads a text: a card number written there stops the
+    request."""
+    body = copy.deepcopy(body)
+    body["unknown_CANARY_member"] = 4111111111111111
+    result = prepare(mediator, family, path, body)
+    assert result.block_reason is not None, "a card number left in a new member"
+    assert "unknown_CANARY_member" not in result.block_reason
+
+
+@pytest.mark.parametrize(("family", "path", "body"), CASES)
+@pytest.mark.parametrize("value", RESIDUALS)
+def test_strict_every_adapter_residual_blocks(mediator, strict, family, path, body, value):
     body = copy.deepcopy(body)
     body["unknown_CANARY_member"] = value
     result = prepare(mediator, family, path, body)
@@ -107,20 +131,57 @@ def test_metadata_nonstrings_have_no_unchecked_escape(mediator, value):
     assert result.block_reason is not None
 
 
+def _anthropic_provider_block(member: dict[str, Any], kind: str) -> dict[str, Any]:
+    body = copy.deepcopy(CASES[0][2])
+    body["messages"] = [{"role": "assistant", "content": [{"type": kind, **member}]}]
+    return body
+
+
+def _responses_provider_item(member: dict[str, Any], kind: str) -> dict[str, Any]:
+    return {**copy.deepcopy(CASES[3][2]), "input": [{"type": kind, **member}]}
+
+
 @pytest.mark.parametrize("kind", sorted(anthropic._PROVIDERS_BLOCKS))
 def test_anthropic_provider_kind_does_not_authorize_unknown_member(mediator, kind):
-    body = copy.deepcopy(CASES[0][2])
-    body["messages"] = [{"role": "assistant", "content": [{"type": kind, "unknown_CANARY_member": EMAIL}]}]
+    body = _anthropic_provider_block({"unknown_CANARY_member": EMAIL}, kind)
     result = prepare(mediator, *CASES[0][:2], body, verify=True)
     assert result.block_reason is not None, "provider type tag authorized an arbitrary sibling"
 
 
+@pytest.mark.parametrize("kind", sorted(anthropic._PROVIDERS_BLOCKS))
+def test_anthropic_provider_kind_takes_an_unknown_token_member_as_its_bare_block(mediator, kind):
+    """A provider's item takes a member no profile declares of short tokens alone (the new rule): it changes nothing of
+    what the block's own members decide."""
+    bare = prepare(mediator, *CASES[0][:2], _anthropic_provider_block({}, kind), verify=True)
+    body = _anthropic_provider_block({"unknown_CANARY_member": "ordinary"}, kind)
+    result = prepare(mediator, *CASES[0][:2], body, verify=True)
+    assert (result.block_reason is None) == (bare.block_reason is None), kind
+
+
+@pytest.mark.parametrize("kind", sorted(anthropic._PROVIDERS_BLOCKS))
+def test_strict_anthropic_provider_kind_refuses_an_unknown_token_member(mediator, strict, kind):
+    body = _anthropic_provider_block({"unknown_CANARY_member": "ordinary"}, kind)
+    assert prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None
+
+
 @pytest.mark.parametrize("kind", sorted(openai_responses._PROVIDERS_ITEMS))
 def test_responses_provider_kind_does_not_authorize_unknown_member(mediator, kind):
-    body = copy.deepcopy(CASES[3][2])
-    body["input"] = [{"type": kind, "unknown_CANARY_member": EMAIL}]
+    body = _responses_provider_item({"unknown_CANARY_member": EMAIL}, kind)
     result = prepare(mediator, *CASES[3][:2], body)
     assert result.block_reason is not None
+
+
+@pytest.mark.parametrize("kind", sorted(openai_responses._PROVIDERS_ITEMS))
+def test_responses_provider_kind_takes_an_unknown_token_member_as_its_bare_item(mediator, kind):
+    bare = prepare(mediator, *CASES[3][:2], _responses_provider_item({}, kind))
+    result = prepare(mediator, *CASES[3][:2], _responses_provider_item({"unknown_CANARY_member": "ordinary"}, kind))
+    assert (result.block_reason is None) == (bare.block_reason is None), kind
+
+
+@pytest.mark.parametrize("kind", sorted(openai_responses._PROVIDERS_ITEMS))
+def test_strict_responses_provider_kind_refuses_an_unknown_token_member(mediator, strict, kind):
+    body = _responses_provider_item({"unknown_CANARY_member": "ordinary"}, kind)
+    assert prepare(mediator, *CASES[3][:2], body).block_reason is not None
 
 
 @pytest.mark.parametrize("verify", [False, True])
@@ -132,7 +193,17 @@ def test_pinned_system_prefix_is_not_a_free_text_bypass(mediator, verify):
 
 
 @pytest.mark.parametrize("value", [True, 1, {"text": "safe"}, ["safe", 1], [["safe"]]])
-def test_d6_rejects_unknown_nontext_or_nested_member(mediator, value):
+def test_an_unknown_nontext_or_nested_member_passes_by_the_new_rule(mediator, value):
+    """What D6 does not read (no string, no flat list of strings) is read by the new rule, never by D6."""
+    body = copy.deepcopy(CASES[0][2])
+    body["future_CANARY_member"] = value
+    result = prepare(mediator, *CASES[0][:2], body, verify=True)
+    assert result.block_reason is None
+    assert NEW_MEMBER_RULE in result.body_rules and D6 not in result.body_rules
+
+
+@pytest.mark.parametrize("value", [True, 1, {"text": "safe"}, ["safe", 1], [["safe"]]])
+def test_strict_d6_rejects_unknown_nontext_or_nested_member(mediator, strict, value):
     body = copy.deepcopy(CASES[0][2])
     body["future_CANARY_member"] = value
     result = prepare(mediator, *CASES[0][:2], body, verify=True)
@@ -280,7 +351,22 @@ def test_an_image_without_ocr_refuses_with_recovery_words(mediator):
     assert "latet ocr install" in result.block_reason and "new conversation" in result.block_reason
 
 
-def test_the_production_gateway_does_not_send_unknown_body_members():
+def test_the_production_gateway_sends_an_unknown_body_member_read_and_checked():
+    """The new rule through the production gateway: a member no profile names leaves as it came once the final check
+    read it, and one holding a value the check stops is not sent."""
+    body = copy.deepcopy(CASES[1][2])
+    body["unknown_CANARY_member"] = "UNDECLARED_CANARY"
+    with gateway() as (client, transport, _made, _mediator):
+        response = client.post(CASES[1][1], json=body)
+        assert response.status_code == 200
+        [sent] = transport.sent
+        assert json.loads(sent.content)["unknown_CANARY_member"] == "UNDECLARED_CANARY"
+        body["unknown_CANARY_member"] = {"note": EMAIL}
+        assert client.post(CASES[1][1], json=body).status_code == 400
+        assert len(transport.sent) == 1
+
+
+def test_the_strict_production_gateway_does_not_send_unknown_body_members(strict):
     body = copy.deepcopy(CASES[1][2])
     body["unknown_CANARY_member"] = "UNDECLARED_CANARY"
     with gateway() as (client, transport, _made, _mediator):
@@ -783,6 +869,21 @@ def test_envelope_retention_is_part_of_same_body_ledger_limit():
 
 @pytest.mark.parametrize("nested", [False, True])
 def test_ws_turn_residual_uses_same_closed_body_rules(mediator, nested):
+    """A frame's member no profile declares is read by the new rule, as a request's over HTTP."""
+    session = mediator.engine.session("ws-body-coverage")
+    body = {"model": "gpt-4o", "input": "hello", "future_CANARY": "unknown"}
+    frame = {"type": "response.create", "response": body} if nested else {"type": "response.create", **body}
+    _, prepared = mediator.mask_ws_frame(json.dumps(frame), session)
+    try:
+        assert prepared is not None and prepared.block_reason is None
+        assert NEW_MEMBER_RULE in prepared.body_rules
+    finally:
+        if prepared is not None and prepared.lease is not None:
+            prepared.lease.release()
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_strict_ws_turn_residual_uses_same_closed_body_rules(mediator, strict, nested):
     session = mediator.engine.session("ws-body-coverage")
     body = {"model": "gpt-4o", "input": "hello", "future_CANARY": "unknown"}
     frame = {"type": "response.create", "response": body} if nested else {"type": "response.create", **body}
@@ -872,8 +973,7 @@ def test_icc_rendering_tag_does_not_grant_arbitrary_trailing_payload():
         inspect_image(base64.b64encode(raw).decode())
 
 
-@pytest.mark.parametrize("extra", [{}, {"unknown_CANARY": "safe"}])
-def test_fallback_models_have_closed_schema_siblings(mediator, extra):
+def _fallback_body(extra: dict[str, Any]) -> dict[str, Any]:
     body = copy.deepcopy(CASES[0][2])
     body["fallbacks"] = [
         {
@@ -888,12 +988,20 @@ def test_fallback_models_have_closed_schema_siblings(mediator, extra):
             **extra,
         }
     ]
-    result = prepare(mediator, *CASES[0][:2], body)
-    if extra:
-        assert result.block_reason is not None
-    else:
-        assert result.block_reason is None
-        assert EMAIL.encode() not in result.body
+    return body
+
+
+@pytest.mark.parametrize("extra", [{}, {"unknown_CANARY": "safe"}])
+def test_fallback_models_have_closed_schema_siblings(mediator, extra):
+    """A fallback's members are masked as declared; a sibling no profile declares is read by the new rule."""
+    result = prepare(mediator, *CASES[0][:2], _fallback_body(extra))
+    assert result.block_reason is None
+    assert EMAIL.encode() not in result.body
+    assert (NEW_MEMBER_RULE in result.body_rules) is bool(extra)
+
+
+def test_strict_fallback_models_have_closed_schema_siblings(mediator, strict):
+    assert prepare(mediator, *CASES[0][:2], _fallback_body({"unknown_CANARY": "safe"})).block_reason is not None
 
 
 def test_generated_output_is_bounded_before_serialization(mediator, monkeypatch):
@@ -1530,7 +1638,28 @@ def test_finite_provider_block_readable_control_and_unknown_sibling(mediator, bl
     benign = prepare(mediator, *CASES[0][:2], body, verify=True)
     refused = {"container_upload", "thinking", "redacted_thinking", "web_search_tool_result"}
     assert (benign.block_reason is not None) == (block["type"] in refused), block["type"]
+    # A token sibling, read by the new rule, changes nothing; free text there stays refused.
     body["messages"][0]["content"][-1]["unknown_CANARY"] = "ordinary"
+    assert (prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None) == (
+        block["type"] in refused
+    ), block["type"]
+    body["messages"][0]["content"][-1]["unknown_CANARY"] = "an ordinary sentence"
+    assert prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None
+
+
+@pytest.mark.parametrize("block", _PROVIDER_BLOCKS, ids=lambda value: value["type"])
+def test_strict_finite_provider_block_refuses_an_unknown_sibling(mediator, strict, block):
+    body = copy.deepcopy(CASES[0][2])
+    body["messages"] = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "server_tool_use", "id": "srvtoolu_a", "name": "web_search", "input": {}},
+                {"type": "mcp_tool_use", "id": "mcp_a", "name": "list", "input": {}},
+                {**copy.deepcopy(block), "unknown_CANARY": "ordinary"},
+            ],
+        }
+    ]
     assert prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None
 
 
@@ -1542,6 +1671,14 @@ def test_finite_provider_item_readable_control_and_unknown_sibling(mediator, ite
     refused = {"item_reference", "reasoning", "compaction", "image_generation_call"}
     assert (benign.block_reason is not None) == (item["type"] in refused), item["type"]
     body["input"][0]["unknown_CANARY"] = "ordinary"
+    assert (prepare(mediator, *CASES[3][:2], body).block_reason is not None) == (item["type"] in refused)
+    body["input"][0]["unknown_CANARY"] = "an ordinary sentence"
+    assert prepare(mediator, *CASES[3][:2], body).block_reason is not None
+
+
+@pytest.mark.parametrize("item", _PROVIDER_ITEMS, ids=lambda value: value["type"])
+def test_strict_finite_provider_item_refuses_an_unknown_sibling(mediator, strict, item):
+    body = {**CASES[3][2], "input": [{**copy.deepcopy(item), "unknown_CANARY": "ordinary"}]}
     assert prepare(mediator, *CASES[3][:2], body).block_reason is not None
 
 
@@ -1743,7 +1880,7 @@ def test_reencoded_image_parts_share_the_exchange_ledger(mediator):
     assert before == (len(prepared.body_ledger.generated), prepared.body_ledger.retained)
 
 
-def test_d6_does_not_escape_through_a_nested_provider_tool_definition(mediator):
+def _nested_provider_tool_definition(value: Any) -> dict[str, Any]:
     body = copy.deepcopy(CASES[0][2])
     body["messages"] = [
         {
@@ -1752,12 +1889,26 @@ def test_d6_does_not_escape_through_a_nested_provider_tool_definition(mediator):
                 {
                     "type": "mcp_tool_listing",
                     "tools": [
-                        {"name": "lookup", "description": "ordinary", "input_schema": {}, "unknown_member": "ordinary"}
+                        {"name": "lookup", "description": "ordinary", "input_schema": {}, "unknown_member": value}
                     ],
                 }
             ],
         }
     ]
+    return body
+
+
+def test_d6_does_not_escape_through_a_nested_provider_tool_definition(mediator):
+    """Inside a provider's item D6 reads nothing: a token there is read by the new rule, free text refused."""
+    result = prepare(mediator, *CASES[0][:2], _nested_provider_tool_definition("ordinary"), verify=True)
+    assert result.block_reason is None
+    assert NEW_MEMBER_RULE in result.body_rules and D6 not in result.body_rules
+    body = _nested_provider_tool_definition("an ordinary sentence")
+    assert prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None
+
+
+def test_strict_d6_does_not_escape_through_a_nested_provider_tool_definition(mediator, strict):
+    body = _nested_provider_tool_definition("ordinary")
     assert prepare(mediator, *CASES[0][:2], body, verify=True).block_reason is not None
 
 

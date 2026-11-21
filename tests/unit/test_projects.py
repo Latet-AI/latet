@@ -14,8 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from latet.config import Config, FieldRule, ProjectEntry, ProjectSettings, TermConfig
+from latet.config import Config, FieldRule, Profile, ProjectEntry, ProjectSettings, TermConfig
+from latet.edition import Community
 from latet.engine.build import build
+from latet.engine.detectors.terms import LiveTerms
 from latet.engine.pipeline import Engine
 from latet.engine.types import Policy, SlotKind
 from latet.engine.vault import MaskingError, Vault
@@ -539,6 +541,17 @@ def test_a_term_of_signs_alone_is_left_out_and_said(tmp_path):
     assert [t.value for t in config.terms] == ["Project Falcon", "Acme"]
     assert [(n.source, n.key, n.level) for n in more] == [("repo", "terms", "error"), ("personal", "terms", "error")]
     assert "--" in more[0].message and "a letter or a digit" in more[0].message and "###" in more[1].message
+
+
+def test_a_projects_term_that_matches_more_forms_than_the_global_one_of_its_value_is_kept():
+    """A project's entry of a value the global settings hold in its own case only (or as whole words only) matches it
+    in more forms: it is added, not taken for the same entry; an entry the global settings hold already is not."""
+    exact = TermConfig(value="Project Falcon", type="PROJECT", case_sensitive=True)
+    any_case = TermConfig(value="Project Falcon", type="PROJECT")
+    personal = ProjectEntry(path="/p", terms=[any_case, exact])
+    config, _ = effective_config(Config(terms=[exact]), None, personal)
+    assert config.terms == [exact, any_case]
+    assert loosened(effective_config(Config(), None, personal)[0], config) == []
 
 
 def test_a_broken_or_huge_file_has_no_effect(tmp_path):
@@ -1164,7 +1177,9 @@ def test_a_space_on_a_server_weighs_no_list_of_repositories(tmp_path):
     strict = _repo(tmp_path, "profile: max\n", "strict")
     LocalRepositories(tmp_path / "models").save([str(strict)])
     backends = replace(local_backends(tmp_path / "data", None, ROOT_KEY), settings=MemorySettings(SHARED))
-    rt = make_runtime(None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY)
+    rt = make_runtime(
+        None, data=tmp_path / "models", root_key=ROOT_KEY, backends=backends, identity=EMILY, edition=Community()
+    )
     try:
         assert rt.projects is not None and rt.projects.repositories() == ()
     finally:
@@ -1437,3 +1452,20 @@ def test_the_project_schema_lists_only_what_the_file_may_set():
     assert schema["additionalProperties"] is False
     assert "allow_values" not in schema["properties"] and "profile" in schema["properties"]
     assert _cli("config", "schema", "--project").output.startswith("{")
+
+
+def test_a_project_with_rules_of_its_own_masks_with_the_live_terms_and_never_weighs_them(tmp_path):
+    live = LiveTerms()
+    live.use([("Halden Insurance", "CLIENT")], "1.1")
+    config = Config(ner="off", projects=[ProjectEntry(path=str(tmp_path), profile=Profile.MAX)])
+    projects = Projects(config, Vault(ROOT_KEY), files=False, extra=(live,))
+    weighed = []
+    projects.past_share = lambda weight: weighed.append(weight)  # what a space's share is asked
+    assert live in projects.resolve(str(tmp_path)).scope.masker.detectors
+    first = list(weighed)  # the first build's weighing: `use` keeps a remembered project's old scope weighed (A-I1)
+    projects.use(config, None)  # new settings: the live terms stay
+    assert live in projects.resolve(str(tmp_path)).scope.masker.detectors
+    alone, without = Projects(config, Vault(ROOT_KEY), files=False), []
+    alone.past_share = lambda weight: without.append(weight)
+    alone.resolve(str(tmp_path))
+    assert first and first == without  # the same weights with and without the live terms

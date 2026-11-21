@@ -272,6 +272,22 @@ class ImageWork:
         self._original_carrier = self._original_form = None
         self.state = MASKED
 
+    def preview(self, text: str, replacements: Sequence[Replacement]) -> tuple[str, str] | None:
+        """The image as it would leave were its text masked as ``text``, with ``replacements`` (the Live Reviewer's
+        previews made again while it waits): painted apart from the request, whose image stays as it is until your
+        decision masks it again (``masked``), the painting kept for it (``ImageMasking.paint``, by its text). As it came
+        where nothing covers it; None where it cannot be told apart from the request: withheld, never read, or a
+        painting that fails (its decision withholds it then)."""
+        if self.state == WITHHELD or self.result is None or self.decoded is None:
+            return None
+        if not replacements and not self.rects:
+            return self.original
+        try:
+            return self.service.paint(self, replacements, text)
+        except Exception as exc:  # said by its type alone: its message could quote the image's text
+            log.warning("could not paint an image again (%s)", type(exc).__name__)
+            return None
+
     def decide(self, rects: list[tuple[int, int, int, int]], withhold: bool, reason: str = YOU_WITHHELD) -> None:
         """Your decision in the Live Reviewer (or the local reviewer's, withholding it for ``reason``):
         applied now, and kept for this image sent again."""
@@ -572,10 +588,12 @@ class ImageMasking:
         data, media = encode(image, "image/png")
         return f"data:{media};base64,{data}"
 
-    def paint(self, work: ImageWork, replacements: Sequence[Replacement]) -> tuple[str, str]:
+    def paint(self, work: ImageWork, replacements: Sequence[Replacement], text: str | None = None) -> tuple[str, str]:
+        """``work`` painted with ``replacements``, which mask its text as ``text`` (its own by default: ``preview``
+        paints a text it does not hold yet), kept by that text and its rectangles."""
         assert work.result is not None
         assert work.decoded is not None
-        cache = (work.key, work.text + "\0" + repr(work.rects), work.output_media)
+        cache = (work.key, (work.text if text is None else text) + "\0" + repr(work.rects), work.output_media)
         found = self._painted.get(cache)
         if found is None:
             from latet.vision.paint import paint  # NumPy: the ocr extra

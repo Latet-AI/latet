@@ -61,14 +61,20 @@ them.
 
 **Members of the body.** Every member of a request's body is read under its profile: masked, checked
 by the final check, or held to the form the provider gives it (a model's id, a tool call's id, a
-setting). A member no profile names is refused, saying where it is (`top-level`, `message content
-block`, `tool definition`...), never its name or value:
+setting). In 0.11 a member no profile named was refused, saying where it is (`top-level`, `message
+content block`, `tool definition`...), never its name or value:
 
 ```text
 Latet: request body refused (unknown member in top-level). Nothing was sent; run `latet dashboard` to see where it was
 ```
 
-An [exact exception](#approving-an-exact-exception) can name such a member by its JSON pointer,
+Since 0.15.0 such a member is read whole and checked, and passes as it came when nothing in it would
+be masked and it names nothing the provider acts on: see [New request members](#new-request-members).
+It is still refused, with the same words, when it names a file, an address, a stored conversation or
+a model, holds encoded content, or carries more than short tokens inside a provider's own item; and
+with `unknown_members: refuse` it is refused as in 0.11.
+
+An [exact exception](#approving-an-exact-exception) can name a refused member by its JSON pointer,
 except where none can reach it: inside a provider's own item (`provider item`: thinking, reasoning),
 in an image's source (`inline image`), and in any WebSocket frame. The agent is told the same words;
 the dashboard records the refusal as `body-unknown-member-no-exception` instead of
@@ -78,8 +84,8 @@ exception can reach it (inside a provider's item, an image's source, or a WebSoc
 A request Latet only checks (Claude Code, Bedrock, Vertex) is never rewritten, so one more rule
 applies there: a new member whose value is a text or a list of texts passes once the final check has
 read its name and its text, and the dashboard shows it as *checked only*. A nested or other new
-member is refused as above. Codex's `client_metadata`, which repeats the repository's path and
-remotes, is taken out of the request before it is masked.
+member is read as [New request members](#new-request-members) says. Codex's `client_metadata`, which
+repeats the repository's path and remotes, is taken out of the request before it is masked.
 
 **What the provider gave back.** The model's thinking signatures, encrypted reasoning, compactions
 and web search results come back in every turn. They pass because Latet saw them come from the
@@ -131,6 +137,106 @@ says the header may be one the provider needs:
 ```text
 Latet: the provider answered 401 after Latet removed 2 SDK/tracing headers
 ```
+
+## New request members
+
+A new version of an agent often adds a member to its requests: a mode, a flag, a setting of its own.
+Before 0.15.0 Latet refused a request with a member no request profile names, unless, on a request it
+only checks, the member held text alone: the agent stopped until a release of Latet named it. Since
+0.15.0 Latet reads such a member whole, every name and every value inside it, checks it as strictly
+as a text it masks, and sends it as it came when nothing in it would be masked and it names nothing
+the provider acts on. This is `unknown_members: check`, the default, on every request: those Latet
+only checks (Claude Code, Bedrock, Vertex) and those it rewrites (Codex, OpenCode, Gemini CLI,
+Hermes Agent, the SDKs). Such a member is never masked: it leaves as it came, or the request stops.
+
+**What passes:** a member of control values, such as `{"mode": "compact", "level": 2, "on": true}`:
+a mode, a flag, a number, a short token, or an object or a list of them.
+
+**What still stops the request,** with the words and the codes of 0.11, wherever it is in the
+member:
+
+- a web address or any other URI, a `data:` one included, or the id of a file, a conversation, a
+  stored response or another resource the provider keeps (`file-…`, `conv_…`, `resp_…`, `gs://…`);
+- a name that says it holds something the provider would act on, such as a file, an attachment, an
+  image, a document, a web address, a server, an MCP server, a container, a conversation, a cache or
+  a model;
+- encoded content: a run of 64 characters of base64 or more that mixes digits, capitals and small
+  letters, or of 48 hexadecimal digits;
+- a number that is not finite, or more than Latet reads of one request;
+- more than Latet reads of one request's new members: a name of more than 256 characters, more than
+  4,096 different texts in all (each name and each value, a value once more for each field it stands
+  in), more than 256 KiB of those texts, or members the local name model cannot read in the 5
+  seconds it has for a document;
+- inside a provider's own item (thinking, reasoning, a web search's results, an image's source),
+  anything but short tokens: free text, a key or a value of more than 64 letters, digits, `_`, `.`,
+  `:` or `-`, or more than 32 values or 2,048 bytes in all;
+- a sensitive value: anything your rules would mask or redact in a text (a secret, a name, an e-mail
+  address, a phone number, a value one of your field rules names, by its key or its path), or a
+  value your vault holds. The request stops as it does for such a value in any other text, and the
+  dashboard names the value's kind, *New request member*, never the member's name.
+
+A text of such a member that left once passes again in the same conversation, as text sent before
+does, even after Latet learns a value it holds: a conversation is never stuck on it. In the
+dashboard, an exchange that passed one lists *a field no request profile names yet, read and
+checked* among what let it through. A member's name is never recorded, logged or shown.
+
+### Refusing them again
+
+`unknown_members: refuse` refuses such a member as Latet did before 0.15.0: a request that has one is
+refused, unless, on a request Latet only checks, the member holds text alone. In `config.yaml`:
+
+```yaml
+unknown_members: refuse
+```
+
+or in the dashboard, under *New request members* in the production data of **Rules**. A move to
+`refuse` applies at once. A move back to `check` lowers protection: made in `config.yaml`, or by an
+agent, it waits for your approval on **Approvals**; made in the dashboard, the save is your
+approval. On a Latet server whose [central approvals](../../enterprise/approvals/) (Latet
+Enterprise) send such changes to your company's security team, it waits for them instead, a save in
+the dashboard included. Where your company's policy locks `unknown_members: refuse`, `refuse` stays
+in force whatever your settings say, and the dashboard offers it alone. A request refused under
+`refuse` says in the dashboard that `unknown_members: refuse`, in your settings, in the project's or
+in your company's policy, refuses such members, and what `check` would do, with a link to this
+section; where an exact exception can reach the member, it still says how to approve one, since an
+exception is read before this setting.
+
+- **A project may only refuse.** `unknown_members: refuse` in your settings for a project (its entry
+  under `projects` in `config.yaml`) or in its repository's `latet.yaml` refuses them in that project
+  alone. `check` is your settings' alone: a project's entry in `config.yaml` takes `refuse` only, and
+  a `latet.yaml` that says `check` is listed under *What is not applied*.
+- **A repository's `refuse` binds a trusted or claimed project.** Like every rule of a project that
+  adds protection, it applies to the requests Latet places in that project, whether it trusts the
+  project or a request claims it: a client that names another folder is not bound by it, unless its
+  launch key binds it to the project (see [Folders a request names](#folders-a-request-names)).
+- **On a Latet server**, each person and each API key has a value of their own, `check` unless they
+  set `refuse`, and `latet server status` says the value in force (`new request members: …`). With
+  Latet Enterprise, the company's policy can lock `unknown_members: refuse` for every person and API
+  key ([Locked rules](../../enterprise/locked-rules/)); like every locked rule, it stays in force once
+  the license ends.
+- **`latet doctor`** says the value in force, under *New request members*, and, while `config.yaml`
+  has no `unknown_members`, that `check` is the default and how to refuse again.
+
+### What it does not cover
+
+- **The local reviewer**, the language model that reads texts for categories, does not read these
+  members: Latet's detectors and your vault do.
+- **Strict data mode** does not read these members: it covers the tool outputs, files and hosts it
+  names, and a new member is none of them. Your field rules read them, by a value's key or its path,
+  and so do Latet's detectors.
+- **Encoded data is not decoded:** a secret in base64 shorter than the runs above, or written in a
+  form of its own, is read as the text it is, as in any text Latet checks.
+- **On a request Latet rewrites,** a sensitive value in such a member stops the request instead of
+  leaving as a fake, each time it is sent again, unless it left before in that conversation. A client
+  that copies the values Latet restored into a new member stops until a release of Latet names that
+  member.
+- **On a request Latet only checks,** a new member whose value is a text or a list of texts, outside
+  a provider's item, keeps the rule of 0.11 (*checked only*): the final check stops secrets, your
+  terms, your identity and personal data in it, but looks for no names and applies neither your field
+  rules nor strict data mode there, so that nothing sent before 0.15.0 is refused now.
+- **A repository's `refuse`** binds only the requests Latet places in its project, as above.
+- **The upgrade moved every installation to `check`**, servers included, without an approval: if you
+  relied on the refusal, set `unknown_members: refuse`.
 
 ## What `latet doctor` checks
 
@@ -242,7 +348,7 @@ every call needs one exception for each kind of call it makes:
 
 | Calls | Profile |
 | --- | --- |
-| Anthropic Messages (Claude Code, Anthropic's SDK), token counting, the model list and one model | `anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`, `anthropic.model.1` |
+| Anthropic Messages (Claude Code, Anthropic's SDK), token counting, the model list, one model and the call that opens Claude Code's connection as it starts (a HEAD with no body) | `anthropic.messages.1`, `anthropic.count_tokens.1`, `anthropic.models.1`, `anthropic.model.1`, `anthropic.hello.1` |
 | OpenAI's format (OpenAI, OpenRouter, a company gateway): Chat Completions, older completions, Responses over HTTP, embeddings, the model list and one model | `openai.chat.1`, `openai.completions.1`, `openai.responses.1`, `openai.embeddings.1`, `openai.models.1`, `openai.model.1` |
 | Codex signed in with ChatGPT, over HTTP: Responses and the model list | `chatgpt.codex.responses.1`, `chatgpt.codex.models.1` |
 | Gemini, on the Gemini API or on Vertex AI: generating, streaming, counting, embeddings (one or a batch), the model list and one model, creating or changing a cache, the OpenAI-compatible chat and embeddings | `gemini.<version>.generateContent.1`, `gemini.<version>.streamGenerateContent.1`, `gemini.<version>.countTokens.1`, `gemini.<version>.embedContent.1`, `gemini.<version>.batchEmbedContents.1`, `gemini.<version>.models.1`, `gemini.<version>.model.1`, `gemini.<version>.cache-create.1`, `gemini.<version>.cache-patch.1`, `gemini.<version>.openai.completions.1`, `gemini.<version>.openai.embeddings.1` |
@@ -363,7 +469,7 @@ all: a change to `config.yaml` would then apply without waiting for your approva
 put back the copy the upgrade to 0.11 took, which holds both files as they were before it:
 `latet upgrade --to` offers it as it goes back (it is in the data folder, in
 `backups/before-<version>-<time>`, named after the version installed, for example
-`before-0.12.1-…`). Without that copy (0.11 installed by the installer, which takes
+`before-0.15.0-…`). Without that copy (0.11 installed by the installer, which takes
 none), take the key out of both files before you go back: the `request_profile:` lines in
 `config.yaml`, and each `"request_profile": "…"` member in `config.reviewed.json`, keeping it valid
 JSON.

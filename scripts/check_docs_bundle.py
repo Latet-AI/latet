@@ -5,8 +5,8 @@ to watch it on docs.latet.ai stands in its place) and one size of screenshot (14
 zipped size is under the limit. When it passes, the hashes of its inline scripts are written to .csp.json in it, for
 the daemon's security policy (``latet.api.rest``): the daemon serves no bundle without that file.
 
-uv run python scripts/check_docs_bundle.py                         # src/latet/docs, at most 18 MB zipped
-uv run python scripts/check_docs_bundle.py --root other --max-mb 18
+uv run python scripts/check_docs_bundle.py                         # src/latet/docs, at most 30 MB zipped
+uv run python scripts/check_docs_bundle.py --root other --max-mb 30
 """
 
 from __future__ import annotations
@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "src" / "latet" / "docs"
 BASE = "/_latet/docs/"
 CSP_FILE = ".csp.json"
-MAX_MB = 18.0
+# 30 MB, for the Enterprise pages and their screenshots (the owner, 2026-11-10).
+MAX_MB = 30.0
 MB = 1_000_000
 VIDEOS = frozenset({".mp4", ".webm", ".mov", ".ogv"})
 SMALL_WIDTH = 800  # the screenshots' smaller copy, which the public site keeps and the bundle does not

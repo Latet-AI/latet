@@ -93,7 +93,7 @@ Ce que voit chacun, par exemple :
 `latet_counts` : combien de valeurs de chaque type ont été masquées. Seul le texte est masqué, pas les
 métadonnées : n'y mettez pas de valeurs sensibles, ou masquez-les vous-même avec `latet.mask`. Quand le
 serveur bloque un document (`blocked`), `LatetMasker` lève `Blocked` avec son index et ne renvoie rien :
-aucun document de ce lot n'est indexé sans masque.
+aucun document de ce lot n'est indexé sans être masqué.
 
 Avec un client `AsyncLatet`, `atransform_documents` et `ainvoke` font de même sans bloquer.
 
@@ -123,8 +123,8 @@ ce que la personne voit alors.
 - **Les noms** sont trouvés par le modèle local de noms installé sur le serveur
   ([modèles de reconnaissance sur un serveur](../../concepts/server-operations/#modèles-de-reconnaissance-sur-un-serveur)),
   dans les documents envoyés en `prose`, la valeur par défaut. Sans lui, le relecteur local du
-  serveur, quand les règles de la clé en désignent un, les trouve au mieux ; les termes de la clé
-  attrapent les noms que vous connaissez.
+  serveur, quand les règles de la clé en désignent un, les trouve, sans garantie ; les termes de la clé
+  repèrent les noms que vous connaissez.
 - **Ce que restaure `unmask`.** Les valeurs factices que le modèle écrit telles qu'elles lui ont été
   données, en majuscules, ou encodées dans un lien ; pas une qu'il réécrit sous une autre forme, comme
   un IBAN regroupé par quatre. Le nom d'une personne ne revient qu'entier : un prénom seul reste tel

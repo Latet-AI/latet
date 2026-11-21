@@ -6,6 +6,8 @@ import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../../api/client'
 import type { ConfigView, ProjectDetail } from '../../api/types'
+import { FloorRefused } from '../../ee/components/Locked'
+import { floorRefusal } from '../../ee/lib/policy'
 import { tk } from '../../i18n'
 import { useDeploymentKey } from '../../lib/me'
 import { afterConflict, RepoNotWritable, rowChange, saveOne, type Change, type ListAccess, type SaveIo, type SaveOutcome } from '../../lib/panelSave'
@@ -35,6 +37,9 @@ const PENDING = tk('errors.settingsSavedChangePending')
 export function SaveRefusal({ error }: { error: unknown }) {
   const { t } = useTranslation()
   const key = useDeploymentKey()
+  // A save the company's policy refused (Latet Enterprise, locked rules) names the settings.
+  const floor = floorRefusal(error)
+  if (floor) return <FloorRefused reasons={floor} />
   const invalid = error instanceof ApiError && error.status === 400 && error.details.length > 0
   const words = invalid ? t('rules.invalid') : error instanceof RepoNotWritable ? t(key('projects.repo.readOnly')) : errorText(t, error)
   return (

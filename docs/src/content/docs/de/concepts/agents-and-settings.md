@@ -43,7 +43,7 @@ vornimmt:
 
 Den Schutz verringern heißt zum Beispiel: ein Wert, der nie maskiert werden soll, ein niedrigeres
 Profil, ein entfernter Begriff oder Erkenner, eine Richtlinie auf `allow`, ein Begriff oder eine
-Feldregel mit einem Typ, dessen Richtlinie `allow` ist (das Gefundene bliebe im Klartext), der
+Feldregel mit einem Typ, dessen Richtlinie `allow` ist (was dabei gefunden wird, ginge im Klartext hinaus), der
 lokale Prüfer oder der Live-Prüfer ausgeschaltet oder so eingestellt, dass er weniger liest, Latet
 in einem Projekt ausgeschaltet, der Server des lokalen Prüfers auf einen anderen Rechner verlegt
 oder [seine Hinweise](../llm-review/#ihre-hinweise) geändert: Freier Text könnte ihm sagen, nichts
@@ -67,13 +67,18 @@ erneut, mit 10 Sekunden für alle und 2 für jede, bei einem Neuladen oder Start
 Schutz in einem Repository verringern könnte, und bei einem Import im Dashboard (siehe
 [Die Repositorys, die Latet sich merkt](../projects/#die-repositorys-die-latet-sich-merkt)). Lässt
 sich eines in dieser Zeit nicht lesen, oder gerade überhaupt nicht (eine Netzwerkfreigabe, die nicht
-antwortet, eine verweigerte Berechtigung), gilt eine Änderung, die dort den Schutz verringern
-könnte, weder, noch wartet sie auf Sie: `latet reload` sagt das und ändert nichts, ebenso ein Import
-im Dashboard, bis sich das Repository wieder lesen lässt. Eine Änderung, die in keinem Repository
-etwas verringern kann (ein hinzugefügter Begriff, der Port, der Verlauf), gilt wie gewohnt. Findet
-ein Start die `config.yaml` geändert und kann sie so nicht abwägen, laufen die zuletzt freigegebenen
-Einstellungen. `latet repositories` zeigt, welches Repository es ist, und
+antwortet, eine verweigerte Berechtigung), wird eine Änderung, die dort den Schutz verringern
+könnte, weder angewendet, noch wartet sie auf Sie: `latet reload` sagt das und ändert nichts, ebenso
+ein Import im Dashboard, bis sich das Repository wieder lesen lässt. Eine Änderung, die in keinem
+Repository etwas verringern kann (ein hinzugefügter Begriff, der Port, der Verlauf), gilt wie
+gewohnt. Findet der Daemon beim Start die `config.yaml` geändert und kann die Änderung deshalb nicht
+abwägen, läuft er mit den Einstellungen, die Sie zuletzt freigegeben haben. `latet repositories` zeigt, welches Repository es ist, und
 `latet repositories forget` nimmt es aus der Liste, in einem eigenen Terminal.
+
+**Auf einem Latet-Server mit Latet Enterprise** kann eine Änderung, die den Schutz verringert (dort Ihre eigenen
+Speicherungen im Dashboard und das, was der Server verringert vorfindet, wenn er Ihre Einstellungen erneut anwendet),
+stattdessen an das Sicherheitsteam Ihres Unternehmens gehen: Das Dashboard zeigt, wer entscheidet, und Sie können die
+Änderung rückgängig machen, aber nicht freigeben. Siehe [Zentrale Freigaben](../../enterprise/approvals/).
 
 ## Was Agenten nicht können
 
@@ -110,7 +115,7 @@ und Sie sehen jede Änderung, die den Schutz verringert, bevor sie gilt. Siehe
 ## Auf einem verbundenen Rechner
 
 Die gemeinsamen Einstellungen und die eigenen Einstellungen und Regeln jeder Identität liegen
-auf dem Server. Verwenden Sie `latet dashboard` für eine Person und die Administration mit
+auf dem Server. Verwenden Sie `latet dashboard` für die Einstellungen einer Person und die Administration mit
 `latet server` für die gemeinsamen Einstellungen oder die eines API-Schlüssels. Im verbundenen
 Zustand verweigern `config`, `rules`, `llm`, `project`, `identity`, `repositories` und `reload` das
 Lesen wie das Ändern von Einstellungen; nur `config schema`, `rules test` und `identity send` laufen.
@@ -118,11 +123,12 @@ Lesen wie das Ändern von Einstellungen; nur `config schema`, `rules test` und `
 
 Verbindungsmetadaten, Zertifikatsbindung, Zugangsdaten und Agentenbindungen bleiben auf
 dem Rechner. `LATET_CONNECTION` wählt Metadaten, keine Datei mit dem persönlichen Token.
-Die Claude-Integration schreibt das Token unter Windows als dokumentierte Installationsausnahme in
-die Claude-Benutzereinstellungen (unter Linux und macOS wird kein Token geschrieben, da Claude Code
-nur von Windows aus über einen Server geht); die Trennung entfernt die Bindung. Server-Prüferendpunkte,
-Schlüssel, Zertifikate und OCR/NER-Installation sind Sache der Administratoren.
-Ein Projekt im Dashboard erlaubt dem Server keine Suche im Rechner-Repository.
+Wird Claude unter Windows eingerichtet, schreibt Latet das Token als dokumentierte
+Installationsausnahme in die Claude-Benutzereinstellungen (unter Linux und macOS wird kein Token
+geschrieben, da Claude Code nur von Windows aus über einen Server geht); das Trennen entfernt diese
+Bindung. Die Prüferendpunkte des Servers, Schlüssel, Zertifikate und die Installation von OCR/NER sind
+Sache der Administratoren. Ein Projekt im Dashboard erlaubt dem Server nicht, das Repository auf dem
+Rechner zu durchsuchen.
 Siehe [Servereinrichtung](../../getting-started/server/) und
 [gemeinsame Einstellungen und eigene Regeln](../server/).
 

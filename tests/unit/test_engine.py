@@ -7,7 +7,8 @@ from stdnum import luhn as std_luhn
 from stdnum.it import codicefiscale, iva
 
 from latet.config import Config, TermConfig
-from latet.engine.build import build_masker
+from latet.engine.build import build, build_masker
+from latet.engine.detectors.terms import LiveTerms
 from latet.engine.rehydrate import StreamRehydrator, restore_text, restores_for
 from latet.engine.types import EntityClass, Policy, SlotKind
 from latet.engine.vault import Vault
@@ -83,6 +84,56 @@ def test_a_value_of_signs_alone_found_by_a_detector_stops_no_request():
     for text in texts:
         assert masker.mask(text, SlotKind.TOOL_RESULT).text == text
     assert Verifier(masker).verify([(t, SlotKind.TOOL_RESULT, False) for t in texts], "s").leaks == []
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("Use Bearer abcdefghijk.........", "abcdefghijk........."),
+        ("Authorization: Bearer abc---------", "abc---------"),
+        ("Use Bearer secret..............", "secret.............."),
+    ],
+)
+def test_a_token_of_a_word_and_signs_alone_gets_a_fake_and_stops_no_request(text, value):
+    """A token whose letters only signs follow took its letters for a typed prefix (as `sk-ant-` is one) and kept them
+    with its signs: its one fake was the value itself, none could be drawn (MaskingError), and its request was refused,
+    as every later one of its conversation. A prefix is one only before eight letters or digits, which a fake draws."""
+    from latet.engine.verifier import Verifier
+
+    masker, _ = build_masker(Config(ner="off"), Vault(ROOT_KEY))
+    masked = masker.mask(text, SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    fake = replacement.replacement
+    assert replacement.original == value and value not in masked.text and fake in masked.text
+    assert len(fake) == len(value) and [c.isalnum() for c in fake] == [c.isalnum() for c in value]
+    assert Verifier(masker).verify([(masked.text, SlotKind.TOOL_RESULT, False)], "s").leaks == []
+
+
+@pytest.mark.parametrize("value", ["abc-²²²²²²²²²²", "abc-①①①①①①①①①①", "abc-½½½½½½½½½½"])
+def test_a_secret_of_a_word_and_characters_a_fake_keeps_gets_a_fake(value):
+    """The review of e37862a5, M-1: a superscript, a circled digit or a fraction is a digit to ``isalnum`` and kept by
+    the fake as a sign is, so the word before it was still a prefix and the fake the value itself."""
+    masker, _ = build_masker(Config(ner="off"), Vault(ROOT_KEY))
+    masked = masker.mask(f"token = {value}", SlotKind.TOOL_RESULT)
+    [replacement] = masked.replacements
+    assert replacement.original == value and replacement.replacement != value and value not in masked.text
+
+
+def test_a_typed_prefix_is_still_kept_before_what_a_fake_draws():
+    """A type's public prefix (``public_prefix``, which replaced ``secret_prefix_length`` in 0.15.0), kept before
+    eight letters or digits; and the words a value of an untyped secret begins with (`abc-`) are no prefix at all."""
+    from latet.engine.surrogates.prefixes import public_prefix
+
+    for etype, token, kept in (
+        ("GITLAB_PAT", "glpat-" + "abcdefghij1234567890", "glpat-"),
+        ("SLACK_BOT_TOKEN", "xoxb-" + "1234-5678-abcdefgh", "xoxb-"),
+        ("OPENAI_API_KEY", "sk-proj-abcdefgh", "sk-proj-"),
+        ("ASSIGNED_SECRET", "abc-1234-5678", ""),
+        ("BEARER_TOKEN", "abcdefghijk.........", ""),
+        ("GITLAB_PAT", "glpat-.........", ""),
+        ("OPENAI_API_KEY", "sk-proj-1234.......", ""),
+    ):
+        assert public_prefix(etype, token) == kept, token
 
 
 def test_surrogates_are_deterministic_across_vaults():
@@ -1420,3 +1471,23 @@ def test_how_a_value_was_found_decides_its_reading_and_an_entry_kept_before_keep
     assert restore_text("call 345 7654321", restores_for([found]))[0] == "call 333 1234567"
     signed = Entity("s" * 20, "PHONE", EntityClass.PII, "+39 333 \\u0031234567", "+39 345 7654321", 0, 0.0, "k", True)
     assert fake_reading(signed) is None  # its `+` is a sign: the reading is of its `\u` escape, and reads as the fake
+
+
+def test_a_block_is_masked_again_once_the_live_terms_change(vault):
+    live = LiveTerms()
+    engine = build(Config(ner="off"), vault, extra=(live,)).engine
+    session = engine.session("s")
+    assert engine.mask_text("Halden Insurance called", SlotKind.USER_TEXT, session).text == "Halden Insurance called"
+    live.use([("Halden Insurance", "CLIENT")], "1.1")
+    masked = engine.mask_text("Halden Insurance called", SlotKind.USER_TEXT, session)
+    assert "Halden Insurance" not in masked.text and masked.replacements[0].rule == "synced:client"
+
+
+def test_the_engines_key_is_0_11_s_own_while_no_term_is_synced(vault, monkeypatch):
+    """The review's A-M4, as A-R1 pins it: the terms' tag joins a key only when it is not empty, so a space that syncs
+    nothing keeps 0.11's key, `F{rules_version}|…` (the tagged form is `F{rules_version}.{tag}|…`)."""
+    engine = build(Config(ner="off"), vault, extra=(LiveTerms(),)).engine
+    seen = []
+    monkeypatch.setattr(engine, "_key", lambda tag, text: seen.append(tag) or b"")
+    engine._frozen_key("Halden Insurance", SlotKind.USER_TEXT, None, False, None, False, None, None)
+    assert seen and seen[0].startswith(f"F{engine.rules_version}|")

@@ -49,7 +49,7 @@ latet codex exec "add the payments key from .env to config/local.toml"
 
 `latet run codex` revient au même que `latet codex`, qui choisit l'adresse selon votre connexion.
 
-Sur un ordinateur connecté à un serveur Latet, `latet codex` lance la session interactive ainsi que
+Sur une machine connectée à un serveur Latet, `latet codex` lance la session interactive ainsi que
 `codex exec`, `resume` et `fork` ; il refuse les autres sous-commandes de Codex, comme `review` ou `mcp`,
 qu'il ne peut pas faire passer par le serveur.
 

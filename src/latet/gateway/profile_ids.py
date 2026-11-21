@@ -24,7 +24,7 @@ _GEMINI_OPERATIONS = (
 
 PROFILE_IDS: frozenset[str] = frozenset(
     {
-        *(f"anthropic.{operation}.1" for operation in ("messages", "count_tokens", "models", "model")),
+        *(f"anthropic.{operation}.1" for operation in ("messages", "count_tokens", "models", "model", "hello")),
         *(
             f"openai.{operation}.1"
             for operation in ("chat", "completions", "responses", "embeddings", "models", "model")

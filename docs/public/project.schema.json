@@ -530,6 +530,20 @@
       "description": "Reading the text in images.",
       "title": "Ocr"
     },
+    "unknown_members": {
+      "anyOf": [
+        {
+          "const": "refuse",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "`refuse`: a request here with a field no request profile names yet is refused, as `refuse` in your settings refuses it (on Claude Code, Bedrock and Vertex a field of text alone still passes once checked). Only `refuse`: a project cannot loosen it.",
+      "title": "Unknown Members"
+    },
     "llm_review": {
       "anyOf": [
         {

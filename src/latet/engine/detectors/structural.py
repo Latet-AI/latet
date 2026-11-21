@@ -55,6 +55,39 @@ _INLINE_QUOTED = re2.compile(
 # What a quoted value holds when it is a piece of a text and no literal: a format or a template field (`%s`, `%(name)s`,
 # `{name}`).
 _FORMAT = re.compile(r"%[sdrifx(]|\{\w*\}")
+# A name in a Python call's boolean argument (`context_length(model, access_token=fallback or "")`, issue 21): what
+# follows it is ` or ` or ` and `, and its line, begun within ``_CALL_REACH`` characters before it, is the call (or
+# `return` and the call) of a name neither a keyword (`if(`, `while(` are none) nor in capitals (`WHERE(`), whose
+# arguments before the pair are names, each alone or given a plain value, each followed by a comma, and the pair's key a
+# Python name: a line of valid Python (`connect(host=db, password=secret_value or retry)`), as `f(token=name)` is
+# already read for a reference before `,` or `)`. Anything else before it (a quote, a parenthesis, a word that no comma
+# follows, as SQL's `exists(select 1 from users where password=...`)
+# keeps the value a secret. Read in at most ``_CALL_REACH`` characters before each pair, never from its line's
+# beginning, so that a line of many pairs costs its length, not its square (the security review of 125a2bcf, H1).
+_BOOLEAN_NEXT = re.compile(r"[ \t]+(?:or|and)[ \t]")
+_CALL_OPEN = re.compile(
+    r"[ \t]*(?:return[ \t]+)?"
+    r"(?!(?:if|elif|while|for|not|and|or|in|is|assert|del|with|lambda|yield|await|except|raise|return)\()"
+    r"(?![A-Z][A-Z0-9_]*\()"  # nor a name in capitals, SQL's (`WHERE(`, `SELECT(`) more often than a call's
+    r"[A-Za-z_][A-Za-z0-9_.]*\("
+    r"(?:[ \t]*[A-Za-z_][A-Za-z0-9_.]*(?:[ \t]*=[ \t]*[A-Za-z0-9_.]+)?[ \t]*,)*"
+    r"[ \t]*[A-Za-z_][A-Za-z0-9_]*="
+)
+_CALL_REACH = 256
+# A name of Python: no `$`, which ``_IDENTIFIER`` takes for JavaScript's.
+_PY_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _in_call_condition(text: str, raw_start: int, raw_end: int) -> bool:
+    """Whether the unquoted value at ``raw_start`` is a name in a Python call's boolean argument (``_CALL_OPEN``)."""
+    if _BOOLEAN_NEXT.match(text, raw_end) is None:
+        return False
+    floor = max(0, raw_start - _CALL_REACH)
+    line = max(text.rfind("\n", floor, raw_start), text.rfind("\r", floor, raw_start)) + 1
+    if line == 0 and floor > 0:
+        return False  # its line begins further back than a call's head is read: a literal, as any other
+    return _CALL_OPEN.fullmatch(text, line, raw_start) is not None
+
 
 # Matched as whole words of the name (snake, kebab, dot or camel case), or as two adjacent words.
 _STRONG = frozenset(
@@ -248,6 +281,9 @@ class AssignmentDetector:
                 whole.append((m.start(2), m.end()))
             raw_start, raw_end = m.span(5)
             value, offset, quoted = _unquote(_strip_comment(text[raw_start:raw_end]))
+            if not quoted and value[-1:] in ("'", '"') and value[-2:-1] == "\\":
+                # An escaped quote ends it, as in ``_pair_span`` (the security review of 125a2bcf, L5).
+                value = value[:-1].rstrip("\\")
             if not value or (value[0] in "{[" and not quoted):
                 continue  # a nested object or array follows: its members are matched on their own lines
             if _code_like(value, key, quoted):
@@ -334,6 +370,11 @@ def _pair_span(text: str, key: str, kind: str, raw: str, raw_start: int, raw_end
     concatenation (``"API_KEY=" + GH_PAT``) is a piece of a text."""
     quoted = raw[:1] in ("'", '"')
     value = raw[1:-1] if quoted else raw
+    if not quoted and value.endswith("\\") and text[raw_end : raw_end + 1] in ("'", '"'):
+        # A quote a serialized document escapes ends it (`token=VALUE\"` in a JSON string, `\\\"` escaped again): the
+        # backslashes write that quote in every reading, never the value, as the reading with the escapes decoded finds
+        # it. Read with them, the vault learnt `VALUE\` and its fake took the backslash's place (issue 21).
+        value = value.rstrip("\\")
     if len(value) < (3 if kind == "password" else 6):
         return None
     if _code_like(value, key, quoted) or (_NUMBER.match(value) and kind != "password"):
@@ -343,10 +384,13 @@ def _pair_span(text: str, key: str, kind: str, raw: str, raw_start: int, raw_end
         if value.startswith((" +", "<", "{")) or value.endswith("+ ") or after == " +" or _FORMAT.search(value):
             return None
     elif after[:1] in ("(", "[") or (
-        after[:1] in (",", ")")
-        and _IDENTIFIER.match(value)
+        _IDENTIFIER.match(value)
         and not key.isupper()
         and not any(c.isdigit() for c in value)
+        and (
+            after[:1] in (",", ")")
+            or (_PY_NAME.fullmatch(value) is not None and _in_call_condition(text, raw_start, raw_end))
+        )
     ):
         return None
     start = raw_start + (1 if quoted else 0)
@@ -455,7 +499,24 @@ class CredentialDetector:
                 yield Span(m.start(), m.end(), "JWT", EntityClass.SECRET, "credentials:jwt")
         lowered_has = "bearer" in text.lower() or "authorization" in text.lower()
         if lowered_has:
-            for pattern, rule in ((_AUTH_HEADER, "credentials:authorization"), (_BEARER, "credentials:bearer")):
+            # Where each token found ends, by where it begins: one decision for a token both patterns find
+            # (`Authorization: Bearer ...`), the first's (the re-review of 8ef280cf, 1).
+            ends: dict[int, int] = {}
+            for pattern, rule, least in (
+                (_AUTH_HEADER, "credentials:authorization", 12),
+                (_BEARER, "credentials:bearer", 20),
+            ):
                 for m in pattern.finditer(text):
                     start, end = m.span(1)
-                    yield Span(start, end, "BEARER_TOKEN", EntityClass.SECRET, rule)
+                    # The dots after it are a text's, one cut short (`Bearer <token>...`) or a sentence's end, never a
+                    # token's (its dots stand between its parts): with them, `<token>.` was a second secret with a fake
+                    # of its own, and a fake followed by `...` a new token the final check refused (issue 21). Only for
+                    # what is a token without them, as long as its pattern asks and no placeholder: `Bearer
+                    # token...............` and `Bearer YOUR_API_KEY...` stay read whole, as before, so that no word
+                    # (`token`, `user`) is learnt as a secret (the security review of 125a2bcf, L3).
+                    if start not in ends:
+                        cut = end
+                        while cut > start and text[cut - 1] == ".":
+                            cut -= 1
+                        ends[start] = cut if cut - start >= least and not _PLACEHOLDER.match(text[start:cut]) else end
+                    yield Span(start, ends[start], "BEARER_TOKEN", EntityClass.SECRET, rule)

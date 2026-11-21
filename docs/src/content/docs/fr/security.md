@@ -22,8 +22,8 @@ machine. La [page sur la détection](../concepts/detection/) dit exactement ce q
 Pour un déploiement connecté, la [frontière de confiance du serveur](../concepts/server/)
 s'applique aussi : les originaux peuvent atteindre le serveur et les vues authentifiées du
 tableau de bord. Les administrateurs gèrent la configuration du serveur et les réglages qu'il
-partage, comme ses destinations et son relecteur ; empreintes, identifiants et liaisons d'agents
-restent sur les machines. Imposez séparément
+partage, comme ses destinations et son relecteur ; les empreintes de connexion, les identifiants et
+les liaisons des agents restent sur chaque machine. Imposez séparément
 les restrictions d'accès aux fournisseurs si le serveur doit être le point de contrôle
 de l'entreprise. Un serveur ne prend pas les marqueurs d'une requête comme la preuve que le
 plugin de Claude Code a été exécuté : il vérifie aussi les descriptions, les schémas et les
@@ -39,7 +39,7 @@ exemples des outils.
 ## Conversations, projets et restitution
 
 Les identifiants de conversation regroupent les requêtes ; ils n'authentifient pas une personne et
-ne créent pas de coffre. La passerelle utilise le premier en-tête non vide dans cet ordre :
+ne créent pas de coffre-fort. La passerelle utilise le premier en-tête non vide dans cet ordre :
 `x-claude-code-session-id`, `session-id`, `session_id`, `thread-id`, `x-session-id`. Pour la Responses
 API viennent ensuite un `previous_response_id` connu, puis un `prompt_cache_key` de type chaîne.
 Ces noms sont recherchés dans l'espace de l'identité courante du serveur ou dans l'instance locale.
@@ -51,22 +51,22 @@ conversation. Il s'agit de la réutilisation de la même entrée, pas d'une coll
 de hachage. Cela regroupe les requêtes successives des clients sans état, mais ne permet pas de
 déterminer quel chat logique le client voulait désigner.
 
-Dans cette conversation partagée, la réponse peut restituer des valeurs enregistrées par les deux
-chats. Par exemple, si le fournisseur répond dans le chat B avec un substitut émis précédemment dans
-le chat A, Latet peut restituer localement l'original de A. Des identifiants explicites distincts
+Dans cette conversation partagée, la réponse peut remettre en place des valeurs enregistrées par
+l'un ou l'autre chat. Par exemple, si le fournisseur répond dans le chat B avec une valeur factice
+émise précédemment dans le chat A, Latet peut remettre en place localement l'original de A. Des identifiants explicites distincts
 évitent ce regroupement accidentel si le client les utilise de façon cohérente. Ils ne constituent
-pas une frontière d'autorisation. Dans le texte des requêtes HTTP ordinaires, un substitut collé par
-le client est masqué comme une nouvelle valeur littérale ; il ne désigne pas l'original qu'il
-représentait. Une réponse du fournisseur contenant un substitut inconnu ne donne pas accès aux
-originaux d'un autre espace du serveur.
+pas une frontière d'autorisation. Dans le texte des requêtes HTTP ordinaires, une valeur factice
+collée par le client est masquée comme une nouvelle valeur littérale ; elle ne désigne pas
+l'original qu'elle représentait. Une réponse du fournisseur contenant une valeur factice inconnue ne
+donne pas accès aux originaux d'un autre espace du serveur.
 
-Chaque identité du serveur possède son coffre et ses enregistrements de conversation. Des en-têtes,
+Chaque identité du serveur possède son coffre-fort et ses enregistrements de conversation. Des en-têtes,
 identifiants de réponse, clés de cache ou débuts identiques ne franchissent pas cette frontière.
-Les mêmes octets d'un substitut peuvent exister dans des coffres séparés ; la restitution utilise
-l'association du coffre destinataire. Sur un ordinateur, les projets d'une même instance Latet
-partagent son coffre : lorsque cette fonction est prise en charge,
+Les mêmes octets d'une valeur factice peuvent exister dans des coffres-forts séparés ; la remise en
+place utilise l'association propre au coffre-fort destinataire. Sur une machine, les projets d'une
+même instance Latet partagent son coffre-fort : lorsque cette fonction est prise en charge,
 `x-latet-project` sélectionne les réglages du projet, pas un stockage séparé ni une nouvelle
-conversation. Des dossiers de données et des coffres configurés séparément offrent des stockages
+conversation. Des dossiers de données et des coffres-forts configurés séparément offrent des stockages
 séparés ; travailler dans des dépôts différents ne suffit pas. Voir [Projets](../concepts/projects/)
 et [Latet sur un serveur](../concepts/server/).
 
@@ -74,16 +74,16 @@ et [Latet sur un serveur](../concepts/server/).
 `x-latet-project`, ou le dossier de travail qu'un agent écrit dans ses requêtes) n'est que *déclaré* :
 les règles de son projet qui ajoutent de la protection s'appliquent, ses assouplissements et ses
 exceptions de requête non, et un projet déclaré où Latet est désactivé est refusé. Un projet n'est
-*de confiance* que lorsque Latet le connaît par lui-même, de deux sources :
+*de confiance* que lorsque Latet le connaît par lui-même, par l'une de ces deux sources :
 
-- **Le lien du plugin de Claude Code.** Le plugin lie une session au projet d'un dossier que Latet
-  connaît ; chacun de ses appels maintient le lien, qui prend fin après 30 minutes sans appel. Cela a
-  une limite acceptée : une requête Anthropic Messages qui porte l'identifiant d'une de vos sessions
-  actives liée par le plugin est jugée avec ce projet, assouplissements et exceptions compris, quel que
-  soit votre client qui l'envoie. Elle est quand même lue par la vérification finale et jamais
-  réécrite, et les requêtes d'aucune autre personne n'atteignent le lien. Les appels que Claude Code
-  fait avant le premier appel du plugin qui lie la session (ses appels de démarrage) sont jugés avec
-  vos seules règles, ni les règles ajoutées par le projet ni ses assouplissements.
+- **La liaison du plugin de Claude Code.** Le plugin lie une session au projet d'un dossier que Latet
+  connaît ; chacun de ses appels maintient la liaison, qui prend fin après 30 minutes sans appel. Cela
+  a une limite acceptée : une requête Anthropic Messages qui porte l'identifiant d'une de vos sessions
+  actives que le plugin a liée est jugée avec ce projet, assouplissements et exceptions compris, quel
+  que soit celui de vos clients qui l'envoie. Elle est quand même lue par la vérification finale et
+  jamais réécrite, et les requêtes d'aucune autre personne n'atteignent la liaison. Les appels que
+  Claude Code fait avant le premier appel du plugin qui lie la session (ses appels de démarrage) sont
+  jugés avec vos seules règles, sans les règles ajoutées par le projet ni ses assouplissements.
 - **Une clé de lancement.** Un agent que Latet lance porte une clé secrète de ce lancement, liée au
   projet du dossier et à vous ; Latet la vérifie, la retire avant de transmettre quoi que ce soit, et
   n'en garde qu'un hachage à clé. Tout programme qui détient la clé compte comme ce lancement : il
@@ -100,9 +100,9 @@ Voir [Projets](../concepts/projects/#de-confiance-et-déclarés).
 - Les requêtes qui partiraient avec une valeur sensible en clair en mode client, par exemple par un chemin
   que le plugin ne couvre pas : la vérification finale du plugin et le daemon les bloquent.
 - Les pages web qui tentent d'utiliser le daemon local (DNS rebinding, requêtes intersites).
-- Une partie d'une requête que Latet ne lit pas : le chemin, les paramètres, les en-têtes et le corps
-  sont chacun lus, retirés par une règle déclarée ou admis par une exception que vous avez approuvée,
-  sinon la requête n'est pas envoyée, sur un ordinateur comme sur un serveur
+- Une partie d'une requête que Latet ne lit pas : le chemin, les paramètres de requête, les en-têtes
+  et le corps sont chacun lus, retirés par une règle déclarée ou admis par une exception que vous avez
+  approuvée, sinon la requête n'est pas envoyée, sur une machine comme sur un serveur
   ([Chaque partie d'une requête](../concepts/protection-scope/#chaque-partie-dune-requête)).
 
 ## Hors du périmètre
@@ -234,15 +234,15 @@ dans un seul fichier :
 `latet upgrade` copie, avant d'installer une version, le coffre-fort, l'historique et les réglages
 dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
 ([Mettre à jour](../getting-started/installation/#mettre-à-jour)) :
-- **Scellées comme le coffre-fort.** Les bases de données sont copiées telles quelles, leurs valeurs
-  scellées avec la clé de cette machine, qui n'est pas copiée ; le dossier est lisible par vous
-  seul.
+- **Les copies sont scellées comme le coffre-fort.** Les bases de données sont copiées telles
+  quelles, leurs valeurs scellées avec la clé de cette machine, qui n'est pas copiée ; le dossier
+  est lisible par vous seul.
 - **Elles suivent ce que vous retirez**, tant que Latet 0.9.10 ou une version plus récente tourne.
   *Oublier* retire une valeur de chaque copie, effacer
   l'historique efface aussi le leur, et leur historique n'est pas gardé plus longtemps que le
   vôtre. Une copie qui ne peut pas être nettoyée est supprimée, ou mise de côté et plus jamais
   proposée.
-- **Trois au plus, et revenir en arrière vous appartient.** Remettre une copie n'est proposé que
+- **Trois au plus, et revenir en arrière vous appartient.** Restaurer une copie n'est proposé que
   dans un terminal à vous, et un agent ne peut pas lancer `latet upgrade --to` vers une version
   plus ancienne.
 
@@ -302,9 +302,8 @@ dans `backups/before-<version>-<heure>` dans le dossier de données de Latet
   nouvel en-tête, un mot de plus de 16 caractères (comme c'est en général le cas d'une clé ou d'un
   jeton), plus de 48 caractères après `anthropic-` ou un caractère qui n'est ni une lettre
   minuscule, ni un chiffre, ni un tiret. Sur une requête que Latet
-  réécrit, ils sont refusés avant que rien n'en soit masqué. Les en-têtes qu'un profil déclare
-  amovibles sont retirés
-  et comptés dans le tableau de bord : la télémétrie et le traçage des SDK (`x-stainless-*`,
+  réécrit, ils sont refusés avant que rien n'en soit masqué. Les en-têtes qu'un profil permet
+  de retirer sont retirés et comptés dans le tableau de bord : la télémétrie et le traçage des SDK (`x-stainless-*`,
   `traceparent`...), et ceux des agents eux-mêmes qui peuvent contenir du texte libre, comme les
   identifiants d'un sous-agent de Claude Code ou les métadonnées de tour de Codex, qui contiennent le
   chemin et les remotes de votre dépôt ([Les en-têtes que Latet retire](../getting-started/upgrading-to-0-11/#les-en-têtes-que-latet-retire)). Sur une requête que
@@ -356,14 +355,14 @@ documentation.
 **Sur un serveur Latet** ([Latet sur un serveur](../concepts/server/))
 
 - L'administration ne répond qu'en HTTPS, à un programme : une requête venant d'une page web est
-  refusée, et un jeton d'administration n'est vérifié qu'après que son adresse a passé une limite de
-  tentatives refusées.
+  refusée, et un jeton d'administration n'est vérifié qu'une fois que son adresse a passé le contrôle
+  d'une limite de tentatives refusées.
 - Le serveur ne garde aucun secret qu'il émet : seulement un hachage à clé de chaque jeton, clé et code.
   La clé de chaque espace est scellée avec la clé principale du serveur, gardée à part des sauvegardes de
   la base de données.
 - Chaque appel d'administration est enregistré dans un journal chaîné, lectures et refus compris ;
   `latet server log verify` vérifie la chaîne.
-- Le jeton que détiennent les agents d'une machine ouvre le pont du plugin et le proxy de l'espace,
+- Le jeton que détiennent les agents d'une machine ouvre le bridge du plugin et le proxy de l'espace,
   jamais le tableau de bord : celui-ci demande aussi la clé de la machine, qu'aucun agent ne reçoit.
 - Une exception de requête fait partie des réglages propres à une personne et s'applique dès que cette
   personne l'approuve. En approuver une permanente écrit une entrée dans le journal d'administration,
@@ -376,8 +375,8 @@ documentation.
 - Avec l'historique désactivé, les exceptions utilisées sont comptées en mémoire, et partagées par
   Valkey par instance et par identité, identifiants et nombres seulement, pour le tableau de bord.
   Valkey tel que Latet le fournit ne garde rien sur disque ; un opérateur qui active sa persistance
-  écrit ces comptes sur disque.
-- Avec plusieurs workers sous Linux, le port reste gardé pour le serveur tout le temps, même quand
+  écrit ces décomptes sur disque.
+- Avec plusieurs workers sous Linux, le port reste réservé au serveur tout le temps, même quand
   aucun worker n'écoute, et seul un programme qui tourne sous l'utilisateur même du serveur peut y
   écouter à côté des workers ; un tel programme pourrait prendre ses connexions : faites tourner le
   serveur sous un utilisateur qui n'exécute rien d'autre ([Exploitation du
@@ -386,16 +385,16 @@ documentation.
   l'identité, et à côté de chacun de leurs mots un hachage à clé et une empreinte : une empreinte de
   64 bits sous une clé dérivée de celle de l'identité, que les instances gardent en mémoire pour
   trouver les valeurs d'un texte. Quelqu'un qui lit la base de données n'en tire aucun mot, mais voit
-  quelles lignes d'une identité partagent un mot, combien elles sont et, d'après les numéros de
-  modification des lignes, quelles lignes ont changé et dans quel ordre : une empreinte n'est pas un
+  quelles lignes d'une identité partagent un mot, combien elles sont et, d'après les compteurs de
+  modifications des lignes, quelles lignes ont changé et dans quel ordre : une empreinte n'est pas un
   chiffrement. Deux mots peuvent avoir la même empreinte : chaque valeur ou valeur factice vers
-  laquelle mène une empreinte est donc déchiffrée et comparée au texte avant de masquer ou de
-  restaurer quoi que ce soit.
-- Ce que Valkey garde et transporte pour un coffre-fort, ce sont des identifiants, des sortes, des
-  comptes et des données scellées : aucune valeur, valeur factice, aucun mot ni aucune empreinte en
+  laquelle mène une empreinte est donc déchiffrée et comparée au texte avant que quoi que ce soit ne
+  soit masqué ou remis en place.
+- Ce que Valkey garde et transporte pour un coffre-fort, ce sont des identifiants, des types, des
+  décomptes et des données scellées : aucune valeur, valeur factice, aucun mot ni aucune empreinte en
   clair, et aucun hachage à clé du coffre-fort. Des tests le vérifient sur tout ce que les instances
-  envoient à Valkey pendant qu'elles masquent, restaurent et oublient des valeurs pour une clé d'API
-  et pour une personne, refont les empreintes d'un coffre-fort et envoient leurs battements, et sur
+  envoient à Valkey pendant qu'elles masquent, remettent en place et oublient des valeurs pour une
+  clé d'API et pour une personne, refont les empreintes d'un coffre-fort et envoient leurs battements, et sur
   les journaux. Ses messages sont signés, ce qui dit qui les a envoyés et ne garde rien secret ; ce
   qui doit rester secret est scellé. Les battements des instances portent des nombres, des booléens
   et la version, jamais une identité.

@@ -1,0 +1,272 @@
+---
+title: Zentrale Freigaben
+description: Auf einem Latet-Server entscheidet das Sicherheitsteam des Unternehmens über Änderungen, die den Schutz verringern, und, wenn das Unternehmen es so wählt, über die Texte des Live-Prüfers, statt der Person, die sie angefordert hat.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Ohne zentrale Freigaben wartet eine Änderung, die den Schutz verringert, auf die Person, deren Einstellungen sie ändert,
+und der [Live-Prüfer](../../concepts/live-review/) fragt diese Person zu jedem neuen Text. Auf einem
+[Latet-Server](../../getting-started/server/) mit Latet Enterprise kann stattdessen das Sicherheitsteam Ihres
+Unternehmens entscheiden. Wer wartet, sieht, wer entscheidet, und kann die eigene Anfrage zurückziehen, sie aber nicht
+freigeben.
+
+## Was an das Sicherheitsteam geht
+
+- **Änderungen, die den Schutz verringern,** in den Einstellungen einer Person, also die, die
+  [Agenten und Ihre Einstellungen](../../concepts/agents-and-settings/) beschreibt: ein Wert, der nie maskiert werden
+  soll, ein niedrigeres Profil, der ausgeschaltete lokale Prüfer, ein verschobenes Ziel. Auf einem Server kommen sie aus
+  den eigenen Speicherungen der Person im Dashboard, ein Regelimport eingeschlossen, und aus dem, was der Server
+  verringert vorfindet, wenn er ihre Einstellungen erneut anwendet oder ihren Bereich anlegt. Was den Schutz erhöht,
+  gilt weiterhin sofort.
+- **Die Texte des Live-Prüfers**, wenn Ihr Unternehmen es so wählt. Da der Server maskiert, liegen die Texte ohnehin
+  schon auf ihm.
+
+Wenn ein Administrator die gemeinsamen Einstellungen des Servers verringert (`latet server config set`), entscheidet
+jede Person weiterhin selbst über das, was sich dadurch in ihrem eigenen Bereich ändert, wie ohne zentrale Freigaben:
+Die Änderung steht im Administrationsprotokoll, und die Freigabe der Person schützt ihren Bereich. Verringern auch die
+eigenen Einstellungen der Person den Schutz, geht die Änderung stattdessen an das Sicherheitsteam. Das gilt eine Zeit lang
+auch für eine Person, deren letzte Freigabe eine Latet-Version vor Einführung der zentralen Freigaben gespeichert hat: bis ihre Einstellungen
+das nächste Mal gelesen werden, ohne dass etwas wartet, oder bis sie das nächste Mal eine Änderung freigibt.
+
+In einem Bereich wartet immer nur eine Änderung, und eine neuere ersetzt sie. Ersetzt eine Änderung aus den gemeinsamen
+Einstellungen eine Anfrage der Person, die auf das Sicherheitsteam wartet, fordert die Person sie erneut an. Ersetzt ihre
+Anfrage eine solche Änderung, bleiben die Einstellungen in Gebrauch, die sie freigegeben hat, und der Server bietet diese
+Änderung erneut an, wenn er ihre Einstellungen das nächste Mal anwendet (auch eine Speicherung der Person, die den Schutz
+erhöht, löst das aus): Dann ersetzt diese Änderung ihre Anfrage, und sie fordert sie erneut an.
+
+Eine Änderung enthält keine Werte. Beim Sicherheitsteam kommt an, was sie verringert, so wie Latet es formuliert
+(*values never to mask: 1 added*), welche Einstellungen sie betrifft, woher sie kommt und wer sie angefordert hat. Der Wert
+selbst, die Hinweise für den lokalen Prüfer und die Adresse eines Ziels bleiben bei der Person, in ihrem eigenen
+Dashboard: Fragen Sie sie, wenn Sie sie brauchen.
+
+Eine angeforderte [Anfrageausnahme](../../getting-started/upgrading-to-0-11/#eine-genaue-ausnahme-genehmigen) ist
+eine solche Änderung: Sie kommt beim Sicherheitsteam mit ihrem Ziel an und damit, wie sie den Schutz verringert, nie mit
+einem Wert einer Anfrage. Sobald jemand aus dem Sicherheitsteam, oder eine andere der Personen, die einen API-Schlüssel
+steuern, sie genehmigt, nennt die Ausnahme diese Person im Dashboard der Person, und der Eintrag im
+Administrationsprotokoll für eine dauerhafte Ausnahme (`exception.permanent`) führt sie als Urheber. Mit
+`exceptions: company` in den [gesperrten Regeln](../locked-rules/#ausnahmen) des Unternehmens geht eine
+Anfrageausnahme, die jemand anfordert, an das Sicherheitsteam, wer auch immer über die übrigen Änderungen dieser Person
+entscheidet; das Speichern der Einstellungen eines API-Schlüssels über die Administration genehmigt die Ausnahmen, die
+es hinzufügt, weiterhin.
+
+Ein Text des Live-Prüfers ist etwas anderes: Das Sicherheitsteam sieht ihn so wie die Person, **einschließlich der
+Werte**, wenn es ihn öffnet. Das ist eine Entscheidung Ihres Unternehmens, und Latet teilt sie jeder Person mit, in ihrem
+Dashboard und in Claude Code. Wo das Gesetz eine Vereinbarung verlangt, bevor ein Tool eingesetzt wird, das
+Beschäftigte überwachen kann (zum Beispiel in Italien und in Deutschland), schließt das Unternehmen diese Vereinbarung
+vorher.
+
+## API-Schlüssel
+
+Ein Programm mit einem API-Schlüssel gibt nie etwas frei. Eine Änderung, die den Schutz in den Einstellungen eines
+Schlüssels verringert, geht an die anderen Personen, die den
+[Schlüssel steuern](../sign-in/#api-schlüssel-und-wer-sie-steuert), oder an die Administratoren, wenn ihn sonst niemand
+steuert: Wer die Änderung im Bereich des Schlüssels vornimmt, kann sie rückgängig machen, aber nicht freigeben. Ein
+Schlüssel, den nur eine Person steuert, schickt deren Änderungen an die Administratoren. Was ein Administrator für einen
+Schlüssel mit einem Administrationstoken festlegt (`latet server config --key …`), gilt sofort, wie die eigenen
+Einstellungen des Servers, und steht im Administrationsprotokoll. Wenn das Sicherheitsteam über Änderungen entscheidet,
+entscheidet es auch über die der Schlüssel. Die Texte des Live-Prüfers eines Schlüssels gehen dorthin, wohin die der
+Personen gehen.
+
+## Einschalten
+
+Mit einem Administrationstoken, von einem beliebigen Rechner aus:
+
+```sh
+latet server approvals set --changes security --live-review security
+latet server approvals show
+```
+
+Bis Sie sie festlegen, stehen beide auf `self`: Jede Person entscheidet über ihre eigenen Änderungen und Texte, und die
+Änderungen eines Schlüssels gehen an die anderen Personen, die ihn steuern, wie oben beschrieben. Die Lizenz muss
+`approvals` enthalten. Jede Änderung daran, wer entscheidet, wird im Administrationsprotokoll des Servers festgehalten
+(`approvals.changed`, mit dem, was sich geändert hat, und dem Token, das es geändert hat). Sie gilt für alles, was ab
+dann neu eingeht: Was bereits wartet, behält seinen Weg, auch wenn es erneut angefordert wird. Legen Sie es fest, sobald jede Instanz
+diese Version mit Latet Enterprise ausführt: Eine Instanz einer früheren Version leitet nichts weiter, und auf ihr kann
+eine Person ihre eigene Änderung freigeben. Der Befehl nennt, wie viele laufende Instanzen sie nicht ausführen.
+
+Geben Sie dann den Personen, die entscheiden, die Rolle Sicherheit ([Anmeldung, Gruppen und Rollen](../sign-in/#rollen)),
+**mindestens zweien**: Niemand gibt seine eigene Anfrage frei, eine einzelne Person würde also für immer auf ihre eigenen
+Änderungen warten.
+
+Texte gehen nur dort an das Sicherheitsteam, wo seine Mitglieder sie mit dem Unternehmenskonto öffnen:
+`--live-review security` setzt eingerichtetes [Single Sign-on](../sign-in/#single-sign-on) voraus, wobei Änderungen,
+die für alle gelten, eine Sitzung mit dem Unternehmenskonto verlangen (`latet server sign-in set --company-changes sso`,
+der Standard). Andernfalls wird der Befehl abgelehnt (409). Ändern sich die Anmeldeeinstellungen später, gehen die
+Texte weiterhin an das Sicherheitsteam, und `latet server status` warnt, je nach Fall. Wird Single Sign-on entfernt,
+wartet jeder Text ungesendet, und niemand kann darüber entscheiden. Verlangen die Anmeldeeinstellungen das
+Unternehmenskonto nicht mehr für Änderungen, die für alle gelten, wartet jeder Text auf eine Person des
+Sicherheitsteams, die mit diesem Konto angemeldet ist, denn eine mit `latet dashboard` geöffnete Sitzung öffnet nie
+einen Text.
+
+**Sagen Sie es den Personen vorher.** Jede Person erfährt davon in ihrem Dashboard und bei ihrem ersten Text, also erst,
+wenn es schon gilt; der Befehl erinnert Sie daran. Die Texte warten nur, solange der Live-Prüfer eingeschaltet ist, und eine
+Person kann ihren ausschalten. Mit `--changes security` verringert das Ausschalten den Schutz und wartet daher ebenfalls
+auf das Sicherheitsteam.
+
+## Was die anfragende Person sieht
+
+<Screenshot name="approvals-security" alt="Die Seite Freigaben einer Person, für die das Sicherheitsteam ihres Unternehmens entscheidet: ein Hinweis, der Daniel Okafor und Mark Ellis für Änderungen und für Texte nennt, und ein wartender Text mit einem Hinweis, dass das Sicherheitsteam ihn prüft, und nur der Schaltfläche Nicht senden" caption="Freigaben, wo das Sicherheitsteam entscheidet: Die Person kann einen Text anhalten, aber nicht freigeben." />
+
+- **Im Dashboard** sagt die Seite **Freigaben**, was an das Sicherheitsteam geht und wer dazugehört, höchstens zwanzig
+  Namen und wie viele weitere Personen, oder dass bisher niemand entscheiden kann. Eine Änderung wartet dort mit *Eine
+  Änderung Ihrer Einstellungen wartet auf das Sicherheitsteam Ihres Unternehmens* und den Namen; ein Text wartet mit
+  einem Hinweis, dass das Sicherheitsteam ihn prüft und sieht. Die Person kann **Rückgängig machen** wählen, oder
+  **Nicht senden** für den Text; das Freigeben ist Sache des Sicherheitsteams.
+- **Eine Speicherung im Dashboard,** die den Schutz verringert, wird nicht angewendet: Sie wartet wie die anderen Änderungen, und
+  die Seite sagt das, mit den Einstellungen, die gerade gelten, im Formular.
+- **In Claude Code** zeigt die Statuszeile *waiting for your company's security team to approve it*, und eine Meldung
+  nennt einmal pro Sitzung, wer die Texte prüft, oder dass bisher niemand entscheiden kann. Es muss kein Dashboard
+  geöffnet sein. Agenten, die über die Adressen des Servers gehen, warten auf dieselbe Weise, und Claude Code erfährt
+  dasselbe, wenn es mit dem Token eines API-Schlüssels arbeitet.
+
+Wenn das Sicherheitsteam über eine Änderung entscheidet, zeigt das Dashboard der Person, wer sie freigegeben hat oder
+nicht. Eine Änderung, die freigegeben wird, nachdem sich die Einstellungen der Person geändert haben, wird verworfen
+(*stale*), wie es auch für die Person selbst geschähe: Sie fordert sie erneut an. Je länger eine Änderung wartet, desto
+wahrscheinlicher ist das. Ändern sich ihre Einstellungen auf einer anderen Instanz des Servers genau in dem Moment, in dem
+sie freigegeben wird, oder lassen sie sich dann nicht speichern, zeigt das Dashboard zwei Meldungen nacheinander: dass
+sie freigegeben wurde, dann dass ihre Einstellungen sie nicht übernommen haben. Sie fordert sie erneut an.
+
+Ein Text, den das Sicherheitsteam freigegeben hat, wird nur so gesendet, wie das Team ihn gesehen hat. Ändern sich
+zwischen der Freigabe und dem Senden die eigenen Einstellungen der Person, die für alle festgelegten Einstellungen oder
+ihr Tresor (ein Wert, der dort vergessen wurde), sodass er anders maskiert gesendet würde, wird er nicht gesendet: Das
+Dashboard sagt das, und bei Agenten, die über die Adressen des Servers gehen, erklärt die Seite der Anfrage den Grund.
+Sendet der Agent ihn erneut, wartet er wieder auf das Sicherheitsteam. Dasselbe gilt, wenn Latet seine Anfrage nach der
+Freigabe und vor dem Senden aus einem anderen Grund ablehnt: Er wird nicht gesendet und wartet, erneut gesendet, wieder
+auf das Sicherheitsteam.
+
+## Was das Sicherheitsteam sieht
+
+<Screenshot name="company-approvals" alt="Die Seite Unternehmensfreigaben: eine Änderung der Einstellungen von Emily Carter mit dem, was sie verringert, und den Schaltflächen Freigeben und Ablehnen; ein Text, den der Agent von Paul Ferris gleich senden will, geöffnet, mit seinem Original und dem, was gesendet wird; und die zuletzt getroffenen Entscheidungen" caption="Unternehmensfreigaben: was auf das Sicherheitsteam wartet und was es entschieden hat." />
+
+Die Seite **Unternehmensfreigaben** wird den Personen gezeigt, die über etwas entscheiden: dem Sicherheitsteam, den
+Personen, die einen API-Schlüssel steuern, und den Administratoren (für die Schlüssel, die sonst niemand steuert).
+Sonst sieht sie niemand, und aus dem Bereich eines API-Schlüssels ist sie nicht erreichbar.
+
+- **Änderungen an Einstellungen:** wer sie angefordert hat (bei einem API-Schlüssel, wer die Änderung in seinem Bereich
+  vorgenommen hat), dessen Gruppe, wer entscheidet, wann, woher die Änderung kommt, was sie verringert und welche
+  Einstellungen sie ändert. **Freigeben** wendet sie auf die Einstellungen dieser Person oder dieses Schlüssels an;
+  **Ablehnen** lässt sie, wie sie sind.
+- **Texte im Live-Prüfer:** aufgeführt nach der Person, die sie gesendet hat, ihrem Agenten und ihrer Anzahl; ein Text
+  wird gezeigt, wenn Sie ihn öffnen, das Original neben dem, was gesendet wird, und nur in einer Dashboard-Sitzung, die
+  mit Ihrem Unternehmenskonto geöffnet wurde: Eine mit `latet dashboard` geöffnete Sitzung führt die Texte auf und
+  öffnet keinen. Maskieren Sie mehr, bevor Sie freigeben, oder wählen Sie **Nicht senden**. Ein Wert, den Sie maskieren,
+  ist ab dann im Tresor dieser Person maskiert; die Person kann ihn dort vergessen, wie jeden ihrer Werte. Wird der Text
+  erneut maskiert, während Sie ihn ansehen (ihre Einstellungen oder ihr Tresor haben sich geändert), zeigt **Freigeben**
+  ihn so, wie er jetzt ist, und entscheidet nichts: Prüfen Sie ihn und entscheiden Sie dann.
+- **Zuletzt entschieden:** was entschieden wurde, von wem und wann, mit dem, was jede Änderung verringerte. Nie ein
+  Text. *Niemand*, wo niemand entschieden hat (zurückgezogen, Zeit abgelaufen, aufgegeben, entfallen, ersetzt); *Nicht
+  erfasst*, wo entschieden wurde, die Aufzeichnung aber nicht erfahren hat, von wem.
+
+Auch Ihre eigenen Anfragen erscheinen dort, markiert mit *Von Ihnen angefordert*: Jemand anderes entscheidet darüber,
+und **Zurückziehen** hält eine an. Das Menü zeigt, wie viele auf Ihre Entscheidung warten, und mit *Benachrichtigen*
+meldet sich der Browser, wenn eine eintrifft, während Sie in einem anderen Tab sind. Die Seite führt die 200 ältesten
+auf; darüber hinaus sagt eine Zeile, wie viele weitere warten, und sie erscheinen, sobald diese entschieden sind. Nichts
+hat ein Zeitlimit: Eine Änderung wartet, bis jemand entscheidet. Ein Text behält das Zeitlimit des Live-Prüfers der
+Person (`timeout_s`), falls sie eines hat, und verlässt die Warteschlange, wenn ihr Agent aufgibt.
+
+Solange die Anmeldeeinstellungen für das, was für alle gilt, die Anmeldung mit dem Unternehmenskonto verlangen
+(`company_changes: sso`), erfordert eine Entscheidung eine Dashboard-Sitzung, die damit geöffnet wurde: Eine mit
+`latet dashboard` geöffnete Sitzung liest die Seite und entscheidet nichts. Ein Text erfordert sie immer.
+
+Welche Instanz des Servers Sie auch bedient, Ihre Entscheidung erreicht die Anfrage, die auf einer anderen wartet: Was
+wartet, liegt in der Datenbank des Servers und in Valkey, nicht in einer einzelnen Instanz. Wird Valkey neu gestartet,
+gehen die Texte verloren, die dort warten, und verlassen die Warteschlange als aufgegeben; die Änderungen bleiben
+erhalten. Eine Anfrage eines Kontos, das inzwischen deaktiviert oder entfernt wurde, verlässt die Warteschlange als
+*entfallen*, da dort niemand mehr eine Entscheidung ausführen kann: Wird das Konto wieder aktiviert, zieht die Person eine
+Änderung, die noch wartet, zurück und fordert sie erneut an.
+
+## Wenn sich die Lizenz ändert
+
+Wenn die Lizenz abläuft oder pausiert, behält das, was wartet, seinen Weg, und das Sicherheitsteam entscheidet weiter.
+Wenn eine Testphase endet, führt die Seite auf, was wartet, und niemand entscheidet: Ein Text wird nicht geöffnet, da
+keine Entscheidung folgen kann, und das Menü zählt nichts. Wer etwas angefordert hat, kann es weiterhin auf der eigenen
+Seite **Freigaben** zurückziehen; eine Änderung, die im Bereich eines API-Schlüssels vorgenommen wurde, wartet, bis eine
+Lizenz installiert ist, da sich der Bereich des Schlüssels schließt, wenn eine Testphase endet. Was sich nach dem Ende
+öffnet, geht weiterhin an das Sicherheitsteam, wo niemand entscheidet, bis die Administratoren des Servers eine
+Lizenzdatei installieren oder die Lizenz der Testphase entfernen. Ebenso entscheidet niemand, solange sich die
+Lizenzdatei nicht verwenden lässt (geändert oder unlesbar), bis sie in Ordnung gebracht ist. Wird die Lizenz entfernt
+oder enthält sie keine Freigaben mehr, bleibt das, was wartet, wie es ist: Wer es angefordert hat, zieht es auf der
+eigenen Seite **Freigaben** zurück und fordert es erneut an, und dann wartet es auf die eigene Freigabe (der Bereich
+eines API-Schlüssels öffnet sich nur mit einer Lizenz, die `roles` enthält). Ein Text hat kein Zeitlimit, wenn die
+Person keines festgelegt hat, also wartet ihr Agent, bis sie ihn anhält. Eine Lizenz zu installieren oder zu entfernen
+ist Sache eines Administrators und steht im Administrationsprotokoll. Solange Änderungen oder die Texte des Live-Prüfers
+an das Sicherheitsteam gehen, entscheidet nach dem Entfernen der Lizenz oder dem Installieren einer Lizenz ohne
+Freigaben wieder, wer die Freigabe anfordert. Ebenso wirkt das Installieren einer Lizenz, die `roles` enthält, aber
+keine Freigaben, solange der Server einen API-Schlüssel hat: Dessen Änderungen gehen dann an die Person, die sie im
+Bereich des Schlüssels vornimmt, statt an die anderen Personen, die ihn steuern. Die Seite **Lizenz**,
+`latet server license install` und `latet server license remove` fragen vorher nach, und der Eintrag im
+Administrationsprotokoll hält fest, dass die zentralen Freigaben nicht mehr gelten.
+
+Anders ist es bei einer Anfrageausnahme, solange die Lizenz noch gesperrte Regeln enthält und die Vorgaben
+`exceptions: company` sagen: Enthält die Lizenz keine Freigaben mehr, wartet eine erneut angeforderte auf eine
+Genehmigung, die sie nur ablehnen kann, da dort allein das Sicherheitsteam eine genehmigt ([Gesperrte
+Regeln](../locked-rules/#ausnahmen)). Wird die Lizenz entfernt oder enthält sie keine gesperrten Regeln, gelten die
+Vorgaben nicht mehr, und die Anfrageausnahmen gehören wieder jeder Person selbst.
+
+## Was festgehalten wird
+
+Der Server bewahrt jede Entscheidung in seiner Datenbank auf, solange er das Administrationsprotokoll aufbewahrt
+(`LATET_SERVER_AUDIT_RETENTION_DAYS`, standardmäßig ein Jahr): wer angefordert hat, wer entschieden hat, wann, und was
+eine Änderung verringerte, versiegelt mit seinem Schlüssel. Nie einen Text oder einen Wert. Von dem, was beendet ist,
+bewahrt er für jede Person und jeden API-Schlüssel die letzten 1.000 Einträge auf; das Administrationsprotokoll bewahrt
+trotzdem jede auf Unternehmensfreigaben getroffene Entscheidung auf. Wie jeder Eintrag endete:
+
+| Zustand | Auf der Seite | Was geschah |
+| --- | --- | --- |
+| `approved` | Freigegeben | Freigegeben: Die Änderung gilt, oder der Text wurde gesendet |
+| `rejected` | Abgelehnt | Abgelehnt: Die Einstellungen bleiben, wie sie sind, oder der Text wurde nicht gesendet. Im Bereich eines API-Schlüssels auch eine Änderung oder ein Text, die dort jemand gestoppt hat, der sie nicht angefordert hat; diese Person steht unter *Entschieden von* |
+| `withdrawn` | Von der anfragenden Person zurückgezogen | Wer sie angefordert hat, hat sie zurückgezogen |
+| `stale` | Verworfen: Die Einstellungen haben sich geändert | Freigegeben, nachdem sich die Einstellungen der Person geändert hatten: Nichts gilt, und sie fordert sie erneut an |
+| `superseded` | Durch eine neuere ersetzt | Eine neuere Änderung hat sie in diesem Bereich ersetzt |
+| `expired` | Nicht gesendet: Die Zeit ist abgelaufen | Ein Text, der länger als das `timeout_s` der Person gewartet hat |
+| `abandoned` | Vom Agenten aufgegeben oder verloren | Ein Text, den sein Agent aufgegeben hat oder den Valkey bei einem Neustart verloren hat |
+| `gone` | Entfallen: Das Konto wurde deaktiviert oder entfernt | Das Konto, das sie angefordert hat, wurde deaktiviert oder entfernt, oder die Änderung war nicht mehr dort, wo sie wartete: Niemand kann eine Entscheidung ausführen |
+| `approved-unapplied` | Freigegeben, nicht angewendet | Freigegeben, aber die Einstellungen der Person haben sich inzwischen auf einer anderen Instanz geändert oder ließen sich nicht speichern und haben sie nicht übernommen: Sie fordert sie erneut an |
+| `approved-changed` | Freigegeben, nicht gesendet | Ein Text, freigegeben und dann nicht gesendet: Er wäre anders maskiert gesendet worden, als die entscheidende Person ihn gesehen hat, oder seine Anfrage wurde vor dem Senden abgelehnt |
+
+Jede Entscheidung, die auf Unternehmensfreigaben getroffen wird, steht außerdem im Administrationsprotokoll, erfasst,
+bevor sie ausgeführt wird: `approval.decided` für die des Sicherheitsteams, `key.approval.decided` für die der Personen,
+die einen API-Schlüssel steuern, `key.approval.admin-decided` für die eines Administrators über einen Schlüssel, den sonst
+niemand steuert. Wer dort eine eigene Anfrage zurückzieht, hinterlässt einen Eintrag mit `withdrawn`. Der Eintrag ist die
+getroffene Entscheidung; die Aufzeichnung sagt, wie sie endete. Ein Eintrag kann also für eine Entscheidung stehen, die
+nicht ausgeführt wurde: Der Bereich der Person war von dieser Instanz aus nicht erreichbar, oder der Text wurde zwischen
+der letzten Prüfung des Servers und der Entscheidung erneut maskiert. Die entscheidende Person erfährt es und entscheidet
+erneut, was einen zweiten Eintrag schreibt. Eine Entscheidung, deren Eintrag nicht geschrieben werden kann, wird nicht
+ausgeführt (503), und die Seite sagt das. Eine Änderung oder ein Text, deren Aufzeichnung beim Öffnen nicht geschrieben
+werden kann, wartet nicht: Die Speicherung wird abgelehnt (503) und nichts gilt, oder der Text wird nicht gesendet.
+
+Auch das Öffnen des Textes einer anderen Person steht im Administrationsprotokoll, erfasst, bevor etwas davon angezeigt
+wird: `approval.opened`, einmal für jede entscheidende Person und jeden Text, gleich ob sie den Text selbst oder eines
+seiner Bilder öffnet, und gleich wie oft. Der Eintrag nennt, wer ihn geöffnet hat und wessen Text es ist, nie den Text
+oder ein Bild. Ein Text, dessen Öffnen dort nicht erfasst werden kann, wird nicht angezeigt (503). Wer den eigenen Text
+öffnet, hinterlässt keinen Eintrag.
+
+Eine Freigabe, die die Einstellungen der Person nicht übernehmen konnten, weil sie sich inzwischen auf einer anderen
+Instanz geändert hatten oder sich nicht speichern ließen, wird der entscheidenden Person und der Person selbst gemeldet,
+und die Aufzeichnung bewahrt sie als *freigegeben, nicht angewendet* auf; die Person fordert sie erneut an. Ihr
+`change`-Ereignis sagt `approved`, die getroffene Entscheidung, wie auch das `approval`-Ereignis eines freigegebenen und
+dann nicht gesendeten Textes. Vor einer Entscheidung werden die Einstellungen der Person erneut gelesen: Eine neuere
+Änderung der gemeinsamen Einstellungen, die dabei gefunden wird, ersetzt die entschiedene, und die Entscheidung
+antwortet, dass sie nicht mehr wartet.
+
+Mit [Berichten](../reports/) ist jedes Ende ein Ereignis (`approval` für einen Text, `change` für eine Änderung), auch
+die eigenen der Person, mit der entscheidenden Person, wenn es jemand anderes war. Die [Metriken](../siem/) zählen, was
+wartet (`latet_approvals_company_waiting`), und was entschieden wurde (`latet_approvals_company_decided_total`, wo
+`approved-unapplied` und `approved-changed` unter den freigegebenen erneut gezählt werden).
+
+Die Administratoren haben das letzte Wort: Sie vergeben die Rolle Sicherheit und die Steuerung eines Schlüssels, und sie
+installieren oder entfernen die Lizenz. Jede dieser Handlungen steht im Administrationsprotokoll, und dort sehen Sie
+nach, wer entscheiden konnte.
+
+## Befehle
+
+| Befehl | Was er tut |
+| --- | --- |
+| `latet server approvals show` | Wer über Änderungen und über Texte entscheidet |
+| `latet server approvals set --changes … --live-review …` | Ändert, wer entscheidet (jeweils `self` oder `security`); im Administrationsprotokoll festgehalten |
+| `latet server log --action approvals.changed` | Wer geändert hat, wer entscheidet, und wann |
+| `latet server log --action approval.opened` | Wer die Texte welcher Person geöffnet hat, und wann |
+| `latet server log --action approval.decided` | Die Entscheidungen des Sicherheitsteams, von wem und wann |
+| `latet server log --action key.approval.decided` | Die Entscheidungen der Personen, die API-Schlüssel steuern |
+| `latet server log --action key.approval.admin-decided` | Die Entscheidungen der Administratoren über Schlüssel, die sonst niemand steuert |

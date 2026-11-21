@@ -12,7 +12,7 @@ import os
 import secrets
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, MutableMapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -179,6 +179,8 @@ class LocalApprovals:
         self.changes: MutableMapping[str, Change] = {}  # at most one: a newer change replaces the one waiting
         self.settled: MutableMapping[str, str] = Latest(100)  # how the latest changes ended, for a command that waits
         self._answers: dict[str, tuple[asyncio.Future[dict[str, Any]], Batch]] = {}  # the plugin's, by batch
+        # The images of the batches waiting, painted again with their previews (``replace``): by batch, then by item.
+        self._painted: dict[str, dict[int, tuple[str, str]]] = {}
         self._viewers = 0
 
     def open(self, change: Change) -> tuple[Change, list[str]]:
@@ -217,11 +219,15 @@ class LocalApprovals:
         if announce is not None:
             announce()
 
-    async def replace(self, batch_id: str, items: list[dict[str, Any]]) -> Batch | None:
+    async def replace(
+        self, batch_id: str, items: list[dict[str, Any]], pictures: Mapping[int, tuple[str, str]] | None = None
+    ) -> Batch | None:
         batch = self.batches.get(batch_id)
         if batch is None or batch.future.done():
             return None
         batch.items = items
+        if pictures:
+            self._painted.setdefault(batch_id, {}).update(pictures)
         return batch
 
     def get(self, batch_id: str) -> Batch | None:
@@ -241,6 +247,7 @@ class LocalApprovals:
 
     def settle(self, batch_id: str, decision: Decision) -> bool:
         batch = self.batches.pop(batch_id, None)
+        self._painted.pop(batch_id, None)
         if batch is None:
             return False
         if not batch.future.done():
@@ -273,17 +280,23 @@ class LocalApprovals:
         work = batch.images.get(item) if batch is not None else None
         if work is None:
             return None
-        return (work.ref.data(), work.ref.media_type) if sent else work.original
+        if not sent:
+            return work.original
+        # As it would leave now: painted again with the previews where they were made again, else as the request holds
+        # it (the request's image is masked again only by your decision).
+        return self._painted.get(batch_id, {}).get(item) or (work.ref.data(), work.ref.media_type)
 
     async def fetch_image(self, batch_id: str, item: int, sent: bool) -> tuple[str, str] | None:
         return self.image(batch_id, item, sent)  # this process's memory: nothing to read elsewhere
 
-    def give(self, batch_id: str, answer: dict[str, Any]) -> None:
+    def give(self, batch_id: str, answer: dict[str, Any]) -> bool:
         if batch_id in self.batches:  # the answer is what leaves, and only your decision lets it: keep nothing before
             raise ValueError("a batch that waits for you has no answer to give yet")
         slot = self._answers.get(batch_id)
-        if slot is not None and not slot[0].done():
-            slot[0].set_result(answer)
+        if slot is None or slot[0].done():
+            return False  # no call waits for it here
+        slot[0].set_result(answer)
+        return True
 
     async def answer(self, batch_id: str, hold: float) -> dict[str, Any] | None:
         self._forget_answered()
@@ -355,7 +368,7 @@ class LocalSignIns:
         found = self._codes.pop(_hash(code), None) if code else None
         return found[0] if found is not None and found[1] >= self._clock() else None
 
-    def open(self, subject: str) -> str:
+    def open(self, subject: str, *, via: str = "code") -> str:  # a computer's sessions are all its own
         now = self._clock()
         # Those past their end that nobody presented again (`subject_of` drops the ones presented) go here.
         self._sessions = {k: v for k, v in self._sessions.items() if v[1] >= now}

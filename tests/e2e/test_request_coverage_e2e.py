@@ -161,7 +161,7 @@ async def test_actual_http_send_rechecks_freshness_and_built_bytes(change, monke
             )
             assert isinstance(built, BuiltRequest)
             if change == "policy":
-                monkeypatch.setattr(request_policy, "BUILT_IN_POLICY", request_policy.PolicySnapshot(()))
+                monkeypatch.setattr(request_policy, "CHECK_POLICY", request_policy.PolicySnapshot(()))
             elif change == "payload":
                 built.request.stream = httpx.ByteStream(b"changed")
             elif change == "header":
@@ -247,7 +247,7 @@ def test_aws_retry_reuses_payload_but_revalidates_policy_and_signature(change, t
 
     def read(number):
         if number == 2 and change == "policy-revocation":
-            monkeypatch.setattr(request_policy, "BUILT_IN_POLICY", request_policy.PolicySnapshot(()))
+            monkeypatch.setattr(request_policy, "CHECK_POLICY", request_policy.PolicySnapshot(()))
         elif number == 2 and change == "local-rules":
             mediator.engine.rules_changed()
 

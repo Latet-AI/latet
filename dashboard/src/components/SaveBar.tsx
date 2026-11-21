@@ -5,6 +5,8 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../api/client'
+import { FloorRefused } from '../ee/components/Locked'
+import { floorRefusal } from '../ee/lib/policy'
 import { RefusedDetails } from './rules'
 import { errorText } from './ui'
 
@@ -50,10 +52,14 @@ export function SaveRow({
       : refused instanceof ApiError && refused.status === 400 && refused.details.length > 0
         ? t('rules.invalid')
         : errorText(t, refused)
+  // A save the company's policy refused (Latet Enterprise, locked rules) names the settings, before any other 409's words.
+  const floor = floorRefusal(error)
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0 text-ui" role="status">
-        {error ? (
+        {floor ? (
+          <FloorRefused reasons={floor} />
+        ) : error ? (
           <div className="text-crit-ink">
             <p className="font-medium">{refusal(error)}</p>
             {error instanceof ApiError && error.details.length > 0 && <RefusedDetails details={error.details} />}

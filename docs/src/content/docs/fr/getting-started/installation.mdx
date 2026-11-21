@@ -38,27 +38,44 @@ Le script fait deux choses, dans cet ordre :
    lecture du texte des images sont incluses ; leurs modèles ne sont téléchargés que lorsque vous le
    demandez. Là où elles ne peuvent pas être installées, Latet est installé sans elles, et le script
    le signale à la fin ; un Latet déjà installé avec elles reste en revanche tel quel. Les autres
-   extras d'un Latet déjà installé (`server`, sur un serveur) restent. Si une
-   version plus ancienne de Latet tourne, le script l'arrête, et ne la relance pas. Pour mettre à
-   niveau, `latet upgrade` est la meilleure voie. Après que le script a mis à niveau un Latet,
+   composants optionnels d'un Latet déjà installé (`server`, sur un serveur) restent. Si une
+   version plus ancienne de Latet tourne, le script l'arrête, et ne la relance pas, sauf si, sous
+   Windows, il fait passer Latet sur un port libre à la fin (voir plus bas). Pour mettre à jour,
+   `latet upgrade` est la meilleure voie. Après que le script a mis à jour un Latet,
    lancez `latet start`, et `latet agents apply claude` si Claude Code passe par Latet pour de bon,
    afin qu'il reçoive le nouveau plugin.
 
+Sous Windows, le script se termine par une question, posée seulement là où Windows peut prendre le
+port de Latet. Hyper-V, WSL et Docker réservent des blocs de ports à chaque démarrage de Windows, et
+sur certaines machines le port 5283 peut en faire partie : Latet ne peut alors pas démarrer
+jusqu'au prochain redémarrage. Le script demande s'il faut réserver le port pour Latet, ou, là où
+Windows l'occupe déjà, s'il faut faire passer Latet sur un port libre et réserver celui-ci. Si vous
+répondez oui, Windows demande une fois la confirmation d'un administrateur ; là où Latet change de
+port, ce oui enregistre aussi le nouveau port dans `config.yaml`, fait pointer vers lui les agents
+que `latet global-install` a configurés, et y démarre Latet. Si vous répondez non, le script
+affiche la commande qui le fera plus tard : `latet reserve-port`. C'est la seule étape qui
+demande la confirmation d'un administrateur, et seulement si vous répondez oui : le reste de
+l'installation ne demande aucun droit d'administrateur. Voir
+[Le port 5283 est déjà utilisé](../../troubleshooting/#le-port-5283-est-déjà-utilisé).
+
 Sous macOS et Linux, ouvrez ensuite un nouveau terminal : le script ajoute Latet à votre `PATH` pour
 les terminaux que vous ouvrirez après, pas pour celui où il s'est exécuté.
-S'il ne trouve toujours pas `latet`, lancez `uv tool update-shell` et ouvrez-en un autre.
+Si ce nouveau terminal ne trouve pas `latet` non plus, lancez `uv tool update-shell` et ouvrez-en un
+autre.
 
-Le script ne change rien d'autre : aucun réglage de vos agents, rien qui démarre à l'ouverture de
-session. Vous découvrez Latet ? [`latet tutorial`](../tutorial/) vous le montre à l'œuvre en 30 minutes
-environ. Faites ensuite passer une session par Latet avec `latet claude` ou `latet codex`, comme le
-montre le [Démarrage rapide](../quickstart/#lessayer-sans-rien-changer), puis faites passer
-vos agents par Latet pour de bon avec `latet global-install` quand il convient à votre travail.
+En dehors du port, si vous répondez oui sous Windows, le script ne change rien d'autre : rien qui
+démarre à l'ouverture de session, et aucun réglage de vos agents, sauf que, là où Latet change de
+port, les agents que `latet global-install` a configurés le suivent. Vous découvrez Latet ?
+[`latet tutorial`](../tutorial/) vous le montre à l'œuvre en 30 minutes environ. Faites ensuite
+passer une session par Latet avec `latet claude` ou `latet codex`, comme le montre le
+[Démarrage rapide](../quickstart/#lessayer-sans-rien-changer), puis faites passer vos agents par
+Latet pour de bon avec `latet global-install` une fois que Latet convient à votre travail.
 
 Deux variables d'environnement modifient ce que fait le script :
 
 | Variable | Effet |
 | --- | --- |
-| `LATET_NO_MODIFY_PATH=1` | Laisser votre `PATH` et le profil de votre shell tels quels. Si le script installe uv, définissez aussi `UV_NO_MODIFY_PATH=1`, pour le propre programme d'installation d'uv. |
+| `LATET_NO_MODIFY_PATH=1` | Laisser votre `PATH` et le profil de votre shell tels quels. Si le script installe uv, définissez aussi `UV_NO_MODIFY_PATH=1`, pour le propre script d'installation d'uv. |
 | `LATET_SOURCE` | Ce qu'il faut installer à la place de la dernière version : un fichier wheel, ou une spécification de paquet comme `latet @ <url>`. |
 
 ## Recommandé : les noms et les images dès le premier jour
@@ -98,18 +115,17 @@ peut pas remplacer des fichiers en cours d'utilisation), installe le nouveau plu
 vous utilisez Claude Code, puis redémarre le daemon. Un Latet installé sans la détection des noms ni
 la lecture du texte des images les obtient ainsi. Là où la nouvelle version ne peut pas les avoir,
 un Latet qui les a reste tel quel, et un Latet qui ne les a pas est mis à jour sans elles. Les autres
-extras avec lesquels il a été installé restent (`server`, sur un serveur) ; un serveur installé comme
-service système se met à jour comme l'explique
+composants optionnels avec lesquels il a été installé restent (`server`, sur un serveur) ; un
+serveur installé comme service système se met à jour comme l'explique
 [Exploitation du serveur](../../concepts/server-operations/#mettre-à-jour-un-latet-installé-comme-service-système).
-Sous
-Windows, qui ne remplace aucun fichier d'un programme en cours d'exécution, la mise à jour se poursuit
+Sous Windows, qui ne remplace aucun fichier d'un programme en cours d'exécution, la mise à jour se poursuit
 dans une fenêtre à part une fois la commande terminée, et cette fenêtre dit comment elle s'est passée.
 Un Latet 0.9.0 ou 0.9.1 sous Windows se met à jour en relançant le script d'installation : son propre
 `latet upgrade` pourrait le laisser incapable de démarrer.
 
 **De la 0.10 à la 0.11**, lisez d'abord [Passer à la 0.11](../upgrading-to-0-11/) : Latet 0.11 lit
-chaque partie d'une requête, et refuse des appels que la 0.10 envoyait sans les lire. `latet doctor`
-liste ce qui s'arrêtera avant que vous mettiez à jour.
+chaque partie d'une requête, et refuse des appels que la 0.10 envoyait sans les lire. Avant la mise à
+jour, `latet doctor` liste ce qui s'arrêtera.
 
 Avant d'arrêter le daemon, `latet upgrade` copie ce que la nouvelle version peut modifier en l'ouvrant :
 le coffre-fort, l'historique et vos réglages (`config.yaml`, et les réglages que vous avez approuvés en
@@ -118,12 +134,12 @@ ligne. Les valeurs de la copie restent chiffrées avec la clé de cette machine,
 trois copies les plus récentes sont gardées : les plus anciennes sont supprimées une fois la suivante
 complète, jamais avant. Une mise à jour vers la version déjà installée ne fait aucune copie. Une mise
 à jour sans place sur le disque pour sa copie, à côté des copies présentes, et pour l'installation
-s'arrête sans rien changer, et dit combien de place il lui faut ; de même pour une copie impossible à
-faire. Les copies suivent ce que vous retirez tant que Latet 0.9.10 ou une version plus récente
+s'arrête sans rien changer, et dit combien de place il lui faut ; de même pour une mise à jour dont
+la copie ne peut pas être faite. Les copies suivent ce que vous retirez tant que Latet 0.9.10 ou une version plus récente
 tourne : *Oublier* en retire aussi une valeur, effacer l'historique efface aussi le leur, et leur
 historique n'est pas gardé plus longtemps que le vôtre ; après `latet upgrade --to` vers une version
 plus ancienne, un *Oublier* fait là ne les atteint pas. Chaque copie garde la forme que sa version
-lui a donnée (elle n'est jamais portée à une plus récente) : elle peut toujours être remise.
+lui a donnée (elle n'est jamais portée à une plus récente) : elle peut donc toujours être restaurée.
 
 Pour installer une version précise plutôt que la dernière, pour revenir à celle que vous aviez par
 exemple :
@@ -132,12 +148,12 @@ exemple :
 latet upgrade --to 0.9.9
 ```
 
-En revenant à la version sous laquelle une copie a été faite, elle propose de remettre cette copie.
-Elle dit combien de valeurs le coffre-fort a apprises depuis la copie, qui seraient perdues, et vous
-le demande dans votre terminal. Par défaut, vos données restent telles quelles : la version plus
-ancienne les lit encore là où la plus récente n'a fait qu'ajouter. Si vous la remettez, vos fichiers
-tels qu'ils sont maintenant sont d'abord copiés, dans une copie à part ; si la remise échoue
-à mi-chemin, vos fichiers reviennent à leur place, et elle le dit. Une version plus ancienne n'a pas les
+En revenant à la version sous laquelle une copie a été faite, la commande propose de restaurer cette
+copie. Elle dit combien de valeurs le coffre-fort a apprises depuis la copie, qui seraient perdues,
+et vous le demande dans votre terminal. Par défaut, vos données restent telles quelles : la version
+plus ancienne les lit encore là où la plus récente n'a fait qu'ajouter. Si vous la restaurez, vos
+fichiers tels qu'ils sont maintenant sont d'abord copiés, dans une copie à part ; si la restauration
+échoue à mi-chemin, vos fichiers reviennent à leur place, et la commande le signale. Une version plus ancienne n'a pas les
 corrections des suivantes : un agent ne peut pas lancer `latet upgrade --to` vers l'une d'elles, vous
 le lancez vous-même.
 

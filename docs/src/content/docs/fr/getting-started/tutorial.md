@@ -58,7 +58,7 @@ dans son état de départ.
 ## Un bac à sable
 
 Les chapitres masquent des valeurs, arrêtent des requêtes et changent des réglages : ils tournent
-donc sur un Latet à eux, dans un bac à sable :
+donc sur leur propre Latet, dans un bac à sable :
 
 - **Ses propres données, réglages et historique**, dans un dossier temporaire, et son propre serveur
   sur `127.0.0.1`, sur un port libre. Votre propre daemon n'est pas touché, et n'a pas besoin de
@@ -74,7 +74,7 @@ donc sur un Latet à eux, dans un bac à sable :
   [dossier de données](../uninstall/#3-supprimer-les-données-locales-facultatif), avec les ID des chapitres que
   vous avez terminés.
 
-Le bac à sable n'a ni détection des noms ni rien de votre identité : les chapitres montrent ce que
+Le bac à sable n'a ni détection des noms ni aucun élément de votre identité : les chapitres montrent ce que
 trouvent les détecteurs, et ce que vous masquez à la main. Dans le chapitre sur le relecteur local,
 le relecteur est le Tutorial Reviewer : fictif, il trouve ce que dit le chapitre, et aucune requête
 n'atteint de serveur. Dans le chapitre sur les captures d'écran, le bac à sable lit le texte des

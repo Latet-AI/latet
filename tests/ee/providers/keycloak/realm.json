@@ -1,0 +1,71 @@
+{
+  "realm": "acme",
+  "displayName": "Acme",
+  "enabled": true,
+  "groups": [
+    {"name": "latet-users"},
+    {"name": "security-team"},
+    {"name": "auditors"}
+  ],
+  "clients": [
+    {
+      "clientId": "latet",
+      "name": "Latet",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://latet.acme.lan/_latet/sso/callback"],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "emily.carter",
+      "enabled": true,
+      "email": "emily.carter@acme.com",
+      "emailVerified": true,
+      "firstName": "Emily",
+      "lastName": "Carter",
+      "groups": ["/latet-users", "/security-team"]
+    },
+    {
+      "username": "daniel.okafor",
+      "enabled": true,
+      "email": "daniel.okafor@acme.com",
+      "emailVerified": true,
+      "firstName": "Daniel",
+      "lastName": "Okafor",
+      "groups": ["/latet-users", "/auditors"]
+    },
+    {
+      "username": "sam.rivera",
+      "enabled": true,
+      "email": "sam.rivera@acme.com",
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "Rivera",
+      "groups": []
+    }
+  ]
+}

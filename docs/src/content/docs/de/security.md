@@ -5,7 +5,7 @@ description: Wogegen Latet schützt, wogegen nicht und wie es sich selbst schüt
 
 :::note[Eine Schutzschicht unter mehreren]
 Latet maskiert, was seine Detektoren erkennen, und manche Agenten und Oberflächen sind konzeptionell
-abgedeckt statt live getestet (die Seite jedes Agenten sagt, welche). Machen Sie es nicht zu Ihrem
+abgedeckt statt live getestet (welche, steht auf der Seite des jeweiligen Agenten). Machen Sie es nicht zu Ihrem
 einzigen Schutz für Daten, die Ihren Rechner nie verlassen dürfen.
 :::
 
@@ -24,14 +24,14 @@ Bei einer verbundenen Bereitstellung gilt auch die [Vertrauensgrenze des Servers
 Originale können den Server und authentifizierte Dashboard-Ansichten erreichen.
 Administratoren verwalten die Serverkonfiguration und die Einstellungen, die der Server teilt,
 etwa seine Ziele und seinen Prüfer; Zertifikatsbindungen, Zugangsdaten und Agentenbindungen
-bleiben auf den Rechnern. Erzwingen Sie den beschränkten
-Providerzugriff getrennt, wenn der Server die Kontrollstelle des Unternehmens sein muss.
-Ein Server nimmt die Marker einer Anfrage nicht als Beleg dafür, dass das Plugin von Claude Code
+bleiben auf den Rechnern. Beschränkungen des ausgehenden
+Verkehrs zu den Anbietern setzen Sie separat durch, wenn der Server die Kontrollstelle des Unternehmens sein muss.
+Ein Server wertet die Marker einer Anfrage nicht als Beleg dafür, dass das Plugin von Claude Code
 lief: Er prüft auch die Beschreibungen, Schemas und Beispiele der Tools.
 
 - **Ihr Rechner** gilt als vertrauenswürdig: der Agent, seine Tools, das Plugin und der Daemon von
   Latet und Ihre Dateien.
-- **Dem Anbieter des Modells** werden diese Werte nicht anvertraut. Latet nimmt nichts darüber an,
+- **Dem Modellanbieter** werden diese Werte nicht anvertraut. Latet nimmt nichts darüber an,
   wie Anfragen protokolliert, aufbewahrt oder verwendet werden, sobald sie ankommen, und hält die
   Originale daher von ihm fern.
 - **Das Netzwerk** dazwischen ist wie üblich durch TLS geschützt.
@@ -48,12 +48,12 @@ Ohne einen dieser Bezeichner leitet Latet einen Schlüssel aus dem Anfang des An
 wobei nur die ersten 8.192 Zeichen seiner kompakten Serialisierung verwendet werden. Getrennte Chats
 mit identischem Anfang oder Unterschieden erst nach diesem Präfix können deshalb dieselbe
 Unterhaltung teilen. Das ist die Wiederverwendung derselben Eingabe, keine kryptografische
-Hash-Kollision. Sie hält Folgeanfragen zustandsloser Clients zusammen, kann aber nicht feststellen,
+Hash-Kollision. Der Schlüssel hält zustandslose Folgeanfragen zusammen, kann aber nicht feststellen,
 welchen logischen Chat der Client gemeint hat.
 
-In dieser gemeinsamen Unterhaltung kann die Antwort Werte wiederherstellen, die von beiden Chats
-erfasst wurden. Antwortet der Anbieter etwa in Chat B mit einem zuvor in Chat A ausgegebenen
-Ersatzwert, kann Latet das Original aus A lokal wiederherstellen. Unterschiedliche explizite IDs
+In dieser gemeinsamen Unterhaltung kann die Antwort Werte wieder einsetzen, die in einem der beiden
+Chats erfasst wurden. Antwortet der Anbieter etwa in Chat B mit einem zuvor in Chat A ausgegebenen
+Ersatzwert, kann Latet das Original aus A lokal wieder einsetzen. Unterschiedliche explizite IDs
 vermeiden diese unbeabsichtigte Gruppierung, wenn der Client sie konsequent verwendet. Sie sind
 keine Berechtigungsgrenze. Im Text gewöhnlicher HTTP-Anfragen wird ein vom Client eingefügter
 Ersatzwert als neuer wörtlicher Wert maskiert; er bezeichnet nicht das Original, das er zuvor
@@ -62,8 +62,8 @@ Originale eines anderen Serverbereichs.
 
 Jede Serveridentität besitzt ihren eigenen Tresor und ihre eigenen Unterhaltungsdatensätze.
 Gleiche Header, Antwort-IDs, Cache-Schlüssel oder Anfänge überschreiten diese Grenze nicht. Dieselben
-Ersatzwert-Bytes können in getrennten Tresoren vorkommen; wiederhergestellt wird nach der Zuordnung des
-empfangenden Tresors. Auf einem Rechner teilen Projekte einer Latet-Instanz deren Tresor: Wo unterstützt,
+Ersatzwert-Bytes können in getrennten Tresoren vorkommen; beim Wiedereinsetzen gilt die Zuordnung des
+empfangenden Tresors. Auf einem Rechner teilen Projekte einer Latet-Instanz deren Tresor: Wo das unterstützt wird,
 wählt `x-latet-project` Projekteinstellungen,
 keinen getrennten Speicher und keine neue Unterhaltung. Getrennt konfigurierte Datenordner und
 Tresore bieten getrennte Speicher; verschiedene Repositorys allein reichen nicht. Siehe
@@ -77,16 +77,16 @@ und ein behauptetes Projekt, in dem Latet aus ist, wird abgelehnt. Ein Projekt i
 
 - **Die Bindung des Plugins von Claude Code.** Das Plugin bindet eine Sitzung an das Projekt eines
   Ordners, den Latet kennt; jeder seiner Aufrufe hält die Bindung, die nach 30 Minuten ohne Aufruf
-  endet. Das hat eine akzeptierte Grenze: Eine Anthropic-Messages-Anfrage mit der ID einer laufenden
-  Sitzung von Ihnen, die das Plugin gebunden hat, wird mit diesem Projekt entschieden, samt
+  endet. Dabei gibt es eine bewusst in Kauf genommene Grenze: Eine Anthropic-Messages-Anfrage mit der ID einer laufenden
+  Sitzung von Ihnen, die das Plugin gebunden hat, wird nach diesem Projekt entschieden, samt
   Lockerungen und Ausnahmen, welcher Ihrer Clients sie auch sendet. Sie wird trotzdem von der
   abschließenden Prüfung gelesen und nie umgeschrieben, und die Anfragen keiner anderen Person
   erreichen die Bindung. Die Aufrufe, die Claude Code vor dem ersten Aufruf des Plugins macht, der die
-  Sitzung bindet (seine Startaufrufe), werden nur mit Ihren eigenen Regeln entschieden, weder mit den
-  hinzugefügten Regeln des Projekts noch mit seinen Lockerungen.
+  Sitzung bindet (seine Startaufrufe), werden nur nach Ihren eigenen Regeln entschieden, weder nach den
+  hinzugefügten Regeln des Projekts noch nach seinen Lockerungen.
 - **Ein Startschlüssel.** Ein Agent, den Latet startet, führt einen geheimen Schlüssel dieses Starts
   mit, an das Projekt des Ordners und an Sie gebunden; Latet prüft ihn, entfernt ihn, bevor irgendetwas
-  weitergesendet wird, und behält nur einen mit einem Schlüssel gebildeten Hash davon. Jedes Programm,
+  weitergesendet wird, und behält nur einen schlüsselabhängigen Hash davon. Jedes Programm,
   das den Schlüssel besitzt, zählt als dieser Start: Es läuft als derselbe Benutzer, und Latet
   gibt nicht vor, einen Schlüssel an einen Prozess zu binden. Eine Sitzung, die `latet claude`
   gestartet hat, braucht ihren Schlüssel, daher erreicht ihre Sitzungs-ID allein keine Lockerung des
@@ -102,7 +102,7 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
   Beispiel über einen Weg, den das Plugin nicht abdeckt: Die abschließende Prüfung des Plugins und
   der Daemon blockieren sie.
 - Webseiten, die versuchen, den lokalen Daemon zu nutzen (DNS-Rebinding, Cross-Site-Anfragen).
-- Ein Teil einer Anfrage, den Latet nicht liest: Pfad, Abfrage, Header und Inhalt werden jeweils
+- Ein Teil einer Anfrage, den Latet nicht liest: Pfad, Abfrage, Header und Body werden jeweils
   gelesen, durch eine festgelegte Regel entfernt oder durch eine von Ihnen genehmigte Ausnahme
   durchgelassen, sonst wird die Anfrage nicht gesendet, auf einem Rechner wie auf einem Server
   ([Jeder Teil einer Anfrage](../concepts/protection-scope/#jeder-teil-einer-anfrage)).
@@ -113,10 +113,10 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
   [Was geschützt ist und was nicht](../concepts/protection-scope/).
 - **Ein kompromittierter Rechner.** Malware, andere Benutzer Ihres Kontos oder ein bösartiges
   Plugin oder ein bösartiger Agent können Ihre Dateien direkt lesen. Latet ist keine Sandbox.
-- **Ein Agent, der entschlossen ist, den Schutz von Latet zu senken, oder dazu verleitet wird.**
-  Eine Änderung der Einstellungen, die den Schutz senkt, wartet auf Ihre Freigabe, und Befehle, die
+- **Ein Agent, der entschlossen ist, den Schutz von Latet zu verringern, oder dazu verleitet wird.**
+  Eine Änderung der Einstellungen, die den Schutz verringert, wartet auf Ihre Freigabe, und Befehle, die
   Latet ausschalten, verweigern in einem Agenten die Ausführung: eine Leitplanke gegen Fehler, kein
-  Schloss. Ein Agent läuft als Sie, daher kann einer, der es darauf anlegt, Latet zu umgehen, oder
+  Schloss. Ein Agent läuft unter Ihrem Benutzerkonto, daher kann einer, der es darauf anlegt, Latet zu umgehen, oder
   einer, der durch eine Prompt-Injection verleitet wird, lesen, was Latet liest, und seine eigene
   Änderung über die lokale Schnittstelle des Daemons freigeben. Eine echte Grenze erfordert, dass
   Latet als anderer Benutzer oder auf einem anderen Rechner läuft
@@ -126,7 +126,7 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
   eingesetzt, damit die Arbeit des Agenten auf der Festplatte stimmt. Eine per Prompt-Injection
   eingeschleuste Anweisung könnte den Agenten dazu bringen, einen Ersatzwert an einen Befehl zu
   übergeben, der Daten über das Netzwerk sendet, etwa `curl`; das wieder eingesetzte Original würde
-  dann über diesen Befehl hinausgehen. Latet behält die Ersatzwerte in Web-Tools und
+  den Rechner dann über diesen Befehl verlassen. Latet behält die Ersatzwerte in Web-Tools und
   claude.ai-Connectors bei, aber ein Shell-Befehl oder ein lokaler MCP-Server erhält den echten
   Wert. Lassen Sie die Berechtigungsabfragen Ihres Agenten für Netzwerkbefehle eingeschaltet.
 - **Rückschlüsse aus dem Kontext.** Ersatzwerte behalten das Format des Originals, und der umgebende
@@ -139,12 +139,12 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
 **Der Daemon und das Dashboard**
 
 - Sie lauschen nur auf `127.0.0.1`, daher kann nichts in Ihrem Netzwerk sie erreichen.
-- Anfragen, deren `Host`-Header keine lokale Adresse ist, werden abgewiesen, was DNS-Rebinding
+- Anfragen, deren `Host`-Header keine lokale Adresse ist, werden abgelehnt, was DNS-Rebinding
   vereitelt.
 - Anfragen, die von einer Webseite kommen (mit einem `Origin`-Header oder einem Cross-Site-Header
   `Sec-Fetch-Site`), werden auf den Proxy-Routen abgelehnt.
 - Das Dashboard verlangt einen Einmal-Link zur Anmeldung, den `latet dashboard` erzeugt, danach ein
-  Sitzungscookie mit `HttpOnly` und `SameSite=Strict`, und jede Änderung verlangt einen Header, den
+  Sitzungs-Cookie mit `HttpOnly` und `SameSite=Strict`, und jede Änderung verlangt einen Header, den
   andere Websites nicht senden können. Siehe die
   [Anleitung zum Dashboard](../dashboard/#der-datenschutz-des-dashboards-selbst).
 - Das Plugin für Claude Code spricht mit dem Daemon über ein zufälliges Token, das mit `latet_brg_`
@@ -157,7 +157,7 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
 - **Ihre Agenten erreichen den Daemon über einfaches http auf `127.0.0.1`, und das ist Absicht.**
   Dieser Verkehr erreicht nie eine Netzwerkkarte: Kein anderer Rechner, nicht einmal in Ihrem WLAN,
   kann ihn sehen. Ein Programm auf Ihrem Rechner, das ihn lesen könnte (mit Administratorrechten
-  oder als Sie), könnte den Tresor und Ihre Dateien direkt lesen, also würde eine Verschlüsselung es
+  oder unter Ihrem Benutzerkonto), könnte den Tresor und Ihre Dateien direkt lesen, also würde eine Verschlüsselung es
   nicht aufhalten. Sie würde eine eigene Zertifizierungsstelle erfordern, die im Betriebssystem
   installiert ist und deren Schlüssel es jemandem, der ihn stiehlt, erlauben würde, sich auf Ihrem
   Rechner als jede beliebige Website auszugeben. Was Ihren Rechner verlässt, ist verschlüsselt: die
@@ -191,11 +191,11 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
 **Die Datei eines Projekts**
 
 - Eine `latet.yaml` in einem Repository kann nur Schutz hinzufügen: ein strengeres Profil, mehr
-  Begriffe und Erkenner. Was den Schutz senken würde (Werte, die nie maskiert werden sollen,
+  Begriffe und Erkenner. Was den Schutz verringern würde (Werte, die nie maskiert werden sollen,
   ausgeschaltete Regeln, Latet aus), wird ignoriert, sodass ein Repository, das Sie klonen, Ihre
   Einstellungen nicht schwächen kann. Siehe [Projekte](../concepts/projects/#die-projektdatei).
 - Ihre Erkenner sind reguläre Ausdrücke, die RE2 in linearer Zeit zur Länge des Textes ausführt, und
-  die Größe der Datei ist begrenzt: Eine feindselige Datei kann das Maskieren nicht hängen lassen.
+  die Größe der Datei ist begrenzt: Eine bösartige Datei kann das Maskieren nicht zum Hängen bringen.
 
 **Ihre Werte**
 
@@ -213,15 +213,15 @@ Siehe [Projekte](../concepts/projects/#vertrauenswürdig-und-behauptet).
   Schlüssel, standardmäßig 14 Tage lang. Setzen Sie `history: metadata` (nur Anzahlen und Zeiten)
   oder `history: off` in der [Konfiguration](../reference/configuration/), um weniger aufzubewahren.
 
-**Backups**
+**Sicherungen**
 
 `latet backup` schreibt [Ihre Installation](../concepts/export-import/#ihre-installation-für-einen-anderen-rechner)
 in eine Datei:
 - **Der Schlüssel stammt aus Ihrer Passphrase.** Er wird mit Argon2id (128 MiB Arbeitsspeicher,
   3 Durchläufe) und einem zufälligen Salt abgeleitet.
 - **Der Inhalt wird in Chunks versiegelt.** Er ist ein tar-Stream, in Chunks von 1 MiB geschnitten,
-  jeder mit AES-256-GCM versiegelt. Die Nonce eines Chunks ist seine Nummer und ob er der letzte
-  ist, und der Header der Datei (ihr Format sowie die Parameter und das Salt des Schlüssels) wird mit
+  jeder mit AES-256-GCM versiegelt. Die Nonce eines Chunks besteht aus seiner Nummer und der Angabe, ob er
+  der letzte ist, und der Header der Datei (ihr Format sowie die Parameter und das Salt des Schlüssels) wird mit
   jedem Chunk authentifiziert.
 - **Was abgelehnt wird, bevor irgendetwas aus der Datei verwendet wird:**
   - eine andere Passphrase;
@@ -242,7 +242,7 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
 - **Versiegelt wie der Tresor.** Die Datenbanken werden so kopiert, wie sie sind, ihre Werte mit dem
   Schlüssel dieses Rechners versiegelt, der nicht mitkopiert wird; der Ordner ist nur für Sie
   lesbar.
-- **Sie folgen dem, was Sie entfernen**, solange Latet 0.9.10 oder eine spätere Version läuft.
+- **Die Kopien folgen dem, was Sie entfernen**, solange Latet 0.9.10 oder eine spätere Version läuft.
   *Vergessen* entfernt einen Wert aus jeder Kopie, das
   Löschen des Verlaufs löscht auch ihren, und ihr Verlauf wird nicht länger aufbewahrt als Ihrer.
   Eine Kopie, die sich nicht bereinigen lässt, wird gelöscht oder beiseitegelegt und nie wieder
@@ -255,7 +255,7 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
 
 - Er läuft auf Ihrem eigenen Server: auf diesem Rechner oder auf einem anderen Rechner von Ihnen,
   sobald Sie das bestätigen (`remote: true`), außerhalb Ihres lokalen Netzwerks über https. Er liest
-  den Originaltext, also geben Sie ihm nur einen Server, den Sie kontrollieren.
+  den Originaltext, also betreiben Sie ihn nur auf einem Server, den Sie kontrollieren.
 - Er kann zu dem, was maskiert wird, etwas hinzufügen, nie etwas wegnehmen; was er findet, wird am
   Text überprüft (ein Wert, den er erfindet, oder einer innerhalb eines Platzhalters wird verworfen).
 - Eine Tool-Ausgabe mit Anweisungen an ihn kann ihn schlimmstenfalls weniger finden lassen; die
@@ -290,20 +290,20 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
   Die eigenen Header von Latet (`x-latet-*`, von denen einer einen Ihrer Ordner nennt) werden nie an
   einen Anbieter weitergesendet.
 - Der Startschlüssel, den Latet einem Agenten gibt, den es startet, in `x-latet-launch-key`, ist ein
-  Geheimnis wie das Token von Latet: geprüft, entfernt, nie protokolliert oder aufgezeichnet. In der
-  Ausgabe eines Tools oder in einer Nachricht wird er maskiert; wo er sich nicht maskieren lässt, wird
+  geheimer Wert wie das Token von Latet: geprüft, entfernt, nie protokolliert oder aufgezeichnet. Taucht er
+  in der Ausgabe eines Tools oder in einer Nachricht auf, wird er maskiert; wo er sich nicht maskieren lässt, wird
   die Anfrage abgelehnt.
 - Ein Header, den kein Profil nennt, wird abgelehnt: Sein Name wird nur dem Agenten genannt, und Logs
   und Verlauf behalten nur seine Art. Bei einer Anfrage, die Latet nur prüft (Claude Code, Bedrock,
   Vertex), geht ein neuer `anthropic-*`-Header oder `anthropic-beta`-Wert durch, sobald die
-  abschließende Prüfung ihn gelesen hat, bei einem neuen Header seinen Namen ebenso wie seinen Wert
-  (ein Geheimnis, ein Wert, den der Tresor kennt, oder einer, den die Prüfung in einem von beiden
+  abschließende Prüfung ihn gelesen hat, bei einem neuen Header sowohl seinen Namen als auch seinen Wert
+  (ein geheimer Wert, ein Wert, den der Tresor kennt, oder einer, den die Prüfung in einem der beiden
   erkennt, führt zur Ablehnung der Anfrage), und ein neuer `x-claude-code-*`-Header wird entfernt.
   Kein Wort im Namen eines neuen Headers, zwischen seinen Bindestrichen, darf länger als 16 Zeichen
   sein. Der Name eines Headers kommt in Kleinbuchstaben an: Die abschließende Prüfung liest ihn in
   Kleinbuchstaben, in Großbuchstaben und mit großem Anfangsbuchstaben jedes Wortes. Ein Wert, der
   mit einer anderen Mischung aus Groß- und Kleinbuchstaben in den Namen eines Headers geschrieben
-  ist, ob einer Ihrer Werte wie `ACME-Payroll-7731` oder ein Geheimnis, dessen Form Groß- und
+  ist, ob einer Ihrer Werte wie `ACME-Payroll-7731` oder ein geheimer Wert, dessen Form Groß- und
   Kleinbuchstaben mischt, wie ein Google-API-Schlüssel (`AIza…`), wird dort nicht gefunden:
   Abgelehnt wird der Name nur, wenn er eine der Grenzen eines neuen Headers überschreitet: ein Wort
   mit mehr als 16 Zeichen (wie es bei einem Schlüssel oder Token meist der Fall ist), mehr als 48
@@ -312,9 +312,9 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
   umschreibt, werden sie abgelehnt, bevor etwas davon maskiert wird. Die Header, die ein Profil als entfernbar ausweist, werden
   entfernt und im Dashboard gezählt: Telemetrie und Tracing der SDKs (`x-stainless-*`,
   `traceparent`...) und die eigenen Header der Agenten, die freien Text enthalten können, etwa die
-  IDs eines Subagenten von Claude Code oder die Turn-Metadaten von Codex, die Pfad und Remotes Ihres
+  IDs eines Subagenten von Claude Code oder die Rundenmetadaten von Codex, die Pfad und Remotes Ihres
   Repositorys enthalten ([Header, die Latet entfernt](../getting-started/upgrading-to-0-11/#header-die-latet-entfernt)). Bei einer Anfrage, die Latet nur
-  prüft, sind sie die einzige Änderung: Der Inhalt geht Byte für Byte hinaus.
+  prüft, sind sie die einzige Änderung: Der Body verlässt den Rechner Byte für Byte unverändert.
 - Eine Ausnahme, wenn Sie Amazon Bedrock mit Ihrer AWS-Anmeldung nutzen: Claude Code sendet keine
   Zugangsdaten, und Latet signiert jede Anfrage für Amazon (SigV4) mit Ihrem AWS-Profil. Es liest
   das Profil so, wie die AWS CLI es tut, hält die Zugangsdaten nur im Arbeitsspeicher, schreibt sie
@@ -324,7 +324,7 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
   wird, und wenn sie selbst ablaufen. Eine Route, die signiert, enthält einen Schlüssel, der aus dem
   eigenen Token von Latet erzeugt wird, sodass ein anderer Benutzer Ihres Rechners oder ein
   Programm, das Ihre Dateien nicht lesen kann, keine Anfragen in Ihrem Namen signieren lassen kann;
-  ein Programm, das als Sie läuft, kann dieses Token lesen, so wie es Ihre AWS-Dateien lesen kann.
+  ein Programm, das unter Ihrem Benutzerkonto läuft, kann dieses Token lesen, so wie es Ihre AWS-Dateien lesen kann.
   Der Schlüssel gelangt nie in ein Log. Siehe
   [Unternehmens-Endpunkte](../agents/company-endpoints/#amazon-bedrock).
 - Ein Repository kann nicht entscheiden, wohin Ihre Anfragen gehen: Latet liest die Route eines
@@ -343,69 +343,69 @@ Einstellungen nach `backups/before-<Version>-<Zeit>` im Datenordner von Latet
 - Das TLS der ausgehenden Verbindungen wird gegen den Zertifikatsspeicher Ihres Betriebssystems
   geprüft, sodass ein Unternehmens-Proxy, dessen Root-Zertifikat dort installiert ist, weiter
   funktioniert.
-- Die Rohaufzeichnung von Austauschen zur Fehlersuche ist standardmäßig aus. Wenn Sie sie
+- Der Rohmitschnitt von Austauschen zur Fehlersuche ist standardmäßig aus. Wenn Sie ihn
   einschalten (`latet serve --capture <folder>`), werden Header mit Zugangsdaten geschwärzt, aber
-  die Aufzeichnungen enthalten trotzdem Inhalte der Unterhaltungen: Behalten Sie sie auf Ihrem
-  Rechner. Die Logs von Latet, die Metadaten des Verlaufs und die Aufzeichnungen eines Servers über
-  seine Entscheidungen behalten feste Kategorien und Routenvorlagen, nie einen Wert, den Namen eines
-  Headers oder eines Tools oder den Pfad, an den eine Anfrage ging: Die Aufzeichnung und der
-  vollständige Verlauf sind die Aufzeichnungen, die Inhalte enthalten.
+  die Mitschnitte enthalten trotzdem Inhalte der Unterhaltungen: Behalten Sie sie auf Ihrem
+  Rechner. Die Logs von Latet, die Metadaten des Verlaufs und die Datensätze eines Servers über
+  seine Entscheidungen enthalten feste Kategorien und Routenvorlagen, nie einen Wert, den Namen eines
+  Headers oder eines Tools oder den Pfad, an den eine Anfrage ging: Inhalte enthalten der Mitschnitt
+  und der vollständige Verlauf.
 
 Der Daemon baut keine Netzwerkverbindungen auf, außer um die Anfragen Ihres Agenten an den Anbieter
-(oder den Unternehmens-Endpunkt) weiterzuleiten, den Ihr Agent bereits nutzt, und, wenn Sie ihn
-einschalten, um den lokalen Prüfer auf diesem oder einem anderen Ihrer Rechner zu fragen. Wenn er
+(oder den Unternehmens-Endpunkt) weiterzuleiten, den Ihr Agent bereits nutzt, und, sofern Sie den lokalen Prüfer eingeschaltet
+haben, um diesen auf diesem oder einem anderen Ihrer Rechner zu fragen. Wenn er
 für Amazon Bedrock mit einem SSO-Profil signiert, kann die AWS CLI, die er ausführt, den
 Anmeldedienst von AWS erreichen, um Ihre Anmeldung zu erneuern, so wie sie es tut, wenn Sie sie
-selbst verwenden. Die Befehle greifen nur für das auf das Netzwerk zu, worum Sie bitten:
+selbst verwenden. Die Befehle greifen nur dann auf das Netzwerk zu, wenn Sie es verlangen:
 `latet ner install` und `latet ocr install` laden ihre Modelle von huggingface.co herunter, und
-`latet upgrade` sucht das neueste Release auf GitHub und lädt es herunter. Es gibt keine Telemetrie
+`latet upgrade` sucht die neueste Version auf GitHub und lädt sie herunter. Es gibt keine Telemetrie
 und keine Nutzungsanalyse, weder im Daemon noch im Dashboard noch auf dieser Dokumentationsseite.
 
 **Auf einem Latet-Server** ([Latet auf einem Server](../concepts/server/))
 
 - Die Administration antwortet nur über HTTPS und nur einem Programm: Eine Anfrage von einer Webseite
-  wird abgelehnt, und ein Verwaltungstoken wird erst geprüft, nachdem seine Adresse eine Grenze
-  abgelehnter Versuche passiert hat.
-- Der Server bewahrt kein Geheimnis auf, das er ausstellt: nur einen Hash mit Schlüssel von jedem
-  Token, Schlüssel und Code. Der Schlüssel jedes Bereichs ist mit dem Hauptschlüssel des Servers
+  wird abgelehnt, und ein Administrationstoken wird erst geprüft, nachdem feststeht, dass seine Adresse die
+  Grenze für abgelehnte Versuche nicht überschritten hat.
+- Der Server bewahrt keinen geheimen Wert auf, den er ausstellt: nur einen schlüsselabhängigen Hash
+  jedes Tokens, Schlüssels und Codes. Der Schlüssel jedes Bereichs ist mit dem Hauptschlüssel des Servers
   versiegelt, der getrennt von den Sicherungen der Datenbank aufbewahrt wird.
-- Jeder Administrationsaufruf wird in einem verketteten Log erfasst, auch Lesezugriffe und
+- Jeder Administrationsaufruf wird in einem verketteten Protokoll erfasst, auch Lesezugriffe und
   Ablehnungen; `latet server log verify` prüft die Kette.
 - Das Token, das die Agenten eines Rechners besitzen, öffnet die Bridge des Plugins und den Proxy des
   Bereichs, nie das Dashboard: Dafür braucht es außerdem den Rechnerschlüssel, den kein Agent erhält.
 - Eine Anfrageausnahme gehört zu den eigenen Einstellungen einer Person und gilt, sobald diese Person
-  sie genehmigt. Die Genehmigung einer dauerhaften schreibt einen Eintrag ins Verwaltungsprotokoll, nur
+  sie genehmigt. Die Genehmigung einer dauerhaften schreibt einen Eintrag ins Administrationsprotokoll, nur
   mit ihrer ID und der Art ihres Geltungsbereichs, nie mit ihrer Beschreibung; `latet server status`
   listet die dauerhaften auf dieselbe Weise auf. Es liest sie aus einem Index, den PostgreSQL neben
   den versiegelten Einstellungen führt: für jede genehmigte Ausnahme ihre ID, die Art ihres
   Geltungsbereichs, ob sie dauerhaft ist, ihr Ende und ob sie in Kraft ist, nach einer Überarbeitung
-  ihres Profils neu genehmigt werden muss oder von der Edition nicht erlaubt ist; nie ihre
+  des Profils erneut auf Genehmigung wartet oder von der Edition nicht erlaubt ist; nie ihre
   Beschreibung, ihr Ziel, den Ordner eines Projekts oder das, was sie nennt.
 - Bei ausgeschaltetem Verlauf werden die verwendeten Ausnahmen im Speicher gezählt und für das
   Dashboard über Valkey nach Instanz und Identität geteilt, nur IDs und Zahlen. Valkey, wie Latet es
   ausliefert, speichert nichts auf der Festplatte; ein Betreiber, der seine Persistenz einschaltet,
   schreibt diese Zählungen auf die Festplatte.
-- Mit mehreren Workern unter Linux bleibt der Port die ganze Zeit für den Server gehalten, auch
+- Mit mehreren Workern unter Linux bleibt der Port die ganze Zeit für den Server belegt, auch
   solange kein Worker lauscht, und nur ein Programm, das unter dem Benutzer des Servers selbst
   läuft, kann neben den Workern auf ihm lauschen; ein solches Programm könnte seine Verbindungen
   übernehmen: Betreiben Sie den Server unter einem Benutzer, der nichts anderes ausführt
   ([Serverbetrieb](../concepts/server-operations/)).
 - PostgreSQL speichert die Werte und Ersatzwerte jedes Tresors versiegelt mit dem Schlüssel der
-  Identität, und neben jedem ihrer Wörter einen Hash mit Schlüssel und einen Fingerabdruck: einen
+  Identität, und neben jedem ihrer Wörter einen schlüsselabhängigen Hash und einen Fingerabdruck: einen
   64-Bit-Fingerabdruck unter einem vom Schlüssel der Identität abgeleiteten Schlüssel, den die
   Instanzen im Speicher halten, um die Werte eines Textes zu finden. Wer die Datenbank liest, erfährt
   daraus kein Wort, sieht aber, welche Zeilen einer Identität ein Wort gemeinsam haben, wie viele es
-  sind und, an den Änderungszählungen der Zeilen, welche Zeilen sich in welcher Reihenfolge geändert
+  sind und, an den Änderungszählern der Zeilen, welche Zeilen sich in welcher Reihenfolge geändert
   haben: Ein Fingerabdruck ist keine Verschlüsselung. Zwei Wörter können denselben Fingerabdruck
   haben, daher wird jeder Wert oder Ersatzwert, auf den ein Fingerabdruck zeigt, entschlüsselt und
-  mit dem Text verglichen, bevor er etwas maskiert oder wiederherstellt.
+  mit dem Text verglichen, bevor etwas maskiert oder wieder eingesetzt wird.
 - Was Valkey für einen Tresor hält und überträgt, sind IDs, Arten, Zählungen und versiegelte Daten:
-  kein Wert, Ersatzwert, Wort oder Fingerabdruck im Klartext und kein Hash mit Schlüssel des Tresors.
+  kein Wert, Ersatzwert, Wort oder Fingerabdruck im Klartext und kein schlüsselabhängiger Hash des Tresors.
   Tests prüfen das an allem, was die Instanzen an Valkey senden, während sie Werte für einen
-  API-Schlüssel und eine Person maskieren, wiederherstellen und vergessen, die Fingerabdrücke eines
-  Tresors neu bilden und ihre Herzschläge senden, und an den Protokollen. Seine Nachrichten sind
-  signiert, was sagt, wer sie gesendet hat, und nichts geheim hält; was geheim bleiben muss, ist
-  versiegelt. Die Herzschläge der Instanzen tragen Zahlen, Wahrheitswerte und die Version, nie eine
+  API-Schlüssel und eine Person maskieren, wieder einsetzen und vergessen, die Fingerabdrücke eines
+  Tresors neu bilden und ihre Heartbeats senden, und an den Logs. Seine Nachrichten sind
+  signiert: Das zeigt, wer sie gesendet hat, hält aber nichts geheim; was geheim bleiben muss, ist
+  versiegelt. Die Heartbeats der Instanzen enthalten Zahlen, boolesche Werte und die Version, nie eine
   Identität.
 
 ## Eine Sicherheitslücke melden

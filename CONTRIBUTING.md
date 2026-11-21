@@ -61,9 +61,10 @@ uv run python scripts/gen_docs_anchors.py --check --root src/latet/docs
 uv run python scripts/check_docs_anchors.py --root src/latet/docs     # every dashboard link lands
 ```
 
-The check refuses a bundle above 18 MB zipped (it is about 16.3 MB): the wheel carries it to every install. When new
-pages or pictures cross the limit, make the bundle lighter (pictures it can do without, as it does without the video)
-or raise `MAX_MB` in `scripts/check_docs_bundle.py` on purpose, saying why in the commit.
+The check refuses a bundle above 30 MB zipped (it is about 24 MB with the Enterprise pages and their screenshots): the
+wheel carries it to every install. When new pages or pictures cross the limit, make the bundle lighter (pictures it can
+do without, as it does without the video) or raise `MAX_MB` in `scripts/check_docs_bundle.py` on purpose, saying why in
+the commit.
 
 A link the dashboard gains goes in `dashboard/src/lib/docsLinks.json`, by page and English anchor;
 `uv run python scripts/gen_docs_anchors.py` then writes its anchor in each translation.
@@ -86,6 +87,15 @@ their images; name the services you want (`up postgres valkey`) to start fewer. 
 tests in a job of its own with `LATET_TEST_REQUIRE_SERVICES=1`, which makes a server test that cannot
 run for want of its services fail instead of being skipped (a test for another platform stays skipped);
 set it to get the same on your computer.
+
+## The Enterprise code
+
+Latet Enterprise's code is in `src/latet/ee/` and `dashboard/src/ee/`, and its tests are in `tests/ee/`: every folder
+named `ee` is under the Latet Enterprise License (`ee/LICENSE`), and the [contributor license agreement](CLA.md)
+covers a contribution there as it covers any other. The Community Edition never needs that code:
+`uv run pytest -q --without-ee` runs the suite as if those folders were not there, as CI's `community` job does with
+them removed. The tests against real programs in Docker (Keycloak, OpenLDAP and Prometheus) are opt-in:
+[tests/ee/providers/README.md](tests/ee/providers/README.md) says how to run them.
 
 ## Generated files
 

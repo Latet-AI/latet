@@ -13,7 +13,7 @@ The worker threads (the engine's, the plugin's, the recorder's, the dashboard's)
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
@@ -187,17 +187,40 @@ class KeyVaultStore(VaultStore, Protocol):
         string alone, never by opening the fakes that share a word with it; None when there is none."""
         ...
 
-    def with_words(self, role: Role | tuple[Role, ...], words: Iterable[str]) -> list[Entity]:
+    def with_words(
+        self, role: Role | tuple[Role, ...], words: Iterable[str], *, most: int | None = None
+    ) -> list[Entity]:
         """The entities whose value (``original``) or fake (``surrogate``), or either (both roles, in one statement),
         has one of ``words`` among its words (``stored.words_of``: its anchor or a fake's dotted word, and its edges; a
         text's words are ``anchors.words_in``, with ``dotted``), each once, however many of its words are asked. A
-        store may refuse a call that would open more entities than it allows (a ``MaskingError`` whose words name no
-        value): never answered with a part of them."""
+        store may refuse a call that would open more entities than it allows, or than ``most`` when it is given (a
+        ``MaskingError`` whose words name no value): never answered with a part of them."""
         ...
 
     def by_ids(self, ids: Iterable[str]) -> list[Entity]:
         """The entities of ``ids`` that the vault holds, each once (one that does not open left out): what a space
         holds in memory, asked whether the vault still has it, never the whole vault."""
+        ...
+
+    def paged(
+        self,
+        offset: int,
+        limit: int,
+        *,
+        etype: str | None = None,
+        eclass: int | None = None,
+        of_types: Iterable[str] | None = None,
+        of_ids: Iterable[str] | None = None,
+    ) -> tuple[list[Entity], int]:
+        """A page of the vault's values, the newest first (by when each was kept, then by id), ``limit`` at most after
+        the first ``offset`` (one that does not open left out): those of the type ``etype`` and of the class ``eclass``
+        where given, and, where ``of_types`` or ``of_ids`` is given, only those of one of its types or ids; and how many
+        values match in all. What a page of the vault shows (an API key's, in Latet Enterprise), the vault never read
+        whole. (Named apart from the server's own ``listed``, a person's page searched by its store.)"""
+        ...
+
+    def types_held(self) -> dict[str, int]:
+        """How many values of each type the vault holds, as the store counts them now."""
         ...
 
     def backfill_words(self) -> int:
@@ -506,11 +529,22 @@ class Timing:
     polled: bool
     waiting: int
     seen: float
+    decides: str = "self"  # who decides on it (E5): the reaper's words for one the security team let run out of time
+    agent: str | None = None  # its agent: the event of how it ended names it
 
     @classmethod
     def of(cls, batch: Batch) -> Timing:
         """A batch's timing, as this process holds it."""
-        return cls(batch.id, batch.created, batch.timeout_s, batch.polled, batch.waiting, batch.seen)
+        return cls(
+            batch.id,
+            batch.created,
+            batch.timeout_s,
+            batch.polled,
+            batch.waiting,
+            batch.seen,
+            batch.decides,
+            batch.agent,
+        )
 
 
 class ApprovalsBackend(Protocol):
@@ -553,11 +587,15 @@ class ApprovalsBackend(Protocol):
         loop serves the other requests meanwhile."""
         ...
 
-    async def replace(self, batch_id: str, items: list[dict[str, Any]]) -> Batch | None:
+    async def replace(
+        self, batch_id: str, items: list[dict[str, Any]], pictures: Mapping[int, tuple[str, str]] | None = None
+    ) -> Batch | None:
         """The previews of a batch this process opened and that still waits, made again (the rules or the vault changed
-        while it waited, ``Mediator.refresh_live``): stored for every process to read, the batch as old as it was; the
-        batch, or None when it no longer waits here (decided, being decided, or held by another process), nothing
-        changed then. A backend that bounds what it keeps refuses previews past its bounds the same way."""
+        while it waited, ``Mediator.refresh_live``): stored for every process to read, the batch as old as it was, with
+        ``pictures``, its images painted again (by item: base64 and media type, as each would leave now), which
+        ``image`` shows from then on as they would leave, each image not painted again as it was; the batch, or None
+        when it no longer waits here (decided, being decided, or held by another process), nothing changed then. A
+        backend that bounds what it keeps refuses previews or pictures past its bounds the same way."""
         ...
 
     def get(self, batch_id: str) -> Batch | None:
@@ -617,11 +655,14 @@ class ApprovalsBackend(Protocol):
         thread."""
         ...
 
-    def give(self, batch_id: str, answer: dict[str, Any]) -> None:
+    def give(self, batch_id: str, answer: dict[str, Any]) -> bool:
         """What the plugin gets for a batch decided, for whichever process it asks. Raises ``ValueError``, and keeps
         nothing, while the batch still waits: the answer is what leaves, and only your decision lets it. Where no call
         waits for an answer with this id (never stored, not one the plugin asks about, or its answer handed over or
-        given up and forgotten already) it does nothing: no error, and nothing kept for a later poll."""
+        given up and forgotten already) it does nothing: no error, and nothing kept for a later poll. True only when the
+        answer was kept as given for the call that waits for it: False where nothing was kept, or something else in its
+        place (a server's queue past the identity's bytes keeps an error), so that a decider's approval is taken only
+        for texts the plugin gets (the re-review of the final security review's fix rounds, R1)."""
         ...
 
     async def answer(self, batch_id: str, hold: float) -> dict[str, Any] | None:
@@ -652,8 +693,8 @@ class SignIns(Protocol):
         """The code's subject, once; None for a code unknown, used or late."""
         ...
 
-    def open(self, subject: str) -> str:
-        """A new session's id, for the cookie."""
+    def open(self, subject: str, *, via: Literal["code", "sso"] = "code") -> str:
+        """A new session's id, for the cookie; ``via``: how it was opened (a server's ``code`` or ``sso``)."""
         ...
 
     def subject_of(self, sid: str) -> str | None:

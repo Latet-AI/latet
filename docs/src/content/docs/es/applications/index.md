@@ -14,13 +14,13 @@ clave de API, que:
 - lo **enmascare** (`mask`): el mismo texto con valores ficticios realistas en lugar de sus valores;
 - lo **restaure** (`unmask`): los valores reales de nuevo en lugar de los ficticios;
 - **olvide** valores (`forget`): los quite de la caja fuerte de la clave, cuando una persona pide que
-  sus datos desaparezcan ([olvidar valores](forget/)).
+  sus datos salgan de ella ([olvidar valores](forget/)).
 
 Es una función del servidor de Latet: las claves de API y sus tokens solo existen allí, y un equipo
 sin servidor no tiene nada de ella. Para probarla en tu propio equipo, arranca en él un servidor
 Community con el perfil de servidor de `compose.yaml` ([operación del servidor](../concepts/server-operations/)).
 
-Lo que aporta frente a una regla de ocultación:
+Lo que aporta frente a una regla de supresión:
 
 - **El mismo valor ficticio cada vez.** Un valor recibe el mismo valor ficticio en cada llamada, en
   cada instancia del servidor, mientras la caja fuerte de la clave lo conserve. En un servicio de
@@ -62,7 +62,7 @@ printf 'Authorization: Bearer %s' "$(cat shop.key)" | curl -sS -H @- \
 `shop.key` contiene el primer token de la clave, el que escribe `keys add`
 ([más abajo](#claves-de-api-y-tokens)).
 `printf`, que la propia shell ejecuta, pasa la cabecera a curl por su entrada estándar (`-H @-`): así
-el token no aparece en la línea de órdenes de curl, donde otros usuarios del equipo podrían leerlo.
+el token no aparece en la línea de comandos de curl, donde otros usuarios del equipo podrían leerlo.
 Los valores ficticios son los de la clave: otra clave, u otro servidor, da otros. Con un token que
 puede restaurar, el mismo texto enviado a `/_latet/apps/v1/unmask` vuelve como era, con
 `"restored": 2`.
@@ -93,36 +93,38 @@ latet server --server https://latet.acme.lan keys tokens "Shop"
 
 El primer token de una clave, el que crea `keys add`, tiene `scan`, `mask` y `unmask`, igual que el
 token de cada clave creada antes de que los tokens tuvieran permisos: esas claves funcionan como antes.
-El primer token de la clave tiene además una dirección para modelos, la
-[puerta de enlace](../getting-started/server/#dar-una-clave-de-api-a-un-programa), y a través de ella
-sirve a los agentes de la clave: `keys tokens` lo señala con `serves agents (has an address)`, para que
-no se revoque en lugar de un token añadido con los mismos permisos. Un token creado con `keys add-token` no tiene dirección, tenga los
-permisos que tenga, `--mask --unmask` incluidos: la puerta de enlace y el bridge del plugin lo
+Ninguno de ellos puede olvidar: `forget` se da a un token propio
+(`keys add-token "Shop" erasure --forget`). El primer token de la clave tiene además una dirección para
+modelos, la [puerta de enlace](../getting-started/server/#dar-una-clave-de-api-a-un-programa), y a
+través de ella sirve a los agentes de la clave: `keys tokens` lo señala con
+`serves agents (has an address)`, para que no se revoque en lugar de un token añadido con los mismos
+permisos. Un token creado con `keys add-token` no tiene dirección, tenga los permisos que tenga,
+`--mask --unmask` incluidos: la puerta de enlace y el bridge del plugin lo
 rechazan (403), y solo llama a la API para aplicaciones.
 
-Cada token se detiene por separado: `keys tokens "Shop" --revoke t_4kxq2m7zap` revoca uno por el id
-que muestra `keys tokens`, en pocos segundos en cada instancia. `keys rotate "Shop" --token
-t_4kxq2m7zap --out shipper.token` sustituye ese token por uno nuevo, con un secreto nuevo y un id
+Cada token se puede detener por separado: `keys tokens "Shop" --revoke t_4kxq2m7zap` revoca uno por el
+ID que muestra `keys tokens`, en pocos segundos en cada instancia. `keys rotate "Shop" --token
+t_4kxq2m7zap --out shipper.token` sustituye ese token por uno nuevo, con un secreto nuevo y un ID
 nuevo, el mismo nombre y los mismos permisos; una clave con un solo token no necesita `--token`. Cada
 cambio queda en el registro de administración (`token.added`, `token.revoked`, `key.rotated`), con los
-ids de los tokens, nunca un secreto.
+ID de los tokens, nunca un secreto.
 
 La API para aplicaciones solo acepta tokens de claves de API: el token del equipo de una persona se
-rechaza (403), igual que una solicitud que hace una página web. Las personas usan su panel.
+rechaza (403), igual que una petición que hace una página web. Las personas usan su panel.
 
 ## Prosa y datos
 
 `scan` y `mask` aceptan un `kind` para los textos de una llamada:
 
-- `prose` (el predeterminado): texto escrito por personas, como mensajes, tickets y documentos. Se
-  enmascara como la puerta de enlace enmascara tus propios mensajes.
-- `data`: registros, fichas, la salida de un programa. Se enmascaran como la puerta de enlace
+- `prose` (el valor predeterminado): texto escrito por personas, como mensajes, incidencias y
+  documentos. Se enmascara como la puerta de enlace enmascara tus propios mensajes.
+- `data`: registros, fichas, la salida de un programa. Se enmascara como la puerta de enlace
   enmascara la salida de una herramienta.
 
 La diferencia está en lo que es probable: en el perfil `balanced`, los nombres solo se buscan en la
 prosa (con el [modelo de nombres local](../concepts/server-operations/#modelos-de-reconocimiento-en-un-servidor)
 instalado en el servidor), y una serie de dígitos solo cuenta como número de teléfono en la prosa,
-mientras que en un registro es mucho más a menudo un id. Con `phone_regions: [IT]` en las reglas de la
+mientras que en un registro es mucho más a menudo un identificador. Con `phone_regions: [IT]` en las reglas de la
 clave, el número en `Llámame mañana al 3471234567.` recibe un valor ficticio como prosa y se queda
 como está como datos. Un documento JSON enviado como texto se enmascara como texto, conservando su
 formato, así que las posiciones de la respuesta son posiciones en él.
@@ -131,7 +133,7 @@ formato, así que las posiciones de la respuesta son posiciones en él.
 
 `scan` y `mask` usan los ajustes de la clave tal como están cuando llega la llamada: las reglas
 propias de la clave sobre los ajustes compartidos del servidor, como hace la puerta de enlace con las
-solicitudes de la clave. No hay reglas solo para la API. Se configuran con `latet server config --key`
+peticiones de la clave. No hay reglas solo para la API. Se configuran con `latet server config --key`
 y `latet server rules --key`
 ([ajustes compartidos y reglas de las claves de API](../getting-started/server/#establecer-los-ajustes-compartidos-y-las-reglas-de-las-claves-de-api)).
 
@@ -151,7 +153,7 @@ y `latet server rules --key`
   uno que contiene más valores personales de los que permite `dump_guard` recibe `blocked`.
 
 Un texto bloqueado vuelve como `{"blocked": "<motivo>"}` sin texto, y el motivo no nombra ningún
-valor. Cuando algo funcionó de forma reducida en la llamada (un detector que no pudo leer un texto,
+valor. Cuando algo funcionó en modo degradado en la llamada (un detector que no pudo leer un texto,
 una revisión que no terminó), la respuesta lo dice en `"degraded"`, con los nombres de lo afectado,
 como `ner` o `llm-review`.
 
@@ -180,7 +182,7 @@ la API ([RAG](rag/)).
 **Restaurar** da los valores reales de los valores ficticios de la clave, sea cual sea la llamada o la
 conversación de la clave que los creó, también los del año pasado. No alcanza los valores ficticios de
 otra clave ni los de una persona: el texto que no es un valor ficticio de la clave se queda como está.
-El nombre de una persona solo vuelve entero: una parte suya sola (un nombre de pila) puede ser una
+El nombre de una persona solo vuelve entero: una sola de sus partes (un nombre de pila) puede ser una
 palabra corriente, o el nombre de otra persona, y se queda como está. Cada restauración se escribe en el
 registro de administración antes de enviar su respuesta (`apps.unmasked`, con el token, cuántos textos y
 cuántos valores; nunca un texto ni un valor), y un registro que no puede escribirla rechaza la llamada
@@ -188,8 +190,7 @@ cuántos valores; nunca un texto ni un valor), y un registro que no puede escrib
 a través de la puerta de enlace: sus respuestas se restauran como las de cualquier agente, sin una
 entrada del registro de administración por cada restauración. Un token creado con `keys add-token`
 nunca lo hace, así que cada una de sus restauraciones es una entrada `apps.unmasked`. Da `unmask` a las
-herramientas de las
-personas que pueden ver los datos reales, y lee el registro con
+herramientas de las personas que pueden ver los datos reales, y lee el registro con
 `latet server log --action apps.unmasked`.
 
 **Enmascarar también revela algo.** Con un token que puede enmascarar y acceso a los registros
@@ -207,9 +208,7 @@ uno de los de la clave. Da `scan` con el mismo cuidado que `mask`.
 **Olvidar también revela algo.** Su respuesta dice cuántos de los valores guardaba la caja fuerte de la
 clave, así que un token que puede olvidar puede confirmar que un valor es de la clave, como uno que
 puede analizar. Da `forget` solo al proceso que atiende las peticiones de borrado; cada olvido queda en
-el registro de administración (`apps.forgotten`, con el token y las cifras, nunca un valor). Ninguno
-de los tokens que crea `keys add` puede olvidar: `forget` se da a un token propio
-(`keys add-token "Shop" erasure --forget`).
+el registro de administración (`apps.forgotten`, con el token y los recuentos, nunca un valor).
 
 ## La caja fuerte de una clave
 
@@ -223,7 +222,7 @@ cliente que una regla de la clave encontró una vez, y que luego se quitó, sigu
 
 Un espacio de registros puede contener millones de valores, así que una instancia no guarda en
 memoria la caja fuerte de una clave. Guarda los valores que la clave usó por última vez
-(`key_working_values`, 5.000 por defecto, unos 10 MiB por clave) y las huellas de toda la caja
+(`key_working_values`, 5000 por defecto, unos 10 MiB por clave) y las huellas de toda la caja
 fuerte: una huella de 64 bits de cada palabra de sus valores y de sus valores ficticios, calculada
 con una clave secreta, unos 15 MB por un millón de valores. Las palabras de una llamada se buscan
 primero entre las huellas: una palabra sin huella no es de ningún valor ni de ningún valor ficticio,
@@ -246,19 +245,19 @@ Una llamada lee como mucho un millón de esas posiciones: por encima, sus series
 palabras y sus bordes. Un secreto de seis caracteres o menos, o cuya palabra en un borde pegado tiene seis
 caracteres o menos, no lo encuentra ninguna palabra del texto cuando está pegado. Por eso una instancia guarda
 en memoria para siempre los secretos cortos de una clave, los de una sola serie de 16 caracteres o menos o con
-una palabra así de corta en un borde: los `key_held_secrets` más recientes (1.000 si los ajustes del servidor no
+una palabra así de corta en un borde: los `key_held_secrets` más recientes (1000 si los ajustes del servidor no
 dicen otra cosa), que se encuentran estén pegados como estén, también por encima del millón de posiciones de una
 llamada. Uno más antiguo, o uno más largo, se encuentra donde nada está pegado a él, pegado por un lado cuando
 la palabra de ese borde tiene siete caracteres o más, y pegado por ambos lados cuando es una sola serie de siete
 caracteres o más, dentro del millón de posiciones de la llamada. Sube `key_held_secrets` para una clave que ve
 muchos secretos cortos, como un token de sesión en cada línea de registro: cada uno que se guarda ocupa unos 23
 KB en cada instancia que sirve a la clave, la mayor parte en el detector que lo encuentra, y cada texto que la
-clave enmascara o restaura se recorre para buscarlo, lo que hace sus llamadas un poco más lentas. Medida con
+clave enmascara o restaura se recorre para buscarlo, lo que hace sus llamadas un poco más lentas. Medido con
 Latet 0.10.0 en el equipo de [velocidad](#velocidad), con un token de sesión propio en cada línea (un valor más
-que guardar en cada una), una clave nueva con 1.000 de esos secretos guardados enmascaró 73 líneas por segundo y
-restauró 1.935, frente a 75 y 2.103 sin ninguno guardado. Un valor ficticio se encuentra pegado como su secreto:
+que guardar en cada una), una clave nueva con 1000 de esos secretos guardados enmascaró 73 líneas por segundo y
+restauró 1935, frente a 75 y 2103 sin ninguno guardado. Un valor ficticio se encuentra pegado como su secreto:
 conserva los signos del secreto en su sitio, así que un valor ficticio pegado de modo que ninguna de sus
-palabras quede suelta es el de un secreto guardado en memoria, y se encuentra mientras el secreto se guarda.
+palabras quede suelta es el de un secreto guardado en memoria, y se encuentra mientras el secreto siga guardado.
 Como en todo Latet, un valor se vuelve a reconocer a partir de cuatro caracteres, el nombre de una persona a
 partir de tres ([valores conocidos](../concepts/detection/#valores-conocidos)).
 
@@ -274,18 +273,18 @@ caracteres o menos) se queda, como todo valor ficticio. `unmask`, que lee cada v
 caja fuerte de la clave, solo lo sustituye por el valor donde está como palabra completa, sin letra,
 dígito ni guion bajo al lado. El coste: donde el valor de un secreto así se enmascaró dentro de una
 palabra o un número más largo (`postgres` en `postgresql://`, `1234` en `order_id=9912343`),
-`unmask` deja ahí su valor ficticio. Una conversación del primer token de la clave, a través del
-gateway o del plugin, lo restaura como antes, también dentro de una palabra, porque solo restaura
+`unmask` deja ahí su valor ficticio. Una conversación del primer token de la clave, a través de la
+puerta de enlace o del plugin, lo restaura como antes, también dentro de una palabra, porque solo restaura
 los valores ficticios que se le mostraron. Mientras una instancia del servidor siga ejecutando la
 0.10.0, da valores ficticios cortos a los nuevos secretos cortos, y también esos se quedan:
 actualiza cada instancia.
 
-**Qué conserva una llamada que falla.** Una llamada `mask` que falla mientras enmascara (un 507, una
-confirmación que no llega a PostgreSQL) no conserva ninguno de sus valores nuevos cuando ocupaba para
+**Qué conserva una llamada que falla.** Una llamada `mask` que falla mientras enmascara (un 507, un
+commit que no llega a PostgreSQL) no conserva ninguno de sus valores nuevos cuando ocupaba para
 ellos una de las transacciones de la instancia, tres a la vez con el `database_pool` predeterminado: el
 espacio de la clave los olvida. Si esas estaban ocupadas, la llamada conservó cada valor nuevo sobre la
-marcha, y esos se quedan en la caja fuerte de la clave. Un fallo después del enmascaramiento, en la revisión local o al preparar la
-respuesta, llega después de la confirmación, así que los valores nuevos de la llamada también se
+marcha, y esos se quedan en la caja fuerte de la clave. Un fallo después del enmascaramiento, en la
+revisión local o al preparar la respuesta, llega después del commit, así que los valores nuevos de la llamada también se
 quedan. Volver a enmascarar los textos es seguro en cualquier caso: un valor que la caja fuerte
 conservó tiene su valor ficticio, y uno que olvidó recibe otra vez uno. Un agente de la misma clave
 que usó mientras tanto un valor olvidado a través de la puerta de enlace ya envió su valor ficticio,
@@ -295,17 +294,17 @@ que ninguna restauración posterior devolverá.
 
 - **La caja fuerte.** La caja fuerte de una clave admite los `vault_limit` valores del servidor
   (200.000 si los ajustes del servidor no dicen otra cosa), o un límite propio:
-  `latet server keys limit "Shop" 5000000` (de 1.000 a 100.000.000; `default` le devuelve el del
+  `latet server keys limit "Shop" 5000000` (de 1000 a 100.000.000; `default` le devuelve el del
   servidor). Una caja fuerte llena rechaza con 507 la llamada `mask` que añadiría un valor: no vuelve
-  nada de la llamada, y nada sale en claro. El estado del servidor lista las identidades al 90 % de su
+  nada de la llamada, y nada sale en claro. El estado del servidor enumera las identidades al 90 % de su
   límite, y la métrica `latet_vault_near_limit` las cuenta, así que sube un límite antes de alcanzarlo.
   Cada instancia cuenta los valores nuevos de una llamada antes de confirmarlos: dos instancias, o una
   llamada y un agente de la misma clave, pueden superar el límite en los valores nuevos de una llamada
   cada uno antes de que se rechace el siguiente valor. Un índice de las huellas de una caja fuerte se
-  construye hasta 16.777.216 huellas, unos ocho millones de valores del tipo que mide
-  [velocidad](#velocidad): por encima, no se construye ningún índice mientras dura el espacio de la
+  construye hasta 16.777.216 huellas, unos ocho millones de valores del tipo que se mide en
+  [Velocidad](#velocidad): por encima, no se construye ningún índice mientras dura el espacio de la
   clave, y sus llamadas buscan sus palabras solo en PostgreSQL, más despacio.
-- **Una llamada** admite como mucho 1.000 textos y el `apps_request_mb` del servidor (8 MiB si sus
+- **Una llamada** admite como mucho 1000 textos y el `apps_request_mb` del servidor (8 MiB si sus
   ajustes no dicen otra cosa, nunca más que su `max_request_mb`): una llamada espera en memoria al
   hilo de la clave, y `latet-client` divide una lista más larga en llamadas de 8 MiB como mucho. Los
   textos cuyas palabras nombran más de 100.000 valores o valores ficticios de la caja fuerte se
@@ -315,7 +314,7 @@ que ninguna restauración posterior devolverá.
   aplicando al llegar la llamada o mientras se preparaba su respuesta
   (`the settings of this space changed while the call was answered: send it again`), y la misma
   llamada puede volver a enviarse más tarde ([referencia HTTP](../reference/apps-api/)).
-- **Llamadas simultáneas.** Una clave tiene como mucho `requests_in_flight` solicitudes de
+- **Llamadas simultáneas.** Una clave tiene como mucho `requests_in_flight` peticiones de
   aplicaciones en una instancia (16 si los ajustes no dicen otra cosa); por encima, 429 con
   `Retry-After`.
 
@@ -337,9 +336,9 @@ llamadas:
 
 | La caja fuerte de la clave | Enmascarar, líneas por segundo | Restaurar, líneas por segundo | Un documento, enmascarar / restaurar |
 | --- | ---: | ---: | ---: |
-| Nueva, aprende sus valores sobre la marcha | 191 | 2.894 | 126 / 31 ms |
-| 200.000 valores | 871 | 2.960 | 117 / 32 ms |
-| 1.000.000 de valores | 773 | 2.967 | 124 / 32 ms |
+| Nueva, aprende sus valores sobre la marcha | 191 | 2894 | 126 / 31 ms |
+| 200.000 valores | 871 | 2960 | 117 / 32 ms |
+| 1.000.000 de valores | 773 | 2967 | 124 / 32 ms |
 
 Cada documento trae valores nuevos para la clave, que los escribe en PostgreSQL mientras los enmascara: los
 mismos 50 documentos enmascarados de nuevo, con sus valores ya conocidos, tardaron 16,6 ms con 200.000 valores y
@@ -347,8 +346,8 @@ mismos 50 documentos enmascarados de nuevo, con sus valores ya conocidos, tardar
 valores de sus líneas, y por eso enmascara menos.
 
 Latet 0.10.0, medido de la misma manera en el mismo equipo, enmascaraba 350 y 304 líneas por segundo
-con 200.000 y 1.000.000 de valores y 153 para una clave nueva, restauraba 2.114 y 2.014, y enmascaraba
-un documento en entre 163 y 182 ms. Latet 0.11 se proponía enmascarar al menos 1.000 líneas como
+con 200.000 y 1.000.000 de valores y 153 para una clave nueva, restauraba 2114 y 2014, y enmascaraba
+un documento en entre 163 y 182 ms. Latet 0.11 se proponía enmascarar al menos 1000 líneas como
 estas por segundo en una instancia con 200.000 y con 1.000.000 de valores, y un documento en 30 ms o
 menos: enmascara 871 y 773, y un documento en 30 ms solo cuando la clave ya conoce sus valores. La
 mayor parte del tiempo de una llamada de enmascarar se va en los detectores, y una parte en esperar a
@@ -359,7 +358,7 @@ caja fuerte de una clave](#la-caja-fuerte-de-una-clave)), que ocupan unos 15 MB 
 MB con 1.000.000) y se construyen en segundo plano mientras se abre el espacio de la clave: en 1,5 segundos con
 1.000.000 de valores (la mediana de tres aperturas, de 1,42 a 1,62 s). Hasta que están listas, las llamadas de
 la clave buscan sus palabras solo en PostgreSQL: en una medición anterior con Latet 0.11, con las huellas
-desactivadas, la clave de 200.000 valores enmascaró 494 líneas por segundo y restauró 1.382. Cada llamada lee
+desactivadas, la clave de 200.000 valores enmascaró 494 líneas por segundo y restauró 1382. Cada llamada lee
 primero el contador de cambios de la clave, 0,51 ms de mediana, y recoge lo que cambió desde entonces: 1,87 ms
 por un valor nuevo y 2,11 ms por 100, también de mediana.
 
@@ -376,10 +375,10 @@ rondas:
 
 | Workers | Enmascarar, líneas por segundo | Restaurar, líneas por segundo | Memoria por worker |
 | ---: | ---: | ---: | ---: |
-| 1 | 1.190 | 1.947 | 227 MB |
-| 2 | 2.260 | 3.711 | 227 MB |
-| 4 | 4.253 | 6.594 | 216 MB |
-| 8 | 7.477 | 10.147 | 185 MB |
+| 1 | 1190 | 1947 | 227 MB |
+| 2 | 2260 | 3711 | 227 MB |
+| 4 | 4253 | 6594 | 216 MB |
+| 8 | 7477 | 10.147 | 185 MB |
 
 Ocho workers enmascararon 6,28 veces lo que uno y restauraron 5,21 veces, donde Latet 0.11 se
 proponía llegar al menos a 5 veces en ambos; ninguna ronda con ocho workers restauró a menos de 5,07
@@ -388,7 +387,7 @@ workers reciben más que otros: de 1 a 10 de las 32 en una ronda con ocho worker
 arranca los workers ocupaba de 47 a 48 MB a su lado. Estas llamadas llegan desde varias conexiones a
 la vez, así que compara las filas de esta tabla entre sí, no con la primera tabla.
 
-Escribir valores nuevos necesita conexiones a PostgreSQL: una instancia, y cada worker, mantiene como
+Escribir valores nuevos requiere conexiones a PostgreSQL: una instancia, y cada worker, mantiene como
 mucho `database_pool` (10 si los ajustes del servidor no dicen otra cosa) para el trabajo de todas
 las identidades, y deja que tres décimas partes de ellas (tres de diez) las ocupen llamadas que
 conservan sus valores nuevos en una transacción cada una; las demás conservan cada valor según llega,
@@ -402,7 +401,7 @@ vez, y con él el `max_connections` de PostgreSQL
 Latet 0.11 cambia las tablas. Detén cada instancia y cada worker, en cada máquina, ejecuta
 `latet server migrate` una vez con la 0.11 y luego arráncalos todos con ella
 ([actualizar](../concepts/server-operations/#actualizar-y-añadir-instancias)). Una instancia no
-arranca sobre tablas de otra versión, así que entre la parada y el arranque no se responde ninguna
+arranca con tablas de otra versión, así que entre la parada y el arranque no se responde ninguna
 llamada, y `latet server migrate` no cambia nada mientras una instancia está viva, una de la 0.10
 durante 30 segundos después de detenerse. La migración añade a cada fila de palabra de cada caja
 fuerte un sitio vacío para su huella y para el número del cambio que la escribió por última vez, con

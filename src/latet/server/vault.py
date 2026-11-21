@@ -91,7 +91,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, ClassVar, Final, LiteralString, NamedTuple
 
@@ -265,6 +265,20 @@ _ALL_WORDS: Final = (
     "SELECT word, entity_id FROM vault_words WHERE identity_id = %s AND role = ANY(%s) AND word IS NOT NULL"
 )
 _BY_IDS: Final = _SELECT + " AND id = ANY(%s) ORDER BY seq"
+# A page of the vault's values (``listed``): of a type and a class where given, and of some types or ids where asked
+# (the flag); the newest first, by when each was kept, then by id as Python orders it (bytes: the "C" collation).
+_LISTED_COUNT: Final = (
+    "SELECT COUNT(*) FROM vault_entities"
+    " WHERE identity_id = %s AND (%s::text IS NULL OR etype = %s) AND (%s::integer IS NULL OR eclass = %s)"
+    " AND (NOT %s::boolean OR etype = ANY(%s::text[]) OR id = ANY(%s::text[]))"
+)
+_LISTED: Final = (
+    "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
+    " WHERE identity_id = %s AND (%s::text IS NULL OR etype = %s) AND (%s::integer IS NULL OR eclass = %s)"
+    " AND (NOT %s::boolean OR etype = ANY(%s::text[]) OR id = ANY(%s::text[]))"
+    ' ORDER BY created DESC, id COLLATE "C" LIMIT %s OFFSET %s'
+)
+_TYPES_HELD: Final = "SELECT etype, COUNT(*) FROM vault_entities WHERE identity_id = %s GROUP BY etype"
 _UNANCHORED: Final = (
     "SELECT id, etype, eclass, original, surrogate, counter, created, rule, decoded FROM vault_entities"
     " WHERE identity_id = (SELECT %s::text) AND id IN (SELECT w.entity_id FROM vault_words w"
@@ -567,14 +581,23 @@ class TooManyCandidates(TooMany):
 _UNBOUNDED_BYTES: Final = 1 << 62
 
 
+@dataclass(slots=True)
 class _LegacyBudget(LookupBudget):
-    """0.10.2's bound of a lookup alone (``with_words``): ``CANDIDATES_AT_MOST`` rows read, unreadable rows and cached
-    candidates counted, past them ``TooManyCandidates``; no bound of characters or bytes, which 0.10.2 did not have
-    (Task 8's fix round 6: an API key's call past Task 8's own bounds reads as 0.10.2 did, never refused for them)."""
+    """0.10.2's bound of a lookup alone (``with_words``): ``CANDIDATES_AT_MOST`` rows read (``most``, where a caller
+    asks for fewer: a search of a key's vault in Latet Enterprise's dashboard, ``stored.SEARCHED_AT_MOST``), unreadable
+    rows and cached candidates counted, past them ``TooManyCandidates``; no bound of characters or bytes, which 0.10.2
+    did not have (Task 8's fix round 6: an API key's call past Task 8's own bounds reads as 0.10.2 did, never refused
+    for them)."""
+
+    most: int | None = None  # None: ``CANDIDATES_AT_MOST``, read as the lookup runs
+
+    @property
+    def _most(self) -> int:
+        return CANDIDATES_AT_MOST if self.most is None else self.most
 
     def row(self, size: int = 0) -> None:
-        if self.candidates >= CANDIDATES_AT_MOST:
-            raise _too_many()
+        if self.candidates >= self._most:
+            raise _too_many(self._most)
         self.candidates += 1
         self.bytes += size
 
@@ -587,7 +610,7 @@ class _LegacyBudget(LookupBudget):
 
     @property
     def row_room(self) -> int:
-        return CANDIDATES_AT_MOST + 1 - self.candidates
+        return self._most + 1 - self.candidates
 
     @property
     def byte_room(self) -> int:
@@ -1715,36 +1738,40 @@ class PgVaultStore:
         found = self._read(_BY_READING, (self.identity, self.identity, self._sealer.keyed(reading)), held=False)
         return next((e for e in found if fake_reading(e) == reading), None)
 
-    def with_words(self, role: Role | tuple[Role, ...], words: Iterable[str]) -> list[Entity]:
+    def with_words(
+        self, role: Role | tuple[Role, ...], words: Iterable[str], *, most: int | None = None
+    ) -> list[Entity]:
         """The entities whose value (``original``) or fake (``surrogate``) has one of ``words`` as its anchor, or as one
         of its edges (Ruling T10h), each once, the oldest first within each part: asked for by the words' keyed hashes,
         ``WORDS_AT_ONCE`` at a time. Of
         more than ``WORDS_ASKED_AT_MOST`` different words, the vault's own words are read once instead and met with
-        them in memory (Ruling T7c). Raises TooManyCandidates when more than ``CANDIDATES_AT_MOST`` entities have one
-        of them: no more than that and one are opened."""
+        them in memory (Ruling T7c). Raises TooManyCandidates when more than ``most`` entities have one of them
+        (``CANDIDATES_AT_MOST`` when None, a call's; a search of the dashboard asks for fewer): no more than that and
+        one are opened."""
+        most = CANDIDATES_AT_MOST if most is None else most
         asked: tuple[Role, ...] = (role,) if isinstance(role, str) else tuple(role)
         if not asked or any(r not in ("original", "surrogate") for r in asked):
             raise ValueError("a word is a value's (original) or a fake's (surrogate)")
         if self.index is not None:
             self.current()
             if self.index.ready:
-                return self.bounded_words(asked, words, _LegacyBudget())
+                return self.bounded_words(asked, words, _LegacyBudget(most=most))
         hashed = sorted(self._hashed(asked, words))  # a role's label is in each hash: one statement asks for all
         roles = [name for r in asked for name in (r, f"{r}-head", f"{r}-tail")]
         if len(hashed) > WORDS_ASKED_AT_MOST:
-            return self.by_ids(self._met(roles, set(hashed)))
+            return self.by_ids(self._met(roles, set(hashed), most))
         found: dict[str, Entity] = {}
         # An entry has an anchor and two edges at most: it is in three parts at most, so each part may read what is
         # left (an entry read twice counted twice). The rows read are counted, an entry that does not open as well: a
         # part cut short by the bound is refused, never answered without the entries it did not read (Review Minor 1).
         read: list[int] = []
         for start in range(0, len(hashed), WORDS_AT_ONCE):
-            part, room = hashed[start : start + WORDS_AT_ONCE], CANDIDATES_AT_MOST + 1 - sum(read)
+            part, room = hashed[start : start + WORDS_AT_ONCE], most + 1 - sum(read)
             args = (self.identity, self.identity, roles, part, room)
             for e in self._read(_WITH_WORDS, args, held=False, rows_read=read):
                 found.setdefault(e.id, e)
-            if sum(read) > CANDIDATES_AT_MOST:
-                raise _too_many()
+            if sum(read) > most:
+                raise _too_many(most)
         return list(found.values())
 
     def bounded_words(self, role: Role | tuple[Role, ...], words: Iterable[str], budget: LookupBudget) -> list[Entity]:
@@ -1929,17 +1956,17 @@ class PgVaultStore:
                         found.append(entity)
         return found
 
-    def _met(self, roles: list[str], hashed: set[bytes]) -> list[str]:
+    def _met(self, roles: list[str], hashed: set[bytes], most: int) -> list[str]:
         """The ids of the entries whose value's (or fake's) word or edge (``roles``) is one of ``hashed``: every such
         word of the vault's read once, through a cursor of PostgreSQL's, ``WORDS_AT_ONCE`` rows at a time, the GIL let
-        go between two parts. Raises TooManyCandidates past ``CANDIDATES_AT_MOST`` of them."""
+        go between two parts. Raises TooManyCandidates past ``most`` of them."""
         ids: list[str] = []
         with self._connection() as conn, conn.cursor(name="vault_words") as cursor:
             cursor.execute(_ALL_WORDS, (self.identity, roles))
             while rows := cursor.fetchmany(WORDS_AT_ONCE):
                 ids += [str(entity_id) for word, entity_id in rows if bytes(word) in hashed]
-                if len(ids) > CANDIDATES_AT_MOST:
-                    raise _too_many()
+                if len(ids) > most:
+                    raise _too_many(most)
                 time.sleep(LET_GO)  # the event loop takes its turn between two parts
         return ids
 
@@ -1951,6 +1978,37 @@ class PgVaultStore:
         for start in range(0, len(asked), WORDS_AT_ONCE):
             found += self._read(_BY_IDS, (self.identity, asked[start : start + WORDS_AT_ONCE]), held=False)
         return found
+
+    def paged(
+        self,
+        offset: int,
+        limit: int,
+        *,
+        etype: str | None = None,
+        eclass: int | None = None,
+        of_types: Iterable[str] | None = None,
+        of_ids: Iterable[str] | None = None,
+    ) -> tuple[list[Entity], int]:
+        """A page of the vault's values, the newest first (``created``, then the id as Python orders it), ``limit`` at
+        most after the first ``offset``: of the type ``etype`` and the class ``eclass`` where given, and, where
+        ``of_types`` or ``of_ids`` is given, of one of its types or ids; and how many match in all, those that do not
+        open as well (a page leaves them out). Two statements, which read the page's rows alone and count the others
+        without opening them."""
+        among = of_types is not None or of_ids is not None
+        types, ids = sorted(set(of_types or ())), sorted(set(of_ids or ()))
+        where = (self.identity, etype, etype, eclass, eclass, among, types, ids)
+        with self._connection() as conn:
+            row = conn.execute(_LISTED_COUNT, where).fetchone()
+        total = int(row[0]) if row is not None else 0
+        if limit <= 0 or offset >= total:
+            return [], total
+        return self._read(_LISTED, (*where, limit, offset), held=False), total
+
+    def types_held(self) -> dict[str, int]:
+        """How many values of each type the vault holds, as PostgreSQL counts them now (those that do not open too)."""
+        with self._connection() as conn:
+            rows = conn.execute(_TYPES_HELD, (self.identity,)).fetchall()
+        return {str(etype): int(count) for etype, count in rows}
 
     def backfill_words(self) -> int:
         """Make the words that are not there or not as ``anchor`` makes them now: an entry's that has none (kept by a
@@ -2221,9 +2279,10 @@ class PgVaultStore:
             self._cache.drop([entity_id], [])
 
 
-def _too_many() -> TooManyCandidates:
+def _too_many(most: int | None = None) -> TooManyCandidates:
+    most = CANDIDATES_AT_MOST if most is None else most  # read now: a test sets the module's bound
     return TooManyCandidates(
-        f"the texts of this call hold the words of more than {CANDIDATES_AT_MOST} values or fakes of this vault, more "
+        f"the texts of this call hold the words of more than {most} values or fakes of this vault, more "
         "than one call may weigh: nothing of it was masked or restored"
     )
 

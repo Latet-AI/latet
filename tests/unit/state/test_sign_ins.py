@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from latet.api import rest as rest_module
 from latet.api.rest import Dashboard
 from latet.config import Config, IdentityConfig
+from latet.edition import Community
 from latet.gateway.app import create_app
 from latet.runtime import make_runtime
 from latet.state import CODE_TTL, SESSION_TTL, IdentityRef, LocalSignIns
@@ -48,8 +49,9 @@ def two_dashboards(tmp_path):
     shared, config = LocalSignIns(), Config(identity=IdentityConfig(enabled=False))
     yours = make_runtime(config, data=tmp_path / "yours", config_file=tmp_path / "yours.yaml", root_key=ROOT_KEY)
     emilys = make_runtime(
-        config, data=tmp_path / "emilys", config_file=tmp_path / "emilys.yaml", root_key=ROOT_KEY, identity=EMILY
-    )
+        config, data=tmp_path / "emilys", config_file=tmp_path / "emilys.yaml", root_key=ROOT_KEY, identity=EMILY,
+        edition=Community(),
+    )  # fmt: skip
     for rt in (yours, emilys):
         rt.gateway.dashboard = Dashboard(rt, sign_ins=shared)
     yield yours, emilys, shared

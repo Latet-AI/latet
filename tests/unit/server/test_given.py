@@ -275,10 +275,11 @@ def test_a_text_that_left_as_it_was_masked_is_checked_once_until_the_vault_chang
     vault.intern("PERSON", EntityClass.CUSTOM, "Emily Carter")
     looked, asked = [], []
     masker = here.engine.masker
-    # The text as its client sends it is what is read (0.10.2: a value learnt around one masked in it, too).
-    known_outside, checked = masker.known_outside, given.checked
+    # The text as its client sends it is what is read (0.10.2: a value learnt around one masked in it, too), once for
+    # whether it shows a value and whether a secret is among them (issue 21: one reading, ``classes_outside``).
+    classes_outside, checked = masker.classes_outside, given.checked
     monkeypatch.setattr(
-        masker, "known_outside", lambda text, masked: looked.append(text) or known_outside(text, masked)
+        masker, "classes_outside", lambda text, masked: looked.append(text) or classes_outside(text, masked)
     )
     monkeypatch.setattr(given, "checked", lambda session, key: asked.append(session) or checked(session, key))
     assert [_mask(here).text for _ in range(3)] == [TEXT] * 3  # as it left

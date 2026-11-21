@@ -43,12 +43,12 @@ testo viene coperto anche sull'immagine.
 Ogni testo mostra l'**Originale**, e ciò che **Sarà inviato**, con ciò che hanno mascherato Latet e il
 revisore locale. Ciò che il revisore locale ha trovato e non ha mascherato da solo è evidenziato
 nell'originale, pronto da mascherare con un clic. Quando il revisore non ha potuto leggere un testo
-(il suo server è spento, o la sua risposta non è affidabile), il testo non viene fermato come
-succederebbe senza di te: ti aspetta con un avvertimento, e decidi tu.
+(il suo server non è attivo, o la sua risposta non è attendibile), il testo non viene fermato come
+succederebbe senza di te: resta in attesa con un avvertimento, e decidi tu.
 
 Mentre un testo attende, ciò che sarà inviato segue le tue regole. Quando segni un valore come
 *Non sensibile*, mascheri un valore in un altro testo o cambi un'impostazione, i testi ancora in
-attesa lo mostrano subito, in ogni dashboard aperta, e partono così quando li approvi.
+attesa lo mostrano subito, in ogni dashboard aperta, ed escono così quando li approvi.
 
 ## Cosa puoi fare
 
@@ -59,23 +59,23 @@ attesa lo mostrano subito, in ogni dashboard aperta, e partono così quando li a
   uno strumento arriva invece al modello come un breve avviso.
 - **Su un'immagine:** trascina un rettangolo su qualsiasi sua parte, che viene coperta con una barra,
   oppure spunta *Non inviare questa immagine*: il resto della richiesta esce, e il modello riceve una
-  breve nota al posto dell'immagine. *Come esce ora* mostra l'immagine come l'ha mascherata Latet. La
-  tua decisione viene conservata, sigillata, per quell'immagine: inviata di nuovo, anche dopo un
-  riavvio, esce allo stesso modo.
+  breve nota al posto dell'immagine. *Come esce ora* mostra l'immagine come l'ha mascherata Latet e,
+  mentre attende, segue le tue regole come il suo testo. La tua decisione viene conservata,
+  sigillata, per quell'immagine: inviata di nuovo, anche dopo un riavvio, esce allo stesso modo.
 - **Approva tutte quelle in attesa**, così come le ha mascherate Latet.
 - **Con la tastiera**, una volta attivate le sue [scorciatoie](../../dashboard/#scorciatoie-da-tastiera):
   A approva, X non invia, M maschera.
 
 Ciò che cambi viene controllato dal daemon. Puoi solo aggiungere mascheramenti: un valore già
 mascherato non può tornare in chiaro, e un valore fittizio già in uso non può essere mascherato di
-nuovo. Una selezione diventa parole intere, perché Latet maschera un valore ovunque compaia come
+nuovo. Una selezione viene estesa a parole intere, perché Latet maschera un valore ovunque compaia come
 parola intera. Un valore viene mascherato come un solo tipo, e uno che hai segnato come
 *Non sensibile* va prima tolto da **Regole**. Se un valore che hai mascherato uscirebbe comunque
 in chiaro, il testo viene invece trattenuto. Un valore che mascheri viene
 conservato nella cassaforte come i valori trovati dai rilevatori. Da quel momento viene mascherato
 ovunque compaia, in ogni conversazione, e il controllo finale lo ferma se sta per uscire in chiaro.
 *Maschera sempre* lo rende anche uno dei tuoi termini, per un progetto o ovunque, così resta
-mascherato anche dopo che la cassaforte lo ha dimenticato.
+mascherato anche dopo che lo hai dimenticato nella cassaforte.
 
 ## Quando non rispondi
 
@@ -84,7 +84,8 @@ Un testo attende per tutto il tempo necessario. Non ne esce niente finché non r
 - **Fermi l'agente** (Esc in Claude Code): non viene inviato niente, e il testo viene tolto dalla coda
   entro un minuto.
 - **Nessuna dashboard è aperta:** Claude Code lo dice, e il testo continua ad attendere finché non ne
-  apri una.
+  apri una. Dove decide il team di sicurezza della tua azienda (più sotto), non serve che la tua
+  dashboard sia aperta.
 - **Un limite di tempo,** se lo vuoi: dopo `timeout_s` secondi il testo non viene inviato.
 
 ```yaml
@@ -94,13 +95,25 @@ live_review:
   timeout_s: 300             # not set: until you answer
 ```
 
+## In un'azienda
+
+Su un server di Latet con Latet Enterprise, la tua azienda può mandare questi testi al suo team di sicurezza invece
+che a te. Il team vede ogni testo come lo vedi tu, valori compresi, e lo approva o lo ferma; la pagina
+**Approvazioni** e Claude Code te lo dicono, e puoi comunque fermare un testo tu stesso. Claude Code dice una volta per
+sessione chi esamina i tuoi testi, o che per ora nessuno può decidere, e lo dice anche quando lavora con il token di una
+chiave API. Ciò che il team maschera resta mascherato nella tua cassaforte, dove puoi dimenticarlo. Un testo che il team
+ha approvato esce solo come l'ha visto: se le tue impostazioni cambiano prima che esca, non viene inviato, e attende di
+nuovo il team quando l'agente lo invia di nuovo. Vedi [Approvazioni centrali](../../enterprise/approvals/).
+
 ## Dove avviene
 
 - **In Claude Code,** nella fase di mascheramento del plugin, prima che Claude Code costruisca la
   richiesta. Esamini pezzo per pezzo ogni prompt, file e output di uno strumento, man mano che
   arriva. Claude Code costruisce poi la richiesta con il testo che hai approvato, quindi nessuna
   richiesta viene modificata dopo essere stata costruita. Mentre un testo attende la tua approvazione
-  nella dashboard, la riga di stato di Claude Code dice *waiting for your approval in the dashboard*.
+  nella dashboard, la riga di stato di Claude Code dice *waiting for your approval in the dashboard*;
+  dove decide il team di sicurezza della tua azienda, dice *waiting for your company's security team to
+  approve it*.
 - **Per gli agenti che passano dal gateway** (Codex, OpenCode, Hermes Agent...), nel daemon: i nuovi
   testi di una richiesta attendono insieme, e la richiesta esce una volta che li hai approvati. Alcuni
   agenti rinunciano a una richiesta che impiega troppo tempo, e possono riprovarla; non viene inviato

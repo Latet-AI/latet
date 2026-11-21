@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ApiError, NetworkError, UnauthorizedError } from '../api/client'
 import type { DocsTarget } from '../lib/docsLinks'
 import { splitInlineCode } from '../lib/inlineCode'
-import { refusedWords, savedChangePendingWords } from '../lib/refused'
+import { companySignInNeeded, refusedWords, savedChangePendingWords } from '../lib/refused'
 import { pageOnServer } from '../lib/serverPage'
 import { DocsPageLink } from './DocsLinks'
 import { Icon, type IconName } from './Icon'
@@ -155,6 +155,7 @@ export function errorText(t: (key: string, options?: Record<string, unknown>) =>
   if (error instanceof UnauthorizedError) return t('errors.unauthorized')
   const pending = savedChangePendingWords(t, error)
   if (pending !== null) return pending
+  if (companySignInNeeded(error)) return t('errors.companySignIn')
   const refused = refusedWords(t, error) // a save of your settings a Latet server did not keep: why, in your language
   if (refused !== null) return refused
   if (error instanceof ApiError) {

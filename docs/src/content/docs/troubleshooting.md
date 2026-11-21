@@ -160,6 +160,29 @@ In gateway mode, an error with `Latet: masking failed` or `Latet: unreadable req
 means the daemon could not mask the request, so it refused it.
 The daemon's log says why.
 
+### An MCP tool's schema stops Claude Code's requests
+
+The error names a tool and its *parameter schema* (or its *input examples*), for example:
+
+```text
+Latet: sensitive values would leave in clear: EMAIL[21]; it is in the parameter schema of the tool
+mcp__crm__find_contact, which Latet checks but cannot mask in this request
+```
+
+The schema is what an MCP server or a plugin wrote of the tool's input, such as a sample address in
+a parameter's description. In Claude Code, Latet's plugin masks a tool's description, but Claude Code
+gives it no way to change the schema, and Latet does not rewrite Claude Code's requests. Claude Code
+sends a tool's schema with every request once it has loaded the tool, and every tool's schema when it
+tries again after an error, so its requests keep stopping until you change something:
+
+- If the value is not sensitive, run `latet dashboard`, open the blocked request, click the value
+  and choose **Not sensitive: always allow**.
+- If it is, turn off the MCP server or the plugin that gives the tool (in Claude Code, `/mcp` or
+  `/plugin`), or ask its author to take the value out of the schema.
+
+The dashboard shows such a block as *Tool parameter schema*. Masking MCP tools before Claude Code
+reads them is on the [roadmap](../roadmap/).
+
 ### A part of a request is refused
 
 Latet reads every part of a request, and an error like this one means it refused a part it does not
@@ -201,14 +224,20 @@ The part in parentheses says which kind:
   documented forms: list it in `request_resources`.
 - `envelope-exception-expired`: the exception that let it through has ended; the error names it and
   the day. Renew it.
-- `request body refused (unknown member in top-level)`, `(unknown member in message content
-  block)`, `(unknown member in tool definition)`...: a member of the body no profile names, and where
-  it is. On a request Latet only checks (Claude Code, Bedrock, Vertex), a new member that holds text
-  passes once checked. An exact exception can name another one by its JSON pointer: the dashboard
-  records its refusal as `body-unknown-member`. Inside a provider's own item (`provider item`:
-  thinking, reasoning) or an image's source (`inline image`), and in any WebSocket frame, none can
-  reach it: the refusal is recorded as `body-unknown-member-no-exception`, and the dashboard says that
-  no exception can reach it. Such a member is refused until a Latet release reads it.
+- `request body refused (unknown member in top-level)`, `(unknown member in message content block)`,
+  `(unknown member in tool definition)`...: a member of the body no profile names, and where it is.
+  Since 0.15.0 such a member passes once read and checked when nothing in it would be masked and it
+  names nothing the provider acts on ([New request
+  members](../getting-started/upgrading-to-0-11/#new-request-members)): this refusal says that it
+  names a file, an address, a stored conversation or a model, holds encoded content or carries more
+  than short tokens inside a provider's own item, or that your settings say `unknown_members:
+  refuse`, which the dashboard then names. A sensitive value in such a member stops the request with
+  the final check's words, as in any other text. An exact exception can name a refused member by its
+  JSON pointer: the dashboard records its refusal as `body-unknown-member`. Inside a provider's own
+  item (`provider item`: thinking, reasoning) or an image's source (`inline image`), and in any
+  WebSocket frame, none can reach it: the refusal is recorded as `body-unknown-member-no-exception`,
+  and the dashboard says that no exception can reach it. Such a member is refused until a Latet
+  release reads it.
 - `Latet cannot read this document, audio or remote media, so it does not send it`: give the agent
   the text instead.
 
@@ -364,19 +393,84 @@ and holds content back meanwhile. Let the daemon start at login (`latet global-i
 
 ### Port 5283 is already in use
 
-Latet listens on `127.0.0.1:5283`, a port no common software uses. If another program took it,
-or Windows reserved it (Hyper-V, WSL and Docker reserve blocks of ports that can change at every
-boot), `latet start` says so at once:
+Latet listens on `127.0.0.1:5283`, a port no common software uses. When it cannot listen there,
+`latet start`, `latet claude` and the other commands that start the daemon say why at once, and so
+does the Port line of `latet doctor`. There are two causes.
+
+**Windows reserved the port.** Hyper-V, WSL and Docker (through Windows' WinNAT service) reserve
+blocks of 100 ports each time Windows starts, chosen anew each time, inside Windows' dynamic port
+range: the ports it gives to outgoing connections. That range starts at 49152 by default, far above
+5283, but some programs move it down to 1024, and then a block can take Latet's port until the next
+restart:
+
+```text
+Latet cannot listen on 127.0.0.1:5283: reserved by Windows (5241-5340).
+Run `latet reserve-port`: it moves Latet to a free port and reserves that port, so that Windows cannot take it again (your agents are updated too).
+```
+
+Run `latet reserve-port`. It says what it found and asks once:
+
+```text
+Windows holds port 5283 since it started: Latet moves to port 5341, free, and reserves it.
+Move Latet to port 5341 and reserve it? Windows asks for an administrator's confirmation once. [Y/n]:
+```
+
+The new port is the first free one past the ports Windows holds and those an administrator
+excluded for other programs. On yes, Latet reserves it as an administrator's exclusion: Windows
+leaves it out of the blocks it reserves, and Latet can still listen on it. Then Latet moves there:
+it saves the port in `config.yaml`, points every agent `latet global-install` set up at it, and
+starts the daemon on it. Agent sessions open at that moment keep calling the old port until you
+start them again. The administrator's confirmation is Windows' User Account Control dialog. If
+you decline it, Latet moves all the same, so that it can start now, but the new port is not
+reserved: run `latet reserve-port` again to reserve it.
+
+Where the dynamic range covers Latet's port but no block holds it yet, `latet doctor` warns, and
+`latet reserve-port` asks whether to reserve the port where it is. If the daemon runs on that port,
+Latet restarts for a moment, and the agents retry what they send meanwhile. In either case, the
+Windows installer asks the same question at its end. Nothing changes without your yes; with no
+terminal to ask in, the command only prints what to run. An agent cannot run it: it changes a
+setting of Windows, so you run it yourself.
+
+`latet reserve-port` does all of this. Where Windows does not hold the port yet, you can also
+reserve it by hand, with Latet stopped, as netsh may refuse a port a program listens on: run
+`latet stop`, then this line in a PowerShell run as administrator, then `latet start`.
+
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent
+```
+
+Where Windows holds the port already, this line cannot reserve it, since Windows' block holds it
+until the next restart: then only `latet reserve-port` does it, as it moves Latet to a free port
+first and reserves that one.
+
+`netsh int ipv4 show excludedportrange protocol=tcp` lists the excluded ranges, with a `*` beside
+those an administrator added. `latet reserve-port --remove` takes away the ports Latet reserved, and
+no other.
+
+The other way is to move Windows' dynamic range back to where it starts by default: run these in a
+PowerShell run as administrator, then restart Windows.
+
+```powershell
+netsh int ipv4 set dynamic tcp start=49152 num=16384
+netsh int ipv6 set dynamic tcp start=49152 num=16384
+```
+
+That changes the range for every program on the computer, and the program that moved it may have
+done so for a reason, so Latet leaves this choice to you.
+
+**Another program uses the port.** `latet start` says so:
 
 ```text
 Latet cannot listen on 127.0.0.1:5283: in use by another program.
 Run `latet global-install` to move it to a free port (your agents are updated too).
 ```
 
-`latet global-install` picks the first free port from 5284 to 5335, saves it in `config.yaml` and points
-every agent it set up at the new port. If none of them is free, choose one yourself:
-`latet global-install --port 6655`.
-`latet serve --port <port>` changes the port of a single foreground run only.
+`latet global-install` picks the first free port above 5283, past the ports Windows holds and those
+an administrator excluded for other programs, saves it in `config.yaml` and points every agent it
+set up at the new port. On Windows, where Windows may take the new port too, what it shows before
+it asks names `latet reserve-port`. To choose a port yourself, run
+`latet global-install --port 6655`. `latet serve --port <port>` changes the port of a single
+foreground run only.
 
 ### Latet runs in Docker and the agents cannot reach it
 
@@ -645,10 +739,12 @@ Yes, whatever its size, for its own work, on any number of computers and servers
 non-commercial use are free too. For the Community Edition, a commercial license is needed only to
 sell Latet, to offer it to others as a service, to build it into a product you sell, or for a commercial fork: write to
 [info@latet.ai](mailto:info@latet.ai). The Enterprise Edition, the files in `ee` directories, adds
-what a company needs to manage Latet centrally, and needs a commercial license in production;
-developing and testing with it is free. The Community Edition never checks a license: there are no
-keys. [LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) has the details and
-examples.
+what a company needs to manage Latet centrally: its features need a Latet Enterprise license in
+production, a license file Latet checks on your Latet server without calling home, and
+developing and testing with them is free. To try them first, ask for a 32-day trial license at the
+same address. The Community Edition never checks a license: there are no keys. See
+[Editions and license](../enterprise/), and
+[LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) for the details and examples.
 
 ### Where does the name come from?
 

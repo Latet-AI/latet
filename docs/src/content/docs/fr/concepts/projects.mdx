@@ -21,7 +21,7 @@ Latet.
 Sur une machine connectée à un serveur Latet, le fichier du projet ne s'applique pas : le serveur ne
 lit aucun fichier de la machine, et applique vos propres réglages et ceux qu'il partage. Dans un tel
 projet, `latet doctor` et `latet claude` le disent. Pour y utiliser ses règles, importez le
-`latet.yaml` dans votre tableau de bord, dans **Règles** avec **Importer des règles**. Voir
+`latet.yaml` dans votre tableau de bord, sur la page **Règles**, avec **Importer des règles**. Voir
 [Ce qui reste sur la machine](../server/#ce-qui-reste-sur-la-machine).
 
 <Screenshot name="project" alt="Les règles d'un projet dans le tableau de bord, dans les onglets des règles globales : sa Vue d'ensemble, avec ce qui y est en vigueur et vos propres réglages pour ce projet dans leur ensemble" caption="Les règles d'un projet : Règles, avec le projet choisi en haut." />
@@ -49,7 +49,7 @@ Latet ne considère le projet d'une session comme de confiance que lorsqu'il le 
 
 - **Par le plugin de Claude Code,** pour un dossier que Latet connaît comme projet (un dossier avec un
   `latet.yaml`, ou avec vos propres réglages pour lui). Le plugin lie la session à ce projet ; chacun
-  de ses appels à Latet maintient le lien, qui prend fin après 30 minutes sans appel.
+  de ses appels à Latet maintient la liaison, qui prend fin après 30 minutes sans appel.
 - **Par une clé de lancement,** pour un agent que Latet a lancé dans ce dossier.
 
 Un dossier que seule la requête nomme (l'en-tête `x-latet-project`, ou le dossier de travail que
@@ -64,19 +64,19 @@ si son projet était de confiance ou déclaré (*Projet déclaré*), et comment 
 
 - **Avant que le plugin lie une session.** Claude Code fait quelques appels au démarrage, avant le
   premier appel du plugin à Latet : sa liste de modèles, et sur Bedrock ses premières requêtes. Ils
-  sont jugés avec vos seules règles, ni les règles ajoutées par le projet ni ses assouplissements.
-- **Ce que le lien laisse entrer.** Un lien porte sur l'identifiant d'une session : une requête
+  sont jugés avec vos seules règles, sans les règles ajoutées par le projet ni ses assouplissements.
+- **Ce que la liaison laisse entrer.** Une liaison porte sur l'identifiant d'une session : une requête
   Anthropic Messages qui porte l'identifiant d'une de vos sessions actives liée par le plugin est jugée
-  avec ce projet, assouplissements et exceptions compris, quel que soit votre programme qui l'envoie.
+  avec ce projet, assouplissements et exceptions compris, quel que soit celui de vos programmes qui l'envoie.
   Elle est quand même lue par la vérification finale et jamais réécrite, et les requêtes d'une autre
-  personne ne l'atteignent jamais. Une session lancée par `latet claude` demande au contraire sa clé
+  personne ne l'atteignent jamais. Une session lancée par `latet claude` a besoin, elle, de sa clé
   de lancement : son identifiant seul n'obtient aucun assouplissement du projet.
 
 ### Les clés de lancement
 
 Quand Latet lance un agent, il ouvre un lancement pour le dossier : une clé secrète tirée pour ce seul
 lancement, liée au projet du dossier et à vous. L'agent l'envoie avec ses requêtes dans un en-tête,
-`x-latet-launch-key`, que Latet vérifie et retire avant que quoi que ce soit soit transmis,
+`x-latet-launch-key`, que Latet vérifie et retire avant que quoi que ce soit ne soit transmis,
 enregistré ou journalisé ; Latet n'en garde qu'un hachage à clé. La clé prend fin avec le lancement :
 quand l'agent se termine, ou quand la commande qui l'a lancé est arrêtée.
 
@@ -90,27 +90,27 @@ quand l'agent se termine, ou quand la commande qui l'a lancé est arrêtée.
 | `latet run` | aucune : un programme qu'il lance n'a aucun moyen d'en porter une |
 
 La clé s'ajoute aux en-têtes que l'agent envoie déjà : les vôtres restent tels que vous les avez
-écrits, et demandent quand même une exception à eux. Un agent qui démarre sans clé en apprend la
+écrits, et ont toujours besoin d'une exception qui leur soit propre. Un agent qui démarre sans clé en apprend la
 raison en une phrase, comme `Latet: Codex older than 0.115 has no way to carry a launch key, so this
 session's project settings only add protection: their loosenings do not apply.`, et son projet est
 déclaré. Un dossier qui n'est pas l'un de vos projets ne demande pas de clé.
 
-- **Un secret pour Latet.** Dans la sortie d'un outil ou dans un message, une clé valide est masquée
+- **Un secret pour Latet.** Dans la sortie d'un outil ou dans un message, une clé active est masquée
   comme le jeton de Latet ; là où Latet ne peut pas la masquer (une requête qu'il ne fait que
-  vérifier), la requête est refusée, avec des mots qui disent de revenir en arrière ou de commencer une
+  vérifier), la requête est refusée, avec un message qui dit de revenir en arrière ou de commencer une
   nouvelle conversation.
 - **Détenue, pas liée à un processus.** Tout programme qui détient la clé compte comme ce lancement.
   Il tourne sous le même utilisateur, et Latet ne prétend pas distinguer les programmes.
 - **Inconnue, terminée ou celle d'un autre.** Une requête avec une clé que Latet ne connaît pas (son
   daemon a redémarré, par exemple) est jugée déclarée, jamais refusée pour cela. Une clé dont le
   lancement a pris fin, ou envoyée pour un autre projet ou par une autre personne, est refusée.
-- **Dans l'adresse.** Sur un ordinateur, Latet accepte aussi la clé au début du chemin de l'adresse,
-  une forme qu'aucune commande de lancement n'utilise ; un serveur Latet la refuse.
+- **Dans l'adresse.** Sur une machine, Latet accepte aussi la clé au début du chemin de l'adresse,
+  une forme qu'aucun lanceur n'utilise ; un serveur Latet la refuse.
 
 Le tableau de bord montre comment le lancement de chaque requête a été jugé : *Lancé par Latet, clé
 vérifiée*, *Lancé par Latet, clé manquante* (un agent lancé par Latet dont la requête est arrivée sans
 une clé que Latet peut vérifier : jugé déclaré), *Lié par le plugin Claude Code* (un Claude Code
-configuré durablement) ou *Non lancé par Latet* (déclaré). `latet doctor` nomme chaque agent lancé par Latet vu sans sa clé, avec sa
+configuré pour de bon) ou *Non lancé par Latet* (déclaré). `latet doctor` nomme chaque agent lancé par Latet vu sans sa clé, avec sa
 version.
 
 ## Le fichier du projet
@@ -118,8 +118,8 @@ version.
 `latet project init` en écrit un pour démarrer, à la racine du dépôt. La page **Règles** du tableau
 de bord l'écrit aussi : choisissez le projet dans le sélecteur en haut. Ses termes, reconnaisseurs et
 politiques sont des lignes des tableaux *Termes*, *Reconnaisseurs* et *Politiques*, marquées
-*latet.yaml*, et se modifient dans leur panneau ; un nouveau va dans le fichier quand le *Enregistrer
-dans* de son panneau dit `latet.yaml`. L'onglet *Fichier du dépôt* contient le reste du fichier, et
+*latet.yaml*, et se modifient dans leur panneau ; une nouvelle entrée va dans le fichier quand le champ
+*Enregistrer dans* de son panneau indique `latet.yaml`. L'onglet *Fichier du dépôt* contient le reste du fichier, et
 le crée.
 
 ```yaml
@@ -141,8 +141,8 @@ policies: {EMAIL: redact}
 **Une valeur ne remplace la vôtre que si elle est plus stricte :**
 - `profile` : secrets, puis balanced, puis max (qui y active le mode données strict, sauf si `data`
   est défini) ;
-- `policies` : allow, puis mask, puis redact, par rapport à la politique en vigueur (celle d'un
-  reconnaisseur comprise) ;
+- `policies` : allow, puis mask, puis redact, par rapport à la politique qui y est en vigueur (celle
+  d'un reconnaisseur comprise) ;
 - `include_private_ips` : seulement `true` ;
 - `ner` : seulement `auto` ;
 - `data` : seulement `strict` ; `images` : seulement moins d'images, `mask` puis `block` ; `ocr` :
@@ -153,8 +153,8 @@ policies: {EMAIL: redact}
 
 **Une liste s'ajoute à la vôtre :** `pii`, `id_regions`, `phone_regions`, `terms`, `recognizers`,
 `data_files`, `data_hosts` et `fields` (seulement les règles qui masquent). Un reconnaisseur de vos
-réglages pour le projet dont le nom ou le type est déjà utilisé par un des vôtres globaux est
-désactivé. Un reconnaisseur du fichier portant le nom ou le type d'un des vôtres, global ou pour le
+réglages pour le projet dont le nom ou le type est déjà utilisé par l'un de vos reconnaisseurs
+globaux est désactivé. Un reconnaisseur du fichier portant le nom ou le type d'un des vôtres, global ou pour le
 projet, s'applique tout de même, sous un nom ou un type qui lui est propre (`badge-repo`,
 `BADGE_REPO`) : les deux s'appliquent ; à type égal, les deux types prennent la plus stricte des
 deux politiques ; et la page du projet l'indique, avec le nom et le type utilisés. Pour un champ, la
@@ -188,7 +188,7 @@ clonez ne peut pas réduire votre protection.
 
 `latet project check` se termine avec le code 1 quand quelque chose dans le fichier est ignoré ou
 qu'un exemple échoue, et avec le code 2 quand il n'y a pas de fichier ou qu'il ne peut pas être lu : une tâche de CI peut
-ainsi garder le fichier propre. Son [JSON Schema](https://docs.latet.ai/project.schema.json) (aussi
+ainsi garder le fichier propre. Son [JSON Schema](https://docs.latet.ai/project.schema.json) (également fourni par
 `latet config schema --project`) permet aux éditeurs de le compléter et de le vérifier.
 
 ## Vos réglages pour un projet
@@ -215,7 +215,8 @@ Latet considère le projet comme [de confiance](#de-confiance-et-déclarés) :
 - des champs laissés en clair en mode données strict, le mode données strict désactivé
   (`data: normal`), des images envoyées, le garde-fou anti-extraction relevé ou désactivé.
 
-Le texte des images non lu dans le projet (`ocr: off`) y arrête toute requête qui porte une image.
+Quand le texte des images n'y est pas lu (`ocr: off`), toute requête du projet qui porte une image
+est arrêtée.
 
 Seuls vos propres réglages activent ou désactivent le [Relecteur en direct](../live-review/) dans un
 projet (`live_review`), et y donnent des consignes au relecteur local (`review_guidance`, voir
@@ -226,7 +227,7 @@ dossier le plus proche l'emporte. `latet rules add FILE --project FOLDER` y ajou
 
 Sur la page **Règles** du projet dans le tableau de bord, chaque liste (termes, reconnaisseurs,
 valeurs à ne jamais masquer, politiques) est un tableau de toutes les règles qui s'appliquent dans le
-projet, et chaque ligne dit d'où elle vient : *les vôtres, pour* le projet, *latet.yaml*, ou
+projet, et chaque ligne dit d'où elle vient : *à vous, pour* le projet, *latet.yaml*, ou
 *globale*. Une règle se modifie là où elle naît : les vôtres dans les tableaux du projet, les globales
 dans les règles globales (le panneau d'une ligne globale est en lecture seule, avec un lien vers
 elles). *Ajouter* écrit dans vos propres réglages pour le projet.
@@ -240,8 +241,8 @@ réglages pour le projet.
 
 `latet project off` désactive Latet dans le projet du dossier courant (ou du dossier indiqué).
 *Protection : Désactivée* fait de même. Latet n'envoie alors aucune requête du projet :
-- chacune est refusée, en HTTP et par un WebSocket, que le projet soit de confiance ou déclaré, avec des mots
-  qui disent comment y réactiver Latet ou joindre directement le fournisseur
+- chacune est refusée, en HTTP et par un WebSocket, que le projet soit de confiance ou déclaré, avec un message
+  qui dit comment y réactiver Latet ou joindre directement le fournisseur
   ([Passer à la 0.11](../../getting-started/upgrading-to-0-11/#un-projet-où-latet-est-désactivé)) ;
 - `latet project off` et l'interrupteur du tableau de bord le disent avant de le désactiver ;
 - le tableau de bord marque ces échanges *Latet désactivé*.
@@ -282,16 +283,16 @@ latet repositories                       # each repository remembered, with its 
 latet repositories forget C:\dev\old-app # takes one out of the list
 ```
 
-`latet repositories` présente chacun comme *read* (lu), *nothing to weigh* (rien à peser : absent pour
+`latet repositories` présente chacun comme *read* (lu), *nothing to weigh* (rien à évaluer : absent pour
 le moment, pas un fichier ordinaire, pas valide) ou *unavailable* (indisponible : illisible pour le
 moment, pas lu à temps), jamais ce que contient son fichier. `latet repositories forget` réduit la
 protection : il refuse donc de s'exécuter dans un agent, et vous demande confirmation avant d'en
-oublier un. Lancez-le vous-même, dans un terminal à vous. Le dépôt est de nouveau retenu, et pesé,
+oublier un. Lancez-le vous-même, dans un terminal à vous. Le dépôt est de nouveau retenu, et évalué,
 dès qu'une conversation l'atteint.
 
 Quand `repositories.json` lui-même ne peut pas être lu (un dossier, un lien ou un fichier plus grand
-que la liste ne peut l'être se trouve à sa place), un changement qui pourrait baisser la protection
-dans un dépôt ne s'applique pas et ne vous attend pas non plus, et `latet repositories` le dit. Si
+que la liste ne peut l'être se trouve à sa place), une modification qui pourrait réduire la protection
+dans un dépôt ne s'applique pas et n'attend pas non plus votre approbation, et `latet repositories` le dit. Si
 cela dure, déplacez `repositories.json` ailleurs, dans un terminal à vous : Latet retient alors de
 nouveau les dépôts à mesure que les conversations les atteignent.
 
@@ -304,7 +305,7 @@ nouveau les dépôts à mesure que les conversations les atteignent.
 | `latet project check [FOLDER]` | Vérifie le fichier du projet, reconnaisseurs compris |
 | `latet project off` / `on [FOLDER]` | Désactive Latet dans un projet, où ses requêtes sont alors refusées, ou le réactive |
 | `latet repositories` | Les dépôts dont Latet se souvient, chacun avec son état |
-| `latet repositories forget FOLDER` | En retire un de la liste (à vous seul : refuse un agent) |
+| `latet repositories forget FOLDER` | En retire un de la liste (à vous seul : la commande refuse de s'exécuter dans un agent) |
 | `latet rules add FILE --repo FOLDER` | Ajoute des reconnaisseurs au fichier du projet au lieu de `config.yaml` (`--project` : à vos réglages pour le projet) |
 | `latet config schema --project` | Affiche le JSON Schema du fichier du projet |
 

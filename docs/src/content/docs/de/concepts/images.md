@@ -16,14 +16,14 @@ bei Text.
 latet ocr install   # downloads the models once (about 31 MB)
 ```
 
-- Die Modelle laufen mit dem Extra `ocr` (ONNX Runtime und Pillow), das die Installer zusammen mit
-  Latet installieren; `latet upgrade` fügt es einer Latet-Installation hinzu, der es fehlt.
+- Die Modelle laufen mit dem Extra `ocr` (ONNX Runtime und Pillow), das die Installationsskripte
+  zusammen mit Latet installieren; `latet upgrade` fügt es einer Latet-Installation hinzu, der es fehlt.
 - Es sind die Modelle [PP-OCRv6 small](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx)
   von PaddleOCR, eines, das die Textzeilen findet, und eines, das sie liest, unter der Lizenz
   Apache-2.0. Sie stammen von huggingface.co in einer festgelegten Revision, und jede Datei wird vor
   der Verwendung mit einem festgelegten SHA-256-Hash abgeglichen.
 - Sie laufen auf Ihrer CPU, in etwa einer Sekunde für einen Full-HD-Screenshot, in wenigen Sekunden
-  für den eines 4K- oder 5K-Bildschirms und in einigen Sekunden mehr für den Screenshot einer ganzen
+  für den eines 4K- oder 5K-Bildschirms und in mehreren Sekunden für den Screenshot einer ganzen
   Seite. Nichts wird irgendwohin gesendet, und Latet verbindet sich nur dann mit huggingface.co,
   wenn Sie `latet ocr install` ausführen.
 - Ein laufender Daemon verwendet sie sofort. `latet ocr status` zeigt, ob sie verwendet werden;
@@ -58,7 +58,7 @@ als 20 MB oder 40 Megapixel ist, eines, das kein gültiges Bild ist, eines, das 
 lang oder für seine Höhe so breit ist, dass es in mehr als 16 Teilen gelesen werden müsste (der
 Screenshot einer Seite, die länger als etwa 29.000 Pixel ist), und jedes Bild, solange die Modelle
 noch laden (eine Anfrage wartet bis zu 20 Sekunden auf sie). Aus einer Anfrage, die Latet nur
-prüft, wie denen von Claude Code, lässt sich kein Bild herausnehmen: Eine mit einem Bild, das Latet
+prüft, etwa einer von Claude Code, lässt sich kein Bild herausnehmen: Eine mit einem Bild, das Latet
 nicht lesen kann, wird nicht gesendet.
 
 ## Welche Bilder
@@ -89,7 +89,7 @@ unter **Regeln** → **Schutz** → **Produktionsdaten**, in der
 - Mit `ocr: off` wird, wie ohne Texterkennung, keine Anfrage mit einem Bild gesendet.
 - Ein Agent, der gestoppt wird, erhält einen Fehler, der sagt, warum und was zu tun ist. Ohne
   Texterkennung erfährt er, dass er `latet ocr install` ausführen und eine neue Unterhaltung beginnen
-  soll, da das Bild in ihrem Verlauf bleibt:
+  soll, da das Bild in seinem Verlauf bleibt:
 
   ```text
   Latet cannot read this image's text: text recognition is not installed. On a computer, latet ocr install installs it; on a Latet server, its administrator installs it there. Then rewind to before the image or start a new conversation, because the image stays in its history.
@@ -106,8 +106,8 @@ Farbprofils), von der abschließenden Prüfung gelesen; und die Pixel des Hauptb
 Texterkennung gelesen hat. Was übrig bleibt, wird nicht gesendet:
 
 - ein Standort (GPS) in den Metadaten eines Fotos;
-- die Angaben, die der Hersteller einer Kamera in einer eigenen Form schreibt;
-- die Vorschau, die eine Kamera in einem Foto ablegt, und jedes andere Bild darin, etwa die Tiefen-
+- die Angaben, die der Hersteller einer Kamera in einem eigenen Format schreibt;
+- das Vorschaubild, das eine Kamera in einem Foto ablegt, und jedes andere Bild darin, etwa die Tiefen-
   und Verstärkungskarten eines Porträtfotos vom Handy;
 - alles, was nach dem Ende des Bildes folgt, etwa das Video eines Live-Fotos.
 
@@ -123,7 +123,7 @@ der Vorschau unter macOS *Werkzeuge*, *Informationen einblenden*, *Ortsinformati
 unter Windows in den *Eigenschaften* der Datei *Details*, *Eigenschaften und persönliche Informationen
 entfernen*. Ein gewöhnlicher Screenshot hat nichts davon und geht durch.
 
-Ein ursprüngliches WebP-Bild lässt sich dort nicht Byte für Byte erklären und wird ebenfalls
+Ein ursprüngliches WebP-Bild lässt sich dort nicht Byte für Byte erfassen und wird ebenfalls
 abgelehnt: Exportieren Sie es als PNG, setzen Sie dann zurück oder beginnen Sie eine neue
 Unterhaltung. Eine Anfrage, die Latet umschreibt, sendet ein WebP-Bild neu als PNG geschrieben.
 
@@ -163,7 +163,7 @@ sendet:
 
 ## Was die Texterkennung nicht kann
 
-- **Wie bei Namen gibt es keine Garantie.** Text, den Latet nicht liest (sehr klein, blass,
+- **Sie arbeitet ohne Gewähr, wie bei Namen.** Text, den Latet nicht liest (sehr klein, blass,
   handschriftlich, gedreht, in einer stilisierten Schrift), wird unverändert gesendet. Für
   Screenshots, die Ihren Rechner nie verlassen dürfen, verwenden Sie `images: block`, die Rechtecke
   des Live-Prüfers oder den lokalen Prüfer, dem Sie die Bilder zeigen.
@@ -174,7 +174,7 @@ sendet:
   gelesenen Ersatzwert, für den Latet den echten Wert nicht wieder einsetzen kann.
 - **PDFs und andere Dokumente werden nicht gelesen**, ebenso wenig per Adresse eingebundene Bilder:
   Eine Anfrage, die eines enthält, wird nicht gesendet.
-- **QR-Codes und Strichcodes werden nicht entschlüsselt.** Die Texterkennung liest Text: Die Daten,
+- **QR-Codes und Strichcodes werden nicht dekodiert.** Die Texterkennung liest Text: Die Daten,
   die ein Code enthält, gehen mit dem Bild hinaus. Senden Sie keinen Code, der einen Wert enthält, den
   Sie schützen.
 - **Nur Text.** Gesichter, Unterschriften, Logos und Handschrift werden nicht überdeckt.

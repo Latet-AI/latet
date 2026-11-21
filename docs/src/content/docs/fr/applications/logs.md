@@ -25,8 +25,8 @@ latet server --server https://latet.acme.lan keys add-token "Shop logs" support 
 ```
 
 L'application détient `shipper.token`, qui peut masquer et ne peut voir aucune vraie valeur ; l'outil
-de support détient `support.token`, qui peut restaurer et rien d'autre. Le premier jeton,
-`shop-logs.key`, reste chez l'administrateur : il a toutes les permissions. Les lignes masquées avec
+de support détient `support.token`, qui peut restaurer et rien d'autre. Laissez le premier jeton,
+`shop-logs.key`, à l'administrateur : il a toutes les permissions. Les lignes masquées avec
 une autre clé reçoivent d'autres valeurs factices : gardez une seule clé pour les services dont vous
 cherchez les journaux ensemble.
 
@@ -78,24 +78,24 @@ dans les lignes des appels précédents, qui ont déjà reçu leur réponse. Uti
 les journaux ([prose et données](../#prose-et-données)).
 
 Quand l'appel échoue, gardez les lignes et réessayez, ou abandonnez-les : ne les envoyez jamais sans
-les masquer. Le client réessaie de lui-même un 429 et un 503 (trois fois, après l'attente que demande
+les masquer. Le client réessaie de lui-même après un 429 ou un 503 (trois fois, après l'attente que demande
 le serveur) avant de lever l'erreur. Masquer deux fois les mêmes lignes donne les mêmes valeurs
 factices : réessayer est donc sans risque.
 
-Chaque refus du serveur est une `LatetError`, avec son statut et ses mots, et un appel qui n'a pas
+Chaque refus du serveur est une `LatetError`, avec son statut et son message, et un appel qui n'a pas
 abouti est une `ConnectionFailed` (statut 0). `ConnectionFailed` prend la place des erreurs de
 `httpx`, y compris celles d'un `httpx.Client` que vous passez en `client=`, et ne contient pas la
 requête, pour que le jeton ne figure dans aucune erreur : interceptez les erreurs du client, pas
 celles de `httpx`. Une adresse `http://` d'une autre machine donne un `ClearTextWarning`, parce que le
-jeton et les lignes circuleraient en clair. Le client en juge par la seule adresse : un `client=` à
-vous qui atteint le serveur en TLS par un autre chemin reçoit donc aussi l'avertissement ; le module
+jeton et les lignes circuleraient en clair. Le client en juge par la seule adresse : votre propre
+`client=`, même s'il atteint le serveur en TLS par un autre chemin, reçoit donc aussi l'avertissement ; le module
 `warnings` de Python le fait taire.
 
 ## Le format des lignes
 
 Ce que les détecteurs reconnaissent est masqué où qu'il se trouve dans une ligne : adresses e-mail,
 IBAN, numéros de carte, adresses IP publiques, jetons et clés, les termes et reconnaisseurs de la clé.
-Pour le reste, réglez les règles de la clé
+Pour le reste, définissez les règles de la clé
 ([réglages partagés et règles des clés d'API](../../getting-started/server/#définir-les-réglages-partagés-et-les-règles-des-clés-dapi)) :
 
 - Les **règles de champ** masquent les valeurs d'un champ d'après son nom, comme `phone` ou
@@ -104,7 +104,7 @@ Pour le reste, réglez les règles de la clé
   par sa clé dans du JSON, et dans les lignes `clé=valeur` où une valeur qui contient des espaces est
   entre guillemets : `phone="+39 347 123 4567"`. Une valeur sans guillemets s'arrête au premier
   espace. Écrivez vos lignes de journal en JSON, ou mettez ces valeurs entre guillemets.
-- Les **termes** et les **reconnaisseurs** attrapent vos propres noms et formats : le nom d'un client,
+- Les **termes** et les **reconnaisseurs** repèrent vos propres noms et formats : le nom d'un client,
   un numéro de commande écrit `ORD-123456` ([reconnaisseurs personnalisés](../../concepts/custom-recognizers/)).
 - Les **noms** dans le texte libre d'un message sont trouvés avec le modèle local de noms installé sur
   le serveur, dans les textes `prose` ; dans les textes `data`, avec le profil `max`.
@@ -130,16 +130,16 @@ journal d'administration du serveur, avec le jeton et le nombre de valeurs resta
 
 ## À quelle vitesse, et combien d'instances
 
-Sur une instance, le masquage traite environ 190 lignes par seconde pour une clé nouvelle et de 410 à
+Sur une instance, le masquage traite environ 190 lignes par seconde pour une nouvelle clé et de 410 à
 440 pour une clé dont le coffre-fort contient de 200 000 à 1 000 000 de valeurs ; la restauration de
 1 500 à 2 700 ([les mesures](../#à-quelle-vitesse)). Les appels d'une clé s'exécutent l'un après
 l'autre sur une instance : un service qui journalise plus vite a donc besoin de plus d'instances
 derrière le répartiteur de charge, ou de répartir ses lignes entre des clés dont les clients n'ont pas
 besoin d'être suivis ensemble.
 
-Un appel garde les lignes en mémoire jusqu'à sa réponse : expédiez depuis une file d'attente à vous,
+Un appel garde les lignes en mémoire jusqu'à sa réponse : expédiez depuis votre propre file d'attente,
 pour qu'un serveur lent ou injoignable retarde les journaux au lieu de les perdre ou de les envoyer
-sans masque.
+sans les masquer.
 
 ## Sans Python
 

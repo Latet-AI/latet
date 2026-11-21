@@ -5,7 +5,7 @@ description: Haz pasar Gemini CLI, los SDK Google GenAI y Gemini en Vertex AI po
 
 Gemini CLI y los programas construidos sobre los SDK GenAI de Google usan el **modo puerta de
 enlace**: el daemon local enmascara las peticiones y restaura las respuestas. Cubre la Gemini API con
-una clave de API, y Gemini en Vertex AI, con un proyecto de Google Cloud o en modo express con una
+una clave de API, y Gemini en Vertex AI, con un proyecto de Google Cloud o en modo exprés con una
 clave de API.
 
 ## URL base
@@ -18,12 +18,12 @@ clave de API.
 Tu clave de API o tu acceso a Google Cloud se quedan donde están. La puerta de enlace los reenvía sin
 cambios (una clave en la cabecera `x-goog-api-key` o en el parámetro `key` de la dirección, un token
 de Vertex en `Authorization`) y nunca escribe su valor en los registros, en el panel ni en una
-captura. En Vertex, cada petición va a la dirección de la location que nombra.
+captura. En Vertex, cada petición va a la dirección de la ubicación que nombra.
 
 ## Gemini CLI
 
 Haz pasar Gemini CLI por Latet con el wrapper. Inicia el daemon si hace falta, fija las dos URL base
-solo para esa ejecución y pasa cada argumento a `gemini`:
+solo para esa ejecución y pasa todos los argumentos a `gemini`:
 
 ```sh
 latet gemini
@@ -33,8 +33,8 @@ latet gemini -p "write the release notes for the payments module"
 `latet gemini` también da a Gemini CLI una clave de lanzamiento en `GEMINI_CLI_CUSTOM_HEADERS`,
 añadida a las cabeceras que defines ahí, para que Latet considere de confianza el proyecto de la
 sesión; donde no puede comprobar que Gemini CLI la enviará, no pasa ninguna, lo dice, y el proyecto que
-nombra Gemini CLI queda declarado ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)). Las cabeceras
-tuyas en `GEMINI_CLI_CUSTOM_HEADERS` se rechazan, nombrando cada una, hasta que una
+nombra Gemini CLI queda declarado ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)). Cada
+cabecera propia que pongas en `GEMINI_CLI_CUSTOM_HEADERS` se rechaza, con su nombre, hasta que una
 [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la deje pasar.
 
 Gemini CLI lee `GEMINI_CLI_CUSTOM_HEADERS` desde la versión 0.19.0, y Latet ha comprobado cómo las envía
@@ -59,14 +59,15 @@ En Gemini CLI, `/auth` elige cómo llega a su modelo, y la elección se guarda e
 
 - **Una clave de API** (`gemini-api-key`): la contiene `GEMINI_API_KEY`.
 - **Vertex AI** (`vertex-ai`): `GOOGLE_GENAI_USE_VERTEXAI=true`, con `GOOGLE_CLOUD_PROJECT` y
-  `GOOGLE_CLOUD_LOCATION` y tu acceso a Google Cloud, o solo `GOOGLE_API_KEY` en modo express.
+  `GOOGLE_CLOUD_LOCATION` y tu acceso a Google Cloud, o solo `GOOGLE_API_KEY` en modo exprés.
 
 Si todavía no hay nada elegido, `latet gemini` propone la clave de API en el diálogo de Gemini CLI, o
-Vertex AI cuando está definido `GOOGLE_GENAI_USE_VERTEXAI=true`. Una ejecución con `-p` necesita que la elección esté hecha antes: fija `selectedType` como arriba.
+Vertex AI cuando está definido `GOOGLE_GENAI_USE_VERTEXAI=true`. Una ejecución con `-p` necesita que
+la elección esté hecha antes: fija `selectedType` como arriba.
 
-**Con el acceso de Google**, ya lo elijan tus ajustes, los del proyecto (`.gemini/settings.json`
-en la carpeta en la que lo inicias) o los del equipo, Gemini CLI envía sus peticiones a un endpoint
-que Latet no lee, así que no se enmascararía nada. En ese caso `latet gemini` no lo inicia, y dice
+**Con el inicio de sesión con Google**, ya lo elijan tus ajustes, los del proyecto
+(`.gemini/settings.json` en la carpeta en la que lo inicias) o los del equipo, Gemini CLI envía sus
+peticiones a un punto de conexión que Latet no lee, así que no se enmascararía nada. En ese caso `latet gemini` no lo inicia, y dice
 dónde está hecha la elección y qué elegir en su lugar.
 
 ### Estadísticas de uso
@@ -95,11 +96,11 @@ reply = client.models.generate_content(
 print(reply.text)
 ```
 
-Ejecútalo con `latet run python welcome.py`: Google lee una dirección falsa de la misma forma, y el
-script imprime el correo con la verdadera. Las respuestas en streaming funcionan igual, trozo a
-trozo.
+Ejecútalo con `latet run python welcome.py`: Google lee una dirección ficticia con el mismo formato, y
+el script imprime el correo con la real. Las respuestas en streaming funcionan igual, fragmento a
+fragmento.
 
-El endpoint de Google compatible con OpenAI también pasa por Latet: da a un cliente de OpenAI la URL
+El punto de conexión de Google compatible con OpenAI también pasa por Latet: da a un cliente de OpenAI la URL
 base `http://127.0.0.1:5283/gemini/v1beta/openai`.
 
 ## Qué lee la puerta de enlace
@@ -119,7 +120,7 @@ base `http://127.0.0.1:5283/gemini/v1beta/openai`.
 - **Cualquier otra petición con cuerpo** en estas rutas se rechaza, con un error que lo dice, y un
   WebSocket de la Live API se cierra antes de que pase nada: la Interactions API, la Live API, la
   Batch API, la subida de archivos y el `:predict` de Vertex (sus propios embeddings y modelos de
-  imágenes) llevan una conversación en formas que Latet no lee (están en la
+  imágenes) llevan una conversación en formatos que Latet no lee (están en la
   [hoja de ruta](../../roadmap/)). La lista de modelos y la lectura de un modelo pasan; cualquier otra
   llamada sin cuerpo también se rechaza.
 - La cabecera de la biblioteca cliente de Google `x-goog-api-client` se quita; tu clave de API, en el
@@ -127,7 +128,7 @@ base `http://127.0.0.1:5283/gemini/v1beta/openai`.
 
 ## Límites
 
-- **Gemini CLI con el acceso de Google** no está cubierto (ver arriba).
+- **Gemini CLI con el inicio de sesión con Google** no está cubierto (consulta más arriba).
 - **Antigravity CLI** acepta una URL base con una clave de API (`GOOGLE_GEMINI_BASE_URL`), pero su
   documentación no dice qué protocolo de Google habla entonces, y no está verificado con Latet. Si
   usa la Interactions API, Latet rechaza sus peticiones en lugar de enviarlas sin enmascarar.

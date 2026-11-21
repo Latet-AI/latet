@@ -18,6 +18,7 @@ from latet.server import bus as bus_module
 from latet.server.app import CHANNELS
 from latet.server.bus import Bus
 
+from ..owned import owned
 from .conftest import BUS_KEY, _valkey_client, drop_listeners
 
 pytestmark = pytest.mark.server
@@ -606,7 +607,7 @@ def test_the_documented_valkey_acl_matches_the_servers_channels_and_prefix():
 
 async def test_the_documented_valkey_acl_runs_the_bus_and_refuses_admin_commands(settings):
     """Real test Valkey, one owned user/prefix: literal ear patterns, Lua and scoped purge."""
-    username = "latet_t_" + uuid4().hex
+    username = owned("latet_t_" + uuid4().hex, "valkey-user", settings.valkey_url)  # its keys: username + ":"
     prefix, password = username + ":", "test-only-" + uuid4().hex
     address = urlsplit(bus_module.redis_url(settings.valkey_url))
     assert address.hostname in {"127.0.0.1", "::1"} and not address.query and not address.fragment

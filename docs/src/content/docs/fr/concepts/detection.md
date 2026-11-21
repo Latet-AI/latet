@@ -3,8 +3,8 @@ title: Détection
 description: Comment Latet reconnaît les secrets et les données personnelles, entièrement sur votre machine.
 ---
 
-La détection s'exécute sur votre machine, ou sur le serveur Latet auquel votre ordinateur est
-connecté : aucun service de détection dans le cloud n'est jamais appelé. Plusieurs détecteurs lisent
+La détection s'exécute sur votre machine, ou sur le serveur Latet auquel votre machine est
+connectée : aucun service de détection dans le cloud n'est jamais appelé. Plusieurs détecteurs lisent
 chaque morceau de texte que contient une requête. Cette
 page les explique avec des exemples ; la [référence des détecteurs](../../reference/detectors/) liste
 chaque détecteur et chaque règle de secrets.
@@ -16,19 +16,19 @@ Les secrets sont masqués dans tous les [profils](../profiles/).
 Les identifiants de Latet sont inclus : `LATET_PERSONAL_TOKEN` (`latet_pat_`), `LATET_COMPUTER_KEY`
 (`latet_ck_`), `LATET_API_KEY` (`latet_key_`), `LATET_ADMIN_TOKEN` (`latet_adm_`),
 `LATET_SCIM_TOKEN` (`latet_scim_`, le jeton SCIM d'un serveur Enterprise), `LATET_BRIDGE_TOKEN`
-(`latet_brg_`, le jeton que le plugin Claude Code donne au daemon de votre ordinateur), `LATET_LAUNCH_KEY`
-(`latet_lk_`, la clé que `latet claude`, `latet codex` et les autres commandes de lancement donnent à
+(`latet_brg_`, le jeton que votre plugin Claude Code donne au daemon de votre machine), `LATET_LAUNCH_KEY`
+(`latet_lk_`, la clé que `latet claude`, `latet codex` et les autres lanceurs donnent à
 l'agent qu'elles démarrent, et qu'une commande qui affiche l'environnement de l'agent met dans la sortie
 d'un outil) et
 `LATET_ONE_TIME_CODE` (`latet_code_`, le code qu'un administrateur donne à une personne pour connecter
-un ordinateur), chaque préfixe suivi de 43 caractères compatibles avec les URL (32 pour le code à
+une machine), chaque préfixe suivi de 43 caractères compatibles avec les URL (32 pour le code à
 usage unique ; `A-Z`, `a-z`, `0-9`, `_`, `-`). Un jeton du bridge ou un code à usage unique créé par une
 version précédente n'a pas de préfixe : il est masqué d'après le nom sous lequel il est écrit, comme
 tout secret. Dans `https://<host>/u/<route-key>`, les
 16 à 128 caractères compatibles avec les URL de la clé de routage sont masqués comme `LATET_ROUTE_KEY` ; l'hôte et les autres
-segments du chemin restent. Cela s'applique sur votre ordinateur et dans un espace serveur, y compris
+segments du chemin restent. Cela s'applique sur votre machine et dans un espace sur un serveur, y compris
 aux dumps d'environnement, au fichier `settings.json` de Claude Code et au fichier `config.toml` de
-Codex. Les appels aux outils locaux retrouvent les valeurs réelles. Un appel à un outil externe qui
+Codex. Les appels d'outils locaux retrouvent les vraies valeurs. Un appel d'outil sortant qui
 contient une valeur factice est arrêté lorsque Latet peut l'intercepter (voir [Périmètre de protection](../protection-scope/)).
 
 - **Formats connus.** Le jeu de règles par défaut de [gitleaks](https://github.com/gitleaks/gitleaks)
@@ -42,7 +42,7 @@ contient une valeur factice est arrêté lorsque Latet peut l'intercepter (voir 
   pas. Les espaces réservés comme `changeme`, `${DB_PASSWORD}` ou `<your-key>` ne sont pas touchés,
   pas plus que les références dans le code comme `process.env.API_KEY`. Une paire `password=...` est
   masquée où qu'elle se trouve dans une ligne, après d'autres mots dans un journal
-  (`INFO login ok password=...`), entre parenthèses, dans la requête d'une URL ou après `--` dans une
+  (`INFO login ok password=...`), entre parenthèses, dans les paramètres de requête d'une URL ou après `--` dans une
   commande (`--password=...`) ; après un nom fort (`password`, `secret`, `api_key`, `access_token`...),
   une valeur littérale entre guillemets est aussi masquée après deux-points ou un signe égal entouré
   d'espaces (`{ password: 's3cr3t' }`, `SET password = '...'`). Une comparaison (`token==expected`)
@@ -55,13 +55,13 @@ contient une valeur factice est arrêté lorsque Latet peut l'intercepter (voir 
   `inactive`, `skipped` et `passed`. Et, sous un nom qui se termine par `status`, `state`, `result`,
   `results`, `outcome`, `scheme`, `changed`, `reason` ou `error` (`auth_status`, `token_error`,
   `password_changed`), une valeur de la forme d'un état : un mot en minuscules de 20 caractères au plus
-  avec un seul `-` ou `_` au plus, un nombre de 10 chiffres au plus, une heure, une date ou un booléen ;
+  avec au plus un `-` ou un `_`, un nombre de 10 chiffres au plus, une heure, une date ou un booléen ;
   toute autre valeur à cet endroit (`password_changed=Winter2024x`, une phrase secrète comme
   `correct-horse-battery-staple`, un nombre plus long) est masquée. Un nom qui se termine par `reset`,
   `source`, `arg`, `option` ou
-  `flag` reste le nom d'un secret (`password_reset`, `token_source`), et seule une option qui se termine
-  ainsi (`--pass-arg=...`) reste telle quelle après `--` au milieu d'une ligne, car elle prend le nom
-  de quelque chose.
+  `flag` reste le nom d'un secret (`password_reset`, `token_source`), et une option qui se termine ainsi
+  (`--pass-arg=...`) n'est laissée telle quelle qu'après `--` au milieu d'une ligne, car elle prend le
+  nom de quelque chose.
 - **Clés privées** : tout le corps d'un bloc de clé privée PEM, OpenSSH ou PGP. Les lignes `BEGIN` et
   `END` restent visibles, pour que le modèle sache toujours qu'une clé se trouve là.
 - **Identifiants** : le mot de passe dans `postgres://user:password@host/db` et d'autres URL, les JSON
@@ -84,20 +84,21 @@ et ce que reçoit le modèle quand l'agent le lit :
 ```sh
 APP_NAME=shop
 SMTP_HOST=mail.northwind-legal.com
-SMTP_PASSWORD=jeeepo3ixhbkw
-PAYMENTS_API_KEY=pk_3a8d1f6b0e9c2a7d4b5e
+SMTP_PASSWORD=7vdn5d1nku0hy
+PAYMENTS_API_KEY=gd_1a2f2438f7bc60e0f872
 ```
 
 Le nom d'hôte n'est pas un secret et reste tel quel. Le mot de passe et la clé sont remplacés par
 des valeurs factices de la même longueur et du même format (les vôtres seront différentes). Un
-secret de moins de douze caractères reçoit à la place une valeur factice plus longue des mêmes
-sortes, ses signes à leur place, de douze lettres et chiffres, quinze chiffres pour un nombre :
-`password=1234` part comme `password=582194736201937`, `token=ab12f3` comme `token=9e04c7b1d2fa`.
+secret de moins de douze caractères reçoit à la place une valeur factice plus longue, faite des
+mêmes sortes de caractères, ses signes restant à leur place (douze lettres et chiffres, quinze
+chiffres pour un nombre) : `password=1234` part comme `password=582194736201937`, `token=ab12f3` comme `token=9e04c7b1d2fa`.
 Une valeur factice aussi courte que la valeur apparaîtrait par hasard dans les identifiants et les
-nombres des textes suivants, et une restauration les changerait. Une valeur factice courte donnée
-avant Latet 0.10.2 (huit caractères ou moins) reste : une conversation la restaure comme avant, et
-`unmask` de l'[API pour les applications](../../applications/#le-coffre-fort-dune-clé), qui lit un
-coffre-fort entier, seulement là où elle est un mot entier.
+nombres des textes suivants, et la remise en place des vraies valeurs les modifierait. Une valeur
+factice courte donnée avant Latet 0.10.2 (huit caractères ou moins) reste : une conversation la
+remplace par la vraie valeur comme avant, et l'opération `unmask` de
+l'[API pour les applications](../../applications/#le-coffre-fort-dune-clé), qui lit un coffre-fort
+entier, ne le fait que là où elle forme un mot entier.
 
 ### Espaces réservés
 
@@ -119,7 +120,7 @@ quelle que soit la casse :
 affectation, une référence dans le code n'est pas touchée non plus : `process.env.API_KEY`,
 `os.environ["TOKEN"]`, `os.getenv(...)`, `config.`, `settings.`. Pour laisser en clair un espace
 réservé d'une autre forme, ajoutez-le aux valeurs à ne jamais masquer
-([listes d'autorisation](../profiles/#listes-dautorisation)), dans vos réglages pour un projet s'il appartient
+([listes d'autorisation](../profiles/#listes-dautorisation)), dans vos réglages pour ce projet s'il est propre
 à un projet.
 
 Une valeur faite de symboles seuls n'est pas touchée non plus, quel que soit ce qui la trouve et
@@ -157,8 +158,8 @@ Pays-Bas, la Pologne, le Portugal, le Royaume-Uni, la Suède et la Suisse. `id_r
 vôtre, et le profil `max` les prend tous. La page **Règles** du tableau de bord liste les numéros de
 chaque pays.
 
-Beaucoup de ces numéros ne sont qu'une suite de neuf ou onze chiffres, comme d'innombrables ID dans
-le code. Chacun est donc confirmé par ses chiffres de contrôle, et ceux qui pourraient encore être
+Beaucoup de ces numéros ne sont qu'une suite de neuf ou onze chiffres, comme d'innombrables identifiants
+dans le code. Chacun est donc confirmé par ses chiffres de contrôle, et ceux qui pourraient encore être
 n'importe quoi ont besoin d'un mot-clé à proximité : *SSN* ou *social security* à côté d'un numéro de
 sécurité sociale américain, *BSN* à côté d'un numéro de service citoyen néerlandais, *Steuer-ID* à
 côté d'un numéro d'identification fiscale allemand. Le mot-clé compte sur la même ligne, à quelques
@@ -185,7 +186,7 @@ Certaines choses ne sont volontairement pas touchées :
   sous `.example`, `.test`, `.invalid` et `.localhost`, et les expéditeurs système comme `git@` ou
   `noreply@` ;
 - dans le code et les sorties d'outils, les suites de chiffres sans `+`, `00`, espace ni parenthèses,
-  qui sont bien plus souvent des ID, des dates ou des numéros de build que des numéros de téléphone.
+  qui sont bien plus souvent des identifiants, des dates ou des numéros de build que des numéros de téléphone.
   Dans vos propres messages, les règles sont plus souples. Les numéros sans préfixe international ne
   comptent que pour les pays de `phone_regions` (`IT`, `US` et `GB` par défaut) ;
 - les numéros de version qui ressemblent à des adresses IP, comme `v1.2.3.4`.
@@ -193,7 +194,7 @@ Certaines choses ne sont volontairement pas touchées :
 ### Noms
 
 Les noms dans du texte libre, comme dans *Emily Carter a écrit ceci*, demandent un modèle
-statistique. Avec le [modèle local de noms](../../getting-started/installation/) facultatif installé,
+statistique. Si le [modèle local de noms](../../getting-started/installation/), facultatif, est installé,
 Latet trouve lui-même les noms et les adresses postales ; le [relecteur local](../llm-review/), un
 modèle de langage sur votre machine ou sur un serveur à vous, les trouve aussi, avec les informations
 de santé et les autres valeurs qu'aucun motif ne décrit. Sans l'un ni l'autre, un nom n'est masqué
@@ -235,7 +236,7 @@ Le modèle de noms fait de son mieux, sans garantie :
 - **Il prend certains mots pour des noms.** Les mots techniques comme *Redis* ou *Postgres* sont
   filtrés, et `balanced` exige au moins deux mots.
 - **Il est lent sur les longs textes.** Il lit environ 700 jetons par seconde sur le processeur d'un
-  ordinateur de bureau, dans un fil d'exécution à part, pour que les autres requêtes ne l'attendent
+  ordinateur de bureau, dans un thread à part, pour que les autres requêtes ne l'attendent
   pas. Un texte de plus de 4 096 jetons (8 192 en `max`), ou de plus de 16 000 caractères
   (64 000 en `max`), n'est pas lu, et la requête est signalée dans le tableau de bord.
 
@@ -267,7 +268,7 @@ signalent.
 Un terme compte au plus 8 192 caractères : un terme plus long est cherché à part, et un terme
 d'environ un million de lettres ne peut pas être cherché du tout. Le tableau de bord, `latet config`
 et un import refusent un terme plus long. Un terme écrit à la main dans `config.yaml` est laissé de
-côté, et `latet reload`, le journal du daemon et `latet config validate` disent quelle entrée ; un
+côté, et `latet reload`, le journal du daemon et `latet config validate` indiquent de quelle entrée il s'agit ; un
 terme dans le `latet.yaml` d'un projet est laissé de côté lui aussi, et la page du projet le dit.
 
 Pour un format plutôt qu'une valeur, comme tous les numéros de badge écrits `AB-123456`, écrivez un
@@ -294,10 +295,10 @@ que vous les y avez écrites, Latet utilise celles-ci.
 
 ## Valeurs connues
 
-Une fois qu'une valeur a été détectée, Latet la retient dans le coffre-fort. Ses occurrences suivantes
+Une fois qu'une valeur a été détectée, Latet la mémorise dans le coffre-fort. Ses occurrences suivantes
 sont masquées même là où les détecteurs ne la reconnaîtraient pas d'eux-mêmes : par exemple le mot de
 passe de votre `.env`, mentionné plus tard dans un message de commit. Deux sortes de valeurs ne sont
-pas retenues ainsi : une valeur que le mode données strict ou une règle de champ masque dans un
+pas mémorisées ainsi : une valeur que le mode données strict ou une règle de champ masque dans un
 tableau ou du JSON ne reste masquée que dans sa structure
 ([données de production](../production-data/#mode-données-strict)), et une valeur d'un type réglé sur
 `redact` n'est pas conservée du tout. Les valeurs connues sont aussi ce que la vérification finale
@@ -310,8 +311,8 @@ d'*Ugolino*.
 Une valeur est aussi trouvée là où elle est écrite avec des séquences d'échappement : `\u00f2` ou
 `\\u00f2` dans du JSON que Latet ne lit pas comme un document (un bloc de code, des lignes JSON, un
 document contenu dans une chaîne), des octets dans un journal (`\xc3\xb2`) ou dans un chemin que git
-met entre guillemets (`\303\262`), un encodage d'URL (`%C3%B2`, `%20`, ou `+` dans une requête ou un
-formulaire), ou une référence de caractère HTML (`&#242;`, `&ograve;`). Il en va de même pour vos
+met entre guillemets (`\303\262`), un encodage d'URL (`%C3%B2`, `%20`, ou `+` dans des paramètres de requête ou
+un formulaire), ou une référence de caractère HTML (`&#242;`, `&ograve;`). Il en va de même pour vos
 termes et l'identité de cette machine et, là où une séquence écrit un caractère, pour les données
 personnelles et les valeurs de vos reconnaisseurs : une adresse écrite `mario.rossi%40acme.it` est
 donc trouvée elle aussi (un secret ou une valeur d'une structure n'est trouvé que tel qu'il est
@@ -323,7 +324,7 @@ ligne. Là où le modèle écrit la valeur factice telle qu'elle se lit, `Paolo 
 la valeur telle qu'elle se lit. Le coffre-fort garde la façon dont chaque valeur a été trouvée, telle
 qu'elle est écrite ou là où ses séquences d'échappement se lisent : cela vaut donc pour une valeur de
 tout type trouvée ainsi. Un numéro de téléphone connu comme `333 1234567` et rencontré comme
-`333+1234567` dans une requête revient lui aussi comme `333 1234567`.
+`333+1234567` dans des paramètres de requête revient lui aussi comme `333 1234567`.
 
 ## Quand deux détecteurs trouvent le même texte
 
@@ -335,7 +336,7 @@ Rossi* sont toutes deux connues, le nom *Anna Maria Rossi* est masqué en entier
 sont cherchés jusqu'à une limite dans chaque texte : au-delà, le reste du texte est masqué comme
 avant, une valeur après l'autre.
 
-Si un détecteur autre que celui des données personnelles et le modèle local de noms échoue (secrets,
+Si un détecteur échoue, hormis celui des données personnelles et le modèle local de noms (secrets,
 vos termes, identité, valeurs connues), le masquage échoue et la requête est bloquée : rien ne part
 sans vérification. Si le détecteur des données personnelles ou le modèle local de noms échoue, il est
 ignoré et la requête est signalée dans le tableau de bord.

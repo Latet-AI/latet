@@ -1,0 +1,267 @@
+---
+title: Approbations centralisées
+description: Sur un serveur Latet, les modifications qui réduisent la protection et, si votre entreprise le choisit, les textes du Relecteur en direct, décidés par son équipe de sécurité au lieu de la personne qui les a demandés.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Sans approbations centralisées, une modification qui réduit la protection attend la personne dont elle change les
+réglages, et le [Relecteur en direct](../../concepts/live-review/) consulte cette personne pour chaque nouveau texte. Sur
+un [serveur Latet](../../getting-started/server/) avec Latet Enterprise, l'équipe de sécurité de votre entreprise peut
+décider à sa place. La personne qui attend voit qui décide, et peut retirer ce qu'elle a demandé, mais pas l'approuver.
+
+## Ce qui va à l'équipe de sécurité
+
+- **Les modifications qui réduisent la protection** dans les réglages d'une personne, celles que décrit
+  [Les agents et vos réglages](../../concepts/agents-and-settings/) : une valeur à ne jamais masquer, un profil plus
+  bas, le relecteur local désactivé, une destination déplacée. Sur un serveur, elles viennent des enregistrements de la
+  personne dans son tableau de bord, une importation de règles comprise, et de ce que le serveur trouve réduit quand il
+  applique de nouveau ses réglages ou crée son espace. Ce qui ajoute de la protection s'applique toujours tout de suite.
+- **Les textes du Relecteur en direct**, si votre entreprise le choisit. C'est le serveur qui masque : les textes s'y
+  trouvent déjà.
+
+Quand un administrateur abaisse les réglages partagés du serveur (`latet server config set`), chaque personne décide
+toujours de ce que cela change dans son propre espace, comme sans approbations centralisées : la modification figure dans
+le journal d'administration, et l'approbation de la personne protège son espace. Si les réglages personnels de la
+personne réduisent aussi la protection, la modification va plutôt à l'équipe de sécurité. C'est aussi le cas, pendant un
+temps, pour une personne dont la dernière approbation a été conservée par un Latet antérieur aux approbations
+centralisées : jusqu'à ce que ses réglages soient relus sans rien en attente, ou qu'elle approuve de nouveau une
+modification.
+
+Une seule modification attend à la fois dans un espace, et une plus récente la remplace. Quand une modification apportée
+par les réglages partagés remplace une demande de la personne qui attend l'équipe de sécurité, la personne la demande de
+nouveau. Quand c'est sa demande qui remplace une telle modification, les réglages qu'elle a approuvés restent en vigueur,
+et le serveur propose de nouveau cette modification la prochaine fois qu'il applique ses réglages (un enregistrement de
+sa part qui ajoute de la protection le provoque aussi) : celle-ci remplace alors sa demande, et elle la demande de
+nouveau.
+
+Une modification ne porte aucune valeur. Ce qui parvient à l'équipe de sécurité, c'est ce qu'elle réduit, tel que Latet
+le formule (*values never to mask: 1 added*), les réglages qu'elle touche, sa provenance et qui l'a demandée. La valeur
+elle-même, les consignes du relecteur local et l'adresse d'une destination restent chez la personne, dans son propre
+tableau de bord : demandez-les-lui quand vous en avez besoin.
+
+Une [exception de requête](../../getting-started/upgrading-to-0-11/#approuver-une-exception-exacte) demandée est une
+telle modification : elle parvient à l'équipe de sécurité avec sa destination et la façon dont elle réduit la
+protection, jamais avec une valeur d'une requête. Dès que quelqu'un de l'équipe de sécurité, ou une autre des personnes
+qui contrôlent une clé d'API, l'approuve, l'exception la nomme dans le tableau de bord de la personne, et l'entrée du
+journal d'administration pour une exception permanente (`exception.permanent`) l'a pour auteur. Avec
+`exceptions: company` dans les [règles verrouillées](../locked-rules/#exceptions) de l'entreprise, une exception
+de requête que quelqu'un demande va à l'équipe de sécurité, quelle que soit la personne qui décide du reste de ses modifications ;
+l'enregistrement des réglages d'une clé d'API par l'administration approuve toujours les exceptions qu'il ajoute.
+
+Un texte du Relecteur en direct, c'est autre chose : l'équipe de sécurité le voit comme la personne le voit, **valeurs
+comprises**, quand elle l'ouvre. C'est un choix de votre entreprise, et Latet l'indique à chaque personne, dans son
+tableau de bord et dans Claude Code. Là où la loi demande un accord avant d'utiliser un outil qui peut surveiller les
+salariés (en Italie et en Allemagne, par exemple), l'entreprise conclut d'abord cet accord.
+
+## Clés d'API
+
+Un programme avec une clé d'API n'approuve jamais rien. Une modification qui réduit la protection dans les réglages d'une
+clé va aux autres personnes qui [contrôlent la clé](../sign-in/#clés-dapi-et-qui-les-contrôle), ou aux administrateurs
+quand personne d'autre ne la contrôle : la personne qui fait la modification dans l'espace de la clé peut l'annuler, pas
+l'approuver. Une clé contrôlée par une seule personne envoie aux administrateurs les modifications que fait cette
+personne. Ce qu'un administrateur règle pour une clé avec un jeton d'administration (`latet server config --key …`)
+s'applique tout de suite, comme les réglages propres du serveur, et figure dans le journal d'administration. Quand
+l'équipe de sécurité décide des modifications, elle décide aussi de celles des clés. Les textes du Relecteur en direct
+d'une clé vont là où vont ceux des personnes.
+
+## Les activer
+
+Avec un jeton d'administration, depuis n'importe quelle machine :
+
+```sh
+latet server approvals set --changes security --live-review security
+latet server approvals show
+```
+
+Tant que vous ne les réglez pas, les deux valent `self` : chaque personne décide de ses propres modifications et de ses
+textes, et les modifications d'une clé vont aux autres personnes qui la contrôlent, comme ci-dessus. La licence doit
+inclure `approvals`. Chaque changement de qui décide est conservé dans le journal d'administration du serveur
+(`approvals.changed`, avec ce qui a changé et le jeton qui l'a changé). Il vaut pour ce qui s'ouvre ensuite : ce qui
+attend garde son circuit, même quand c'est demandé de nouveau. Réglez-le une fois que chaque instance exécute cette
+version avec Latet Enterprise : une instance d'une version antérieure n'oriente rien, et une personne peut y approuver
+sa propre modification. La commande indique combien d'instances en marche ne l'exécutent pas.
+
+Donnez ensuite le rôle Sécurité aux personnes qui décident ([Connexion, groupes et rôles](../sign-in/#rôles)), **au
+moins deux** : personne n'approuve sa propre demande, donc une personne seule attendrait indéfiniment ses propres
+modifications.
+
+Les textes ne vont à l'équipe de sécurité que là où ses membres les ouvrent avec le compte d'entreprise :
+`--live-review security` demande une [authentification unique](../sign-in/#authentification-unique) configurée, et
+exigée pour les modifications qui s'appliquent à tout le monde (`latet server sign-in set --company-changes sso`, la
+valeur par défaut).
+Sinon, la commande est refusée (409). Si les réglages de connexion changent par la suite, les textes continuent d'aller
+à l'équipe de sécurité, et `latet server status` avertit, selon le cas. Si l'authentification unique est supprimée,
+chaque texte attend sans être envoyé et personne ne peut en décider. Si les réglages de connexion cessent de demander le
+compte d'entreprise pour les modifications qui s'appliquent à tout le monde, chaque texte attend une personne de
+l'équipe de sécurité connectée avec ce compte, car une session ouverte avec `latet dashboard` n'ouvre jamais un texte.
+
+**Prévenez d'abord les personnes.** Chaque personne l'apprend dans son tableau de bord et à son premier texte, une fois
+le changement en vigueur ; la commande vous le rappelle. Les textes n'attendent que tant que le Relecteur en direct est activé, et une
+personne peut désactiver le sien. Avec `--changes security`, le désactiver réduit la protection : cela attend donc aussi
+l'équipe de sécurité.
+
+## Ce que voit la personne qui a demandé
+
+<Screenshot name="approvals-security" alt="La page Approbations d'une personne pour qui l'équipe de sécurité de son entreprise décide : une note qui nomme Daniel Okafor et Mark Ellis pour les modifications et pour les textes, et un texte en attente avec un bandeau indiquant que l'équipe de sécurité le relit, et le seul bouton Ne pas envoyer" caption="Approbations, là où l'équipe de sécurité décide : la personne peut arrêter un texte, pas l'approuver." />
+
+- **Dans le tableau de bord,** la page **Approbations** indique ce qui va à l'équipe de sécurité et qui en fait partie,
+  vingt noms au plus et combien d'autres personnes, ou que personne ne peut encore décider. Une modification y attend
+  avec *Une modification de vos réglages attend l'équipe de sécurité de votre entreprise* et leurs noms ; un texte
+  attend avec un bandeau indiquant que l'équipe de sécurité le relit, et le voit. La personne peut choisir
+  **L'annuler**, ou **Ne pas envoyer** pour le texte ; approuver revient à l'équipe de sécurité.
+- **Un enregistrement dans le tableau de bord** qui réduit la protection ne s'applique pas : il attend comme les autres
+  modifications, et la page le dit, avec les réglages en vigueur dans le formulaire.
+- **Dans Claude Code,** la ligne d'état affiche *waiting for your company's security team to approve it*, et un message
+  indique une fois par session qui relit les textes, ou que personne ne peut encore décider. Aucun tableau de bord n'a
+  besoin d'être ouvert. Les agents qui passent par les adresses du serveur attendent de la même façon, et Claude Code
+  reçoit la même indication quand il travaille avec le jeton d'une clé d'API.
+
+Quand l'équipe de sécurité décide d'une modification, le tableau de bord de la personne indique qui l'a approuvée, ou
+pas. Une modification approuvée après que les réglages de la personne ont changé est écartée (*stale*), comme elle le
+serait pour la personne elle-même : elle la demande de nouveau. Plus une modification attend, plus c'est probable. Quand
+ses réglages changent sur une autre instance du serveur au moment même où elle est approuvée, ou ne peuvent pas être
+enregistrés à ce moment, le tableau de bord affiche deux messages, l'un après l'autre : qu'elle a été approuvée, puis
+que ses réglages ne l'ont pas prise en compte. Elle la demande de nouveau.
+
+Un texte que l'équipe de sécurité a approuvé ne part que tel qu'elle l'a vu. Si, entre l'approbation et l'envoi, les
+réglages personnels de la personne, les réglages définis pour tout le monde ou son coffre-fort (une valeur oubliée)
+changent, de sorte qu'il partirait masqué autrement, il n'est pas envoyé : le tableau de bord le dit, et pour les agents
+qui passent par les adresses du serveur, la page de la requête explique pourquoi. Quand l'agent l'envoie à nouveau, il
+attend de nouveau l'équipe de sécurité. Il en va de même quand Latet refuse sa requête après l'approbation et avant son
+départ, pour toute autre raison : il n'est pas envoyé et, envoyé à nouveau, il attend de nouveau l'équipe de sécurité.
+
+## Ce que voit l'équipe de sécurité
+
+<Screenshot name="company-approvals" alt="La page Approbations de l'entreprise : une modification des réglages d'Emily Carter avec ce qu'elle réduit et les boutons Approuver et Refuser ; un texte que l'agent de Paul Ferris s'apprête à envoyer, ouvert, avec son original et ce qui sera envoyé ; et les décisions prises récemment" caption="Approbations de l'entreprise : ce qui attend l'équipe de sécurité, et ce qu'elle a décidé." />
+
+La page **Approbations de l'entreprise** est montrée aux personnes qui décident de quelque chose : l'équipe de sécurité,
+les personnes qui contrôlent une clé d'API, et les administrateurs (pour les clés que personne d'autre ne contrôle).
+Personne d'autre ne la voit, et on ne l'atteint pas depuis l'espace d'une clé d'API.
+
+- **Modifications des réglages :** qui l'a demandée (pour une clé d'API, qui a fait la modification dans son espace),
+  son groupe, qui décide, quand, d'où vient la modification, ce qu'elle réduit et quels réglages elle change.
+  **Approuver** l'applique aux réglages de cette personne ou de cette clé ; **Refuser** les laisse tels quels.
+- **Textes dans le Relecteur en direct :** listés selon la personne qui les a envoyés, son agent et leur nombre ; un
+  texte s'affiche quand vous l'ouvrez, l'original à côté de ce qui sera envoyé, et seulement dans une session du tableau
+  de bord ouverte avec votre compte d'entreprise : une session ouverte avec `latet dashboard` liste les textes et n'en
+  ouvre aucun. Masquez davantage avant d'approuver, ou choisissez **Ne pas envoyer**. Une valeur que vous masquez est
+  masquée dès lors dans le coffre-fort de cette personne ; la personne peut l'y oublier, comme toute autre de ses valeurs. Si
+  le texte est masqué de nouveau pendant que vous le regardez (ses réglages ou son coffre-fort ont changé),
+  **Approuver** l'affiche tel qu'il est maintenant et ne décide rien : vérifiez-le, puis décidez.
+- **Décidé récemment :** ce qui a été décidé, par qui et quand, avec ce que chaque modification réduisait. Jamais un
+  texte. *Personne* là où personne n'a décidé (retirée, délai écoulé, abandonnée, disparue, remplacée) ; *Non
+  enregistré* là où elle a été décidée mais où l'enregistrement n'a pas appris par qui.
+
+Vos propres demandes y figurent aussi, marquées *Demandé par vous* : quelqu'un d'autre en décide, et **Retirer** en
+arrête une. Le menu indique combien attendent votre décision, et avec *M'avertir* le navigateur vous prévient quand une
+arrive pendant que vous êtes dans un autre onglet. La page liste les 200 plus anciennes ; au-delà, une ligne indique
+combien d'autres attendent, et elles apparaissent à mesure que celles-ci sont décidées. Rien n'a de délai : une
+modification attend jusqu'à ce que quelqu'un décide. Un texte garde le délai du Relecteur en direct de la personne
+(`timeout_s`), si elle en a un, et quitte la file quand son agent abandonne.
+
+Tant que les réglages de connexion demandent la connexion d'entreprise pour ce qui s'applique à tout le monde
+(`company_changes: sso`), une décision demande une session du tableau de bord ouverte avec elle : une session ouverte avec
+`latet dashboard` lit la page et ne décide rien. Un texte la demande toujours.
+
+Quelle que soit l'instance du serveur qui vous sert, votre décision atteint la demande qui attend sur une autre : ce qui
+attend est conservé dans la base de données du serveur et dans Valkey, pas dans une seule instance. Si Valkey redémarre,
+les textes qui y attendent sont perdus et quittent la file comme abandonnés ; les modifications sont conservées. Une
+demande d'un compte désactivé ou supprimé entre-temps quitte la file comme *disparue*, puisque personne ne peut plus y
+exécuter de décision : une fois le compte réactivé, la personne retire une modification qui attend encore, et la demande
+de nouveau.
+
+## Quand la licence change
+
+Quand la licence expire ou est en pause, ce qui attend garde son circuit et l'équipe de sécurité continue de décider.
+Quand un essai se termine, la page liste ce qui attend et personne ne décide : un texte n'est pas ouvert, puisqu'aucune
+décision ne peut suivre, et le menu ne compte rien. La personne qui a demandé peut toujours le retirer depuis sa propre
+page **Approbations** ; une modification faite dans l'espace d'une clé d'API attend qu'une licence soit installée,
+puisque l'espace de la clé se ferme quand un essai se termine. Ce qui s'ouvre après la fin va toujours à l'équipe de
+sécurité, où personne ne décide, jusqu'à ce que les administrateurs du serveur installent un fichier de licence ou
+suppriment la licence de l'essai. Personne ne décide non plus tant que le fichier de licence ne peut pas être utilisé
+(modifié ou illisible), jusqu'à ce qu'il soit corrigé. Quand la licence est supprimée, ou n'inclut plus les
+approbations, ce qui attend reste tel quel : la personne qui l'a demandé le retire depuis sa propre page
+**Approbations** et le demande de nouveau, et cela attend alors sa propre approbation (l'espace d'une clé d'API ne
+s'ouvre qu'avec une licence qui inclut `roles`). Un texte n'a pas de délai si la personne n'en a pas fixé, donc son
+agent attend jusqu'à ce qu'elle l'arrête. Installer ou supprimer la licence est un acte d'administrateur, qui figure
+dans le journal d'administration. Tant que les modifications ou les textes du Relecteur en direct vont à l'équipe de
+sécurité, supprimer la licence ou en installer une qui n'inclut pas les approbations rend la décision à la personne qui
+demande l'approbation ; il en va de même d'une licence qui inclut `roles` mais pas les approbations tant que le serveur
+a une clé d'API : ses modifications vont alors à la personne qui les fait dans l'espace de la clé, et non aux autres
+personnes qui la contrôlent. La page **Licence**, `latet server license install` et `latet server license remove`
+demandent d'abord confirmation, et l'entrée du journal d'administration indique que les approbations centralisées
+cessent de s'appliquer.
+
+Il en va autrement d'une exception de requête tant que la licence inclut encore les règles verrouillées et que les
+directives disent `exceptions: company` : quand la licence n'inclut plus les approbations, une exception demandée de
+nouveau attend une approbation qui ne peut que la rejeter, puisque seule l'équipe de sécurité en approuve une ([Règles
+verrouillées](../locked-rules/#exceptions)). Quand la licence est supprimée, ou n'inclut pas les règles verrouillées,
+les directives ne sont plus en vigueur, et les exceptions de requête redeviennent celles de chacun.
+
+## Ce qui est enregistré
+
+Le serveur conserve chaque décision dans sa base de données aussi longtemps qu'il conserve le journal d'administration
+(`LATET_SERVER_AUDIT_RETENTION_DAYS`, un an par défaut) : qui a demandé, qui a décidé, quand, et ce qu'une modification
+réduisait, qu'il garde scellé avec sa clé. Jamais un texte ni une valeur. De ce qui a pris fin, il garde les 1 000
+derniers éléments de chaque personne ou clé d'API ; le journal d'administration garde malgré tout chaque décision prise
+dans Approbations de l'entreprise. Comment chaque élément a pris fin :
+
+| État | Sur la page | Ce qui s'est passé |
+| --- | --- | --- |
+| `approved` | Approuvée | Approuvée : la modification s'est appliquée, ou le texte est parti |
+| `rejected` | Refusée | Refusée : les réglages restent tels quels, ou le texte n'a pas été envoyé. Dans l'espace d'une clé d'API, c'est aussi une modification ou un texte arrêté là par une personne qui ne l'avait pas demandé, nommée sous *Décidé par* |
+| `withdrawn` | Retirée par la personne qui l'a demandée | La personne qui l'a demandée l'a retirée |
+| `stale` | Écartée : les réglages ont changé | Approuvée après que les réglages de la personne ont changé : rien ne s'est appliqué, et elle la demande de nouveau |
+| `superseded` | Remplacée par une plus récente | Une modification plus récente l'a remplacée dans cet espace |
+| `expired` | Non envoyée : son délai est écoulé | Un texte qui a attendu au-delà du `timeout_s` de la personne |
+| `abandoned` | Abandonnée par l'agent, ou perdue | Un texte que son agent a abandonné, ou que Valkey a perdu lors d'un redémarrage |
+| `gone` | Disparue : le compte a été désactivé ou supprimé | Le compte qui l'a demandée a été désactivé ou supprimé, ou la modification n'était plus là où elle attendait : personne ne peut exécuter de décision |
+| `approved-unapplied` | Approuvée, non appliquée | Approuvée, mais les réglages de la personne ont changé entre-temps sur une autre instance, ou n'ont pas pu être enregistrés, et ne l'ont pas prise en compte : elle la demande de nouveau |
+| `approved-changed` | Approuvée, non envoyée | Un texte approuvé, puis non envoyé : il serait parti masqué autrement que la personne qui a décidé ne l'a vu, ou sa requête a été refusée avant de partir |
+
+Chaque décision prise dans Approbations de l'entreprise figure aussi dans le journal d'administration, écrite avant
+d'être exécutée : `approval.decided` pour celles de l'équipe de sécurité, `key.approval.decided` pour celles des
+personnes qui contrôlent une clé d'API, `key.approval.admin-decided` pour celles d'un administrateur sur une clé que
+personne d'autre ne contrôle. La personne qui y retire sa propre demande laisse une entrée marquée `withdrawn`. L'entrée
+est la décision prise ; l'enregistrement dit comment elle s'est terminée. Une entrée peut donc correspondre à une décision
+qui n'a pas été exécutée : l'espace de la personne n'était pas joignable depuis cette instance, ou le texte a été masqué
+de nouveau entre la dernière vérification du serveur et la décision. La personne qui décide en est informée, et décide de
+nouveau, ce qui écrit une seconde entrée. Une décision dont l'entrée ne peut pas être écrite n'est pas exécutée (503), et
+la page le dit. Une modification ou un texte dont l'enregistrement ne peut pas être écrit à son ouverture n'attend pas :
+l'enregistrement des réglages est refusé (503) et rien ne s'applique, ou le texte n'est pas envoyé.
+
+L'ouverture du texte d'une autre personne figure aussi dans le journal d'administration, écrite avant que rien n'en
+soit affiché : `approval.opened`, une fois pour chaque personne qui décide et chaque texte, qu'elle ouvre le texte
+lui-même ou l'une de ses images, et quel que soit le nombre de fois. L'entrée nomme qui l'a ouvert et à qui appartient
+le texte, jamais le texte ni une image. Un texte dont l'ouverture ne peut pas y être écrite n'est pas affiché (503).
+La personne qui ouvre son propre texte ne laisse aucune entrée.
+
+Une approbation que les réglages de la personne n'ont pas pu prendre en compte, parce qu'ils ont changé entre-temps sur
+une autre instance ou n'ont pas pu être enregistrés, est signalée à la personne qui a décidé et à la personne elle-même,
+et l'enregistrement la garde comme *approuvée, non appliquée* ; la personne la demande de nouveau. Son événement
+`change` dit `approved`, la décision prise, comme le fait l'événement `approval` d'un texte approuvé puis non envoyé.
+Avant une décision, les réglages de la personne sont relus : une modification plus récente des réglages partagés trouvée
+à ce moment remplace celle qui est décidée, et la décision répond qu'elle n'attend plus.
+
+Avec les [rapports](../reports/), chaque fin est un événement (`approval` pour un texte, `change` pour une modification),
+y compris celles de la personne elle-même, avec qui a décidé quand c'était quelqu'un d'autre. Les
+[métriques](../siem/) comptent ce qui attend (`latet_approvals_company_waiting`) et ce qui a été décidé
+(`latet_approvals_company_decided_total`, où `approved-unapplied` et `approved-changed` sont comptés de nouveau parmi les
+approuvés).
+
+Les administrateurs ont le dernier mot : ils donnent le rôle Sécurité et le contrôle d'une clé, et ils installent ou
+suppriment la licence. Chacun de ces actes figure dans le journal d'administration : c'est là qu'il faut regarder pour
+savoir qui pouvait décider.
+
+## Commandes
+
+| Commande | Ce qu'elle fait |
+| --- | --- |
+| `latet server approvals show` | Qui décide des modifications et des textes |
+| `latet server approvals set --changes … --live-review …` | Change qui décide (`self` ou `security` pour chacun) ; conservé dans le journal d'administration |
+| `latet server log --action approvals.changed` | Qui a changé qui décide, et quand |
+| `latet server log --action approval.opened` | Qui a ouvert les textes de quelle personne, et quand |
+| `latet server log --action approval.decided` | Les décisions de l'équipe de sécurité, par qui et quand |
+| `latet server log --action key.approval.decided` | Les décisions des personnes qui contrôlent des clés d'API |
+| `latet server log --action key.approval.admin-decided` | Les décisions des administrateurs sur les clés que personne d'autre ne contrôle |

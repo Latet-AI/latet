@@ -1,0 +1,137 @@
+---
+title: Report e registro amministrativo
+description: Cosa conta un server, chi può leggerlo ed esportarlo, come compaiono le persone e cosa registra il registro amministrativo.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Su un [server di Latet](../../getting-started/server/), Enterprise conserva conteggi orari in PostgreSQL per i **Report** e inoltra eventi agli [output SIEM](../siem/) configurati. Il **Registro amministrativo** mostra le azioni amministrative del server. Un computer senza server non ha report Enterprise né output SIEM.
+
+Gli eventi ordinari contengono conteggi, codici di tipo, ID e nomi di progetto, mai valori protetti, testi originali, valori fittizi, percorsi di file, chiavi di conversazione o credenziali. Un progetto il cui nome contiene un termine mascherato lì (i termini della persona o del progetto, quelli delle [regole bloccate](../locked-rules/) dell'azienda o i suoi [termini sincronizzati](../term-sync/)) viene inviato come `masked-` e 8 caratteri invece che con il nome, uguali per ogni persona e ogni cartella con quel nome: sono calcolati con la chiave segreta del server, quindi senza di essa nessuno può risalire al nome (solo `masked` quando quella chiave non si può leggere). In un nome di progetto si cercano solo i termini. Le voci amministrative identificano legittimamente chi agisce e su cosa; le loro regole di riservatezza sono diverse da quelle dei report ordinari, come spiegato sotto.
+
+## Cosa viene contato
+
+| Evento | Cosa registra |
+| --- | --- |
+| `exchange` | Una richiesta mediata; valori mascherati per tipo, ogni entità una volta per conversazione quando il conteggio è disponibile |
+| `stopped` | Una richiesta fermata dopo la creazione di uno scambio, con un codice del motivo |
+| `apps` | Ogni chiamata `scan` o `mask` a cui l'[API per le applicazioni](../../applications/) risponde, non ogni testo. `scan` conta la chiamata, non i risultati. `mask` conta ogni entità della cassaforte una volta per chiamata; gli oscuramenti senza entità contano ogni sostituzione. `stopped` conta i testi senza risposta |
+| `policy` | Modifiche alle [regole bloccate](../locked-rules/) (`set`, `removed`) e rifiuti di abbassarle (`refused`) |
+| `approval` | Un testo del Revisore Live rimasto in attesa è stato deciso, dalla persona o dal team di sicurezza: il suo `outcome` (`approved`, `rejected`, `abandoned`, `expired`), `stopped` a 1 quando non è stato approvato (rifiutato, abbandonato, scaduto), e chi ha deciso (`by`) quando non è stata la persona ([Approvazioni centrali](../approvals/)) |
+| `change` | Una modifica che riduce la protezione si è conclusa: il suo `outcome` (`approved`, `rejected`, `stale`, `superseded`), da dove viene come `reason` (`command`, `file`, `start`, `dashboard`), e chi ha deciso (`by`) quando non è stata la persona |
+| `sign-in` | Esiti dell'accesso aziendale descritti in [Accesso, gruppi e ruoli](../sign-in/) |
+| `sync` | Il server ha sincronizzato una fonte di termini, o qualcuno ha rimosso termini non più nella loro fonte: il suo `outcome` (`ok`, `failed`, `removed`) e, per una sincronizzazione non riuscita, il motivo come `reason`; la fonte come `rule` (`term-sync:<name>`, o soltanto `term-sync` per una rimozione che non nomina una fonte: ogni rimozione tranne `latet server terms remove --source`; un filtro sul prefisso `term-sync` le include tutte); i termini per tipo in `masked`, mai un termine; la persona che ha chiesto la sincronizzazione o rimosso i termini come `by` ([Sincronizzazione dei termini](../term-sync/)) |
+| `license` | Installazione, rimozione, invalidità o variazione dello stato della licenza con i codici del motivo |
+| `admin` | Una voce del registro amministrativo inoltrata al SIEM, con la sua posizione nella catena |
+
+Le operazioni unmask e forget dell'API per le applicazioni sono azioni amministrative (`apps.unmasked`, `apps.forgotten`), non ulteriori eventi `apps`. Le decisioni sulle approvazioni sono contate come `approval` e `change`, per autore della decisione dove l'impostazione delle persone ne mostra il nome; ogni sincronizzazione e ogni rimozione di termini sincronizzati è un evento `sync`.
+
+Il conteggio non richiede una cronologia delle conversazioni salvata. Con `history: off`, gli scambi di Claude Code e degli altri percorsi in sola verifica contano richieste, richieste fermate e progetti, ma non i valori mascherati: il plugin ha mascherato prima che il server li vedesse. `history: metadata` può contare quei valori. Cronologia disattivata e registrazione completa differiscono anche per gli input degli strumenti eseguiti dal provider e per i campi JSON che contengono già valori fittizi. I rifiuti precedenti alla creazione di uno scambio, come i rifiuti di uscita, il 404 di un percorso sconosciuto o un'API Bedrock non letta, non rientrano nei report.
+
+Il ripiego `uncounted` del registratore conserva il conteggio della richiesta senza quello dei valori quando la registrazione fallisce o 500 lavori attendono già **in quel registratore**. I report mostrano questo conteggio. Non recupera gli eventi persi successivamente nella pipeline. I nomi dei tipi personalizzati diventano codici ASCII maiuscoli, fino a 64 caratteri: `CLIENT-NAME` diventa `CLIENT_NAME`.
+
+### Perché una richiesta è stata fermata
+
+| `reason` | Significato |
+| --- | --- |
+| `leak` | Il controllo finale ha trovato un valore che sarebbe uscito in chiaro, nel corpo o in un header o un parametro di query |
+| `history` | Valori in chiaro provenienti dalla cronologia precedente della conversazione |
+| `auto-mode-review` | Il revisore della modalità auto di Claude Code riceverebbe un dettaglio non consentito |
+| `live-reviewer` | Il Revisore Live ha rifiutato, abbandonato o superato il tempo disponibile |
+| `local-reviewer` | Il revisore locale ha fermato la richiesta o non ha potuto esaminarla |
+| `settings-changed` | Le impostazioni sono cambiate mentre la richiesta veniva preparata, per esempio con una sincronizzazione dei termini; al suo agente viene detto di inviarla di nuovo |
+| `unread` | Contenuto non letto, come un'immagine o un documento, con impostazioni che lo fermano |
+| `unreadable` | Corpo della richiesta illeggibile, compreso uno che dà due volte una chiave JSON |
+| `unread-request` | Un corpo, un header, un parametro di query o un percorso della richiesta che Latet non legge: una forma o un contenuto che non supporta, o una parte che nessun profilo di richiesta prevede |
+| `too-large` | Il corpo decodificato supera `max_request_mb` |
+| `not-messages` | Chiamata Bedrock o Vertex fuori dai messaggi di Claude |
+| `masking-failed` | Mascheramento non riuscito |
+| `aws-signing` | Firma della richiesta Bedrock non riuscita |
+| `route-bypass` | Una sessione di Claude Code aggira Latet |
+| `outbound-tool` | Uno strumento eseguito dal provider riceverebbe valori fittizi |
+| `other` | Un altro motivo |
+
+## Report ed esportazioni
+
+Apri **Report** e scegli 7, 30 o 90 giorni, oppure date personalizzate. Le date devono esistere, tra `2000-01-01` e `2999-12-31`, con al massimo 366 giorni inclusi entrambi gli estremi. Le tendenze si confrontano con il periodo immediatamente precedente della stessa durata. Oltre 92 giorni, grafici **ed esportazioni** usano intervalli settimanali.
+
+I filtri selezionano gruppo, progetto, agente e tipo di valore. Un tipo restringe il conteggio delle richieste a quelle che hanno mascherato quel tipo. Le ripartizioni mostrano richieste, valori mascherati e richieste fermate per gruppo, progetto, agente, chiave API e tipo, e per persona quando l'impostazione lo consente. Le chiamate delle applicazioni compaiono per operazione, con agente `apps`. Le classifiche mostrano i primi 200 e i totali **Altri**; i progetti selezionabili sono i primi 200 per richieste e ogni filtro offre al massimo 200 scelte.
+
+Le date seguono il fuso orario dell'istanza del server: usa lo stesso `TZ` su tutte le istanze (il container usa UTC per impostazione predefinita). I conteggi usano ore UTC intere. In un fuso orario sfasato di mezz'ora o di un quarto d'ora, la mezzanotte non divide con precisione i conteggi di un'ora.
+
+<Screenshot name="reports" alt="Report con filtri del periodo, totali, tendenza e ripartizioni" caption="Report, visti con il ruolo Sicurezza." />
+
+Le esportazioni CSV e JSON contengono righe giornaliere o settimanali per gruppo, tipo/nome di identità, progetto e agente, con conteggi per tipo di valore. Oltre **500.000 righe**, l'esportazione viene rifiutata con 413: restringi periodo o filtri. Il JSON include voci amministrative solo per chi può leggerle. Oltre **5.000 voci**, omette interamente `administration` e imposta `administration_truncated: true`; usa invece l'esportazione del Registro amministrativo. Il CSV protegge le celle di testo simili a formule ed è in UTF-8 con BOM e fine riga CRLF.
+
+Le esportazioni di Report e Audit richiedono una sessione aperta con l'account aziendale quando `company_changes` è `sso`, come le [modifiche che valgono per tutti](../sign-in/#modifiche-che-valgono-per-tutti). Leggere le pagine non richiede questo accesso aggiuntivo. Le esportazioni registrano `reports.exported` o `audit.exported`, con formato e periodo. Gli amministratori possono usare la [CLI](../../reference/cli/):
+
+```sh
+latet server reports export --from 2026-10-01 --to 2026-10-31 -o october.csv
+```
+
+`-o` crea un nuovo file regolare e conserva i byte restituiti; file esistenti, link e destinazioni speciali sono rifiutati. Senza questa opzione, stdout è una visualizzazione con escape per il terminale, non un'esportazione che conserva i byte.
+
+Può essere in corso una sola richiesta di report o esportazione Report/Audit per persona della dashboard e per istanza, e una sola esportazione per istanza fino al termine dell'invio. In caso di contesa la risposta è 429. Le letture Audit non occupano lo slot della persona. Due thread di lavoro della dashboard per processo svolgono questo lavoro; le esportazioni sono costruite interamente in memoria. Le misure di dimensionamento rilevate sono state di circa 800 MB per 500.000 righe e di quattro secondi/16 query per un grande report annuale: non sono garanzie di capacità o di latenza.
+
+## Accesso e licenza
+
+| Ruolo | Report | Registro amministrativo | Output SIEM |
+| --- | --- | --- | --- |
+| Responsabile di gruppo | I propri gruppi | No | No |
+| Sicurezza | Tutti i gruppi | Sì | Lettura, configurazione e prova |
+| Auditor | Tutti i gruppi | Sì | Sola lettura |
+| Amministratore | No | Sì, indirizzi inclusi | No |
+
+Sono i ruoli presi singolarmente; chi ha più ruoli ne somma i permessi. L'accesso alla dashboard richiede anche `roles` e la funzionalità pertinente: **`reports` per Report e Audit; `siem` per gli output SIEM**. Una licenza solo SIEM non concede accesso a Report/Audit. Senza `roles`, usa la CLI con token amministrativo per report/SIEM coperti dalla licenza; `latet server log` resta disponibile indipendentemente da Enterprise. Uno spazio di chiave API non ha queste pagine; chi lo controlla vede le sue **Statistiche**.
+
+Un responsabile di gruppo deve appartenere a un gruppo. L'evento ordinario è attribuito al primo gruppo della persona in ordine di nome al momento della registrazione. Una modifica successiva dell'appartenenza cambia le attribuzioni future, non i conteggi salvati; le modifiche alle appartenenze ai gruppi finiscono nel registro amministrativo. Le chiavi API, che sono programmi, compaiono per nome indipendentemente dall'impostazione delle persone, senza gruppo; il loro token non è mai un campo del report.
+
+Quando ciò che produce qualcosa di nuovo si ferma (dopo il periodo di tolleranza per scadenza o per troppi utenti, alla fine di una prova o con una licenza inutilizzabile), si fermano letture ed esportazioni Report/Audit e invii/prove SIEM. La configurazione SIEM resta leggibile con l'accesso appropriato, ma le modifiche dipendono dallo stato della licenza. Vedi [Edizioni e licenza](../). Il conteggio continua solo finché `licensed(reports)` **oppure** `licensed(siem)` resta vero, comprese le funzionalità verificate conservate durante una licenza inutilizzabile. Nessuna licenza, o una licenza sostitutiva che non ha nessuna delle due funzionalità, disattiva il conteggio. La ripresa non garantisce una cronologia completa: conservazione, rifiuti dello schema, perdite delle code ed esclusioni dalla registrazione restano applicabili. La [consegna SIEM](../siem/) spiega separatamente l'inoltro in pausa.
+
+I periodi di tolleranza per scadenza e superamento degli utenti sono di 30 giorni; una prova terminata non ha tolleranza. Le modifiche SIEM richiedono una licenza valida, in scadenza o nel periodo di tolleranza. Con cronologia disattivata, il conteggio legge solo le sostituzioni associate ai campi della richiesta in attesa; la registrazione più completa può esaminare anche valori fittizi esistenti e input degli strumenti eseguiti dal provider. Non confrontare quei totali come misure equivalenti.
+
+## Persone e conservazione
+
+```sh
+latet server reports settings --people pseudonymous
+latet server reports settings --retention-days 365
+```
+
+Solo la CLI cambia queste impostazioni; `reports.changed` registra la modifica. `reports.retention_days` va da 1 a 3650 giorni, con valore predefinito 365, per i conteggi orari degli eventi. La conservazione amministrativa è separata, controllata da `LATET_SERVER_AUDIT_RETENTION_DAYS`.
+
+- `group-only` (predefinito): eventi/report ordinari conservano il gruppo al posto della persona. Passare a questa modalità nasconde dai report anche le persone già conservate; non cancella i loro dati conservati.
+- `pseudonymous`: uno pseudonimo stabile `p_…` derivato con la chiave segreta del server, sigillata con la sua chiave principale. Una persona ha uno pseudonimo nelle sue richieste (eventi `exchange` e `stopped`, e report per persona; un evento `apps` indica la sua chiave API, mai una persona), un altro negli altri eventi (`sign-in`, `change`, `approval`, `policy`, `sync`, `license`) e nelle decisioni per autore, e un terzo negli eventi `admin`: dal valore non si passa dall'uno all'altro. Il secondo va comunque trattato come un nome, e quegli eventi e le decisioni per autore come nominativi: un primo accesso con l'account aziendale, una decisione, una licenza e una sincronizzazione vengono scritti ciascuno accanto a una voce del registro amministrativo che nomina la persona. Ciò che `pseudonymous` protegge sono le richieste di una persona. Le righe conservate per ID mentre era in vigore `named` non mostrano nessuna persona, mai uno pseudonimo; contano tra **Altri**.
+- `named`: l'identità Latet `u_…` negli eventi, con il nome attuale nei report quando noto.
+
+Le modifiche valgono per i dati registrati da quel momento; attivare `named` non identifica gli eventi precedenti registrati per solo gruppo. Persone/gruppi rimossi restano rappresentati da ID o pseudonimi conservati finché la scadenza della conservazione non ne elimina i conteggi. L'autore della decisione (`by`), se presente, segue l'impostazione delle persone. Gli eventi pseudonimi inviati a un SIEM possono comunque essere ricondotti a un nome confrontandone gli orari con altri log che nominano le persone, come il registro amministrativo, la pagina **Approvazioni aziendali** (chi ha chiesto, e quando) o il log degli accessi del provider di identità. Un gruppo piccolo o un nome di progetto identificativo può rivelare una persona anche con `group-only`.
+
+I progetti distinti sono limitati a 50 per persona all'ora e 1.000 per gruppo all'ora con `group-only`. Le persone senza gruppo condividono un contenitore. Le eccedenze confluiscono in `other`; un progetto realmente chiamato `other` condivide quel totale.
+
+Prima di scegliere report per persona, coinvolgi le rappresentanze dei lavoratori e un consulente legale locale. In Italia, l'[art. 4 L. 300/1970](https://www.normattiva.it/atto/caricaDettaglioAtto?atto.articolo.numero=4&atto.codiceRedazionale=070U0300&atto.dataPubblicazioneGazzetta=1970-05-27) distingue l'obbligo di accordo o autorizzazione dalle eccezioni per gli strumenti di lavoro e per la registrazione degli accessi e delle presenze, ferme restando le condizioni di informazione e di riservatezza. In Germania, il [BetrVG §87(1) n. 6](https://www.gesetze-im-internet.de/betrvg/__87.html) prevede la cogestione del consiglio aziendale sulle tecnologie di controllo pertinenti, alle condizioni di legge. L'applicabilità dipende dalla singola installazione; nessuna delle due impostazioni garantisce la conformità. Questa non è una consulenza legale.
+
+## Il registro amministrativo
+
+Il **Registro amministrativo** indica chi ha agito, su cosa, quando e i dettagli amministrativi dell'azione, indipendentemente da `reports.people`. Solo gli amministratori vedono gli indirizzi di origine, anche nelle esportazioni. Gli autori delle azioni comprendono persone e chiavi API per nome (l'ID quando il nome non è più noto), token amministrativi, token di provisioning SCIM, il server e chiamanti sconosciuti rifiutati prima dell'identificazione. Registra anche le azioni delle persone stesse, come connettere un computer, collegare un account, o l'unmask fatto da un programma.
+
+<Screenshot name="audit" alt="Registro amministrativo con le colonne Chi, Azione, Su cosa, Dettagli e Da dove, quest'ultima riservata agli amministratori" caption="Registro amministrativo, visto da un amministratore." />
+
+La pagina mostra le **5.000 voci corrispondenti più recenti**, dalla più recente, senza paginazione nel browser. Le opzioni dei filtri Azione e Chi vengono da quelle righe filtrate. I filtri per azione e per autore accettano un `*` finale per cercare un prefisso; gli altri caratteri jolly sono letterali e ogni filtro ha al massimo 200 punti di codice Unicode. Le date dei filtri usano il fuso orario dell'istanza del server; gli orari mostrati usano quello del browser. Una riga il cui orario non è disponibile resta comunque nell'elenco.
+
+L'esportazione CSV/JSON separata legge l'intero periodo filtrato, dalla voce più vecchia, fino a **100.000 voci**, oltre le quali rifiuta con 413 invece di troncarla. Restringi date/filtri quando serve; il limite visibile di 5.000 righe non è quello dell'esportazione.
+
+Oltre alle [azioni amministrative dell'accesso](../sign-in/#cosa-registra-il-registro-amministrativo), le voci includono `reports.exported`, `audit.exported`, `reports.changed`, `siem.changed` (nomi e origini), `siem.secret.changed` (nomi dei segreti salvati/rimossi, mai valori), `siem.tested` (tentativo e nome dell'output, registrati **prima** della connessione, non il risultato del ricevitore), `siem.forwarding`, `siem.gap` e `siem.skipped`, e quelle delle [approvazioni centrali](../approvals/): `approvals.changed` (chi decide), `approval.opened` (la prima apertura del testo di un'altra persona da parte di chi decide, mai il testo), `approval.decided`, `key.approval.decided` e `key.approval.admin-decided` (ogni decisione presa, scritta prima di essere eseguita), e quelle della [sincronizzazione dei termini](../term-sync/): `terms.source.changed`, `terms.secret.changed`, `terms.removed` e `terms.sync.asked` (nomi di fonti e conteggi, mai un termine o un segreto). Le chiamate all'API di amministrazione registrano anche azioni di percorso come `ee.reports.read` e `ee.audit.read`.
+
+### Identità amministrative inviate al SIEM
+
+Gli eventi `admin` inoltrati contengono l'azione in `outcome`, l'oggetto dell'azione in `rule`, l'autore in `identity` o `reason` e gli hash `chain`. Escludono dettagli e indirizzo di origine della voce.
+
+- Un'azione che richiede admin/security identifica la persona che l'ha compiuta anche dopo una retrocessione. È identificato anche chi possiede uno dei due ruoli quando l'inoltro legge la voce. Gli autori che sono chiavi API restano identificati.
+- Nelle [approvazioni centrali](../approvals/), le decisioni del team di sicurezza (`approval.decided`) e le sue aperture del testo di una persona (`approval.opened`), e le decisioni di un amministratore su una chiave che nessun altro controlla (`key.approval.admin-decided`), identificano chi ha agito; quelle di chi controlla una chiave (`key.approval.decided`) seguono l'impostazione delle persone, e così il ritiro di una propria richiesta (`approval.decided` con `withdrawn`).
+- Le altre azioni personali seguono `reports.people`: identità nulla e gruppo con `group-only`, pseudonimo con `pseudonymous`, ID con `named`.
+- Una voce inoltrata in ritardo, dopo un arresto dell'inoltro (nota dell'inoltro illeggibile o non autentica, Valkey o le impostazioni che non rispondono), tratta le persone come diceva `reports.people` quando è stata scritta, o come dice ora se è più riservato: passare a `named` non nomina nessuna delle voci ancora in attesa.
+- Gli altri autori usano `reason`: `admin:<id>`, `scim:<id>`, `server` o `unknown`.
+- Le persone oggetto dell'azione seguono l'impostazione delle persone, tranne chi riceve/perde admin o security, sempre identificato. Un ruolo assegnato a un gruppo identifica quel gruppo, non tutti i membri esistenti.
+- Con `pseudonymous`, lo pseudonimo che un evento `admin` dà a una persona (in `identity` o `rule`) appartiene a un dominio a sé: lo stesso in ogni evento `admin`, mai il `p_…` dei suoi altri eventi né delle righe dei report. Il registro amministrativo indica la persona di ogni voce, con l'ora e l'id che il suo evento porta: uno pseudonimo condiviso identificherebbe ogni sua richiesta per chi legge entrambi.
+- Aggiunte/rimozioni di membri identificano il membro se il gruppo possiede admin/security **quando l'inoltro legge la voce**, anche dopo una pausa; altrimenti l'oggetto resta il gruppo. La voce originale del registro amministrativo conserva chi è entrato o uscito.
+
+Il server verifica la catena del registro, protetta da chiave, con `latet server log verify`; copie esterne della testa e degli ancoraggi conservati aiutano a rilevare un registro accorciato. La pagina SIEM spiega [lacune e verifica](../siem/#lacune-e-verifica), compreso cosa possono e non possono dimostrare i marcatori esportati.

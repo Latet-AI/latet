@@ -15,13 +15,18 @@ latet global-uninstall
 
 Dieser eine Befehl:
 
-- stellt jeden Agenten wieder her, den Latet konfiguriert hat. Bei Claude Code deinstalliert er das
+- stellt den vorherigen Zustand jedes Agenten wieder her, den Latet konfiguriert hat. Bei Claude Code deinstalliert er das
   Plugin und stellt `settings.json` so wieder her, wie die Datei vor `latet global-install` war. Bei Codex
   entfernt er die Zeile `openai_base_url`, bei OpenCode die überschriebenen Werte für `baseURL`. Wenn
   Sie eine dieser Dateien seitdem bearbeitet haben, entfernt Latet nur, was es hinzugefügt hat, und
   behält Ihre Änderungen;
 - entfernt den Autostart bei der Anmeldung;
-- beendet den Daemon.
+- beendet den Daemon;
+- fragt unter Windows, wo Latet seinen Port reserviert hat (siehe
+  [Port 5283 ist bereits belegt](../../troubleshooting/#port-5283-ist-bereits-belegt)), ob er die
+  Reservierung ebenfalls aufheben soll, mit einer einzigen Bestätigung eines Administrators. Bei
+  Nein bleibt der Port reserviert, und `latet reserve-port --remove` hebt die Reservierung später
+  auf: Führen Sie es vor Schritt 2 aus.
 
 Er ändert nicht die Tools, die Sie selbst auf Latet gerichtet haben, in ihren eigenen Einstellungen
 oder in Ihrer Shell: GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent, Junie,
@@ -39,7 +44,7 @@ autostart: removed
 daemon: stopped
 ```
 
-Starten Sie Ihre Agenten danach neu. Um stattdessen einen einzelnen Agenten wiederherzustellen,
+Starten Sie Ihre Agenten danach neu. Um stattdessen nur einen einzelnen Agenten zurückzusetzen,
 führen Sie `latet agents revert claude` aus (oder `codex`, `opencode`).
 
 ## 2. Das Tool entfernen
@@ -82,8 +87,9 @@ Datenordner enthält:
 - `logs/`, `bridge.token`, `integrations.json` (die Aufzeichnung dessen, was `latet global-install`
   geändert hat), `claude-marketplace/` (die Kopie des Plugins für Claude Code), `tutorial.json` (die
   Kapitel des [Tutorials](../tutorial/), die Sie abgeschlossen haben), `repositories.json` (die Ordner
-  der Repositorys mit einer `latet.yaml`, die Latet gesehen hat) und `root.key`, falls Ihr System
-  keinen Anmeldedatenspeicher hat.
+  der Repositorys mit einer `latet.yaml`, die Latet gesehen hat), `port-reservations.json` (unter
+  Windows die Ports, die Latet reserviert hat) und `root.key`, falls Ihr System keinen
+  Anmeldedatenspeicher hat.
 
 Der Schlüssel, der den Tresor verschlüsselt, liegt im Anmeldedatenspeicher Ihres Betriebssystems
 (Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder der Schlüsselbund des Desktops unter
@@ -117,6 +123,10 @@ Machen Sie die Änderungen von Hand rückgängig:
   `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/dev.latet.daemon.plist` aus, und löschen
   Sie dann diese Datei. Führen Sie unter Linux `systemctl --user disable latet.service` aus, und
   löschen Sie dann `~/.config/systemd/user/latet.service`.
+- **Der Port von Latet, unter Windows**: `port-reservations.json` im Datenordner listet die Ports
+  auf, die Latet reserviert hat. Führen Sie für jeden davon in einer als Administrator ausgeführten
+  PowerShell diesen Befehl aus, mit dem Port anstelle von `5283`:
+  `netsh int ipv4 delete excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent`.
 
 Kopien Ihrer Konfigurationsdateien aus der Zeit vor `latet global-install` liegen im Ordner
 `backups/` des Datenordners.

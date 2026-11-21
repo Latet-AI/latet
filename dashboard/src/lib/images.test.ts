@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LiveImage } from '../api/types'
 import { approveBody } from './approvals'
-import { choiceFor, imageChanges, imagesBody, rectBetween, textRects, toImage, usable } from './images'
+import { choiceFor, imageChanges, imagesBody, rectBetween, sentMark, textRects, toImage, usable } from './images'
 
 const IMAGE: LiveImage = {
   width: 400,
@@ -65,5 +65,16 @@ describe('your decisions on images', () => {
   it('go with the approval, next to the values you masked', () => {
     expect(approveBody([], {})).toEqual({ action: 'approve' })
     expect(approveBody([], { 1: { rects: [], withhold: true } })).toEqual({ action: 'approve', images: [{ item: 1, withhold: true }] })
+  })
+})
+
+describe('an image as it leaves now', () => {
+  // The final security review's approvals L4: its texts masked again while it waits, it is painted again, and a page
+  // already open asks for it again (a browser keeps an image of the same address for as long as the page is open).
+  it('has a mark that follows its text as masked, and only that', () => {
+    expect(sentMark('Email: Ana Kovac')).toBe(sentMark('Email: Ana Kovac'))
+    expect(sentMark('Email: Ana Kovac')).not.toBe(sentMark('Email: emily.carter@acme.com'))
+    expect(sentMark('Email: Ana Kovac')).not.toBe(sentMark('Email: Ana Kovac '))
+    expect(sentMark('Email: Ana Kovac')).toMatch(/^[0-9a-z]+$/)
   })
 })

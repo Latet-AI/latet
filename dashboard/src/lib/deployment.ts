@@ -22,6 +22,7 @@ const SERVER_COPY: Record<string, string> = {
   [tk('exchange.why.imagesMask.meant')]: tk('deployment.notForwarded'),
   [tk('exchange.why.localReviewer.meant')]: tk('deployment.notForwarded'),
   [tk('exchange.why.leak.meant')]: tk('deployment.notForwarded'),
+  [tk('exchange.why.toolInput.meant')]: tk('deployment.toolInputMeant'),
   [tk('exchange.why.other.meant')]: tk('deployment.notForwarded'),
   [tk('exchange.why.live.meant')]: tk('deployment.notForwarded'),
   [tk('exchange.why.imagesSetting.todo')]: tk('deployment.imagesTodo'),

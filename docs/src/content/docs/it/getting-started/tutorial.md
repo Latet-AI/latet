@@ -1,9 +1,9 @@
 ---
 title: Tutorial
-description: Guarda Latet al lavoro sul tuo computer in circa 30 minuti, con un agente simulato, un modello simulato e dati inventati, prima di collegarci un agente vero.
+description: Guarda Latet al lavoro sul tuo computer in circa 30 minuti, con un agente simulato, un modello simulato e dati inventati, prima di connetterci un agente vero.
 ---
 
-`latet tutorial` ti mostra Latet al lavoro nel tuo browser, in circa 30 minuti, prima di collegarci
+`latet tutorial` ti mostra Latet al lavoro nel tuo browser, in circa 30 minuti, prima di connetterci
 un agente vero. Un agente simulato invia le sue richieste a un modello simulato. Latet, tra i due, è
 quello vero: lo stesso mascheramento, gli stessi controlli e la stessa dashboard che hai con il tuo
 agente. I dati sono inventati, e niente esce dal tuo computer.
@@ -45,7 +45,7 @@ termini, approvare una richiesta, salvare le tue indicazioni.
 | `false-positives`: Un valore mascherato senza motivo | 3 | La carta di test di Stripe viene mascherata come la carta di un cliente; *Non sensibile* la lascia passare. |
 | `stopped`: Una richiesta fermata | 3 | Una chiave incollata in una conversazione di prima che Latet fosse attivo ferma la richiesta; una nuova conversazione senza la chiave passa. |
 | `live`: Il Revisore Live | 3 | Una richiesta attende la tua approvazione: mascheri a mano il nome di un cliente, poi la approvi. |
-| `settings`: Un agente che allenta le tue regole | 3 | L'agente chiede a Latet di lasciar passare gli indirizzi email, e la modifica ti aspetta: approvala o annullala. |
+| `settings`: Un agente che allenta le tue regole | 3 | L'agente chiede a Latet di lasciar passare gli indirizzi email, e la modifica attende la tua approvazione: approvala o annullala. |
 | `data`: Dati di produzione | 4 | La modalità dati rigorosa maschera ogni valore della tabella di una query; tu lasci in chiaro id, date e piani. |
 | `llm`: Il revisore locale | 4 | Un ticket contiene un indirizzo email scritto a parole, un IBAN con un errore di battitura, un nome e una diagnosi: nessun pattern li trova, il revisore locale sì. Poi le tue indicazioni gli fanno trovare anche i reparti dell'ospedale. Il revisore è simulato: è il Tutorial Reviewer. |
 | `images`: Screenshot | 3 | L'agente invia uno screenshot di un pagamento rifiutato: Latet vi legge l'indirizzo email, l'IBAN e il numero di telefono, e copre ognuno con il suo valore fittizio prima che l'immagine esca. Il capitolo richiede il riconoscimento del testo: `latet ocr install`. |

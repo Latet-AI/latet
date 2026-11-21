@@ -9,40 +9,42 @@ ebenso mit API-Schlüsseln.
 
 ## Verbundenes Windows-Terminal
 
-Der verbundene Server-Hilfsprozess unterstützt Claude Code in einem Windows-Terminal
-mit vertrauenswürdigen Benutzereinstellungen und der von Latet installierten privaten
-Bindung. Dies erweitert die verbundene Unterstützung nicht auf Desktop, VS Code,
-JetBrains, Linux oder macOS. Unter Linux und macOS sagen `latet connect`, `latet claude`,
-`latet agents apply claude` und `latet global-install` das vorab, die Einstellungen von
-Claude Code erhalten kein Token, und das Plugin hält jeden Prompt zurück; `latet codex` und
-`latet opencode` gehen über den Server. Folgen Sie der [Verbindungsanleitung](../../getting-started/server/)
-für `latet connect`, `latet agents apply claude`, Tokenspeicherung und `latet disconnect`.
+Der Hilfsprozess für einen verbundenen Server wird für Claude Code in einem Windows-Terminal
+unterstützt, mit vertrauenswürdigen Benutzereinstellungen und der privaten Bindung des
+Hilfsprozesses, die Latet installiert. Für Desktop, VS Code, JetBrains, Linux und macOS gilt diese
+Unterstützung damit nicht. Unter Linux und macOS sagen `latet connect`, `latet claude`,
+`latet agents apply claude` und `latet global-install` das gleich zu Beginn, in die Einstellungen
+von Claude Code wird kein Token geschrieben, und das Plugin hält jeden Prompt zurück; `latet codex`
+und `latet opencode` gehen über den Server. Wie `latet connect`, `latet agents apply claude`, die
+Speicherung des Tokens und `latet disconnect` funktionieren, beschreibt die
+[Anleitung zur Verbindung mit dem Server](../../getting-started/server/).
 
 Auf einem verbundenen Rechner enthält `LATET_BRIDGE_TOKEN` in den Einstellungen und der Umgebung
 von Claude Code das Token dieses Rechners, und jeder Befehl, den Claude Code ausführt, kann es lesen.
 Von überall, wo der Server erreichbar ist, öffnet das Token die Bridge des Plugins und den Proxy Ihres
-Bereichs: Wer es besitzt, kann in Ihrem Bereich Texte maskieren lassen, die Ersatzwerte, die er hat,
-wiederherstellen lassen und Anfragen darüber senden. Es öffnet nie Ihr Dashboard, in dem jedes
-Original angezeigt werden kann, ändert nie Ihre Identität und verringert nie Ihren Schutz: Die einzige
-Änderung, die es an Ihren Einstellungen vornehmen kann, ist ein Ziel für eine Adresse hinzuzufügen, was
-nichts verringert. Für das Dashboard und die Identität verlangt der Server zusätzlich den
+Bereichs: Wer es besitzt, kann in Ihrem Bereich Texte maskieren lassen, für die Ersatzwerte, die er
+hat, die Originale wieder einsetzen lassen und Anfragen darüber senden. Es öffnet nie Ihr Dashboard,
+in dem jedes Original angezeigt werden kann, ändert nie Ihre Identität und verringert nie Ihren
+Schutz: Die einzige Änderung, die es an Ihren Einstellungen vornehmen kann, ist, ein Ziel für eine
+Adresse hinzuzufügen, und das verringert nichts. Für das Dashboard und die Identität verlangt der Server zusätzlich den
 Rechnerschlüssel, der im Anmeldedatenspeicher (oder in der privaten Tokendatei) bleibt und nie einem
 Agenten gegeben wird. Der Schlüssel hindert ein nach außen gelangtes Token (aus der Umgebung, den
 Einstellungen, einem Log oder mit einem einzigen `curl`) daran, das Dashboard zu öffnen; einen Befehl,
 der geschrieben wurde, um beide aus dem Anmeldedatenspeicher zu lesen, hält er nicht auf. Auf einem
 verbundenen Rechner verweigern `latet dashboard` und `latet identity send` die Ausführung in einem
-Agenten. Wenn das Token nach außen gelangt sein kann, widerruft `latet disconnect` es.
+Agenten. Wenn das Token nach außen gelangt sein könnte, widerruft `latet disconnect` es.
 
-Auf einem verbundenen Rechner wird der Print-Modus (`claude -p`) nicht unterstützt: das
+Auf einem verbundenen Rechner wird der Print-Modus (`claude -p`) nicht unterstützt: Das
 Plugin hält seine Anfragen zurück. Verwenden Sie das interaktive Terminal. Hält das Plugin eine
-Anfrage zurück, sagt es warum: der Print-Modus oder eine andere Oberfläche; eine fehlende oder
+Anfrage zurück, sagt es, warum: der Print-Modus oder eine andere Oberfläche; eine fehlende oder
 veraltete Bindung des Hilfsprozesses (`latet agents apply claude`); ein Server, der nicht
 antwortete (`latet status`); oder ein Token, das der Server nicht mehr annimmt
 (`latet disconnect`, dann `latet connect` mit einem neuen Code eines Administrators).
 Das Plugin maskiert die Beschreibungen der Tools von Claude Code; auf einem Server liest die
 abschließende Prüfung auch ihre Beschreibungen, Parameterschemas und Beispiele, und ein darin
-im Klartext gebliebener Wert stoppt die Anfrage ([Schutzumfang](../../concepts/protection-scope/)). Die folgenden Abdeckungstabellen und Daemon-Anweisungen
-beschreiben **lokales Latet**; sie erweitern diese Hilfsprozessunterstützung nicht.
+im Klartext gebliebener Wert stoppt die Anfrage ([Schutzumfang](../../concepts/protection-scope/)).
+Die Tabellen zur Abdeckung und die Anweisungen zum Daemon weiter unten beschreiben **lokales
+Latet**; die Unterstützung des Hilfsprozesses bei einem verbundenen Server erweitern sie nicht.
 
 ## Abdeckung
 
@@ -92,7 +94,7 @@ fest, wie ein Abonnement genutzt werden darf. Punkt für Punkt:
 | --- | --- |
 | Die Anmeldung mit einem Abonnement ist für die gewöhnliche Nutzung von Claude Code und der eigenen Apps von Anthropic gedacht. | Ihr Abonnement wird nur in Claude Code genutzt. Codex, OpenCode, Hermes Agent und alle anderen Agenten laufen mit ihrer eigenen Anmeldung über das Gateway: einem API-Schlüssel oder, bei Codex, der Anmeldung mit ChatGPT. |
 | Die Binärdatei von Claude Code darf nicht verändert werden. | Claude Code läuft so, wie Anthropic es veröffentlicht. Latet fügt ein Plugin hinzu, über die eigenen Plugin-Befehle von Claude Code, und einige Umgebungseinstellungen in `settings.json`. |
-| Die Anmeldung muss über den eigenen Ablauf von Anthropic erfolgen; Entwickler dürfen Zugangsdaten für Claude.ai weder sammeln noch speichern noch als Zwischenstelle weitergeben. | Sie melden sich über den eigenen Anmeldevorgang von Claude Code an. Latet fragt nie nach Ihren Zugangsdaten, liest sie nie für sich und speichert sie nie. |
+| Die Anmeldung muss über den eigenen Ablauf von Anthropic erfolgen; Entwickler dürfen Zugangsdaten für Claude.ai weder sammeln noch speichern noch über sich leiten. | Sie melden sich über den eigenen Anmeldevorgang von Claude Code an. Latet fragt nie nach Ihren Zugangsdaten, liest sie nie für eigene Zwecke und speichert sie nie. |
 | Die Regeln hindern Sie nicht daran, sich in der unveränderten Binärdatei von Claude Code mit Ihrem eigenen Abonnement anzumelden. | Genau so wird Latet genutzt: Ihr Claude Code, Ihre Anmeldung. |
 
 **Der Weg einer Anfrage.** Wenn `ANTHROPIC_BASE_URL` auf den lokalen Daemon zeigt, sendet Claude
@@ -100,12 +102,12 @@ Code seine Anfragen über ihn, wie über jedes Gateway: Anthropic dokumentiert e
 [Gateway](https://code.claude.com/docs/en/llm-gateway) mit Anmeldung per Abonnement, und sein
 [Leitfaden für Gateways](https://code.claude.com/docs/en/llm-gateway-protocol) verlangt von einem
 Gateway, Anfragen unverändert weiterzuleiten und sie zu untersuchen, ohne sie zu verändern. Genau
-das tut der Daemon: Der Inhalt jeder Anfrage erreicht Anthropic Byte für Byte, und ihre Header so,
-wie Claude Code sie geschrieben hat, mit Ihrem Token darin, ohne zwei Arten, die Latet entfernt und im
-Dashboard zählt: die Telemetrie- und Tracing-Header, die sein SDK hinzufügt (`x-stainless-*`,
+das tut der Daemon: Der Body jeder Anfrage erreicht Anthropic Byte für Byte, und ihre Header so,
+wie Claude Code sie geschrieben hat, mit Ihrem Token darin, bis auf zwei Arten, die Latet entfernt
+und im Dashboard zählt: die Telemetrie- und Tracing-Header, die sein SDK hinzufügt (`x-stainless-*`,
 `traceparent`...), und die eigenen Header von Claude Code, die freien Text enthalten können (die IDs
 eines Subagenten, die seinen Namen enthalten können, Werte, die Claude Code aus seiner Umgebung
-übernimmt, und ein Hinweis für Gateways, der die ausgeführten Werkzeuge nennt). [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie alle auf. Das Token wird nie gespeichert,
+übernimmt, und ein Hinweis für Gateways, der die ausgeführten Tools nennt). [Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt) listet sie alle auf. Das Token wird nie gespeichert,
 protokolliert oder im Dashboard angezeigt.
 
 **Warum nichts umgeschrieben werden muss.** Claude Code fügt dem System-Prompt jeder Anfrage einen
@@ -151,7 +153,7 @@ nichts erkannt.
   ```
 
   Das Dashboard zeigt die Anfrage, mit dem Wert, der sie gestoppt hat, rot umrahmt: Wenn er nicht
-  sensibel ist, klicken Sie darauf, wählen Sie *Nicht sensibel*, und versuchen Sie es dann erneut.
+  sensibel ist, klicken Sie darauf, wählen Sie *Nicht sensibel*, und wiederholen Sie dann die Runde.
 
   Wenn die Werte im Klartext in einer Unterhaltung stehen, die begann, bevor Latet aktiv war, sagt
   die Meldung das und bittet Sie, mit `/clear` eine neue Unterhaltung zu beginnen (siehe
@@ -169,13 +171,15 @@ Wenn `ANTHROPIC_BASE_URL` auf den Daemon zeigt, läuft jede Anfrage über ihn. D
 - prüft die ausgehende Anfrage auf sensible Werte im Klartext und blockiert sie, wenn er einen
   findet: Claude Code zeigt dann einen API-Fehler mit der Meldung
   `Latet: sensitive values would leave in clear`;
-- liest jeden anderen Teil davon: Ein Header, ein Abfrageparameter oder ein Element des Inhalts, das
-  kein Profil nennt, wird abgelehnt
-  ([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)), außer einem
-  neuen Element des Inhalts mit Text, einem neuen `anthropic-*`-Header oder einem neuen
-  `anthropic-beta`-Wert, die durchgehen, sobald die abschließende Prüfung sie gelesen hat, und einem
-  neuen `x-claude-code-*`-Header, den er entfernt und zählt;
-- leitet sonst den Inhalt Byte für Byte weiter, und die Header ohne jene, die er entfernt und zählt
+- liest jeden anderen Teil davon: Ein Header oder ein Abfrageparameter, den kein Profil nennt, wird
+  abgelehnt ([Jeder Teil einer Anfrage](../../concepts/protection-scope/#jeder-teil-einer-anfrage)),
+  außer einem neuen `anthropic-*`-Header oder einem neuen `anthropic-beta`-Wert, die durchgehen,
+  sobald die abschließende Prüfung sie gelesen hat, und einem neuen `x-claude-code-*`-Header, den er
+  entfernt und zählt; ein Element des Bodys, das noch kein Profil nennt, wird ganz gelesen und
+  geprüft und geht unverändert durch, wenn darin nichts maskiert werden müsste und es nichts nennt,
+  worauf der Anbieter handelt ([Neue Elemente in
+  Anfragen](../../getting-started/upgrading-to-0-11/#neue-elemente-in-anfragen));
+- leitet sonst den Body Byte für Byte weiter, und die Header bis auf jene, die er entfernt und zählt
   ([Header, die Latet entfernt](../../getting-started/upgrading-to-0-11/#header-die-latet-entfernt));
 - zeichnet den Austausch für das [Dashboard](../../dashboard/) auf, ohne seine Zugangsdaten.
 
@@ -214,9 +218,9 @@ vertraut ([Projekte](../../concepts/projects/#vertrauenswürdig-und-behauptet)):
 
 - **Mit `latet claude` gestartet,** führt die Sitzung einen Startschlüssel mit, den `latet claude` in
   der privaten Einstellungsdatei dieser Sitzung zu `ANTHROPIC_CUSTOM_HEADERS` hinzufügt. Wo Ihre
-  verwalteten oder Projekteinstellungen, oder die Einstellungsquellen, die Sie auf der Kommandozeile
-  wählen, unklar machen würden, welche Einstellungen gelten, fügt es keinen hinzu, sagt das, und das
-  Projekt der Sitzung ist nur behauptet.
+  verwalteten Einstellungen oder Projekteinstellungen oder die Einstellungsquellen, die Sie auf der
+  Befehlszeile wählen, unklar machen würden, welche Einstellungen gelten, fügt es keinen hinzu, sagt
+  das, und das Projekt der Sitzung ist nur behauptet.
 - **Mit `latet global-install` eingerichtet,** bindet das Plugin jede Sitzung an ihr Projekt; die
   Bindung endet nach 30 Minuten ohne Aufruf des Plugins. Die Aufrufe, die Claude Code beim Start
   macht, vor dem ersten Aufruf des Plugins, werden nur mit Ihren eigenen Regeln entschieden.
@@ -250,7 +254,7 @@ Prüfung ihn gelesen hat, wie ein neuer Header von Claude Code selbst; einer, de
 }
 ```
 
-- `ANTHROPIC_BASE_URL` leitet jede Anfrage über den Daemon. Bei dem Gateway Ihres Unternehmens,
+- `ANTHROPIC_BASE_URL` leitet jede Anfrage über den Daemon. Beim Gateway Ihres Unternehmens,
   Amazon Bedrock, Google Vertex oder Microsoft Foundry schreibt Latet stattdessen die Variable
   dieser Route (siehe [Unternehmens-Endpunkte](../company-endpoints/)); bei einer Adresse auf diesem
   Rechner lässt es Ihre, wie sie ist.
@@ -258,7 +262,7 @@ Prüfung ihn gelesen hat, wie ein neuer Header von Claude Code selbst; einer, de
   Daemon nach, dass das Plugin Ihres ist.
 - `ENABLE_TOOL_SEARCH` lässt die MCP-Tool-Suche eingeschaltet: Claude Code schaltet sie aus, wenn
   eine eigene Base-URL gesetzt ist.
-- `CLAUDE_CODE_AUTO_MODE_SERVER` verlegt die Auto-Modus-Prüfung in Anfragen, die Latet kontrollieren
+- `CLAUDE_CODE_AUTO_MODE_SERVER` verlegt die Auto-Modus-Prüfung in Anfragen, die Latet prüfen
   kann. Ohne diese Zeile reist die Prüfung als zusätzliches Feld jeder Anfrage mit, außerhalb der
   Reichweite von Plugin und Daemon.
   `latet agents apply claude --keep-classifier-context` lässt diese Zeile weg.
@@ -283,7 +287,7 @@ Prüfer erreichen darf:
 | `host_name` | Der Hostname dieses Rechners, wenn Ihre CLAUDE.md oder die Aktion ihn enthält. |
 | `git_author` | Ihr Name und Ihre E-Mail-Adresse wie in Ihrem Git-Autor, und die Domain dieser E-Mail-Adresse, wenn es die Ihres Unternehmens ist, sofern Ihre CLAUDE.md oder die Aktion sie enthält. |
 
-Jede Angabe ist `block` (die Voreinstellung) oder `allow`. Eine Prüfung, die eine blockierte Angabe
+Jede Angabe ist `block` (der Standard) oder `allow`. Eine Prüfung, die eine blockierte Angabe
 enthalten würde, wird gestoppt, sodass die Angabe lokal bleibt, und der Auto-Modus kann die Aktion
 nicht genehmigen. Claude Code lehnt sie dann ab, meldet seinen Prüfer als vorübergehend nicht
 verfügbar und fragt Sie nicht: Führen Sie die Aktion selbst aus, oder stellen Sie Claude Code auf
@@ -314,7 +318,7 @@ Das Plugin weist darauf hin, wenn eine Sitzung beginnt, und `latet doctor` liste
 Zeile und Typ auf, nie den Wert selbst.
 
 Standardmäßig bleibt jede Angabe lokal; `latet global-install --auto-mode-review user_name,paths`
-lässt sie einzeln durch. Später ändern Sie das auf der Seite **Regeln** des Dashboards und in
+lässt sie einzeln durch. Später ändern Sie das auf der Seite **Regeln** des Dashboards oder in
 `config.yaml`. Wenn eine Prüfung gestoppt wird, zeigt das Dashboard die Angaben, die sie enthielt,
 und die Einstellung, die sie durchlässt.
 
@@ -324,8 +328,8 @@ Ersatznamen, den das Modell überall sonst sieht, und eine Prüfung, die noch Ih
 Benutzernamen enthält, wird gestoppt. Führen Sie nach dieser Wahl `latet agents apply claude` aus,
 und starten Sie Claude Code dann neu. Auch die Befehle, die Claude Code ausführt, sehen den
 Ersatznamen, in `%USERNAME%`, `$USER` und in `getpass.getuser()` von Python; `whoami`, Ihr
-Home-Verzeichnis und der Git-Autor bleiben, wie sie sind. Das hilft, wenn Ihr Benutzername und Ihr
-Benutzerordner verschieden sind, was unter Windows häufig ist, zusammen mit `paths: allow`: Der
+Home-Verzeichnis und der Git-Autor bleiben, wie sie sind. Zusammen mit `paths: allow` hilft das,
+wenn Ihr Benutzername und Ihr Benutzerordner verschieden sind, was unter Windows häufig vorkommt: Der
 Prüfer erhält dann den Namen Ihres Ordners, aber nie Ihren Benutzernamen. Sind beide gleich,
 enthalten die Pfade ohnehin den echten Namen.
 

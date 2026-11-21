@@ -3,7 +3,7 @@
 
 import { ApiError, NetworkError, notifyUnauthorized, UnauthorizedError, type Method, type StreamState, type Transport } from '../api/client'
 import { defaultPii } from '../lib/pii'
-import type { ConfigUpdate, ConfigView, Destination, ExchangeSummary, RecognizerEntry, ReviewRecord, Session, Stats, Term, VaultPage } from '../api/types'
+import type { ConfigUpdate, ConfigView, Destination, ExchangeSummary, Me, RecognizerEntry, ReviewRecord, Session, Stats, Term, VaultPage } from '../api/types'
 import { hasFlag } from '../lib/flags'
 import { dayRange } from '../lib/stats'
 import { hasLetterOrDigit, TERM_LONGEST, termTooLong } from '../lib/terms'
@@ -23,6 +23,9 @@ import {
   type MockExchange,
 } from './fixtures'
 import { mockColumnOpinions, mockColumns, mockColumnShape } from './columns'
+import { identityView, mockEdition, policyRefusal, policyView, routeEe, samplePolicyView } from './ee'
+import { asServerFloor, withSecurity, withSignIn } from './people'
+import { routeReports, withReports } from './reports'
 import { mockMask } from './playground'
 import { dataEffective, personalOf, projectOfAgent, routeProjects, setPersonalOf, strictIn } from './projects'
 import { mockTestRecognizer } from './recognizers'
@@ -333,20 +336,25 @@ function route(method: Method, path: string, body: unknown): unknown {
   const q = url.searchParams
 
   if (method === 'GET' && p === '/me') {
-    return {
-      version: '0.12.1',
+    const me: Me = {
+      version: '0.15.0',
       profile: config.profile,
       port: 5283,
       data_dir: 'C:\\Users\\dhayes\\AppData\\Local\\latet',
       recording: config.history !== 'off',
       tutorial: tutorial ? tutorial.me() : null,
       server: SERVER ? MOCK_SERVER : null,
+      // A server's dashboard session is opened with `latet dashboard`'s one-time code, but for an Enterprise server's
+      // (?mock-sign-in), which says single sign-on opened it.
+      session: SERVER ? { via: 'code' } : null,
       // The documentation of its version, as a release has it (?mock-no-docs: an install from a checkout without it,
       // whose links go to docs.latet.ai). The dev server has no /_latet/docs/: its links are to look at, not to open.
       docs: !REVIEW.includes('mock-no-docs'),
+      edition: mockEdition(Boolean(tutorial)),
       // What the request exceptions let through since the pretend daemon started, in memory alone (M1).
       request_status: mockRequestStatus(),
     }
+    return withReports(withSecurity(withSignIn(me)))
   }
   if (method === 'POST' && p === '/logout') return { ok: true }
   if (tutorial && p.startsWith('/tutorial/')) {
@@ -455,7 +463,7 @@ function route(method: Method, path: string, body: unknown): unknown {
     return { report, applied: true, rules_version: rulesVersion }
   }
   if (method === 'GET' && p === '/config') {
-    return json({ ...config, data_effective: dataEffective(config.data, config.profile), etag: etagOf() })
+    return json({ ...config, identity: identityView(config.identity), data_effective: dataEffective(config.data, config.profile), etag: etagOf() })
   }
   if (method === 'PUT' && p === '/config') {
     checkEtag(body)
@@ -477,6 +485,8 @@ function route(method: Method, path: string, body: unknown): unknown {
     next.data_effective = dataEffective(next.data, next.profile)
     const errors = validate(next, config)
     if (errors.length) throw new ApiError(400, 'invalid configuration', errors)
+    const refused = policyRefusal(config, next)
+    if (refused) throw refused
     config = next
     rulesVersion++
     return { ok: true, rules_version: rulesVersion }
@@ -611,6 +621,13 @@ function route(method: Method, path: string, body: unknown): unknown {
       return json(answer)
     }
   }
+  if (method === 'GET' && p === '/ee/policy') return json(asServerFloor(policyView(config), samplePolicyView(config)))
+  if (p.startsWith('/ee/')) {
+    const reports = routeReports(method, p, body, q, new Date())
+    if (reports !== undefined) return json(reports)
+    const answer = routeEe(method, p, body)
+    if (answer !== undefined) return json(answer)
+  }
   throw new ApiError(404, 'not found')
 }
 
@@ -659,6 +676,11 @@ export const mockTransport: Transport = {
     await wait(60)
     const docs = !REVIEW.includes('mock-no-docs') // as /me says it
     return TUTORIAL ? { tutorial: true, docs } : SERVER ? { server: true, docs } : { docs }
+  },
+  async companySignIn() {
+    await wait(60)
+    // ?mock-sso, or the mock's Enterprise server (?mock-sign-in) which has it set up; a computer has none (R31)
+    return SERVER && (REVIEW.includes('mock-sso') || REVIEW.includes('mock-sign-in')) ? { login: '/_latet/sso/login' } : null
   },
   async request(method, path, body, signal) {
     await wait(120 + Math.random() * 260)

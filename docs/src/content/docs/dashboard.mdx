@@ -8,6 +8,10 @@ import Screenshot from '../../components/Screenshot.astro';
 The dashboard is a local web page served by the Latet daemon. It answers one question:
 **what did my agent actually send?**
 
+It shows the requests that went through Latet, for as long as its history keeps them. The
+sessions your agents saved before Latet, or outside it, are not here: [`latet leak`](../concepts/leaks/)
+reads them for secrets.
+
 ## Opening it
 
 ```sh
@@ -97,13 +101,14 @@ masked from the next request on.
 
 ### Blocked requests
 
-On top, in plain words: what happened, what it meant for you (a request
-that never left; for Claude Code's auto mode check, an action auto mode refused), and what
-you can do, with a button where one setting changes it. Below, what would have left, with the
-values that stopped it boxed in red: click one to see what it is, and choose *Not sensitive* if it
-is not, and the next identical request goes through. With `history: metadata`, which keeps no
-texts, they are listed by type and length only. The reason Latet gave the agent is there too.
-Requests stopped inside Claude Code by the plugin's own final check show up here too.
+On top, in plain words: what happened, what it meant for you (a request that never left; for Claude
+Code's auto mode check, an action auto mode refused), and what you can do, with a button where one
+setting changes it. Below, what would have left, with the values that stopped it boxed in red: click
+one to see what it is, and choose *Not sensitive* if it is not, and the next identical request goes
+through. A value found in a member no request profile names yet is listed by its kind, *New request
+member*, never by the member's name. With `history: metadata`, which keeps no texts, they are listed
+by type and length only. The reason Latet gave the agent is there too. Requests stopped inside
+Claude Code by the plugin's own final check show up here too.
 
 ### How a request was covered
 
@@ -113,16 +118,21 @@ Each exchange has a *Coverage* section that says how Latet accounted for every p
 - **Stopped before it was sent,** with why, in plain words, and what to do. A request stopped after
   an attempt (a Bedrock request whose AWS login had to be renewed between two attempts) says that an
   earlier attempt may already have reached the provider. An exact request exception is offered for a
-  header or a query parameter no profile names; for a body member no profile names, the exchange says
-  how to approve one, unless the member is *where no exception can reach it (inside a provider's item,
-  an image's source, or a WebSocket turn)*. None is offered for a credential, a destination, a part
-  Latet could not read or a work limit, nor on a WebSocket: *A WebSocket takes no request exception
-  in this version of Latet.*
-- **Every part read,** or **read, and let through by** what is named: *checked only* (values the final
-  check read and did not need to mask), *allowed by rule* (the rest of an image whose text was read,
-  or a provider's encrypted field), a provider's opaque item it sent earlier in this conversation,
-  text sent before in this conversation, text the model wrote, or a request exception you approved.
-  What left unread is never shown as verified.
+  header or a query parameter no profile names; for a body member no profile names, the exchange
+  says how to approve one, unless the member is *where no exception can reach it (inside a
+  provider's item, an image's source, or a WebSocket turn)*. A member refused under
+  `unknown_members: refuse` says that this setting, in your settings, in the project's or in your
+  company's policy, refuses such members, and what `unknown_members: check` would do with it, with a
+  link to [New request members](../getting-started/upgrading-to-0-11/#new-request-members); where an
+  exception can reach the member, the exchange still says how to approve one. None is offered for a
+  credential, a destination, a part Latet could not read or a work limit, nor on a WebSocket: *A
+  WebSocket takes no request exception in this version of Latet.*
+- **Every part read,** or **read, and let through by** what is named: *checked only* (values the
+  final check read and did not need to mask), *a field no request profile names yet, read and
+  checked* (by its category alone, never its name), *allowed by rule* (the rest of an image whose
+  text was read, or a provider's encrypted field), a provider's opaque item it sent earlier in this
+  conversation, text sent before in this conversation, text the model wrote, or a request exception
+  you approved. What left unread is never shown as verified.
 - **What Latet removed:** how many headers and body members its profile declares removable (Codex's
   `client_metadata`, say); when the provider answered `401` or `403` after Latet removed a header,
   the exchange says so.
@@ -190,9 +200,9 @@ The selector at the top of **Rules** switches from the global rules to
 one [project](../concepts/projects/)'s, in the same tabs. Above them are the project's folder, its
 `latet.yaml` and, under *What is not applied*, what its files say but cannot apply.
 
-- **Overview:** what is in effect there, all layers together, and your settings for the project
-  as a whole: *Export these settings* and *Import settings* move them to a colleague's copy of
-  the project, and *Remove your settings* takes them away.
+- **Overview:** what is in effect there, all layers together (how new request members are read among
+  it), and your settings for the project as a whole: *Export these settings* and *Import settings*
+  move them to a colleague's copy of the project, and *Remove your settings* takes them away.
 - **Protection** and **Reviewers:** your own settings for the project, with the sections of the
   global rules: Latet on, secrets only or off there (first in *Protection*), production data, how
   much the local reviewer reads there, your guidance to it there and the Live Reviewer.
@@ -229,7 +239,8 @@ The [profile](../concepts/profiles/), the personal-data types to detect and the
 countries whose ID numbers to recognise, your custom terms and
 [recognizers](../concepts/custom-recognizers/) (with a *Try it* panel), allow lists and policies,
 [production data](../concepts/production-data/) (strict data mode, field rules, the dump guard,
-[images](../concepts/images/) and text recognition), the [local reviewer](../concepts/llm-review/) (with your guidance, its own
+[images](../concepts/images/) and text recognition, and how
+[new request members](../getting-started/upgrading-to-0-11/#new-request-members) are read), the [local reviewer](../concepts/llm-review/) (with your guidance, its own
 instructions shown read-only as they are sent, *Try it* on a sample or a text of yours, and *Draft
 from a description* for recognizers), local name detection, what Claude Code's
 [auto mode reviewer](../agents/claude-code/) may

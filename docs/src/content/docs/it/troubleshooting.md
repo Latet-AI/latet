@@ -64,15 +64,15 @@ and the accounts in LATET_TRUSTED_ACCOUNTS can change (LATET_DATA_DIR); with a n
 `latet agents apply` applies your agents again.
 ```
 
-Latet tiene ciò che ha applicato ai tuoi agenti, e su un computer connesso a un server Latet la sua
+Latet conserva ciò che ha applicato ai tuoi agenti, e su un computer connesso a un server di Latet la sua
 connessione, in una cartella dei dati che nessun altro account del computer può cambiare: un altro
 account potrebbe mettervi ciò che Latet poi applica o invia. La cartella nominata è la cartella dei
 dati o una delle cartelle che la contengono.
 
-- **La cartella dei dati stessa** viene rifiutata ogni volta che un altro account può cambiarla, e
-  così una cartella superiore che appartiene a un altro account.
+- **La cartella dei dati stessa** viene rifiutata ogni volta che un altro account può cambiarla, e lo
+  stesso vale per una cartella superiore che appartiene a un altro account.
 - **Una cartella superiore che un altro account può cambiare** viene rifiutata su un computer connesso
-  a un server Latet, dove è in gioco il token del server. Su un computer non connesso Latet va avanti
+  a un server di Latet, dove è in gioco il token del server. Su un computer non connesso Latet va avanti
   e `latet doctor` lo segnala, con le stesse parole: un account che può cambiare il tuo profilo può già
   cambiare tutto ciò che è tuo al suo interno, compresi i dati di Latet.
 
@@ -82,25 +82,25 @@ con `(F)`, `(M)` o `(W)` glielo permette. Le soluzioni sono tre:
 1. Rimuovi quella voce, se il computer lo puoi cambiare tu. Una voce segnata `(I)` viene dalla
    cartella superiore, e si rimuove lì; una voce che compare solo come SID è un account che Windows non
    trova più, spesso uno eliminato.
-2. Fidati di quell'account: imposta `LATET_TRUSTED_ACCOUNTS` sul suo nome o sul suo SID per il tuo
+2. Considera attendibile quell'account: imposta `LATET_TRUSTED_ACCOUNTS` sul suo nome o sul suo SID per il tuo
    account, come in `setx LATET_TRUSTED_ACCOUNTS "PC\other"`, o nelle impostazioni di sistema, o per
    tutto il computer con i criteri di gruppo, poi apri un nuovo terminale. Latet la legge lì, nel
    registro, e mai dall'ambiente di un terminale: un valore impostato solo in una sessione di terminale
-   (`$env:` o `set`) non conta, così che le impostazioni di un repository o la sessione di un agente
+   (`$env:` o `set`) non conta nulla, così che le impostazioni di un repository o la sessione di un agente
    non possano cambiarla. Più account si separano con `;`, e un SID si può scrivere `*S-1-5-…`, come
    lo scrive icacls. Vale solo per le cartelle superiori, mai per la cartella dei dati stessa, che
-   contiene la chiave del vault, né per una cartella al suo interno.
+   contiene la chiave della cassaforte, né per una cartella al suo interno.
 3. Imposta `LATET_DATA_DIR` su una cartella le cui cartelle superiori possono cambiare solo tu, SYSTEM,
-   gli Administrators e gli account di cui ti fidi, poi esegui di nuovo `latet agents apply`.
+   gli Administrators e gli account che consideri attendibili, poi esegui di nuovo `latet agents apply`.
 
 Un membro diretto del gruppo locale Administrators, come un gruppo dell'assistenza aggiunto dal tuo
-reparto IT, è considerato affidabile sulle cartelle superiori come il gruppo stesso, senza alcuna
+reparto IT, è considerato attendibile sulle cartelle superiori come il gruppo stesso, senza alcuna
 impostazione. La fiducia in questi account e membri vale per le cartelle superiori di ogni cartella
 che Latet controlla così: quelle della cartella dei dati, quelle sopra la cartella dei dati che
 controlla il processo ausiliario di Claude Code, quelle della sua installazione e quelle della
-cartella dei log del servizio Windows di un server Latet. `latet doctor` elenca gli account di cui si
-fida `LATET_TRUSTED_ACCOUNTS`, con il punto in cui è impostata, e i membri di cui si è fidato. Nomina
-ogni voce che non rende affidabile nessuno: un nome che Windows non trova, o un account che non è di
+cartella dei log del servizio Windows di un server di Latet. `latet doctor` elenca gli account che
+`LATET_TRUSTED_ACCOUNTS` rende attendibili, con il punto in cui è impostata, e i membri che ha
+considerato attendibili. Nomina ogni voce che non rende attendibile nessuno: un nome che Windows non trova, o un account che non è di
 questo computer, di un dominio, di Entra ID o di un servizio, come Everyone, Users o NTLM
 Authentication. Dice anche quando la variabile è impostata solo nel suo terminale.
 
@@ -111,23 +111,24 @@ solo tua (0700) la prima volta che serve a Latet, e Latet lo dice una volta: nel
 terminale del comando che ha fatto la modifica. `LATET_TRUSTED_ACCOUNTS` lì non cambia nulla: i
 controlli si basano su proprietario e permessi.
 
-Un computer che non si è mai connesso a un server Latet non viene mai rifiutato per una connessione.
+Un computer che non si è mai connesso a un server di Latet non viene mai rifiutato per via di una
+connessione.
 
 ### Claude Code su un computer connesso trattiene ogni prompt
 
 Il plugin dice perché, e ogni causa ha la sua soluzione:
 
-- **La modalità di stampa o un'altra superficie:** `claude -p`, e ogni superficie tranne il
-  terminale interattivo, sono trattenuti su un computer connesso a un server Latet. Usa il terminale
+- **La modalità print o un'altra superficie:** `claude -p`, e ogni superficie tranne il
+  terminale interattivo, sono trattenuti su un computer connesso a un server di Latet. Usa il terminale
   interattivo.
 - **L'associazione del processo ausiliario manca o non è aggiornata**, dopo un aggiornamento o una
   nuova connessione: esegui `latet agents apply claude`, o avvia Claude Code con `latet claude`.
   `latet doctor` la controlla.
-- **Il server Latet non ha risposto:** `latet status` dice se risponde e se accetta il token di
+- **Il server di Latet non ha risposto:** `latet status` dice se risponde e se accetta il token di
   questo computer.
 - **Il server non accetta più il token di questo computer:** è stato revocato, o la tua identità è
-  disattivata. Esegui `latet disconnect`, poi `latet connect <url>` con un nuovo codice di un
-  amministratore.
+  stata disattivata. Esegui `latet disconnect`, poi `latet connect <url>` con un nuovo codice
+  ricevuto da un amministratore.
 - **Linux e macOS:** Claude Code tramite un server richiede un terminale Windows in questa versione;
   `latet codex` e `latet opencode` passano dal server.
 
@@ -139,8 +140,8 @@ permette di cambiarla. Il processo ausiliario esegue quel codice con il token di
 quindi lo esegue solo da cartelle che possono cambiare solo tu, SYSTEM e gli Administrators, e le cui
 cartelle superiori possono cambiare solo loro, i membri diretti degli Administrators e gli account in
 `LATET_TRUSTED_ACCOUNTS`. Controlla la cartella nominata con `icacls "<cartella>"` e rimuovi la voce dell'altro account;
-oppure installa Python e Latet in cartelle tue, che `UV_PYTHON_INSTALL_DIR` e `UV_TOOL_DIR` di uv
-scelgono.
+oppure installa Python e Latet in cartelle tue, che si scelgono con `UV_PYTHON_INSTALL_DIR` e
+`UV_TOOL_DIR` di uv.
 
 ### Una richiesta è stata bloccata
 
@@ -164,11 +165,36 @@ richiesta bloccata è lì, come sarebbe uscita, con i valori che l'hanno fermata
 riquadro rosso. Per andare avanti, togli il valore: inizia una nuova conversazione (in Claude Code,
 `/clear`) e indica all'agente il file o la variabile che lo contiene, invece di incollarlo. Solo se
 un valore non è affatto un segreto, come un valore di test o di esempio, fai clic su di esso e
-scegli **Non sensibile: consenti sempre**, poi riprova il turno.
+scegli **Non sensibile: consenti sempre**, poi ripeti il turno.
 
 In modalità gateway, un errore con `Latet: masking failed` o `Latet: unreadable request body`
 significa che il daemon non è riuscito a mascherare la richiesta, quindi l'ha rifiutata.
 Il log del daemon dice perché.
+
+### Lo schema di uno strumento MCP ferma le richieste di Claude Code
+
+L'errore indica uno strumento e il suo *parameter schema*, lo schema dei parametri (o i suoi *input
+examples*, gli esempi di input), per esempio:
+
+```text
+Latet: sensitive values would leave in clear: EMAIL[21]; it is in the parameter schema of the tool
+mcp__crm__find_contact, which Latet checks but cannot mask in this request
+```
+
+Lo schema è ciò che un server MCP o un plugin ha scritto dell'input dello strumento, come un
+indirizzo d'esempio nella descrizione di un parametro. In Claude Code il plugin di Latet maschera la
+descrizione di uno strumento, ma Claude Code non gli dà modo di cambiare lo schema, e Latet non
+riscrive le richieste di Claude Code. Claude Code invia lo schema di uno strumento con ogni richiesta
+da quando lo ha caricato, e quello di tutti gli strumenti quando riprova dopo un errore, quindi le sue
+richieste continuano a fermarsi finché non cambi qualcosa:
+
+- Se il valore non è sensibile, esegui `latet dashboard`, apri la richiesta bloccata, fai clic sul
+  valore e scegli **Non sensibile: consenti sempre**.
+- Se lo è, disattiva il server MCP o il plugin che fornisce lo strumento (in Claude Code, `/mcp` o
+  `/plugin`), oppure chiedi a chi lo ha scritto di togliere il valore dallo schema.
+
+La dashboard mostra un blocco del genere come *Schema dei parametri dello strumento*. Mascherare gli
+strumenti MCP prima che Claude Code li legga è nella [roadmap](../roadmap/).
 
 ### Una parte di una richiesta viene rifiutata
 
@@ -181,49 +207,55 @@ Latet: request envelope refused (envelope-header-unknown): header x-team. Nothin
 
 La parte tra parentesi dice di che tipo si tratta:
 
-- `envelope-header-unknown`: un'intestazione che nessun profilo nomina, spesso una che hai impostato
-  per l'agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` di Codex, `COPILOT_PROVIDER_HEADERS`),
-  nominata con ogni parola del nome più lunga di 16 caratteri indicata dalla sua lunghezza
-  (`x-custom-<20 characters>`), così che una chiave in un nome non torni mai all'agente. Toglila
-  dalle impostazioni dell'agente, o lasciala passare con un'eccezione esatta. Con Claude Code,
-  Bedrock e Vertex, un'intestazione `anthropic-*` nuova passa una volta controllata e una
-  `x-claude-code-*` nuova viene tolta. Una rifiutata lì è fuori da questi limiti: un nome di oltre
+- `envelope-header-unknown`: un header che nessun profilo nomina, spesso uno che hai impostato per
+  l'agente (`ANTHROPIC_CUSTOM_HEADERS`, `http_headers` di Codex, `COPILOT_PROVIDER_HEADERS`),
+  nominato con ogni parola del nome più lunga di 16 caratteri indicata dalla sua lunghezza
+  (`x-custom-<20 characters>`), così che una chiave in un nome non torni mai all'agente. Toglilo
+  dalle impostazioni dell'agente, o lascialo passare con un'eccezione esatta. Con Claude Code,
+  Bedrock e Vertex, un header `anthropic-*` nuovo passa una volta controllato e un header
+  `x-claude-code-*` nuovo viene tolto. Uno rifiutato lì è fuori da questi limiti: un nome di oltre
   48 caratteri dopo `anthropic-`, con una parola tra i suoi trattini di oltre 16 caratteri (una
   chiave o un id lungo nel nome), o con un carattere che non sia una lettera minuscola, una cifra o
   un trattino (`_`, `.`; le maiuscole vengono lette come minuscole); un valore vuoto, di oltre 1.024
   caratteri o con un carattere fuori dall'ASCII stampabile (una tabulazione, una lettera accentata);
-  più di otto intestazioni di questo tipo in una richiesta. Oppure l'ha inviata un client che Latet
-  riscrive, come un SDK di Anthropic. Un'eccezione che nomina l'intestazione la decide anche dove
-  non si applica: una richiesta di un altro progetto che la contiene viene rifiutata qui, e quando
+  più di otto header di questo tipo in una richiesta. Oppure l'ha inviato un client che Latet
+  riscrive, come un SDK di Anthropic. Un'eccezione che nomina l'header lo decide anche dove non si
+  applica: una richiesta di un altro progetto che lo contiene viene rifiutata qui, e quando
   l'eccezione è scaduta una richiesta del genere viene rifiutata con `envelope-exception-expired`.
-  Togli l'eccezione per lasciar passare l'intestazione controllata.
-- `envelope-header-value`: un'intestazione che Latet conosce, con un valore fuori dalla sua forma. Con
-  Claude Code, Bedrock e Vertex, un valore di `anthropic-beta` di forma nuova passa una volta
+  Togli l'eccezione per lasciar passare l'header dopo il controllo.
+- `envelope-header-value`: un header che Latet conosce, con un valore che non rispetta la sua forma.
+  Con Claude Code, Bedrock e Vertex, un valore di `anthropic-beta` di forma nuova passa una volta
   controllato; viene rifiutato oltre i 64 valori, o con un valore vuoto (`a,,b`, `a,`), di oltre 64
   caratteri o con al suo interno uno spazio, una tabulazione o un carattere fuori dall'ASCII
   stampabile (gli spazi attorno alle virgole vanno bene). Con Bedrock passa solo nelle chiamate ai
-  modelli, come un'intestazione `anthropic-*` nuova: una chiamata al piano di controllo di Bedrock,
-  come la lettura dei profili di inferenza, non accetta alcuna intestazione `anthropic-*` e viene
-  rifiutata con `envelope-header-unknown`, come prima.
+  modelli, come un header `anthropic-*` nuovo: una chiamata al piano di controllo di Bedrock, come
+  la lettura dei profili di inferenza, non accetta alcun header `anthropic-*` e viene rifiutata con
+  `envelope-header-unknown`, come prima.
 - `envelope-query-unknown`: un parametro di query che nessun profilo nomina.
 - `envelope-route`: una chiamata che Latet non legge, come file, batch o audio. All'agente viene
-  detto che questa versione di Latet non supporta la chiamata. Nessuna eccezione nomina una rotta:
+  detto che questa versione di Latet non supporta la chiamata. Nessuna eccezione nomina un percorso:
   cambia le impostazioni dell'agente perché non faccia la chiamata, oppure falla senza Latet.
 - `envelope-resource`: un ARN di Bedrock, un progetto di Vertex, o un nome di modello fuori dalle
   forme documentate dai provider: elencalo in `request_resources`.
-- `envelope-exception-expired`: l'eccezione che la lasciava passare è finita; l'errore la nomina
-  insieme al giorno. Rinnovala.
-- `request body refused (unknown member in top-level)`, `(unknown member in message content
-  block)`, `(unknown member in tool definition)`...: un membro del corpo che nessun profilo nomina, e
-  dove si trova. In una richiesta che Latet si limita a verificare (Claude Code, Bedrock, Vertex), un
-  membro nuovo che contiene testo passa una volta verificato. Un'eccezione esatta può nominarne un
-  altro con il suo puntatore JSON: la dashboard registra il suo rifiuto come `body-unknown-member`.
-  Dentro un elemento proprio del provider (`provider item`: thinking, ragionamento) o nella sorgente
-  di un'immagine (`inline image`), e in ogni frame WebSocket, nessuna può arrivarci: il rifiuto viene
-  registrato come `body-unknown-member-no-exception`, e la dashboard dice che nessuna eccezione può
-  arrivarci. Un membro del genere viene rifiutato finché una versione di Latet non lo legge.
-- `Latet cannot read this document, audio or remote media, so it does not send it`: dai all'agente
-  il testo, invece.
+- `envelope-exception-expired`: l'eccezione che la lasciava passare è scaduta; l'errore la nomina,
+  con il giorno in cui è scaduta. Rinnovala.
+- `request body refused (unknown member in top-level)`, `(unknown member in message content block)`,
+  `(unknown member in tool definition)`...: un membro del corpo che nessun profilo nomina, e dove si
+  trova. Dalla 0.15.0 un membro del genere passa una volta letto e controllato quando nulla al suo
+  interno andrebbe mascherato e non indica nulla su cui il provider agisce ([Nuovi membri delle
+  richieste](../getting-started/upgrading-to-0-11/#nuovi-membri-delle-richieste)): questo rifiuto
+  dice che indica un file, un indirizzo, una conversazione salvata o un modello, contiene dati
+  codificati o porta più di brevi token dentro un elemento proprio del provider, oppure che le tue
+  impostazioni dicono `unknown_members: refuse`, cosa che la dashboard allora indica. Un valore
+  sensibile in un membro del genere ferma la richiesta con le parole del controllo finale, come in
+  qualsiasi altro testo. Un'eccezione esatta può nominare un membro rifiutato con il suo puntatore
+  JSON: la dashboard registra il suo rifiuto come `body-unknown-member`. Dentro un elemento proprio
+  del provider (`provider item`: thinking, reasoning) o nella sorgente di un'immagine (`inline
+  image`), e in ogni frame WebSocket, nessuna può arrivarci: il rifiuto viene registrato come
+  `body-unknown-member-no-exception`, e la dashboard dice che nessuna eccezione può arrivarci. Un
+  membro del genere viene rifiutato finché una versione di Latet non lo legge.
+- `Latet cannot read this document, audio or remote media, so it does not send it`: dai invece
+  all'agente il testo.
 
 [Passare alla 0.11](../getting-started/upgrading-to-0-11/) dice cosa fare in ogni caso, e come
 approvare un'eccezione.
@@ -288,8 +320,8 @@ non viene inviata quando il revisore non può farla. L'agente, o Claude Code, di
 - `... (it took longer than llm_review.budget_ms)`: la revisione ha superato il tempo concesso;
   alza `budget_ms`, o rimuovilo per attendere tutto il tempo che serve alla revisione;
 - `the local reviewer could not trust its review of the tool result: the text gives it
-  instructions`: il testo dà istruzioni al revisore, che non ci ha trovato nulla ma non può fidarsi
-  della propria revisione. Guardalo nella dashboard prima di inviarlo di nuovo;
+  instructions`: il testo dà istruzioni al revisore, che non ci ha trovato nulla ma non può considerare
+  attendibile la propria revisione. Guardalo nella dashboard prima di inviarlo di nuovo;
 - `the local reviewer stopped this tool result: it must not leave even masked`: con `block: true`,
   il revisore ha giudicato l'intero testo troppo sensibile per essere inviato, anche mascherato,
   come una cartella clinica.
@@ -322,7 +354,7 @@ disattivare la protezione.
 ### Ogni richiesta di un progetto viene rifiutata
 
 Lì Latet è disattivato: dalla 0.11 un progetto in cui Latet è disattivato non invia nessuna delle sue
-richieste, e all'agente viene detto. Nella dashboard quegli scambi hanno la segnalazione
+richieste, e l'agente ne viene informato. Nella dashboard quegli scambi hanno la segnalazione
 *Latet disattivato*, `latet project show` lo dice, e `latet project on` lo riattiva. Per lasciar
 passare lì i dati personali, impostalo su *Solo segreti*, che maschera i segreti e i tuoi termini e
 lascia partire le richieste.
@@ -331,7 +363,7 @@ lascia partire le richieste.
 
 È un falso positivo. Nella dashboard, apri la richiesta, fai clic sul valore e scegli
 **Non sensibile: consenti sempre**, oppure aggiungi il valore a `allow_values` in `config.yaml`. Per
-disattivare un'intera regola dei segreti, aggiungi il suo id a `disabled_secret_rules`: se nella
+disattivare un'intera regola per i segreti, aggiungi il suo id a `disabled_secret_rules`: se nella
 dashboard un valore è stato trovato da `gitleaks:generic-api-key`, la sua regola si disattiva con
 `generic-api-key`. Vedi [Valori consentiti](../concepts/profiles/#valori-consentiti).
 
@@ -340,7 +372,7 @@ dashboard un valore è stato trovato da `gitleaks:generic-api-key`, la sua regol
 - Controlla il [profilo](../concepts/profiles/): `secrets` non maschera i dati personali.
 - I nomi nel testo libero richiedono il
   [modello locale dei nomi](../getting-started/installation/#rilevamento-dei-nomi) facoltativo o il
-  [revisore locale](../concepts/llm-review/), e nessuno dei due dà garanzie: aggiungi i nomi che
+  [revisore locale](../concepts/llm-review/), e nessuno dei due è infallibile: aggiungi i nomi che
   contano come [termini personalizzati](../concepts/detection/#i-tuoi-termini).
 - Incolla il testo nel **Laboratorio** della dashboard per vedere cosa trovano le regole attuali.
 
@@ -348,8 +380,8 @@ dashboard un valore è stato trovato da `gitleaks:generic-api-key`, la sua regol
 
 È il comportamento previsto: in modalità print Claude Code non ripristina ciò che stampa. I file
 scritti dagli strumenti contengono i valori reali, e anche l'interfaccia interattiva li mostra. Vedi
-[Claude Code](../agents/claude-code/#limiti). Su un computer connesso a un server Latet la modalità di
-stampa è trattenuta: vedi [Claude Code su un computer connesso trattiene ogni prompt](#claude-code-su-un-computer-connesso-trattiene-ogni-prompt).
+[Claude Code](../agents/claude-code/#limiti). Su un computer connesso a un server di Latet la modalità
+print è trattenuta: vedi [Claude Code su un computer connesso trattiene ogni prompt](#claude-code-su-un-computer-connesso-trattiene-ogni-prompt).
 
 ### I comandi sono lenti su Windows
 
@@ -382,19 +414,87 @@ in tempo, e nel frattempo trattiene i contenuti. Fai avviare il daemon all'acces
 
 ### La porta 5283 è già in uso
 
-Latet è in ascolto su `127.0.0.1:5283`, una porta che nessun software comune usa. Se un altro
-programma l'ha presa, o Windows l'ha riservata (Hyper-V, WSL e Docker riservano blocchi di porte che
-possono cambiare a ogni avvio), `latet start` lo dice subito:
+Latet è in ascolto su `127.0.0.1:5283`, una porta che nessun software comune usa. Quando non può
+mettersi in ascolto lì, `latet start`, `latet claude` e gli altri comandi che avviano il daemon
+dicono subito perché, e lo dice anche la riga Port di `latet doctor`. Le cause sono due.
+
+**Windows ha riservato la porta.** Hyper-V, WSL e Docker (attraverso il servizio WinNAT di Windows)
+riservano blocchi di 100 porte a ogni avvio di Windows, scelti di nuovo ogni volta, dentro
+l'intervallo di porte dinamiche di Windows: le porte che assegna alle connessioni in uscita. Questo
+intervallo parte per impostazione predefinita da 49152, molto sopra 5283, ma alcuni programmi lo
+abbassano fino a 1024, e allora un blocco può prendere la porta di Latet fino al riavvio successivo:
+
+```text
+Latet cannot listen on 127.0.0.1:5283: reserved by Windows (5241-5340).
+Run `latet reserve-port`: it moves Latet to a free port and reserves that port, so that Windows cannot take it again (your agents are updated too).
+```
+
+Esegui `latet reserve-port`. Dice cosa ha trovato e chiede una volta sola:
+
+```text
+Windows holds port 5283 since it started: Latet moves to port 5341, free, and reserves it.
+Move Latet to port 5341 and reserve it? Windows asks for an administrator's confirmation once. [Y/n]:
+```
+
+La nuova porta è la prima libera dopo quelle che Windows occupa e quelle che un amministratore ha
+escluso per altri programmi. Se rispondi di sì, Latet la riserva con un'esclusione di porte di un
+amministratore: Windows la lascia fuori dai blocchi che riserva, e Latet può comunque mettersi in
+ascolto su di essa. Poi Latet passa a quella porta: la salva in `config.yaml`, fa puntare a essa
+ogni agente che `latet global-install` ha configurato, e ci avvia il daemon. Le sessioni degli
+agenti aperte in quel momento continuano a chiamare la vecchia porta finché non le riavvii. La
+conferma di un amministratore si dà nella finestra del Controllo dell'account utente di Windows. Se
+la rifiuti, Latet cambia porta lo stesso, così da potersi avviare subito, ma la nuova porta non è
+riservata: esegui di nuovo `latet reserve-port` per riservarla.
+
+Dove l'intervallo dinamico comprende la porta di Latet ma nessun blocco la occupa ancora,
+`latet doctor` avvisa, e `latet reserve-port` chiede se riservare la porta dov'è. Se il daemon è in
+esecuzione su quella porta, Latet si riavvia per un momento, e gli agenti ritentano quello che
+inviano nel frattempo. In entrambi i casi l'installer per Windows fa la stessa domanda alla fine.
+Niente cambia senza il tuo sì; se non c'è un terminale in cui chiedere, il comando stampa solo cosa
+eseguire. Un agente non può eseguirlo: cambia un'impostazione di Windows, quindi lo esegui tu.
+
+`latet reserve-port` fa tutto questo. Dove Windows non occupa ancora la porta, puoi anche riservarla
+a mano, con Latet fermo, perché netsh può rifiutare una porta su cui un programma è in ascolto:
+esegui `latet stop`, poi questa riga in una finestra di PowerShell avviata come amministratore, poi
+`latet start`.
+
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent
+```
+
+Dove Windows occupa già la porta, questa riga non può riservarla, perché il blocco di Windows la
+tiene fino al riavvio successivo: allora lo fa solo `latet reserve-port`, che prima sposta Latet su
+una porta libera e poi riserva quella.
+
+`netsh int ipv4 show excludedportrange protocol=tcp` elenca gli intervalli esclusi, con un `*`
+accanto a quelli aggiunti da un amministratore. `latet reserve-port --remove` libera le porte che
+Latet ha riservato, e nessun'altra.
+
+L'altra strada è riportare l'intervallo dinamico di Windows dove parte per impostazione predefinita:
+esegui questi comandi in una finestra di PowerShell avviata come amministratore, poi riavvia
+Windows.
+
+```powershell
+netsh int ipv4 set dynamic tcp start=49152 num=16384
+netsh int ipv6 set dynamic tcp start=49152 num=16384
+```
+
+Questo cambia l'intervallo per tutti i programmi del computer, e il programma che l'ha spostato
+potrebbe averlo fatto per un motivo: per questo Latet lascia a te questa scelta.
+
+**Un altro programma usa la porta.** `latet start` lo dice:
 
 ```text
 Latet cannot listen on 127.0.0.1:5283: in use by another program.
 Run `latet global-install` to move it to a free port (your agents are updated too).
 ```
 
-`latet global-install` sceglie la prima porta libera da 5284 a 5335, la salva in `config.yaml` e fa
-puntare alla nuova porta ogni agente che ha configurato. Se nessuna è libera, scegline una tu:
-`latet global-install --port 6655`. `latet serve --port <port>` cambia la porta solo per una
-singola esecuzione in primo piano.
+`latet global-install` sceglie la prima porta libera sopra 5283, dopo quelle che Windows occupa e
+quelle che un amministratore ha escluso per altri programmi, la salva in `config.yaml` e fa puntare
+alla nuova porta ogni agente che ha configurato. Su Windows, dove Windows può prendere anche la
+nuova porta, ciò che mostra prima di chiedere nomina `latet reserve-port`. Per scegliere una porta
+tu, esegui `latet global-install --port 6655`.
+`latet serve --port <port>` cambia la porta solo per una singola esecuzione in primo piano.
 
 ### Latet gira in Docker e gli agenti non riescono a raggiungerlo
 
@@ -494,7 +594,7 @@ bisogno: fino ad allora, `latet tutorial` avvisa che la sua pagina non verrà mo
 Usa `latet upgrade`: ferma il daemon, installa la nuova versione in una finestra a parte quando il
 comando è finito (Windows non sostituisce i file di un programma in esecuzione), e riavvia Latet.
 
-Un Latet 0.9.0 o 0.9.1 aggiornato con il suo `latet upgrade` su Windows può restare senza avviarsi, e
+Un Latet 0.9.0 o 0.9.1 aggiornato con il suo `latet upgrade` su Windows può non avviarsi più, e
 `latet` risponde `No module named 'latet'`: rilancia l'installer, che installa l'ultima versione per
 intero.
 
@@ -503,11 +603,11 @@ intero.
 `latet upgrade --to 0.9.9` installa quella versione invece dell'ultima. Ogni `latet upgrade` copia
 prima la cassaforte, la cronologia e le impostazioni come sono, in `backups/before-<versione>-<ora>`
 nella cartella dei dati di Latet; tiene le tre copie più recenti. Tornando alla versione con cui è
-stata fatta una copia, l'aggiornamento propone di rimetterla: dice quanti valori la cassaforte ha
+stata fatta una copia, l'aggiornamento propone di ripristinarla: dice quanti valori la cassaforte ha
 imparato dopo, che andrebbero persi, e lascia i tuoi dati come sono a meno che tu non risponda sì nel
-tuo terminale. Se la rimetti, i tuoi file come sono ora vengono copiati prima, in una copia a parte.
+tuo terminale. Se la ripristini, i tuoi file come sono ora vengono copiati prima, in una copia a parte.
 
-Per rimettere una copia a mano: ferma Latet (`latet stop`), copia `latet.db` ed `exchanges.db` della
+Per ripristinare una copia a mano: ferma Latet (`latet stop`), copia `latet.db` ed `exchanges.db` della
 copia nella cartella dei dati al posto di quelli che ci sono, togliendo i loro file `-wal` e `-shm`,
 il suo `config.yaml` dove c'è il tuo e il suo `config.reviewed.json` nella cartella dei dati, poi avvia
 Latet. Una copia si apre solo con la chiave di questo computer, che resta dov'è.
@@ -515,8 +615,8 @@ Latet. Una copia si apre solo con la chiave di questo computer, che resta dov'è
 ### Un aggiornamento si ferma prima di cominciare: la copia non si può fare
 
 `latet upgrade` copia la cassaforte, la cronologia e le impostazioni prima di cambiare qualsiasi cosa.
-Quando quella copia non si può fare, o il disco non ha spazio per lei e per l'installazione (dice
-quanto spazio gli serve), dice perché e si ferma: non è stato installato nulla e il daemon non è
+Quando quella copia non si può fare, o sul disco non c'è spazio per la copia e per l'installazione
+accanto (dice quanto spazio serve), dice perché e si ferma: non è stato installato nulla e il daemon non è
 stato fermato. Fai spazio, o cancella le copie più vecchie in
 `backups` nella cartella dei dati di Latet, e rilancialo.
 
@@ -551,8 +651,8 @@ irm https://raw.githubusercontent.com/Latet-AI/latet/main/scripts/install.ps1 | 
 
 Funziona anche un wheel che hai scaricato: il suo percorso al posto dell'indirizzo.
 
-`LATET_SOURCE` viene installato così com'è: un Latet installato con altri extra li tiene solo se li
-indica anche lui. Su un server serve anche `server`, come in `latet[ner,ocr,server] @ …`;
+`LATET_SOURCE` viene installato così com'è: un Latet installato con altri extra li conserva solo se
+anche `LATET_SOURCE` li indica. Su un server serve anche `server`, come in `latet[ner,ocr,server] @ …`;
 `latet upgrade` dice quali extra indicare. Un server installato come servizio di sistema si aggiorna
 come dice
 [Gestione del server](../concepts/server-operations/#aggiornare-un-latet-installato-come-servizio-di-sistema).
@@ -579,7 +679,7 @@ tramite ChatGPT è un altro discorso: passa da Latet con quell'accesso, vedi
 Claude Code aggiunge a ogni richiesta un blocco di attribuzione con un'impronta della conversazione,
 e la guida di Anthropic sui gateway chiede a un gateway di ispezionare le richieste senza
 modificarle. Per questo il mascheramento avviene dentro Claude Code, prima che la richiesta venga
-costruita, e il daemon si limita a controllarla. Vedi
+costruita, e il daemon si limita a verificarla. Vedi
 [Come funziona](../concepts/how-it-works/#modalità-client-claude-code).
 
 ### Il modello riesce ancora a fare il suo lavoro con valori fittizi?
@@ -602,8 +702,8 @@ Esegui `latet dashboard`. Vedi la [guida alla dashboard](../dashboard/).
 ### Come lo disattivo?
 
 `latet global-uninstall` riporta ogni agente com'era, rimuove l'avvio all'accesso e ferma il daemon.
-Gli strumenti che hai puntato su Latet nelle loro impostazioni ne tengono l'indirizzo: rimetti il
-loro. Eseguire di nuovo `latet global-install` lo riattiva.
+Gli strumenti che hai fatto puntare a Latet nelle loro impostazioni ne conservano l'indirizzo:
+rimetti il loro. Eseguire di nuovo `latet global-install` lo riattiva.
 
 ### Latet invia qualcosa da qualche parte?
 
@@ -636,7 +736,7 @@ all'agente il testo, invece.
 L'agente ha ricevuto un errore invece di una risposta, e non è stato inviato niente:
 
 - *Latet cannot read this image's text: text recognition is not installed...*: il riconoscimento del testo non è
-  installato, o è impostato `ocr: off`. Installalo (`latet ocr install` su un computer; su un server Latet lo installa il suo amministratore), poi riporta la conversazione a prima
+  installato, o è impostato `ocr: off`. Installalo (`latet ocr install` su un computer; su un server di Latet lo installa il suo amministratore), poi riporta la conversazione a prima
   dell'immagine o iniziane una nuova, perché l'immagine resta nella sua cronologia.
 - *Latet cannot read all of this image's metadata or embedded images...*: in una richiesta che Latet
   si limita a verificare, come quelle di Claude Code, una foto conteneva una posizione, le note del produttore
@@ -678,11 +778,13 @@ l'agente, così l'agente lo raggiunge su `127.0.0.1`.
 Sì, qualunque sia la sua dimensione, per il proprio lavoro, su qualsiasi numero di computer e
 server. Anche l'uso personale e quello non commerciale sono gratuiti. Per la Community Edition serve
 una licenza commerciale solo per vendere Latet, offrirlo ad altri come servizio, integrarlo in un
-prodotto che vendi o per un fork commerciale: scrivi a [info@latet.ai](mailto:info@latet.ai). La
-Enterprise Edition, i file nelle cartelle `ee`, aggiunge ciò che serve a un'azienda per gestire Latet
-in modo centralizzato, e in produzione richiede una licenza commerciale; svilupparci e provarla è
-gratuito. La Community Edition non controlla mai una licenza: non ci sono chiavi.
-[LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) ha i dettagli e gli esempi.
+prodotto che vendi o per un fork commerciale: scrivi a [info@latet.ai](mailto:info@latet.ai).
+L'Enterprise Edition, i file nelle cartelle `ee`, aggiunge ciò che serve a un'azienda per gestire Latet
+in modo centralizzato: le sue funzionalità richiedono in produzione una licenza Latet Enterprise, un file di
+licenza che Latet controlla sul tuo server di Latet senza contattare nessuno, e usarle per sviluppare e
+fare test è gratuito. Per provarle prima, chiedi una licenza di prova di 32 giorni allo stesso indirizzo. La Community
+Edition non controlla mai una licenza: non ci sono chiavi. Vedi [Edizioni e licenza](../enterprise/) e
+[LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md) per i dettagli e gli esempi.
 
 ### Da dove viene il nome?
 

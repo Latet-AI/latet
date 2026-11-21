@@ -2,6 +2,7 @@
 an unquoted ``key=value`` value of a field rule or of strict data mode takes in the spaced groups of a phone number that
 begins it, so that ``+39`` is not masked alone with ``347 123 4567`` left in clear."""
 
+import gc
 import time
 
 import phonenumbers
@@ -238,23 +239,58 @@ def test_a_numeric_log_is_masked_in_about_the_time_it_took_before_phones_were_ta
 # One line of pairs as long as a text can be (``fields._MAX_TEXT``), of the shapes that once cost the square of its
 # length: a value that a space, a parenthesis and a digit follow (where a phone number may go on, ``phone_end``), a run
 # of pairs, a run of quoted pairs (each asked whether it stands in a tag), and phone numbers after keys. Each with the
-# seconds that reading its 2 MB may take, its structures alone and with every detector: about a third of that on this
-# computer (1.3 and 2.1 s; 5 and 11 s for the phone numbers, 87,000 of them, each parsed). Before, the first shape
-# took 7.6 s at 200 KB and twelve minutes at 2 MB, the next two about two minutes.
+# most seconds that reading its 2 MB may take, its structures alone and with every detector: a ceiling that a reading
+# which grows with the length but is slow still fails, six to eleven times what it takes on this computer (at most 1.2
+# and 1.8 s; 6.4 and 13 s for the phone numbers, 87,000 of them, each parsed). Before, the first shape took 7.6 s at
+# 200 KB and twelve minutes at 2 MB, the next two about two minutes.
 LONG_LINE = fields._MAX_TEXT
 LONG_SHAPES = {
-    "may go on as a phone": ("a=1 (2 ", 5.0, 10.0),
-    "a run of pairs": ("a=1 ", 5.0, 10.0),
-    "a run of quoted pairs": ('a="1" ', 5.0, 10.0),
-    "phone numbers": ("phone=+39 347 123 4567 ", 20.0, 40.0),
+    "may go on as a phone": ("a=1 (2 ", 10.0, 20.0),
+    "a run of pairs": ("a=1 ", 10.0, 20.0),
+    "a run of quoted pairs": ('a="1" ', 10.0, 20.0),
+    "phone numbers": ("phone=+39 347 123 4567 ", 40.0, 80.0),
 }
 LONG = pytest.mark.parametrize(("unit", "cells_at_most", "detect_at_most"), LONG_SHAPES.values(), ids=list(LONG_SHAPES))
+
+# How many times its tenth the whole line may take. A reading that grows with the length takes about ten times as long
+# (9.7 to 10.8 times on this computer, with the garbage collector off), one that grows with the square of it about a
+# hundred times: 30 is a factor of three from each, so that a shared runner may slow the whole line down threefold
+# against its tenth and it still passes, and a reading that grows with the square fails. A bound in seconds for each
+# length, as before, failed on GitHub's runners: a tenth of a run of pairs took 0.83 s there on Linux with Python 3.12,
+# against 0.11 s here.
+GROWTH_AT_MOST = 30
 
 
 def _long_line(unit, size):
     """A line of at most ``size`` characters (a longer text is read for no structure at all)."""
     head = "password=hunter2x "
     return head + unit * ((size - len(head)) // len(unit))
+
+
+def _grows_with_its_length(read, unit, ceiling):
+    """``read`` timed on a line of ``unit`` a tenth as long as a text can be, then on one as long: the whole in less than
+    ``GROWTH_AT_MOST`` times its tenth, and in less than ``ceiling`` seconds. A short line is read first, untimed: what a
+    first call loads (the phone numbers' metadata) would make the tenth slow and hide a square. The garbage collector is
+    off while each is timed: its passes, over what earlier tests left as well, fall where they fall, and over a
+    reading's own objects they come more often on the whole line (up to 17 times its tenth here with them)."""
+    read(_long_line(unit, LONG_LINE // 100))
+    took = []
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        for size in (LONG_LINE // 10, LONG_LINE):
+            text = _long_line(unit, size)
+            started = time.perf_counter()
+            read(text)
+            took.append(time.perf_counter() - started)
+    finally:
+        if collecting:
+            gc.enable()
+    tenth, whole = took
+    assert whole < GROWTH_AT_MOST * tenth, (
+        f"the whole line {whole:.2f} s, {whole / tenth:.0f} times its tenth ({tenth:.2f} s)"
+    )
+    assert whole < ceiling, f"{LONG_LINE:,} characters: {whole:.2f} s"
 
 
 @pytest.mark.timing
@@ -273,24 +309,15 @@ def test_where_a_phone_ends_costs_the_same_on_a_line_of_any_length():
 @pytest.mark.timing
 @LONG
 def test_a_line_of_pairs_is_read_in_a_time_that_grows_with_its_length(unit, cells_at_most, detect_at_most):
-    """A tenth of the line first, so that a reading that grows with the square of the length fails in seconds."""
-    for size in (LONG_LINE // 10, LONG_LINE):
-        text = _long_line(unit, size)
-        started = time.perf_counter()
-        fields.cells(text)
-        took = time.perf_counter() - started
-        assert took < cells_at_most * size / LONG_LINE + 0.3, f"{len(text):,} characters: {took:.2f} s"
+    """Its structures: the whole line in about ten times its tenth, where a reading that grows with the square of the
+    length takes a hundred."""
+    _grows_with_its_length(fields.cells, unit, cells_at_most)
 
 
 @pytest.mark.timing
 @LONG
 def test_a_scan_of_a_line_of_pairs_ends_in_seconds(unit, cells_at_most, detect_at_most):
     """What ``scan`` and ``mask`` run on a text: every detector, a secret's name in it so that the field detector reads
-    its pairs."""
+    its pairs. It grows with the length as its structures do."""
     built = build(Config(), Vault(ROOT_KEY))
-    for size in (LONG_LINE // 10, LONG_LINE):
-        text = _long_line(unit, size)
-        started = time.perf_counter()
-        built.masker.detect(text, DetectContext(SlotKind.TOOL_RESULT))
-        took = time.perf_counter() - started
-        assert took < detect_at_most * size / LONG_LINE + 0.5, f"{len(text):,} characters: {took:.2f} s"
+    _grows_with_its_length(lambda text: built.masker.detect(text, DATA), unit, detect_at_most)

@@ -222,7 +222,21 @@ _PROTOCOLS = ("anthropic", "chat", "responses", "embeddings", "gemini", "ws-canc
 # Every protocol's body declarations, oldest first, as this version ships them; the id is the one its proofs carry
 # (``BodyProof.profile``). A revision that changes what a member is, or declares one, lists its pointer.
 HISTORY: Mapping[str, tuple[BodyRevision, ...]] = MappingProxyType(
-    {protocol: (BodyRevision(f"{protocol}.body.1"),) for protocol in _PROTOCOLS}
+    {
+        **{protocol: (BodyRevision(f"{protocol}.body.1"),) for protocol in _PROTOCOLS},
+        # 0.15.0: Claude Code 2.1.323's context editing and a system message's effort, declared where an exception
+        # could name them before.
+        "anthropic": (
+            BodyRevision("anthropic.body.1"),
+            BodyRevision("anthropic.body.2", ("/context_management", "/messages/*/output_config")),
+        ),
+        # 0.15.0: the phase of a model's message, as Hermes Agent replays it (issue 17), declared likewise, in a body's
+        # input and in the response a response.create body holds.
+        "responses": (
+            BodyRevision("responses.body.1"),
+            BodyRevision("responses.body.2", ("/input/*/phase", "/response/input/*/phase")),
+        ),
+    }
 )
 
 

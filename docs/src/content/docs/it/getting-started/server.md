@@ -4,8 +4,8 @@ description: Distribuire un server, connettere un computer e gestire persone, ch
 ---
 
 Esegui i comandi amministrativi nel tuo terminale, su un computer con Latet installato.
-Leggi [come funzionano gli spazi e la fiducia](../../concepts/server/) prima di concedere
-accesso. Un amministratore prepara il server; ogni persona connette il proprio computer.
+Leggi [come funzionano gli spazi e la fiducia](../../concepts/server/) prima di dare accesso a
+qualcuno. Un amministratore prepara il server; ogni persona connette il proprio computer.
 Un agente AI può spiegarti i passi e controllare la macchina, ma i comandi che cambiano
 l'amministrazione, `config get`, `rules export`, `latet server init`, `latet server service install`
 e `latet connect` rifiutano di girare dentro un agente: indicagli [`llms-server.md`](https://github.com/Latet-AI/latet/blob/main/llms-server.md).
@@ -15,7 +15,7 @@ stato, gli elenchi di persone e chiavi, il registro) girano per lui.
 ## Preparare il server
 
 Scegli il [servizio di sistema o Compose](../../concepts/server-operations/).
-Il servizio richiede un'installazione attendibile a livello di sistema e una configurazione
+Un servizio di sistema richiede un'installazione attendibile a livello di sistema e una configurazione
 protetta; il profilo server di Compose fornisce PostgreSQL, Valkey, due istanze e Caddy.
 Su Linux un'istanza può girare come più worker, uno per ogni core che la macchina dà al
 server (`latet server run --workers N`, o `LATET_SERVER_WORKERS` nel `.env` di Compose):
@@ -27,7 +27,7 @@ L'inizializzazione stampa un token amministrativo: conservalo in un terminale pr
 in un archivio di segreti. Per un container segui l'inizializzazione con i log Docker
 disattivati nella guida operativa; un'inizializzazione con log ordinari può conservare il token.
 
-Usa un certificato attendibile per i computer. Per una prima prova, crea un certificato
+Usa un certificato che i tuoi computer considerano attendibile. Per una prima prova, crea un certificato
 server autofirmato e controllane l'impronta digitale:
 
 ```sh
@@ -37,7 +37,7 @@ latet server certificate certs/server.crt
 
 Mantieni privato `server.key`. Compose monta `certs/server.crt` e `certs/server.key` in
 Caddy; una distribuzione senza container configura TLS sull'istanza o sul suo reverse
-proxy attendibile. Comunica l'impronta verificata attraverso un canale attendibile separato.
+proxy attendibile. Comunica alle persone l'impronta verificata attraverso un canale attendibile separato.
 Un'impronta letta da una connessione di rete non verificata non autentica da sola il server.
 
 ## Controllare il server
@@ -48,9 +48,9 @@ export LATET_SERVER_FINGERPRINT="<fingerprint>"
 latet server --server https://latet.acme.lan status
 ```
 
-Inserisci il token amministrativo alla richiesta nascosta. La risposta riporta database,
-Valkey, identità, l'istanza che ha risposto e ogni istanza attiva, ogni worker su una riga sua
-con la sua prontezza, la sua memoria e la sua versione. Non controlla ogni agente e non dimostra che
+Inserisci il token amministrativo quando viene richiesto: non viene mostrato mentre lo scrivi. La
+risposta riporta database, Valkey, identità, l'istanza che ha risposto e ogni istanza attiva, ogni
+worker su una riga a sé con il suo stato di prontezza, la sua memoria e la sua versione. Non controlla ogni agente e non dimostra che
 tutto il traffico di un computer passi attraverso Latet.
 
 Per amministrare il server più volte, `--admin-token-file FILE` legge un file privato con
@@ -88,10 +88,10 @@ latet server --server https://latet.acme.lan people tokens "Emily Carter"
 
 Revoca il token di un computer perso usando il suo id nell'elenco con `--revoke TOKEN_ID`.
 `people disable "Emily Carter"` ferma ogni suo token entro pochi secondi e conserva il suo spazio
-(`people enable` glielo restituisce); `people remove "Emily Carter"` elimina lo spazio attivo di lei
+(`people enable` glielo restituisce); `people remove "Emily Carter"` elimina il suo spazio attivo
 sul server, incluse cassaforte, cronologia e impostazioni, una volta che confermi. `keys disable`,
 `enable` e `remove` fanno lo stesso per una chiave API. Nessuna delle due operazioni elimina
-copie in backup, browser o presso i fornitori del modello. Leggi la conferma prima di rimuovere una persona.
+copie in backup, browser o presso i provider dei modelli. Leggi la conferma prima di una rimozione.
 
 Con una rimozione, i dati della persona in PostgreSQL se ne vanno con lei, i suoi dati in Valkey vengono
 cancellati una volta da un'istanza (di nuovo al controllo successivo se non si riesce a finire), ciò che vi resta
@@ -107,7 +107,7 @@ latet connect https://latet.acme.lan
 
 Inserisci il codice monouso quando richiesto. Con un certificato autofirmato aggiungi
 `--fingerprint FINGERPRINT`, usando l'impronta verificata con l'amministratore.
-Non rimuovere il vincolo al certificato per aggirare un errore. Il record di connessione,
+Non togliere l'impronta fissata per aggirare un errore del certificato. Il record di connessione,
 anche nel file scelto da `LATET_CONNECTION`, contiene metadati e impronta; il token
 personale e la chiave del computer sono conservati insieme, a parte, nell'archivio delle credenziali
 o in un file privato.
@@ -121,7 +121,7 @@ latet claude
 ```
 
 `latet agents apply claude` e `latet global-install` scrivono il token personale nel
-`settings.json` dell'utente Claude come `LATET_BRIDGE_TOKEN`; il comando indica dove.
+`settings.json` di Claude a livello utente come `LATET_BRIDGE_TOKEN`; il comando indica dove.
 È l'eccezione di installazione alla regola che esclude il token dai file degli agenti.
 L'associazione privata del processo ausiliario contiene metadati; il processo riceve il
 token esistente tramite stdin. Un software che osserva quell'input può leggerlo.
@@ -158,10 +158,10 @@ comando esplicito per reinviare i dati identificativi di questo computer. Anche 
 rifiuta: durante la connessione nessuno usa il daemon di questo computer.
 
 `latet disconnect` revoca il token del computer e rimuove le associazioni degli agenti
-alla connessione, incluso il token Claude salvato. La revoca termina anche le sessioni
-della dashboard della persona sugli altri computer. Se non puoi confermare la revoca,
-leggi l'esito e chiedi a un amministratore di controllare gli id dei token prima di riprovare.
-Su un computer connesso la modalità di stampa (`claude -p`) non è supportata: il plugin
+della connessione, incluso il token Claude salvato. La revoca termina anche le sessioni
+della dashboard della persona sugli altri computer. Se la revoca non può essere confermata,
+leggi l'esito del comando e chiedi a un amministratore di controllare gli id dei token prima di
+riprovare. Su un computer connesso la modalità print (`claude -p`) non è supportata: il plugin
 trattiene le sue richieste e lo dice. Usa il terminale interattivo. La
 [guida di Claude Code](../../agents/claude-code/) distingue il supporto connesso dalle superfici locali.
 
@@ -203,7 +203,7 @@ latet server --server https://latet.acme.lan keys tokens "Billing CI"
 ```
 
 Il primo token della chiave può analizzare, mascherare e ripristinare; `forget`, che toglie dei valori
-dalla cassaforte della chiave, si dà a un token tutto suo
+dalla cassaforte della chiave, si assegna a un token a parte
 ([dimenticare dei valori](../../applications/forget/)). Solo il primo token della chiave ha un
 indirizzo per i modelli: un token creato con `keys add-token`, qualunque siano i suoi permessi, lì viene
 rifiutato e chiama soltanto l'API per le applicazioni, dove ogni ripristino finisce nel registro
@@ -244,11 +244,12 @@ Per dare a un team le stesse regole, condividile a mano: esportale da un posto
 pagina **Regole** di una dashboard) e importa il file in ciascuno (`latet rules import FILE`, o
 **Importa le regole** nella dashboard); quelle di una chiave API con
 `latet server rules --key KEY import FILE`. Sui computer non connessi a un server, il `latet.yaml`
-di un progetto le porta nel suo repository. Le regole impostate per tutti, che nessuno può
-allentare, sono previste per la Enterprise Edition.
+di un progetto le porta nel suo repository. Con l'Enterprise Edition, le regole impostate per
+tutti, che nessuno può allentare, sono le direttive dell'azienda, un file di regole impostato con
+`latet server policy set`.
 
 Una modifica alle impostazioni condivise che riduce la protezione di una persona, come una
-destinazione spostata a un altro indirizzo o il revisore spento, attende la sua approvazione.
+destinazione spostata a un altro indirizzo o il revisore disattivato, attende la sua approvazione.
 Salvare modifiche personali non approva una modifica condivisa in attesa. Un salvataggio
 può conservare le modifiche personali senza riuscire ad aggiornare la proposta in attesa;
 leggi il risultato e ricarica prima di cambiare altro.

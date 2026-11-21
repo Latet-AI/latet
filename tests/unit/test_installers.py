@@ -410,8 +410,47 @@ POWERSHELL = (shutil.which("pwsh") or shutil.which("powershell")) if sys.platfor
 SHELLS = [shell for shell in (shutil.which("powershell"), shutil.which("pwsh")) if shell] if POWERSHELL else []
 
 
+# A latet.exe that writes each call's arguments to the file LATET_STAND_CALLS names, one call a line, and exits with
+# LATET_STAND_RESERVE_EXIT (0 when unset) for `reserve-port`, else 0. Compiled with the C# compiler every Windows has in
+# its .NET Framework, as no program of Windows' records its arguments.
+LATET_STAND_SOURCE = """
+using System;
+using System.IO;
+static class Program {
+    static int Main(string[] args) {
+        string calls = Environment.GetEnvironmentVariable("LATET_STAND_CALLS");
+        if (!string.IsNullOrEmpty(calls)) File.AppendAllText(calls, string.Join(" ", args) + "\\n");
+        string code = Environment.GetEnvironmentVariable("LATET_STAND_RESERVE_EXIT");
+        if (args.Length > 0 && args[0] == "reserve-port" && !string.IsNullOrEmpty(code)) return int.Parse(code);
+        return 0;
+    }
+}
+"""
+
+
+@pytest.fixture(scope="session")
+def latet_stand_exe(tmp_path_factory):
+    if sys.platform != "win32":
+        pytest.skip("install.ps1 runs on Windows, with PowerShell")
+    csc = Path(os.environ["SYSTEMROOT"]) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
+    if not csc.exists():
+        pytest.skip("the .NET Framework's C# compiler is not here")
+    work = tmp_path_factory.mktemp("latet-stand")
+    source, exe = work / "latet.cs", work / "latet.exe"
+    source.write_text(LATET_STAND_SOURCE, encoding="utf-8")
+    built = subprocess.run(
+        [str(csc), "/nologo", "/target:exe", f"/out:{exe}", str(source)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    return exe
+
+
 @pytest.fixture
-def ps_stand(tmp_path):
+def ps_stand(tmp_path, latet_stand_exe):
     if POWERSHELL is None:
         pytest.skip("install.ps1 runs on Windows, with PowerShell")
 
@@ -441,8 +480,8 @@ def ps_stand(tmp_path):
             "}\n"
             "exit 0\n",
         )
-        # The version check runs latet.exe: any program of Windows' that ends at once does.
-        shutil.copy(Path(os.environ["SYSTEMROOT"]) / "System32" / "where.exe", stand.tools / "latet.exe")
+        # The installer runs latet.exe (its version, then the offer of the port): a program that records its arguments.
+        shutil.copy(latet_stand_exe, stand.tools / "latet.exe")
         return stand
 
     return make
@@ -492,6 +531,7 @@ def _run_ps(stand: Stand, shell: str | None = None, **env: str):
         "TMP": str(stand.temp),
         "TEMP": str(stand.temp),
         "LATET_NO_MODIFY_PATH": "1",
+        "LATET_STAND_CALLS": str(stand.root / "latet-calls.log"),
         **env,
     }
     return subprocess.run(
@@ -513,6 +553,39 @@ def test_install_ps1_installs_the_latest_release_with_names_and_images(ps_stand)
     assert stand.calls()[0] == "irm https://api.github.com/repos/Latet-AI/latet/releases/latest"
     assert "latet ner install" in done.stdout and "latet ocr install" in done.stdout
     assert _tutorial_first(done.stdout)
+
+
+def _latet_calls(stand: Stand) -> list[str]:
+    calls = stand.root / "latet-calls.log"
+    return calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+
+
+@pytest.mark.parametrize("shell", SHELLS or [None], ids=lambda shell: Path(shell).stem if shell else "none")
+def test_install_ps1_offers_to_reserve_the_port_at_its_end(ps_stand, shell):
+    """After the version, before the closing hints, so that the question is the last thing asked."""
+    stand = ps_stand()
+    done = _run_ps(stand, shell)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _latet_calls(stand) == ["version", "reserve-port --offer"]
+
+
+@pytest.mark.parametrize("shell", SHELLS or [None], ids=lambda shell: Path(shell).stem if shell else "none")
+def test_install_ps1_succeeds_whatever_the_offer_answers(ps_stand, shell):
+    stand = ps_stand()
+    done = _run_ps(stand, shell, LATET_STAND_RESERVE_EXIT="1")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert _latet_calls(stand) == ["version", "reserve-port --offer"]
+    assert "Installed. New to Latet?" in done.stdout
+    assert "latet global-install" in done.stdout
+
+
+def test_install_ps1_says_where_it_asks_for_an_administrator():
+    text = (SCRIPTS / "install.ps1").read_text(encoding="utf-8")
+    needs = "Nothing here needs administrator rights"
+    assert needs in text
+    flat = " ".join(text[text.index(needs) :].split("\n\n")[0].split())
+    assert "reservation" in flat and "offered at the end" in flat
+    assert "administrator's confirmation" in flat and "only when you say yes" in flat
 
 
 @pytest.mark.parametrize("shell", SHELLS or [None], ids=lambda shell: Path(shell).stem if shell else "none")

@@ -184,11 +184,11 @@ async def test_real_saved_outcomes_keep_durable_state_and_recover_without_replay
             failed_at("obsolete-settle")
             return settled(change_id, state)
 
-        def proposed(config, source, agent=None):
+        def proposed(config, source, agent=None, **kwargs):  # E5: who asked in a key's space (asked_by) passes on
             if active[0] and committed[0] and stage == "obsolete-settle":
                 forced.append(True)
                 return None
-            return propose(config, source, agent)
+            return propose(config, source, agent, **kwargs)
 
         async def held_reapply(work, *args, **kwargs):
             if work is spaces._reapply and args[0].identity.id == person.id:

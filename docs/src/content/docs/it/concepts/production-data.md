@@ -144,8 +144,8 @@ data: strict
 data_files: ["exports/**", "data/*.csv", ".env*"]
 ```
 
-Un file che un modello indica è un dato che la modalità dati rigorosa sia attiva o no: basta indicarlo. Un file che l'agente legge e il cui percorso corrisponde a un modello conta come dati: ogni suo
-valore viene mascherato, come nell'output di uno strumento. Un modello senza barra indica un file per
+Un file indicato da un pattern conta come dati, che la modalità dati rigorosa sia attiva o no: basta indicarlo. Un file che l'agente legge e il cui percorso corrisponde a un pattern conta come dati: ogni suo
+valore viene mascherato, come nell'output di uno strumento. Un pattern senza barra indica un file per
 nome (`*.json`, `.env*`), uno con la barra la fine del suo percorso (`exports/**`, `**/*.csv`); `*`
 indica qualsiasi sequenza di caratteri, e maiuscole e minuscole non contano. I valori si trovano
 secondo il formato del file:
@@ -163,15 +163,15 @@ così l'agente può ancora modificarlo in base al testo che ha letto, e una modi
 valore fittizio scrive il valore reale. Solo gli strumenti che restituiscono il testo di un file lo
 rendono dati (`Read` e `NotebookRead` di Claude Code): le righe di una ricerca (`Grep`) e un elenco
 (`Glob`, `LS`) restano come sono. Quando `Edit`, `MultiEdit` o `Write` di Claude Code modificano un
-file che un modello indica, le righe del file che mostrano, che l'agente potrebbe non aver mai letto,
+file indicato da un pattern, le righe del file che mostrano, che l'agente potrebbe non aver mai letto,
 vengono mascherate come il file, anche quando `data_tools` indica altri strumenti.
 
-- **Un modello ampio copre più dei dati.** `*.json` copre anche `package.json` e `tsconfig.json`, i
+- **Un pattern ampio copre più dei dati.** `*.json` copre anche `package.json` e `tsconfig.json`, i
   cui valori verrebbero allora mascherati ovunque nella conversazione: indica le cartelle che
   contengono dati (`exports/**`).
-- **Il markdown conta solo quando un modello lo indica** (`*.md`, `docs/**/*.md`): gli agenti
-  leggono le loro istruzioni e i loro documenti in markdown, e un modello per ogni file (`*`) li
-  lascia come sono. In un file markdown che un modello indica vengono mascherate solo le tabelle, mai
+- **Il markdown conta solo quando un pattern lo indica** (`*.md`, `docs/**/*.md`): gli agenti
+  leggono le loro istruzioni e i loro documenti in markdown, e un pattern per ogni file (`*`) li
+  lascia come sono. In un file markdown indicato da un pattern vengono mascherate solo le tabelle, mai
   il testo.
 - **I PDF non sono coperti:** Latet non legge il testo di un PDF, quindi una richiesta che ne contiene
   uno come documento non viene inviata ([immagini](../images/)).
@@ -183,19 +183,19 @@ data: strict
 data_hosts: [api.internal.example.com, "*.salesforce.com"]
 ```
 
-Un indirizzo che un modello indica è un dato che la modalità dati rigorosa sia attiva o no. Una pagina che uno strumento web (`WebFetch`) scarica da un host che corrisponde a un modello conta
+Un indirizzo indicato da un pattern conta come dati, che la modalità dati rigorosa sia attiva o no. Una pagina che uno strumento web (`WebFetch`) scarica da un host che corrisponde a un pattern conta
 come dati, come l'output di uno strumento: ogni valore delle sue tabelle, del suo JSON e delle coppie
 `key=value` viene mascherato. `*` indica qualsiasi sequenza di caratteri; maiuscole, minuscole e
-porta non contano. Un modello per ogni sottodominio indica anche il dominio stesso: anche
+porta non contano. Un pattern per ogni sottodominio indica anche il dominio stesso: anche
 `salesforce.com` rientra in `*.salesforce.com`. Un host scritto con un punto finale (`example.com.`)
-è lo stesso host scritto senza. Una ricerca (`WebSearch`) non ha un indirizzo suo. Per coprire le
+è lo stesso host scritto senza. Una ricerca (`WebSearch`) non ha un indirizzo proprio. Per coprire le
 ricerche, aggiungi `WebSearch` a `data_tools` insieme agli altri strumenti che vuoi coprire, oppure
 scrivi `data_tools: ["*"]` per ogni strumento tranne quelli che leggono file: un `data_tools` che
 indica solo `WebSearch` copre soltanto le ricerche, e lascia fuori i tuoi strumenti per il database e
 per la shell. Con la modalità dati rigorosa attiva, impostare `data_tools` dove era vuoto la
-restringe, quindi attende la tua approvazione.
+restringe, quindi questa modifica attende la tua approvazione.
 
-Aggiungere un modello o un indirizzo vale subito; toglierne uno copre meno, quindi riduce la
+Aggiungere un pattern o un indirizzo si applica subito; toglierne uno copre meno, quindi riduce la
 protezione: se lo fa un agente o la riga di comando, la modifica attende la tua approvazione. Nella
 dashboard si impostano in **Regole** → **Protezione** → **Dati di produzione**, accanto agli
 strumenti.
@@ -206,11 +206,11 @@ La modalità dati rigorosa si imposta in **Regole** → **Protezione** → **Dat
 nelle tue impostazioni per un progetto; uno scambio non ha un interruttore per attivarla. Mentre è
 disattivata per uno scambio (nel progetto dello scambio, o nelle tue regole globali per uno scambio
 senza progetto), la dashboard chiede a Latet se uno dei dieci output di strumenti più recenti della
-richiesta contiene una tabella, del JSON o coppie `key=value`, letti come per
+richiesta contiene una tabella, del JSON o coppie `key=value`, letto come per
 [scegliere le colonne da lasciare in chiaro](#scegliere-le-colonne-da-lasciare-in-chiaro), e viene
 da uno strumento che la modalità dati rigorosa copre ([quali strumenti](#quali-strumenti): non uno
 che legge file, né uno strumento web, a meno che una regola indichi il file, l'indirizzo o lo strumento). Se ne trova uno, una riga sopra i
-blocchi della richiesta lo dice, con un link a dove si imposta la modalità dati rigorosa per quello
+blocchi della richiesta lo segnala, con un link a dove si imposta la modalità dati rigorosa per quello
 scambio: le tue impostazioni per il suo progetto quando impostano `data`, altrimenti **Regole** →
 **Protezione** → **Dati di produzione**. Latet legge gli output dai testi che conserva la
 cronologia: con `history: metadata` o `off` la riga non c'è.
@@ -236,7 +236,8 @@ fields:
 
 Per un campo si confrontano la tua prima regola che gli corrisponde (prima le tue impostazioni per
 un progetto, poi le tue regole globali) e la prima del `latet.yaml` del progetto che gli
-corrisponde: si applica la più severa (oscurato, poi mascherato, poi in chiaro), la tua a parità.
+corrisponde: si applica la più severa (oscurato, poi mascherato, poi in chiaro), la tua a parità di
+severità.
 
 ## Scegliere le colonne da lasciare in chiaro
 
@@ -274,14 +275,14 @@ clic.
 - **Il parere del revisore locale, se lo chiedi.** Con il [revisore locale](../llm-review/) attivo,
   *Chiedi al revisore locale* gli invia i nomi delle colonne e alcuni valori di ognuna, e mostra il
   suo parere accanto alle proposte. Non viene mai applicato da solo.
-- **Le regole di un progetto restano.** Una colonna che le tue impostazioni per un progetto
+- **Le regole di un progetto continuano a valere.** Una colonna che le tue impostazioni per un progetto
   mascherano lì resta mascherata, qualunque cosa aggiunga *Ovunque*: l'elenco lo dice, e *Questo
   progetto* la cambia. Una colonna che il `latet.yaml` del progetto maschera lì resta mascherata
   qualunque cosa tu scelga, e l'elenco dice quale.
 - **Dopo un riavvio,** le impostazioni di un progetto si caricano alla sua sessione successiva: fino
   ad allora la scelta può andare solo nelle tue regole globali.
 - **Codex e OpenCode** inviano tutta la conversazione con ogni richiesta, e Latet la maschera di nuovo
-  ogni volta: dalla richiesta successiva, anche gli output già presenti partono con quelle colonne in
+  ogni volta: dalla richiesta successiva, anche gli output già presenti escono con quelle colonne in
   chiaro. In Claude Code un output resta come il plugin l'ha mascherato quando è arrivato.
 
 Per una sola colonna, fai clic su uno dei suoi valori: il pannello che si apre propone
@@ -308,7 +309,7 @@ campi. Nulla di ciò che vi avrebbe trovato esce in chiaro.
 ## Il browser
 
 Un agente che guida un browser legge le pagine come output di strumenti: snapshot di accessibilità,
-HTML, risultati di script, risposte di rete. La modalità dati rigorosa si applica a loro come al
+HTML, risultati di script, risposte di rete. La modalità dati rigorosa si applica a essi come al
 resto, tabelle comprese.
 
 I suoi screenshot sono immagini: con il [riconoscimento del testo](../images/) installato, il loro

@@ -721,19 +721,20 @@ def test_a_workers_link_hands_its_beats_over_and_stops_it_when_told_or_when_its_
             supervisor_end.close()
 
 
-def test_a_beat_holds_numbers_booleans_and_the_version_alone():
-    good = {"instance": "3fa9c2e1b07d", "worker": 2, "version": "0.11.0", "ready": True, "memory": 7, "spaces": 1,
-            "index": 0}  # fmt: skip
+def test_a_beat_holds_numbers_booleans_the_version_and_the_edition_alone():
+    good = {"instance": "3fa9c2e1b07d", "worker": 2, "version": "0.11.0", "edition": "enterprise", "ready": True,
+            "memory": 7, "spaces": 1, "index": 0}  # fmt: skip
     assert beat_checked(json.dumps(good).encode()) == good
     assert beat_checked(json.dumps({**good, "worker": None, "memory": None}).encode()) == {
         **good, "worker": None, "memory": None,
     }  # fmt: skip
     for bad in (b"1", b"not json", b"[1]", json.dumps({**good, "instance": "Mario Rossi"}).encode(), b"{" * 5000):
         assert beat_checked(bad) is None
-    loose = {**good, "worker": True, "memory": -1, "spaces": "2", "ready": 1, "version": "x" * 200, "words": CANARY}
+    loose = {**good, "worker": True, "memory": -1, "spaces": "2", "ready": 1, "version": "x" * 200, "words": CANARY,
+             "edition": CANARY}  # fmt: skip
     assert beat_checked(json.dumps(loose).encode()) == {
-        "instance": "3fa9c2e1b07d", "worker": None, "version": None, "ready": None, "memory": None, "spaces": None,
-        "index": 0,
+        "instance": "3fa9c2e1b07d", "worker": None, "version": None, "edition": None, "ready": None, "memory": None,
+        "spaces": None, "index": 0,
     }  # fmt: skip
 
 
@@ -906,8 +907,8 @@ def test_a_beat_says_none_for_what_it_cannot_read_and_still_beats(monkeypatch):
     )
     said = app.beat_said(server)  # type: ignore[arg-type]
     assert said == {
-        "instance": "3fa9c2e1b07d", "worker": 1, "version": app.__version__, "ready": True, "memory": None,
-        "spaces": None, "index": None,
+        "instance": "3fa9c2e1b07d", "worker": 1, "version": app.__version__, "edition": None, "ready": True,
+        "memory": None, "spaces": None, "index": None,
     }  # fmt: skip
 
 

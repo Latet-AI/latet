@@ -59,6 +59,7 @@ export const FIELD_SECTIONS = {
   fields: ANCHORS.data,
   dump_guard: ANCHORS.data,
   images: ANCHORS.data,
+  unknown_members: ANCHORS.data,
   ocr: ANCHORS.data,
   terms: ANCHORS.terms,
   recognizers: ANCHORS.recognizers,

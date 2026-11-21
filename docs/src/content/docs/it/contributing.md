@@ -26,19 +26,19 @@ uv run latet claude      # Claude Code with the plugin from src/latet/claude_plu
 uv run latet doctor
 ```
 
-`latet serve --capture <folder>` scrive ogni scambio in file locali (con gli header delle
+Per tenere un'istanza di prova separata da un Latet che usi per davvero, imposta `LATET_DATA_DIR` e
+`LATET_CONFIG` su una cartella di prova e scegli un'altra porta in quel `config.yaml`.
+
+`latet serve --capture <folder>` scrive ogni scambio in file locali (con gli header con le
 credenziali oscurati), il che è utile quando studi un protocollo. Non esiste una modalità che inoltra
 senza mascherare: una parte di richiesta che Latet non legge viene rifiutata, e le chiamate di un
 nuovo protocollo richiedono prima un profilo di richiesta e i suoi test. Le catture contengono il contenuto delle conversazioni: non includerle mai
 in un commit (per questo git ignora `notes/captures/`).
 
-Per tenere un'istanza di prova separata da un Latet che usi per davvero, imposta `LATET_DATA_DIR` e
-`LATET_CONFIG` su una cartella di prova e scegli un'altra porta in quel `config.yaml`.
-
 ## Controlli
 
 Eseguili prima di aprire una pull request. La CI li esegue nei suoi job di lint e di test, i test su
-Windows, macOS e Linux con più esempi per i test a proprietà (`HYPOTHESIS_PROFILE=ci`). La CI esegue
+Windows, macOS e Linux con più esempi per i test basati su proprietà (`HYPOTHESIS_PROFILE=ci`). La CI esegue
 anche `uv run python scripts/gen_notices.py --check`, i test del server e i controlli del plugin,
 della dashboard e della documentazione descritti più sotto, e costruisce gli installer e l'immagine
 del container.
@@ -56,7 +56,7 @@ uv run python scripts/gen_reference.py --check
   una chiave di configurazione o un rilevatore, rigenerale con
   `uv run python scripts/gen_reference.py`. Non modificarle mai a mano.
 - **Plugin di Claude Code.** `claude plugin validate src/latet/claude_plugin` verifica il
-  plugin con una versione installata compatibile. `claude plugin test`, eseguito in
+  plugin con una versione compatibile di Claude Code installata. `claude plugin test`, eseguito in
   `src/latet/claude_plugin/`, non è disponibile in ogni runtime installato; usalo solo se quel
   runtime espone il comando di test.
 - **Falsi positivi.** `tests/unit/test_fp_budget.py` esegue i rilevatori sulla libreria standard
@@ -81,7 +81,7 @@ uv run python scripts/server-services.py env
 ```
 
 Imposta nella shell le variabili stampate `LATET_TEST_DATABASE_URL`, `LATET_TEST_VALKEY_URL`
-e `LATET_TEST_TLS_DATABASE_URL`, con la sintassi della shell. Indicano servizi temporanei
+e `LATET_TEST_TLS_DATABASE_URL`, con la sintassi di assegnazione di quella shell. Indicano servizi temporanei
 di test, mai dati di produzione. Imposta `LATET_TEST_REQUIRE_SERVICES=1`, poi esegui:
 
 ```sh
@@ -96,9 +96,19 @@ non saltarlo silenziosamente. Ferma i tuoi servizi creati dallo script con
 I test degli agenti reali sono facoltativi, con `LATET_AGENT_TESTS=1` e
 `uv run pytest -m agents`. Usano programmi di terze parti installati contro provider
 simulati locali, ma quei programmi possono contattare i propri host esterni.
-Usa cartelle personali isolate e credenziali sintetiche; le fixture locali non garantiscono
+Usa cartelle home di test isolate e credenziali sintetiche; le fixture locali non garantiscono
 assenza di traffico esterno. I test marcati `live` usano i modelli locali per il riconoscimento dei
 nomi e del testo: vengono saltati dove quei modelli non sono installati, come in CI.
+
+## Il codice Enterprise
+
+Il codice di Latet Enterprise è in `src/latet/ee/` e `dashboard/src/ee/`, e i suoi test sono in
+`tests/ee/`: ogni cartella chiamata `ee` è soggetta alla Latet Enterprise License, e
+l'[accordo di licenza per i contributori](https://github.com/Latet-AI/latet/blob/main/CLA.md) copre un contributo in quelle cartelle come qualsiasi altro. La
+Community Edition non ha mai bisogno di quel codice: `uv run pytest -q --without-ee` esegue la suite
+come se quelle cartelle non ci fossero, come fa il job CI `community` dopo averle rimosse. I test che
+usano programmi reali in Docker (Keycloak, OpenLDAP e Prometheus) sono facoltativi:
+[`tests/ee/providers/README.md`](https://github.com/Latet-AI/latet/blob/main/tests/ee/providers/README.md) spiega come eseguirli.
 
 ## Dashboard
 

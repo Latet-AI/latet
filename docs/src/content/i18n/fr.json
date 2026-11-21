@@ -3,5 +3,15 @@
   "latet.footer.privacy": "Politique de confidentialité",
   "latet.footer.legal": "Mentions légales",
   "latet.video.label": "La vidéo de présentation de Latet : la requête d'un agent IA transporte de vraies valeurs vers un modèle dans le cloud ; à la frontière entre votre machine et le cloud, Latet transforme chacune d'elles en une valeur factice du même format, puis remet les vraies valeurs en place quand la réponse revient",
-  "latet.video.watch": "Regarder la vidéo de présentation de Latet sur docs.latet.ai"
+  "latet.video.watch": "Regarder la vidéo de présentation de Latet sur docs.latet.ai",
+  "pagefind.clear_search": "Effacer",
+  "pagefind.load_more": "Afficher plus de résultats",
+  "pagefind.search_label": "Rechercher sur ce site",
+  "pagefind.filters_label": "Filtres",
+  "pagefind.zero_results": "Aucun résultat pour [SEARCH_TERM]",
+  "pagefind.many_results": "[COUNT] résultats pour [SEARCH_TERM]",
+  "pagefind.one_result": "[COUNT] résultat pour [SEARCH_TERM]",
+  "pagefind.alt_search": "Aucun résultat pour [SEARCH_TERM]. Voici les résultats pour [DIFFERENT_TERM]",
+  "pagefind.search_suggestion": "Aucun résultat pour [SEARCH_TERM]. Essayez l'une de ces recherches :",
+  "pagefind.searching": "Recherche de [SEARCH_TERM]..."
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import type { ProjectNotice } from '../api/types'
 import i18n, { LANGUAGES } from '../i18n'
-import { detailReason, detailValues, noticeReason, refusedSave, refusedWords, stale, whenStale } from './refused'
+import { companySignInNeeded, detailReason, detailValues, noticeReason, refusedSave, refusedWords, stale, whenStale } from './refused'
 
 const answered = (status: number, reason: string, more: Record<string, unknown> = {}) =>
   new ApiError(status, 'the server words it in English', [], { error: 'the server words it in English', reason, ...more })
@@ -56,6 +56,16 @@ describe('refusedSave', () => {
     await inEveryLanguage([...Object.values(said), 'projects.repo.unreadable'])
   })
 
+  it('says that a save which lowers protection waits for whoever decides on it, in each language', async () => {
+    // Latet Enterprise: the company's security team, or another person who controls the API key, decides (E5).
+    const waiting = answered(409, 'settings_waiting_for_others', { pending: { id: 'ch_1' } })
+    expect(refusedSave(waiting)).toBe('errors.settingsWaitingForOthers')
+    expect(refusedWords(i18n.t.bind(i18n), waiting)).toBe(
+      'It lowers protection, so it waits for whoever decides on it (Approvals). The settings in use stay as they are.',
+    )
+    await inEveryLanguage([refusedSave(waiting)])
+  })
+
   it('leaves every other answer to the usual words', () => {
     expect(refusedSave(answered(409, 'something else'))).toBeNull()
     expect(refusedSave(new ApiError(409, 'this would remove 1 term set for everyone on the server'))).toBeNull()
@@ -88,6 +98,22 @@ describe('refusedWords', () => {
     expect(refusedWords(t, answered(409, 'settings_stale'))).toBe(i18n.t('errors.settingsStale'))
     expect(refusedWords(t, answered(409, 'something else'))).toBeNull()
     expect(refusedWords(t, new Error('no'))).toBeNull()
+  })
+})
+
+describe('companySignInNeeded', () => {
+  it('knows a change that applies to everyone refused to a session the company sign-in did not open, in each language', async () => {
+    const refused = new ApiError(403, 'the server words it in English', [], {
+      error: 'the server words it in English',
+      code: 'company-sign-in',
+    })
+    expect(companySignInNeeded(refused)).toBe(true)
+    await inEveryLanguage(['errors.companySignIn'])
+    // Any other refusal is not this one: another 403, another status, an answer that is no JSON.
+    expect(companySignInNeeded(new ApiError(403, 'x', [], { error: 'x', code: 'trial-ended' }))).toBe(false)
+    expect(companySignInNeeded(new ApiError(409, 'x', [], { error: 'x', code: 'company-sign-in' }))).toBe(false)
+    expect(companySignInNeeded(new ApiError(403, 'forbidden'))).toBe(false)
+    expect(companySignInNeeded(new Error('company-sign-in'))).toBe(false)
   })
 })
 

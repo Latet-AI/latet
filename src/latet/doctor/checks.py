@@ -348,10 +348,34 @@ def check_port() -> list[Check]:
     from latet.service import ports
 
     state = ports.probe(load_config().port)
-    if state.reason == "latet":
-        return [Check(OK, "Port", f"{state.port}, in use by Latet")]
     if state.usable:
-        return [Check(OK, "Port", f"{state.port} is free")]
+        said = f"{state.port}, in use by Latet" if state.reason == "latet" else f"{state.port} is free"
+        if ports.reservation(state.port) == "at-risk":
+            return [
+                Check(
+                    WARN,
+                    "Port",
+                    f"{said}, and Windows may take it when it starts: `latet reserve-port` reserves it for Latet",
+                )
+            ]
+        return [Check(OK, "Port", said)]
+    if state.reason.startswith("reserved by Windows") and os.environ.get("LATET_PORT"):
+        return [  # `latet reserve-port` never moves a port that LATET_PORT sets
+            Check(
+                FAIL,
+                "Port",
+                f"{state.port} is {state.reason}, and the port comes from LATET_PORT: set LATET_PORT to a port Windows "
+                "does not hold",
+            )
+        ]
+    if state.reason.startswith("reserved by Windows"):
+        return [
+            Check(
+                FAIL,
+                "Port",
+                f"{state.port} is {state.reason}: `latet reserve-port` moves Latet to a free port and reserves it",
+            )
+        ]
     return [Check(FAIL, "Port", f"{state.port} is {state.reason}: `latet global-install` moves Latet to a free port")]
 
 
@@ -558,12 +582,15 @@ def check_exceptions() -> list[Check]:
     waiting = [row for row in written.request_exceptions if row.id is None or kept.get(row.id) != row]
     if not running and not waiting:
         return []
-    unstamped = {"id": None, "granted": None, "revision": None, "body_revision": None, "issuer": None}
+    unstamped = {
+        "id": None, "granted": None, "revision": None, "body_revision": None, "issuer": None, "approver": None,
+        "approver_id": None,
+    }  # fmt: skip
     config = written.model_copy(
         update={"request_exceptions": [*running, *(row.model_copy(update=unstamped) for row in waiting)]}
     )
     out: list[Check] = []
-    rows = request_policy.listed(config, request_policy._now())
+    rows = request_policy.listed(config, request_policy._now(), company=False)  # a computer's: no floor
     for row in rows:
         name = row["id"] or "(not approved yet)"
         where = f"{row['destination']}, {row['scope']}"
@@ -597,6 +624,44 @@ def check_upgrade() -> list[Check]:
         )
         for finding in found
     ]
+
+
+_NEW_MEMBERS = {
+    "check": "`unknown_members: check`: a field no request profile names yet is read and checked, and sent when "
+    "nothing in it would be masked",
+    "refuse": "`unknown_members: refuse`: a request with a field no request profile names yet is refused, save on "
+    "Claude Code, Bedrock and Vertex a field of text alone, which passes once checked",
+}
+# Said while config.yaml has no `unknown_members` key and `check` runs: what the upgrade to 0.15.0 changed, once the
+# key is written (by hand, or by any save of Latet's, which writes every key) no more.
+_NEW_MEMBERS_DEFAULT = (
+    "; the default since 0.15.0 (before, such a request was refused): `unknown_members: refuse` in config.yaml refuses "
+    "it again"
+)
+
+
+def check_unknown_members() -> list[Check]:
+    """How the daemon reads a request member no request profile names (``unknown_members``, 0.15.0): as the settings
+    you approved last say, which it runs, else as config.yaml does; and what config.yaml says otherwise, which waits for
+    you (`check`) or applies once the daemon reads it (`refuse`). While config.yaml has no such key and `check` runs,
+    that it is the default since 0.15.0 and how to refuse again. A computer has no company floor. (A server's
+    machine reads no settings in `latet doctor`: `latet server status` says the server's value.)"""
+    from latet.protection import effective_unknown_members
+
+    config = load_config()
+    written = effective_unknown_members(config, None)
+    approved = _approved_settings()
+    running = effective_unknown_members(approved, None) if approved is not None else written
+    detail = _NEW_MEMBERS[running]
+    if running == "check" and "unknown_members" not in config.model_fields_set:  # the key not in the file
+        detail += _NEW_MEMBERS_DEFAULT
+    if written != running:
+        detail += (
+            "; config.yaml's `check` waits for your approval"
+            if written == "check"
+            else "; config.yaml's `refuse` applies once the daemon reads it (`latet reload`)"
+        )
+    return [Check(OK, "New request members", detail)]
 
 
 def check_recognizers() -> list[Check]:
@@ -913,6 +978,7 @@ COMPUTER_GROUPS = (
     "check_engine",
     "check_recognizers",
     "check_exceptions",
+    "check_unknown_members",
     "check_upgrade",
     "check_ner",
     "check_ocr",

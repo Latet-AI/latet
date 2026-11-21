@@ -128,7 +128,7 @@ def _valid(record: SafeDecisionRecord) -> bool:
             return False
         code, revision = pair
         if (
-            not _integer(code, 8, 1)
+            not _integer(code, _LAST_RULE, 1)
             or code == _RETIRED
             or type(revision) is not int
             or revision != 1
@@ -1483,7 +1483,15 @@ class _D2Counts:
 # Closed reporting catalogs, not policy/transport authority.
 _METHOD_CODES = {"GET": 1, "POST": 2, "PUT": 3, "PATCH": 4, "DELETE": 5, "HEAD": 6, "OPTIONS": 7, "CONNECT": 8}
 _PROTOCOL_CODES = {"anthropic": 1, "chat": 2, "responses": 3, "gemini": 4, "ws-cancel": 6}
-_PROFILE_CODES = {"anthropic.body.1": 1, "chat.body.1": 2, "responses.body.1": 3, "gemini.body.1": 4}
+# A body revision (``body_selectors.HISTORY``): its protocol's profile code and its number, the record's revision.
+_PROFILE_CODES = {
+    "anthropic.body.1": (1, 1),
+    "anthropic.body.2": (1, 2),
+    "chat.body.1": (2, 1),
+    "responses.body.1": (3, 1),
+    "responses.body.2": (3, 2),
+    "gemini.body.1": (4, 1),
+}
 _RULE_CODES = {
     "checked only": 1,
     "image remainder after text recognition": 2,
@@ -1491,12 +1499,15 @@ _RULE_CODES = {
     "reported as written by the model": 4,
     "observed opaque provider echo (1)": 5,
     "provider encrypted field (1)": 6,
+    # A member no profile declares, read whole and checked (0.15.0): after the exception's 8 and the retired 7.
+    "unknown member read and checked (1)": 9,
 }
 # The category of every request exception's rule (``body_selectors.exception_rule``, "exception <id>") and of an
 # envelope's exception: one code for all, never the exception's id. 7 named Phase 1's internal rule, deleted by P2-6:
 # retired, never written again, so that an old record's 7 still means only that rule.
 _EXCEPTION_RULE = 8
 _RETIRED = 7
+_LAST_RULE = 9  # the highest rule code a record may carry
 _REASON_CODES = {
     "refused": 1,
     "too-large": 2,
@@ -1544,8 +1555,8 @@ def reason_code(code: object) -> int:
     return _REASON_CODES.get(code, 31) if type(code) is str and len(code) <= 64 else 31
 
 
-def _profile_code(profile: object) -> int:
-    return _PROFILE_CODES.get(profile, 0) if type(profile) is str and len(profile) <= 32 else 0
+def _profile_code(profile: object) -> tuple[int, int]:
+    return _PROFILE_CODES.get(profile, (0, 0)) if type(profile) is str and len(profile) <= 32 else (0, 0)
 
 
 def method_code(method: str) -> int:
@@ -1602,7 +1613,7 @@ def decision_record(
             return None
         outcome, coverage = 1, 1
         if type(decision.proof) is BodyProof:
-            profile = _profile_code(decision.proof.profile)
+            profile, revision = _profile_code(decision.proof.profile)
         else:
             protocol = 5  # actual EmptyBodyProof, never None protocol alone
     elif type(decision) is Pass:
@@ -1625,7 +1636,7 @@ def decision_record(
                     mask |= 1 << code
             rules = tuple(pairs)
             coverage = 1
-            profile = _profile_code(evidence.profile)
+            profile, revision = _profile_code(evidence.profile)
         else:
             return None
     else:
@@ -1634,7 +1645,6 @@ def decision_record(
         cached = decision.response.protocol
         if protocol != 5 and type(cached) is str and len(cached) <= 16:
             protocol = _PROTOCOL_CODES.get(cached, 0)
-    revision = 1 if profile else 0
     category = (
         reason
         if type(reason) is int and 0 <= reason <= 31

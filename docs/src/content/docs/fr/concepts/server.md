@@ -4,8 +4,8 @@ description: Espaces, stockage, réglages partagés et frontière de confiance d
 ---
 
 Un serveur Latet reçoit les requêtes protégées des agents connectés. En mode passerelle,
-il les masque avant de les transmettre au fournisseur du modèle et restaure le chemin de
-retour protégé ; les requêtes reconnues comme Claude Code utilisent le plugin et la
+il les masque avant de les transmettre au fournisseur du modèle et remet les originaux en
+place sur le chemin de retour protégé ; les requêtes reconnues comme Claude Code utilisent le plugin et la
 vérification seule décrite ci-dessous. Des données originales peuvent atteindre le serveur
 Latet. Un serveur change les acteurs auxquels vous devez faire confiance ; il ne rend
 pas la détection infaillible et ne protège pas le trafic qui n'atteint jamais Latet.
@@ -13,18 +13,18 @@ pas la détection infaillible et ne protège pas le trafic qui n'atteint jamais 
 ## Clients connectés
 
 La machine doit utiliser la route du serveur et garder privées les liaisons de connexion
-et d'identifiants. Le masquage serveur couvre les clients passerelle. Claude Code nécessite
+et d'identifiants. Le masquage sur le serveur couvre les clients en mode passerelle. Claude Code nécessite
 aussi son plugin : dans le terminal Windows connecté pris en charge, la liaison privée du
-processus auxiliaire et les réglages de confiance choisissent le bridge serveur.
-Le jeton personnel passe par stdin ; la liaison de métadonnées ne stocke pas de jeton.
+processus auxiliaire et les réglages de confiance choisissent le bridge du serveur.
+Le jeton personnel du processus auxiliaire passe par l'entrée standard ; la liaison de métadonnées ne stocke pas de jeton.
 Une liaison absente ou non sûre arrête cette voie.
 
 Pour les requêtes reconnues comme Claude, le plugin masque les descriptions d'outils,
-et la vérification finale du serveur lit aussi les descriptions, schémas de paramètres et
-exemples des outils : une valeur restée en clair arrête la requête.
-Les marqueurs n'attestent pas que le plugin a été exécuté. Lisez le [périmètre de protection](../protection-scope/)
+et la vérification finale du serveur lit aussi les descriptions, les schémas de paramètres et
+les exemples des outils : une valeur qui y reste en clair arrête la requête.
+Les marqueurs de la requête ne prouvent pas que le plugin a été exécuté. Lisez le [périmètre de protection](../protection-scope/)
 pour cette exception précise et les vérifications séparées des schémas de sortie.
-[Connecter une machine](../../getting-started/server/) explique l'application, les diagnostics,
+[Connecter une machine](../../getting-started/server/) explique l'application de l'intégration, les diagnostics,
 le renvoi de l'identité et la déconnexion.
 
 Si Latet est désactivé dans un dossier, une requête qu'une instance reçoit pour ce dossier avant que le plugin
@@ -36,7 +36,7 @@ Quand une machine se connecte, le serveur lui donne deux secrets, chacun affich�
 **jeton** va aux agents : Claude Code le garde dans ses réglages et son environnement
 (`LATET_BRIDGE_TOKEN`), où chaque commande qu'il exécute peut le lire. De partout où le serveur est
 joignable, le jeton ouvre le bridge du plugin et le proxy de l'espace (qui le détient peut faire masquer
-des textes dans l'espace et faire restaurer les valeurs factices qu'il possède), dit à qui il appartient et
+des textes dans l'espace, et faire remplacer par les originaux les valeurs factices qu'ils contiennent), dit à qui il appartient et
 se révoque lui-même. La **clé de la machine** reste dans le magasin d'identifiants de la machine, ou dans le
 fichier privé du jeton, et aucun agent ne la reçoit : le serveur la demande aussi avant de donner un lien
 de connexion au tableau de bord ou d'ajouter quoi que ce soit à l'identité de la personne. Ainsi, le
@@ -54,18 +54,18 @@ connectée, `latet dashboard` et `latet identity send` refusent de s'exécuter d
   ce qu'une équipe partage dans son fichier de projet (un profil plus strict, ses termes et
   reconnaisseurs) n'atteint pas les requêtes d'une personne connectée. Dans un tel projet,
   `latet doctor` et `latet claude` le disent. Réglez-le dans votre tableau de bord : importez le
-  `latet.yaml` du projet dans **Règles** avec **Importer des règles**.
+  `latet.yaml` du projet sur la page **Règles**, avec **Importer des règles**.
 - **La vérification des fichiers CLAUDE.md**, que Claude Code donne à son relecteur du mode auto,
   s'exécute sur la machine, dans `latet doctor`.
 - **Claude Code via un serveur nécessite un terminal Windows** dans cette version. Sous Linux et
   macOS, son plugin retient chaque prompt, et Latet le dit d'emblée là où il l'appliquerait. Le mode
-  d'impression (`claude -p`) est retenu sur toute machine connectée.
+  non interactif (`claude -p`) est retenu sur toute machine connectée.
 
 ### Certificats et connexions propres des agents
 
 Chaque agent fait confiance au certificat du serveur par une variable qui lui est propre et que Latet
 définit : `NODE_EXTRA_CA_CERTS` pour Claude Code et OpenCode, `CODEX_CA_CERTIFICATE` pour Codex. Elle s'ajoute à
-ce que l'agent approuve déjà, et la copie que Latet écrit garde les certificats que la personne y avait
+ce à quoi l'agent fait déjà confiance, et la copie que Latet écrit garde les certificats que la personne y avait
 indiqués, l'autorité de son entreprise par exemple. Un certificat auto-signé n'atteint les agents que sous la
 forme que lui donne `latet server certificate --make`, limitée au nom ou à l'adresse du serveur ; un certificat
 de l'autorité de l'entreprise fonctionne tel quel.
@@ -107,7 +107,7 @@ autres dans PostgreSQL quand un texte en a besoin. Avant chaque requête, elle l
 que les autres instances ont changé, si bien qu'une valeur gardée ou oubliée sur une instance avant le
 début d'une requête est vue par cette requête sur n'importe quelle autre. Une personne dont le
 coffre-fort contient des valeurs gardées avant Latet 0.10.0 est servie comme la 0.10.0 la servait
-jusqu'à ce que son espace soit reconstruit après que leurs mots ont été faits : son espace garde tout
+jusqu'à ce que son espace soit reconstruit après le calcul de leurs mots : son espace garde tout
 son coffre-fort en mémoire, quelle que soit sa taille, et ne lit aucun compteur de modifications, si
 bien qu'une valeur qu'une autre instance garde lui parvient par son message ou, quand le message se
 perd, par le contrôle suivant du battement.
@@ -123,7 +123,7 @@ les données chiffrées ne peuvent pas être récupérées.
 Certaines métadonnées restent lisibles dans PostgreSQL : noms et adresses e-mail des
 identités, identifiants externes, libellés, permissions et dates des jetons, noms des règles du coffre-fort,
 compteurs et dates, ainsi qu'acteurs, actions, cibles, identifiants, nombres et adresses
-clientes du journal d'administration. Les identifiants de projet et de conversation
+des clients du journal d'administration. Les identifiants de projet et de conversation
 de l'historique utilisent des hachages à clé. Chaque coffre-fort, celui d'une personne comme celui
 d'une clé d'API, conserve aussi les mots de ses valeurs et de ses valeurs factices sous forme de
 hachages à clé, qui permettent de les trouver dans un texte, et à côté de chaque mot son empreinte,
@@ -137,7 +137,7 @@ d'API et les réponses mémorisées de son relecteur local gardent des hachages
 quelqu'un qui lit la base de données peut savoir quelles lignes nomment la même entrée ou la même
 valeur, jamais de quelle valeur il s'agit. Les lignes d'une personne n'en gardent aucun. Chaque
 coffre-fort garde le hachage à clé de chaque valeur factice qu'il a retirée (celle d'une valeur
-oubliée, ou une remplacée), pour qu'aucune autre valeur ne la reçoive : il montre combien de
+oubliée, ou une valeur factice remplacée par une nouvelle), pour qu'aucune autre valeur ne la reçoive : il montre combien de
 valeurs factices ont été retirées, jamais lesquelles.
 Valkey utilise des noms dérivés avec une clé, des données sensibles chiffrées et des messages de
 coordination signés.
@@ -146,14 +146,14 @@ Le chiffrement au repos ne cache pas les originaux au serveur en fonctionnement 
 son opérateur. Les vues autorisées du tableau de bord reçoivent les originaux dans le
 navigateur. Un administrateur peut émettre le code d'inscription d'une personne et
 l'utiliser pour accéder à son tableau de bord ; cette opération est consignée. Il peut
-aussi configurer un service de relecture qui reçoit du texte original. Faites donc
-confiance aux administrateurs du serveur, à l'opérateur du déploiement et à ce relecteur.
-Chiffrement et signatures n'empêchent pas une personne pouvant écrire dans la base de
+aussi configurer un service de relecture qui reçoit du texte original. Accordez donc
+votre confiance aux administrateurs du serveur, à l'opérateur du déploiement et à ce relecteur en
+connaissance de cause. Le chiffrement et les signatures n'empêchent pas une personne pouvant écrire dans la base de
 restaurer un état antérieur valide.
 
 Effacer l'historique enregistré supprime les échanges de cet espace, pas son coffre-fort.
-Cela n'efface ni sauvegardes, ni transcriptions d'agents, ni enregistrements du fournisseur,
-ni copies déjà reçues par un navigateur.
+Cela n'efface ni les sauvegardes, ni les transcriptions des agents, ni les enregistrements du
+fournisseur, ni les copies déjà reçues par un navigateur.
 
 ## Réglages partagés et règles propres
 
@@ -169,7 +169,8 @@ Une équipe partage ses règles à la main : une personne les exporte (**Exporte
 page **Règles** du tableau de bord, ou `latet rules export` sur une machine qui n'est connectée à
 aucun serveur) et chacun importe le fichier dans son propre tableau de bord.
 [Exportation et importation](../export-import/) décrit le fichier. Les règles définies pour tout le
-monde, que personne ne peut assouplir, sont prévues pour l'édition Enterprise.
+monde, que personne ne peut assouplir, sont les [règles verrouillées](../../enterprise/locked-rules/) de
+l'édition Enterprise d'un serveur.
 
 Un changement partagé qui réduit la protection, comme une destination déplacée ou le relecteur
 désactivé, attend l'approbation de la personne. En attendant, ses réglages plus stricts
@@ -180,7 +181,7 @@ monde.
 
 Une clé d'API n'a personne pour approuver un tel changement : il atteint tout de suite l'espace de la
 clé, même un changement qui réduit la protection ; vérifiez donc ce qu'un changement des réglages
-partagés fait à vos programmes avant de le faire.
+partagés fait à vos programmes avant de l'effectuer.
 
 Distinguez ces résultats d'enregistrement :
 
@@ -191,7 +192,7 @@ Distinguez ces résultats d'enregistrement :
 | `409 settings_saved_change_pending`, `saved: true` | Vos modifications ont été conservées, mais l'actualisation de la proposition en attente a échoué. Rechargez et examinez le changement en attente ; ne répétez pas l'enregistrement sans vérifier. |
 | `409 settings_terms_too_long` | Un terme dépasse la longueur acceptée ; rien de cet enregistrement n'a été conservé. |
 
-D'autres limites ou erreurs de stockage peuvent aussi refuser un enregistrement. Une
+D'autres limites ou erreurs de stockage peuvent aussi faire refuser un enregistrement. Une
 erreur HTTP seule ne prouve pas que rien n'a été écrit ; conservez le motif renvoyé et
 toute indication d'enregistrement partiel.
 
@@ -202,7 +203,7 @@ adresse privée, unique-local, de NAT carrier-grade, de bouclage, link-local, mu
 écrite comme adresse ou comme nom qui s'y résout ; de même pour les formes IPv6 qui portent une adresse IPv4 ou
 mènent à une passerelle (6to4, Teredo, préfixes NAT64). Sur un réseau avec NAT64, le serveur en découvre les
 préfixes comme le décrit la RFC 7050, et tant qu'il ne les connaît pas, il ne joint aucune adresse IPv6 qu'un NAT64
-pourrait traduire : un nom qui a aussi une adresse IPv4 va là. Un nom est résolu de nouveau quand le serveur se
+pourrait traduire : un nom qui a aussi une adresse IPv4 est joint par celle-ci. Un nom est résolu de nouveau quand le serveur se
 connecte, et la requête va à une adresse qui a été vérifiée : la première qui répond, dans l'ordre donné par le
 système (d'abord celle vers laquelle une connexion est encore ouverte), la suivante n'étant essayée que si la
 connexion à la précédente a échoué, avant que rien de la requête ne soit envoyé. Aucun proxy n'est utilisé pour ces
@@ -213,12 +214,12 @@ propre joignable seulement en IPv4.
 
 ## Les limites d'un espace
 
-- **Règles :** les réglages propres d'une personne contiennent au plus 500 reconnaisseurs, 500 règles de champs
+- **Règles :** les réglages propres d'une personne contiennent au plus 500 reconnaisseurs, 500 règles de champ
   et 500 motifs de valeurs à ne jamais masquer, comptés sur les réglages et tous leurs projets. Un
   enregistrement au-delà est refusé.
 - **Projets :** au plus 200 par personne.
 - **Valeurs :** une valeur de plus de 16 384 caractères est caviardée plutôt que remplacée par une valeur
-  factice, et n'est jamais conservée ni restaurée ; un terme compte au plus 8 192 caractères.
+  factice, et n'est jamais conservée ni remise en place ; un terme compte au plus 8 192 caractères.
 - **Mémoire :** une instance, et chaque worker, donne à ses espaces 2 Gio fixes, et un espace en utilise au plus
   la moitié, avec jusqu'à un huitième de cette moitié en plus pour ses détecteurs (128 Mio). Un espace arrivé à
   sa part n'apprend plus de nouvelle valeur : une requête qui en apporte une est arrêtée avec un message qui le
@@ -238,7 +239,7 @@ l'impose. Le trafic réseau arbitraire des outils est hors de cette garantie.
 
 [Ce qui est protégé et ce qui ne l'est pas](../protection-scope/) décrit les limites de
 détection, d'images et de protocoles. Un contenu non pris en charge peut être refusé ou
-retenu sur un chemin serveur protégé ; un indicateur historique ou un endpoint disponible
+retenu sur un chemin serveur protégé ; un indicateur historique ou un point de terminaison disponible
 du fournisseur n'établit pas sa prise en charge. Un serveur ne peut pas lire le dépôt
 d'une machine connectée simplement parce qu'un projet apparaît dans son tableau de bord.
 Les informations de projet qu'il possède sont celles qui lui ont été fournies.

@@ -661,8 +661,8 @@ class Bridge:
         alone). An item the dump guard withheld also says ``withheld: true``; one the local reviewer
         stopped says why in ``blocked``, and its text is a notice instead.
 
-        With the Live Reviewer on, new texts wait for you: the answer is ``{pending, viewers}`` at once,
-        and the plugin asks ``approvals/wait`` for the items until you decide.
+        With the Live Reviewer on, new texts wait for you: the answer is ``{pending, viewers, decides, deciders}``
+        at once, and the plugin asks ``approvals/wait`` for the items until you decide.
 
         While Latet's settings are being applied, it waits for them, and is masked under them once they are all in
         place; one whose apply outlasts the wait, that comes while settings could not be put back, or whose answer an
@@ -684,7 +684,17 @@ class Bridge:
             if live:
                 waiting = await self._live(session, live, reviews, out, degraded)
                 if waiting is not None:
-                    return JSONResponse({"pending": waiting.batch.id, "viewers": self.mediator.approvals.viewers})
+                    batch = waiting.batch
+                    # Who decides on it: you, or your company's security team (Latet Enterprise), named. Said once:
+                    # the plugin keeps it while it asks again (approvals/wait answers as before).
+                    return JSONResponse(
+                        {
+                            "pending": batch.id,
+                            "viewers": self.mediator.approvals.viewers,
+                            "decides": batch.decides,
+                            "deciders": batch.deciders,
+                        }
+                    )
         except _ProtectedRequest:
             return _protected_request()
         except MaskingError as exc:  # a vault at its limit says so: a MaskingError's words name no value
@@ -790,11 +800,21 @@ class Bridge:
         """Once you decide on a call's texts: what the plugin gets, worked out here (its images are here), and given
         to the queue for whichever process the plugin asks; given again when the queue did not take it, a few times.
         Worked out once Latet's settings being applied are all in place, as ``mask`` is: one worked out while they
-        were half applied, or while they could not be put back, is the refusal ``SETTINGS_CHANGED`` instead."""
+        were half applied, or while they could not be put back, is the refusal ``SETTINGS_CHANGED`` instead.
+
+        A decider of the company's approval (``Decision.version``, Latet Enterprise) is taken as approved only once its
+        answer is given, masked as they read it (``Mediator.take_approved``, after the queue took the answer: the final
+        security review, L3); not given (refused ``SETTINGS_CHANGED``, masked otherwise than they read it,
+        ``ApprovedChanged``, failed, or the queue never taking it), the batch is recorded as withheld and its texts wait
+        for the deciders again when the agent sends them again (the merge of 0.12.0's security review, M1, and its fix
+        round 3)."""
         approvals = self.mediator.approvals
+        theirs = False
+        sent: list[str] = []  # a decider's approval: its texts as the answer gives them, taken once it is given
         try:
             decision = await approvals.decided(waiting.batch)
             self.mediator.release_live(waiting.batch.id)  # decided: its texts are masked as they leave
+            theirs = decision.approved and decision.version is not None
             begun = await self._begun()
             if begun is None:
                 answer: dict[str, Any] = {"error": SETTINGS_CHANGED}
@@ -803,6 +823,8 @@ class Bridge:
                 answer = {"items": await self.mediator.run_bridge(_answered, out), "degraded": waiting.degraded}
                 if self._overtaken(begun):
                     answer = {"error": SETTINGS_CHANGED}
+                elif theirs:  # as they read it: approved from now on, once given
+                    sent = [str(out[item.index]["text"]) for item in waiting.items]
         except MaskingError as exc:  # logged by its own words, which name no value, as `mask` does: no traceback
             log.error("bridge masking failed: %s", exc)
             answer = {"error": f"masking failed: {exc}"}
@@ -814,15 +836,37 @@ class Bridge:
             answer = {"error": "masking failed"}
             with contextlib.suppress(Exception):  # decided already, or its store does not answer: given as it is
                 approvals.abandon(waiting.batch)
+        if theirs and "items" not in answer:
+            # A decider's approval whose answer is not given (refused because the settings changed, masked otherwise
+            # than they read it, ``ApprovedChanged``, or failed): never taken as approved, and recorded as withheld, so
+            # that the company's record never keeps it approved (fix rounds 1 and 3 of the merge of 0.12.0).
+            with contextlib.suppress(Exception):
+                approvals.withheld(waiting.batch)
+        theirs_given = theirs and "items" in answer and bool(sent)  # a decider's approval, given as they read it
         for attempt in range(1, GIVE_TRIES + 1):
             try:
-                approvals.give(waiting.batch.id, answer)
-                return
+                kept = approvals.give(waiting.batch.id, answer)
             except Exception as exc:  # the last failure ends the task, which `_answer_ended` logs by its type
                 if attempt == GIVE_TRIES:
+                    if theirs_given:  # a decider's approval the plugin never got: never taken, and recorded withheld
+                        with contextlib.suppress(Exception):
+                            approvals.withheld(waiting.batch)
                     raise
                 log.warning("the answer to a plugin call was not taken (%s): given again", type(exc).__name__)
                 await asyncio.sleep(GIVE_PAUSE)
+                continue
+            if theirs_given and not kept:
+                # Taken, not kept as given (a server's queue past the identity's bytes keeps an error instead; no call
+                # waits for it any more): the plugin never gets these texts, so their approval is never taken, and the
+                # batch is recorded withheld (the re-review of the final security review's fix rounds, R1).
+                with contextlib.suppress(Exception):
+                    approvals.withheld(waiting.batch)
+            elif theirs_given:  # taken as approved now the answer is given, never before (the final review, L3)
+                try:
+                    await self.mediator.run_bridge(self.mediator.take_approved, waiting.session, waiting.items, sent)
+                except Exception as exc:  # not kept: the texts wait for the deciders again when they are sent again
+                    log.warning("a decider's approval could not be kept (%s)", type(exc).__name__)
+            return
 
     def _answer_ended(self, task: asyncio.Task[None], batch_id: str) -> None:
         """A call's task is over, and no longer held. One that ended with an error of its own (its queue could not be

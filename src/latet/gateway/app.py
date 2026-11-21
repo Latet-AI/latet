@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -47,6 +47,21 @@ if TYPE_CHECKING:
 Pin = Callable[[str], Awaitable[tuple[str, str, dict[str, Any]]]]
 
 
+class ForgetValues(Protocol):
+    """``OnServer.forget``: values taken out of the identity's vault in its store, the administration log's entry
+    (``action``, by ``actor``: the identity itself when None) in the same transaction."""
+
+    def __call__(
+        self,
+        values: Sequence[str],
+        details: Mapping[str, Any],
+        address: str | None,
+        *,
+        action: str = ...,
+        actor: str | None = ...,
+    ) -> Awaitable[tuple[list[str], int, int | None]]: ...
+
+
 @dataclass(frozen=True)
 class OnServer:
     """An identity's space on a Latet server: the server's address (the Host its requests name), and the identity, the
@@ -57,11 +72,13 @@ class OnServer:
     ``kind``: the identity's, a person's or an API key's, whose space alone has the applications API. ``forget`` takes
     values out of the identity's vault in its store, by the values themselves (``await forget(values, details,
     client's address)``, Task 11b), with the administration log's ``apps.forgotten`` entry (``details`` and the counts)
-    in the same transaction, in the server's threads of forgets: the ids forgotten, how many of the values the vault
-    does not hold, and the generation its new fakes are drawn in from then on (None: unchanged); it raises
+    in the same transaction (another ``action`` and ``actor`` where they are given: a key's space in Latet Enterprise),
+    in the server's threads of forgets: the ids forgotten, how many of the values the vault does not hold, and the
+    generation its new fakes are drawn in from then on (None: unchanged); it raises
     ``server.vault.NotRecorded`` when the entry was not written (nothing forgotten), and an error a store that did not
-    answer raises otherwise. The space's memory is the caller's to drop (``StoredVault.forgotten``). Two are the same
-    space by the server and the identity alone."""
+    answer raises otherwise. The space's memory is the caller's to drop (``StoredVault.forgotten``). ``record`` takes
+    the ``apps`` event of each scan and mask the applications API answers (counts, the key, its token's id: E4), the
+    server's edition's ``record``, which never waits. Two are the same space by the server and the identity alone."""
 
     url: str
     identity: str
@@ -69,9 +86,10 @@ class OnServer:
         default=None, compare=False, repr=False
     )
     kind: Literal["person", "key"] = field(default="person", compare=False)
-    forget: (
-        Callable[[Sequence[str], Mapping[str, Any], str | None], Awaitable[tuple[list[str], int, int | None]]] | None
-    ) = field(default=None, compare=False, repr=False)
+    forget: ForgetValues | None = field(default=None, compare=False, repr=False)
+    # A server's: what the applications API records of each scan and mask it answers (E4's `apps` events: counts, the
+    # key, its token's id), the server's edition's `record`; it never waits. None: nothing is recorded.
+    record: Callable[[Mapping[str, Any]], None] | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass

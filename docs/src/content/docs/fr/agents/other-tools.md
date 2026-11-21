@@ -118,9 +118,9 @@ garder sur votre modèle, définissez
 ## GitHub Copilot CLI
 
 La CLI de Copilot passe par Latet avec un fournisseur à vous : une clé OpenAI, Anthropic ou
-OpenRouter, ou une autre adresse, définie par des variables d'environnement. Connectée à GitHub, sur
-les modèles d'un abonnement Copilot, elle envoie au service Copilot de GitHub, devant lequel Latet ne
-peut pas se placer : `latet copilot` le dit et ne lance rien.
+OpenRouter, ou une autre adresse, indiquées dans des variables d'environnement. Connectée à GitHub,
+sur les modèles d'un abonnement Copilot, elle envoie ses requêtes au service Copilot de GitHub, devant
+lequel Latet ne peut pas se placer : `latet copilot` le dit et ne lance rien.
 
 ```sh
 export COPILOT_PROVIDER_TYPE=openai          # Chat Completions
@@ -142,7 +142,7 @@ latet copilot
 
 `latet copilot` dirige l'adresse du fournisseur vers Latet pour cette session seulement : celles
 d'OpenAI, d'Anthropic et d'OpenRouter vont aux routes propres de Latet, une autre adresse devient
-l'une de vos destinations, et une adresse sur cet ordinateur reste telle quelle. Avec OpenRouter,
+l'une de vos destinations, et une adresse sur cette machine reste telle quelle. Avec OpenRouter,
 définissez `COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` et votre clé OpenRouter ; pour
 Anthropic, `COPILOT_PROVIDER_TYPE=anthropic` et votre clé Anthropic. Pour lancer `copilot`
 vous-même, définissez plutôt `COPILOT_PROVIDER_BASE_URL` sur l'adresse de Latet :
@@ -394,7 +394,7 @@ OpenRouter. Le chat et le mode agent utilisent le modèle que vous choisissez ; 
 Claude Desktop peut fonctionner sur une passerelle d'inférence au lieu du service d'Anthropic, sans
 connexion à un compte Claude : c'est ainsi qu'une organisation l'utilise avec son propre fournisseur.
 Il n'y a alors pas d'abonnement Pro ou Max : les requêtes sont facturées à l'usage, avec une clé
-d'API Anthropic ou par le fournisseur de votre entreprise. Sur un ordinateur, sans vous connecter,
+d'API Anthropic ou par le fournisseur de votre entreprise. Sur une seule machine, sans vous connecter,
 activez
 **Help → Troubleshooting → Enable Developer Mode**, puis ouvrez
 **Developer → Configure Third-Party Inference** ; une organisation définit les mêmes clés depuis un
@@ -407,7 +407,7 @@ profil de gestion des appareils. Faites de Latet la passerelle :
 | `inferenceGatewayApiKey` | Votre clé d'API Anthropic |
 | `inferenceGatewayAuthScheme` | `x-api-key` |
 
-Claude Desktop accepte une adresse `http://` sur cet ordinateur. Chat, Cowork et Code envoient alors
+Claude Desktop accepte une adresse `http://` sur cette machine. Chat, Cowork et Code envoient alors
 chaque requête par Latet, et la liste des modèles vient d'Anthropic en passant par lui.
 
 **Ce que Latet en fait.** Le moteur de Claude Code construit ces requêtes, et Latet ne réécrit jamais
@@ -425,7 +425,7 @@ lui. Voir [Claude Code](../claude-code/#couverture).
 
 ## Ce que Latet ne peut pas protéger
 
-Latet s'exécute sur votre ordinateur, entre l'outil et le modèle. Les outils ci-dessous envoient
+Latet s'exécute sur votre machine, entre l'outil et le modèle. Les outils ci-dessous envoient
 leurs requêtes depuis les serveurs de leur éditeur, ou appellent un service qu'aucun réglage ne
 permet de changer, si bien que leurs requêtes ne passent jamais par Latet :
 
@@ -434,7 +434,7 @@ permet de changer, si bien que leurs requêtes ne passent jamais par Latet :
 | Cursor et sa CLI | Cursor construit et envoie chaque requête au modèle depuis ses propres serveurs, même avec votre propre clé d'API. |
 | Windsurf et Devin Desktop | Les requêtes vont aux serveurs de l'éditeur, qui appellent le modèle. |
 | Google Antigravity (l'IDE) | Les requêtes vont au service de Google, qui appelle le modèle. |
-| Jules | Il s'exécute dans le cloud de Google, pas sur votre ordinateur. |
+| Jules | Il s'exécute dans le cloud de Google, pas sur votre machine. |
 | Kiro et Amazon Q Developer | Les requêtes vont au service d'Amazon, qui appelle le modèle. |
 | Warp | Les requêtes vont aux serveurs de Warp, qui appellent le modèle. |
 | L'application de bureau ChatGPT | Elle ne communique qu'avec le service d'OpenAI ; elle n'a aucun réglage pour une autre adresse. |

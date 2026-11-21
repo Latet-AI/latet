@@ -16,6 +16,8 @@ const REFUSED_SAVES: Record<string, string> = {
   settings_drops_shared: tk('errors.settingsDropsShared'), // it would remove items set for everyone: `dropped` counts them (409)
   settings_unavailable: tk('errors.settingsUnavailable'), // the server's store did not answer (503)
   settings_change_waits: tk('errors.settingsChangeWaits'), // a change to your settings waits for your decision (409)
+  // Latet Enterprise: it lowers protection and someone else decides on it, so it waits for them (409, with `pending`)
+  settings_waiting_for_others: tk('errors.settingsWaitingForOthers'),
   repositories_unchecked: tk('errors.repositoriesUnchecked'), // a repository Latet has seen could not be read now (503)
   repo_file_unreadable: tk('errors.repoFileUnreadable'), // the project's latet.yaml is not a regular file, or too large (409)
   repo_file_unavailable: tk('errors.repoFileUnavailable'), // the project's latet.yaml cannot be read now (503)
@@ -62,6 +64,17 @@ export function refusedWords(t: Translate, error: unknown): string | null {
   const key = refusedSave(error)
   if (key === null) return null
   return t(key, { items: droppedItems(t, (error as ApiError).body) })
+}
+
+/**
+ * Whether a change that applies to everyone (a role, the policy, the license, the sign-in settings, a code to connect
+ * a computer) was refused because this session was opened with `latet dashboard`'s one-time code and the server asks
+ * for the company sign-in while single sign-on is set up (403, `code: "company-sign-in"`).
+ */
+export function companySignInNeeded(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 403) return false
+  const code = error.body !== null && typeof error.body === 'object' ? (error.body as { code?: unknown }).code : undefined
+  return code === 'company-sign-in'
 }
 
 /** The settings were kept, but the pending approval could not be refreshed. This is not a refused save and must

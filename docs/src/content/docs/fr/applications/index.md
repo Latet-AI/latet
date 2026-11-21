@@ -15,7 +15,7 @@ d'une clé d'API :
   valeurs ;
 - de le **restaurer** (`unmask`) : les vraies valeurs à nouveau à la place des valeurs factices ;
 - d'**oublier** des valeurs (`forget`) : les retirer du coffre-fort de la clé, quand une personne
-  demande que ses données disparaissent ([oublier des valeurs](forget/)).
+  demande que ses données en soient retirées ([oublier des valeurs](forget/)).
 
 C'est une fonction du serveur Latet : les clés d'API et leurs jetons n'existent que là, et une machine
 sans serveur n'en a rien. Pour l'essayer sur votre propre machine, lancez-y un serveur Community avec
@@ -35,7 +35,7 @@ Ce qu'elle apporte de plus qu'une règle de caviardage :
   valeurs factices de la clé, et chaque restauration par l'API pour les applications est inscrite
   dans le journal d'administration du serveur.
 
-Deux pages suivent les deux usages pour lesquels elle a été conçue : les [journaux](logs/) et le
+Deux pages décrivent pas à pas les deux usages pour lesquels elle a été conçue : les [journaux](logs/) et le
 [RAG](rag/). La [référence HTTP](../reference/apps-api/) donne le contrat pour les programmes dans
 n'importe quel langage, et la [description OpenAPI](../../apps-api.openapi.json) de l'API permet d'en
 générer un client. Les programmes Python peuvent utiliser le paquet
@@ -103,7 +103,7 @@ pas révoqué à la place d'un jeton ajouté avec les mêmes permissions. Un jet
 permissions, `--mask --unmask` compris : la passerelle et le bridge du plugin le refusent (403), et il
 appelle uniquement l'API pour les applications.
 
-Chaque jeton s'arrête séparément : `keys tokens "Shop" --revoke t_4kxq2m7zap` en révoque un par
+Chaque jeton se révoque séparément : `keys tokens "Shop" --revoke t_4kxq2m7zap` en révoque un par
 l'identifiant que `keys tokens` affiche, en quelques secondes sur chaque instance. `keys rotate "Shop"
 --token t_4kxq2m7zap --out shipper.token` remplace ce jeton par un nouveau, avec un nouveau secret et
 un nouvel identifiant, le même nom et les mêmes permissions ; une clé qui n'a qu'un jeton n'a pas
@@ -120,7 +120,7 @@ leur tableau de bord.
 
 - `prose` (par défaut) : du texte écrit par des personnes, comme des messages, des tickets et des
   documents. Il est masqué comme la passerelle masque vos propres messages.
-- `data` : des journaux, des enregistrements, la sortie d'un programme. Elles sont masquées comme la
+- `data` : des journaux, des enregistrements, la sortie d'un programme. Ces données sont masquées comme la
   passerelle masque la sortie d'un outil.
 
 La différence tient à ce qui est probable : dans le profil `balanced`, les noms ne sont cherchés que
@@ -189,8 +189,8 @@ reste tel quel. Le nom d'une personne ne revient qu'entier : une de ses parties 
 inscrite dans le journal d'administration avant l'envoi de sa réponse (`apps.unmasked`, avec le jeton,
 le nombre de textes et le nombre de valeurs ; jamais un texte ni une valeur), et un journal qui ne peut
 pas l'inscrire refuse l'appel (503). Le premier jeton de la clé, qui peut analyser, masquer et
-restaurer, sert aussi des agents par la passerelle : leurs réponses sont restaurées comme celles de tout
-agent, sans entrée du journal d'administration pour chaque restauration. Un jeton créé avec
+restaurer, sert aussi des agents par la passerelle : les originaux sont remis en place dans leurs réponses
+comme pour tout agent, sans entrée du journal d'administration à chaque remise en place. Un jeton créé avec
 `keys add-token` ne le fait jamais : chacune de ses restaurations est une entrée `apps.unmasked`.
 Donnez `unmask` aux outils des
 personnes qui peuvent voir les vraies données, et lisez le journal avec
@@ -209,20 +209,20 @@ qui peut seulement analyser peut donc confirmer qu'une valeur qu'aucun détecteu
 l'une de celles de la clé. Donnez `scan` avec le même soin que `mask`.
 
 **L'oubli aussi révèle quelque chose.** Sa réponse dit combien des valeurs le coffre-fort de la clé
-contenait : un jeton qui peut oublier peut donc confirmer qu'une valeur est à la clé, comme un jeton
+contenait : un jeton qui peut oublier peut donc confirmer qu'une valeur est l'une de celles de la clé, comme un jeton
 qui peut analyser. Donnez `forget` seulement au processus qui traite les demandes d'effacement ;
 chaque oubli figure dans le journal d'administration (`apps.forgotten`, avec le jeton et les nombres,
 jamais une valeur).
 
 ## Le coffre-fort d'une clé
 
-Le coffre-fort d'une clé conserve chaque valeur qu'il a masquée, avec sa valeur factice, tant que la clé
+Le coffre-fort d'une clé conserve chaque valeur que la clé a masquée, avec sa valeur factice, tant que la clé
 existe : une restauration fonctionne sur une ligne de journal de l'an dernier, et un client garde la
 même valeur factice pendant des années. Les valeurs n'expirent pas : une valeur quitte le coffre-fort
 quand elle est oubliée ([oublier des valeurs](forget/)), et toutes partent avec la clé, puisque
 `latet server keys remove` efface son espace, et son coffre-fort avec. Une valeur trouvée une fois est masquée
 ensuite partout où elle apparaît, même là où aucun détecteur ne la trouverait à nouveau : l'adresse d'un
-client qu'une règle de la clé a trouvée une fois, puis qui a été retirée, reste masquée.
+client qu'une règle de la clé a trouvée une fois, avant que cette règle soit retirée, reste masquée.
 
 Un espace de journaux peut contenir des millions de valeurs : une instance ne garde donc pas le
 coffre-fort d'une clé en mémoire. Elle garde les valeurs que la clé a utilisées en dernier
@@ -233,8 +233,8 @@ d'abord cherchés parmi les empreintes : un mot sans empreinte n'est le mot d'au
 valeur factice, et PostgreSQL n'est pas interrogé pour lui. Les valeurs et les valeurs factices dont
 les mots en ont une sont lues dans PostgreSQL, toutes celles de l'appel en une fois, et chacune est
 déchiffrée et comparée au texte avant de masquer ou de restaurer quoi que ce soit, car deux mots
-peuvent avoir la même empreinte. Ni les empreintes ni l'index des mots dans PostgreSQL, fait de
-hachages à clé, ne contiennent un mot en clair. Avant chaque appel, l'instance lit dans PostgreSQL le
+peuvent avoir la même empreinte. Ni les empreintes ni l'index des mots dans PostgreSQL ne
+contiennent un mot en clair. Avant chaque appel, l'instance lit dans PostgreSQL le
 compteur de modifications de la clé et reprend ce que les autres instances ont gardé ou oublié
 depuis : une valeur gardée sur une instance avant le début d'un appel est donc trouvée par cet appel
 sur n'importe quelle autre, même quand le message qui l'annonçait s'est perdu. Une clé qui a peu de
@@ -256,7 +256,7 @@ et collé des deux côtés quand il est une seule suite de sept caractères ou p
 l'appel. Augmentez `key_held_secrets` pour une clé qui voit beaucoup de secrets courts, comme un jeton de
 session dans chaque ligne de journal : chacun occupe environ 23 Ko sur chaque instance qui sert la clé, surtout
 dans le détecteur qui le trouve, et chaque texte que la clé masque ou restaure est parcouru pour le chercher, ce
-qui ralentit un peu ses appels. Mesurée avec Latet 0.10.0 sur la machine d'[à quelle
+qui ralentit un peu ses appels. Lors d'une mesure avec Latet 0.10.0 sur la machine de la section [À quelle
 vitesse](#à-quelle-vitesse), avec un jeton de session propre à chaque ligne (une valeur de plus à garder dans
 chacune), une nouvelle clé qui en gardait 1 000 a masqué 73 lignes par seconde et en a restauré 1 935, contre 75
 et 2 103 sans aucun secret gardé. Une valeur factice est trouvée collée comme son secret : elle en garde les
@@ -266,7 +266,7 @@ est reconnue à nouveau à partir de quatre caractères, le nom d'une personne �
 connues](../concepts/detection/#valeurs-connues)).
 
 **Secrets courts.** Un secret de moins de douze caractères (`password=1234`, un jeton court) reçoit
-une valeur factice plus longue des mêmes sortes, ses signes à leur place : quinze chiffres pour un
+une valeur factice plus longue, faite des mêmes sortes de caractères, ses signes à leur place : quinze chiffres pour un
 nombre (avec son signe et son point décimal, pour qu'un nombre JSON reste un nombre), douze chiffres
 hexadécimaux pour une valeur hexadécimale, sinon douze lettres et chiffres. Une valeur factice aussi
 courte que sa valeur apparaîtrait par hasard dans les identifiants et les nombres d'autres lignes de
@@ -286,25 +286,25 @@ chaque instance.
 **Ce que conserve un appel qui échoue.** Un appel `mask` qui échoue pendant le masquage (un 507, une
 validation qui n'atteint pas PostgreSQL) ne conserve aucune de ses nouvelles valeurs quand il tenait
 pour elles l'une des transactions de l'instance, trois à la fois avec le `database_pool` par défaut :
-l'espace de la clé les oublie. Quand celles-ci étaient prises, l'appel a conservé chaque nouvelle
+l'espace de la clé les oublie. Quand ces transactions étaient toutes prises, l'appel a conservé chaque nouvelle
 valeur au fur et à mesure, et celles-ci restent dans le coffre-fort de la clé. Une erreur après le masquage, dans la relecture locale ou en préparant la
 réponse, survient après la validation : les nouvelles valeurs de l'appel restent aussi. Masquer à
 nouveau les textes est sans risque dans tous les cas : une valeur que le coffre-fort a conservée garde
 sa valeur factice, et une valeur qu'il a oubliée en reçoit de nouveau une. Un agent de la même clé qui
-a utilisé entre-temps une valeur oubliée par la passerelle a déjà envoyé sa valeur factice, qu'aucune
+a utilisé entre-temps, par la passerelle, une valeur oubliée a déjà envoyé sa valeur factice, qu'aucune
 restauration ultérieure ne remplacera.
 
 ## Limites
 
-- **Le coffre-fort.** Le coffre-fort d'une clé contient les `vault_limit` valeurs du serveur (200 000
+- **Le coffre-fort.** Le coffre-fort d'une clé peut contenir les `vault_limit` valeurs du serveur (200 000
   si les réglages du serveur ne disent pas autre chose), ou une limite propre :
   `latet server keys limit "Shop" 5000000` (de 1 000 à 100 000 000 ; `default` lui rend celle du
   serveur). Un coffre-fort plein refuse avec 507 l'appel `mask` qui ajouterait une valeur : rien de
   l'appel n'est renvoyé, rien ne sort en clair. L'état du serveur liste les identités à 90 % de leur
   limite, et la métrique `latet_vault_near_limit` les compte : relevez donc une limite avant qu'elle
   soit atteinte. Chaque instance compte les nouvelles valeurs d'un appel avant de les valider : deux
-  instances, ou un appel et un agent de la même clé, peuvent dépasser la limite des nouvelles valeurs
-  d'un appel chacun avant que la valeur suivante soit refusée. Un index des empreintes d'un
+  instances, ou un appel et un agent de la même clé, peuvent chacun dépasser la limite d'autant de valeurs
+  qu'un appel en apporte de nouvelles avant que la valeur suivante soit refusée. Un index des empreintes d'un
   coffre-fort est construit jusqu'à 16 777 216 empreintes, environ huit millions de valeurs du type
   que mesure [à quelle vitesse](#à-quelle-vitesse) : au-delà, aucun index n'est construit tant que
   l'espace de la clé dure, et ses appels cherchent leurs mots dans PostgreSQL seul, plus lentement.
@@ -322,9 +322,9 @@ restauration ultérieure ne remplacera.
 
 ## À quelle vitesse
 
-Les appels d'une clé s'exécutent l'un après l'autre sur une instance, dans le fil de son espace ; les
-appels de clés différentes, et ceux qui arrivent sur des instances différentes, s'exécutent côte à
-côte. Pour aller plus vite avec une clé, faites tourner plus d'instances derrière le répartiteur de
+Les appels d'une clé s'exécutent l'un après l'autre sur une instance, dans le thread de son espace ; les
+appels de clés différentes, et ceux qui arrivent sur des instances différentes, s'exécutent en
+parallèle. Pour aller plus vite avec une clé, faites tourner plus d'instances derrière le répartiteur de
 charge, ou plusieurs workers sur une machine Linux
 ([plusieurs instances sur une machine](../concepts/server-operations/#plusieurs-instances-sur-une-machine)).
 
@@ -418,7 +418,7 @@ fois ; chaque instance construit ensuite son propre index de ces empreintes et s
 de la clé masquent les mêmes valeurs, plus lentement ([à quelle vitesse](#à-quelle-vitesse) : 494 lignes par
 seconde à 200 000 valeurs empreintes désactivées, lors d'une mesure antérieure), et aucun n'est refusé pour
 autant. Quand les empreintes ne sont pas encore toutes calculées ou qu'un index ne peut pas être construit
-(PostgreSQL ou Valkey qui ne répondent pas, une mise à jour de l'index qui a échoué), les appels restent sur la
+(PostgreSQL ou Valkey qui ne répondent pas, une reprise des modifications qui a échoué), les appels restent sur la
 recherche dans PostgreSQL jusqu'à ce que l'index soit construit de nouveau : aussitôt quand les empreintes sont
 calculées, par cette instance ou une autre, sinon 10, 20 et 30 secondes après chaque essai puis une fois par
 minute. Le journal dit une fois quand un index cesse d'être utilisé et une fois quand il l'est de nouveau. Un

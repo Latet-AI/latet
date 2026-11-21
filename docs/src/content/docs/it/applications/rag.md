@@ -20,7 +20,7 @@ cliente che una domanda nomina, e il modello capisce che due documenti parlano d
 1. **Indicizza** i documenti mascherati, con un token che può mascherare.
 2. **Maschera** la domanda con la stessa chiave.
 3. **Cerca** con la domanda mascherata, e **interroga il modello** con la domanda e i documenti
-   mascherati. Chiama il modello direttamente, con la tua chiave del fornitore: non attraverso il
+   mascherati. Chiama il modello direttamente, con la tua chiave del provider: non attraverso il
    gateway di Latet, che maschererebbe di nuovo i valori fittizi.
 4. **Ripristina** la risposta del modello con un token che può ripristinare, e mostrala alla persona.
 
@@ -89,9 +89,9 @@ Che cosa vede ciascuno, per esempio:
 
 `LatetMasker` restituisce copie dei documenti con il testo mascherato e, nei loro metadati,
 `latet_counts`: quanti valori di ciascun tipo sono stati mascherati. Viene mascherato solo il testo,
-non i metadati: tienici fuori i valori sensibili, oppure mascherali tu con `latet.mask`. Quando il
+non i metadati: non metterci valori sensibili, oppure mascherali tu con `latet.mask`. Quando il
 server blocca un documento (`blocked`), `LatetMasker` solleva `Blocked` con il suo indice e non
-restituisce nulla, così nessun documento di quel gruppo viene indicizzato senza maschera.
+restituisce nulla, così nessun documento di quel gruppo viene indicizzato senza essere mascherato.
 
 Con un client `AsyncLatet`, `atransform_documents` e `ainvoke` fanno lo stesso senza bloccare.
 
@@ -121,12 +121,12 @@ che cosa vede la persona in quel caso.
 - **I nomi** vengono trovati dal modello locale dei nomi installato sul server
   ([modelli di riconoscimento su un server](../../concepts/server-operations/#modelli-di-riconoscimento-su-un-server)),
   nei documenti inviati come `prose`, il valore predefinito. Senza di esso, il revisore locale del
-  server, quando le regole della chiave ne indicano uno, li trova al meglio delle sue possibilità; i
-  termini della chiave colgono i nomi che conosci.
+  server, quando le regole della chiave ne indicano uno, li trova, ma non è infallibile; i termini
+  della chiave riconoscono i nomi che conosci.
 - **Che cosa ripristina `unmask`.** I valori fittizi che il modello scrive così come li ha ricevuti,
   in maiuscolo, o codificati in un link; non uno che riscrive in un'altra forma, come un IBAN
-  raggruppato a quattro a quattro. Il nome di una persona torna solo intero: un nome di battesimo da
-  solo resta come lo ha scritto il modello. Chiedi al modello, nel prompt, di citare nomi, indirizzi e
+  raggruppato a quattro a quattro. Il nome di una persona torna solo intero: il solo nome, senza il cognome,
+  resta come lo ha scritto il modello. Chiedi al modello, nel prompt, di citare nomi, indirizzi e
   numeri esattamente come li scrivono i documenti.
 - **Indicizza dagli originali.** Per indicizzare di nuovo un documento, maschera il suo originale: gli
   stessi valori ricevono gli stessi valori fittizi. Mascherare una copia già mascherata dà valori
@@ -138,5 +138,5 @@ che cosa vede la persona in quel caso.
   vanno mascherati insieme. Un documento di circa 20 KB richiede da 80 a 95 ms per essere mascherato e
   30 ms per essere ripristinato su un'istanza ([le misure](../#quanto-è-veloce)).
 - **Chi ripristina.** Ogni ripristino è nel registro amministrativo del server. Uno strumento che
-  risponde a molte persone scrive una voce per ogni chiamata; chi ha chiesto spetta all'applicazione
-  registrarlo.
+  risponde a molte persone scrive una voce per ogni chiamata; registrare chi ha chiesto spetta
+  all'applicazione.

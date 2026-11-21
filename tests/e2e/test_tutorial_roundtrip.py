@@ -46,7 +46,7 @@ PHONE = "+44 20 7946 0958"
 CARD = "4242 4242 4242 4242"  # Stripe's test card
 TERM = "Project Falcon"  # added in the Rules as the editor adds it: type CUSTOM
 GOLDEN = {
-    KEY: ("gitleaks:generic-api-key", "GENERIC_API_KEY", "SECRET", "3G0OoYyX6TrNM8v8g6r5AjrVwCAXUXKoGDzV6URN"),
+    KEY: ("gitleaks:generic-api-key", "GENERIC_API_KEY", "SECRET", "bwA4uuUToTJNTS2hQMon3Q5drSi0tqN0u6ZlNbyA"),
     EMAIL: ("pii:email", "EMAIL", "PII", "emily.adams@proseware-4795.example"),
     "acme.com": ("pii:email", "DOMAIN", "PII", "proseware-4795.example"),  # an email brings its domain along
     PHONE: ("pii:phone", "PHONE", "PII", "+44 28 9578 4573"),

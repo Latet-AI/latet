@@ -3,7 +3,7 @@
 
 import type { EntityClass, PlaygroundResult, Replacement } from '../api/types'
 import { moduleOf } from './builder'
-import { hashSeed, seeded, shape } from './rng'
+import { hashSeed, secretShape, seeded, shape } from './rng'
 
 interface Finding {
   start: number
@@ -37,16 +37,35 @@ const DETECTORS: { pattern: RegExp; type: string; cls: EntityClass; rule: string
 
 const RESERVED = /@example\.(?:com|net|org)$/i
 
-/** Characters of the original a surrogate keeps (public prefixes, country codes). */
-const KEEP: Record<string, number> = {
-  STRIPE_ACCESS_TOKEN: 8,
-  GITHUB_PAT: 4,
-  AWS_ACCESS_TOKEN: 4,
-  ANTHROPIC_API_KEY: 13,
-  OPENAI_API_KEY: 8,
+/**
+ * What of the original a surrogate keeps: of a key, the longest public prefix its vendor writes that the value begins
+ * with, as the engine's table of the rules' prefixes says (`sk-proj-`, but `sk-` alone for an older OpenAI key); so
+ * many characters of a country code. A JWT keeps the `eyJ` that begins a part (`fakeOf`).
+ */
+const KEEP: Record<string, number | readonly string[]> = {
+  STRIPE_ACCESS_TOKEN: ['rk_live_', 'rk_test_', 'sk_live_', 'sk_test_'],
+  GITHUB_PAT: ['ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_'],
+  AWS_ACCESS_TOKEN: ['AKIA', 'ASIA'],
+  ANTHROPIC_API_KEY: ['sk-ant-admin01-', 'sk-ant-api03-'],
+  OPENAI_API_KEY: ['sk-svcacct-', 'sk-admin-', 'sk-proj-', 'sk-'],
   IBAN: 2,
   PHONE: 3,
-  JWT: 3,
+}
+
+function kept(type: string, value: string): number {
+  const keep = KEEP[type] ?? 0
+  return typeof keep === 'number' ? keep : (keep.find((prefix) => value.startsWith(prefix))?.length ?? 0)
+}
+
+/**
+ * A value's fake, as the daemon draws it: a secret's from the kinds of characters of each run between its signs (a
+ * JWT's dots and the `eyJ` that begins a part kept), any other value's a letter for a letter and a digit for a digit.
+ */
+function fakeOf(f: Finding, value: string): string {
+  const rng = seeded(hashSeed(value))
+  if (f.cls !== 'SECRET') return shape(rng, value, kept(f.type, value))
+  if (f.type === 'JWT') return value.split('.').map((part) => secretShape(rng, part, part.startsWith('eyJ') ? 3 : 0)).join('.')
+  return secretShape(rng, value, kept(f.type, value))
 }
 
 export function mockMask(
@@ -92,7 +111,7 @@ export function mockMask(
   for (const f of findings) {
     masked += text.slice(pos, f.start)
     const value = text.slice(f.start, f.end)
-    const sent = f.redact ? `[REDACTED:${f.type}]` : shape(seeded(hashSeed(value)), value, KEEP[f.type] ?? 0)
+    const sent = f.redact ? `[REDACTED:${f.type}]` : fakeOf(f, value)
     const start = cp(f.start)
     const end = cp(f.end)
     replacements.push({

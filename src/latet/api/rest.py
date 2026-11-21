@@ -59,10 +59,11 @@ from latet.engine.detectors.pii import ALL_PII, BASE_PII, effective_pii
 from latet.engine.detectors.terms import has_letter_or_digit
 from latet.engine.rehydrate import restore_text, restores_for
 from latet.engine.response_guard import latet_key
-from latet.engine.stored import StoredVault
+from latet.engine.stored import UNREAD, StoredVault, VaultUnread
 from latet.engine.types import EntityClass, SlotKind
-from latet.engine.vault import MaskingError, Vault
-from latet.gateway.approvals import Change, MaskError
+from latet.engine.vault import Entity, MaskingError, Vault
+from latet.floor import BelowFloor, FloorUnavailable, company_decides, unavailable
+from latet.gateway.approvals import NOT_YOURS, Change, MaskError, NotYours, Waits
 from latet.gateway.recorder import original_range, reconstruct, replacement_dicts, restored_source
 from latet.gateway.request_audit import MAX_SNAPSHOT_BYTES, RequestAudit, SnapshotWork
 from latet.http_inputs import bounded_body, same_etag
@@ -110,11 +111,14 @@ from latet.server.shared import (
     reviewer_key_named,
 )
 from latet.state.local import CODE_TTL, SESSION_TTL, LocalSignIns  # noqa: F401 - CODE_TTL: its old name here
+from latet.vision.codec import media_of
 from latet.waiting import shielded
 
 if TYPE_CHECKING:
     from latet.columns import Column
+    from latet.engine.detectors.recognizers import Status
     from latet.engine.masker import Masker
+    from latet.gateway.app import OnServer
     from latet.runtime import Runtime
     from latet.server.spaces import _StatusSweep
     from latet.state.protocols import SignIns
@@ -124,6 +128,19 @@ log = logging.getLogger(__name__)
 
 API = "/_latet/api/v1"
 UI = "/_latet/ui"
+# The person working in someone else's space (Latet Enterprise: an API key's space), set by Enterprise's hand-on into
+# that space alone (``ee.keys.KeySpace``; ``ee.access`` re-exports this constant, it does not define it) and stripped by
+# the server's gate from what a client's request arrives with: whom a forget there is recorded by.
+ACTING = "latet.acting"
+# A key's value forgotten from its dashboard, refused: its words as `latet server keys forget`'s and the applications
+# API's are (nothing was forgotten either way).
+_FORGET_UNRECORDED = "the forget could not be written in the administration log, so nothing was forgotten: try again"
+_FORGET_UNDONE = "the key's vault could not be changed now, and nothing was forgotten: try again"
+# A key's space that cannot forget a value as the server records it (no store forget handed to it, no vault of the
+# store's, no person working there): fixed words, nothing quoted.
+_FORGET_REFUSED = "this API key's space cannot forget a value now, and nothing was forgotten"
+# The longest search of an API key's vault the Vault page sends (its words are looked up in PostgreSQL).
+SEARCH_LONGEST = 200
 # Media types the dashboard's files need that Python's guess may not know (Windows knows no .woff2).
 _UI_MEDIA = {".woff2": "font/woff2", ".woff": "font/woff"}
 COOKIE = "latet_session"
@@ -150,6 +167,8 @@ _SECURITY_HEADERS = {
     "x-frame-options": "DENY",
     "referrer-policy": "no-referrer",
 }
+# An image of a batch waiting in the Live Reviewer, opened by itself: nothing in it runs, nothing is loaded by it.
+_SANDBOXED = "default-src 'none'; sandbox"
 _NOT_BUILT = """<!doctype html><meta charset="utf-8"><title>Latet</title>
 <body style="font-family:system-ui;margin:3rem;max-width:40rem">
 <h1>Latet dashboard</h1><p>The dashboard files are not part of this install.
@@ -528,6 +547,37 @@ def _error(message: str, status: int) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status)
 
 
+def _acting(request: Request) -> str | None:
+    """The person working in this API key's space (``scope[ACTING]``), None anywhere else."""
+    acting = request.scope.get(ACTING)
+    return acting if isinstance(acting, str) and acting else None
+
+
+def _below_floor(refused: BelowFloor) -> JSONResponse:
+    """A change refused because it goes below what the company set: the reasons name settings, never a value."""
+    return JSONResponse({"error": str(refused), "floor": refused.reasons}, status_code=409)
+
+
+def _floor_unavailable(exc: FloorUnavailable) -> JSONResponse:
+    """The company's floor cannot be said now (a server's policy this instance cannot read), or the person's account
+    for the name they are masked under (``AccountUnavailable``): nothing is changed or shown below it, and the request
+    is tried again. Fixed words naming which (``unavailable``), never the error's."""
+    return JSONResponse({"error": unavailable(exc)}, status_code=503, headers={"Retry-After": "1"})
+
+
+def _own_statuses(statuses: list[Status], *holders: Config | ProjectEntry | ProjectSettings | None) -> list[Status]:
+    """Of the recognizers as built from the settings in use, those of ``holders``' (yours, as you set them), as their
+    names give them: never one your company added (Latet Enterprise), whose words quote its examples. The company's
+    joins under a name none of yours has."""
+
+    def name_of(raw: Any) -> str:  # as a recognizer's status names it (``recognizers.compile_one``)
+        given = raw.get("name") if isinstance(raw, dict) else None
+        return given if isinstance(given, str) and given else "(no name)"
+
+    names = {name_of(raw) for holder in holders if holder is not None for raw in holder.recognizers}
+    return [status for status in statuses if status.name in names]
+
+
 # A save of the settings their store did not keep, on a server (``Dashboard._unkept``), or made from a page older than
 # the settings in use (its etag: in another tab, a change applied since, on a computer too): its words, and its reason,
 # which the dashboard words in the reader's language. Said in the log once a minute at most when the store does not
@@ -594,6 +644,28 @@ def _saved_change_pending() -> JSONResponse:
     return JSONResponse(
         {"error": SAVED_CHANGE_PENDING, "reason": "settings_saved_change_pending", "saved": True}, status_code=409
     )
+
+
+def _waits(waits: Waits) -> JSONResponse:
+    """A dashboard save that lowers protection, which someone else decides on (the company's security team, or another
+    person who controls the API key): 409, with the change that waits for them; the settings in use stay as they are.
+    Its reason is its own (E0b's ``settings_change_waits`` is a save refused while a change waits)."""
+    body = {"error": str(waits), "reason": "settings_waiting_for_others", "pending": waits.change.summary(full=True)}
+    return JSONResponse(body, status_code=409)
+
+
+async def image_response(found: tuple[str, str] | None, run: Callable[..., Awaitable[Any]]) -> Response:
+    """An image of a batch waiting in the Live Reviewer, as its queue gives it (base64 and its media type), decoded in
+    ``run``'s threads (a batch's images weigh 16 MiB, which would hold the event loop); 404 when there is none. Served
+    as what its bytes decode as (``media_of``), never as its request declared it, and as bytes to save when they are no
+    image Latet reads (an SVG is a page), under a policy that lets nothing in it run: a decider of the company opens
+    another person's images on the dashboard's origin (the final security review's dashboard N1)."""
+    if found is None:
+        return _error("not found", 404)
+    data, _declared = found
+    raw = await run(base64.b64decode, data)
+    headers = {"cache-control": "no-store", "x-content-type-options": "nosniff", "content-security-policy": _SANDBOXED}
+    return Response(raw, media_type=media_of(raw) or "application/octet-stream", headers=headers)
 
 
 def _refused_items(exc: SharedItemsError) -> JSONResponse:
@@ -1035,6 +1107,7 @@ class Dashboard:
             Route(f"{API}/changes", guarded(self.changes), methods=["GET"]),
             Route(f"{API}/changes/{{id}}", guarded(self.decide_change), methods=["POST"]),
             *(self.tutorial.routes(guarded) if self.tutorial is not None else []),
+            *self.rt.edition.dashboard_routes(self),
             Route(f"{API}/{{rest:path}}", guarded(self.not_found), methods=["GET", "POST", "PUT", "DELETE"]),
         ]
 
@@ -1088,6 +1161,10 @@ class Dashboard:
             return response
 
         return endpoint
+
+    def guarded(self, handler: Handler) -> Handler:
+        """``handler`` behind the dashboard's sign-in and checks, as every API route: the edition's routes too."""
+        return self._guarded(handler)
 
     def _local_token(self, request: Request) -> bool:
         """The CLI's own calls: the local token, and never from a web page. In an identity's space on a server, the
@@ -1159,13 +1236,18 @@ class Dashboard:
             await asyncio.to_thread(self.rt.update_config, reloaded, save=False)
         except RepositoriesUnchecked:
             return _unchecked()
+        except BelowFloor as refused:  # below what the company set: nothing applied, nothing waits
+            return _below_floor(refused)
+        except FloorUnavailable as exc:
+            return _floor_unavailable(exc)
         if unreadable:
             return _error(unreadable[0], 400)
         said = {"notices": notices} if notices else {}
         if waiting:
             return JSONResponse({"ok": True, "applied": False, "pending": waiting[0].summary(), **said})
         version = self.rt.built.engine.rules_version
-        problems = [s.as_dict() for s in self.rt.built.recognizers if s.errors or s.warnings]
+        built = _own_statuses(self.rt.built.recognizers, self.rt.config)
+        problems = [s.as_dict() for s in built if s.errors or s.warnings]
         return JSONResponse({"ok": True, "applied": True, "rules_version": version, "recognizers": problems, **said})
 
     async def repositories(self, request: Request) -> Response:
@@ -1229,14 +1311,25 @@ class Dashboard:
         action = (await self._json(request) or {}).get("action")
         if action not in ("approve", "reject"):
             return _error("action is approve or reject", 400)
+        # In an API key's space, the person working there: who undid it, in how it ended alone (never to approve).
+        stopped_by = _acting(request) if action == "reject" else None
 
         def decided() -> Response:
             try:
-                state = self.rt.decide_change(change_id, action == "approve")
+                state = self.rt.decide_change(change_id, action == "approve", stopped_by=stopped_by)
             except SharedItemsError as exc:  # on a server, more than it keeps for one identity: none of it runs
                 return _refused_items(exc)
             except OSError as exc:  # on a server, settings their store did not keep: none of them run
                 return self._unkept(exc)
+            except BelowFloor as refused:  # below what the company set since it was asked for: rejected
+                return _below_floor(refused)
+            except FloorUnavailable as exc:  # nothing decided: it waits
+                return _floor_unavailable(exc)
+            if state == "not-yours":  # someone else decides on it (Latet Enterprise): you may undo it, not approve it
+                # Read for its words alone, here only (on a server each read opens its row): it still waits.
+                waiting = self.rt.mediator.approvals.changes.get(change_id)
+                decides = waiting.decides if waiting is not None else "security"
+                return _error(NOT_YOURS.get(decides, NOT_YOURS["security"]), 403)
             if state == ("approved" if action == "approve" else "rejected"):
                 return JSONResponse({"ok": True, "state": state})
             if state == "stale":
@@ -1381,7 +1474,7 @@ class Dashboard:
             name = data.get("name") if data is not None and set(data) == {"name"} else None
             if not _a_user_name(name):
                 return _error(USER_NAME_SHAPE, 400)
-            if self.rt.config.auto_mode_review.user_name != "surrogate":
+            if self.rt.in_use().auto_mode_review.user_name != "surrogate":
                 return JSONResponse({"surrogate": None})  # the space's settings keep the user name
             try:
                 entity = self.rt.built.vault.intern("USERNAME", EntityClass.IDENTITY, name)
@@ -1515,19 +1608,27 @@ class Dashboard:
         return _error(f"not in the tutorial's sandbox: {what}", 409)
 
     async def me(self, request: Request) -> Response:
+        # The edition: its name, the license and the Enterprise pages this person may open (latet.edition). Off the
+        # event loop, in the dashboard's threads (``_in_pool``): on a server it reads the license and counts the users
+        # in PostgreSQL. In an API key's space, the person working there too: who decides on what they make there.
+        acting = request.scope.get(ACTING)
+        edition = await self._in_pool(self.rt.edition.me, self.rt.identity, acting if isinstance(acting, str) else None)
         baseline = JSONResponse(
             {
                 "version": __version__,
-                "profile": self.rt.config.profile.value,
+                "profile": self.rt.in_use().profile.value,  # the one that protects: raised to your company's floor
                 "port": self.rt.gateway.port,
                 "data_dir": str(self.rt.data) if self.rt.gateway.on_server is None else "",  # nothing of a server's
                 "recording": self.rt.exchanges is not None,
                 # The tutorial's sandbox: the chapter in progress (null on a real daemon).
                 "tutorial": self.tutorial.session.me() if self.tutorial is not None else None,
                 "server": self._server_me(),
+                "session": self._session_me(request),
                 # Whether this install serves the documentation of its version at /_latet/docs/: the dashboard's links
                 # open it there, else on docs.latet.ai.
                 "docs": self.has_docs(),
+                "edition": edition,
+                # Last, as the literal `"request_status":null`: the status of the request exceptions is laid there.
                 "request_status": None,
             }
         )
@@ -1566,6 +1667,16 @@ class Dashboard:
             return None
         who = {"id": ref.id, "name": ref.name, "kind": ref.kind} if ref is not None else None
         return {"url": space.url, "identity": who}
+
+    def _session_me(self, request: Request) -> dict[str, str] | None:
+        """On a Latet server: how this dashboard's session was opened, as the server's gate hands it on
+        (``scope["latet.via"]``): ``sso`` with the company's sign-in, ``code`` with the one-time code `latet dashboard`
+        asks for. Only ``sso`` reads as one: a session that says nothing was opened before sessions said how, and is a
+        code one. The dashboard shows what only the company's sign-in may do by it; the routes decide again. None on a
+        computer, where no gate opened the session."""
+        if self.rt.gateway.on_server is None:
+            return None
+        return {"via": "sso" if request.scope.get("latet.via") == "sso" else "code"}
 
     async def exchanges(self, request: Request) -> Response:
         store = self.rt.exchanges
@@ -1661,7 +1772,7 @@ class Dashboard:
         slot = slots[index]
         recorded = detail["summary"].get("project") or None
         project = self._find_project(recorded["id"]) if recorded else None
-        config = project.config if project is not None else self.rt.config
+        config = project.config if project is not None else self.rt.in_use()
         # Strict data mode covers this tool's output, by the rule the masking follows (files and web pages left alone
         # unless `data_files` or `data_hosts` names them, `data_tools`), with the file or the address it came from. A
         # request that did not name the tool counts as one of a tool with no name, as the masking counted it. An
@@ -1777,6 +1888,21 @@ class Dashboard:
             per_page = max(10, min(200, int(request.query_params.get("per_page", "50"))))
         except ValueError:
             return _error("invalid page", 400)
+        vault = self.rt.built.vault
+        if isinstance(vault, StoredVault) and self._key_space():
+            # An API key's (Latet Enterprise: its space): its store pages it, its search never reading the whole vault
+            # (a person's, held whole or by parts since 0.11, is paged by its store's own search: ``_vault_page``).
+            searched = request.query_params.get("q", "").strip()
+            if len(searched) > SEARCH_LONGEST:
+                return _error(f"a search of the vault is {SEARCH_LONGEST} characters at most", 400)
+            try:
+                found = await self._in_pool(self._stored_page, vault, searched, etype, eclass, page, per_page)
+            except VaultUnread:
+                return _error(UNREAD, 503)
+            except MaskingError as exc:  # a search whose words name more values than one reading opens: fixed words
+                log.info("a search of an API key's vault was refused (%s)", type(exc).__name__)
+                return _error("this search names too many of the vault's values: search for a longer one", 400)
+            return JSONResponse(found)
         # In a thread: thousands of conversations of hundreds of values take seconds to count, a vault of 200,000 values
         # to sort, and on a server the conversations are read from Valkey; the event loop serves everyone meanwhile.
         return JSONResponse(await self._in_pool(self._vault_page, q, etype, eclass, page, per_page))
@@ -1808,6 +1934,62 @@ class Dashboard:
             pages = max(1, -(-total // per_page))
             page = min(page, pages)
             shown = matched[(page - 1) * per_page : page * per_page]
+        return self._vault_items(shown, total, page, pages, per_page, types)
+
+    def _key_space(self) -> bool:
+        """Whether this is an API key's space (Latet Enterprise shows one to the people who control the key)."""
+        return self.rt.identity is not None and self.rt.identity.kind == "key"
+
+    def _stored_page(
+        self, vault: StoredVault, q: str, etype: str, eclass: str, page: int, per_page: int
+    ) -> dict[str, Any]:
+        """``_vault_page`` for an API key's vault (``StoredVault``), whose memory holds a working set alone: the page,
+        the count and the types come from its store, never from memory (Latet Enterprise shows a key's vault in its
+        space). A search finds a value by its id or its type, as there, and by its value or its fake where they are
+        the search, or hold it and one of its words is one the store finds them by (``StoredVault.holding_words``: an
+        address's local part, a value's longest word): a value is never looked for by reading the whole vault, so a
+        part of such a word finds nothing. Latet's own launch key is never found by its value (N-1)."""
+        types = vault.types_held()
+        kind = EntityClass.__members__.get(eclass) if eclass else None
+        of_types = of_ids = None
+        if q:
+            lowered = q.lower()
+            of_types = [t for t in types if lowered in t.lower()]
+            held = vault.holding_words(q)
+            of_ids = [
+                lowered,
+                *(
+                    e.id
+                    for e in held
+                    if lowered in e.surrogate.lower()
+                    or (not latet_key(e.etype, e.original) and lowered in e.original.lower())
+                ),
+            ]
+        if eclass and kind is None:  # no class of that name: nothing matches, as in memory
+            return self._vault_items([], 0, 1, 1, per_page, types)
+
+        def listed(at: int) -> tuple[list[Entity], int]:
+            return vault.page(
+                (at - 1) * per_page,
+                per_page,
+                etype=etype or None,
+                eclass=int(kind) if kind is not None else None,
+                of_types=of_types,
+                of_ids=of_ids,
+            )
+
+        shown, total = listed(page)
+        pages = max(1, -(-total // per_page))
+        if page > pages:  # a page past the last is the last
+            page = pages
+            shown, total = listed(page)
+            pages = max(1, -(-total // per_page))
+        return self._vault_items(shown, total, page, pages, per_page, types)
+
+    def _vault_items(
+        self, shown: list[Entity], total: int, page: int, pages: int, per_page: int, types: dict[str, int]
+    ) -> dict[str, Any]:
+        """A page of the vault as the Vault page reads it: ``shown``, each with the conversations that use it."""
         ids = {e.id for e in shown}
         # Counted for the page's values only. tuple(): a copy taken at once, while a request may be showing the
         # conversation one more entity.
@@ -1827,9 +2009,18 @@ class Dashboard:
                 "types": types}  # fmt: skip
 
     async def reveal(self, request: Request) -> Response:
-        # In the pool: a server's space holds its working set alone, and a value out of it is read from its store, which
-        # the event loop never waits on (on the loop, ``StoredVault.get`` answers from memory alone).
-        entity = await self._in_pool(self.rt.built.vault.get, request.path_params["id"])
+        vault = self.rt.built.vault
+        if isinstance(vault, StoredVault) and self._key_space():
+            # An API key's (Latet Enterprise: its space): its store says what it holds now, in a thread, never the
+            # working set in memory, which a value forgotten on another instance may not have left yet.
+            try:
+                entity = await self._in_pool(vault.current, request.path_params["id"])
+            except VaultUnread:
+                return _error(UNREAD, 503)
+        else:
+            # In the pool: a server's space holds its working set alone, and a value out of it is read from its store,
+            # which the event loop never waits on (on the loop, ``StoredVault.get`` answers from memory alone).
+            entity = await self._in_pool(vault.get, request.path_params["id"])
         if entity is None:
             return _error("not found", 404)
         # Latet's own credential: a plain label in its place on the page, never the key (N-1).
@@ -1838,6 +2029,15 @@ class Dashboard:
         return JSONResponse({"original": entity.original})
 
     async def forget(self, request: Request) -> Response:
+        vault, space = self.rt.built.vault, self.rt.gateway.on_server
+        if space is not None and space.kind == "key":
+            # An API key's value is forgotten as `_forget_kept` forgets it, with its entry in the administration log, or
+            # not at all: never through the person's forget below, which writes no entry (the key's space records no
+            # change of its own for it, ``ee.keys._RECORDED_THERE``). A vault that is not the store's refuses.
+            if not isinstance(vault, StoredVault):
+                return _error(_FORGET_REFUSED, 503)
+            return await self._forget_kept(request, vault, space)
+
         # In a thread, as its twins: the runtime's lock is held for seconds by a save or a catch-up of the vault, and on
         # a server the forgetting is a transaction of PostgreSQL; the event loop serves every identity meanwhile.
         def forgotten() -> Response:
@@ -1849,6 +2049,52 @@ class Dashboard:
             return await self._saved(forgotten)
         return await asyncio.to_thread(forgotten)
 
+    async def _forget_kept(self, request: Request, vault: StoredVault, space: OnServer) -> Response:
+        """An API key's value forgotten from its dashboard (Latet Enterprise: the key's space) as `latet server keys
+        forget` forgets it: its entry read by its id from PostgreSQL (404 for none), then its value taken out by itself
+        with the rows of the key's history and the local reviewer's answers that name it, the key's new fakes drawn in a
+        new generation from then on, and the administration log's ``key.forgotten`` (``source: space``, the counts, the
+        person working there its actor, as the server's scope names them: never a value) written last in the same
+        transaction (``OnServer.forget``, ``PgVaultStore.forget_values``); then out of the space's memory as the
+        applications API's forget takes it (``bridge.apps``). A space whose server handed it no forget, and a request
+        that names no person (``scope[ACTING]``, which only Enterprise's hand-on into the space sets) or names the key
+        itself, are refused, 503, before anything is read: the key is never its own actor."""
+        forget = space.forget
+        acting = request.scope.get(ACTING)
+        if forget is None or not isinstance(acting, str) or not acting or acting == space.identity:
+            return _error(_FORGET_REFUSED, 503)
+        try:
+            entity = await self._in_pool(vault.current, request.path_params["id"])
+        except VaultUnread:
+            return _error(UNREAD, 503)
+        if entity is None:
+            return _error("not found", 404)
+        client = request.scope.get("client")
+        address = str(client[0]) if client else None
+        from latet.server.vault import NotRecorded  # here: a server's (PostgreSQL's driver), never a computer's
+
+        try:
+            ids, _unknown, generation = await forget(
+                [entity.original], {"values": 1, "source": "space"}, address, action="key.forgotten", actor=acting
+            )
+        except NotRecorded:
+            return _error(_FORGET_UNRECORDED, 503)
+        except ConnectionError:  # a store that did not answer: rolled back, nothing forgotten
+            return _error(_FORGET_UNDONE, 503)
+        await self.rt.mediator.run_bridge(self._forgotten_kept, vault, ids, generation, entity.original)
+        if not ids:  # forgotten meanwhile, by another hand
+            return _error("not found", 404)
+        return JSONResponse({"ok": True})
+
+    def _forgotten_kept(self, vault: StoredVault, ids: list[str], generation: int | None, value: str) -> None:
+        """In the bridge's thread: what the key's store forgot out of the space's memory, with the generation its new
+        fakes are drawn in, the local reviewer's answers in memory that found the value, and the texts its engine
+        masked before (``bridge.apps.Apps._forgotten``)."""
+        vault.forgotten(ids, generation)
+        if (reviewer := self.rt.mediator.reviewer) is not None:
+            reviewer.forget_answers([value])
+        self.rt.built.engine.rules_changed()
+
     # --- rules --------------------------------------------------------------------------------------
 
     def _config_view(self, c: Config) -> dict[str, Any]:
@@ -1857,6 +2103,9 @@ class Dashboard:
 
         identity = resolve_identity(c, detect=self.rt.identity is None) or c.identity
         usernames = list(dict.fromkeys([*identity.usernames, *([identity.username] if identity.username else [])]))
+        # The name the person is masked under: the one the company's identity provider gives (Latet Enterprise), which
+        # their settings cannot change, else their own.
+        named = self.rt.named_by_provider
         return {
             "profile": c.profile.value,
             "pii": c.pii,
@@ -1873,7 +2122,7 @@ class Dashboard:
             "include_private_ips": c.include_private_ips,
             "terms": [t.model_dump() for t in c.terms],
             "recognizers": c.recognizers,
-            "recognizer_status": [status.as_dict() for status in self.rt.built.recognizers],
+            "recognizer_status": [status.as_dict() for status in _own_statuses(self.rt.built.recognizers, c)],
             "checksums": [{"name": k.name, "description": k.description} for k in checksums.CHECKSUMS.values()],
             "allow_values": c.allow_values,
             "allow_patterns": c.allow_patterns,
@@ -1890,6 +2139,9 @@ class Dashboard:
             "fields": [f.model_dump(exclude_defaults=True) for f in c.fields],
             "dump_guard": c.dump_guard,
             "images": c.images,
+            # How a request member no request profile names yet is read, `check` or `refuse`: your own value, what a
+            # save sends back; a company's policy that locks `refuse` raises it in use (Rules then shows `refuse`).
+            "unknown_members": c.unknown_members,
             "ocr": c.ocr,
             "ocr_status": self._ocr_status(),
             "llm_review": c.llm_review.model_dump(mode="json"),
@@ -1902,7 +2154,12 @@ class Dashboard:
                 "hostname": identity.hostname,
                 # More host names, masked as `hostname` is: on a Latet server, those of the identity's other computers.
                 "hostnames": identity.hostnames,
-                "full_name": identity.full_name,
+                "full_name": named if named is not None else identity.full_name,
+                "full_name_from": "provider" if named is not None else None,
+                # Whether a change of the name is refused (``Runtime._refused``): the company's identity provider names
+                # the person, as the space was last built, whether or not its name is the one in use (where names are
+                # masked, their own stays in use, masked, and is not theirs to change either).
+                "full_name_locked": self.rt.provided_name is not None,
                 "emails": identity.emails,
             },
         }
@@ -2027,11 +2284,17 @@ class Dashboard:
                 return again.full if everything else again.protective
 
             try:
-                self.rt.update_config(import_rules)
+                self.rt.update_config(import_rules, from_dashboard=True, asked_by=request.scope.get(ACTING))
             except SettingsSavedChangePending:
                 return _saved_change_pending()
             except RulesError as exc:
                 return _error(str(exc), 422)
+            except BelowFloor as refused:
+                return _below_floor(refused)
+            except FloorUnavailable as exc:
+                return _floor_unavailable(exc)
+            except Waits as waits:  # someone else decides on what lowers protection here (Latet Enterprise)
+                return _waits(waits)
             except SharedItemsError as exc:
                 return _refused_items(exc)
             except OSError as exc:
@@ -2040,14 +2303,19 @@ class Dashboard:
 
         return await self._saved(imported)
 
-    async def _apply(self, change: Callable[[Config], Config | None], etag: str | None = None) -> Response:
+    async def _apply(
+        self, change: Callable[[Config], Config | None], etag: str | None = None, *, acting: str | None = None
+    ) -> Response:
         """Switch to what ``change`` makes of the settings in use (``Runtime.update_config``): read and applied
         under one lock, so a save made at the same moment is not undone. ``change`` answers None to leave them; one that
         would remove items set for everyone on a server is refused (409), with how many, never which; on a server, one
         its store does not keep is answered as the administration answers it (``_unkept``). ``etag``: the one the page
         read the settings with (``GET /config``), compared under that lock before anything else: when the settings in
         use are others now (another tab saved, a change applied since), nothing is applied (409, ``settings_stale``).
-        Made as a save is (``_saved``: one at a time, in the work threads on a server)."""
+        One below the company's floor is refused (409), naming the settings. Made as a save is (``_saved``: one at a
+        time, in the work threads on a server). A save that lowers protection, when someone else decides on it (the
+        company's security team, or another person who controls the API key), waits for them (409, with the change);
+        ``acting``: in an API key's space, the person working there (E3's ``scope[ACTING]``), who never approves it."""
         stale: list[bool] = []
 
         def checked(current: Config) -> Config | None:
@@ -2060,13 +2328,19 @@ class Dashboard:
 
         def applied() -> Response:
             try:
-                self.rt.update_config(checked)
+                self.rt.update_config(checked, from_dashboard=True, asked_by=acting)
             except SettingsSavedChangePending:
                 return _saved_change_pending()
             except SharedItemsError as exc:
                 return _refused_items(exc)
             except OSError as exc:
                 return self._unkept(exc)
+            except BelowFloor as refused:
+                return _below_floor(refused)
+            except FloorUnavailable as exc:
+                return _floor_unavailable(exc)
+            except Waits as waits:  # someone else decides on what lowers protection here (Latet Enterprise)
+                return _waits(waits)
             if stale:
                 return _refused_save(STALE_SETTINGS, 409, "settings_stale")
             return JSONResponse({"ok": True, "rules_version": self.rt.built.engine.rules_version})
@@ -2142,6 +2416,7 @@ class Dashboard:
         editable += ("recognizers",)
         editable += ("allow_patterns", "policies", "history", "retention_days", "ner", "auto_mode_review")
         editable += ("data", "data_tools", "data_files", "data_hosts", "fields", "dump_guard", "images", "ocr")
+        editable += ("unknown_members",)
         editable += ("llm_review", "live_review")
         editable += ("upstreams",)
         details: list[Any] = []  # why it cannot be saved: nothing is then applied
@@ -2207,7 +2482,7 @@ class Dashboard:
                 refused.append(refusal)
             return None if details or refused else config
 
-        answer = await self._apply(merge, etag)
+        answer = await self._apply(merge, etag, acting=request.scope.get(ACTING))
         if details:
             return JSONResponse({"error": "invalid configuration", "details": details}, 400)
         return refused[0] if refused else answer
@@ -2224,7 +2499,7 @@ class Dashboard:
                 config.allow_values.append(value)
             return config
 
-        return await self._apply(allowed)
+        return await self._apply(allowed, acting=request.scope.get(ACTING))
 
     async def terms(self, request: Request) -> Response:
         data = await self._json(request) or {}
@@ -2242,19 +2517,23 @@ class Dashboard:
                 config.allow_values.remove(value)  # "always mask" wins over an earlier "not sensitive"
             return config
 
-        return await self._apply(masked)
+        return await self._apply(masked, acting=request.scope.get(ACTING))
 
     def _playground_masker(self, profile: Profile | None = None) -> Masker:
         """Current rules over a throwaway in-memory vault: nothing typed here is kept. With ``profile``, the rules as
-        that profile makes them, to try a text with it: the settings are copied, never changed."""
+        that profile makes them, to try a text with it: the settings are copied, never changed. Raised to your
+        company's floor (Latet Enterprise), a profile tried too: a text is shown as it would leave, never below it."""
         from latet.runtime import resolve_identity
 
         version = self.rt.built.engine.rules_version
         cached = self._playground.get(profile)
         if cached is None or cached[0] != version or len(cached[1].vault.entities()) > 10_000:
-            config = self.rt.config if profile is None else self.rt.config.model_copy(update={"profile": profile})
+            if profile is None:
+                config = self.rt.in_use()
+            else:
+                config = self.rt.raised(self.rt.config.model_copy(update={"profile": profile}))
             identity = resolve_identity(config, detect=self.rt.identity is None)
-            masker, _ = build_masker(config, Vault(os.urandom(32)), identity)
+            masker, _ = build_masker(config, Vault(os.urandom(32)), identity, extra=self.rt.extra)
             cached = self._playground[profile] = (version, masker)
         return cached[1]
 
@@ -2279,7 +2558,10 @@ class Dashboard:
                 span["start"], span["end"] = r.start, r.end
             return {"masked": result.text, "replacements": spans}
 
-        return JSONResponse(await self._in_pool(run))
+        try:
+            return JSONResponse(await self._in_pool(run))
+        except FloorUnavailable as exc:  # a text is never shown below the company's floor
+            return _floor_unavailable(exc)
 
     # --- projects -------------------------------------------------------------------------------------
 
@@ -2313,6 +2595,10 @@ class Dashboard:
         repo_path = project.repo_file or (Path(project.root) / PROJECT_FILE if local else None)
         secrets_only = c.profile == Profile.SECRETS
         every_region = c.profile == Profile.MAX
+        # The rules there are raised to your company's floor (Latet Enterprise): of what names files and addresses (a
+        # client's host), yours alone are listed, as the company's view for a person counts its own.
+        own = personal_for(self.rt.config.projects, project.root)
+        mine, _ = effective_config(self.rt.config, project.repo, own)
         return view | {
             "repo": {
                 "path": str(repo_path) if repo_path else None,
@@ -2323,7 +2609,9 @@ class Dashboard:
                 "readable": tag is not None,
                 "writable": local and not in_container() and tag is not None,
             },
-            "personal": project.personal.model_dump(mode="json", exclude={"path"}) if project.personal else None,
+            # Your own settings for it, as you set them: the project's rules in use are raised to your company's
+            # floor (Latet Enterprise), what you set is not.
+            "personal": own.model_dump(mode="json", exclude={"path"}) if own is not None else None,
             "notices": [n.as_dict() for n in project.notices],
             "effective": {
                 "profile": c.profile.value,
@@ -2339,14 +2627,18 @@ class Dashboard:
                 "policies": {k: str(v) for k, v in c.policies.items()},
                 "data": c.data_mode(),
                 "data_tools": c.data_tools,
-                "data_files": c.data_files,
-                "data_hosts": c.data_hosts,
+                "data_files": [f for f in c.data_files if f in mine.data_files],
+                "data_hosts": [h for h in c.data_hosts if h in mine.data_hosts],
                 "fields": [f.model_dump(exclude_defaults=True) for f in c.fields],
                 "dump_guard": c.dump_guard,
                 "images": c.images,
+                # Every layer together: a project, or its repository's file, may only refuse them.
+                "unknown_members": c.unknown_members,
                 "llm_review": c.llm_review.mode(),
             },
-            "recognizer_status": [s.as_dict() for s in project.statuses],
+            "recognizer_status": [
+                s.as_dict() for s in _own_statuses(project.statuses, self.rt.config, project.repo, own)
+            ],
         }
 
     def _find_project(self, pid: str) -> Project | None:
@@ -2418,13 +2710,17 @@ class Dashboard:
             ]
             if details:
                 return JSONResponse({"error": "invalid settings", "details": details}, 400)
-        return await self._apply(lambda current: with_personal(current, project.root, entry), etag)
+        return await self._apply(
+            lambda current: with_personal(current, project.root, entry), etag, acting=request.scope.get(ACTING)
+        )
 
     async def delete_personal(self, request: Request) -> Response:
         project = await self._in_pool(self._find_project, request.path_params["id"])
         if project is None:
             return _error("not found", 404)
-        return await self._apply(lambda current: with_personal(current, project.root, None))
+        return await self._apply(
+            lambda current: with_personal(current, project.root, None), acting=request.scope.get(ACTING)
+        )
 
     async def put_repo(self, request: Request) -> Response:
         """Write the project's latet.yaml: only settings that add protection, and never over a file
@@ -2651,7 +2947,7 @@ class Dashboard:
         elif request.method == "DELETE":
             await asyncio.to_thread(remove_reviewer_key, data_dir())
         if request.method != "GET":
-            self.rt.use_reviewer(self.rt.config)  # the reviewer asks with the new key from now on
+            self.rt.use_reviewer(self.rt.in_use())  # the reviewer asks with the new key from now on
         settings = self.rt.config.llm_review
         source = await asyncio.to_thread(key_source, settings)
         return JSONResponse({"source": source, "variable": settings.api_key_env, "stored": stored})
@@ -2888,21 +3184,26 @@ class Dashboard:
                 return current.model_copy(update={"upstreams": [d for d in current.upstreams if d.name != name]})
             return None
 
-        answer = await self._apply(removal)
+        answer = await self._apply(removal, acting=request.scope.get(ACTING))
         return refused[0] if refused else answer
 
     async def exceptions(self, request: Request) -> Response:
         """Your request exceptions (P2-7), each as the dashboard shows it to you (``protection.exception_view``) with
-        its state now (``request_policy.listed``: pending, needs approval again (profile revised), expired, expiring,
-        active, permanent or forbidden; its end and the days left), judged by the decision's clock: PostgreSQL's on a
-        server, read in the work threads. ``permanent_allowed``: whether this edition lets an exception be permanent."""
+        its state now (``request_policy.listed``: pending, needs approval again (profile revised), not approved by the
+        company, expired, expiring, active, permanent or forbidden; its end and the days left), judged by the
+        decision's clock: PostgreSQL's on a server, read in the work threads, and by whether the company decides on
+        them under the floor the gateway routes by (``Runtime.floor_used``: Latet Enterprise's `exceptions: company`).
+        ``permanent_allowed``: whether this edition lets an exception be permanent."""
         from latet.gateway import request_policy
         from latet.protection import exception_view
 
         def listed() -> Response:
             config = self.rt.config
             allowed = self.rt.permanent_allowed()
-            states = request_policy.listed(config, self.rt.exception_clock(), permanent_allowed=allowed)
+            company = company_decides(self.rt.floor_used)
+            states = request_policy.listed(
+                config, self.rt.exception_clock(), permanent_allowed=allowed, company=company
+            )
             items = [
                 exception_view(row)
                 | {key: state[key] for key in ("state", "ends", "days_left")}
@@ -2927,7 +3228,7 @@ class Dashboard:
                 return None
             return current.model_copy(update={"request_exceptions": rows})
 
-        answer = await self._apply(revoked)
+        answer = await self._apply(revoked, acting=request.scope.get(ACTING))
         return missing[0] if missing else answer
 
     async def stream(self, request: Request) -> Response:
@@ -2958,11 +3259,17 @@ class Dashboard:
         action, masks, images = data.get("action"), data.get("masks") or [], data.get("images") or []
         if action not in ("approve", "reject") or not isinstance(masks, list) or not isinstance(images, list):
             return _error("action is approve or reject; masks and images lists", 400)
+        # In an API key's space, the person working there: who stopped it, in how it ended alone (never to approve).
+        stopped_by = _acting(request) if action == "reject" else None
         try:
             approvals = self.rt.mediator.approvals
-            found = await approvals.decide(request.path_params["id"], action == "approve", masks, images)
+            found = await approvals.decide(
+                request.path_params["id"], action == "approve", masks, images, stopped_by=stopped_by
+            )
         except MaskError as exc:
             return _error(str(exc), 422)
+        except NotYours as exc:  # someone else decides on it (Latet Enterprise): you may stop it, not approve it
+            return _error(str(exc), 403)
         if not found:
             return _error("it is not waiting any more", 409)
         return JSONResponse({"ok": True})
@@ -2977,15 +3284,7 @@ class Dashboard:
             return _error("not found", 404)
         sent = request.query_params.get("view") == "sent"
         found = await self.rt.mediator.approvals.image(request.path_params["id"], item, sent)
-        if found is None:
-            return _error("not found", 404)
-        data, media = found
-        headers = {"cache-control": "no-store", "x-content-type-options": "nosniff"}
-        return Response(
-            await self._in_pool(base64.b64decode, data),
-            media_type=media if media.startswith("image/") else "application/octet-stream",
-            headers=headers,
-        )
+        return await image_response(found, self._in_pool)
 
     async def approve_all(self, request: Request) -> Response:
         """``{project?}``: every batch waiting, or only those of one project (null: of no project)."""

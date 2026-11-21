@@ -46,7 +46,7 @@ latet codex exec "add the payments key from .env to config/local.toml"
 
 `latet run codex` equivale a `latet codex`, que elige la dirección según tu inicio de sesión.
 
-En un ordenador conectado a un servidor de Latet, `latet codex` inicia la sesión interactiva y
+En un equipo conectado a un servidor de Latet, `latet codex` inicia la sesión interactiva y
 `codex exec`, `resume` y `fork`; se niega a ejecutar los demás subcomandos de Codex, como `review` o
 `mcp`, que no puede enviar a través del servidor.
 
@@ -67,15 +67,15 @@ por Latet de la misma manera. Consulta [Puntos de conexión de empresa](../compa
 
 ## Cómo se comporta
 
-- Con el inicio de sesión de ChatGPT, Codex habla con el proveedor a través de un WebSocket. El daemon
+- Con el inicio de sesión con ChatGPT, Codex habla con el proveedor a través de un WebSocket. El daemon
   enmascara cada petición que Codex envía por él y restaura los eventos que vuelven en streaming. Con
   una clave de API ocurre lo mismo por HTTP.
 - El proveedor ve valores ficticios. Codex ve los originales, en el texto de la respuesta y en los
   argumentos de las llamadas a herramientas, así que los comandos que ejecuta y los parches que aplica
   usan los valores reales. [Cómo funciona](../../concepts/how-it-works/) sigue una clave de `.env` a lo
   largo de un turno de Codex, paso a paso.
-- Los cuerpos comprimidos de las peticiones se descodifican, se enmascaran y se vuelven a comprimir. Un
-  cuerpo que Latet no puede descodificar se rechaza, no se envía sin comprobar.
+- Los cuerpos comprimidos de las peticiones se decodifican, se enmascaran y se vuelven a comprimir. Un
+  cuerpo que Latet no puede decodificar se rechaza, no se envía sin comprobar.
 - Tu token de inicio de sesión o tu clave de API se reenvían sin cambios; su valor nunca se escribe en
   los registros ni en el panel.
 - Si el daemon no está en marcha, Codex no puede llegar al proveedor. Es intencionado: no sale nada
@@ -87,16 +87,16 @@ por Latet de la misma manera. Consulta [Puntos de conexión de empresa](../compa
   `x-codex-turn-metadata` y en `client_metadata` del cuerpo, se quitan antes de enviarla, igual que
   la cabecera `x-openai-subagent`, el tipo o la etiqueta libre que Codex da a un subagente; el panel
   las cuenta. Su lista de modelos pasa; una llamada que Latet no lee, como recuperar una respuesta guardada, se rechaza.
-- Las cabeceras tuyas en `http_headers` o `env_http_headers` de un proveedor se rechazan, nombrando
-  cada una, hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la
-  deje pasar (`openai.responses.1`). Por el WebSocket de una sesión de ChatGPT, ninguna excepción se
-  aplica en la 0.11.0: una cabecera o un parámetro de consulta que Latet no lee cierra la conexión antes
+- Cada cabecera propia que pongas en `http_headers` o `env_http_headers` de un proveedor se rechaza,
+  con su nombre, hasta que una [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la
+  deje pasar (`openai.responses.1`). Por el WebSocket del inicio de sesión con ChatGPT, no se aplica
+  ninguna excepción en la 0.11.0: una cabecera o un parámetro de consulta que Latet no lee cierra la conexión antes
   de que se abra, y el cierre dice por qué y nombra la cabecera o el parámetro, nunca su valor. El
   historial registra el rechazo.
 - **Su proyecto.** `latet codex` da a Codex una clave de lanzamiento a través de un proveedor de
   `model_providers` (`env_http_headers`), desde Codex 0.115: los ajustes de su proyecto se aplican
-  entonces por completo. En los proveedores integrados de Codex (con la sesión de ChatGPT, o el
-  proveedor de OpenAI), y antes de la 0.115, no puede viajar ninguna clave: `latet codex` lo dice al
+  entonces por completo. En los proveedores integrados de Codex (con el inicio de sesión con
+  ChatGPT, o el propio proveedor de OpenAI), y antes de la 0.115, no puede viajar ninguna clave: `latet codex` lo dice al
   arrancar, y el proyecto que Codex nombra en sus peticiones queda declarado, así que sus reglas que
   añaden protección se aplican y sus relajaciones no
   ([Proyectos](../../concepts/projects/#de-confianza-y-declarados)).

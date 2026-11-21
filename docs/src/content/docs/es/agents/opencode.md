@@ -43,8 +43,8 @@ latet opencode run "add the payments key from .env to config/local.toml"
 que redirige, para que Latet considere de confianza el proyecto de la sesión y aplique sus ajustes por
 completo. OpenCode configurado de forma permanente no lleva ninguna: el proyecto que nombra en sus
 peticiones queda declarado, y solo se aplican sus reglas que añaden protección
-([Proyectos](../../concepts/projects/#de-confianza-y-declarados)). Las cabeceras tuyas en `options.headers` de un
-proveedor se rechazan, nombrando cada una, hasta que una
+([Proyectos](../../concepts/projects/#de-confianza-y-declarados)). Cada cabecera propia que pongas en
+`options.headers` de un proveedor se rechaza, con su nombre, hasta que una
 [excepción exacta](../../getting-started/upgrading-to-0-11/#aprobar-una-excepción-exacta) la deje pasar.
 
 `latet opencode` pasa esa clave solo a OpenCode 1.19.5 o posterior, la versión que Latet ha
@@ -66,7 +66,7 @@ vuelve a quitar las direcciones de Latet y deja el resto del archivo como está.
   Claude Code y Codex también pasan por Latet con esas nubes: consulta
   [Puntos de conexión de empresa](../company-endpoints/).
 - **Los modelos de Anthropic, OpenAI y Google en OpenRouter pasan por sí solos.** Los de cualquier
-  otro proveedor (`meta-llama/…`, `deepseek/…`) se rechazan hasta que se enumeran en
+  otro fabricante (`meta-llama/…`, `deepseek/…`) se rechazan hasta que se enumeran en
   `request_resources`:
   [Bedrock y Vertex: qué hay que enumerar](../../getting-started/upgrading-to-0-11/#bedrock-y-vertex-qué-hay-que-enumerar).
 - **Una organización de la consola puede mover un proveedor.** Cuando OpenCode tiene la sesión

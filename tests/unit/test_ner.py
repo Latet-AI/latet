@@ -600,6 +600,66 @@ def test_a_street_named_with_in_is_not_split_at_it():
     ]
 
 
+class _CityUnsure:
+    """The address labelled whole, its last word (the city) under the threshold: what the real model made on
+    2026-11-19 of "... via Garibaldi 12 a Bologna", " Bologna" closing the address with a score of 0.11."""
+
+    def __init__(self, *phrases: tuple[str, str]) -> None:
+        self.spans = Spans(*phrases, score=1.0)
+
+    def predict(self, text: str, max_tokens: int | None = None) -> list[Token]:
+        tokens = self.spans.predict(text, max_tokens)
+        last = max(i for i, t in enumerate(tokens) if t.label != "O")
+        tokens[last] = Token(tokens[last].start, tokens[last].end, tokens[last].label, 0.11)
+        return tokens
+
+
+@pytest.mark.parametrize(
+    ("text", "address", "street"),
+    [
+        (
+            "Il cliente Mario Rossi abita in via Garibaldi 12 a Bologna",
+            "via Garibaldi 12 a Bologna",
+            "via Garibaldi 12",
+        ),
+        ("Il habite au 12 rue de la Paix à Paris", "12 rue de la Paix à Paris", "12 rue de la Paix"),
+        ("He lives at 12 Smith Street in Leeds", "12 Smith Street in Leeds", "12 Smith Street"),
+    ],
+)
+def test_an_address_never_ends_on_the_word_before_the_city_it_left_out(text, address, street):
+    # The span ended on "a", so the street's fake took it along: "via Mariani 90 p Bologna" (the checklist, 11-19).
+    found = _found(NerDetector(_CityUnsure((address, ADDRESS))), text)
+    assert found == [(street, "STREET_ADDRESS")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Abito in via Garibaldi 12, 20121 Milano",
+        "Grazie. Abito in via Garibaldi 12, 20121 Milano",
+        "Grazie!\nAbito in via Garibaldi 12, 20121 Milano",
+    ],
+)
+def test_the_first_word_of_a_sentence_is_not_part_of_the_address(text):
+    # What the real model labelled on 2026-11-19: "Abito in via Garibaldi 12 a" as one address. "Abito" has its
+    # capital only for opening the sentence, like "abita" in "Il cliente abita in via ...".
+    address = text[text.index("Abito") :]
+    assert _found(NerDetector(Spans((address, ADDRESS))), text) == [
+        ("via Garibaldi 12", "STREET_ADDRESS"),
+        ("20121", "ZIPCODE"),
+        ("Milano", "CITY"),
+    ]
+
+
+def test_a_capitalized_name_inside_a_sentence_before_the_street_type_stays_in_the_address():
+    text = "La sede è Palazzo Reale via Roma 5, 20121 Milano"
+    assert _found(NerDetector(Spans(("Palazzo Reale via Roma 5, 20121 Milano", ADDRESS))), text) == [
+        ("Palazzo Reale via Roma 5", "STREET_ADDRESS"),
+        ("20121", "ZIPCODE"),
+        ("Milano", "CITY"),
+    ]
+
+
 def test_a_city_alone_is_masked_only_in_max():
     model = Spans(("Milano", ADDRESS))
     assert _found(NerDetector(model), "Sono a Milano.") == []

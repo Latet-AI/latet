@@ -7,7 +7,7 @@ sidebar:
 
 In vielen KI-Tools können Sie die Adresse des Modells wählen, das sie aufrufen. Setzen Sie diese
 Adresse auf das **Gateway** von Latet, dann wird jede Anfrage des Tools maskiert, bevor sie Ihren
-Rechner verlässt, und in der Antwort werden dort die echten Werte wieder eingesetzt. Im Tool wird
+Rechner verlässt, und in der Antwort werden die echten Werte auf Ihrem Rechner wieder eingesetzt. Im Tool wird
 nichts installiert: Eine Einstellung genügt.
 
 Den API-Schlüssel Ihres Anbieters behalten Sie wie gewohnt im Tool. Latet leitet ihn unverändert an
@@ -115,10 +115,10 @@ Commit-Nachrichten an die Modelle von GitHub. Damit auch diese bei Ihrem Modell 
 
 ## GitHub Copilot CLI
 
-Die Copilot CLI geht mit einem eigenen Anbieter durch Latet: einem Schlüssel von OpenAI, Anthropic
+Die Copilot CLI läuft mit einem eigenen Anbieter über Latet: einem Schlüssel von OpenAI, Anthropic
 oder OpenRouter oder einer anderen Adresse, angegeben in Umgebungsvariablen. Mit einer Anmeldung bei
-GitHub, auf den Modellen eines Copilot-Plans, sendet sie an den Copilot-Dienst von GitHub, vor den
-sich Latet nicht stellen kann: `latet copilot` sagt das und startet nichts.
+GitHub, auf den Modellen eines Copilot-Abonnements, sendet sie an den Copilot-Dienst von GitHub,
+vor den sich Latet nicht schalten kann: `latet copilot` sagt das und startet nichts.
 
 ```sh
 export COPILOT_PROVIDER_TYPE=openai          # Chat Completions
@@ -138,9 +138,9 @@ $env:COPILOT_OFFLINE = "true"
 latet copilot
 ```
 
-`latet copilot` richtet die Adresse des Anbieters nur für diese Sitzung auf Latet aus: die von
+`latet copilot` richtet die Adresse des Anbieters nur für diese Sitzung auf Latet aus: Die von
 OpenAI, Anthropic und OpenRouter gehen an die eigenen Routen von Latet, eine andere Adresse wird zu
-einem Ihrer Ziele, und eine auf diesem Computer bleibt, wie sie ist. Mit OpenRouter setzen Sie
+einem Ihrer Ziele, und eine auf diesem Rechner bleibt, wie sie ist. Mit OpenRouter setzen Sie
 `COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1` und Ihren Schlüssel von OpenRouter; für
 Anthropic `COPILOT_PROVIDER_TYPE=anthropic` und Ihren Schlüssel von Anthropic. Um `copilot` selbst zu
 starten, setzen Sie stattdessen `COPILOT_PROVIDER_BASE_URL` auf die Adresse von Latet:
@@ -238,7 +238,7 @@ Wählen Sie in den Einstellungen von Cline den Anbieter **OpenAI Compatible** mi
 Sie den Anbieter **Anthropic**, aktivieren **Use custom base URL** und geben
 `http://127.0.0.1:5283/anthropic/v1` ein: Cline hängt `/messages` daran an.
 
-Die Cline CLI übernimmt den OpenAI-kompatiblen Anbieter von der Kommandozeile:
+Die Cline CLI übernimmt den OpenAI-kompatiblen Anbieter von der Befehlszeile:
 
 ```sh
 cline auth -p openai-compatible -k "$OPENAI_API_KEY" -m gpt-5.1 -b http://127.0.0.1:5283/openai/v1

@@ -1050,12 +1050,13 @@ wheels = [
 
 [[package]]
 name = "latet"
-version = "0.12.1"
+version = "0.15.0"
 source = { editable = "." }
 dependencies = [
     { name = "brotli" },
     { name = "cryptography" },
     { name = "google-re2" },
+    { name = "httpcore" },
     { name = "httpx" },
     { name = "keyring" },
     { name = "phonenumbers" },
@@ -1072,6 +1073,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ldap = [
+    { name = "ldap3" },
+]
 ner = [
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -1085,6 +1089,7 @@ ocr = [
 server = [
     { name = "numpy" },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "redis" },
 ]
 
@@ -1095,7 +1100,7 @@ dev = [
     { name = "hypothesis" },
     { name = "langchain-openai" },
     { name = "langgraph" },
-    { name = "latet", extra = ["ner", "ocr", "server"] },
+    { name = "latet", extra = ["ldap", "ner", "ocr", "server"] },
     { name = "latet-client", extra = ["langchain"] },
     { name = "openai" },
     { name = "packaging" },
@@ -1112,8 +1117,10 @@ requires-dist = [
     { name = "brotli", specifier = ">=1.2.0" },
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "google-re2", specifier = ">=1.1.20251105" },
+    { name = "httpcore", specifier = ">=1,<2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "keyring", specifier = ">=25.7.0" },
+    { name = "ldap3", marker = "extra == 'ldap'", specifier = ">=2.9.1" },
     { name = "numpy", marker = "extra == 'ner'", specifier = ">=2.0" },
     { name = "numpy", marker = "extra == 'ocr'", specifier = ">=2.0" },
     { name = "numpy", marker = "extra == 'server'", specifier = ">=2.0" },
@@ -1124,6 +1131,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.12.3" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'server'", specifier = ">=3.3" },
     { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'server'", specifier = ">=2.15.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "redis", marker = "extra == 'server'", specifier = ">=8.1" },
     { name = "starlette", specifier = ">=1.7.0" },
@@ -1135,7 +1143,7 @@ requires-dist = [
     { name = "websockets", specifier = ">=17.2" },
     { name = "zstandard", specifier = ">=0.25.0" },
 ]
-provides-extras = ["ner", "ocr", "server"]
+provides-extras = ["ner", "ocr", "server", "ldap"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1144,7 +1152,7 @@ dev = [
     { name = "hypothesis", specifier = ">=6.168.5" },
     { name = "langchain-openai", specifier = ">=1.7.2" },
     { name = "langgraph", specifier = ">=1.2.16" },
-    { name = "latet", extras = ["ner", "ocr", "server"] },
+    { name = "latet", extras = ["ner", "ocr", "server", "ldap"] },
     { name = "latet-client", extras = ["langchain"], editable = "sdk/python" },
     { name = "openai", specifier = ">=3.35.1" },
     { name = "packaging", specifier = ">=26.3" },
@@ -1175,6 +1183,18 @@ requires-dist = [
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3" },
 ]
 provides-extras = ["langchain"]
+
+[[package]]
+name = "ldap3"
+version = "2.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyasn1" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/ac/96bd5464e3edbc61595d0d69989f5d9969ae411866427b2500a8e5b812c0/ldap3-2.9.1.tar.gz", hash = "sha256:f3e7fc4718e3f09dda568b57100095e0ce58633bcabbed8667ce3f8fbaa4229f", size = 398830, upload-time = "2021-07-18T06:34:21.786Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/f6/71d6ec9f18da0b2201287ce9db6afb1a1f637dedb3f0703409558981c723/ldap3-2.9.1-py2.py3-none-any.whl", hash = "sha256:5869596fc4948797020d3f03b7939da938778a0f9e2009f7a072ccf92b8e8d70", size = 432192, upload-time = "2021-07-18T06:34:12.905Z" },
+]
 
 [[package]]
 name = "markdown-it-py"
@@ -1778,6 +1798,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/49/2e/ced460408999b33da6b31b0021b0f37d329e202d4169aeb164493778f25b/pygments-2.21.0.tar.gz", hash = "sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c", size = 5005329, upload-time = "2026-08-17T08:02:48.824Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl", hash = "sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9", size = 1250147, upload-time = "2026-08-17T08:02:44.912Z" },
+]
+
+[[package]]
+name = "pyjwt"
+version = "2.15.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
+]
+
+[package.optional-dependencies]
+crypto = [
+    { name = "cryptography" },
 ]
 
 [[package]]

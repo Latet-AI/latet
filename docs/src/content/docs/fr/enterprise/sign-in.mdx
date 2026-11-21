@@ -1,0 +1,651 @@
+---
+title: Connexion, groupes et rôles
+description: Sur un serveur Latet, les personnes se connectent avec leur compte d'entreprise, votre fournisseur d'identité crée et désactive leurs comptes et pousse ses groupes, les rôles décident qui voit et modifie quoi, et les personnes ou les groupes que vous choisissez contrôlent vos clés d'API.
+---
+
+import Screenshot from '../../../../components/Screenshot.astro';
+
+Sur un [serveur Latet](../../getting-started/server/) avec Latet Enterprise, les personnes se connectent au tableau de
+bord avec leur compte d'entreprise par OpenID Connect ; votre fournisseur d'identité crée, modifie et désactive leurs
+comptes et pousse ses groupes par SCIM ; les rôles, donnés à des personnes ou à des groupes, décident qui voit et
+modifie quoi ; et les personnes ou les groupes que vous choisissez contrôlent vos clés d'API. La licence liste `sso`
+pour la connexion et le provisionnement, et `roles` pour les groupes, les rôles et le contrôle des clés d'API : voir
+[Éditions et licence](../).
+
+Latet prend en charge OpenID Connect, que proposent Microsoft Entra ID, Microsoft AD FS, Okta, Google, Keycloak,
+Authentik et Auth0. Il ne prend pas en charge SAML 2.0 : si votre fournisseur ne propose que SAML, Keycloak se place entre les deux, comme
+l'explique [Votre fournisseur ne parle que SAML](#votre-fournisseur-ne-parle-que-saml).
+
+## Authentification unique
+
+### Chez votre fournisseur d'identité
+
+**Quel fournisseur avez-vous ?** Demandez d'abord à votre équipe informatique. Une entreprise sur Microsoft 365 a déjà
+Microsoft Entra ID, même quand le bureau garde son propre Active Directory et que Microsoft Entra Connect le synchronise
+vers Entra ID, et c'est le choix le plus simple. La vérification publique de domaine de Microsoft,
+`https://login.microsoftonline.com/getuserrealm.srf?login=<une adresse professionnelle>`, indique si un domaine est géré
+par Entra ID (`"NameSpaceType":"Managed"`), fédéré avec un autre fournisseur comme AD FS (`"Federated"`, avec
+l'adresse de connexion de ce fournisseur dans `AuthURL`), ou inconnu d'Entra ID (`"Unknown"`, comme pour une entreprise
+qui n'a qu'Active Directory). Un domaine fédéré se connecte quand même par Entra ID, qui renvoie les personnes vers son
+fournisseur. Un AD FS qui parle OpenID Connect répond à `https://<host>/adfs/.well-known/openid-configuration`. Une
+entreprise qui n'a qu'Active Directory utilise AD FS, ou Keycloak devant Active Directory : les deux sont décrits plus
+bas.
+
+Enregistrez Latet comme une application web qui se connecte avec le flux authorization code, et notez son ID client
+et son secret du client. Son URI de redirection est l'adresse de votre serveur suivie de `/_latet/sso/callback` :
+
+```text
+https://latet.acme.lan/_latet/sso/callback
+```
+
+Attribuez Latet à un groupe, `latet-users` par exemple : seuls ses membres obtiennent un compte. Pour placer les
+personnes dans les groupes de Latet à leur connexion, configurez le fournisseur pour qu'il mette leurs groupes dans le
+jeton d'ID.
+
+- **Microsoft Entra ID :** une inscription d'application (App registration) avec cet URI de redirection web et un
+  secret du client ; un claim de groupes (Token configuration) limité aux groupes attribués à l'application, ce qui
+  garde aussi le jeton sous les 200 groupes qu'il peut porter ; sur son application d'entreprise (Enterprise
+  application), attribution requise, avec `latet-users` attribué. L'issuer est
+  `https://login.microsoftonline.com/<tenant ID>/v2.0`. Entra ID envoie les ID des groupes : écrivez les ID dans
+  `groups` et `access_group`.
+- **Microsoft AD FS** (Windows Server 2019 ou ultérieur) : dans **AD FS Management**, **Application Groups**,
+  **Add Application Group**, avec le modèle **Server application accessing a web API**. Notez le **Client Identifier**
+  de l'application serveur, ajoutez l'URI de redirection ci-dessus comme **Redirect URI**, et choisissez
+  **Generate a shared secret** : c'est le secret du client. L'**Identifier** de l'API web est ce même Client
+  Identifier, et ses scopes autorisés sont `openid` et `allatclaims`. Dans Latet, l'issuer est
+  `https://<adfs host>/adfs`, avec `scopes: [openid, allatclaims]` et `user_name_claim: upn`.
+
+  Connecté directement, AD FS donne à Latet le nom d'utilisateur, pas les groupes : il met le claim `upn` dans le jeton
+  d'ID, et n'ajoute d'autres claims qu'à une réponse renvoyée par un form post, que Latet ne demande pas. Laissez donc
+  `access_group` de côté : avec lui, toute connexion est refusée. `groups` ne met personne non plus dans un groupe
+  Latet : donnez les rôles à des personnes, ou à des groupes dont vous ajoutez les membres à la main. Réglez
+  `accounts: scim`, pour les comptes que vous ajoutez et liez vous-même (plus bas) : `open` donne un compte à toute
+  personne qu'AD FS connecte. Une entreprise qui a besoin des groupes place Keycloak entre les deux, avec AD FS ajouté
+  comme fournisseur SAML, comme l'explique [Votre fournisseur ne parle que SAML](#votre-fournisseur-ne-parle-que-saml),
+  ou Keycloak devant Active Directory, plus bas.
+- **Okta :** une application web OIDC attribuée à `latet-users`, avec un claim de groupes nommé `groups`, filtré sur les
+  groupes qui comptent. L'issuer est votre adresse Okta, ou celle de son authorization server.
+- **Google :** un client OAuth de type application web, avec un écran de consentement interne. Google n'envoie pas de
+  groupes : laissez de côté `access_group` et `groups`, définissez `user_name_claim: email`, et nommez vos domaines
+  Workspace dans `allowed_domains` : Latet n'accepte alors que les jetons d'ID dont le claim `hd` est l'un d'eux, ce que
+  les comptes Google grand public n'ont pas. Sans SCIM, `accounts` vaut `open` (toute personne de ces domaines qui se
+  connecte obtient un compte) ou `scim` (les comptes que vous ajoutez et liez vous-même, plus bas).
+- **Keycloak :** un client avec l'authentification du client activée et le standard flow, avec un mapper Group
+  Membership (claim `groups`) dans son scope dédié. L'issuer est `https://<keycloak>/realms/<realm>`. Keycloak écrit un
+  groupe avec son chemin (`/latet-users`) ; Latet accepte les deux formes.
+- **Keycloak devant Active Directory**, pour une entreprise qui n'a qu'Active Directory. Dans la **User federation** du
+  realm, un fournisseur LDAP avec **Active Directory** comme **Vendor** et une **Connection URL** qui commence par
+  `ldaps://`, avec l'autorité de certification de l'annuaire dans le truststore de Keycloak : en `ldap://` simple, sans
+  **Enable StartTLS**, les mots de passe que Keycloak vérifie auprès de l'annuaire traversent le réseau en clair. Puis
+  un compte en lecture seule dans **Bind DN** et **Bind credentials**, **Edit mode** `READ_ONLY`, la branche des
+  personnes dans **Users DN**, et `sAMAccountName` dans **Username LDAP attribute** : il devient le nom d'utilisateur
+  Keycloak, que Latet reçoit comme `preferred_username`. Dans l'onglet **Mappers** du fournisseur, **Add mapper** de
+  type `group-ldap-mapper`, avec la branche des groupes dans **LDAP groups DN**, **Mode** `READ_ONLY` et
+  **Preserve group inheritance** désactivé, pour qu'un groupe imbriqué dans un autre arrive à Latet comme
+  `/latet-users` et non sous le chemin de son groupe parent ; `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` dans
+  **User groups retrieve strategy** compte quand même les groupes imbriqués. Latet se connecte ensuite à ce realm comme
+  le dit l'élément **Keycloak** ci-dessus. Keycloak est un service de plus à faire tourner, à mettre à jour et à garder
+  disponible, et il décide qui entre.
+- **Authentik et Auth0 :** une application web OIDC avec cet URI de redirection ; nommez leur claim de groupes dans
+  `groups_claim`.
+
+Pour AD FS, pour Keycloak devant Active Directory et dans les deux sections plus bas, les menus et les réglages portent
+les noms que donnent la documentation de Microsoft et celle de Keycloak (Keycloak 26), en anglais.
+
+Deux choix chez le fournisseur gardent la connexion sûre :
+
+- **Le claim du nom d'utilisateur** (`user_name_claim`) est un claim que les personnes ne peuvent pas modifier
+  elles-mêmes chez le fournisseur. Qui peut le régler sur le nom d'utilisateur d'une autre personne se connecte au
+  compte de cette personne. Un fournisseur peut laisser les personnes modifier leur adresse e-mail ou leur nom affiché :
+  vérifiez le vôtre avant d'utiliser `email`.
+- **Les groupes sont désignés par leur ID** là où le fournisseur l'envoie (Entra ID le fait), dans `access_group` et dans
+  `groups` : le nom d'un groupe peut être pris par quiconque peut créer un groupe de ce nom chez le fournisseur, son ID
+  non. N'utilisez pas `access_group`, ni une association à un groupe Latet qui a un rôle, avec des groupes que d'autres
+  personnes que vos administrateurs peuvent créer ou renommer chez votre fournisseur.
+
+### Votre fournisseur ne parle que SAML
+
+Latet continue de ne parler qu'OpenID Connect : Keycloak parle SAML avec votre fournisseur et OpenID Connect avec
+Latet. Dans un realm Keycloak :
+
+1. **Identity providers**, **SAML v2.0** : chargez les métadonnées de votre fournisseur dans
+   **SAML entity descriptor**, ou saisissez à la main son **Identity provider entity ID** et son
+   **Single Sign-On service URL**, avec son certificat de signature dans **Validating X509 certificates** et
+   **Validate Signatures** laissé activé. Gardez **NameID policy format** sur `Persistent`, ou choisissez un
+   **Principal type** qui reste le même pour une personne : avec un NameID transitoire, Keycloak crée un nouvel
+   utilisateur à chaque connexion, et Latet un nouveau compte.
+2. Chez votre fournisseur, enregistrez Keycloak avec les métadonnées liées depuis ses **Endpoints**,
+   **SAML 2.0 Service Provider Metadata**, et faites-lui envoyer les groupes de chaque personne dans un attribut.
+3. Dans l'onglet **Mappers** du fournisseur d'identité, associez ce qu'envoie votre fournisseur : un
+   **Attribute Importer** pour l'e-mail ou le nom d'une personne, et un mapper **Advanced Attribute to Group** pour
+   chaque groupe qui compte (`latet-users`, et les groupes de `groups`), qui met une personne dans un groupe Keycloak
+   quand son assertion porte la valeur de ce groupe. Avec **Sync mode** `Force`, les groupes d'une personne sont repris
+   à chaque connexion.
+4. Dans **Authentication**, réglez l'**Identity Provider Redirector** du browser flow sur votre fournisseur comme
+   **Default Identity Provider**, pour que les personnes y aillent directement.
+5. Connectez Latet à Keycloak comme le dit l'élément **Keycloak** ci-dessus : un client avec un mapper Group
+   Membership, et l'issuer `https://<keycloak>/realms/<realm>`.
+
+Votre fournisseur voit une connexion SAML venue de Keycloak, et Latet une connexion OpenID Connect ordinaire. Keycloak
+est un service de plus à faire tourner, à mettre à jour et à garder disponible, et il décide qui entre : quiconque
+l'administre peut connecter n'importe qui à Latet.
+
+### Connexion Windows sans mot de passe sur les postes du bureau
+
+Sur une machine jointe au domaine de l'entreprise, Windows peut connecter une personne au fournisseur avec Kerberos
+(SPNEGO), si bien que Latet s'ouvre sans saisir de mot de passe. L'une de ces solutions se charge de la partie Windows,
+et Latet voit dans tous les cas une connexion OpenID Connect ordinaire :
+
+- **Keycloak**, avec un fournisseur de user federation **Kerberos**, ou avec **Allow Kerberos authentication** sur son
+  fournisseur LDAP devant Active Directory : chacun demande le **Kerberos realm**, le **Server principal**
+  `HTTP/<keycloak host>@<REALM>` et, dans **Key tab**, le fichier keytab de ce principal de service, qui en contient
+  la clé : seul le processus de Keycloak doit pouvoir le lire. Dans le browser
+  flow du realm, l'étape **Kerberos** passe de *Disabled* à *Alternative* : un navigateur qui ne sait pas faire Kerberos
+  reçoit la page de connexion habituelle. Latet s'y connecte comme le dit l'élément **Keycloak** ci-dessus.
+- **AD FS**, dont la Windows Integrated Authentication est activée par défaut pour les connexions depuis le réseau de
+  l'entreprise. Edge figure d'emblée dans sa liste de navigateurs ; les autres s'ajoutent à cette liste, c'est-à-dire
+  à son réglage `WiaSupportedUserAgents` (`Set-AdfsProperties`).
+- **Seamless SSO de Microsoft Entra ID**, pour les machines jointes à Active Directory : **Enable single sign on** dans
+  Microsoft Entra Connect, avec la synchronisation du hachage des mots de passe ou l'authentification directe
+  (pass-through). Sur Windows 10 ou ultérieur joint à Entra ID, ou joint en mode hybride, Microsoft recommande plutôt
+  son Primary Refresh Token, qui connecte déjà les personnes sans mot de passe.
+
+Dans tous les cas, un navigateur n'envoie la connexion Windows qu'à une adresse à laquelle il fait confiance pour cela :
+sous Windows, la zone Intranet local, que suivent Edge et Chrome sauf si leur stratégie `AuthServerAllowlist` dit autre
+chose, et que la stratégie de groupe règle pour tout le monde (**Site to Zone Assignment List**) ; dans Firefox,
+`network.negotiate-auth.trusted-uris`. Cette adresse est celle de Keycloak, celle d'AD FS, ou celle d'Entra ID,
+`https://autologon.microsoftazuread-sso.com`. Keycloak, ou AD FS là où l'entreprise ne le fait pas déjà tourner, est un
+service de plus à faire tourner, à mettre à jour et à garder disponible, et il décide qui entre.
+
+### Sur le serveur
+
+Un administrateur configure l'authentification unique sur la page **Connexion** du tableau de bord, ou avec
+`latet server`, lancé avec le jeton d'administration du serveur, à partir d'un fichier :
+
+```yaml title="sso.yaml"
+sso:
+  issuer: https://login.microsoftonline.com/4f2c9a71-3b8e-4d5a-9c6f-2e1b7d8a0c35/v2.0
+  client_id: 8b1e6f3a-52c4-4e9d-a7b2-0f9c3d6e1a84
+  accounts: group
+  access_group: 6e2f4a8c-1b3d-4f5a-8c7e-9d0b1a2c3e4f
+  groups:
+    2d7e9b14-6c3a-4f8e-a1d5-90b8c7e6f342: Payments leads
+```
+
+```sh
+latet server sign-in set sso.yaml
+latet server sign-in secret   # asks for it without showing it, or reads it from standard input
+latet server sign-in test
+```
+
+Les réglages sont conservés dans la base de données du serveur et chaque instance les utilise ; le secret du client est
+scellé avec la clé principale du serveur pour l'issuer pour lequel il a été enregistré, et n'est plus jamais affiché.
+`latet server sign-in test` demande au fournisseur son document de découverte et ses clés ; une vraie connexion vérifie
+le secret.
+
+| Clé | Ce que c'est | Par défaut |
+| --- | --- | --- |
+| `issuer` | L'adresse du fournisseur : Latet lit `<issuer>/.well-known/openid-configuration`. `https://`, ou `http://` sur le serveur lui-même, pour un test. | obligatoire |
+| `client_id` | L'ID client de Latet chez le fournisseur. | obligatoire |
+| `client_secret` | Le nom du secret enregistré, qui commence par `sso-`, jamais le secret lui-même ; `null` pour un client sans secret. | `sso-client-secret` |
+| `scopes` | Ce que Latet demande au fournisseur, `openid` compris. | `[openid, profile, email]` |
+| `user_name_claim` | Le claim qui désigne une personne chez votre fournisseur. Latet le rapproche, à la première connexion d'une personne, du nom d'utilisateur envoyé par SCIM ou par lequel un administrateur l'a liée. Les majuscules de A à Z ne comptent pas, et chaque autre caractère doit être le même : une lettre qui ressemble seulement à une autre (le symbole du kelvin pour un k) donne un autre nom d'utilisateur. | `preferred_username` |
+| `groups_claim` | Le claim qui liste les groupes de la personne ; un chemin à points (`realm_access.roles`) fonctionne aussi. | `groups` |
+| `accounts` | Qui obtient un compte à la première connexion : `scim` (les personnes que votre fournisseur a créées par SCIM et celles qu'un administrateur a liées : personne d'autre), `group` (les membres de `access_group`) ou `open` (toute personne que votre fournisseur connecte : chacune compte dans la licence). | obligatoire |
+| `access_group` | Un groupe du jeton d'ID, par son nom ou son ID tel que le fournisseur l'envoie (les majuscules ne comptent pas). Avec `group`, ses membres obtiennent un compte, et avec `group` ou `scim`, seuls ses membres peuvent se connecter. Obligatoire avec `group` ; à omettre avec `open`. | aucun |
+| `allowed_domains` | Les domaines Workspace de Google, comme `acme.com` : le claim `hd` du jeton d'ID doit être l'un d'eux. Seulement pour Google, qui l'exige. | aucun |
+| `groups` | Un groupe du jeton d'ID, par son nom ou son ID tel que le fournisseur l'envoie (les majuscules ne comptent pas), et le groupe Latet dans lequel ses membres sont mis, créé s'il manque. Non utilisé avec `accounts: scim` : SCIM pousse les groupes. | aucun |
+| `company_changes` | Si les modifications du tableau de bord qui s'appliquent à tout le monde (plus bas) demandent une session ouverte avec votre compte d'entreprise (`sso`) ou la session de n'importe quel administrateur (`any-session`). Se règle avec `latet server` seulement. | `sso` |
+
+Il n'y a pas de valeur par défaut pour `accounts` : écrivez celle que vous voulez. `scim` est la plus restrictive, et
+`open` convient à un fournisseur qui limite déjà qui peut se connecter à Latet ; `latet server status` signale `open`
+par un avertissement. Une modification de `groups` s'applique aussitôt à tout le monde, à partir des groupes que chaque personne avait à sa
+dernière connexion.
+
+<Screenshot name="sign-in" alt="La page Connexion : un code pour connecter une machine, et les réglages de l'authentification unique avec les groupes issus de la connexion" caption="Connexion : authentification unique, configurée par un administrateur." />
+
+### Comment se passe une connexion
+
+- La page de connexion du tableau de bord affiche **Se connecter avec votre compte d'entreprise**. Latet envoie le
+  navigateur chez votre fournisseur avec un défi PKCE à usage unique (RFC 7636), et n'accepte le retour que dans le même
+  navigateur, dans les dix minutes.
+- Le retour peut arriver sur une autre instance du serveur que celle où la connexion a commencé : ce dont la connexion a
+  besoin attend dans le Valkey du serveur pendant ces dix minutes, scellé avec la clé principale. Latet compte les
+  connexions commencées et pas encore terminées : au plus 20 000 attendent en même temps sur tout le serveur, bien plus
+  que pour une entreprise qui se connecte en début de journée, au plus 100 d'entre elles commencées depuis une même
+  adresse (une adresse IPv6 compte avec le reste de son /64 ; les personnes derrière un même NAT ou proxy partagent son
+  adresse, et donc ses 100), et au plus 1 000 commencées depuis un même réseau IPv6 /48. Une connexion est terminée
+  quand le navigateur revient de votre fournisseur, connecté ou non ; une connexion jamais terminée cesse de compter
+  après dix minutes. Au-delà de l'une de ces limites, une nouvelle connexion est informée que l'authentification unique
+  n'est pas disponible pour le moment, jusqu'à ce qu'une de celles qui attendent se termine ou expire.
+- Latet échange le code contre un jeton d'ID chez votre fournisseur et le vérifie : sa signature, avec les clés que
+  votre fournisseur publie ; qui l'a émis ; qu'il a été émis pour l'ID client de Latet ; qu'il n'a pas expiré ; et la
+  valeur à usage unique de cette connexion. Un jeton signé avec le secret du client, ou non signé, est refusé. Rien
+  d'autre de votre fournisseur n'est utilisé : ni jeton d'accès, ni informations sur l'utilisateur.
+- **De qui il s'agit :** le compte qui a le même subject (l'ID de la personne chez le fournisseur, avec l'adresse de
+  l'issuer) ; sinon un compte que votre fournisseur a créé par SCIM, ou qu'un administrateur a lié, avec le même nom
+  d'utilisateur, auquel personne ne s'est encore connecté et dont SCIM n'a pas changé le nom d'utilisateur depuis ;
+  sinon un nouveau compte, quand `accounts` vaut `group` et que la personne est dans `access_group`, ou vaut `open`.
+  Avec `scim`, personne d'autre n'en obtient un : la connexion est refusée comme non provisionnée. Une personne ajoutée
+  à la main n'est jamais retrouvée par son nom d'utilisateur ou son e-mail : elle lie son propre compte, ou un
+  administrateur le fait (plus bas).
+- **E-mail :** le claim `email` devient l'e-mail d'une personne, et compte pour le rapprochement, seulement quand le
+  fournisseur indique `email_verified` à `true`, sous la forme d'un booléen JSON : un fournisseur qui envoie le texte
+  "true" (Amazon Cognito le fait) est lu comme non vérifié. Avec `user_name_claim: email`, un jeton dont l'e-mail n'est
+  pas vérifié est refusé. Un e-mail non vérifié ne détermine jamais l'identité de quelqu'un ; un e-mail vérifié ne la
+  détermine que comme claim du nom d'utilisateur, ou quand une personne lie son propre compte (plus bas).
+- **Groupes issus de la connexion :** ils sont appliqués à chaque connexion, sauf si `accounts` vaut `scim`. Les groupes
+  où une personne a été mise à la main restent.
+- La session dure 12 heures à partir de son ouverture, sur chaque instance, comme une session ouverte avec
+  `latet dashboard`, qui continue de fonctionner.
+- Le serveur joint le document de découverte de votre fournisseur, ses clés et son point de terminaison de jeton
+  (token endpoint) en HTTPS, avec les certificats du système, et rien d'autre, aux adresses qu'il résout et vérifie
+  à chaque connexion : le réseau propre de votre entreprise est autorisé, la machine du serveur lui-même seulement quand l'adresse la désigne, et jamais une
+  adresse link-local comme celle des métadonnées d'un cloud, même quand un nom y est dirigé après avoir été
+  enregistré. Quand un nom a plusieurs adresses, le serveur essaie la suivante si la connexion à la précédente est
+  refusée ou n'aboutit pas à temps, tant qu'il n'a encore rien envoyé. En HTTPS, un fournisseur sur la machine du
+  serveur fonctionne avec `localhost` comme avec `127.0.0.1`, car son certificat est vérifié quelle que soit l'adresse :
+  un fournisseur dans Docker qui n'écoute que sur 127.0.0.1 est joint aussi avec `localhost`, bien que Windows donne
+  d'abord l'adresse IPv6 de `localhost`. Un issuer en `http://`, autorisé seulement sur cette machine et pour un test,
+  s'écrit avec l'adresse sur laquelle le fournisseur écoute (`127.0.0.1` ou `[::1]`), jamais avec `localhost` :
+  `localhost` est d'abord essayé sur `::1`, et tout programme du serveur qui y écouterait recevrait le secret du
+  client. Chaque réponse est lue jusqu'à une limite de taille.
+- Chaque connexion, et chaque connexion refusée, est un événement de type `sign-in` avec l'ID de la personne et le
+  résultat, jamais son nom ni son e-mail. Une première connexion qui crée un compte figure dans le journal
+  d'administration.
+
+Quand une connexion est refusée, la page de connexion dit pourquoi : elle a pris plus de dix minutes ou a déjà été
+utilisée, le compte d'entreprise n'est pas dans `access_group` (ou son domaine n'est pas dans `allowed_domains`), il
+n'est lié à aucun compte sur ce serveur (SCIM n'en a pas créé et aucun administrateur ne l'a lié), le compte est
+désactivé, l'authentification unique n'est pas disponible pour le moment, ou elle n'a pas pu être terminée, ce que le
+journal du serveur explique.
+
+Sans SCIM, Latet ne sait que quelqu'un est parti que lorsque la personne essaie de se connecter de nouveau : une
+personne retirée de `access_group` est refusée, et garde son compte jusqu'à ce que vous le désactiviez, sur la page
+**Personnes et groupes** ou avec `latet server people disable`. Une personne désactivée chez votre fournisseur y est
+refusée, sur la page du fournisseur lui-même, et Latet n'en est pas informé : son compte reste activé, et une session
+qu'elle avait ouverte avant continue de fonctionner jusqu'à la fin de ses 12 heures. Avec SCIM, votre fournisseur la
+désactive aussitôt.
+
+### Lier un compte
+
+Une personne ajoutée à la main (`latet server people add`, ou **Ajouter une personne**) n'est pas retrouvée par sa
+première connexion : un attribut que votre fournisseur laisse modifier à ses utilisateurs livrerait sinon son compte à
+quiconque le définit, celui d'un administrateur compris. Une personne qui n'est pas liée en est informée sur la page
+**Connexion**, et y lie son propre compte : **Lier mon compte d'entreprise** (le `/_latet/sso/link` du serveur) la
+connecte une fois chez votre fournisseur, et Latet ne lie le compte d'entreprise au sien que si le jeton d'ID la désigne
+de la même façon que son compte. Un compte qui a un nom d'utilisateur prend le jeton d'ID dont le claim du nom d'utilisateur
+est ce nom d'utilisateur, et rien d'autre ; un compte qui n'en a pas prend le jeton d'ID dont l'e-mail vérifié est celui
+donné à la main ou par SCIM. Un compte dont SCIM a changé le nom d'utilisateur n'en prend aucun tant qu'un
+administrateur ne l'a pas lié. Sinon la liaison est refusée comme non provisionnée, et un administrateur la lie :
+
+```sh
+latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
+```
+
+`--user-name` est le nom d'utilisateur de la personne chez votre fournisseur. Sa première connexion trouve alors son
+compte. Une personne n'est liée qu'une fois. La liaison utilise le même URI de redirection : il n'y a rien de plus à
+enregistrer chez votre fournisseur.
+
+### Changer l'issuer
+
+Le secret du client est conservé pour l'issuer pour lequel il a été enregistré. Quand l'issuer change, enregistrez-le de
+nouveau (`latet server sign-in secret`) avant que quiconque se connecte. Une fois que des personnes se sont connectées,
+seul `latet server sign-in set` change l'issuer, puisque leurs comptes sont liés au précédent. Il en va de même pour
+`user_name_claim` une fois que des personnes se sont connectées ou qu'un compte attend sa première connexion : le claim
+décide quel compte d'entreprise trouve ce compte. Pour la même raison, une fois que des personnes se sont connectées ou
+qu'un compte attend, le tableau de bord ne désactive pas l'authentification unique, quoi que dise `company_changes` :
+réactivée, elle prendrait un nouvel issuer ou un nouveau claim sans contrôle. `latet server sign-in off` le fait. Tant
+que des comptes attendent leur première connexion, la personne qui configure l'authentification unique choisit
+l'issuer et le claim du nom d'utilisateur qui serviront à les rattacher, et la modification figure dans le journal
+d'administration. Après un nouvel issuer, liez de nouveau les personnes, une commande après l'autre :
+
+```sh
+latet server sign-in set sso.yaml
+latet server sign-in secret
+latet server people unlink --all
+latet server people link --all
+```
+
+`link --all` lie de nouveau, par leur nom d'utilisateur, toutes les personnes activées dont le compte en a un ; celles
+que SCIM gère restent gérées par SCIM. Il ne lie jamais une personne dont SCIM a changé le nom d'utilisateur sans qu'une
+connexion avec ce nom d'utilisateur ou une liaison faite par un administrateur l'ait confirmé depuis (voir
+[Provisionnement avec SCIM](#provisionnement-avec-scim)) : il liste ces personnes, chacune avec la commande qui la lie,
+à lancer une fois que votre fournisseur a confirmé le nom d'utilisateur. Avec `--scim`, les autres sont aussi confiées à
+SCIM, sauf les titulaires d'un rôle (donné à elles ou à un groupe créé à la main), qui sont confiées une par une :
+`latet server people link <id> --user-name <name> --scim`. Tant qu'une personne n'est pas liée de nouveau, sa connexion
+ne trouve pas son compte. Lancé une deuxième fois, `link --all` (avec `--scim` ou sans) laisse de côté les personnes
+qu'une exécution précédente a liées et qui attendent encore leur première connexion, dit combien il en a laissé de côté,
+et ne pose la question que pour les autres.
+
+### Connecter une machine
+
+Une fois l'authentification unique configurée, les personnes créent elles-mêmes leur code pour connecter une machine :
+sur la page **Connexion**, **Connecter une machine**, **Créer un code**. Le code fonctionne une fois, pendant 24 heures,
+et n'est affiché qu'à ce moment-là. Une personne peut avoir 20 machines connectées et créer 10 codes sur toute période
+d'une heure ; au-delà de l'une ou l'autre limite, **Créer un code** le dit et n'en crée aucun. Les machines qu'un
+administrateur a connectées comptent dans les 20, et les codes qu'un administrateur crée lui-même
+(`latet server people code`) ne sont pas limités. `latet disconnect` sur une machine libère sa place, tout comme un
+administrateur avec `latet server people tokens <person> --revoke <id>`. Avec le code, sur la machine :
+
+```sh
+latet connect https://latet.acme.lan
+```
+
+et saisissez le code à l'invite. Avec un certificat auto-signé, la page ajoute `--fingerprint`, comme le dit
+[Latet sur un serveur](../../getting-started/server/).
+
+Le tableau de bord indique à chaque personne, sous **Machines connectées à votre compte**, quelles machines ont été
+connectées sous son identité et quels codes ont été créés pour elle, par un administrateur ou par elle-même, pendant
+14 jours ou jusqu'à ce qu'elle choisisse **Marquer comme vu**. Seule une session ouverte avec le compte d'entreprise
+peut marquer cet avis comme vu. Sur la page **Règles**, sous **Avancé**, **Vos machines** liste en permanence chaque
+machine connectée à son compte en ce moment : quand elle a été connectée, quand elle a été utilisée pour la dernière
+fois, et si le code avec lequel elle a été connectée a été créé par un administrateur. Si l'une d'elles n'a pas été
+connectée par elle, elle le dit à un administrateur : désactiver un compte arrête les jetons de ses machines.
+
+## Provisionnement avec SCIM
+
+SCIM 2.0 permet à votre fournisseur de créer, modifier et désactiver des personnes sur le serveur, et de pousser ses
+groupes.
+
+1. Créez un jeton : sur la page **Connexion**, **Provisionnement**, **Créer un jeton**, ou
+   `latet server sign-in scim-token`. Il est affiché une seule fois ; le serveur n'en garde qu'un hachage à clé. Il
+   prend fin après 90 jours, comme un jeton d'administration (`--days N` ou `--never` en ligne de commande ; la page
+   crée des jetons qui prennent fin). Plusieurs jetons peuvent être en service, si bien qu'un nouveau jeton peut être
+   donné à votre fournisseur avant que l'ancien prenne fin ou soit supprimé (`latet server sign-in scim-token --remove <id>`). La page
+   dit qui a créé chaque jeton : un jeton dont le créateur n'administre plus fonctionne encore, et ne prend pas fin
+   quand son créateur est rétrogradé ou désactivé, supprimez-le donc s'il doit s'arrêter.
+2. Chez votre fournisseur, donnez l'adresse SCIM de Latet, `https://latet.acme.lan/scim/v2`, et le jeton comme jeton
+   Bearer. Dans Entra ID : Provisioning de l'application d'entreprise (Enterprise application), Automatic, pour les
+   utilisateurs et les groupes attribués. Dans Okta : provisionnement SCIM avec authentification par en-tête HTTP,
+   `userName` comme identifiant unique, et Push Groups. Les requêtes SCIM ne sont acceptées qu'en HTTPS, quand
+   l'adresse du serveur est en https.
+3. Le service de provisionnement de votre fournisseur appelle le serveur depuis son propre réseau : l'adresse du serveur
+   est joignable depuis celui-ci, ou par son agent sur site (le Microsoft Entra provisioning agent, l'On-Prem
+   Provisioning agent d'Okta).
+
+Ce que Latet en fait :
+
+- **Une nouvelle personne** obtient un compte avec son nom, son e-mail et son nom d'utilisateur. Les autres attributs
+  que votre fournisseur envoie (une fonction, un téléphone, un service) sont acceptés et non conservés. Une requête qui
+  omet un e-mail, un `externalId` ou un nom conserve celui de la personne.
+- **Le nom d'une personne** est celui que donne votre fournisseur. Avec `exceptions: company`, une personne liée à votre
+  fournisseur ne peut pas changer son propre nom là où vos directives laissent passer les noms :
+  [Règles verrouillées](../locked-rules/) dit quel nom Latet utilise.
+- **SCIM ne voit et ne modifie que les personnes qu'il gère :** celles qu'il a créées et celles qu'un administrateur
+  lui a confiées. Une personne ajoutée à la main, ou qui s'est connectée sans SCIM, lui est inconnue : une requête à son
+  sujet reçoit une réponse 404, et une requête qui veut créer quelqu'un avec son nom d'utilisateur ou son e-mail est refusée (409) tant
+  qu'un administrateur ne la lui confie pas :
+  `latet server people link emily.carter@acme.com --user-name emily.carter@acme.com --scim`. Une personne qui s'est déjà
+  connectée est d'abord déliée (`latet server people unlink`). La requête suivante de votre fournisseur reprend alors le
+  compte : chaque personne compte une fois.
+- **Un nouveau nom d'utilisateur pour quelqu'un qui ne s'est jamais connecté** est refusé (400) si la personne n'a pas
+  été créée par SCIM (un administrateur la lui a confiée), ou tant que son compte contient quelque chose : un rôle ou le
+  contrôle d'une clé d'API, donnés à elle ou à un groupe créé à la main dont elle fait partie, une machine connectée à
+  ce compte ou ayant déjà servi avec lui, ou un code en attente pour en connecter une. Sinon, Latet l'accepte, et le
+  compte attend alors qu'un administrateur le lie de nouveau : jusque-là, personne ne l'obtient à sa première connexion,
+  ni avec le nouveau nom d'utilisateur ni avec l'ancien. Un simple changement de casse des lettres de A à Z ne compte
+  pas comme un nouveau nom d'utilisateur. Sur la page **Personnes et groupes**, le compte n'est alors ni lié ni en
+  attente d'une première connexion, et `latet server people link --all` le liste à part au lieu de le lier. Une fois le
+  nom d'utilisateur confirmé par votre fournisseur, liez le compte avant que la personne se connecte :
+  `latet server people link <id> --user-name <name> --scim`. D'ici là, sa connexion est refusée comme non provisionnée
+  quand `accounts` vaut `scim` ; avec `group` ou `open`, elle lui crée un nouveau compte, que vous supprimez
+  (`latet server people remove`) pour que sa connexion suivante trouve l'ancien. Ainsi, un jeton SCIM tombé entre de
+  mauvaises mains ne peut pas livrer le compte, ni tout ce qu'il recevra ensuite, au compte d'entreprise de quelqu'un
+  d'autre.
+- **`active: false`** désactive le compte aussitôt : les jetons de ses machines et ses sessions du tableau de bord
+  s'arrêtent, sur chaque instance, et sa place dans le décompte des utilisateurs est libérée. Ses données restent sur
+  le serveur. `active: true` réactive le compte, mais ne lève jamais une désactivation faite par un administrateur : la
+  page le dit.
+- **Le dernier administrateur n'est jamais désactivé ni retiré d'un groupe** par SCIM : la requête est refusée (409).
+- **Une personne supprimée chez votre fournisseur** est désactivée, ses données conservées, jusqu'à ce que vous la
+  supprimiez (`latet server people remove`). Si votre fournisseur crée plus tard quelqu'un avec le même nom
+  d'utilisateur (un homonyme, ou une personne qui revient avec un nouveau compte d'entreprise), Latet ne lui donne
+  l'ancien compte que s'il est vide : personne ne s'y est connecté, aucune machine n'est connectée à ce compte ni n'a
+  jamais servi avec lui, aucun code pour en connecter une n'attend, et ni un rôle ni le contrôle d'une clé d'API ne
+  sont donnés à la personne ou à un groupe créé à la main dont elle fait partie. Sinon, la requête est refusée (409).
+  Pour un homonyme, supprimez l'ancienne personne : la requête suivante de votre fournisseur crée alors un nouveau
+  compte. Seulement si la même personne revient, confiez-la volontairement de nouveau à SCIM :
+  `latet server people link <id> --user-name <name> --scim`, après `latet server people unlink` si elle s'était
+  connectée. L'ancien compte va alors à la personne qui a ce nom d'utilisateur chez votre fournisseur, avec son
+  historique, son coffre-fort, les clés d'API qu'il contrôle, les rôles donnés à la main et les machines qui y sont
+  connectées.
+- **Un groupe poussé est un groupe Latet**, avec les membres que votre fournisseur lui donne. Un groupe créé à la main
+  avec le même nom n'est pas repris : renommez l'un des deux.
+- **Les comptes viennent de SCIM quand `accounts` vaut `scim` :** une personne que votre fournisseur n'a pas créée, et
+  qu'aucun administrateur n'a liée, est refusée à la connexion, et les connexions ne mettent plus personne dans un
+  groupe.
+- Chaque modification que fait SCIM figure dans le journal d'administration, au nom du jeton qui l'a faite. Un jeton
+  SCIM définit chaque valeur qui désigne une personne que SCIM gère (nom d'utilisateur, e-mail, nom) : les commandes qui
+  désignent une personne, comme `latet server people code` et `latet server roles grant`, sont donc plus sûres avec l'ID
+  de la personne (`u_…`). Si un jeton a pu tomber entre de mauvaises mains, supprimez-le
+  (`latet server sign-in scim-token --remove <id>`) et, sur la page **Journal d'administration**, réglez le filtre
+  **Qui** sur `scim:<id>` pour voir ce qu'il a changé.
+
+Latet répond à `/scim/v2/Users` (`GET` avec `filter=userName eq "…"` ou `externalId eq "…"`, `POST`, `GET`, `PUT`,
+`PATCH`, `DELETE`), `/scim/v2/Groups` (`GET` avec `filter=displayName eq "…"`, `POST`, `GET`, `PUT`, `PATCH` des membres
+et du nom, `DELETE`), `ServiceProviderConfig`, `ResourceTypes` et `Schemas`. Il ne gère ni requêtes bulk, ni tri, ni
+ETag.
+
+## Groupes
+
+Un groupe est un ensemble de personnes. Il vient de votre fournisseur par SCIM, de la connexion par `groups`, ou est
+créé à la main sur la page **Personnes et groupes** ou en ligne de commande :
+
+```sh
+latet server groups add Payments
+latet server groups join Payments emily.carter@acme.com
+```
+
+Une personne peut appartenir à un groupe par plusieurs voies : chacune ne modifie que l'appartenance qu'elle a créée. Une
+personne que votre fournisseur a mise dans un groupe en sort quand votre fournisseur le dit ; une personne ajoutée à la main reste jusqu'à
+ce qu'on la retire à la main. Un groupe venant de SCIM se renomme et se supprime chez votre fournisseur.
+
+- **Les membres d'un groupe SCIM sont des personnes que SCIM gère :** un membre que votre fournisseur nomme et qui n'a
+  pas encore de compte dans Latet, ou que SCIM ne gère pas, fait refuser toute la requête, suppressions comprises,
+  jusqu'à ce que ce soit corrigé chez votre fournisseur (attribuez-y la personne à Latet, ou confiez-la à SCIM).
+- **Aucune connexion ne met personne dans un groupe poussé par SCIM.** Une ligne de `groups` qui en nomme un est
+  ignorée, et `latet server status` le dit ; un groupe SCIM ne peut pas prendre un nom que `groups` nomme (409).
+
+Sur la page **Personnes et groupes**, les administrateurs ajoutent des personnes (**Ajouter une personne** affiche leur
+code à usage unique et la commande pour connecter une machine), créent un code pour quelqu'un qui n'a pas encore
+connecté de machine (**Code** ; pour toute autre personne, `latet server people code` le fait), désactivent et activent
+des personnes, donnent et retirent des rôles, créent des groupes et y mettent des personnes, et créent des clés d'API.
+Chaque personne est affichée avec l'origine de son compte : ajouté à la main, depuis votre fournisseur d'identité, ou
+créé à sa première connexion ; et avec son état : lié à son compte d'entreprise, en attente de sa première connexion
+(lié par un administrateur ou par SCIM, par son nom d'utilisateur), ou géré par SCIM. Une personne ajoutée à la main
+qui n'est ni liée ni en attente doit d'abord être liée (voir [Lier un compte](#lier-un-compte)).
+
+<Screenshot name="people" alt="La page Personnes et groupes : chaque personne avec ses groupes, ses rôles et sa dernière activité, puis les groupes et les clés d'API" caption="Personnes et groupes : qui a un compte sur ce serveur, ses groupes et ses rôles, et les clés d'API." />
+
+## Rôles
+
+Tout le monde est utilisateur. Les autres rôles sont donnés à la main, à une personne ou à un groupe : les membres d'un
+groupe ont ses rôles, et les perdent quand ils le quittent.
+
+| Rôle | Voit | Décide |
+| --- | --- | --- |
+| utilisateur | ses propres données, et les clés d'API qu'il contrôle | ses réglages, au-dessus du plancher de l'entreprise ; ceux d'une clé contrôlée |
+| responsable de groupe | les rapports de ses groupes | rien |
+| sécurité | tous les rapports | les directives, les termes, les approbations, le SIEM |
+| auditeur | les rapports, l'historique des directives et le journal d'administration, en lecture seule | rien |
+| administrateur | les personnes, les groupes et les clés d'API | la connexion, les rôles, la licence, les clés d'API et qui les contrôle |
+
+En ligne de commande, les rôles sont `group-lead`, `security`, `auditor` et `admin`. Un responsable de groupe voit les
+rapports de chaque groupe dont il fait partie. Aucun rôle ne donne accès aux valeurs, aux textes ou à l'historique
+d'une autre personne. Un administrateur qui crée un code pour quelqu'un et se connecte sous l'identité de cette personne figure dans
+le journal d'administration et est montré à cette personne : dans un avis pendant 14 jours, et toujours dans la liste de
+ses machines (voir [Connecter une machine](#connecter-une-machine)).
+
+Un rôle donné à un groupe que SCIM pousse va aussi à quiconque détient un jeton SCIM, puisqu'un jeton peut mettre des
+personnes dans ce groupe : la page **Personnes et groupes** le dit. Donnez les rôles à des groupes créés à la main là où
+cela compte.
+
+Les personnes du rôle Sécurité fixent les directives de votre entreprise sur la page **Directives** : elles en
+modifient le texte, puis choisissent **Enregistrer** pour les appliquer à chaque personne et à chaque clé d'API du
+serveur, ou **Supprimer**, comme le font `latet server policy set` et `latet server policy remove`. Un texte que le
+serveur ne peut pas lire est refusé avec la raison, un enregistrement est refusé quand quelqu'un a modifié les
+directives depuis l'ouverture de leur texte, et chaque modification figure dans le journal d'administration, au nom de
+la personne qui l'a faite. Les auditeurs voient ce que les directives verrouillent, jamais leur texte. Voir
+[Règles verrouillées](../locked-rules/).
+
+### Le premier administrateur
+
+Depuis n'importe quelle machine, avec le jeton d'administration du serveur. La personne a d'abord besoin d'un compte :
+votre fournisseur l'a créé par SCIM, vous l'ajoutez à la main
+(`latet server people add "Emily Carter" --email emily.carter@acme.com`), ou, avec `accounts: group` ou `open`, elle
+s'est connectée une fois. Un compte ajouté à la main est lié à votre fournisseur par le nom d'utilisateur de la
+personne là-bas, pour que sa première connexion le trouve ; puis le rôle :
+
+```sh
+latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
+latet server roles grant emily.carter@acme.com admin
+```
+
+Au lieu de la première commande, la personne peut lier son propre compte depuis son tableau de bord (**Lier mon compte
+d'entreprise**, plus haut). Une personne est désignée par son ID (`u_…`, affiché par `latet server people list`), son
+nom d'utilisateur chez votre fournisseur, ou son e-mail quand il a été donné à la main ou par SCIM : un e-mail qu'un
+jeton d'ID a apporté, ou que plus d'une personne ou qu'une personne désactivée possède, est refusé, et la personne est
+alors désignée par son ID. Un groupe est désigné par son ID (`g_…`) ou son nom :
+`latet server roles grant "Security team" security`. Chaque réponse indique qui le nom a désigné. Les administrateurs donnent ensuite les rôles sur la page **Personnes et
+groupes**.
+
+Le tableau de bord ne laisse pas le serveur perdre son dernier administrateur activé (par un rôle retiré, un groupe
+quitté ou supprimé, ou une personne désactivée) ; `latet server` le peut toujours, et peut toujours donner le rôle tant
+que la licence peut gérer les réglages Enterprise.
+
+Sans `roles` dans la licence, personne ne modifie les réglages Enterprise depuis le tableau de bord : ils se modifient
+avec `latet server`. Tout le monde peut lire les pages Enterprise que la licence ouvre (**Licence**, **Directives** et
+**Connexion** ; la page **Personnes et groupes** demande `roles`), si bien qu'installer une licence qui ne liste pas
+`roles` les ouvre à toute personne du serveur, en lecture. Une machine sans serveur est l'édition Community : elle n'a
+ni rôles, ni authentification unique, ni aucune de ces pages.
+
+## Clés d'API et qui les contrôle
+
+Les programmes qui n'appartiennent à aucune personne, un pipeline de CI ou un script, utilisent une clé d'API. Seuls
+les administrateurs les créent, sur la page **Personnes et groupes** (**Créer une clé**) ou avec
+`latet server keys add` : chaque clé activée compte comme un utilisateur dans la licence. La clé et son adresse ne sont
+affichées qu'une fois.
+
+Les administrateurs donnent le contrôle d'une clé à des personnes ou à des groupes :
+
+```sh
+latet server controllers add "Billing CI" Platform
+```
+
+Les personnes qui contrôlent une clé, et les administrateurs, ouvrent son espace depuis leur tableau de bord :
+**Espace** dans la barre latérale, ou **Ouvrir son espace** sur la page **Personnes et groupes**. Le tableau de bord
+montre alors l'historique de la clé, ses valeurs et ses réglages, qu'ils modifient comme les leurs ; un bandeau
+au-dessus de chaque page indique de qui est l'espace, et **Retour à votre espace** vous y ramène. Tant que
+`company_changes` vaut `sso` (plus bas), un administrateur qui ne contrôle pas la clé n'ouvre son espace que dans une
+session ouverte avec votre compte d'entreprise. Les pages Enterprise ne font pas partie de l'espace d'une clé. Une modification faite dans l'espace d'une clé figure dans le journal
+d'administration, avec qui l'a faite, jamais une valeur. Quand le contrôle est retiré, la requête suivante est refusée,
+le tableau de bord revient à l'espace propre de la personne, et une vue en direct ouverte là-bas se termine en quelques
+secondes.
+
+Les valeurs d'une clé sont conservées dans PostgreSQL, et chaque instance ne garde que celles utilisées récemment. Dans
+l'espace d'une clé, la page **Coffre-fort** trouve une valeur par son type, son ID d'entrée, sa vraie valeur ou sa
+valeur factice écrite en entier, ou par un mot entier sous lequel le coffre-fort la garde (une adresse par sa partie
+locale, `daniel.okafor`), jamais par une partie de mot. **Oublier** y oublie une valeur comme `latet server keys forget`
+le fait : elle quitte le coffre-fort de la clé, les requêtes de l'historique de la clé qui la contiennent et les
+réponses mémorisées du relecteur local, le journal d'administration note qui l'a oubliée (`key.forgotten`), et la valeur,
+si elle réapparaît, reçoit une nouvelle valeur factice. **Nouvelle clé** donne au jeton de la clé un nouveau secret,
+comme `latet server keys rotate`, et le jeton garde ce qu'il peut faire. Dès qu'une clé a plusieurs jetons (`latet
+server keys add-token`), celui qu'on vise se renouvelle avec `latet server keys rotate --token`.
+
+## Modifications qui s'appliquent à tout le monde
+
+Certaines modifications s'appliquent à tout le monde sur le serveur : les directives (la lecture de leur texte aussi,
+qui contient les termes et les valeurs de votre entreprise), les personnes, les groupes et les rôles, les clés d'API et
+qui les contrôle, les réglages de connexion, le secret du client et les jetons SCIM, la licence, et les codes pour
+connecter une machine. Un administrateur qui ouvre l'espace d'une clé d'API qu'il ne contrôle pas en fait partie aussi :
+cet espace montre l'historique de cette clé et ses valeurs. Tant que `company_changes` vaut `sso`, ce qui est la valeur
+par défaut une fois l'authentification unique configurée, le tableau de bord ne les fait que dans une session ouverte
+avec votre compte d'entreprise. Une session ouverte avec le code à usage unique de `latet dashboard`, celle d'un
+administrateur comprise, lit ces pages, sauf le texte des directives, n'ouvre que les espaces des clés d'API que la
+personne contrôle, et ne modifie que ce qui est à la personne ou à une clé qu'elle contrôle : le compte d'entreprise
+prouve l'identité de la personne auprès de votre fournisseur d'identité, et un code à usage unique prouve seulement que
+quelqu'un détient sa machine. Une modification refusée pour cette raison dit de se connecter avec son compte d'entreprise pour modifier ce qui s'applique
+à tout le monde, et le tableau de bord propose **Se connecter avec votre compte d'entreprise**. Lier son propre compte
+depuis une telle session n'en fait pas une session d'entreprise : reconnectez-vous ensuite.
+
+`company_changes: any-session` laisse la session de n'importe quel administrateur faire ces modifications : c'est ce que
+fait un serveur sans authentification unique, où le réglage n'existe pas. Il se change avec
+`latet server sign-in set --company-changes sso` ou `--company-changes any-session`, jamais depuis le tableau de bord,
+qui refuse aussi de désactiver l'authentification unique tant qu'il demande le compte d'entreprise, ou une fois que des
+personnes se sont connectées ou qu'un compte attend sa première connexion (`latet server sign-in off` le fait). Cette
+commande est refusée aux agents IA, et chaque modification figure dans le journal d'administration. `latet server` n'est pas concerné : il utilise le jeton d'administration. L'espace d'une clé
+que la personne contrôle et les réglages propres d'une personne ne sont pas concernés non plus.
+
+Sur la page **Licence**, les administrateurs installent un fichier de licence ou suppriment la licence, tant que la
+licence est valide, se termine bientôt ou est dans son délai de grâce ; une fois qu'elle est en pause, qu'un essai est
+terminé ou que le fichier est inutilisable, `latet server license install` et `latet server license remove` le font.
+Supprimer une licence, ou en installer une sans `locked-rules`, met fin à l'application des directives du serveur :
+la page demande d'abord confirmation.
+
+<Screenshot name="license" alt="La page Licence : l'état de la licence et ses fonctionnalités, avec Installer un fichier de licence et Supprimer la licence pour un administrateur" caption="Licence : l'état de la licence et, pour les administrateurs, sa modification." />
+
+## Ce que le journal d'administration enregistre
+
+Chacune de ces entrées figure dans le journal d'administration du serveur, avec qui a agi, quand et d'où, jamais une
+valeur : `person.added`, `person.changed`, `person.linked`, `person.code.made`, `person.disabled`, `person.enabled`,
+`group.added`, `group.changed`, `group.removed`, `member.added`, `member.removed`, `role.granted`, `role.revoked`,
+`key.added`, `key.rotated`, `key.disabled`, `key.enabled`, `key.controller.added`, `key.controller.removed`,
+`key.space.changed`, `sign-in.changed`, `sign-in.secret.changed`, `sign-in.tested`, `scim.token.made`,
+`scim.token.removed`, `license.installed`, `license.removed` et `policy.changed`. `person.linked` nomme les champs
+qu'il a définis, jamais leurs valeurs ; `sign-in.changed` nomme les réglages qu'une modification a définis ;
+`sign-in.tested`, un test du fournisseur depuis la page **Connexion** ou avec
+`latet server sign-in test`, dit comment il s'est passé, jamais l'adresse du fournisseur ni sa réponse. Chaque appel que fait `latet server` est aussi enregistré sous le nom de sa route (`ee.people.read`,
+`ee.groups.change` et les autres), les appels refusés compris.
+
+## Quand un essai se termine, ou que la licence est en pause
+
+Personne n'est empêché d'utiliser son propre Latet, quoi que dise la licence.
+
+- **Quand un essai se termine,** la connexion avec votre compte d'entreprise s'arrête sur chaque instance : la page de
+  connexion ne montre que la voie du terminal. Les sessions déjà ouvertes durent jusqu'au terme de leurs 12 heures. Les personnes ouvrent
+  leur tableau de bord avec `latet dashboard` sur une machine connectée au serveur ; une personne qui n'a pas encore de
+  machine reçoit d'un administrateur un code à usage unique (`latet server people code <person>`), lance
+  `latet connect`, puis `latet dashboard`. Les requêtes SCIM de votre fournisseur sont refusées, sauf pour lire,
+  désactiver une personne et en supprimer une : une personne qui part est toujours retirée aussitôt, et rien n'est créé
+  ni modifié. Les pages **Personnes et groupes**, **Connexion** et **Directives** montrent ce qui avait été défini, en
+  lecture seule, et `latet server groups|roles|controllers|sign-in` le lisent et ne changent rien ; les rôles continuent
+  de décider qui lit quoi, et aucun rôle n'est modifié. L'espace d'une clé d'API ne s'ouvre plus. Installez une
+  licence (`latet server license install`), ou supprimez le fichier de l'essai (`latet server license remove`) pour
+  revenir à l'édition Community.
+- **Quand une licence payante expire ou que son nombre d'utilisateurs est dépassé,** tout fonctionne pendant 30 jours.
+  **Une fois qu'elle est en pause,** les personnes se connectent encore avec leur compte d'entreprise, SCIM les crée,
+  les modifie et les désactive encore et pousse ses groupes, les administrateurs ajoutent, désactivent et activent
+  encore des personnes et des clés d'API, et les rôles décident comme avant ; les groupes, les rôles, qui contrôle une
+  clé, les réglages de connexion et les jetons SCIM peuvent être consultés, mais pas modifiés, jusqu'à ce qu'une
+  licence qui les couvre soit installée.
+- **Quand le fichier de licence est inutilisable,** la connexion avec votre compte d'entreprise s'arrête comme à la fin
+  d'un essai, jusqu'à ce que le fichier soit remplacé : `latet server status` dit ce qui ne va pas.
+
+## Comment cela a été testé
+
+Les tests de Latet connectent des personnes à un fournisseur d'identité construit selon la spécification OpenID Connect
+à l'intérieur des tests, envoient des requêtes SCIM comme les envoient Microsoft Entra ID et Okta, et font tourner deux
+instances d'un serveur sur un seul PostgreSQL et un seul Valkey : une connexion commencée sur l'une revient sur l'autre,
+un rôle retiré ou une personne désactivée sur l'une s'applique à la requête suivante sur l'autre, et un essai qui se
+termine pendant que des personnes sont connectées arrête la connexion d'entreprise et laisse chacun dans son propre
+tableau de bord.
+
+Ils ont aussi été exécutés avec Keycloak 26.8.2 dans Docker sur un poste de développement, configuré comme le dit
+l'élément **Keycloak** ci-dessus, avec l'issuer `http://127.0.0.1:<port>/realms/<realm>`, puis de nouveau avec
+`http://localhost:<port>/realms/<realm>` sous Windows, qui donne d'abord `::1`, alors que Keycloak n'écoutait que sur
+127.0.0.1 et que rien n'écoutait sur `[::1]`, et le côté de Latet réglé avec `latet server sign-in set`, `secret` et
+`test`. Un programme de test a fait ce que fait le navigateur d'une personne : il a suivi Latet jusqu'à la page de
+connexion de Keycloak, envoyé le formulaire avec le mot de passe de la personne, puis suivi Keycloak jusqu'au callback
+de Latet, sur l'une ou l'autre instance. `access_group` a laissé entrer ses membres et tenu à l'écart une personne qui
+n'en fait pas partie, à qui la page de connexion a dit que son compte d'entreprise ne lui donne pas accès à Latet ; les
+rôles donnés aux groupes que nomme `groups` ont décidé de ce que chacun lit ; une connexion commencée sur une instance
+s'est terminée sur l'autre ; avec un mauvais secret du client, la connexion n'a pas pu aboutir, et le journal du serveur
+indiquait que le point de terminaison de jeton avait répondu 401 ; et une personne désactivée dans Keycloak a été refusée sur la page
+de Keycloak lui-même, tandis que la session qu'elle avait ouverte dans Latet continuait de fonctionner.
+
+Keycloak a aussi été placé devant un annuaire comme le dit l'élément **Keycloak devant Active Directory**, avec OpenLDAP
+2.6 à la place d'Active Directory (`uid` comme attribut du nom d'utilisateur, et les groupes trouvés par leur attribut
+`member`, sans récursion) : les personnes se sont connectées avec le mot de passe de l'annuaire, et leurs groupes dans
+l'annuaire ont déterminé leur appartenance à `access_group` et leurs rôles. Toute autre configuration de cette page suit la documentation
+de son éditeur.

@@ -67,7 +67,7 @@ agent's own instructions.
 | What no pattern finds | *"Mark from sales is quietly interviewing at a competitor"* | The optional local reviewer, a language model on your computer, finds it before it leaves, following Latet's instructions and [your own guidance](https://docs.latet.ai/concepts/llm-review/#your-guidance): what counts as sensitive in your work, everywhere or in one project |
 
 A key in `.env`, for example: the agent reads the file to learn the configuration, and the model
-receives `pk_3a8d1f6b0e9c2a7d4b5e` instead of `pk_9f2c4e7a1b3d5f8e0a6c`. It writes the code that reads
+receives `gd_1a2f2438f7bc60e0f872` instead of `pk_9f2c4e7a1b3d5f8e0a6c`. It writes the code that reads
 the key from the environment, as it should; if a fake does come back, in a reply or in a command the
 agent runs, Latet puts the real key back on your machine. See
 [How it works](https://docs.latet.ai/concepts/how-it-works/).
@@ -391,6 +391,7 @@ To work on Latet itself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 | --- | --- |
 | `latet dashboard` | Open the dashboard: what was sent, and how it was masked |
 | `latet doctor` | Check the daemon, the plugin, masking and every agent integration |
+| `latet leak` | Find the secrets in your agents' saved sessions, and which may have reached the provider; it never shows a value |
 | `latet status`, `latet start`, `latet stop` | The background daemon |
 | `latet reload` | Apply edits to `config.yaml` without a restart |
 | `latet config get`, `set`, `add`, `remove` | Read and change a setting; what lowers protection waits for your approval |
@@ -435,8 +436,8 @@ settings and rules. The server shares with every space only what it needs to run
 its local reviewer, text recognition and how long history is kept.
 
 **Sharing rules.** A team shares its rules by hand: one person exports them to a file with
-`latet rules export`, and the others import it. Rules set once for everyone, which nobody can lower,
-are planned for the Enterprise Edition.
+`latet rules export`, and the others import it. A policy that nobody can go below is part of the
+[Enterprise Edition](#enterprise-edition).
 
 **Administration.** The administration commands add and remove people and API keys, set the rules
 of each API key and the shared settings, and show the administration log. Metrics have a listener
@@ -563,12 +564,45 @@ the [threat model](https://docs.latet.ai/security/).
 What comes next is on the [roadmap](https://docs.latet.ai/roadmap/), and what changed
 in each version is in the [changelog](https://docs.latet.ai/changelog/).
 
-## Latet Enterprise
+## Enterprise Edition
 
-Latet Enterprise is for a company whose security team sets the rules for everyone. On top of the
-Community Edition it adds rules for everyone that nobody can lower, central approvals of changes that
-lower protection, single sign-on, audit reports and events for a SIEM. It is coming:
-[join the waitlist](https://latet.ai/#waitlist) to hear when it is out.
+Latet Enterprise is the same program with what a company's security team needs, switched on by a license file
+([Enterprise Edition](https://docs.latet.ai/enterprise/)):
+
+- **Locked rules:** a policy sets what nobody can go below: the profile, the terms always masked, the policies and the
+  rest. On a Latet server it holds for every person and API key, set by an administrator with
+  `latet server policy set`. The dashboard shows each locked setting with a lock.
+  [Locked rules](https://docs.latet.ai/enterprise/locked-rules/)
+- **Single sign-on, groups and roles:** people sign in to a Latet server with their company account (OpenID Connect:
+  Microsoft Entra ID, Okta, Google, Keycloak and others), your identity provider creates and disables their accounts
+  and pushes its groups (SCIM 2.0), roles given to people or groups (user, group lead, security, auditor, admin) decide
+  who sees and changes what, your security team sets the locked rules from the dashboard, and the people or groups
+  you choose control your API keys: [Sign-in, groups and roles](https://docs.latet.ai/enterprise/sign-in/).
+- **Audit reports, the administration log and your SIEM:** on your Latet server, counts of requests, masked values
+  and stops by group, project, agent, API key and value type, including answered applications API scan/mask calls,
+  with trends and CSV/JSON exports; the administration log records actions, including unmask/forget, and forwards
+  entries with their chain.
+  Ordinary usage contains counts and metadata, never protected content; `reports.people` controls ordinary people
+  reporting. Audit names actors for authorized readers; addresses are administrator-only, and SIEM administration
+  identities follow separate accountability rules. Outputs support Splunk HEC, JSON webhooks and compatible syslog
+  receivers over TLS. Instances coordinate delivery through per-output queues with retries; receivers must deduplicate
+  by event ID. Coverage, retention, queue and export limits apply. Reports/Audit require `reports`, SIEM requires
+  `siem`, and access and production depend on roles and license state:
+  [Reports and administration log](https://docs.latet.ai/enterprise/reports/) and
+  [Events to your SIEM](https://docs.latet.ai/enterprise/siem/).
+- **Central approvals:** on a Latet server, a change that lowers protection can wait for the company's security team
+  instead of the person who asked, who sees who decides and can withdraw it but not approve it; a change carries what
+  it lowers, never a value. Otherwise an API key's changes go to the other people who control it, or to the admins
+  when nobody else does. The Live Reviewer's texts can go to the security team too, who see them values included: a
+  company choice each person is told about, and a text opens only from a session of the company's sign-in. An
+  administrator chooses with `latet server approvals set`, and the license must list `approvals`:
+  [Central approvals](https://docs.latet.ai/enterprise/approvals/).
+- **Synced terms:** your company's customers, colleagues and project code names, read on a schedule from a file or a
+  web address (CSV, JSON, YAML), Microsoft Entra ID, or an LDAP directory such as Active Directory, and masked by the
+  server for every person and API key it serves as terms your company locks, without anyone typing them in. They are
+  kept encrypted in the server's database, never in a settings file, and a term removed at its source stays masked until
+  someone with the security role, or an administrator with `latet server terms remove`, removes it. The license must
+  list `term-sync`: [Term sync](https://docs.latet.ai/enterprise/term-sync/).
 
 ## Bugs and feature requests
 
@@ -591,15 +625,20 @@ code. Your first pull request accepts the [contributor license agreement](CLA.md
 copyright. To report a vulnerability, follow [SECURITY.md](SECURITY.md); please do not open a public
 issue for it.
 
-## License
+## Editions and license
 
 Latet is source-available under the [Latet Sustainable Use License](LICENSE). The Community Edition is
 free for everyone, companies of any size included, for their own work, for personal use and for any
 non-commercial use. Selling Latet, offering it to others as a service, building it into a product you
 sell or making a commercial fork of it needs a commercial license: write to
 [info@latet.ai](mailto:info@latet.ai). The files in `ee` directories are the Enterprise Edition, under
-the [Latet Enterprise License](ee/LICENSE). [LICENSING.md](LICENSING.md) explains it in plain words,
-and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the third-party components and their
+the [Latet Enterprise License](ee/LICENSE): its features need a Latet Enterprise license in production,
+a license file signed by the licensor that Latet checks on the Latet server that runs them, without
+calling home (`latet server license install`). It covers a number of
+users, each enabled person and API key. A company can ask for a 32-day trial license at the same
+address, once. [Editions and license](https://docs.latet.ai/enterprise/) says what happens when a
+license or a trial ends; [LICENSING.md](LICENSING.md) explains it in plain words, and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the third-party components and their
 license texts (generated by `scripts/gen_notices.py`).
 
 ## Acknowledgements
@@ -659,6 +698,14 @@ Latet stands on the work of these projects. Thank you to their authors and contr
 | --- | --- | --- |
 | [psycopg](https://github.com/psycopg/psycopg) | PostgreSQL driver and connection pool, used as a separate, unmodified package | LGPL-3.0-only |
 | [redis-py](https://github.com/redis/redis-py) | Client for Valkey and Redis | MIT |
+| [PyJWT](https://github.com/jpadilla/pyjwt) | Checking the signature of an ID token in single sign-on (Enterprise Edition) | MIT |
+
+**Optional LDAP directories (`latet[ldap]`, Latet Enterprise)**
+
+| Project | Used for | License |
+| --- | --- | --- |
+| [ldap3](https://github.com/cannatag/ldap3) | Reading people and groups from an LDAP directory or Active Directory for term sync, used as a separate, unmodified package | LGPL-3.0-or-later |
+| [pyasn1](https://github.com/pyasn1/pyasn1) | The LDAP protocol's encoding, for ldap3 | BSD-2-Clause |
 
 **Dashboard and documentation site**
 

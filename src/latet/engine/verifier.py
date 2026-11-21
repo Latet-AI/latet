@@ -9,8 +9,10 @@ reached its provider (``left``).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
+import json
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -22,14 +24,15 @@ from latet.engine.masker import Masker
 from latet.engine.merge import merge_spans
 from latet.engine.pipeline import LRU, WITHHELD_DUMP, WITHHELD_UNREAD, Scope
 from latet.engine.review import ReviewPolicy
-from latet.engine.types import EntityClass, Policy, SlotKind, Span
+from latet.engine.types import EntityClass, SlotKind, Span
 from latet.state.local import LocalGiven
 
 if TYPE_CHECKING:
     from latet.state.protocols import Conversations, Given
 
-# What one entry of the memory of texts found clean takes, at most (a key of 32 bytes in a tuple with the project's,
-# a vault version, the memory's own links: measured at 266 bytes).
+# What one entry of the memory of texts found clean takes, at most (a key of 32 bytes in a tuple with the project's and
+# the synced terms' tag, a vault version, the memory's own links: measured at 274 bytes, the tag one reference to a
+# string every masker of the runtime shares).
 _CLEAN_BYTES = 320
 # What the model wrote, as this process knows it at once: the texts of this many, the most recently written kept. One
 # entry takes less than one of the texts found clean (a key of 32 bytes, True, the memory's links).
@@ -38,6 +41,36 @@ _WRITTEN = "w"  # what a store shared by processes keeps for a text the model wr
 # A text the model wrote, found in this process's memory, has its record in the store shared by processes written again
 # (its time to live counted again, or the record made again if it went) at most this often, in seconds.
 WRITTEN_KEPT_EVERY = 60.0
+# The time the local name model has to read a request's new members, in seconds, when the caller gives none: the time
+# masking gives it for a document (``mediate.DOCUMENT_READ_SECONDS``, which the gateway gives here).
+NEW_MEMBERS_READ_SECONDS = 5.0
+
+
+class NewMembersUnread(Exception):
+    """The local name model could not read a request's new members (``verify``'s ``new_members``) in the time it has:
+    the request does not leave, as a document masking cannot read in time does not (it fails closed). Its words name
+    nothing of the request."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        super().__init__(f"the local name model could not read {count} texts of new request members in time")
+
+
+def _field(text: str) -> tuple[str, str] | None:
+    """The field and the value a text of ``new_member_fields`` holds (``new_members.field``: ``{"<field>": <value>}``,
+    one member, a string or a number), the number as its text; None for any other text."""
+    try:
+        found = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(found, dict) or len(found) != 1:
+        return None
+    [(name, value)] = found.items()
+    if isinstance(value, str):
+        return name, value
+    if type(value) in (int, float):
+        return name, str(value)
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +100,9 @@ class VerifyResult:
     rules: set[str] = field(default_factory=set)
     authority: set[str] = field(default_factory=set)
     withheld: int = 0  # tool outputs the dump guard withheld, sent for the first time
+    # How many texts were verified: the slots, then the new members' and their fields, then ``checked_only``'s last,
+    # which a leak's ``slot`` counts in (``checked_only[slot - (texts - len(checked_only))]``).
+    texts: int = 0
 
     @property
     def blocking(self) -> list[Leak]:
@@ -104,9 +140,13 @@ class Verifier:
     ) -> None:
         self.masker = masker
         self.block_classes = block_classes
-        # (scope, rewritten, block) → (vault version << 1) | configured-policy evidence bit.
-        # The existing bounded integer entry retains evidence on a clean-cache hit; no second cache.
-        self._clean: LRU[tuple[str, bool, bytes], int] = LRU(100_000)
+        # (scope, rewritten, the terms' stamp, block) → (vault version << 1) | configured-policy evidence bit. The stamp
+        # (``Masker.stamp``: this process's change of the terms a company syncs, which change in place) is the one read
+        # before the block was checked: a block found clean under other terms, or across a change of them, is not found
+        # here once they changed, the same terms back included, and is checked whole.
+        # The existing bounded integer entry retains evidence on a clean-cache hit; no second cache. The last of the key
+        # says a new member's value read as its field (``new_member_fields``), apart from a text read as it is.
+        self._clean: LRU[tuple[str, bool, str, bytes, SlotKind, bool], int] = LRU(100_000)
         # What left, by conversation: this process's memory on a computer, Valkey on a Latet server (a block that left
         # through one instance never blocks the conversation on another).
         self.given: Given = given if given is not None else LocalGiven()
@@ -208,20 +248,21 @@ class Verifier:
         out: list[tuple[Span, Leak]] = []
         for span, detail, allowed in zip(spans, details, through, strict=True):
             value = span.of(text)
-            if span.eclass not in self.block_classes:
+            if span.eclass not in self.block_classes and kind != SlotKind.NEW_MEMBER:
                 if authority is not None:
                     authority.add("configured policy")
                 continue
-            if masker.fake_or_let_through(text, span):  # as written, or as it reads where written in escapes
+            # As written, or as it reads where written in escapes; a term your company locks is never let through.
+            if masker.fake_or_let_through(text, span):
                 if authority is not None and any(
                     masker.allow.allows(form) for form in (text[span.start : span.end], span.of(text))
                 ):
                     authority.add("configured policy")
                 continue
-            if masker.policies.get(span.etype) == Policy.ALLOW:
+            if masker.lets_type_through(span):
                 if authority is not None:
                     authority.add("configured policy")
-                continue  # your settings let this type through: the masking left it so
+                continue  # your settings let this type through, never for a company's term: the masking left it so
             fakes = masker.surrogates_in(text) if fakes is None else fakes
             if any(f.start <= span.start and span.end <= f.end for f in fakes):
                 continue  # a word of a fake (a drawn name holding one of your terms): nothing of yours
@@ -243,6 +284,9 @@ class Verifier:
         rewritten: bool = False,
         written: Callable[[str], bool | str | None] | None = None,
         checked_only: Iterable[str] = (),
+        new_members: Iterable[str] = (),
+        new_member_fields: Iterable[str] = (),
+        deadline: float | None = None,
     ) -> VerifyResult:
         """``slots`` are (text, kind, from_model) of the request about to leave. ``review`` is given for
         Claude Code's auto mode reviewer: the identity details it allows are reported, never block.
@@ -268,15 +312,29 @@ class Verifier:
         the vault's store for all of them, and held while they are checked (an API key's vault: ``Vault.prefetch``): a
         value found once stops it, whatever its age. One the gateway masked had them brought in as it was masked, and
         is checked against memory alone (``Vault.holding(memory_only=True)``), except a shared store: its final
-        check observes commits and queries the text's words again under the same outer call's budget."""
+        check observes commits and queries the text's words again under the same outer call's budget.
+
+        ``new_members``: the texts of a request's members no profile declares (the new rule's), each read once, as
+        masking reads a person's text, the local name model included: those not found clean before are read by it
+        first, at once, in as few runs as hold them, by ``deadline`` (``time.monotonic``; ``NEW_MEMBERS_READ_SECONDS``
+        from now when None), as masking reads a document; past it, ``NewMembersUnread`` is raised and nothing is
+        checked or recorded. ``new_member_fields``: their values as their fields (``{"<field>": <value>}``), each read
+        once by every detector but the name model (the value is among ``new_members``, read by it there), and its value
+        by its field too, as masking reads a JSON document's value: a field rule finds it by its key or its path."""
         masker = scope.masker if scope is not None else self.masker
         slots = list(slots)
+        members = list(dict.fromkeys(text for text in new_members if text))
+        slots.extend((text, SlotKind.NEW_MEMBER, False) for text in members)
+        fields_from = len(slots)
+        slots.extend((text, SlotKind.NEW_MEMBER, False) for text in dict.fromkeys(new_member_fields) if text)
         record_count = len(slots)
         slots.extend((text, SlotKind.OTHER, False) for text in checked_only)
-        with masker.vault.holding(memory_only=rewritten):
+        ahead = masker.reading_ahead() if members else contextlib.nullcontext()
+        with masker.vault.holding(memory_only=rewritten), ahead:
             if not rewritten or getattr(masker.vault, "rechecks_store", False):
                 masker.vault.prefetch([text for text, _, _ in slots if text])
-            return self._checked(
+            self._read_ahead(masker, members, scope, rewritten, deadline)
+            result = self._checked(
                 slots,
                 session_key,
                 review,
@@ -285,7 +343,28 @@ class Verifier:
                 rewritten=rewritten,
                 written=written,
                 record_count=record_count,
+                fields_from=fields_from,
             )
+        result.texts = len(slots)
+        return result
+
+    def _read_ahead(
+        self, masker: Masker, texts: list[str], scope: Scope | None, rewritten: bool, deadline: float | None
+    ) -> None:
+        """``texts`` of new members, those the check will read with the local name model (none found clean before),
+        read by it at once (``Masker.read_ahead``), in ``verify``'s ``reading_ahead``: one at a time, a request of a
+        thousand distinct values cost minutes of the engine's thread. Past ``deadline``, ``NewMembersUnread``."""
+        if not texts or (scope is not None and not scope.enabled) or not masker.reads_ahead(SlotKind.USER_TEXT):
+            return
+        scope_key, tag = (scope.key if scope is not None else ""), masker.stamp
+        unread = [
+            text
+            for text in texts
+            if self._clean.get((scope_key, rewritten, tag, self._key(text), SlotKind.NEW_MEMBER, False)) is None
+        ]
+        by = time.monotonic() + NEW_MEMBERS_READ_SECONDS if deadline is None else deadline
+        if unread and not masker.read_ahead(unread, SlotKind.USER_TEXT, by):
+            raise NewMembersUnread(len(unread))
 
     def _checked(
         self,
@@ -298,13 +377,22 @@ class Verifier:
         rewritten: bool,
         written: Callable[[str], bool | str | None] | None,
         record_count: int,
+        fields_from: int,
     ) -> VerifyResult:
-        """``verify``'s check of ``slots``, the values they may hold in memory."""
+        """``verify``'s check of ``slots``, the values they may hold in memory: those from ``fields_from`` to
+        ``record_count`` new members' values as their fields (``new_member_fields``)."""
         result = VerifyResult()
         masker = scope.masker if scope is not None else self.masker
         scope_key = scope.key if scope is not None else ""
         version = masker.vault.version
+        # Read once, before any detection: a sync while the blocks are read never has one kept as clean under terms it
+        # was not checked with (another conversation would skip it), nor under a tag that comes back (the stamp never
+        # does: the re-review's R1).
+        tag = masker.stamp
         unsent: list[bytes] = []
+        # A new member's values found, each said once of its type, whatever texts of the new rule hold it (a key with
+        # its value, the value as its fields): (its type, the value, whether it stops the request).
+        said: set[tuple[str, str, bool]] = set()
         for slot, (text, kind, from_model) in enumerate(slots):
             if not text or (rewritten and from_model):
                 continue
@@ -316,36 +404,58 @@ class Verifier:
                     result.withheld += 1
             if scope is not None and not scope.enabled:
                 continue  # it leaves as it is: sent all the same
-            clean_at = self._clean.get((scope_key, rewritten, key))
+            field = fields_from <= slot < record_count
+            cache = (scope_key, rewritten, tag, key, kind, field)
+            clean_at = self._clean.get(cache)
             authority = {"configured policy"} if clean_at is not None and clean_at & 1 else set()
             result.authority.update(authority)
             if clean_at is not None and clean_at >> 1 == version:
                 result.skipped += 1
                 continue
             result.checked += 1
+            # A new member is read as a person's text, names included, and every class of what it holds blocks.
+            reads = SlotKind.USER_TEXT if kind == SlotKind.NEW_MEMBER else kind
             if clean_at is not None:
                 # Clean before: only values learnt since then can make it dirty.
-                known, ctx = masker._known_values(text), DetectContext(kind)
+                known, ctx = masker._known_values(text), DetectContext(reads)
                 spans = read_escaped(text, lambda t, k=known, c=ctx: list(k.detect(t, c)))
             else:
-                # Names found by the local model never block (NER is best effort): no need to run it here.
-                spans = masker.detect(text, DetectContext(kind), skip=("ner",))
-            leaks = self._leaks(masker, text, spans, kind, new, review, slot, authority)
+                # Names found by the local model never block (NER is best effort): no need to run it here. A new
+                # member's value as its field is read by it as the value itself (``new_members``).
+                skip = ("ner",) if field or reads is kind else ()
+                spans = masker.detect(text, DetectContext(reads), skip=skip)
+            found = [(leak, text) for leak in self._leaks(masker, text, spans, kind, new, review, slot, authority)]
+            if field and clean_at is None and (pair := _field(text)) is not None:
+                # Its value by its field, as masking reads a JSON document's: a field rule names it by its key or its
+                # path (``items[].sku``, which no text of a JSON object shows the fields detector).
+                name, value = pair
+                spans = masker.detect(value, DetectContext(reads, field=name), skip=("ner",))
+                found += [
+                    (leak, value) for leak in self._leaks(masker, value, spans, kind, new, review, slot, authority)
+                ]
+            leaks = [leak for leak, _ in found]
+            if kind == SlotKind.NEW_MEMBER:
+                leaks = []
+                for leak, source in found:
+                    mark = (leak.etype, source[leak.start : leak.end], leak.blocks)
+                    if mark not in said:
+                        said.add(mark)
+                        leaks.append(leak)
             result.authority.update(authority)
-            if leaks and from_model and written is not None and (source := written(text)):
+            if found and from_model and written is not None and (source := written(text)):
                 if source != "observed":
                     result.rules.add("reported as written by the model")
                 else:
                     result.authority.add("provider-observed text")
                 continue  # the model's own words, as it wrote them; not kept as clean: in a client's text it is not
-            if leaks:
-                if any(leak.allowed for leak in leaks):
+            if found:  # never kept as clean, a value said of another text of the request included
+                if any(leak.allowed for leak, _ in found):
                     result.authority.add("auto-mode identity detail")
-                if any(not leak.new and not leak.allowed for leak in leaks):
+                if any(not leak.new and not leak.allowed for leak, _ in found):
                     result.rules.add("sent before in this conversation")
                 result.leaks.extend(leaks)
             else:
-                self._clean.put((scope_key, rewritten, key), (version << 1) | bool(authority))
+                self._clean.put(cache, (version << 1) | bool(authority))
         if record and not result.blocking:
             # Only a request that leaves exposes its blocks: a blocked one keeps blocking when resent.
             self.given.keep_checked(session_key, unsent)

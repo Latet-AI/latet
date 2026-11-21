@@ -20,7 +20,7 @@ import type {
 import { defaultPii } from '../lib/pii'
 import { DEFAULT_LIVE, DEFAULT_REVIEW } from '../lib/reviewer'
 import { annotate, countClasses, countModules, countTypes, MockVault, render, slot, sum, textOf, type MockSlot, type Part, type Value } from './builder'
-import { ALNUM, B64, b64url, chars, hexId, pem, seeded, shape, token, UPPER_NUM, URLSAFE } from './rng'
+import { ALNUM, B64, b64url, chars, hashSeed, hexId, pem, secretShape, seeded, token, UPPER_NUM, URLSAFE } from './rng'
 
 export const NOW = Date.now() / 1000
 /** Your guidance to the local reviewer, in the mock's settings. */
@@ -61,13 +61,24 @@ const CLIENT_STATE = vault.value('DATA', 'STRUCT', 'strict:status', 'OVERDUE', '
 const AURORA = vault.value('PROJECT', 'CUSTOM', 'terms:project', 'Project Aurora', 'Project Kestrel', seen)
 const CLIENT_CO = vault.value('CLIENT', 'CUSTOM', 'terms:client', 'Whitfield & Co', 'Proseware & Contoso', seen)
 
-// Secrets, generated (format-preserving surrogates keep the public prefix).
+// Secrets, generated (format-preserving surrogates keep a vendor's public prefix, nothing else of the value, and draw
+// each run between signs from the kinds of characters it holds).
 function secret(type: string, rule: string, original: string, keep = 0): Value {
-  return vault.value(type, 'SECRET', rule, original, shape(rng, original, keep), seen)
+  return vault.value(type, 'SECRET', rule, original, secretShape(rng, original, keep), seen)
 }
 const stripeKey = token(rng, ['sk', 'live', ''].join('_'), 24)
 const STRIPE = secret('STRIPE_ACCESS_TOKEN', 'gitleaks:stripe-access-token', stripeKey, 8)
-const WHSEC = secret('ASSIGNED_SECRET', 'assignment:STRIPE_WEBHOOK_SECRET', token(rng, 'whsec_', 32), 6)
+// A value assigned to a name keeps none of its letters, `whsec` too: those are drawn from the value's own seed, so
+// that every value after it is drawn as before.
+const whsecKey = token(rng, 'whsec_', 32)
+const WHSEC = vault.value(
+  'ASSIGNED_SECRET',
+  'SECRET',
+  'assignment:STRIPE_WEBHOOK_SECRET',
+  whsecKey,
+  secretShape(rng, whsecKey, 6, seeded(hashSeed(whsecKey))),
+  seen,
+)
 const DB_PASS = secret('URL_PASSWORD', 'credentials:url', chars(rng, ALNUM, 18))
 const SMTP_PASS = secret('PASSWORD', 'assignment:SMTP_PASSWORD', chars(rng, ALNUM, 14) + '!')
 const JWT_SECRET = secret('ASSIGNED_SECRET', 'assignment:JWT_SECRET', chars(rng, URLSAFE, 43))
@@ -87,9 +98,11 @@ const JWT = vault.value(
   'SECRET',
   'credentials:jwt',
   jwtValue,
+  // `eyJ` kept where it begins a part; the signature's first three drawn from its own seed, so that every value after
+  // it is drawn as before.
   jwtValue
     .split('.')
-    .map((part) => shape(rng, part, 3))
+    .map((part) => (part.startsWith('eyJ') ? secretShape(rng, part, 3) : secretShape(rng, part, 3, seeded(hashSeed(part)))))
     .join('.'),
   seen,
 )
@@ -252,6 +265,8 @@ export function makeExchange(input: ExchangeInput): MockExchange {
       coverage: flags.includes('blocked') || input.transport === 'plugin' ? 'unknown' : 'complete-accounting',
       launch: input.transport === 'plugin' ? null : (LAUNCH_OF[input.agent] ?? null),
       passes: [],
+      // The mode that decided a member no request profile names (none here): an observed check records none.
+      unknown_members: input.transport === 'plugin' ? null : 'check',
       profile: (input.protocol && PROFILE_OF[input.protocol]) ?? null,
       removed: { headers: 0, members: 0 },
     },
@@ -1325,6 +1340,7 @@ export const initialConfig: ConfigView = {
   fields: [],
   dump_guard: null,
   images: 'allow',
+  unknown_members: 'check',
   llm_review: { ...DEFAULT_REVIEW, enabled: true, model: 'bonsai2-27b', guidance: MOCK_GUIDANCE },
   live_review: { ...DEFAULT_LIVE, enabled: true },
   identity: {

@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import { ApiError, api } from '../api/client'
-import type { ExchangeDetail, Leak } from '../api/types'
+import type { ExchangeDetail, Leak, Slot } from '../api/types'
 import { AgentLabel, FlagList, ModeBadge, TransportStatus } from '../components/badges'
 import { DocsPageLink, DocsWhyLink } from '../components/DocsLinks'
 import { CoverageList } from '../components/exchange/CoverageList'
@@ -24,7 +24,7 @@ import { givenReason, outboundTools } from '../lib/blocks'
 import { coverageOutcome, showsVerified } from '../lib/coverage'
 import { signedBy } from '../lib/destinations'
 import { isBlocked, parseFlags } from '../lib/flags'
-import { flagDetail, KIND_LABEL, MODULE_LABEL, moduleCounts, REVIEW_DETAIL_LABEL, REVIEW_DETAIL_TITLE } from '../lib/labels'
+import { flagDetail, MODULE_LABEL, moduleCounts, REVIEW_DETAIL_LABEL, REVIEW_DETAIL_TITLE, slotKindLabel } from '../lib/labels'
 import { useDeploymentKey } from '../lib/me'
 import { usePref } from '../lib/prefs'
 import { ruleLayer } from '../lib/projects'
@@ -324,7 +324,7 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
       {leaks.length > 0 && isBlocked(summary.flags) && (
         <details className="mb-2 rounded-lg border border-line bg-surface p-4">
           <summary className="cursor-pointer text-ui font-medium text-ink">{t('exchange.leaks.folded', { count: leaks.length })}</summary>
-          <LeakTable leaks={leaks} />
+          <LeakTable leaks={leaks} slots={request.slots} />
         </details>
       )}
       {leaks.length > 0 && !isBlocked(summary.flags) && (
@@ -342,7 +342,7 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
             {allLetThrough ? t('exchange.leaks.letThroughBody') : t('exchange.leaks.body')}{' '}
             <DocsWhyLink target={allLetThrough ? 'why.autoModeReviewer' : 'why.blocked'} />
           </p>
-          <LeakTable leaks={leaks} />
+          <LeakTable leaks={leaks} slots={request.slots} />
         </section>
       )}
 
@@ -437,9 +437,15 @@ function ExchangeBody({ detail }: { detail: ExchangeDetail }) {
   )
 }
 
-function LeakTable({ leaks }: { leaks: Leak[] }) {
+function LeakTable({ leaks, slots }: { leaks: Leak[]; slots: Slot[] }) {
   const { t } = useTranslation()
   const key = useDeploymentKey()
+  // Where each value is, when the history keeps the block it is in: a tool's parameter schema apart from its description.
+  const paths = new Map(slots.flatMap((slot) => (slot.block ? [[slot.block, slot.path] as const] : [])))
+  const kindOf = (leak: Leak) => {
+    const label = slotKindLabel(leak.kind, (leak.block && paths.get(leak.block)) ?? '')
+    return label ? t(key(label)) : leak.kind
+  }
   return (
     <table className="data-table mt-3 rounded-md bg-surface">
       <thead>
@@ -459,7 +465,7 @@ function LeakTable({ leaks }: { leaks: Leak[] }) {
                 <span className="block font-sans text-meta text-ink-3">{t(REVIEW_DETAIL_TITLE[leak.detail])}</span>
               )}
             </td>
-            <td className="text-ink-2">{KIND_LABEL[leak.kind as keyof typeof KIND_LABEL] ? t(key(KIND_LABEL[leak.kind as keyof typeof KIND_LABEL])) : leak.kind}</td>
+            <td className="text-ink-2">{kindOf(leak)}</td>
             <td className="mono text-ink-2">{leak.preview}</td>
             <td className="text-ink-2">
               {leak.allowed ? t('exchange.leaks.allowed') : leak.new ? t('exchange.leaks.new') : t('exchange.leaks.old')}

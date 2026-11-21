@@ -20,7 +20,12 @@ Cette seule commande :
   `openai_base_url`, pour OpenCode les surcharges de `baseURL`. Si vous avez modifié l'un de ces
   fichiers depuis, Latet ne retire que ce qu'il a ajouté et conserve vos modifications ;
 - supprime le démarrage à l'ouverture de session ;
-- arrête le daemon.
+- arrête le daemon ;
+- sous Windows, là où Latet a réservé son port (voir
+  [Le port 5283 est déjà utilisé](../../troubleshooting/#le-port-5283-est-déjà-utilisé)), demande
+  s'il faut aussi retirer cette réservation, avec une seule confirmation d'un administrateur. Si
+  vous répondez non, le port reste réservé, et `latet reserve-port --remove` retire la réservation
+  plus tard : lancez-la avant l'étape 2.
 
 Elle ne change pas les outils que vous avez pointés vers Latet vous-même, dans leurs propres
 réglages ou dans votre shell : GitHub Copilot, Zed, Cline, Kilo Code, Continue, Crush, Prime Agent,
@@ -80,7 +85,8 @@ contient :
 - `logs/`, `bridge.token`, `integrations.json` (la trace de ce que `latet global-install` a
   changé), `claude-marketplace/` (la copie du plugin Claude Code), `tutorial.json` (les chapitres du
   [tutoriel](../tutorial/) que vous avez terminés), `repositories.json` (les dossiers des dépôts avec
-  un `latet.yaml` que Latet a vus), et `root.key` si votre système n'a pas de magasin d'identifiants.
+  un `latet.yaml` que Latet a vus), `port-reservations.json` (sous Windows, les ports que Latet a
+  réservés), et `root.key` si votre système n'a pas de magasin d'identifiants.
 
 La clé qui chiffre le coffre-fort se trouve dans le magasin d'identifiants de votre système
 d'exploitation (le Gestionnaire d'identification de Windows, le Trousseau de macOS ou le trousseau de
@@ -115,6 +121,10 @@ Annulez les modifications à la main :
   `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/dev.latet.daemon.plist`, puis supprimez ce
   fichier. Sous Linux, lancez `systemctl --user disable latet.service`, puis supprimez
   `~/.config/systemd/user/latet.service`.
+- **Le port de Latet, sous Windows** : `port-reservations.json`, dans le dossier de données, liste
+  les ports que Latet a réservés. Pour chacun, lancez ceci dans une fenêtre PowerShell exécutée en
+  tant qu'administrateur, avec le port à la place de `5283` :
+  `netsh int ipv4 delete excludedportrange protocol=tcp startport=5283 numberofports=1 store=persistent`.
 
 Les copies de vos fichiers de configuration d'avant `latet global-install` se trouvent dans le
 dossier `backups/` du dossier de données.

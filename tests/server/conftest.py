@@ -23,6 +23,7 @@ from latet.server.db import Database, migrate
 from latet.server.master import MasterKey
 from latet.server.settings import ServerSettings
 
+from ..owned import owned
 from ..unit.state.contracts import Clock
 from .support import DATABASE, URL, VALKEY, close_test_server, open_test_server, role_catalog
 
@@ -225,8 +226,8 @@ def _valkey_client(url: str = ""):
 
 @pytest.fixture
 def schema():
-    """A schema of this test's own, dropped after it."""
-    name = "latet_t_" + secrets.token_hex(5)
+    """A schema of this test's own, dropped after it (named in the run's journal first: tests/owned.py)."""
+    name = owned("latet_t_" + secrets.token_hex(5), "schema", DATABASE)
     yield name
     with psycopg.connect(DATABASE, autocommit=True) as conn:
         conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(name)))
@@ -234,8 +235,8 @@ def schema():
 
 @pytest.fixture
 def prefix():
-    """A Valkey prefix of this test's own, its keys removed after it."""
-    value = "latet_t_" + secrets.token_hex(5) + ":"
+    """A Valkey prefix of this test's own, its keys removed after it (named in the run's journal first)."""
+    value = owned("latet_t_" + secrets.token_hex(5) + ":", "prefix", VALKEY)
     yield value
     client = _valkey_client()
     keys = list(client.scan_iter(match=value + "*", count=1000))
@@ -294,11 +295,12 @@ def role_url():
     """Makes a login role of the test's own whose sessions default to the settings it is given (``ALTER ROLE ... SET``,
     what a role or a database may set of a session) and returns the address that reaches PostgreSQL as that role:
     ``role_url(default_transaction_isolation="repeatable read")``. The roles, with what they made, are dropped after the
-    test, which closes its connections before."""
+    test, which closes its connections before. Each role is named in the run's journal before it is made."""
     made: list[str] = []
 
     def make(**defaults: str) -> str:
-        role, password = "latet_r_" + secrets.token_hex(4), "r0le-" + secrets.token_hex(4)
+        role = owned("latet_r_" + secrets.token_hex(4), "role", DATABASE)
+        password = "r0le-" + secrets.token_hex(4)
         found = conninfo_to_dict(DATABASE)
         with role_catalog() as admin:
             admin.execute(

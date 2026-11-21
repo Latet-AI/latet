@@ -41,6 +41,30 @@ interruption, missing reports, nonzero exits, changed inventory, partial phase r
 fail the gate. Cleanup terminates only owned processes and Jobs. Hard termination can leave the test's random
 database schema/key prefix behind; the runner never resets shared services.
 
+Each child's `LATET_TEST_OWNED` names `<label>.owned.jsonl` in the output directory (also in its spec and its
+report's `environment`). Before a test makes a schema, key prefix, role, database or Valkey user in the shared
+services, `tests/owned.py` appends its name, kind and `host:port/database` there; never a user, password or other
+address option. It refuses any name not exactly of a shape the tests make (`SHAPES`: random hex of a fixed length),
+so no record is empty, short or another campaign's. `tests/unit/test_test_owned.py` fails when a test makes such a
+name outside `owned(...)`.
+
+After every whole run, and after a forced stop, list what is left, read only, beside `summary.json`:
+
+```powershell
+python -I -B scripts/test_owned_left.py --output <report-directory> --config <config.json>
+```
+
+It writes `owned-left.json` and exits 0 only when there were journals, every place was read, nothing is left and no
+record was set apart.
+A passing run leaves nothing. What it lists is this run's own and nothing else is: in PostgreSQL an object whose
+name is a record's exactly or the record's followed by `_`; in Valkey the keys beginning with a prefix record, and a
+Valkey user of a record's exact name with its `<user>:` keys. Remove exactly those, never by a pattern such as
+`latet_t_%`: other campaigns share the services and the `latet_t_` start of their names. By hand, compare as
+strings (`nspname = name OR starts_with(nspname, name || '_')`), never with `LIKE`, where `_` is a wildcard; in
+Valkey use `SCAN MATCH` with the name glob-escaped (`\` before each of `*?[]\`). A record set apart is matched
+against nothing: an `unreadable` or unmatched place is resolved by hand against the private config, or not acted
+on, and a refused record is never acted on.
+
 `summary.json` retains complete child records, phase outcomes, warnings, collection skips, module durations and
 whole-run elapsed time; individual reports, specs and full logs also remain. A setup skip is a test result;
 collection skips have their own attributed ledger. `success` means complete passing execution and cleanup;

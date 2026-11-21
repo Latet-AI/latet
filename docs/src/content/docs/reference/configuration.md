@@ -59,6 +59,7 @@ history: full
 | `fields` | list of object | `[]` | Rules for the values of single fields of tables, JSON and `key=value`. |
 | `dump_guard` | number | not set | Withhold a tool output that holds more personal values (e-mails, phone numbers, names, ID numbers...) than this: the model is told why instead. Not set or 0: never. |
 | `images` | `allow` or `mask` or `block` | `allow` | `allow` sends images with their text read and masked by the text recognition models (`latet ocr install`): without them, or with `ocr: off`, a request that carries an image is refused. `mask` sends only images whose text was read and masked; `block` sends no images. Documents, audio and remote media are refused under each. The max profile sends no images either, unless this says `mask`. |
+| `unknown_members` | `check` or `refuse` | `check` | A field of a request that no request profile names yet, such as one a new release of an agent adds: `check` reads it whole and sends it as it came when nothing in it would be masked and it names no file, address, stored conversation or model, and refuses the request otherwise; `refuse` refuses the request, as Latet did before 0.15.0, save on Claude Code, Bedrock and Vertex a field of text alone outside a provider's own item, which still passes once the final check has read it. Moving to `check` waits for your approval. |
 | `llm_review` | object | see below | The local reviewer: a language model on your own server that reads what the detectors left in clear (see below). |
 | `live_review` | object | see below | The Live Reviewer: every new text waits for your approval in the dashboard (see below). |
 | `projects` | list of object | `[]` | Your own settings for single projects, on top of these and of the project's `latet.yaml` (see below). |
@@ -199,6 +200,7 @@ a value replaces the global one, a list is added to it. See [Projects](../../con
 | `dump_guard` | number | not set | Withhold a tool output with more personal values than this (0: never). |
 | `images` | `allow` or `mask` or `block` | not set | `mask` sends images only with their text read and masked, `block` sends no images or documents. |
 | `ocr` | `auto` or `off` | not set | Reading the text in images. |
+| `unknown_members` | `refuse` | not set | `refuse`: a request here with a field no request profile names yet is refused, as `refuse` in your settings refuses it (on Claude Code, Bedrock and Vertex a field of text alone still passes once checked). Only `refuse`: a project cannot loosen it. |
 | `llm_review` | `off` or `background` or `inline` | not set | How much the local reviewer reads here, when it is on: `off`, `background` or `inline`. |
 | `live_review` | true or false | not set | Whether new texts wait for your approval in the dashboard in this project. |
 | `review_images` | true or false | not set | Whether the local reviewer is shown the images in this project. Yours alone: a repository file cannot set it. |
@@ -244,6 +246,7 @@ check` says what and why. Its [JSON Schema](https://docs.latet.ai/project.schema
 | `dump_guard` | number | not set | Withhold a tool output with more personal values than this (0: never). |
 | `images` | `allow` or `mask` or `block` | not set | `mask` sends images only with their text read and masked, `block` sends no images or documents. |
 | `ocr` | `auto` or `off` | not set | Reading the text in images. |
+| `unknown_members` | `refuse` | not set | `refuse`: a request here with a field no request profile names yet is refused, as `refuse` in your settings refuses it (on Claude Code, Bedrock and Vertex a field of text alone still passes once checked). Only `refuse`: a project cannot loosen it. |
 | `llm_review` | `off` or `background` or `inline` | not set | How much the local reviewer reads here, when it is on: `off`, `background` or `inline`. |
 
 ## Server settings

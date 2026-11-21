@@ -258,7 +258,7 @@ def test_caddy_excludes_http_error_records_containing_credentials():
 def test_image_exports_server_extra_and_runs_unprivileged():
     text = _active_text(ROOT / "Dockerfile")
     export = next(line for line in text.splitlines() if "uv export" in line)
-    assert "--extra server" in export
+    assert "--extra server" in export and "--extra ldap" in export  # term sync from a directory (Enterprise)
     assert "--extra ner" in export and "--extra ocr" in export
     assert "--frozen" in export and "--no-dev" in export
     assert re.search(r"^USER 10001:10001$", text, re.MULTILINE)

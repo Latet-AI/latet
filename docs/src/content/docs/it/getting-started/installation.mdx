@@ -38,16 +38,31 @@ Lo script fa due cose, in quest'ordine:
    immagini sono inclusi; i loro modelli vengono scaricati solo quando lo chiedi. Dove non si possono
    installare, Latet viene installato senza, e lo script lo dice alla fine; un Latet già installato
    con entrambi, invece, resta com'era. Gli altri extra di un Latet già installato (`server`, su un
-   server) restano. Se è in esecuzione un Latet più vecchio, lo ferma, e non lo
-   riavvia. Per aggiornare, `latet upgrade` è la via migliore. Dopo che lo script ha aggiornato un
+   server) restano. Se è in esecuzione un Latet più vecchio, lo ferma, e non lo riavvia, a meno che
+   su Windows sposti Latet su una porta libera alla fine (vedi sotto). Per aggiornare,
+   `latet upgrade` è la via migliore. Dopo che lo script ha aggiornato un
    Latet, esegui `latet start`, e `latet agents apply claude` se Claude Code passa da Latet in modo
    permanente, così che riceva il nuovo plugin.
+
+Su Windows, lo script finisce con una domanda, che fa solo dove Windows può prendere la porta di
+Latet. Hyper-V, WSL e Docker riservano blocchi di porte a ogni avvio di Windows, e su alcuni
+computer la porta 5283 può essere tra quelle riservate: Latet allora non può avviarsi fino al
+riavvio successivo. Lo script chiede se riservare la porta per Latet o, dove Windows la occupa già,
+se spostare Latet su una porta libera e riservare quella. Se rispondi di sì, Windows chiede una
+volta la conferma di un amministratore; dove Latet cambia porta, quel sì salva anche la nuova porta
+in `config.yaml`, fa puntare a essa gli agenti che `latet global-install` ha configurato, e ci
+avvia Latet. Se rispondi di no, lo script stampa il comando che lo fa più avanti:
+`latet reserve-port`. È l'unico passaggio che chiede la conferma di un amministratore, e
+solo se rispondi di sì: il resto dell'installazione non richiede diritti di amministratore. Vedi
+[La porta 5283 è già in uso](../../troubleshooting/#la-porta-5283-è-già-in-uso).
 
 Su macOS e Linux, apri poi un nuovo terminale: lo script aggiunge Latet al tuo `PATH` per i terminali
 che aprirai dopo, non per quello in cui è stato eseguito.
 Se neanche quello trova `latet`, esegui `uv tool update-shell` e aprine un altro.
 
-Lo script non cambia nient'altro: nessuna impostazione dei tuoi agenti, niente che parta all'accesso. Non
+A parte la porta, se rispondi di sì su Windows, lo script non cambia nient'altro: niente che parta
+all'accesso, e nessuna impostazione dei tuoi agenti, tranne che gli agenti che
+`latet global-install` ha configurato seguono Latet dove cambia porta. Non
 conosci ancora Latet? [`latet tutorial`](../tutorial/) te lo mostra al lavoro in circa 30 minuti. Poi
 avvia una sessione tramite Latet con `latet claude` o `latet codex`, come mostra
 l'[Avvio rapido](../quickstart/#provalo-senza-cambiare-nulla), e fai passare da Latet i tuoi
@@ -65,7 +80,7 @@ Due variabili d'ambiente cambiano ciò che fa lo script:
 I pattern trovano ciò che ha un formato: una chiave, un indirizzo email, un IBAN. Due cose non ne
 hanno, e richiedono un modello che gira sul tuo computer:
 
-- **Nomi e indirizzi** nel testo libero, come *Emily Carter abita al 42 di Mill Lane*: li trova il
+- **Nomi e indirizzi stradali** nel testo libero, come *Emily Carter abita al 42 di Mill Lane*: li trova il
   modello locale dei nomi.
 - **Il testo negli screenshot**, come un IBAN su una fattura: il riconoscimento del testo lo legge, e
   Latet copre ogni valore sull'immagine con il suo valore fittizio. Senza, una richiesta che contiene
@@ -101,11 +116,11 @@ aggiorna come dice
 Su Windows, che non
 sostituisce i file di un programma in esecuzione, l'aggiornamento prosegue in una finestra a parte
 quando il comando è finito, e quella finestra dice com'è andata. Un Latet 0.9.0 o 0.9.1 su Windows si
-aggiorna rilanciando l'installer: il suo `latet upgrade` potrebbe lasciarlo senza avviarsi.
+aggiorna rilanciando l'installer: il suo `latet upgrade` potrebbe impedirgli di avviarsi.
 
 **Dalla 0.10 alla 0.11**, leggi prima [Passare alla 0.11](../upgrading-to-0-11/): Latet 0.11 legge ogni
-parte di una richiesta, e rifiuta chiamate che la 0.10 inviava senza leggerle. `latet doctor` elenca
-ciò che si fermerà prima che tu aggiorni.
+parte di una richiesta, e rifiuta chiamate che la 0.10 inviava senza leggerle. Prima che tu aggiorni,
+`latet doctor` elenca ciò che verrà fermato.
 
 Prima di fermare il daemon, `latet upgrade` copia ciò che la nuova versione può cambiare quando lo
 apre: la cassaforte, la cronologia e le tue impostazioni (`config.yaml` e le impostazioni che hai
@@ -120,7 +135,7 @@ successiva: *Dimentica* toglie un valore anche da loro, cancellare la cronologia
 loro, e la loro cronologia non viene conservata più a lungo della tua; dopo `latet upgrade --to`
 verso una versione più vecchia, un *Dimentica* fatto lì non le raggiunge. Ogni copia conserva la
 forma che le ha dato la sua versione (non viene mai portata a una più nuova), così si può ancora
-rimettere.
+ripristinare.
 
 Per installare una versione precisa invece dell'ultima, per tornare a quella che avevi per esempio:
 
@@ -128,13 +143,13 @@ Per installare una versione precisa invece dell'ultima, per tornare a quella che
 latet upgrade --to 0.9.9
 ```
 
-Tornando alla versione con cui è stata fatta una copia, propone di rimettere quella copia. Dice
+Tornando alla versione con cui è stata fatta una copia, propone di ripristinare quella copia. Dice
 quanti valori la cassaforte ha imparato dopo la copia, che andrebbero persi, e te lo chiede nel tuo
 terminale. La scelta predefinita lascia i tuoi dati come sono: la versione più vecchia li legge
-ancora dove quella più nuova ha solo aggiunto. Se la rimetti, i tuoi file come sono ora vengono
-copiati prima, in una copia a parte; se rimettere la copia non riesce a metà, i tuoi file tornano al
-loro posto, e lo dice. Una versione più vecchia non ha le correzioni di quelle successive: un agente
-non può eseguire `latet upgrade --to` verso una di loro, lo esegui tu.
+ancora dove quella più nuova ha solo aggiunto. Se la ripristini, i tuoi file come sono ora vengono
+copiati prima, in una copia a parte; se il ripristino della copia non riesce a metà, i tuoi file
+tornano al loro posto, e lo dice. Una versione più vecchia non ha le correzioni di quelle
+successive: un agente non può eseguire `latet upgrade --to` verso una di esse, lo esegui tu.
 
 ## Installa con un agente AI
 
@@ -152,12 +167,12 @@ latet global-install --yes --profile balanced --agents claude,codex --auto-mode-
 
 ## Eseguilo in Docker
 
-Per non avere Python sul tuo computer, esegui invece il daemon come container e collegaci i tuoi
-agenti: vedi [Docker](../docker/).
+Per non avere Python sul tuo computer, esegui invece il daemon come container e fai puntare i tuoi
+agenti al container: vedi [Docker](../docker/).
 
 ## Rilevamento dei nomi
 
-Nomi e indirizzi nel testo libero, come *Emily Carter abita al 42 di Mill Lane*, richiedono un
+Nomi e indirizzi stradali nel testo libero, come *Emily Carter abita al 42 di Mill Lane*, richiedono un
 modello statistico, che Latet esegue sul tuo computer. I segreti e i dati strutturati come email e
 IBAN non ne hanno bisogno; i nomi sì, quindi conviene averlo dal primo giorno.
 
@@ -172,7 +187,7 @@ Gira sull'extra `ner` (ONNX Runtime e un tokenizer), che l'installer installa in
   tedesco e spagnolo. Arriva da huggingface.co a una revisione fissata, e ogni file viene verificato
   con uno SHA-256 fissato prima dell'uso. Mentre il daemon è in esecuzione occupa fino a circa 2 GB
   di memoria.
-- Dopo il download gira sulla tua CPU. Niente viene inviato altrove, e Latet si collega a
+- Dopo il download gira sulla tua CPU. Niente viene inviato altrove, e Latet si connette a
   huggingface.co solo quando esegui `latet ner install`.
 - Un daemon in esecuzione inizia subito a usarlo. `latet ner status` mostra se è in uso;
   `latet ner remove` lo elimina. Per tenerlo installato ma inutilizzato, imposta `ner: off` nella

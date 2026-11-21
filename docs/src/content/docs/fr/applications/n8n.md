@@ -46,7 +46,7 @@ Chaque opération lit le texte de chaque élément dans un champ (**Text Field**
 envoie les éléments par appels de 1 000 textes au plus.
 
 - **Scan** dit où sont les valeurs dans chaque texte, par type, et ne garde rien.
-- **Mask** rend chaque texte avec des valeurs factices à la place de ses valeurs, la même valeur
+- **Mask** renvoie chaque texte avec des valeurs factices à la place de ses valeurs, la même valeur
   factice pour la même valeur à chaque appel de la clé. **Kind** dit ce que sont les textes :
   **Prose** pour le texte écrit par des personnes, **Data** pour les journaux, les enregistrements et
   la sortie d'un programme ([prose et données](../#prose-et-données)).
@@ -72,7 +72,7 @@ Un workflow qui répond aux messages du support avec un modèle :
 5. Le workflow envoie la réponse.
 
 Le modèle ne voit que des valeurs factices, les mêmes d'un message à l'autre d'un même client, et le
-client lit les vraies valeurs. Ne donnez pas l'opération Unmask comme outil à un agent d'IA : elle
+client lit les vraies valeurs. Ne donnez pas l'opération Unmask comme outil à un agent IA : elle
 remettrait au modèle les valeurs mêmes que le masquage lui cache.
 
 Le [README](https://github.com/Latet-AI/n8n-nodes-latet#readme) du paquet liste chaque champ que les

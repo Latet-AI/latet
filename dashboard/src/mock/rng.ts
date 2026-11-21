@@ -40,14 +40,48 @@ export function token(rng: Rng, prefix: string, length: number, alphabet = ALNUM
   return prefix + chars(rng, alphabet, length) + suffix
 }
 
-/** Same length and character classes, separators kept: what the engine's surrogates look like. */
+/** Same length and character classes, separators kept: what the engine's surrogates look like (a secret's: `secretShape`). */
 export function shape(rng: Rng, value: string, keep = 0): string {
   let out = value.slice(0, keep)
   for (const c of value.slice(keep)) {
-    if (c >= 'A' && c <= 'Z') out += chars(rng, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1)
-    else if (c >= 'a' && c <= 'z') out += chars(rng, 'abcdefghijklmnopqrstuvwxyz', 1)
-    else if (c >= '0' && c <= '9') out += chars(rng, '0123456789', 1)
+    if (c >= 'A' && c <= 'Z') out += chars(rng, UPPER, 1)
+    else if (c >= 'a' && c <= 'z') out += chars(rng, LOWER, 1)
+    else if (c >= '0' && c <= '9') out += chars(rng, DIGITS, 1)
     else out += c
+  }
+  return out
+}
+
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const LOWER = 'abcdefghijklmnopqrstuvwxyz'
+const DIGITS = '0123456789'
+const UPPER_HEX = '0123456789ABCDEF'
+
+/**
+ * What a run of a secret's fake is drawn from at every place, as the engine draws it: one case's hexadecimal digits
+ * where the run holds nothing else, else every kind of character it holds ('' for a run of signs).
+ */
+function runAlphabet(run: string): string {
+  if (/[a-fA-F]/.test(run) && /^[0-9a-f]+$/.test(run)) return LOWER_HEX
+  if (/[a-fA-F]/.test(run) && /^[0-9A-F]+$/.test(run)) return UPPER_HEX
+  return (/[0-9]/.test(run) ? DIGITS : '') + (/[a-z]/.test(run) ? LOWER : '') + (/[A-Z]/.test(run) ? UPPER : '')
+}
+
+/**
+ * A secret's fake, as the engine draws it (`secret_shape`): the first `keep` characters (a vendor's public prefix) and
+ * the signs kept, each run of letters and digits between signs drawn at every place from the kinds of characters it
+ * holds, never a digit for a digit and a capital for a capital. With `first`, the first `keep` characters are drawn
+ * from it instead of kept (a fake that keeps none of them, the rest drawn from `rng` as before).
+ */
+export function secretShape(rng: Rng, value: string, keep = 0, first?: Rng): string {
+  let out = first ? '' : value.slice(0, keep)
+  let at = out.length
+  for (const run of value.slice(at).match(/[A-Za-z0-9]+|[^A-Za-z0-9]+/g) ?? []) {
+    const alphabet = runAlphabet(run)
+    for (const c of run) {
+      out += alphabet ? chars(first && at < keep ? first : rng, alphabet, 1) : c
+      at++
+    }
   }
   return out
 }

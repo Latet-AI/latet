@@ -224,15 +224,25 @@ def test_a_json_documents_value_is_masked_whole_when_a_later_value_teaches_a_val
 
 
 @pytest.mark.parametrize("document", [False, True], ids=["text", "json"])
-def test_a_text_that_left_leaves_again_as_it_left_whatever_the_vault_learnt_since(document):
-    """By design: the provider holds it as it left, and its cache with it. Only a text never sent is masked anew."""
+def test_a_text_that_left_is_masked_anew_once_when_the_vault_learns_a_secret_around_a_value_masked_in_it(document):
+    """The provider holds a text as it left, and its cache with it, but a secret learnt since is never sent again in
+    clear (issue 21): the IBAN, kept as the group of the secret masked alone in the text, shows there in part, so the
+    text is masked anew, once, and leaves so from then on. A JSON document, masked value by value, is asked of the
+    secrets it leaves with whole (``known_in``): none shows whole in it, so it leaves as it left, as before 0.15.0. A
+    value of another class leaves as it left (``test_gateway_e2e``'s domain)."""
     mediator = _mediator()
     session = Session("conversation-1")
     texts = [SECRET_FIRST, json.dumps({"owner": GLUED}) if document else GLUED]
     first = _request(mediator, session, texts)
     mediator.verifier.left(session.key, first)  # the gateway saw the request reach its provider
     _request(mediator, Session("conversation-2"), [THE_IBAN])
-    assert _request(mediator, session, texts) == first
+    again = _request(mediator, session, texts)
+    if document:
+        assert again == first
+        return
+    assert again[0] == first[0] and again[1] != first[1] and _in_clear(again[1]) == [], again
+    mediator.verifier.left(session.key, again)
+    assert _request(mediator, session, texts) == again  # as it left the second time
 
 
 def test_a_text_whose_known_values_are_inside_its_masked_values_is_served_from_the_cache():

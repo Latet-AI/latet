@@ -1,0 +1,133 @@
+---
+title: Editions and license
+description: The Community Edition, free for every company, and Latet Enterprise for its features on a Latet server; the license file, how people and API keys are counted, the free trial and what happens when it ends, running Latet for others, and what happens when a license ends.
+---
+
+Latet comes in two editions, from one repository and one package:
+
+- **Latet Community Edition:** everything that protects one person, and Latet on a server for a team or a
+  company. It is free for every company, whatever its size or revenue, for its own work, and for personal and
+  non-commercial use, under the Latet Sustainable Use License.
+- **Latet Enterprise Edition:** the same program on a [Latet server](../getting-started/server/), with the
+  Enterprise features switched on by a license file. Their code is in the repository's `ee` folders, under the Latet
+  Enterprise License.
+
+## Who needs Latet Enterprise
+
+Only a company that wants the Enterprise features in production: [rules set for everyone that nobody can
+lower](./locked-rules/), [central approvals](./approvals/), [audit reports](./reports/), [events to its security systems](./siem/), [synced terms](./term-sync/), [single
+sign-on and roles](./sign-in/). They are a Latet server's: Latet on a computer without a server is the Community Edition,
+whatever is installed on it. The Community Edition needs no license, Latet on a server included. Developing and
+testing with the Enterprise features is free.
+
+Selling Latet, offering it to others as a service, building it into a product you sell or making a commercial fork
+of it needs a commercial license, whatever the edition: commercial and OEM licenses are on request at
+[info@latet.ai](mailto:info@latet.ai). [LICENSING.md](https://github.com/Latet-AI/latet/blob/main/LICENSING.md)
+says it in plain words, with examples, and links the legal terms.
+
+## The free trial
+
+To try the Enterprise features on real work first, write to [info@latet.ai](mailto:info@latet.ai) with your
+company's name. You get a trial license file, valid for 32 days from the day it is made, once per company. There is
+nothing to download or sign up for: the file comes by mail, and you install it on your Latet server as any license
+file (below).
+
+## The license file
+
+Latet Enterprise comes with a license file: a small JSON file signed by the licensor. It names your company, the
+number of users bought, the features it switches on, its last day and whether it is a trial. Changing one character
+breaks its signature, and Latet then refuses it. Its layout, line ends and spacing do not count, so a file opened and
+saved again stays valid.
+
+Install it on your Latet server from any computer with the server's administration token
+([Latet on a server](../getting-started/server/)):
+
+```sh
+latet server license install acme.json
+```
+
+The server checks the file, refuses one that is changed, signed by someone else or already ended, and keeps it
+in its database: every instance takes it at once, and there is nothing to restart. `latet server license show`
+prints it with the users in use, `latet server status` adds a line about it, and `latet server license remove`
+takes it away; installing and removing are refused to an AI agent, and removing asks first. Each change is in the
+server's administration log. Once a license is installed, the **License** page of the dashboard shows it: to the
+server's administrators when the license lists `roles`, to everyone otherwise. Administrators install a license file or
+remove the license there while the license is valid, ends soon or is in its grace period; where single sign-on is set
+up, that is a change that applies to everyone, which takes a session opened with the company account
+([Sign-in, groups and roles](./sign-in/)). When the license is paused, a trial has ended or the file cannot be used,
+these commands do it.
+
+A license file on a computer without a server switches nothing on: there, Latet is the Community Edition.
+
+## Users, counted as Jira counts them
+
+The license covers a number of active users:
+
+- **Who counts:** each person whose account is enabled and has access to Latet, whether or not they used it
+  that month, once whatever their computers; and each enabled API key, which a program uses in place of a
+  person, as one user. That is why only the server's administrators make API keys.
+- **The server counts** its enabled people and API keys. Disabling one frees its place at once; its space stays,
+  and enabling it again gives it back.
+
+From 90% of the users bought, the server's administrators see a notice in `latet server license show` and
+`latet server status`, with how many users are in use and the day a pause would begin. The **License** page shows
+the license's standing and, to the server's administrators, how many users are in use; nobody else sees the count.
+
+## Running Latet for others
+
+Offering Latet to others as a service, hosting or managing it for other companies or for your customers, needs a
+commercial license under the Latet Sustainable Use License, whichever edition you run: write to
+[info@latet.ai](mailto:info@latet.ai). A provider's Latet Enterprise counts every person and API key with access,
+whoever employs them, on all its servers. Each server counts only its own users and Latet never calls home, so users
+spread over several servers are added up on trust. A consultant who installs Latet for a company, which then uses it
+for its own work, needs nothing: the company uses it as its own.
+
+## When a license ends
+
+A security product that unlocked rules or kept people out when a renewal is late would be a fault, not a
+license check. Expiry, or more users than bought, never lowers protection:
+
+- **30 days before the end,** the **License** page, `latet server license show` and `latet server status` say so.
+- **After the end,** everything keeps working for 30 more days.
+- **Then what produces something new pauses:** reports and exports, events to your security systems and term
+  sync; the terms synced last stay masked. What protects keeps working, people still sign in, and approvals keep
+  their route.
+- **More users than bought** works the same way: a notice at once, everything as before for 30 days, then the
+  same pause, until a place is freed or the license grows. Nobody is kept out: a person kept out of Latet would
+  leave their agent stopped, or running around it.
+- **A changed or unreadable file** cannot be used: what manages, produces or decides is off, single sign-on
+  included (people sign in as on a Community server, below), and `latet server license show` and `latet server
+  status` say what is wrong with it. What protects stays as the last license verified set it, as the instance that
+  installed it verified it, kept in the database for every instance.
+
+## When a trial ends
+
+- **Before the end,** 7 days and again 1 day before its last day, the **License** page,
+  `latet server license show` and `latet server status` say when it ends.
+- **A trial has no 30 more days.** The day after its last day, the Enterprise management stops: the Enterprise
+  pages and commands of administration say that the trial ended, and what they hold can be read, not changed: the
+  rules for everyone, the groups, the roles, who controls each API key and the sign-in settings. Reports and events
+  to your security systems stop, and so do central approvals.
+- **Single sign-on stops, and nobody is kept out.** The company's sign-in button goes; each person signs in as on a
+  Community server: `latet dashboard` on a computer connected to the server, or, without one yet, a one-time code from
+  an administrator (`latet server people code <person>`), then `latet connect` and `latet dashboard`. Dashboard
+  sessions already open last their 12 hours.
+- **Roles still decide who sees what,** read-only: who could read the People and groups page or the sign-in settings
+  still can, and nobody else.
+- **Your identity provider's synchronisation (SCIM) only takes people off:** it can still disable and delete a
+  person, and it creates and changes nothing, groups included. A person who leaves can also be disabled with
+  `latet server people disable`.
+- **An API key's space closes:** the people who controlled it work in their own spaces again.
+- **Protection is never touched.** Locked rules in force at the end stay in force exactly as they are, and can no
+  longer be changed; agents' traffic goes on, masked; nothing leaves unmasked because a trial ended.
+- **Then the server's administrators choose:** install a license file (`latet server license install`), or remove
+  the trial's license (`latet server license remove`), which brings the Community Edition back, and with it its own
+  rules alone: the locked rules and the rules for everyone go with the trial.
+- **The end is the file's own last day,** as the server's clock says. The server keeps the end once its database's
+  clock agrees, so moving a clock back does not bring a trial back.
+
+## No calls home
+
+Latet never contacts anyone to check a license: no activation, no account, no telemetry. The Community Edition
+needs no key at all. The Enterprise features check their license file on your server, with the licensor's public key
+that Latet carries.

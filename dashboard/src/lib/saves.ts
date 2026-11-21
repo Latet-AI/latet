@@ -46,6 +46,7 @@ export function editable(config: ConfigView): Editable {
     fields: config.fields ?? [],
     dump_guard: config.dump_guard ?? null,
     images: config.images ?? 'allow',
+    unknown_members: config.unknown_members ?? 'check',
     ocr: config.ocr ?? 'auto',
     llm_review: config.llm_review ?? DEFAULT_REVIEW,
     live_review: config.live_review ?? DEFAULT_LIVE,

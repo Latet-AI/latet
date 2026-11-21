@@ -18,7 +18,7 @@ Un riconoscitore descrive un formato. I suoi esempi sono inventati: scrivili a p
 descrizione, oppure prendi un valore reale e cambia ogni lettera e ogni cifra, mantenendo la
 disposizione. `latet rules add` rifiuta un esempio che Latet ha già visto come valore reale. Quando
 è un agente AI a scrivere il riconoscitore per te, descrivigli il formato a parole: due lettere
-maiuscole, un trattino, sei cifre, nella colonna badge dell'export delle risorse umane.
+maiuscole, un trattino, sei cifre, che si trovano nella colonna badge dell'export delle risorse umane.
 
 ## Trovare i formati
 
@@ -31,11 +31,11 @@ latet rules suggest ./my-project
 
 Elenca i formati dei valori simili a codici che nessuna regola copre ancora, come `AA-999999` (A per
 una lettera, 9 per una cifra), con quanti valori diversi ha visto, in quali file, le cifre di
-controllo che superano e le etichette accanto a loro (*badge*, *invoice_ref*). Non stampa mai un
+controllo che superano e le etichette accanto a essi (*badge*, *invoice_ref*). Non stampa mai un
 valore. In un repository git legge solo i file che git conosce, quindi i file ignorati restano fuori.
 `--yaml` abbozza un riconoscitore per ogni formato, con esempi inventati a partire dal formato;
 descrivi cosa trova ciascuno prima di aggiungerlo. `--show-values` mostra tre valori di ogni formato
-nel tuo terminale, e si rifiuta di funzionare dentro un agente AI o in una pipe.
+nel tuo terminale, e si rifiuta di essere eseguito dentro un agente AI o in una pipe.
 
 ## Un esempio
 
@@ -67,7 +67,7 @@ La pagina **Regole** della dashboard fa lo stesso nella sua scheda *Riconoscitor
 tuoi riconoscitori, ogni riga con il nome, il tipo, cosa trova (il pattern, accorciato), cosa
 succede ai suoi valori e come si è caricato. *Aggiungi riconoscitore* apre un pannello con ogni
 campo: compilalo, e *Provalo* su un tuo testo (niente di ciò che scrivi lì viene conservato). Prima
-che tu salvi, mostra il risultato di ogni esempio e le corrispondenze nel codice comune. Seleziona
+che tu salvi, mostra il risultato di ogni esempio e le corrispondenze nel codice ordinario. Seleziona
 delle righe per attivarle o disattivarle, o per eliminarle; *Esporta* e *Importa* le spostano come
 file di regole. Con il [revisore locale](../llm-review/#riconoscitori-da-una-descrizione) attivo,
 *Bozza da una descrizione* scrive il riconoscitore per te a partire da una frase
@@ -99,7 +99,7 @@ alto: la sua tabella *Riconoscitori* mostra quelli del progetto, dalle tue impos
 | `context` | Parole chiave (`words`, senza distinguere maiuscole e minuscole; `acronyms`, con maiuscole e minuscole esatte) che devono trovarsi sulla stessa riga, entro `window` caratteri, o nell'intestazione della colonna di una tabella. |
 | `examples` | `match` e `no_match`: testi inventati, verificati ogni volta che le regole vengono caricate. |
 | `class` | `custom`, o `secret` per i valori che non devono mai uscire in chiaro: vengono mascherati come al solito, e una richiesta che ne porterebbe uno in chiaro viene fermata, anche in Claude Code. |
-| `policy` | `mask` (il predefinito), `redact` o `allow`. Una voce in `policies` ha la precedenza. |
+| `policy` | `mask` (il valore predefinito), `redact` o `allow`. Una voce in `policies` ha la precedenza. |
 | `surrogate` | `shape`, o `{keep: 3}` per mantenere un prefisso così com'è. |
 | `enabled` | `false` mantiene la regola nel file, disattivata. |
 
@@ -130,10 +130,10 @@ l'originale; `latet rules test` e *Provalo* lo dicono.
 
 ## Regole precise
 
-Una regola che scatta dappertutto nel codice comune maschererebbe il codice stesso, quindi Latet
-verifica ognuna su un campione della libreria standard di Python: più di 50 corrispondenze e viene
+Una regola che scatta dappertutto nel codice ordinario maschererebbe il codice stesso, quindi Latet
+verifica ognuna su un campione della libreria standard di Python: oltre 50 corrispondenze, viene
 disattivata. Le parole chiave e le cifre di controllo sono il rimedio. Per esempio, un numero la cui
-ultima cifra è un controllo Luhn:
+ultima cifra è una cifra di controllo Luhn:
 
 ```yaml
 recognizers:

@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from latet.config import Config, IdentityConfig, RequestException
 from latet.gateway import body_selectors, mediate, request_profiles
+from latet.gateway.body_coverage import NEW_MEMBER_RULE, PROTECTED_LAUNCH
 from latet.gateway.body_selectors import (
     BodyGrant,
     BodyGrants,
@@ -220,7 +221,35 @@ def admits(pointers: tuple[str | tuple[str, str], ...], path: tuple[str | int, .
     return BodyGrants((grant(*pointers),)).admits(path, value)
 
 
-def test_a_sibling_key_under_a_selected_parent_blocks(mediator, granted):
+def _read_by_the_new_rule(result: Prepared) -> bool:
+    """Passed by the new rule, no exception named for it."""
+    return (
+        not refused(result)
+        and NEW_MEMBER_RULE in result.body_rules
+        and not any(rule.startswith("exception ") for rule in result.body_rules)
+    )
+
+
+def test_a_sibling_key_under_a_selected_parent_leaves_the_member_to_the_new_rule(mediator, granted):
+    """A selector admits what it names alone: a sibling it does not name leaves the whole member to the new rule, which
+    reads it all, the exception named for none of it."""
+    granted(grant("/x_context/team", "/messages/*/x_meta/team"))
+    admitted = run(mediator, CHAT, chat(x_context={"team": "core"}))
+    assert not refused(admitted) and exception_rule("rx-1") in admitted.body_rules
+    sibling = run(mediator, CHAT, chat(x_context={"team": "core", "sibling_CANARY": "core"}))
+    assert _read_by_the_new_rule(sibling)
+    nested = chat()
+    nested["messages"][0]["x_meta"] = {"team": "core"}
+    assert exception_rule("rx-1") in run(mediator, CHAT, nested).body_rules
+    nested["messages"][0]["x_meta"]["sibling_CANARY"] = "core"
+    assert _read_by_the_new_rule(run(mediator, CHAT, nested))
+    # The member's own siblings stay what they were: unknown, so read by the new rule beside the admitted one.
+    other = run(mediator, CHAT, chat(x_context={"team": "core"}, x_other="core"))
+    assert not refused(other) and {exception_rule("rx-1"), NEW_MEMBER_RULE} <= set(other.body_rules)
+    assert admits(("/x_context/team",), ("x_context",), {"team": "core", "sibling": "core"}) is None
+
+
+def test_strict_a_sibling_key_under_a_selected_parent_blocks(mediator, strict, granted):
     granted(grant("/x_context/team", "/messages/*/x_meta/team"))
     assert not refused(run(mediator, CHAT, chat(x_context={"team": "core"})))
     sibling = chat(x_context={"team": "core", "sibling_CANARY": "core"})
@@ -266,6 +295,11 @@ def test_a_selector_never_admits_a_parent_object_or_a_deeper_level(mediator, gra
     for _ in range(60):
         deep = {"team": deep}
     assert admits(("/x_context/team/team",), ("x_context",), deep) is None
+    granted(grant("/x_context"))
+    assert _read_by_the_new_rule(run(mediator, CHAT, chat(x_context={"team": "core"})))
+
+
+def test_strict_a_selector_never_admits_a_parent_object(mediator, strict, granted):
     granted(grant("/x_context"))
     assert refused(run(mediator, CHAT, chat(x_context={"team": "core"})))
 
@@ -322,6 +356,31 @@ def test_an_exception_is_consulted_only_where_the_profile_would_refuse(mediator,
     assert not refused(nested) and exception_rule("rx-1") in nested.body_rules
 
 
+def _thinking_note(note: str) -> Callable[[dict[str, Any]], None]:
+    return lambda body: body["messages"].append(
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "t", "x_note": note}]}
+    )
+
+
+def _reasoning_note(note: str) -> Callable[[dict[str, Any]], None]:
+    return lambda body: body.update(input=[{"type": "reasoning", "summary": [], "x_note": note}])
+
+
+def _image_note(note: str) -> Callable[[dict[str, Any]], None]:
+    return lambda body: body["messages"].append(
+        {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "x_note": note}}]}
+    )
+
+
+# Inside a provider's own item (M2's domain), an inline image's source among them (a provider holder): no selector
+# reaches a member there, whose refusal says so; the new rule reads a short token there, and refuses free text.
+PROVIDER_NOTES = [
+    (ANTHROPIC, "/messages/*/content/*/x_note", _thinking_note, "(unknown member in provider item)"),
+    (RESPONSES, "/input/*/x_note", _reasoning_note, "(unknown member in provider item)"),
+    (ANTHROPIC, "/messages/*/content/*/source/x_note", _image_note, "(unknown member in inline image)"),
+]
+
+
 @pytest.mark.parametrize(
     ("case", "pointer", "edit", "reason"),
     [
@@ -329,33 +388,8 @@ def test_an_exception_is_consulted_only_where_the_profile_would_refuse(mediator,
         (CHAT, "/model", lambda body: body.update(model="not a model id"), "(model resource)"),
         # A control outside its enumeration stays refused.
         (CHAT, "/service_tier", lambda body: body.update(service_tier="x_tier"), "(control)"),
-        # Inside a provider's own item (M2's domain): refused by its kind.
-        (
-            ANTHROPIC,
-            "/messages/*/content/*/x_note",
-            lambda body: body["messages"].append(
-                {"role": "assistant", "content": [{"type": "thinking", "thinking": "t", "x_note": "core"}]}
-            ),
-            "(unknown member in provider item)",
-        ),
-        (
-            RESPONSES,
-            "/input/*/x_note",
-            lambda body: body.update(input=[{"type": "reasoning", "summary": [], "x_note": "core"}]),
-            "(unknown member in provider item)",
-        ),
-        # An inline image's source: a provider holder.
-        (
-            ANTHROPIC,
-            "/messages/*/content/*/source/x_note",
-            lambda body: body["messages"].append(
-                {
-                    "role": "user",
-                    "content": [{"type": "image", "source": {"type": "base64", "x_note": "core"}}],
-                }
-            ),
-            "(unknown member in inline image)",
-        ),
+        # Inside a provider's own item: free text, refused by its kind.
+        *((case, pointer, note("a free note"), reason) for case, pointer, note, reason in PROVIDER_NOTES),
         # A block of a kind the profile does not know: refused before any member is read.
         (
             ANTHROPIC,
@@ -378,6 +412,32 @@ def test_a_selector_never_reaches_a_declared_member_or_one_the_profile_refuses_b
         assert result.envelope_refusal == "body-unknown-member-no-exception"
 
 
+@pytest.mark.parametrize(("case", "pointer", "note", "reason"), PROVIDER_NOTES)
+def test_a_token_in_a_provider_item_passes_by_the_new_rule_never_by_a_selector(
+    mediator, granted, case, pointer, note, reason
+):
+    granted(grant(pointer))
+    body = copy.deepcopy(case[2])
+    note("core")(body)
+    result = run(mediator, case, body)
+    assert exception_rule("rx-1") not in result.body_rules and "unknown member" not in (result.block_reason or "")
+    if note is not _image_note:  # an image, which nothing here can read the text of, is refused for the image itself
+        assert _read_by_the_new_rule(result)
+
+
+@pytest.mark.parametrize(("case", "pointer", "note", "reason"), PROVIDER_NOTES)
+def test_strict_a_selector_never_reaches_a_member_of_a_provider_item(
+    mediator, strict, granted, case, pointer, note, reason
+):
+    granted(grant(pointer))
+    body = copy.deepcopy(case[2])
+    note("core")(body)
+    result = run(mediator, case, body)
+    assert reason in (result.block_reason or "")
+    assert exception_rule("rx-1") not in result.body_rules
+    assert result.envelope_refusal == "body-unknown-member-no-exception"
+
+
 def test_the_same_selector_admits_the_member_on_a_readable_block(mediator, granted):
     granted(grant("/messages/*/content/*/x_note"))
     body = copy.deepcopy(ANTHROPIC[2])
@@ -390,11 +450,19 @@ def test_the_same_selector_admits_the_member_on_a_readable_block(mediator, grant
 def test_no_grant_changes_nothing(mediator, granted):
     body = chat(x_context={"team": "core"})
     granted()
+    assert _read_by_the_new_rule(run(mediator, CHAT, body))
+    granted(grant("/x_elsewhere/team"))
+    assert _read_by_the_new_rule(run(mediator, CHAT, body))
+    assert not BodyGrants(())
+    assert BodyGrants((grant("/x_a"),))
+
+
+def test_strict_no_grant_changes_nothing(mediator, strict, granted):
+    body = chat(x_context={"team": "core"})
+    granted()
     assert refused(run(mediator, CHAT, body))
     granted(grant("/x_elsewhere/team"))
     assert refused(run(mediator, CHAT, body))
-    assert not BodyGrants(())
-    assert BodyGrants((grant("/x_a"),))
 
 
 def test_an_admitted_member_is_screened_for_a_launch_credential(mediator, granted):
@@ -418,6 +486,46 @@ def test_a_launch_credential_in_the_copy_not_read_of_an_admitted_member_is_refus
     assert LAUNCH_KEY not in (result.block_reason or "")
 
 
+_REFUSED_COPY = (
+    b', "x_ctx": {"note": "' + LAUNCH_KEY.encode() + b'", "url": "https://x.example"}, "x_ctx": {"flag": true}}'
+)
+_SPLIT_COPY = (
+    b', "x_parts": ["' + LAUNCH_KEY[:29].encode() + b'", "' + LAUNCH_KEY[29:].encode() + b'"], "x_parts": ["a", "b"]}'
+)
+
+
+@pytest.mark.parametrize("copy_", [_REFUSED_COPY, _SPLIT_COPY], ids=["refused-copy", "split-list-copy"])
+def test_a_launch_credential_in_the_copy_not_read_of_a_new_member_is_refused(mediator, copy_):
+    """A key given twice, its last copy read by the new rule: the first copy, never read and never sent, is screened
+    like the rest, a member the new rule would refuse included, and a list's strings joined as the new rule reads them
+    (a key split across them)."""
+    body = json.dumps(chat()).encode()[:-1]
+    result = run(mediator, CHAT, body + copy_)
+    assert result.block_reason == PROTECTED_LAUNCH
+    assert LAUNCH_KEY.encode() not in result.body
+
+
+@pytest.mark.parametrize("copy_", [_REFUSED_COPY, _SPLIT_COPY], ids=["refused-copy", "split-list-copy"])
+def test_strict_a_launch_credential_in_the_copy_not_read_of_a_new_member_is_refused(mediator, strict, copy_):
+    body = json.dumps(chat()).encode()[:-1]
+    result = run(mediator, CHAT, body + copy_)
+    assert result.block_reason == "request body refused (unknown member in top-level)"
+    assert LAUNCH_KEY.encode() not in result.body
+
+
+@pytest.mark.parametrize("mode", ["check", "refuse"])
+def test_a_copy_not_read_refuses_nothing_the_new_rule_would_refuse(mediator, request, mode):
+    """The screen of a copy not read looks for a launch credential alone: a member there the new rule would refuse (a
+    destination) leaves the request as it was before the rule, sent with its last copy."""
+    if mode == "refuse":
+        request.getfixturevalue("strict")
+    body = json.dumps(chat()).encode()[:-1]
+    first = b'{"role": "user", "content": "hello", "x_ctx": {"url": "https://x.example"}}'
+    twice = body + b', "messages": [' + first + b'], "messages": [{"role": "user", "content": "hello"}]}'
+    result = run(mediator, CHAT, twice)
+    assert result.block_reason is None and b"x.example" not in result.body
+
+
 def test_the_walk_refuses_a_member_whose_holder_it_cannot_place():
     """A holder outside the document (never given by the walk) finds no path: nothing is admitted."""
     from latet.gateway import body_coverage
@@ -430,7 +538,33 @@ def test_the_walk_refuses_a_member_whose_holder_it_cannot_place():
 # --- through the production gateway -----------------------------------------------------------------------------------
 
 
-def test_a_sibling_key_under_a_selected_parent_is_never_sent(granted):
+def test_a_sibling_key_under_a_selected_parent_is_never_sent_by_the_exception(granted):
+    """A selector admits what it names alone: a sibling it does not name leaves the whole member to the new rule, which
+    reads it and lets it through, naming no exception (its decision names the rule, never the exception)."""
+    from latet.gateway import forward
+
+    made = []
+    real = forward._Turn
+
+    def turn():
+        item = real()
+        made.append(item)
+        return item
+
+    granted(grant("/x_context/team"))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(forward, "_Turn", turn)
+        with gateway() as (client, transport, _made, _mediator):
+            response = client.post(CHAT[1], json=chat(x_context={"team": "core", "sibling_CANARY": "core"}))
+            assert response.status_code == 200
+            assert "sibling_CANARY" not in response.text
+            [sent] = transport.sent
+            assert json.loads(sent.content)["x_context"] == {"team": "core", "sibling_CANARY": "core"}
+    [decided] = [item.decision for item in made]
+    assert NEW_MEMBER_RULE in decided.evidence.rules and decided.evidence.exceptions == ()
+
+
+def test_strict_a_sibling_key_under_a_selected_parent_is_never_sent(granted, strict):
     granted(grant("/x_context/team"))
     with gateway() as (client, transport, _made, _mediator):
         response = client.post(CHAT[1], json=chat(x_context={"team": "core", "sibling_CANARY": "core"}))
@@ -586,15 +720,53 @@ def test_an_unknown_or_later_body_revision_suspends_the_selector(approved):
     assert not carries_over(SELECTED, "x_protocol", "chat.body.1", history=revised())
 
 
-def test_the_shipped_body_revisions_change_nothing_yet_and_are_the_proofs_own(mediator):
+REVISED_IN_1_0_0 = {
+    "anthropic": ("/context_management", "/messages/*/output_config"),
+    "responses": ("/input/*/phase", "/response/input/*/phase"),
+}
+
+
+def test_the_shipped_body_revisions_are_the_proofs_own(mediator):
+    """0.15.0 revised Anthropic's body (Claude Code 2.1.323's context editing and a system message's effort) and the
+    Responses one (a model message's phase): every other protocol is still at its first revision."""
     for protocol, chain in body_selectors.HISTORY.items():
-        assert [revision.id for revision in chain] == [f"{protocol}.body.1"]
-        assert body_selectors.revision(protocol) == f"{protocol}.body.1"
-        assert carries_over(SELECTED, protocol, f"{protocol}.body.1", history=body_selectors.HISTORY)
+        ids = [f"{protocol}.body.1", f"{protocol}.body.2"] if protocol in REVISED_IN_1_0_0 else [f"{protocol}.body.1"]
+        assert [revision.id for revision in chain] == ids
+        assert chain[0].changed == () and tuple(one for step in chain[1:] for one in step.changed) == tuple(
+            REVISED_IN_1_0_0.get(protocol, ())
+        )
+        assert body_selectors.revision(protocol) == ids[-1]
+        assert carries_over(SELECTED, protocol, ids[-1], history=body_selectors.HISTORY)
     result = run(mediator, CHAT, chat())
     result.freeze_inputs()
     assert result.body_proof is not None
     assert result.body_proof.profile == body_selectors.revision("chat")
+
+
+@pytest.mark.parametrize(
+    ("protocol", "pointer", "kind"),
+    [
+        ("anthropic", "/context_management/edits/*/type", "string"),
+        ("anthropic", "/context_management/note", "string"),
+        ("anthropic", "/messages/*/output_config/effort", "string"),
+        ("anthropic", "/messages/2/output_config/budget", "number"),
+        ("responses", "/input/*/phase", "string"),
+        ("responses", "/response/input/*/phase", "string"),
+    ],
+)
+def test_an_exception_on_a_member_1_0_0_declares_needs_approval_again(protocol, pointer, kind):
+    """R-100: an exception approved under the first revision for a member 0.15.0 now reads by its own rule is
+    suspended, never kept as if it still applied; one on any other member carries over."""
+    assert not carries_over((selector(pointer, kind),), protocol, f"{protocol}.body.1", history=body_selectors.HISTORY)
+    assert carries_over((selector(pointer, kind),), protocol, f"{protocol}.body.2", history=body_selectors.HISTORY)
+
+
+@pytest.mark.parametrize(
+    ("protocol", "pointer"),
+    [("anthropic", "/x_context/team"), ("anthropic", "/messages/*/x_meta"), ("responses", "/input/*/x_meta")],
+)
+def test_an_exception_on_another_member_carries_over_the_1_0_0_revisions(protocol, pointer):
+    assert carries_over((selector(pointer),), protocol, f"{protocol}.body.1", history=body_selectors.HISTORY)
 
 
 def test_a_body_proof_names_the_revision_its_protocol_is_read_by(mediator, monkeypatch):
@@ -606,7 +778,7 @@ def test_a_body_proof_names_the_revision_its_protocol_is_read_by(mediator, monke
     assert result.body_proof is not None and result.body_proof.profile == "chat.body.2"
     other = run(mediator, ANTHROPIC, copy.deepcopy(ANTHROPIC[2]))
     other.freeze_inputs()
-    assert other.body_proof is not None and other.body_proof.profile == "anthropic.body.1"
+    assert other.body_proof is not None and other.body_proof.profile == "anthropic.body.2"
 
 
 def test_a_revision_lists_its_changes_as_selector_shaped_pointers():
