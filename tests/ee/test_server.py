@@ -536,8 +536,9 @@ def test_an_instance_that_starts_over_the_users_starts_their_grace_before_anyone
     a.edition.install_license(licensed.make(users=1, **LASTING), actor="admin:t1")
     a.identities.add_person("Emily Carter")
     a.identities.add_key("Billing CI")
-    with a.db.connection() as conn:
-        assert conn.execute("SELECT over_since FROM ee_license").fetchone() == (None,)  # nobody looked yet
+    a.edition.close()  # a looks no more: its license job, or its listener hearing the install, may have looked
+    with a.db.transaction() as conn:  # as nobody had looked yet
+        conn.execute("UPDATE ee_license SET over_since = NULL")
     instances.open()
     with a.db.connection() as conn:
         assert conn.execute("SELECT over_since FROM ee_license").fetchone() == (clock.now,)
