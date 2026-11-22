@@ -229,7 +229,8 @@ class PgTermStore:
         return {str(source): Run(**run) for source, run in rows}
 
     def ask(self, names: Iterable[str], by: str | None, now: float, *, conn: Any = None) -> None:
-        """A sync of each of ``names`` asked for at ``now`` by ``by``: the next run of each takes it."""
+        """As `MemoryTermStore.ask`: a source whose last run began at ``now`` or after has it already. The row a run
+        is keeping is locked by the upsert, which reads it as that run committed it."""
         if conn is None:
             with self._db.transaction() as own:
                 self.ask(names, by, now, conn=own)
@@ -237,7 +238,8 @@ class PgTermStore:
         for name in names:
             conn.execute(
                 "INSERT INTO ee_term_runs (source, asked, asked_by) VALUES (%s, %s, %s)"
-                " ON CONFLICT (source) DO UPDATE SET asked = EXCLUDED.asked, asked_by = EXCLUDED.asked_by",
+                " ON CONFLICT (source) DO UPDATE SET asked = EXCLUDED.asked, asked_by = EXCLUDED.asked_by"
+                " WHERE ee_term_runs.run IS NULL OR (ee_term_runs.run->>'started')::double precision < EXCLUDED.asked",
                 (name, now, by),
             )
 

@@ -16,6 +16,18 @@ Lo que viene después está en la [hoja de ruta](../roadmap/): un rechazo claro 
 las herramientas MCP enmascaradas antes de que Claude Code las lea, un instalador firmado para
 Windows, tus propios modelos de nombres, más agentes, y la documentación en más idiomas.
 
+## 0.15.1 (2026-11-22)
+
+- **Una sincronización pedida ya no se queda esperando.** En un servidor con Latet Enterprise, una
+  sincronización pedida (**Sincronizar ahora**, o `latet server terms run`) en el momento en que
+  empezaba una sincronización de la misma fuente, como la que inicia un cambio en las fuentes,
+  podía quedar mostrada como pedida: esa sincronización leía la fuente pero terminaba antes de que
+  la petición quedara guardada, así que ninguna atendía la petición hasta la siguiente
+  sincronización de la fuente en su intervalo, y `latet server terms run` esperaba su minuto entero
+  y mostraba *still running*. Ahora una sincronización que empezó al hacer la petición, o después,
+  la atiende, se guarde primero la que se guarde. Los términos sincronizados y enmascarados fueron
+  siempre los correctos.
+
 ## 0.15.0 (2026-11-21)
 
 Latet 0.15.0 trae Latet Enterprise: en un servidor de Latet, las funciones que necesita el equipo

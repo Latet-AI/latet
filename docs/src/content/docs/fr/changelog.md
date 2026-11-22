@@ -18,6 +18,18 @@ auto, les outils MCP masqués avant que Claude Code ne les lise, un programme d'
 pour Windows, vos propres modèles de noms, d'autres agents, et la documentation dans d'autres
 langues.
 
+## 0.15.1 (2026-11-22)
+
+- **Une synchronisation demandée ne reste plus en attente.** Sur un serveur avec Latet Enterprise,
+  une synchronisation demandée (**Synchroniser maintenant**, ou `latet server terms run`) au moment
+  où commençait une synchronisation de la même source, comme celle que lance une modification des
+  sources, pouvait rester affichée comme demandée : cette synchronisation lisait la source mais se
+  terminait avant que la demande soit enregistrée, si bien qu'aucune ne prenait la demande avant la
+  synchronisation suivante de la source à son intervalle, et `latet server terms run` attendait sa
+  minute entière et affichait *still running*. Désormais, une synchronisation commencée au moment
+  de la demande, ou après, y répond, quelle que soit celle des deux qui est enregistrée en premier.
+  Les termes synchronisés et masqués ont toujours été les bons.
+
 ## 0.15.0 (2026-11-21)
 
 Latet 0.15.0 apporte Latet Enterprise : sur un serveur Latet, les fonctionnalités dont l'équipe de

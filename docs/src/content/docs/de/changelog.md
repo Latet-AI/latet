@@ -17,6 +17,19 @@ Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehn
 Auto-Modus, MCP-Tools maskiert, bevor Claude Code sie liest, ein signiertes Installationsprogramm
 für Windows, eigene Namensmodelle, weitere Agenten und die Dokumentation in weiteren Sprachen.
 
+## 0.15.1 (2026-11-22)
+
+- **Eine angeforderte Synchronisierung bleibt nicht mehr offen.** Auf einem Server mit Latet
+  Enterprise konnte eine Synchronisierung, die (mit **Jetzt synchronisieren** oder
+  `latet server terms run`) in dem Moment angefordert wurde, in dem eine Synchronisierung derselben
+  Quelle begann, etwa die nach einer Änderung der Quellen, als angefordert stehen bleiben: Diese
+  Synchronisierung las die Quelle, endete aber, bevor die Anforderung gespeichert war, sodass keine
+  die Anforderung übernahm bis zur nächsten Synchronisierung der Quelle in ihrem Intervall, und
+  `latet server terms run` wartete seine ganze Minute und gab *still running* aus. Jetzt beantwortet
+  eine Synchronisierung, die bei der Anforderung oder danach begann, die Anforderung, gleich welche
+  von beiden zuerst gespeichert wird. Die synchronisierten und maskierten Begriffe waren die ganze
+  Zeit richtig.
+
 ## 0.15.0 (2026-11-21)
 
 Latet 0.15.0 bringt Latet Enterprise: auf einem Latet-Server die Funktionen, die das
