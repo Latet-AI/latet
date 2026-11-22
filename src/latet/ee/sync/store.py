@@ -242,10 +242,14 @@ class MemoryTermStore:
             return dict(self._runs)
 
     def ask(self, names: Iterable[str], by: str | None, now: float, *, conn: Any = None) -> None:
-        """A sync of each of ``names`` asked for at ``now`` by ``by``: the next run of each takes it."""
+        """A sync of each of ``names`` asked for at ``now`` by ``by``: the next run of each takes it. A source whose
+        last run began at ``now`` or after has it already, as `record_run` would have it: that run, kept before the
+        ask, is the one a save woke as the sync was asked for, and no run is due after it."""
         with self._lock:
             for name in names:
-                self._asks[name] = Asked(name, now, by)
+                run = self._runs.get(name)
+                if run is None or run.started < now:
+                    self._asks[name] = Asked(name, now, by)
 
     def asks(self) -> dict[str, Asked]:
         with self._lock:

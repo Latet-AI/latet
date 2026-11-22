@@ -125,6 +125,16 @@ def test_a_run_that_began_when_a_sync_was_asked_for_takes_it(store):
     assert store.asks() == {}
 
 
+def test_a_sync_asked_for_after_a_run_that_began_at_its_time_was_kept_is_taken_by_that_run(store):
+    """A run that began when the sync was asked for, or after, takes it even when it was kept before the ask was: no
+    later run is due to take it, and it showed as asked until the source's next run at its schedule."""
+    store.record_run(Run("customers", "file", 10.0, 11.0, "ok"))
+    store.ask(["customers"], "u_sec0000001", now=10.0)
+    assert store.asks() == {}
+    store.ask(["customers"], "u_sec0000001", now=10.5)  # asked after the run began: the next run takes it
+    assert store.asks() == {"customers": Asked("customers", 10.5, "u_sec0000001")}
+
+
 def test_removing_no_ids_removes_nothing_and_no_ids_given_removes_every_gone_one(store):
     store.apply("customers", [HALDEN, KESTREL], now=1.0)
     store.apply("customers", [KESTREL], now=2.0)

@@ -12,6 +12,16 @@ What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode
 before Claude Code reads them, a signed installer for Windows, your own name models, more agents,
 and the documentation in more languages.
 
+## 0.15.1 (2026-11-22)
+
+- **A sync asked for is no longer left waiting.** On a server with Latet Enterprise, a sync asked
+  for (**Sync now**, or `latet server terms run`) at the moment a sync of the same source began,
+  such as the one a change to the sources starts, could stay shown as asked: that sync read the
+  source but ended before the request was saved, so none took the request until the source's next
+  sync at its interval, and `latet server terms run` waited its whole minute and printed *still
+  running*. A sync that began when the request was made, or after, now answers it, whichever of the
+  two is saved first. The terms synced and masked were right throughout.
+
 ## 0.15.0 (2026-11-21)
 
 Latet 0.15.0 brings Latet Enterprise: on a Latet server, the features a company's security team

@@ -313,6 +313,23 @@ def test_a_source_made_to_read_other_data_never_reads_it_with_its_secret(cluster
     assert {"projects": ["mapping", "records"]} in fields and "salar" not in json.dumps(fields)
 
 
+def test_a_sync_asked_for_as_the_run_a_save_woke_began_is_taken_by_that_run(cluster, requests_made):
+    """A sources save wakes a run; when that run begins at the time a sync is asked for and is kept before the ask
+    commits, it takes the ask: no run is due for it, and it stayed asked until the source's next run at its schedule
+    (the release's CI on server 3.14 met it in the test above)."""
+    admin = as_admin(cluster)
+    url = {"name": "projects", "kind": "url", "url": "https://intranet.acme.lan/api/projects",
+           "headers": {"Authorization": "Bearer {secret}"}, "mapping": {"code_name": "PROJECT"}}  # fmt: skip
+    cluster.a.put(f"{TERMS}/sources", json={"sources": [url]}, headers=admin)
+    synced(cluster)
+    cluster.clock.advance(1)
+    terms = cluster.server.edition.terms
+    terms.forget(["projects"])  # as a save does, and the run it wakes begins at the time of the ask below, kept first
+    terms.tick()
+    cluster.a.post(f"{TERMS}/run", json={}, headers=admin)
+    synced(cluster)
+
+
 def test_the_terms_no_key_opens_are_removed_by_the_administration_alone(cluster, export):
     """B-R5, as root ruled it: B-I2's way out by hand, `latet server terms remove --unreadable`: the rows no key of the
     server opens among the terms no source gives any more, counted in the entry, never a term; one a source still

@@ -16,6 +16,18 @@ Cosa arriva dopo è nella [roadmap](../roadmap/): un rifiuto esplicito dalla mod
 strumenti MCP mascherati prima che Claude Code li legga, un installer firmato per Windows, i tuoi
 modelli dei nomi, altri agenti, e la documentazione in altre lingue.
 
+## 0.15.1 (2026-11-22)
+
+- **Una sincronizzazione richiesta non resta più in attesa.** Su un server con Latet Enterprise, una
+  sincronizzazione richiesta (**Sincronizza ora**, o `latet server terms run`) nel momento in cui
+  iniziava una sincronizzazione della stessa fonte, come quella che parte dopo una modifica alle
+  fonti, poteva restare indicata come richiesta: quella sincronizzazione leggeva la fonte ma finiva
+  prima che la richiesta fosse salvata, quindi nessuna la prendeva fino alla sincronizzazione
+  successiva della fonte al suo intervallo, e `latet server terms run` aspettava il suo minuto
+  intero e scriveva *still running*. Ora una sincronizzazione iniziata al momento della richiesta, o
+  dopo, risponde alla richiesta, qualunque delle due venga salvata prima. I termini sincronizzati e
+  mascherati sono sempre stati quelli giusti.
+
 ## 0.15.0 (2026-11-21)
 
 Latet 0.15.0 introduce Latet Enterprise: su un server di Latet, le funzionalità di cui ha bisogno il
