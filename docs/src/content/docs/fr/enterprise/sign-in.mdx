@@ -252,7 +252,11 @@ dernière connexion.
   client. Chaque réponse est lue jusqu'à une limite de taille.
 - Chaque connexion, et chaque connexion refusée, est un événement de type `sign-in` avec l'ID de la personne et le
   résultat, jamais son nom ni son e-mail. Une première connexion qui crée un compte figure dans le journal
-  d'administration.
+  d'administration. Un tel compte prend le nom que donne le jeton d'ID, et beaucoup de fournisseurs laissent la
+  personne choisir ce nom : `latet server people code`, `disable`, `enable`, `remove` et `tokens` désignent donc la
+  personne par son ID (`u_…`), jamais par ce nom ni par son e-mail. `latet server people list` signale ces comptes, à
+  côté de l'e-mail que votre fournisseur a vérifié, s'il en a envoyé un. Les personnes créent elles-mêmes leur code
+  pour connecter un ordinateur (plus bas).
 
 Quand une connexion est refusée, la page de connexion dit pourquoi : elle a pris plus de dix minutes ou a déjà été
 utilisée, le compte d'entreprise n'est pas dans `access_group` (ou son domaine n'est pas dans `allowed_domains`), il
@@ -416,11 +420,13 @@ Ce que Latet en fait :
   qu'aucun administrateur n'a liée, est refusée à la connexion, et les connexions ne mettent plus personne dans un
   groupe.
 - Chaque modification que fait SCIM figure dans le journal d'administration, au nom du jeton qui l'a faite. Un jeton
-  SCIM définit chaque valeur qui désigne une personne que SCIM gère (nom d'utilisateur, e-mail, nom) : les commandes qui
-  désignent une personne, comme `latet server people code` et `latet server roles grant`, sont donc plus sûres avec l'ID
-  de la personne (`u_…`). Si un jeton a pu tomber entre de mauvaises mains, supprimez-le
-  (`latet server sign-in scim-token --remove <id>`) et, sur la page **Journal d'administration**, réglez le filtre
-  **Qui** sur `scim:<id>` pour voir ce qu'il a changé.
+  SCIM définit chaque valeur qui désigne une personne que SCIM gère (nom d'utilisateur, e-mail, nom) : une telle
+  personne est donc désignée par son ID (`u_…`) seul, qu'aucun jeton ne change : des commandes comme
+  `latet server people code` et `latet server roles grant` refusent son nom d'utilisateur et son e-mail. Prenez l'ID
+  chez votre fournisseur, qui garde celui que Latet lui a donné pour chaque personne qu'il a créée (l'`id` de SCIM) :
+  `latet server people list` montre aussi les ID, mais à côté d'un nom et d'un e-mail qu'un jeton définit. Si un jeton
+  a pu tomber entre de mauvaises mains, supprimez-le (`latet server sign-in scim-token --remove <id>`) et, sur la page
+  **Journal d'administration**, réglez le filtre **Qui** sur `scim:<id>` pour voir ce qu'il a changé.
 
 Latet répond à `/scim/v2/Users` (`GET` avec `filter=userName eq "…"` ou `externalId eq "…"`, `POST`, `GET`, `PUT`,
 `PATCH`, `DELETE`), `/scim/v2/Groups` (`GET` avec `filter=displayName eq "…"`, `POST`, `GET`, `PUT`, `PATCH` des membres
@@ -495,7 +501,8 @@ Depuis n'importe quelle machine, avec le jeton d'administration du serveur. La p
 votre fournisseur l'a créé par SCIM, vous l'ajoutez à la main
 (`latet server people add "Emily Carter" --email emily.carter@acme.com`), ou, avec `accounts: group` ou `open`, elle
 s'est connectée une fois. Un compte ajouté à la main est lié à votre fournisseur par le nom d'utilisateur de la
-personne là-bas, pour que sa première connexion le trouve ; puis le rôle :
+personne là-bas, pour que sa première connexion le trouve ; puis le rôle (une personne que SCIM a créée est désignée
+par son ID, `u_…`, à la place) :
 
 ```sh
 latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
@@ -503,12 +510,12 @@ latet server roles grant emily.carter@acme.com admin
 ```
 
 Au lieu de la première commande, la personne peut lier son propre compte depuis son tableau de bord (**Lier mon compte
-d'entreprise**, plus haut). Une personne est désignée par son ID (`u_…`, affiché par `latet server people list`), son
-nom d'utilisateur chez votre fournisseur, ou son e-mail quand il a été donné à la main ou par SCIM : un e-mail qu'un
-jeton d'ID a apporté, ou que plus d'une personne ou qu'une personne désactivée possède, est refusé, et la personne est
-alors désignée par son ID. Un groupe est désigné par son ID (`g_…`) ou son nom :
-`latet server roles grant "Security team" security`. Chaque réponse indique qui le nom a désigné. Les administrateurs donnent ensuite les rôles sur la page **Personnes et
-groupes**.
+d'entreprise**, plus haut). Une personne est désignée par son ID (`u_…`, affiché par `latet server people list`) ou,
+si SCIM ne la gère pas, par son nom d'utilisateur chez votre fournisseur ou son e-mail quand il a été donné à la
+main : un e-mail qu'un jeton d'ID a apporté, ou que plus d'une personne ou qu'une personne désactivée possède, est refusé,
+et la personne est alors désignée par son ID. Un groupe est désigné par son ID (`g_…`) ou son nom :
+`latet server roles grant "Security team" security`. Chaque réponse indique qui le nom a désigné. Les administrateurs
+donnent ensuite les rôles sur la page **Personnes et groupes**.
 
 Le tableau de bord ne laisse pas le serveur perdre son dernier administrateur activé (par un rôle retiré, un groupe
 quitté ou supprimé, ou une personne désactivée) ; `latet server` le peut toujours, et peut toujours donner le rôle tant

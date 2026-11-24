@@ -227,8 +227,9 @@ approuver une, puisqu'une exception est lue avant ce réglage.
 - **Un projet ne peut que les refuser.** `unknown_members: refuse` dans vos réglages pour un projet
   (son entrée sous `projects` dans `config.yaml`) ou dans le `latet.yaml` de son dépôt les refuse
   dans ce projet seulement. `check` n'appartient qu'à vos réglages : l'entrée d'un projet dans
-  `config.yaml` n'accepte que `refuse`, et un `latet.yaml` qui dit `check` est listé sous
-  *Ce qui n'est pas appliqué*.
+  `config.yaml` n'accepte que `refuse` (un `check` écrit là à la main est laissé de côté, et
+  `latet reload` et le journal du daemon disent quelle entrée), et un `latet.yaml` qui dit `check`
+  est listé sous *Ce qui n'est pas appliqué*.
 - **Le `refuse` d'un dépôt lie un projet de confiance ou déclaré.** Comme toute règle d'un projet qui
   ajoute de la protection, il s'applique aux requêtes que Latet place dans ce projet, qu'il le tienne
   pour un projet de confiance ou qu'une requête le déclare : un client qui nomme un autre dossier n'y
@@ -511,7 +512,7 @@ s'appliquerait alors sans attendre votre approbation. Si vous en avez choisi un,
 que la mise à jour vers la 0.11 a faite, qui contient les deux fichiers tels qu'ils étaient avant :
 `latet upgrade --to` la propose en revenant en arrière (elle se trouve dans le dossier de données,
 dans `backups/before-<version>-<heure>`, dont le nom reprend la version installée, par exemple
-`before-0.15.1-…`). Sans cette copie (la 0.11 installée par le script
+`before-0.15.2-…`). Sans cette copie (la 0.11 installée par le script
 d'installation, qui n'en fait aucune), retirez la clé des deux fichiers avant de revenir en arrière :
 les lignes `request_profile:` de `config.yaml`, et chaque membre `"request_profile": "…"` de
 `config.reviewed.json`, en le laissant en JSON valide.

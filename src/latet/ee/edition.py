@@ -549,6 +549,14 @@ class EnterpriseEdition:
         Edition, until a policy of the company's forbids them (the seam 0.11 leaves for it)."""
         return True
 
+    def named_by_id(self) -> frozenset[str]:
+        """The people SCIM manages (``Account.scim_managed``, deleted at the provider or not: it is never taken back),
+        whatever the license says: a value a leaked token set before a trial ended still names the impostor after."""
+        people = getattr(self, "people", None)  # none on a computer
+        if people is None:
+            return frozenset()
+        return frozenset(person for person, account in people.accounts().items() if account.scim_managed)
+
     def dashboard_routes(self, dashboard: Dashboard) -> list[BaseRoute]:
         from latet.ee.api import license_routes
         from latet.ee.policy_routes import policy_routes

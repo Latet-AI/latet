@@ -9,6 +9,8 @@ lists the releases, each linked to its entry there. Each release's packages are 
 
 What comes next is on the [roadmap](https://docs.latet.ai/roadmap/).
 
+## [0.15.2] - 2026-11-24
+
 ## [0.15.1] - 2026-11-22
 
 ## [0.15.0] - 2026-11-21
@@ -51,6 +53,7 @@ What comes next is on the [roadmap](https://docs.latet.ai/roadmap/).
 
 ## [0.9.0] - 2026-10-22
 
+[0.15.2]: https://docs.latet.ai/changelog/#0152-2026-11-24
 [0.15.1]: https://docs.latet.ai/changelog/#0151-2026-11-22
 [0.15.0]: https://docs.latet.ai/changelog/#0150-2026-11-21
 [0.12.1]: https://docs.latet.ai/changelog/#0121-2026-11-09

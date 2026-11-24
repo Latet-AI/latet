@@ -98,6 +98,11 @@ class Edition(Protocol):
 
     def permanent_exceptions(self) -> bool: ...
 
+    def named_by_id(self) -> frozenset[str]:
+        """The people whose name and e-mail someone other than an administrator sets (Enterprise: SCIM, R2), whom
+        `latet server` names by their id alone: a leaked SCIM token could move those values to an impostor."""
+        ...
+
     def close(self) -> None: ...
 
 
@@ -165,6 +170,9 @@ class Community:
     def permanent_exceptions(self) -> bool:
         """Whether a request exception may be made permanent on purpose (D3): the Community Edition allows it."""
         return True
+
+    def named_by_id(self) -> frozenset[str]:
+        return frozenset()  # an administrator alone sets a person's name and e-mail
 
     def close(self) -> None:
         return None

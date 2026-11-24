@@ -133,6 +133,71 @@ def test_ambiguous_identity_has_no_name_email_precedence(admin, monkeypatch):
     assert done.exit_code == 1 and "u_aaaaaaaaaa" in done.output and EMILY["id"] in done.output
 
 
+@pytest.mark.parametrize(
+    "said",
+    [{"named_by_id": True}, {}, {"named_by_id": False}],
+    ids=["the server says", "an older server", "a server without Enterprise"],
+)
+@pytest.mark.parametrize("command", ["code", "disable", "enable", "remove", "tokens"])
+def test_a_person_scim_manages_is_named_by_their_id_alone(admin, monkeypatch, command, said):
+    """R2: a SCIM token sets the name and e-mail of a person SCIM manages, so a leaked one could move them to an
+    impostor. The server says who they are (``named_by_id``), and the people SCIM made are whatever it says: a server
+    older than 0.15.2 does not say, and one without Latet Enterprise says it of nobody. Neither their name nor their
+    e-mail finds them, and the refusal names no id, the one found being perhaps the impostor's."""
+    asked: list[tuple[str, str]] = []
+
+    def answer(method, path, body=None, **kwargs):
+        asked.append((method, _path(path, kwargs)))
+        return {"identities": [{**EMILY, "source": "scim", **said}]}
+
+    monkeypatch.setattr("latet.cli.server.admin_call", answer)
+    for who in (EMILY["email"], EMILY["name"]):
+        done = run_cli("server", "people", command, who, *(["--yes"] if command == "remove" else []))
+        assert done.exit_code == 1 and "SCIM" in done.output and "by their id" in done.output, done.output
+        assert EMILY["id"] not in done.output
+    assert all(method == "GET" for method, _ in asked)  # nothing was asked of the server but the list
+
+
+@pytest.mark.parametrize("by_hand_too", [False, True], ids=["alone", "beside one added by hand"])
+@pytest.mark.parametrize("command", ["code", "disable", "enable", "remove", "tokens"])
+def test_a_person_whose_sign_in_made_their_account_is_named_by_their_id(admin, monkeypatch, command, by_hand_too):
+    """M3: a first sign-in (``accounts: group`` or ``open``) makes an account with the name its ID token gives, which
+    many providers let a person set: a colleague could take someone's name before that person first signs in, and the
+    code would go to the colleague's account. Neither the name nor the e-mail of such a person finds them, as in the
+    Enterprise commands (H1), not even beside someone added by hand with the same name, and the refusal names no id."""
+    asked: list[tuple[str, str]] = []
+    signed_in = {**EMILY, "id": "u_aaaaaaaaaa", "source": "oidc", "named_by_id": False}
+    everyone = [signed_in, {**EMILY, "named_by_id": False}] if by_hand_too else [signed_in]
+
+    def answer(method, path, body=None, **kwargs):
+        asked.append((method, _path(path, kwargs)))
+        return {"identities": everyone}
+
+    monkeypatch.setattr("latet.cli.server.admin_call", answer)
+    for who in (EMILY["email"], EMILY["name"].upper()):
+        done = run_cli("server", "people", command, who, *(["--yes"] if command == "remove" else []))
+        assert done.exit_code == 1 and "first sign-in" in done.output and "by their id" in done.output, done.output
+        assert signed_in["id"] not in done.output and EMILY["id"] not in done.output
+    assert all(method == "GET" for method, _ in asked)  # nothing was asked of the server but the list
+    rows = {line.split()[0]: line for line in run_cli("server", "people", "list").output.splitlines()}
+    assert rows[signed_in["id"]].endswith("account made at sign-in")  # the list tells them apart
+    assert not by_hand_too or "sign-in" not in rows[EMILY["id"]]
+
+
+def test_a_person_whose_sign_in_made_their_account_is_found_by_their_id(admin, monkeypatch):
+    signed_in = {**EMILY, "source": "oidc", "named_by_id": False}
+    asked: list[tuple[str, str]] = []
+
+    def answer(method, path, body=None, **kwargs):
+        asked.append((method, _path(path, kwargs)))
+        return {"identities": [signed_in]} if method == "GET" else {"identity": {**signed_in, "disabled": True}}
+
+    monkeypatch.setattr("latet.cli.server.admin_call", answer)
+    done = run_cli("server", "people", "disable", EMILY["id"])
+    assert done.exit_code == 0, done.output
+    assert ("PATCH", f"identities/{EMILY['id']}") in asked
+
+
 def test_bad_ids_from_server_are_left_out(admin, monkeypatch):
     def answer(method, path, body=None, **kwargs):
         path = _path(path, kwargs)

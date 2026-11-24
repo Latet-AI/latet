@@ -1092,7 +1092,12 @@ people_cli = typer.Typer(help="The people who use the server, and their computer
 keys_cli = typer.Typer(help="API keys: identities of programs that belong to no person.", no_args_is_help=True)
 server_app.add_typer(people_cli, name="people")
 server_app.add_typer(keys_cli, name="keys")
-Person = Annotated[str, typer.Argument(help="The person: their id, name or e-mail address.")]
+Person = Annotated[
+    str,
+    typer.Argument(
+        help="The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage."
+    ),
+]
 Key = Annotated[str, typer.Argument(help="The API key: its id or name.")]
 Yes = Annotated[bool, typer.Option("--yes", "-y", help="Confirm in a script; your own terminal still asks.")]
 
@@ -1116,10 +1121,35 @@ def _find(kind: str, who: str) -> dict[str, Any]:
     group = "people" if kind == "person" else "keys"
     if not found:
         _stop(f"Nobody here is {_text(who)}: `latet server {group} list`.", 1)
+    if not USER_ID.fullmatch(who) and any(_named_by_id(i) for i in found):
+        # R2: SCIM sets this person's name and e-mail, which a leaked token could move to an impostor; no id is named,
+        # since the one found could be the impostor's.
+        _stop(
+            f"{_text(who)} names a person SCIM manages, whose name and e-mail a SCIM token can change: name them by "
+            "their id.",
+            1,
+        )
+    if not USER_ID.fullmatch(who) and any(i.get("source") == "oidc" for i in found):
+        # M3: a first sign-in made this account, with the name its ID token gave, which many providers let a person
+        # set: a colleague could take someone's name before they first sign in. Their e-mail is not taken either, as
+        # in the Enterprise commands (H1); no id is named, since the one found could be the colleague's.
+        _stop(
+            f"{_text(who)} names a person whose account their first sign-in made, with the name and e-mail it gave: "
+            "name them by their id, from `latet server people list`, which marks such accounts. For a code, they can "
+            "make their own: Sign-in page, Connect a computer.",
+            1,
+        )
     if len(found) > 1:
         ids = ", ".join(i["id"] for i in found)
         _stop(f"{_text(who)} names {len(found)} identities: use the id ({ids}).", 1)
     return found[0]
+
+
+def _named_by_id(identity: dict[str, Any]) -> bool:
+    """Whether ``identity`` is named by their id alone (R2): the server says so (from 0.15.2), or SCIM made them. The
+    second holds whatever the server says: a server without Latet Enterprise says it of nobody, though a token that
+    leaked may have set the name and e-mail of the people SCIM made there before."""
+    return identity.get("named_by_id") is True or identity.get("source") == "scim"
 
 
 def _set_disabled(kind: str, who: str, disabled: bool) -> None:
@@ -1179,9 +1209,10 @@ def people_list() -> None:
         state = "disabled" if p.get("disabled") is True else "enabled"
         seen = _seen(p.get("last_seen"))
         invalid |= seen == "?"
+        made = "  account made at sign-in" if p.get("source") == "oidc" else ""  # its name from the ID token (M3)
         typer.echo(
             f"{p['id']}  {_text(p.get('name'))}  {_text(p.get('email') or '-')}  "
-            f"{state}  {_count(p.get('tokens'))} computers, seen {seen}"
+            f"{state}  {_count(p.get('tokens'))} computers, seen {seen}{made}"
         )
         if p.get("tampered_tokens"):
             typer.echo(f"  {_count(p['tampered_tokens'])} tampered token rows: they open nothing")

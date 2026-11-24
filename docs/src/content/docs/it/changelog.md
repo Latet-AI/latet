@@ -16,6 +16,34 @@ Cosa arriva dopo è nella [roadmap](../roadmap/): un rifiuto esplicito dalla mod
 strumenti MCP mascherati prima che Claude Code li legga, un installer firmato per Windows, i tuoi
 modelli dei nomi, altri agenti, e la documentazione in altre lingue.
 
+## 0.15.2 (2026-11-24)
+
+- **`unknown_members: check` in un progetto non ferma più Latet.** Un progetto può impostare solo
+  `unknown_members: refuse`, e un `check` scritto a mano nella voce di un progetto sotto `projects`
+  in `config.yaml` rendeva non valido l'intero file: Latet non partiva, e `latet reload` falliva.
+  Ora viene lasciato fuori, e `latet reload` e il log del daemon dicono quale voce; il resto del
+  file si applica, e il progetto segue il tuo `unknown_members`, come senza quella riga.
+
+- **Una persona gestita da SCIM si indica con il suo ID.** Su un server con Latet Enterprise, un token SCIM imposta
+  ogni valore che identifica una persona gestita da SCIM: nome utente, email e nome. Un token finito nelle mani
+  sbagliate poteva spostare quei valori su un account creato con quel token, che un comando che indica la persona per
+  email o nome utente, come `latet server roles grant`, raggiungeva poi. Ora una persona così si indica solo con il
+  suo ID (`u_…`), che nessun token cambia: i valori che un token imposta non la trovano più, né in `latet server` né
+  nell'API di amministrazione del server. Aggiorna `latet` sui computer da cui lo usano gli amministratori: una
+  versione precedente trova ancora una persona così per nome o email. Nemmeno due gruppi i cui nomi differiscono solo
+  per una lettera come ß e ss vengono più scambiati: `latet server` rifiuta un nome così, e il gruppo si indica con il
+  suo ID. Le persone aggiunte a mano si indicano ancora per email o nome utente, e la dashboard, che indica tutti con
+  il loro ID, non cambia.
+
+- **Una persona il cui account è nato da un accesso si indica con il suo ID.** Su un server con Latet Enterprise e
+  `accounts: group` o `open`, il primo accesso crea un account con il nome che dà il token ID, e molti provider
+  lasciano scegliere quel nome alla persona: qualcuno poteva prendere il nome di un collega prima che il collega
+  accedesse per la prima volta, e `latet server people code "Emily Carter"` dava poi il codice all'account che aveva
+  preso quel nome. `latet server people code`, `disable`, `enable`, `remove` e `tokens` ora rifiutano il nome e
+  l'email di una persona il cui account è nato da un accesso, come già facevano i comandi Enterprise, e la indicano
+  con il suo ID (`u_…`): `latet server people list` lo mostra, e ora segna questi account. Il controllo lo fa `latet`
+  sul computer da cui lo usi: aggiornalo lì.
+
 ## 0.15.1 (2026-11-22)
 
 - **Una sincronizzazione richiesta non resta più in attesa.** Su un server con Latet Enterprise, una

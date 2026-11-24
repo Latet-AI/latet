@@ -992,14 +992,18 @@ def admin_routes(server: Server) -> list[BaseRoute]:
         if kind not in (None, "person", "key"):
             return _error("kind is person or key", 400)
 
-        def listed() -> tuple[list[Identity], dict[str, tuple[int, int]]]:
-            return server.identities.all(kind), server.identities.token_counts()  # a person's computers
+        def listed() -> tuple[list[Identity], dict[str, tuple[int, int]], frozenset[str]]:
+            # A person's computers, and whether they are named by their id alone (R2: SCIM sets their name and e-mail).
+            by_id = server.edition.named_by_id() if kind != "key" else frozenset()  # SCIM makes no API key
+            return server.identities.all(kind), server.identities.token_counts(), by_id
 
-        identities, counts = await _in_pool(listed)
+        identities, counts, by_id = await _in_pool(listed)
         # Every token's row is counted; those whose tag does not hold (made or changed without the server's key, and
         # finding no one) are counted apart too, never hidden.
         found_ = [
-            asdict(i) | dict(zip(("tokens", "tampered_tokens"), counts.get(i.id, (0, 0)), strict=True))
+            asdict(i)
+            | dict(zip(("tokens", "tampered_tokens"), counts.get(i.id, (0, 0)), strict=True))
+            | {"named_by_id": i.id in by_id}
             for i in identities
         ]
         call.details = {"count": len(found_)}

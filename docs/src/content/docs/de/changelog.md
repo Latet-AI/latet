@@ -17,6 +17,37 @@ Was als Nächstes kommt, steht auf der [Roadmap](../roadmap/): eine klare Ablehn
 Auto-Modus, MCP-Tools maskiert, bevor Claude Code sie liest, ein signiertes Installationsprogramm
 für Windows, eigene Namensmodelle, weitere Agenten und die Dokumentation in weiteren Sprachen.
 
+## 0.15.2 (2026-11-24)
+
+- **`unknown_members: check` in einem Projekt hält Latet nicht mehr an.** Ein Projekt kann nur
+  `unknown_members: refuse` setzen, und ein von Hand geschriebenes `check` im Eintrag eines Projekts
+  unter `projects` in `config.yaml` machte die ganze Datei ungültig: Latet startete nicht, und
+  `latet reload` schlug fehl. Jetzt wird es ausgelassen, und `latet reload` und das Log des Daemons
+  nennen den Eintrag; der Rest der Datei gilt, und das Projekt folgt Ihrem eigenen
+  `unknown_members`, wie ohne diese Zeile.
+
+- **Eine von SCIM verwaltete Person wird mit ihrer ID benannt.** Auf einem Server mit Latet Enterprise setzt ein
+  SCIM-Token jeden Wert, der eine von SCIM verwaltete Person benennt: Benutzername, E-Mail-Adresse und Name. Ein Token
+  in falschen Händen konnte diese Werte auf ein damit angelegtes Konto verschieben, das ein Befehl, der die Person mit
+  E-Mail-Adresse oder Benutzernamen nennt, etwa `latet server roles grant`, dann erreichte. Eine solche Person wird
+  jetzt allein mit ihrer ID (`u_…`) benannt, die kein Token ändert; die Werte, die ein Token setzt, finden sie weder
+  in `latet server` noch in der Administrations-API des Servers mehr. Aktualisieren Sie `latet` auf den Rechnern, von
+  denen Administratoren es nutzen: Eine ältere Version findet eine solche Person noch über Namen oder E-Mail-Adresse.
+  Auch zwei Gruppen, deren Namen sich nur in einem Buchstaben wie ß und ss unterscheiden, werden nicht mehr
+  verwechselt: `latet server` lehnt einen solchen Namen ab, und die Gruppe wird mit ihrer ID benannt. Von Hand
+  hinzugefügte Personen werden weiter mit E-Mail-Adresse oder Benutzernamen benannt, und das Dashboard, das alle mit
+  ihrer ID benennt, ändert sich nicht.
+
+- **Eine Person, deren Konto eine Anmeldung angelegt hat, wird mit ihrer ID benannt.** Auf einem Server mit Latet
+  Enterprise und `accounts: group` oder `open` legt eine erste Anmeldung ein Konto mit dem Namen an, den das ID-Token
+  angibt und den viele Anbieter die Person selbst wählen lassen: Jemand konnte den Namen einer anderen Person
+  annehmen, bevor diese sich zum ersten Mal anmeldete, und `latet server people code "Emily Carter"` gab den Code dann
+  dem Konto, das den Namen angenommen hatte. `latet server people code`, `disable`, `enable`, `remove` und `tokens`
+  lehnen nun den Namen und die E-Mail-Adresse einer Person ab, deren Konto eine Anmeldung angelegt hat, wie es die
+  Enterprise-Befehle schon taten, und benennen sie mit ihrer ID (`u_…`): `latet server people list` zeigt sie und
+  kennzeichnet nun solche Konten. Die Prüfung macht `latet` auf dem Rechner, von dem Sie es nutzen: Aktualisieren Sie
+  es dort.
+
 ## 0.15.1 (2026-11-22)
 
 - **Eine angeforderte Synchronisierung bleibt nicht mehr offen.** Auf einem Server mit Latet

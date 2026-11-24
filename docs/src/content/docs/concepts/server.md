@@ -97,8 +97,8 @@ holds the values the person used last, the prints of the vault's words and every
 text finds, and finds the others in PostgreSQL as a text needs them. Before each request it reads
 in PostgreSQL what the other instances changed, so a value kept or forgotten on one instance before a
 request starts is seen by that request on any other. A person whose vault holds values kept before
-Latet 0.10.0 is served as 0.10.0 served her until her space is built again after their words are
-made: her space holds her whole vault in memory, whatever its size, and reads no change counter, so a
+Latet 0.10.0 is served as 0.10.0 served them until their space is built again after their words are
+made: their space holds their whole vault in memory, whatever its size, and reads no change counter, so a
 value another instance keeps reaches it by its message, or, when the message is lost, by the beat's
 next check.
 

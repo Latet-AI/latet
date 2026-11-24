@@ -168,6 +168,36 @@ def test_a_person_is_named_by_e_mail_only_when_that_e_mail_was_given_by_hand_or_
     assert cluster.people.given(priya.id) == frozenset() and cluster.people.given(emily.id) == {Role.ADMIN}
 
 
+def test_a_person_scim_manages_is_named_by_their_id_alone(cluster, emily):
+    """The re-review's R2: a SCIM token sets every value that names a person SCIM manages (user name, e-mail, name), so
+    a leaked one could move them to an impostor account that a body naming the person by e-mail or user name then
+    reaches. Such a person is named by their id alone, and no refusal says whom the name found; a person added by hand
+    is still named by e-mail, until they are handed to SCIM."""
+    laura, _code = cluster.server.identities.add_person("Laura Bianchi", "laura.bianchi@acme.com", source="scim")
+    cluster.people.link(laura.id, source="scim", user_name="laura.bianchi", scim_managed=True, actor=BY_HAND)
+    for subject in ("laura.bianchi@acme.com", "LAURA.BIANCHI"):
+        grant = {"subject": subject, "role": "auditor"}
+        for refused in (
+            cluster.a.post(f"{API}/ee/roles", headers=UI, json=grant),
+            cluster.a.post(f"{ADMIN_EE}/roles", headers=as_admin(cluster), json=grant),
+        ):
+            assert refused.status_code == 409 and "by their id" in refused.json()["error"]
+            assert "SCIM" in refused.json()["error"] and laura.id not in refused.text
+    team = cluster.people.add_group("Platform", actor=BY_HAND)
+    joined = cluster.a.post(f"{API}/ee/groups/{team.id}/members", headers=UI, json={"person": "laura.bianchi"})
+    assert joined.status_code == 409 and cluster.people.given(laura.id) == frozenset()
+    by_id = cluster.a.post(f"{API}/ee/roles", headers=UI, json={"subject": laura.id, "role": "auditor"})
+    assert by_id.json()["subject"] == {"kind": "person", "id": laura.id, "name": "Laura Bianchi"}
+    daniel = _daniel(cluster)
+    named = cluster.a.post(f"{API}/ee/roles", headers=UI, json={"subject": "daniel.okafor@acme.com", "role": "auditor"})
+    assert named.json()["subject"]["id"] == daniel.id
+    cluster.people.link(daniel.id, source="scim", user_name="daniel.okafor", scim_managed=True, actor=BY_HAND)
+    handed = cluster.a.post(
+        f"{API}/ee/roles", headers=UI, json={"subject": "daniel.okafor@acme.com", "role": "security"}
+    )
+    assert handed.status_code == 409 and Role.SECURITY not in cluster.people.roles_of(daniel.id)
+
+
 @pytest.mark.parametrize(
     "look_alike", ["\N{KELVIN SIGN}ate.king@acme.com", "kate.k\N{LATIN CAPITAL LETTER I WITH DOT ABOVE}ng@acme.com"]
 )

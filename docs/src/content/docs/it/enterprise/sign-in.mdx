@@ -243,7 +243,11 @@ per tutti subito, a partire dai gruppi che ogni persona aveva al suo ultimo acce
   programma sul server in ascolto lì riceverebbe il segreto del client. Ogni risposta viene letta fino a un limite di
   dimensione.
 - Ogni accesso, e ogni accesso rifiutato, è un evento di tipo `sign-in` con l'ID della persona e l'esito, mai il suo
-  nome o la sua email. Un primo accesso che crea un account è nel registro amministrativo.
+  nome o la sua email. Un primo accesso che crea un account è nel registro amministrativo. Un account così prende il
+  nome che dà il token ID, e molti provider lasciano scegliere quel nome alla persona: per questo
+  `latet server people code`, `disable`, `enable`, `remove` e `tokens` indicano la persona con il suo ID (`u_…`), mai
+  con quel nome o con la sua email. `latet server people list` segna questi account, accanto all'email che il tuo
+  provider ha verificato, se l'ha inviata. Le persone creano da sé il codice per collegare un computer (più avanti).
 
 Quando un accesso viene rifiutato, la pagina di accesso dice perché: ha richiesto più di dieci minuti o è già stato
 usato, l'account aziendale non è in `access_group` (o il suo dominio non è in `allowed_domains`), non è collegato a
@@ -402,11 +406,13 @@ Cosa ne fa Latet:
 - **Gli account vengono da SCIM quando `accounts` è `scim`:** una persona che il tuo provider non ha creato, e che
   nessun amministratore ha collegato, viene rifiutata all'accesso, e gli accessi non mettono più nessuno in un gruppo.
 - Ogni modifica che fa SCIM è nel registro amministrativo, a nome del token che l'ha fatta. Un token SCIM imposta ogni
-  valore che identifica una persona gestita da SCIM (nome utente, email, nome): per questo i comandi che indicano una
-  persona, come `latet server people code` e `latet server roles grant`, sono più sicuri con l'ID della persona (`u_…`).
-  Se è possibile che un token sia finito nelle mani sbagliate, rimuovilo
-  (`latet server sign-in scim-token --remove <id>`) e, nella pagina **Registro amministrativo**, imposta il filtro
-  **Chi** su `scim:<id>`: vedrai che cosa ha cambiato.
+  valore che identifica una persona gestita da SCIM (nome utente, email, nome): per questo una persona così si indica
+  solo con il suo ID (`u_…`), che nessun token cambia: comandi come `latet server people code` e
+  `latet server roles grant` rifiutano il suo nome utente e la sua email. Prendi l'ID dal tuo provider, che conserva
+  quello che Latet gli ha dato per ogni persona che ha creato (l'`id` di SCIM): anche `latet server people list`
+  mostra gli ID, ma accanto a un nome e a un'email che un token imposta. Se è possibile che un token sia finito nelle
+  mani sbagliate, rimuovilo (`latet server sign-in scim-token --remove <id>`) e, nella pagina **Registro
+  amministrativo**, imposta il filtro **Chi** su `scim:<id>`: vedrai che cosa ha cambiato.
 
 Latet risponde a `/scim/v2/Users` (`GET` con `filter=userName eq "…"` o `externalId eq "…"`, `POST`, `GET`, `PUT`,
 `PATCH`, `DELETE`), `/scim/v2/Groups` (`GET` con `filter=displayName eq "…"`, `POST`, `GET`, `PUT`, `PATCH` di membri e
@@ -478,7 +484,7 @@ Da qualsiasi computer, con il token amministrativo del server. Prima la persona 
 l'ha creato tramite SCIM, lo aggiungi a mano (`latet server people add "Emily Carter" --email emily.carter@acme.com`),
 oppure, con `accounts: group` o `open`, ha fatto accesso una volta. Un account aggiunto a mano viene collegato al tuo
 provider tramite il nome utente che la persona ha presso il provider, così che il suo primo accesso lo trovi; poi il
-ruolo:
+ruolo (una persona creata da SCIM si indica invece con il suo ID, `u_…`):
 
 ```sh
 latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
@@ -486,12 +492,12 @@ latet server roles grant emily.carter@acme.com admin
 ```
 
 Al posto del primo comando, la persona può collegare il proprio account dalla sua dashboard (**Collega il mio account
-aziendale**, sopra). Una persona si indica con il suo ID (`u_…`, mostrato da `latet server people list`), il suo nome
-utente presso il tuo provider, oppure la sua email quando è stata data a mano o da SCIM: un'email portata da un token
-ID, o che appartiene a più di una persona o a una persona disattivata, viene rifiutata, e la persona si indica con il suo ID. Un
-gruppo si indica con il suo ID (`g_…`) o il suo nome: `latet server roles grant "Security team" security`. Ogni
-risposta dice a chi è stato ricondotto il nome. Poi gli amministratori assegnano i ruoli nella pagina **Persone e
-gruppi**.
+aziendale**, sopra). Una persona si indica con il suo ID (`u_…`, mostrato da `latet server people list`) oppure, se
+SCIM non la gestisce, con il suo nome utente presso il tuo provider o con la sua email quando è stata data a mano:
+un'email portata da un token ID, o che appartiene a più di una persona o a una persona disattivata, viene rifiutata, e
+la persona si indica con il suo ID. Un gruppo si indica con il suo ID (`g_…`) o il suo nome:
+`latet server roles grant "Security team" security`. Ogni risposta dice a chi è stato ricondotto il nome. Poi gli
+amministratori assegnano i ruoli nella pagina **Persone e gruppi**.
 
 La dashboard non lascia che il server perda il suo ultimo amministratore attivo (per un ruolo tolto, un gruppo lasciato
 o rimosso, o una persona disattivata); `latet server` può sempre farlo, e può sempre assegnare il ruolo finché la

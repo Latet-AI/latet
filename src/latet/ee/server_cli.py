@@ -170,8 +170,8 @@ def _match_person(key: str, people: list[dict[str, Any]]) -> dict[str, Any] | No
     """The person ``key`` names among ``people`` (the People and groups page's list), as the server finds one a body
     names (``person_of``, H1): by their id; by their user name at the provider; by an e-mail only when one enabled
     person has it and it was given by hand or by SCIM; both with A to Z's case aside and nothing else folded
-    (``_user_name_key``). None for no one; ``_Unnamed`` when it names two people, or reads as one's user name and
-    another's e-mail."""
+    (``_user_name_key``). None for no one; ``_Unnamed`` when it names two people, reads as one's user name and
+    another's e-mail, or names a person SCIM manages, who is named by their id alone (``_not_scims``, R2)."""
     if USER_ID.fullmatch(key):
         return next((person for person in people if person["id"] == key), None)
     folded = _user_name_key(key)
@@ -181,20 +181,37 @@ def _match_person(key: str, people: list[dict[str, Any]]) -> dict[str, Any] | No
     if len(named) > 1 or (named and any(person["id"] != named[0]["id"] for person in having)):
         raise _Unnamed(by_id)
     if named:
-        return named[0]
+        return _not_scims(key, named[0])
     enabled = [person for person in having if person.get("disabled") is not True]
     if len(having) == 1 and len(enabled) == 1 and enabled[0].get("source") in _ENTERED:
-        return enabled[0]
+        return _not_scims(key, enabled[0])
     if having:
         raise _Unnamed(by_id)
     return None
 
 
+def _not_scims(key: str, person: dict[str, Any]) -> dict[str, Any]:
+    """``person``, found by ``key`` (a user name or an e-mail), unless SCIM manages them (R2, as the server's
+    ``people_api._not_scims``): ``_Unnamed``, naming no id, since the account found could be an impostor's."""
+    if person.get("scim_managed") is True:
+        raise _Unnamed(
+            f"{key} names a person SCIM manages, whose user name and e-mail a SCIM token can change: name them by "
+            "their id"
+        )
+    return person
+
+
 def _match_group(key: str, groups: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The group ``key`` names: by its id, or by its name with case aside. ``_Unnamed`` when two groups' names fold
+    alike: the server keeps names apart by PostgreSQL's ``lower``, which folds less (Großkunden and Grosskunden are two
+    groups there, one name here), and a SCIM token could make the second to take the first one's roles."""
     if GROUP_ID.fullmatch(key):
         return next((group for group in groups if group["id"] == key), None)
     folded = key.casefold()
-    return next((g for g in groups if isinstance(g.get("name"), str) and g["name"].casefold() == folded), None)
+    found = [g for g in groups if isinstance(g.get("name"), str) and g["name"].casefold() == folded]
+    if len(found) > 1:
+        raise _Unnamed(f"{key} names more than one group: name it by its id")
+    return found[0] if found else None
 
 
 def _people() -> list[dict[str, Any]]:
@@ -221,7 +238,10 @@ def _person(key: str) -> dict[str, Any]:
 
 
 def _group(key: str) -> dict[str, Any]:
-    found = _match_group(key, _groups())
+    try:
+        found = _match_group(key, _groups())
+    except _Unnamed as exc:
+        _stop(str(exc))
     if found is None:
         _stop(f"no group on this server is {key} (`latet server groups list`)")
     return found
@@ -233,8 +253,8 @@ def _subject(key: str) -> str:
     _not_secret(key)
     if USER_ID.fullmatch(key) or GROUP_ID.fullmatch(key):
         return key
-    group = _match_group(key, _groups())
     try:
+        group = _match_group(key, _groups())
         person = _match_person(key, _people())
     except _Unnamed as exc:
         _stop(str(exc))

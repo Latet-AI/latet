@@ -1359,8 +1359,11 @@ def left_out(data: Any) -> list[str]:
     ``data`` before it is read as settings, each said by its place: an allow pattern RE2 cannot compile (the safe side:
     more is masked), ``allow_patterns entry 2 is not a valid RE2 pattern and is left out``; a term longer than a term
     holds, which could leave no rule built at all (said, as less is masked: never silently), ``projects entry 1, terms
-    entry 1 holds more than 8192 characters and is left out``. A file edited by hand still loads; whatever saves
-    settings refuses both (``AllowPattern``, ``term_errors``)."""
+    entry 1 holds more than 8192 characters and is left out``; a project's ``unknown_members: check``, which a project
+    cannot set (only ``refuse``): the project follows your own value, and a ``refuse`` it was written over is taken
+    away, which waits for your approval as any loosening written in config.yaml does. A file edited by hand still
+    loads; whatever saves settings refuses all three (``AllowPattern``, ``term_errors``,
+    ``ProjectSettings.unknown_members``)."""
     if not isinstance(data, dict):
         return []
 
@@ -1376,6 +1379,10 @@ def left_out(data: Any) -> list[str]:
     for index, entry in enumerate(projects if isinstance(projects, list) else [], 1):
         if isinstance(entry, dict):
             notices += said(entry, f"projects entry {index}, ")
+            if entry.get("unknown_members") == "check":  # a project may only refuse: it follows your own value
+                del entry["unknown_members"]
+                notices.append(f"projects entry {index}, unknown_members `check` is left out: a project may only set "
+                               "`refuse`")  # fmt: skip
     return notices
 
 
@@ -1391,10 +1398,11 @@ def settings_from(data: Any, what: str) -> Config:
 
 
 def load_config(path: Path | None = None, notices: list[str] | None = None) -> Config:
-    """The settings in ``path`` (None: config.yaml). An allow pattern RE2 cannot compile and a term longer than a term
-    holds are left out, each with a notice that names its place, in the log and in ``notices`` when it is given
-    (``left_out``). Raises ``ConfigError`` (a ``ValueError``) for a file that is not valid YAML or not valid settings,
-    in words that say where and never what is written there, and ``OSError`` for one that cannot be read."""
+    """The settings in ``path`` (None: config.yaml). An allow pattern RE2 cannot compile, a term longer than a term
+    holds and a project's ``unknown_members: check`` are left out, each with a notice that names its place, in the log
+    and in ``notices`` when it is given (``left_out``). Raises ``ConfigError`` (a ``ValueError``) for a file that is
+    not valid YAML or not valid settings, in words that say where and never what is written there, and ``OSError`` for
+    one that cannot be read."""
     path = path or config_path()
     data = None
     if path.exists():

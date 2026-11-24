@@ -225,8 +225,10 @@ Einstellung gelesen wird.
 - **Ein Projekt kann sie nur ablehnen.** `unknown_members: refuse` in Ihren Einstellungen für ein
   Projekt (sein Eintrag unter `projects` in `config.yaml`) oder in der `latet.yaml` seines
   Repositorys lehnt sie nur in diesem Projekt ab. `check` steht allein Ihren Einstellungen zu: Der
-  Eintrag eines Projekts in `config.yaml` nimmt nur `refuse` an, und eine `latet.yaml`, die `check`
-  sagt, wird unter *Was nicht oder anders als geschrieben angewendet wird* aufgeführt.
+  Eintrag eines Projekts in `config.yaml` nimmt nur `refuse` an (ein dort von Hand geschriebenes
+  `check` wird ausgelassen, und `latet reload` und das Log des Daemons nennen den Eintrag), und eine
+  `latet.yaml`, die `check` sagt, wird unter *Was nicht oder anders als geschrieben angewendet wird*
+  aufgeführt.
 - **Das `refuse` eines Repositorys bindet ein vertrauenswürdiges oder behauptetes Projekt.** Wie jede
   Regel eines Projekts, die Schutz hinzufügt, gilt es für die Anfragen, die Latet diesem Projekt
   zuordnet, ob es das Projekt für vertrauenswürdig hält oder eine Anfrage es behauptet: Ein Client,
@@ -509,7 +511,7 @@ gäbe es keine freigegebenen Einstellungen: Eine Änderung an `config.yaml` wür
 Ihre Freigabe zu warten. Wenn Sie eines gewählt haben, spielen Sie die Kopie zurück, die das Upgrade
 auf 0.11 angelegt hat und die beide Dateien so enthält, wie sie vorher waren: `latet upgrade --to`
 bietet sie beim Zurückgehen an (sie liegt im Datenordner unter `backups/before-<Version>-<Zeit>`,
-benannt nach der installierten Version, zum Beispiel `before-0.15.1-…`). Ohne
+benannt nach der installierten Version, zum Beispiel `before-0.15.2-…`). Ohne
 diese Kopie (0.11 mit dem Installationsskript installiert, das keine anlegt) entfernen Sie den
 Schlüssel vor dem Zurückgehen aus beiden Dateien: die Zeilen `request_profile:` aus `config.yaml` und
 jedes Element `"request_profile": "…"` aus `config.reviewed.json`, sodass die Datei gültiges JSON bleibt.
