@@ -1133,7 +1133,7 @@ answers carry `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 | Method and relative path | Request and response |
 | --- | --- |
-| `GET /identities` | Optional `kind=person` or `kind=key`; returns `{identities}` including computer-token counts and tampered-token counts. |
+| `GET /identities` | Optional `kind=person` or `kind=key`; returns `{identities}` including computer-token counts and tampered-token counts, and `named_by_id`: true for a person SCIM manages, whose name and e-mail a SCIM token sets, so that `latet server` names them by their id alone (since 0.15.2). |
 | `POST /identities` | `{kind, name, email?}`, with email only for a person. Returns 201 `{identity, code}` for a person or `{identity, key, ...routes}` for an API key; these secrets are shown once. |
 | `GET /identities/{id}` | Returns `{identity, tokens}`. Token metadata contains no credential. |
 | `PATCH /identities/{id}` | `{name?, email?, disabled?}`; returns `{identity}`. Disabling retains the space. |

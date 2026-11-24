@@ -203,8 +203,9 @@ exception is read before this setting.
 
 - **A project may only refuse.** `unknown_members: refuse` in your settings for a project (its entry
   under `projects` in `config.yaml`) or in its repository's `latet.yaml` refuses them in that project
-  alone. `check` is your settings' alone: a project's entry in `config.yaml` takes `refuse` only, and
-  a `latet.yaml` that says `check` is listed under *What is not applied*.
+  alone. `check` is your settings' alone: a project's entry in `config.yaml` takes `refuse` only (a
+  `check` written there by hand is left out, and `latet reload` and the daemon's log say which
+  entry), and a `latet.yaml` that says `check` is listed under *What is not applied*.
 - **A repository's `refuse` binds a trusted or claimed project.** Like every rule of a project that
   adds protection, it applies to the requests Latet places in that project, whether it trusts the
   project or a request claims it: a client that names another folder is not bound by it, unless its
@@ -469,7 +470,7 @@ all: a change to `config.yaml` would then apply without waiting for your approva
 put back the copy the upgrade to 0.11 took, which holds both files as they were before it:
 `latet upgrade --to` offers it as it goes back (it is in the data folder, in
 `backups/before-<version>-<time>`, named after the version installed, for example
-`before-0.15.1-…`). Without that copy (0.11 installed by the installer, which takes
+`before-0.15.2-…`). Without that copy (0.11 installed by the installer, which takes
 none), take the key out of both files before you go back: the `request_profile:` lines in
 `config.yaml`, and each `"request_profile": "…"` member in `config.reviewed.json`, keeping it valid
 JSON.

@@ -72,6 +72,65 @@ def test_a_name_written_with_a_look_alike_names_nobody_on_the_command_line_eithe
     assert granted.exit_code == 0 and kate.id in granted.output
 
 
+def test_a_person_scim_manages_is_named_by_their_id_on_the_command_line(cli, cluster):
+    """The re-review's R2: the command finds nobody SCIM manages by e-mail or user name, and its refusal names no id
+    (one an impostor account could have), so that it is copied from where the person's own id is shown."""
+    laura, _code = cluster.server.identities.add_person("Laura Bianchi", "laura.bianchi@acme.com", source="scim")
+    cluster.people.link(laura.id, source="scim", user_name="laura.bianchi", scim_managed=True, actor=BY_HAND)
+    for name in ("laura.bianchi@acme.com", "Laura.Bianchi"):
+        refused = cli("roles", "grant", name, "auditor")
+        assert refused.exit_code != 0 and "by their id" in refused.output and laura.id not in refused.output
+    assert cluster.people.given(laura.id) == frozenset()
+    granted = cli("roles", "grant", laura.id, "auditor")
+    assert granted.exit_code == 0 and Role.AUDITOR in cluster.people.roles_of(laura.id)
+
+
+def test_the_community_commands_name_a_person_scim_manages_by_their_id_too(cli, cluster, monkeypatch):
+    """The security review of R2: `latet server people code|disable|…` find a person in the server's list of
+    identities, by name or e-mail; the list says who is named by their id alone (``named_by_id``), and the command
+    refuses their name and e-mail. Someone added by hand is found as before."""
+    from latet.cli import server as community
+
+    def admin_call(method, path, body=None, *, query=None, **_):
+        r = cluster.a.request(
+            method, f"/_latet/server/v1/admin/{path}", json=body, params=query, headers=as_admin(cluster)
+        )
+        if r.status_code >= 400:
+            raise ServerError(r.status_code, r.json().get("error", r.text), ())
+        return r.json() if r.content else None
+
+    monkeypatch.setattr(community, "admin_call", admin_call)
+    laura, _code = cluster.server.identities.add_person("Laura Bianchi", "laura.bianchi@acme.com", source="scim")
+    cluster.people.link(laura.id, source="scim", user_name="laura.bianchi", scim_managed=True, actor=BY_HAND)
+    daniel = add_person(cluster, "Daniel Okafor", "daniel.okafor@acme.com")
+    listed = {
+        row["id"]: row["named_by_id"] for row in admin_call("GET", "identities", query={"kind": "person"})["identities"]
+    }
+    assert listed == {laura.id: True, daniel.id: False}
+    for who in ("laura.bianchi@acme.com", "Laura Bianchi"):
+        refused = cli("people", "disable", who)
+        assert refused.exit_code == 1 and "by their id" in refused.output and laura.id not in refused.output
+    assert not cluster.server.identities.current(laura.id).disabled
+    assert cli("people", "disable", laura.id).exit_code == 0 and cluster.server.identities.current(laura.id).disabled
+    assert cli("people", "disable", "daniel.okafor@acme.com").exit_code == 0
+
+
+def test_two_groups_whose_names_fold_alike_are_named_by_their_id(cli, cluster):
+    """The security review of R2: PostgreSQL keeps Großkunden and Grosskunden apart, the command's casefold does not;
+    a token could make the second to take the roles meant for the first."""
+    cluster.people.add_group("Großkunden", actor=BY_HAND)
+    cluster.people.add_group("Grosskunden", source="scim", actor=BY_HAND)
+    refused = cli("roles", "grant", "Großkunden", "admin")
+    assert refused.exit_code != 0 and "by its id" in refused.output
+    assert all(Role.ADMIN not in cluster.people.given(group.id) for group in cluster.people.groups())
+    priya = add_person(cluster, "Priya Shah", "priya.shah@acme.com")
+    for words in (("groups", "join", "Großkunden", priya.id), ("groups", "rename", "Großkunden", "Key accounts")):
+        refused = cli(*words)
+        assert refused.exit_code != 0 and "by its id" in refused.output and "Traceback" not in refused.output
+    assert sorted(group.name for group in cluster.people.groups()) == ["Grosskunden", "Großkunden"]
+    assert cluster.people.groups_of(priya.id) == []
+
+
 def test_a_group_is_made_given_a_role_and_people(cli, cluster):
     priya = add_person(cluster, "Priya Shah", "priya.shah@acme.com")
     assert cli("groups", "add", "Payments leads").exit_code == 0

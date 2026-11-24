@@ -90,8 +90,8 @@ latet server --server https://latet.acme.lan people tokens "Emily Carter"
 ```
 
 Widerrufen Sie das Token eines verlorenen Rechners mit seiner aufgeführten ID und
-`--revoke TOKEN_ID`. `people disable "Emily Carter"` stoppt innerhalb von Sekunden jedes ihrer
-Tokens und lässt ihren Bereich bestehen (`people enable` gibt ihn zurück); `people remove "Emily Carter"`
+`--revoke TOKEN_ID`. `people disable "Emily Carter"` stoppt innerhalb von Sekunden jedes Token
+dieser Person und lässt ihren Bereich bestehen (`people enable` gibt ihn zurück); `people remove "Emily Carter"`
 löscht ihren aktiven Serverbereich samt Tresor, Verlauf und Einstellungen, sobald Sie bestätigen.
 `keys disable`, `enable` und `remove` tun dasselbe für einen API-Schlüssel. Keiner der Vorgänge
 löscht Kopien in Sicherungen, Browsern oder bei Modellanbietern. Lesen Sie vor dem Entfernen die

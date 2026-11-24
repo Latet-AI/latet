@@ -232,7 +232,11 @@ at once, from the groups each person had at their last sign-in.
   `localhost` is tried at `::1` first, and any program on the server that listens there would be sent the client
   secret. Each answer is read up to a size limit.
 - Each sign-in, and each refused one, is an event of type `sign-in` with the person's ID and the outcome, never their
-  name or e-mail. A first sign-in that makes an account is in the administration log.
+  name or e-mail. A first sign-in that makes an account is in the administration log. Such an account takes the name
+  the ID token gives, and many providers let a person choose that name, so `latet server people code`, `disable`,
+  `enable`, `remove` and `tokens` name its person by their ID (`u_…`), never by that name or their e-mail.
+  `latet server people list` marks such accounts, beside the e-mail your provider verified, if it sent one. People
+  make their own code to connect a computer (below).
 
 When a sign-in is refused, the sign-in page says why: it took more than ten minutes or was used already, the company
 account is not in `access_group` (or its domain is not in `allowed_domains`), it is linked to no account on this server
@@ -376,9 +380,11 @@ What Latet does with it:
 - **Accounts come from SCIM when `accounts` is `scim`:** a person your provider has not created, and that no
   administrator linked, is refused at sign-in, and sign-ins no longer put anyone in a group.
 - Each change SCIM makes is in the administration log, by the token that made it. A SCIM token sets every value that
-  names a person SCIM manages (user name, e-mail, name), so commands that name a person, such as
-  `latet server people code` and `latet server roles grant`, are safest given the person's ID (`u_…`). If a token may
-  have leaked, remove it (`latet server sign-in scim-token --remove <id>`), and on the **Administration log** page
+  names a person SCIM manages (user name, e-mail, name), so such a person is named by their ID (`u_…`) alone, which no
+  token changes: commands such as `latet server people code` and `latet server roles grant` refuse their user name and
+  their e-mail. Take the ID from your provider, which keeps the one Latet gave it for each person it provisioned
+  (SCIM's `id`): `latet server people list` shows IDs too, but beside a name and an e-mail a token sets. If a token
+  may have leaked, remove it (`latet server sign-in scim-token --remove <id>`), and on the **Administration log** page
   filter **Who** by `scim:<id>` to see what it changed.
 
 Latet answers `/scim/v2/Users` (`GET` with `filter=userName eq "…"` or `externalId eq "…"`, `POST`, `GET`, `PUT`,
@@ -446,8 +452,9 @@ made it. Auditors see what the policy locks, never its text. See [Locked rules](
 
 From any computer, with the server's administration token. First the person needs an account: your provider's SCIM
 created it, you add it by hand (`latet server people add "Emily Carter" --email emily.carter@acme.com`), or, with
-`accounts: group` or `open`, they signed in once. An account added by hand is linked to your provider by their user name
-there, so that their first sign-in finds it; then the role:
+`accounts: group` or `open`, they signed in once. An account added by hand is linked to your provider by their user
+name there, so that their first sign-in finds it; then the role (a person SCIM created is named by their ID, `u_…`,
+instead):
 
 ```sh
 latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
@@ -455,11 +462,11 @@ latet server roles grant emily.carter@acme.com admin
 ```
 
 Instead of the first command, the person can link their own account from their dashboard (**Link my company account**,
-above). A person is named by their ID (`u_…`, shown by `latet server people list`), their user name at your provider,
-or their e-mail when it was given by hand or by SCIM: an e-mail an ID token brought, or one that more than one person
-or a disabled person has, is refused, and the person is named by their ID. A group is named by its ID (`g_…`) or its
-name: `latet server roles grant "Security team" security`. Each answer says whom the name was taken for.
-Administrators then give roles on the **People and groups** page.
+above). A person is named by their ID (`u_…`, shown by `latet server people list`), or, if SCIM does not manage them,
+by their user name at your provider or their e-mail when it was given by hand: an e-mail an ID token brought, or one
+that more than one person or a disabled person has, is refused, and the person is named by their ID. A group is named
+by its ID (`g_…`) or its name: `latet server roles grant "Security team" security`. Each answer says whom the name was
+taken for. Administrators then give roles on the **People and groups** page.
 
 The dashboard does not let the server lose its last enabled administrator (by a role taken back, a group left or
 removed, or a person disabled); `latet server` always can, and can always give the role while the license can manage the

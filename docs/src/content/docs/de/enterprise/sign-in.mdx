@@ -253,7 +253,12 @@ hatte.
   `localhost` wird zuerst unter `::1` versucht, und jedes Programm auf dem Server, das dort lauscht, bekäme das
   Client-Geheimnis. Jede Antwort wird bis zu einer Größengrenze gelesen.
 - Jede Anmeldung und jede abgelehnte ist ein Ereignis vom Typ `sign-in` mit der ID der Person und dem Ergebnis, nie
-  ihrem Namen oder ihrer E-Mail-Adresse. Eine erste Anmeldung, die ein Konto anlegt, steht im Administrationsprotokoll.
+  ihrem Namen oder ihrer E-Mail-Adresse. Eine erste Anmeldung, die ein Konto anlegt, steht im
+  Administrationsprotokoll. Ein solches Konto übernimmt den Namen, den das ID-Token angibt und den viele Anbieter die
+  Person selbst wählen lassen: Deshalb benennen `latet server people code`, `disable`, `enable`, `remove` und `tokens`
+  die Person mit ihrer ID (`u_…`), nie mit diesem Namen oder ihrer E-Mail-Adresse. `latet server people list`
+  kennzeichnet solche Konten, neben der E-Mail-Adresse, die Ihr Anbieter bestätigt hat, sofern er eine gesendet hat.
+  Den Code zum Verbinden eines Computers erstellen die Personen selbst (weiter unten).
 
 Wird eine Anmeldung abgelehnt, sagt die Anmeldeseite, warum: Die Anmeldung dauerte länger als zehn Minuten oder wurde schon
 verwendet, das Unternehmenskonto ist nicht in `access_group` (oder seine Domain nicht in `allowed_domains`), es ist mit
@@ -420,9 +425,12 @@ Was Latet damit macht:
   Administrator verknüpft hat, wird bei der Anmeldung abgelehnt, und Anmeldungen nehmen niemanden mehr in eine Gruppe
   auf.
 - Jede Änderung von SCIM steht im Administrationsprotokoll, unter dem Token, das sie vorgenommen hat. Ein SCIM-Token
-  setzt jeden Wert, der eine von SCIM verwaltete Person benennt (Benutzername, E-Mail-Adresse, Name); Befehle, die eine
-  Person nennen, etwa `latet server people code` und `latet server roles grant`, sind daher mit der ID der Person
-  (`u_…`) am sichersten. Könnte ein Token in falsche Hände geraten sein, entfernen Sie es
+  setzt jeden Wert, der eine von SCIM verwaltete Person benennt (Benutzername, E-Mail-Adresse, Name); eine solche
+  Person wird daher allein mit ihrer ID (`u_…`) benannt, die kein Token ändert: Befehle wie `latet server people code`
+  und `latet server roles grant` lehnen ihren Benutzernamen und ihre E-Mail-Adresse ab. Nehmen Sie die ID von Ihrem
+  Anbieter, der für jede Person, die er angelegt hat, die ID aufbewahrt, die Latet ihm gegeben hat (die `id` von
+  SCIM): `latet server people list` zeigt die IDs auch, aber neben einem Namen und einer E-Mail-Adresse, die ein Token
+  setzt. Könnte ein Token in falsche Hände geraten sein, entfernen Sie es
   (`latet server sign-in scim-token --remove <id>`) und setzen Sie auf der Seite **Administrationsprotokoll** den
   Filter **Wer** auf `scim:<id>`, um zu sehen, was es geändert hat.
 
@@ -499,10 +507,12 @@ vorgenommen hat. Auditoren sehen, was die Vorgaben sperren, nie ihren Text. Sieh
 
 ### Der erste Administrator
 
-Von jedem Rechner aus, mit dem Administrationstoken des Servers. Zuerst braucht die Person ein Konto: Ihr Anbieter hat es
-über SCIM angelegt, Sie fügen es von Hand hinzu (`latet server people add "Emily Carter" --email emily.carter@acme.com`),
-oder sie hat sich, mit `accounts: group` oder `open`, einmal angemeldet. Ein von Hand hinzugefügtes Konto wird über den
-Benutzernamen der Person dort mit Ihrem Anbieter verknüpft, damit ihre erste Anmeldung es findet; dann die Rolle:
+Von jedem Rechner aus, mit dem Administrationstoken des Servers. Zuerst braucht die Person ein Konto: Ihr Anbieter hat
+es über SCIM angelegt, Sie fügen es von Hand hinzu
+(`latet server people add "Emily Carter" --email emily.carter@acme.com`), oder sie hat sich, mit `accounts: group`
+oder `open`, einmal angemeldet. Ein von Hand hinzugefügtes Konto wird über den Benutzernamen der Person dort mit Ihrem
+Anbieter verknüpft, damit ihre erste Anmeldung es findet; dann die Rolle (eine von SCIM angelegte Person wird
+stattdessen mit ihrer ID, `u_…`, benannt):
 
 ```sh
 latet server people link emily.carter@acme.com --user-name emily.carter@acme.com
@@ -510,12 +520,12 @@ latet server roles grant emily.carter@acme.com admin
 ```
 
 Statt des ersten Befehls kann die Person ihr eigenes Konto in ihrem Dashboard verknüpfen (**Mein Unternehmenskonto
-verknüpfen**, oben). Eine Person wird mit ihrer ID (`u_…`, angezeigt von `latet server people list`), ihrem
-Benutzernamen bei Ihrem Anbieter oder ihrer E-Mail-Adresse benannt, wenn diese von Hand oder durch SCIM angegeben wurde:
-Eine E-Mail-Adresse, die ein ID-Token mitgebracht hat oder die mehr als eine Person oder eine deaktivierte Person hat,
-wird abgelehnt, und die Person wird mit ihrer ID benannt. Eine Gruppe wird mit ihrer ID (`g_…`) oder ihrem Namen
-benannt: `latet server roles grant "Security team" security`. Jede Antwort nennt, wem der Name zugeordnet wurde.
-Danach vergeben Administratoren Rollen auf der Seite **Personen und Gruppen**.
+verknüpfen**, oben). Eine Person wird mit ihrer ID (`u_…`, angezeigt von `latet server people list`) benannt oder,
+wenn SCIM sie nicht verwaltet, mit ihrem Benutzernamen bei Ihrem Anbieter oder ihrer E-Mail-Adresse, wenn diese von
+Hand angegeben wurde: Eine E-Mail-Adresse, die ein ID-Token mitgebracht hat oder die mehr als eine Person oder eine
+deaktivierte Person hat, wird abgelehnt, und die Person wird mit ihrer ID benannt. Eine Gruppe wird mit ihrer ID
+(`g_…`) oder ihrem Namen benannt: `latet server roles grant "Security team" security`. Jede Antwort nennt, wem der
+Name zugeordnet wurde. Danach vergeben Administratoren Rollen auf der Seite **Personen und Gruppen**.
 
 Das Dashboard lässt nicht zu, dass der Server seinen letzten aktivierten Administrator verliert (durch eine entzogene
 Rolle, eine verlassene oder entfernte Gruppe oder eine deaktivierte Person); `latet server` kann es immer und kann die

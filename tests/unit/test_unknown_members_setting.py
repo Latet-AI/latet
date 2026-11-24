@@ -4,9 +4,11 @@ Latet did before 0.15.0. Moving to `check` lowers protection and waits for appro
 latet.yaml too, may only set `refuse`; a company's floor may force `refuse`. `latet doctor` and `latet server status`
 say which value is in force."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from latet.config import (
@@ -29,8 +31,10 @@ from latet.server.spaces import _setting_logged
 from latet.state.local import LocalSettings
 from latet.transfer import export_rules, merge_rules, read_rules
 
+from ..conftest import ROOT_KEY
 from ..floors import FloorEdition
 from .conftest import run_cli
+from .state.test_settings import _reload
 
 LOWERED = "new request members: passed after a check instead of refused"
 CHECK, REFUSE = Config(), Config(unknown_members="refuse")
@@ -142,6 +146,59 @@ def test_your_own_settings_for_a_project_may_only_set_refuse():
     assert effective_config(REFUSE, None, ProjectEntry(path=SHOP))[0].unknown_members == "refuse"
     with pytest.raises(ValidationError):
         ProjectEntry(path=SHOP, unknown_members="check")  # type: ignore[arg-type]
+
+
+PROJECT_CHECK = "projects entry 1, unknown_members `check` is left out: a project may only set `refuse`"
+
+
+def _hand_edited(tmp_path, top: str, project_value: str = "check") -> Path:
+    """A config.yaml edited by hand whose project entry says `check`, which a project cannot set."""
+    path = tmp_path / "config.yaml"
+    project = {"path": SHOP, "unknown_members": project_value, "profile": "max"}
+    data = {"identity": {"enabled": False}, "unknown_members": top, "projects": [project]}
+    path.write_text(yaml.safe_dump(data), "utf-8")
+    return path
+
+
+def test_a_config_yaml_whose_project_says_check_loads_with_it_left_out_and_said(tmp_path, caplog):
+    """The whole of config.yaml was refused for it (`projects.0.unknown_members: Input should be 'refuse'`), so Latet
+    did not start. Now the rest applies, the project refuses as your settings do, and the log says what was left out."""
+    notices: list[str] = []
+    config = load_config(_hand_edited(tmp_path, "refuse"), notices)
+    [entry] = config.projects
+    assert entry.unknown_members is None and entry.profile == "max"
+    assert notices == [PROJECT_CHECK]
+    assert effective_unknown_members(config, entry) == "refuse"  # it loosens nothing of yours
+    assert [r.getMessage() for r in caplog.records if r.name == "latet.config"] == [f"config.yaml: {PROJECT_CHECK}"]
+
+
+def test_the_daemon_starts_with_such_a_config_yaml_and_a_reload_says_what_was_left_out(tmp_path):
+    path = _hand_edited(tmp_path, "check")
+    rt = make_runtime(data=tmp_path / "data", config_file=path, root_key=ROOT_KEY)
+    try:
+        [entry] = rt.config.projects
+        assert entry.unknown_members is None and entry.profile == "max"
+        assert rt.unknown_members(entry) == "check"  # your own value, which `check` in the entry asked for anyway
+        assert _reload(rt)["notices"] == [PROJECT_CHECK]
+    finally:
+        rt.close()
+
+
+def test_check_written_over_a_projects_refuse_takes_it_away_and_waits_for_approval(tmp_path):
+    """Left out, `check` takes the project's `refuse` away: that lowers the project's protection, which waits for your
+    approval as any loosening written in config.yaml does; until then the project still refuses."""
+    path = _hand_edited(tmp_path, "check", "refuse")
+    rt = make_runtime(data=tmp_path / "data", config_file=path, root_key=ROOT_KEY)
+    try:
+        assert rt.unknown_members(rt.config.projects[0]) == "refuse"
+        _hand_edited(tmp_path, "check", "check")
+        answer = _reload(rt)
+        assert answer["notices"] == [PROJECT_CHECK] and not answer["applied"]
+        [change] = rt.mediator.approvals.changes.values()
+        assert change.loosened == [f"project shop: {LOWERED}"]
+        assert rt.unknown_members(rt.config.projects[0]) == "refuse"
+    finally:
+        rt.close()
 
 
 def test_a_rules_file_carries_refuse_and_its_import_adds_it_at_once():

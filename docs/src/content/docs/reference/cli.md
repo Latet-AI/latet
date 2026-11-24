@@ -1016,7 +1016,7 @@ Disable a person: every token of theirs stops on every instance within seconds; 
 
 | Argument | | Description |
 | --- | --- | --- |
-| `PERSON` | required | The person: their id, name or e-mail address. |
+| `PERSON` | required | The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage. |
 
 ## `latet server people enable`
 
@@ -1024,7 +1024,7 @@ Enable a person again: their tokens and their space work again.
 
 | Argument | | Description |
 | --- | --- | --- |
-| `PERSON` | required | The person: their id, name or e-mail address. |
+| `PERSON` | required | The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage. |
 
 ## `latet server people remove`
 
@@ -1032,7 +1032,7 @@ Remove a person: their tokens stop, and their space (vault, history, settings) i
 
 | Argument | | Description |
 | --- | --- | --- |
-| `PERSON` | required | The person: their id, name or e-mail address. |
+| `PERSON` | required | The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage. |
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -1044,7 +1044,7 @@ A new one-time code: whoever uses it can connect as this person and open their d
 
 | Argument | | Description |
 | --- | --- | --- |
-| `PERSON` | required | The person: their id, name or e-mail address. |
+| `PERSON` | required | The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage. |
 
 ## `latet server people tokens`
 
@@ -1052,7 +1052,7 @@ A person's computers; `--revoke` or `--revoke-all` stops their tokens.
 
 | Argument | | Description |
 | --- | --- | --- |
-| `PERSON` | required | The person: their id, name or e-mail address. |
+| `PERSON` | required | The person: their id, or the name or e-mail address of someone added by hand whom SCIM does not manage. |
 
 | Option | Default | Description |
 | --- | --- | --- |

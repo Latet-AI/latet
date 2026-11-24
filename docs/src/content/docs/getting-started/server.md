@@ -84,8 +84,8 @@ latet server --server https://latet.acme.lan people tokens "Emily Carter"
 ```
 
 Revoke a lost computer's token by its listed id with `--revoke TOKEN_ID`.
-`people disable "Emily Carter"` stops every token of hers within seconds and keeps her space
-(`people enable` gives it back); `people remove "Emily Carter"` deletes her live server space,
+`people disable "Emily Carter"` stops every token of theirs within seconds and keeps their space
+(`people enable` gives it back); `people remove "Emily Carter"` deletes their live server space,
 including its vault, history and settings, once you confirm. `keys disable`, `enable` and `remove`
 do the same for an API key. Neither operation erases copies in backups, browsers or model
 providers. Read the confirmation before a removal.

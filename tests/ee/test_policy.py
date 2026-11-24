@@ -1,6 +1,7 @@
 """Locked rules: a policy file read into a floor, the settings raised to it, never lowered, and the reasons a change
 goes below it, in protection.loosened's words: a setting each, never a value."""
 
+import gc
 import hashlib
 import itertools
 import json
@@ -946,15 +947,27 @@ def test_settings_at_their_caps_are_raised_in_under_a_second():
 def _timed_raises(text, mine):
     """How long ``mine`` takes to be raised to the policy ``text``: on a floor read anew (what the policy alone gives
     worked out then; recognizers compiled already, as a build keeps them), and again on the same floor (a space's
-    re-application, a request's)."""
+    re-application, a request's). The best of three such pairs, each on a floor of its own, with the collector off
+    while they are timed: one pass of it over a whole test session's objects, or a runner's pause, once took one
+    raise to 1.26 s on CI's Linux runner, where the raise takes 0.07 s, and a slow raise is slow in all three."""
     raise_to_floor(parse_policy(text), mine)  # compiles the recognizers: a build of the settings does it too
-    floor = parse_policy(text)
-    took = []
-    for _ in range(2):
-        started = time.perf_counter()
-        raise_to_floor(floor, mine)
-        took.append(time.perf_counter() - started)
-    return took
+    pairs = []
+    collecting = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(3):
+            floor = parse_policy(text)
+            took = []
+            for _ in range(2):
+                started = time.perf_counter()
+                raise_to_floor(floor, mine)
+                took.append(time.perf_counter() - started)
+            pairs.append(took)
+    finally:
+        if collecting:
+            gc.enable()
+    return min(pairs, key=max)
 
 
 @pytest.mark.timing
@@ -970,7 +983,8 @@ def test_500_company_field_rules_over_500_of_yours_are_raised_in_under_a_second(
             for j in range(20)
         ],
     )
-    assert max(took := _timed_raises(text, mine)) < 1.0, took
+    took = _timed_raises(text, mine)  # out of the assert: pytest calls it again to show a walrus's value
+    assert max(took) < 1.0, took
 
 
 @pytest.mark.timing
@@ -979,7 +993,8 @@ def test_500_company_recognizers_over_100_of_yours_are_raised_in_under_a_second(
     mine = Config(
         recognizers=[{"name": f"rec-{n}", "type": f"T_{n}", "pattern": f"Q{n}-[0-9]{{5}}"} for n in range(100)]
     )
-    assert max(took := _timed_raises(yaml.safe_dump({"recognizers": recognizers}), mine)) < 1.0, took
+    took = _timed_raises(yaml.safe_dump({"recognizers": recognizers}), mine)
+    assert max(took) < 1.0, took
 
 
 def test_what_the_policy_alone_gives_is_worked_out_once_for_a_floor():

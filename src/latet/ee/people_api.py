@@ -8,8 +8,9 @@ A path names a person or a group by its id alone: the request log keeps every pa
 identity value. A body names a person by their id, their user name at the identity provider, or their e-mail; an
 e-mail only when one enabled person has it and it was given by hand or by SCIM, never one an ID token brought (H1: the
 provider may let its users set it), and never when it reads as another person's user name: such a name is refused, and
-the person is named by their id. Every answer that names someone says whom it was taken for; no refusal quotes what
-the request said.
+the person is named by their id. A person SCIM manages is named by their id alone (R2): a SCIM token sets their user
+name and e-mail, so a leaked one could move them to an impostor account. Every answer that names someone says whom it
+was taken for; no refusal quotes what the request said.
 
 A code to connect a computer is made for a person who is not disabled, and from the dashboard only for someone who has
 never connected one (M4): another code would connect a computer they never see; `latet server people code` makes it.
@@ -64,6 +65,9 @@ _NO_SUBJECT = "there is no such person or group on this server"
 _BY_ID = (
     "this names more than one person, or a person by an e-mail that may not name them (one an ID token brought, or "
     "one more than one person has): name them by their id"
+)
+_SCIM_BY_ID = (
+    "this names a person SCIM manages, whose user name and e-mail a SCIM token can change: name them by their id"
 )
 _BOTH = "this names a person and a group: name it by its id"
 _A_PERSON = "person is a person's id, user name or e-mail"
@@ -121,7 +125,7 @@ def person_of(server: Server, people: People, key: Any) -> Identity:
     aside and nothing else folded (``user_name_key``, as ``People.find`` compares a user name: a look-alike, such as a
     Kelvin sign for a k, names nobody else), as PostgreSQL has them now: an e-mail only when one enabled person has it
     and it was given by hand or by SCIM (H1), and neither a user name nor an e-mail that names two people (409: by their
-    id). 400 for anything but text."""
+    id), nor one that names a person SCIM manages (409: by their id, ``_not_scims``). 400 for anything but text."""
     if not isinstance(key, str) or not key:
         raise Refused(400, _A_PERSON)
     identities = server.identities
@@ -138,13 +142,23 @@ def person_of(server: Server, people: People, key: Any) -> Identity:
     if having and named is not None and any(person.id != named.id for person in having):
         raise Refused(409, _BY_ID)  # a user name that reads as another person's e-mail
     if named is not None:
-        return named
+        return _not_scims(people, named)
     enabled = [person for person in having if not person.disabled]
     if len(enabled) == 1 and len(having) == 1 and enabled[0].source in _ENTERED:
-        return enabled[0]
+        return _not_scims(people, enabled[0])
     if having:  # several people, one disabled, or an e-mail an ID token brought
         raise Refused(409, _BY_ID)
     raise Refused(404, _NO_PERSON)
+
+
+def _not_scims(people: People, person: Identity) -> Identity:
+    """``person``, found by a user name or an e-mail, unless SCIM manages them (R2): a SCIM token sets every value that
+    names them, so a leaked one could move those values to an impostor account it made; such a person is named by their
+    id alone (409, naming no one: the id of the account found could be the impostor's)."""
+    account = people.account(person.id)
+    if account is not None and account.scim_managed:
+        raise Refused(409, _SCIM_BY_ID)
+    return person
 
 
 def subject_of(server: Server, people: People, key: Any) -> Subject:

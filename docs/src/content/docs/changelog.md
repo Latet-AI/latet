@@ -12,6 +12,33 @@ What comes next is on the [roadmap](../roadmap/): a plain refusal from auto mode
 before Claude Code reads them, a signed installer for Windows, your own name models, more agents,
 and the documentation in more languages.
 
+## 0.15.2 (2026-11-24)
+
+- **A project's `unknown_members: check` no longer stops Latet.** A project may only set
+  `unknown_members: refuse`, and a `check` written by hand in a project's entry under `projects` in
+  `config.yaml` made the whole file invalid: Latet did not start, and `latet reload` failed. It is
+  now left out, and `latet reload` and the daemon's log say which entry; the rest of the file
+  applies, and the project follows your own `unknown_members`, as it did without that line.
+
+- **A person SCIM manages is named by their ID.** On a server with Latet Enterprise, a SCIM token sets every value
+  that names a person SCIM manages: their user name, e-mail and name. A token that leaked could move those values to
+  an account it made, which a command naming the person by e-mail or user name, such as `latet server roles grant`,
+  then reached. Such a person is now named by their ID (`u_…`) alone, which no token changes: the values a token sets
+  no longer find them, in `latet server` or in the server's administration API. Update `latet` on the computers
+  administrators use it from: an older one still finds such a person by name or e-mail. Two groups whose names differ
+  only by a letter such as ß and ss are no longer taken for one another either: `latet server` refuses such a name,
+  and the group is named by its ID. People added by hand are still named by e-mail or user name, and the dashboard,
+  which names everyone by their ID, is unchanged.
+
+- **A person whose account a sign-in made is named by their ID.** On a server with Latet Enterprise and
+  `accounts: group` or `open`, a first sign-in makes an account with the name the ID token gives, and many providers
+  let a person choose that name: someone could take a colleague's name before the colleague first signed in, and
+  `latet server people code "Emily Carter"` then gave the code to the account that took the name.
+  `latet server people code`, `disable`, `enable`, `remove` and `tokens` now refuse the name and the e-mail of a
+  person whose account a sign-in made, as the Enterprise commands already did, and name them by their ID (`u_…`):
+  `latet server people list` shows it, and now marks such accounts. The check is made by `latet` on the computer you
+  run it from: update it there.
+
 ## 0.15.1 (2026-11-22)
 
 - **A sync asked for is no longer left waiting.** On a server with Latet Enterprise, a sync asked

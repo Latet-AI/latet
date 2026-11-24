@@ -18,6 +18,37 @@ auto, les outils MCP masqués avant que Claude Code ne les lise, un programme d'
 pour Windows, vos propres modèles de noms, d'autres agents, et la documentation dans d'autres
 langues.
 
+## 0.15.2 (2026-11-24)
+
+- **`unknown_members: check` dans un projet n'arrête plus Latet.** Un projet ne peut définir que
+  `unknown_members: refuse`, et un `check` écrit à la main dans l'entrée d'un projet sous `projects`
+  dans `config.yaml` rendait tout le fichier invalide : Latet ne démarrait pas, et `latet reload`
+  échouait. Il est désormais laissé de côté, et `latet reload` et le journal du daemon disent quelle
+  entrée ; le reste du fichier s'applique, et le projet suit votre propre `unknown_members`, comme
+  sans cette ligne.
+
+- **Une personne que SCIM gère est désignée par son ID.** Sur un serveur avec Latet Enterprise, un jeton SCIM définit
+  chaque valeur qui désigne une personne que SCIM gère : son nom d'utilisateur, son e-mail et son nom. Un jeton tombé
+  entre de mauvaises mains pouvait déplacer ces valeurs vers un compte créé avec ce jeton, qu'une commande désignant
+  la personne par son e-mail ou son nom d'utilisateur, comme `latet server roles grant`, atteignait ensuite. Une telle
+  personne est désormais désignée par son ID (`u_…`) seul, qu'aucun jeton ne change : les valeurs qu'un jeton définit
+  ne la trouvent plus, ni dans `latet server` ni dans l'API d'administration du serveur. Mettez à jour `latet` sur les
+  ordinateurs depuis lesquels les administrateurs l'utilisent : une version plus ancienne trouve encore une telle
+  personne par son nom ou son e-mail. Deux groupes dont les noms ne diffèrent que par une lettre comme ß et ss ne sont
+  plus pris l'un pour l'autre non plus : `latet server` refuse un tel nom, et le groupe est désigné par son ID. Les
+  personnes ajoutées à la main sont toujours désignées par leur e-mail ou leur nom d'utilisateur, et le tableau de
+  bord, qui désigne chacun par son ID, ne change pas.
+
+- **Une personne dont une connexion a créé le compte est désignée par son ID.** Sur un serveur avec Latet Enterprise
+  et `accounts: group` ou `open`, une première connexion crée un compte avec le nom que donne le jeton d'ID, et
+  beaucoup de fournisseurs laissent la personne choisir ce nom : quelqu'un pouvait prendre le nom d'un collègue avant
+  que ce collègue se connecte pour la première fois, et `latet server people code "Emily Carter"` donnait alors le
+  code au compte qui avait pris ce nom. `latet server people code`, `disable`, `enable`, `remove` et `tokens` refusent
+  désormais le nom et l'e-mail d'une personne dont une connexion a créé le compte, comme le faisaient déjà les
+  commandes Enterprise, et la désignent par son ID (`u_…`) : `latet server people list` l'affiche, et signale
+  désormais ces comptes. La vérification est faite par `latet` sur l'ordinateur depuis lequel vous l'utilisez :
+  mettez-le à jour là.
+
 ## 0.15.1 (2026-11-22)
 
 - **Une synchronisation demandée ne reste plus en attente.** Sur un serveur avec Latet Enterprise,
